@@ -84,11 +84,12 @@ final class AskClaudePanelRig {
 
     init(chat: AskClaudeChat, bridge: AskClaudeSettingsBridge = .keySaved,
          place: AskClaudePlace = AskClaudePanelHostedTests.place,
-         onAsk: @escaping (String) -> Void = { _ in }, topLeading: Bool = false, parked: Bool = false) {
+         onAsk: @escaping (String) -> Void = { _ in }, topLeading: Bool = false, parked: Bool = false,
+         suggestions: AskClaudeSuggestionSources? = nil) {
         let container = Self.container
         let panel = AskClaudePanel(chat: chat, place: place, accent: .blue, accentFill: .blue, onAccent: .white,
                                    onAsk: onAsk, onClose: {}, onOpenSettings: { _ in },
-                                   settingsBridge: bridge)
+                                   settingsBridge: bridge, suggestions: suggestions)
         host = topLeading
             ? NSHostingView(rootView: AnyView(panel.frame(width: container.width, height: container.height,
                                                           alignment: .topLeading)))

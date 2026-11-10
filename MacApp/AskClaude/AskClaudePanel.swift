@@ -68,6 +68,8 @@ struct AskClaudePanel: View {
     var voiceHints: () -> [String] = { [] }
     /// Where a spoken question's audio comes from: the microphone, or a file in tests.
     var voiceSource: () -> AskClaudeVoiceSource = { AskClaudeMicrophone() }
+    /// What the suggestion chip above the box may be about (TE309); nil shows none.
+    var suggestions: AskClaudeSuggestionSources?
 
     @State private var draft = ""
     /// Whether the panel has opened in this hosting view, and whether it has just left its place in
@@ -392,6 +394,7 @@ struct AskClaudePanel: View {
             }
             if chat.editing != nil { editingLine }
             if let waiting = chat.queued { queuedLine(waiting) }
+            if let suggestions { AskClaudeSuggestionChip(sources: suggestions, chat: chat, listening: voice.isActive, draft: draft, keySaved: keySaved == true, accent: accent, onSend: { send($0, spoken: false) }, onOpenSettings: { onOpenSettings(.claudeGeneral) }) }
             if !chat.attachments.isEmpty { attachmentChips }
             if voice.isActive { listeningStrip }
             if let notice = voice.notice, !voice.isActive {

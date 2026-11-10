@@ -14,6 +14,8 @@ public enum AskClaudeLooseFiles {
         public let name: String
         public let size: Int?
         public let modified: Date?
+        /// When it was put in its folder (APFS), for what counts as new in Ask Claude's chip.
+        public var added: Date? = nil
     }
 
     public struct Found: Sendable, Equatable {
@@ -69,7 +71,8 @@ public enum AskClaudeLooseFiles {
                 seen += 1
                 let url = URL(fileURLWithPath: path)
                 let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey,
-                                                              .fileSizeKey, .contentModificationDateKey])
+                                                              .fileSizeKey, .contentModificationDateKey,
+                                                              .addedToDirectoryDateKey])
                 // A link to a folder isn't walked into: what it reaches lives somewhere else.
                 if values?.isDirectory == true, values?.isPackage != true, values?.isSymbolicLink != true {
                     if depth == 0 { found.subfolders += 1 }
@@ -81,7 +84,8 @@ public enum AskClaudeLooseFiles {
                     continue
                 }
                 if isUnfinished(name) { found.unfinished += 1; allLoose = false; continue }
-                let file = File(path: path, name: name, size: values?.fileSize, modified: values?.contentModificationDate)
+                let file = File(path: path, name: name, size: values?.fileSize, modified: values?.contentModificationDate,
+                                added: values?.addedToDirectoryDate)
                 if isInstaller(name) { found.installers.append(file); allLoose = false; continue }
                 if values?.isSymbolicLink == true { allLoose = false; continue }
                 found.files.append(file)

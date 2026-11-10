@@ -1126,3 +1126,25 @@ year folders, say Travel/Trips/Test Trip/2024, 2025 and 2026, and put a PDF name
   no 2027 is offered, and nothing in Test Trip is named.
 - [ ] **Named siblings.** Ask about a ticket to a country your Trips folder lacks: Claude may offer a
   new country folder on a card, with the move, and says the closest folder is the other choice.
+
+## Ask Claude's suggestion chip (TE309, 2026-11-09)
+
+Needs an API key, Ask Claude open, and Suggestions on in Settings ▸ Ask Claude ▸ General (on by default).
+
+- [ ] **New downloads.** Copy three files into iCloud › Downloads. Within a few seconds a chip reads
+  "3 new files in Downloads · File them?" above the text box, and nothing was sent.
+- [ ] **Click.** Click the chip: "File the new files in iCloud › Downloads" is sent as if typed, and
+  Claude counts the loose files and asks where, with its two buttons. The chip is gone.
+- [ ] **Not now.** With a chip showing, click ✕: "Put away until more files arrive · Don't Suggest
+  New Files in Downloads" shows for six seconds. Add one more file: the chip comes back with the
+  higher count.
+- [ ] **Don't Suggest.** Right-click the chip ▸ Don't Suggest New Files in Downloads: the chip goes;
+  Settings ▸ Ask Claude ▸ General lists it under Suggestions with Suggest Again, which brings it back.
+- [ ] **Hidden.** Hide Downloads from Claude in the shield menu, then add three files: no chip, and
+  nothing anywhere mentions them. Unhide it.
+- [ ] **Busy.** Ask a question and add three files while it answers: no chip until the answer ends;
+  type in the box and the chip goes until the box is empty again.
+- [ ] **Compare.** Scan in Compare: a chip says "The <time> scan found N differences · Ask about
+  them". Click it: Claude sums them up by kind and folder.
+- [ ] **Switch off.** Turn Suggestions off in Settings: no chip shows.
+- [ ] **VoiceOver.** The chip reads its words, and the Actions rotor offers Not Now and Don't Suggest.

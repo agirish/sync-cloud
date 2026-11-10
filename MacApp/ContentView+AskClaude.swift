@@ -172,6 +172,7 @@ extension ContentView {
                 }
             }
         }
+        let suggestions = askClaudeSuggestionSources
         return AskClaudePanel(chat: askClaudeChat,
                               place: askClaudePlace,
                               accent: glassHue.accentColor,
@@ -211,9 +212,12 @@ extension ContentView {
                               pdfBridge: askClaudePDFBridge,
                               refineBridge: askClaudeRefineBridge,
                               onAskSpoken: { askClaudeSend($0, spoken: true) },
-                              voiceHints: { askClaudeVoiceHints() })
+                              voiceHints: { askClaudeVoiceHints() },
+                              suggestions: suggestions)
             // Shown at launch with the column already open, where `onOpenChange` never fires.
             .onAppear { askClaudePrewarmOnDevice() }
+            // TE309: the suggestion chip's folders, counted as files come and go.
+            .task(id: suggestions.watched) { AskClaudeSuggestionFeed.shared.watch(suggestions.watched) }
     }
 
     /// The panel's host, built here rather than in `body`: the window's modifier chain is at the
@@ -948,6 +952,31 @@ extension ContentView {
         comparison.leftFolderHidden = hidden(leftProviderId, syncManager.leftRelativePath)
         comparison.rightFolderHidden = hidden(rightProviderId, syncManager.rightRelativePath)
         return comparison
+    }
+
+    /// What the suggestion chip may be about (TE309): each source's Downloads, the loose-files
+    /// inbox, and a finished Compare scan. A hidden folder is marked, never read, never counted.
+    var askClaudeSuggestionSources: AskClaudeSuggestionSources {
+        let sources = askClaudeSources
+        func target(_ path: String) -> AskClaudeSuggestionSources.Target {
+            .init(path: path, name: (path as NSString).lastPathComponent,
+                  place: AskClaudeBrowseTools.breadcrumb(path, sources: sources, fallback: (path as NSString).lastPathComponent),
+                  hidden: askClaudeIsHidden(path))
+        }
+        var seen = Set<String>()
+        let downloads = sources.map { ($0.root as NSString).appendingPathComponent("Downloads") }
+            .filter { seen.insert($0).inserted }
+            .map(target)
+        var comparison: AskClaudeSuggestions.Comparison?
+        if syncManager.hasScanned, !syncManager.isScanning, !syncManager.isRefreshing,
+           let scannedAt = syncManager.lastScanReadAt ?? syncManager.lastScanDate, let sides = askClaudeComparison {
+            let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+            let count = hidden.isEmpty ? syncManager.differences.count
+                : syncManager.differences.filter { !hidden.isHidden($0.leftItemPath) && !hidden.isHidden($0.rightItemPath) }.count
+            comparison = .init(count: count, scannedAt: scannedAt, hidden: sides.leftFolderHidden || sides.rightFolderHidden)
+        }
+        return AskClaudeSuggestionSources(workspace: selectedWorkspace.title, downloads: downloads,
+                                          inbox: filingInboxFolder.map(target), comparison: comparison)
     }
 
     /// One side's live source and folder, for go_to's pane moves.

@@ -15187,3 +15187,16 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Ask Claude's suggestion chip (TE309) — main only
+
+2026-11-09, for v7.1. On `main`: a chip above Ask Claude's text box when three or more files
+arrive in a source's Downloads or the loose-files inbox ("6 new files in Downloads · File them?"),
+or after a Compare scan ("The 9:40 scan found 38 differences · Ask about them"). Worked out on this
+Mac, never about a folder hidden from Claude, and sent only on a click; Settings ▸ Ask Claude ▸
+General turns it off. The loose-files walk now also reads each file's date added. No change to the
+tool list or system text. Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

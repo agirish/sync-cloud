@@ -475,6 +475,11 @@ public enum SettingsCatalog {
           storage: app(AskClaudeNotes.onKey, "AskClaudeNotes.onKey", "true"),
           control: .toggle, default: .bool(true), tier: .directWhenTightening, raises: .turningOn,
           help: "Off, Claude still reads your notes but can’t change them."),
+        e("intelligence.suggestions", .claudeGeneral, "Show suggestions above the text box", indexed: true,
+          others: ["Suggest Again"],
+          storage: app(AskClaudeSuggestions.enabledKey, "AskClaudeSuggestions.enabledKey", "true"),
+          control: .toggle, default: .bool(true), tier: .suggested,
+          help: "Off, Ask Claude shows no suggestion chips."),
         e("intelligence.hidden", .privacy, "Hidden from Claude", indexed: true, others: ["Add…"],
           storage: .owner("AskClaudePrivacy"), control: .list, tier: .suggested, privacy: .countOnly, effects: .newChat),
         // Never in chat: a folder shared without asking loosens what reaches Claude, so only the
@@ -532,6 +537,8 @@ public enum SettingsCatalog {
         "PaneViewMode.columnWidthOverridesDefaultsKey",
         // Which page each paged tab last showed: where the sheet is, not a setting.
         "SettingsSubTabMemory.defaultsKey",
+        // The suggestion kinds turned off from the chip, with Suggest Again beside the switch.
+        "AskClaudeSuggestions.memoryKey",
     ]).union(awaitingCatalogKeySources)
 
     /// The Browse and Edit settings TE332 brought into Settings, which join the catalog with its
