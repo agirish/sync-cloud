@@ -75,9 +75,12 @@ import Foundation
         alert.buttons.first?.keyEquivalent = ""
         alert.buttons.last?.keyEquivalent = "\r"
         // A stand-in window: ordering the alert's own in outside `runModal` clears its buttons' keys.
+        // Buried below the wallpaper, as AppKit moves a titled window parked off screen back onto one.
+        let buried = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         let standIn = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 10, height: 10),
                                styleMask: [.titled], backing: .buffered, defer: false)
         standIn.isReleasedWhenClosed = false
+        standIn.level = buried
         standIn.orderFrontRegardless()
         defer { standIn.close() }
         try #require(standIn.windowNumber > 0, "no window number — the events would name no window")
@@ -100,6 +103,7 @@ import Foundation
         let elsewhere = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 10, height: 10),
                                  styleMask: [.titled], backing: .buffered, defer: false)
         elsewhere.isReleasedWhenClosed = false
+        elsewhere.level = buried
         elsewhere.orderFrontRegardless()
         defer { elsewhere.close() }
         let aimedElsewhere = try #require(NSEvent.keyEvent(

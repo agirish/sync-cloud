@@ -65,6 +65,9 @@ import FileExplorer
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.contentView = host
+        // Ordered in so the `.task` starts, but buried below the wallpaper: at a normal level it
+        // sits in the corner of whoever's screen runs the suite.
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         window.orderFront(nil)
         window.layoutIfNeeded()
         return window

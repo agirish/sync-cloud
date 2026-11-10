@@ -122,7 +122,10 @@ import Sync
         // each pass, is what commits them, and being on a display makes no measurable difference.
         // Off screen the card doesn't cover the user's desktop for the whole suite, and the suite
         // runs about 3× faster. `theCardFillsItselfWithTheWindowOffScreen` guards both halves.
+        // Buried below the wallpaper as well: nothing orders it out, so it outlives the test, and
+        // this card has been seen on the user's screen mid-run; buried, it draws nowhere even then.
         window.setFrameOrigin(Self.offscreenOrigin())
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         window.orderBack(nil)
         host.layoutSubtreeIfNeeded()
         return Inspector(host: host, window: window, path: path)

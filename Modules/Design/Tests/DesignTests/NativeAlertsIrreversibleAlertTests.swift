@@ -63,7 +63,9 @@ import Testing
             let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 10, height: 10),
                                   styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            // Ordered in, far off screen: a window gets its number when it reaches the window server.
+            // Ordered in, as a window gets its number when it reaches the window server, but buried
+            // below the wallpaper: AppKit moves a titled window parked off screen back onto one.
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
             window.orderFrontRegardless()
             return window
         }

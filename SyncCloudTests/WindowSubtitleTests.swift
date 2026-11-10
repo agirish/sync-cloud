@@ -118,9 +118,10 @@ import SwiftUI
     /// the entry afterwards is AppKit's answer, not one this test supplied.
     @Test func theWindowListEntryComposesTitleAndSubtitle() throws {
         let host = window()
-        // Far off any real display: AppKit lists a window whether or not anyone can see it, and
-        // this suite must not put anything on the user's screen.
-        host.setFrameOrigin(CGPoint(x: -20_000, y: -20_000))
+        // Buried below the wallpaper: AppKit lists a window whether or not anyone can see it, and
+        // this suite must not put anything on the user's screen. Parking it off the displays is
+        // no help: AppKit moves a titled window back onto one as it is ordered in.
+        host.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         host.title = "placeholder"
         host.orderFront(nil)
         defer { host.orderOut(nil); NSApp.removeWindowsItem(host) }

@@ -3,17 +3,21 @@ import Testing
 import Events
 @testable import Sync
 
-/// A card of changes applied as one undo step, on a real folder.
+/// A card of changes applied as one undo step, on a real folder. Its Trash is a `ScratchTrash`
+/// inside that folder: an Apply's trash and an undone New Folder would otherwise land in the
+/// Trash of whoever runs it.
 @MainActor
 @Suite(.serialized) struct PlanApplyTests {
 
     private let dir: String
     private let manager: FileSyncManager
     private let store: SyncHistoryStore
+    private let trash: ScratchTrash
 
     init() throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("plan-\(UUID().uuidString)").resolvingSymlinksInPath().path
-        manager = FileSyncManager()
+        trash = ScratchTrash(folder: URL(fileURLWithPath: dir + "-trash", isDirectory: true))
+        manager = FileSyncManager(fileManager: trash)
         manager.undoManager = UndoManager()
         store = makeTempHistoryStore(prefix: "PlanApply")
         manager.syncHistoryStore = store
@@ -31,6 +35,7 @@ import Events
 
     private func cleanUp() {
         try? FileManager.default.removeItem(atPath: dir)
+        try? FileManager.default.removeItem(at: trash.folder)
         removeHistoryStoreFiles(store)
     }
 
@@ -81,6 +86,7 @@ import Events
         await waitUntil("one undo restores the tree", timeout: 20) { self.tree() == before }
         #expect(tree() == before)
         #expect(manager.undoManager?.canUndo == false, "the card was one step")
+        #expect(trash.names.contains("Japan 2026"), "the undone folder went to \(trash.names), not this suite's Trash")
     }
 
     /// Each refusal is found at the click, and the rest of the card still runs.
@@ -186,6 +192,7 @@ import Events
         #expect(out.rows[2] == .refused("old.txt is this same file, not a copy"))
         #expect(out.rows[3] == .refused("The copy, Gone.pdf, isn’t there any more"))
         #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/old.txt"), "the only copy was kept")
+        #expect(trash.names == ["a.pdf"], "the copy went to \(trash.names), not this suite's Trash")
     }
 
     /// Two cards share a name; a card's Undo acts only on its own Apply, and never after an
