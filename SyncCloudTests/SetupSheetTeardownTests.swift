@@ -16,6 +16,10 @@ import Testing
 /// scratch folder, never the real `setup-draft.json`. Quitting isn't tested here: this host must not
 /// post `willTerminateNotification` (it is SyncCloud.app, and every observer would hear it), so
 /// `SetupFlowTests.theSetupButtonsCallTheRulesTheModelTests` pins that observer by source.
+///
+/// The two-minute limits are hang guards. Alone these take 3 s, but in a full app run they wait
+/// for the main actor, 51–59 s on green local runs ("A cfprefsd agent that has cached every
+/// scratch suite…" in docs/flaky-tests.md).
 @MainActor
 @Suite struct SetupSheetTeardownTests {
 
@@ -95,7 +99,7 @@ import Testing
     }
 
     /// Settings, Help or a destination pick opening over setup.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func aPanelOpeningOverSetupKeepsTheTypedName() async throws {
         let fixture = try await mount("panel")
         defer {
@@ -114,7 +118,7 @@ import Testing
     /// The window closing with setup open. Closed and its content let go, as the app's
     /// `WindowGroup` does: a bare `close()` of a window the test still holds keeps the hosting view
     /// alive, so nothing disappears and no draft is written.
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func closingTheWindowKeepsTheTypedName() async throws {
         let fixture = try await mount("window")
         defer { try? FileManager.default.removeItem(at: fixture.root) }

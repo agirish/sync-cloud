@@ -5293,3 +5293,81 @@ turn to be drawn. The 10 s is what it tests, so a longer one would make it slowe
 **Tell.** A PDF-reading test that is not about time, red with nil at a production seconds bound,
 green under a filter and slow on green runs. Give the test its own bound past the run, or pace it
 on the lane.
+
+### 56. A cfprefsd agent that has cached every scratch suite makes each defaults wipe a quarter-second wait
+
+**Symptom.** In a local full `xcodebuild test`, `SetupSheetTeardownTests`'
+`aPanelOpeningOverSetupKeepsTheTypedName` and `closingTheWindowKeepsTheTypedName` fail with `Time
+limit was exceeded: 60.000 seconds`. The trip kills the test host, `Restarting after unexpected
+exit, crash, or test timeout` follows, and the run ends with about 1,245 tests recorded instead of
+about 2,030: some 790 verdicts in flight are lost. Alone, both tests pass in about 3 s. Hosted CI
+passes them: 27.5 s into a 42.6 s app run. Red on 2026-11-09 in 3 of 4 of TE326's full runs, TE307's
+first, and 4 of 4 here, on commits that do not touch Setup. A
+`CommandPalettePanelTests.aFieldThatGoesAwayTakesItsListOffTheScreen` red in a restarted host the
+same evening was most likely a knock-on.
+
+**Mechanism.** The main thread spent most of a minute in synchronous calls to `cfprefsd`.
+- **The main thread was the blocked resource.** Timestamps inside the test: a hop to the pool ran
+  in 30 µs and a 200 ms dispatch timer fired on time, but a hop to the main queue took 27.2 s and
+  `discoverProviders()` 19.9 s.
+- **What blocked it.** `sample`s of the host at load 9–22 found the main thread 86–93% in
+  `mach_msg2_trap` under a synchronous XPC send to `cfprefsd`. `wipeDefaultsSuite` accounted for 80%
+  and 65% of it: `ScratchDefaults`' `deinit` runs on main when a main-actor test lets go of the
+  suite, and the wipe's `_CFPreferencesFlushCachesForIdentifier` (mechanism 4's fix) waits for
+  `cfprefsd`'s answer.
+- **Why each answer was slow.** The agent had run 32 days and grown to 346 MB. A flush of one
+  fresh suite took **263 ms** (median, load 25). `sample` of the agent put the time in
+  `handleFlushSourceForDomainMessage → withSnapshotOfSourcesForDomainIdentifier`, in `CFSetApply`
+  and `CFEqual`. That is a walk of every domain the agent holds, and every scratch suite of every
+  run adds one.
+
+The full run's ~640 main-actor tests that finish together at 57–59 s on a green local run are the
+same queue.
+
+**Not load, and not mechanism 4's pileup.** On a fresh agent the same flush took 0.1 ms at load
+108. `~/Library/Preferences` held 695 plists, not thousands.
+
+**The remedy is the machine's.** Restart the user's agent; launchd starts a new one on the next
+defaults call. On 2026-11-09, at 18:06, the Sync session sent `SIGTERM` to it. The new agent held
+4.5 MB, and a flush took 1.1 ms. The next day, after 19 hours of test runs, it held 14–42 MB, and a
+flush took 3 ms. How fast it grows back toward the slow size is not known.
+
+**Fix in the tests, 2026-11-10.** Both teardown tests have two-minute limits, like the Setup walk
+tests (mechanism 44). Even on green local runs they took 51–59 s, a few seconds from the old limit.
+On the next day's agent they took 24.6–26.5 s, in two full runs of 67 and 70 s with no restart.
+The limit stays a hang guard. It does not cure a slow agent. Not measured: whether two minutes would
+have outlasted the stall above.
+
+**Tried and dropped.** Moving `ScratchDefaults`' wipe to a serial background queue left the main
+thread waiting anyway. On the slow agent, an interleaved A/B gave a main-queue hop of 18.6 s with
+the change and 30.8 s without it, and red both ways. Why the main thread still waited was not
+measured.
+
+**Before blaming a commit.**
+1. **Did the host restart?** Look for `Restarting after unexpected exit` and a test count far
+   under the green one. One test's time limit then decides the whole run.
+2. **How old and how big is the agent?** Find your own `cfprefsd agent`. An uptime of weeks and
+   hundreds of MB is this:
+   ```sh
+   ps -axo pid,user,rss,etime,command | awk -v u="$USER" '$2==u && /cfprefsd agent/'
+   ```
+3. **Time a flush.** About 1–3 ms is healthy. Hundreds of ms is this mechanism:
+   ```sh
+   cat > /tmp/flush.swift <<'SWIFT'
+   import Foundation
+   let flush = unsafeBitCast(dlsym(dlopen(nil, RTLD_NOW), "_CFPreferencesFlushCachesForIdentifier")!,
+                             to: (@convention(c) (CFString, CFString) -> Void).self)
+   let name = "cfprefsd-probe-\(UUID().uuidString)"
+   let d = UserDefaults(suiteName: name)!; d.set(1, forKey: "k"); d.synchronize()
+   let t = Date(); flush(name as CFString, kCFPreferencesCurrentUser)
+   print(Date().timeIntervalSince(t) * 1000, "ms")
+   UserDefaults.standard.removePersistentDomain(forName: name)
+   try? FileManager.default.removeItem(atPath: NSHomeDirectory() + "/Library/Preferences/\(name).plist")
+   SWIFT
+   swift /tmp/flush.swift
+   ```
+4. **Restart the agent and rerun.** Use `kill -TERM <pid>` with the pid from step 2. A red that
+   survives a fresh agent is not this mechanism.
+
+**Tell.** Main-actor tests that wait, not work: pool hops are fast, main-queue hops take tens of
+seconds, and `sample` puts main in an XPC send to `cfprefsd`, most of it under `wipeDefaultsSuite`.
