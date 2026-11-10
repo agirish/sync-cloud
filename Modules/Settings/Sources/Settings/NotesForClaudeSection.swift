@@ -13,6 +13,8 @@ public struct NotesForClaudeSection: View {
     @State private var hidden: [String] = []
     /// The Markdown being edited, or nil while the notes are shown.
     @State private var draft: String?
+    /// The file as it was at Edit…, so Save can tell whether it changed underneath the draft.
+    @State private var base = ""
     /// Built here for tests; the app's own.
     var store = AskClaudeNotes()
 
@@ -62,7 +64,10 @@ public struct NotesForClaudeSection: View {
         }
         footer(text)
         HStack(spacing: 8) {
-            Button("Edit…") { draft = text }
+            Button("Edit…") {
+                base = store.read()
+                draft = base
+            }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([store.fileURL]) }
                 .disabled(lines.isEmpty)
                 .help("Shows Notes for Claude.md in your home folder. Any editor can change it.")
@@ -124,6 +129,7 @@ public struct NotesForClaudeSection: View {
                 Button("Cancel") { self.draft = nil }
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
+                    guard Self.maySave(draftOver: base, now: store.read(), confirm: RemovalPrompt.saveOverChangedNotes().ask) else { return }
                     if store.save(draft) { self.draft = nil }
                 }
                 .disabled(over)
@@ -133,6 +139,12 @@ public struct NotesForClaudeSection: View {
             }
             .controlSize(.small)
         }
+    }
+
+    /// Whether Save may write the draft: at once when the file is as it was at Edit…, else only if
+    /// they choose to save over what changed.
+    nonisolated public static func maySave(draftOver base: String, now: String, confirm: () -> Bool) -> Bool {
+        AskClaudeNotes.substance(base) == AskClaudeNotes.substance(now) || confirm()
     }
 
     private func footer(_ text: String) -> some View {

@@ -1230,6 +1230,27 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(try texts(transport, 2).contains { $0.hasPrefix("<notes") } == false, "Claude has it from its own call")
     }
 
+    @Test func theirEditWhileClaudeWorksStillGoesToClaude() async throws {
+        let transport = ScriptedTransport([.init(status: 200, lines: toolResponse(id: "toolu_n", name: "notes", inputJSON: "{}"))],
+                                          repeating: .init(status: 200, lines: textResponse("ok")))
+        let file = NotesFile()
+        var reads = 0
+        // The second read is just before Claude's change: they saved in Settings in between.
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day }, notes: {
+            reads += 1
+            if reads == 2 { file.text = "## How you like answers\n- Brief.\n" }
+            return file.text
+        })
+        let tools = NotingTools { file.text = "## About you\n- Amma is your mother.\n\n" + file.text }
+        var sent: [AskClaudeNotesSent] = []
+        await engine.ask("Remember Amma is my mom", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: tools) { _ in }
+        await engine.ask("b", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) {
+            if case .notesSent(let kind) = $0 { sent.append(kind) }
+        }
+        #expect(try texts(transport, 2).contains { $0.hasPrefix("<notes>") && $0.contains("Brief.") })
+        #expect(sent == [.changed])
+    }
+
     @Test func rewindingAQuestionTakesBackWhatClaudeHad() async throws {
         let transport = ScriptedTransport([], repeating: .init(status: 200, lines: textResponse("ok")))
         let file = NotesFile()

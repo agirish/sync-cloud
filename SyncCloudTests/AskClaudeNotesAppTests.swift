@@ -104,6 +104,32 @@ import Settings
         #expect(noted(chat).isEmpty)
     }
 
+    @Test func theToolNotesNothingWhileTheChatIsClosed() async throws {
+        defer { try? FileManager.default.removeItem(at: file) }
+        let url = file
+        var ctx = AskClaudeBrowseTools.Context(
+            inBrowse: true, sourceName: "Tests", root: "/tmp", folder: "", sort: .name,
+            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+        ctx.chatIsOpen = false
+        ctx.ownWords = ["Remember Amma is my mom"]
+        ctx.notesStore = { AskClaudeNotes(fileURL: url, defaults: ScratchDefaults("AskClaudeNotesAppTests.closed")) }
+        let closed = ctx
+        let tools = AskClaudeBrowseTools(context: { closed }, statDisk: { _ in nil })
+        let call = AskClaudeToolCall(id: "toolu_n", name: "notes",
+                                     input: try JSONFragment.decode(Data(#"{"action":"add","section":"about","text":"Amma is your mother.","because":"Amma is my mom"}"#.utf8)))
+        var handles = AskClaudeHandles()
+        let outcome = await tools.run(call, handles: &handles)
+        #expect(outcome.isError && outcome.noted == nil)
+        #expect(AskClaudeNotes(fileURL: file).read().isEmpty)
+    }
+
+    @Test func theNotesFileNamedToAFileToolSaysWhatItIs() throws {
+        let outcome = try #require(AskClaudeBrowseTools.notesFile([AskClaudeNotes.defaultFileURL().path]))
+        #expect(outcome.isError && outcome.result.hasPrefix("That’s the file your notes are kept in"))
+        #expect(!outcome.result.contains("Hidden from Claude"))
+        #expect(AskClaudeBrowseTools.notesFile(["/tmp/Other.md"]) == nil)
+    }
+
     @Test func theReceiptSaysWhenTheNotesWent() async throws {
         defer { try? FileManager.default.removeItem(at: file) }
         #expect(AskClaudeNotes(fileURL: file).save("## How you like answers\n- Brief."))
@@ -134,6 +160,15 @@ import Settings
                 .hasSuffix(" · from “Amma is my mom”"))
         #expect(NotesForClaudeSection.provenance(.init(by: .you, date: date)).hasPrefix("You · "))
         #expect(NotesForClaudeSection.provenance(nil) == "Edited outside SyncCloud")
+    }
+
+    @Test func saveAsksBeforeWritingOverNotesChangedSinceEdit() {
+        var asked = 0
+        let ask = { asked += 1; return false }
+        #expect(NotesForClaudeSection.maySave(draftOver: "- Brief.\n", now: "- Brief.\n\n", confirm: ask))
+        #expect(asked == 0, "a blank line is no change")
+        #expect(!NotesForClaudeSection.maySave(draftOver: "- Brief.\n", now: "- Brief.\n- Amma is your mother.\n", confirm: ask))
+        #expect(asked == 1)
     }
 
     @MainActor @Test func hidingAFolderTheNotesNameOffersToRemoveThoseLines() throws {

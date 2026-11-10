@@ -131,6 +131,16 @@ public struct RemovalPrompt: Equatable, Sendable {
             confirmTitle: count == 1 ? "Remove Line" : "Remove Lines")
     }
 
+    /// Notes for Claude ▸ Edit… ▸ Save, when the file changed while they edited (TE307): Claude
+    /// noted something, or another editor saved it.
+    public static func saveOverChangedNotes() -> RemovalPrompt {
+        RemovalPrompt(
+            messageText: "Notes for Claude changed while you were editing. Save yours over them?",
+            informativeText: "What changed since you chose Edit… — a line Claude noted, or an edit in another app — "
+                + "will be lost. Cancel keeps your edit open.",
+            confirmTitle: "Save Over")
+    }
+
     /// Organize ▸ Duplicates ▸ Groups kept separate ▸ Show Again….
     public static func showKeptSeparateAgain(count: Int) -> RemovalPrompt {
         RemovalPrompt(

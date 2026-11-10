@@ -408,9 +408,15 @@ public final class AskClaudeEngine {
         return (AskClaudeRequest.notesBlock(text), notesKnown == nil ? .first : .changed, now)
     }
 
-    /// Nil for no notes, so an empty file and a missing one read the same.
+    /// What Claude has when its notes changed under it mid-question: matches no file, so the next
+    /// question sends them again, as changed.
+    static let notesStale = "stale"
+
+    /// Nil for no notes, so an empty file and a missing one read the same. Blank lines and empty
+    /// headings don't count: a Retry that takes Claude's note back may leave the layout tidier,
+    /// and that is no change of theirs to report.
     static func notesDigest(_ text: String) -> String? {
-        let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = AskClaudeNotes.substance(text)
         guard !body.isEmpty else { return nil }
         return SHA256.hash(data: Data(body.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
@@ -616,6 +622,9 @@ public final class AskClaudeEngine {
             var results: [JSONFragment] = []
             for call in calls {
                 let outcome: AskClaudeToolOutcome
+                // The notes as Claude last had them, before its change: if they changed in between
+                // (Settings, another editor), Claude has its change but not theirs.
+                let notesBefore = call.name == AskClaudeToolCatalog.Name.notes.rawValue ? Self.notesDigest(notes()) : nil
                 if Task.isCancelled {
                     // Stopped: the calls not yet run are answered without running them, so the
                     // view doesn't move after the person pressed Stop.
@@ -650,13 +659,16 @@ public final class AskClaudeEngine {
                 if let settings = outcome.settings { emit(.settings(settings)) }
                 if let pdf = outcome.pdf { emit(.pdf(pdf)) }
                 if let noted = outcome.noted {
-                    notesAfterTools = Self.notesDigest(notes())
+                    let had = notesAfterTools ?? notesKnown
+                    notesAfterTools = notesBefore == had ? Self.notesDigest(notes()) : Self.notesStale
                     emit(.noted(noted))
                 }
                 results.append(Self.result(for: call, text: outcome.result, isError: outcome.isError))
             }
             if Task.isCancelled {
                 owedResults = results
+                // The owed results lead the next question, so Claude will have its own change.
+                if let known = notesAfterTools { notesKnown = known }
                 emit(.finished(stopReason: "canceled"))
                 return joined
             }

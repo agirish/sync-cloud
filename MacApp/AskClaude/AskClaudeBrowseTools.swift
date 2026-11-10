@@ -317,6 +317,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? []))
         for handle in named {
             guard let path = handles.path(for: handle) else { return unknownHandle(handle) }
+            if let notes = Self.notesFile([path]) { return notes }
             if ctx.isHidden(path) { return hiddenFolder() }
         }
         switch AskClaudeToolCatalog.Name(rawValue: call.name) {
@@ -639,6 +640,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         // The Never show Claude list: a hidden item can't be named into any tool.
         let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
+        if let notes = Self.notesFile(named) { return notes }
         if named.contains(where: { ctx.isHidden($0) }) {
             return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
                                         isError: true, step: "Left alone: hidden from Claude")
@@ -2318,6 +2320,15 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     // MARK: Shared
+
+    /// Notes for Claude's own file, named into a file tool: kept from those tools as a hidden
+    /// item is, but it isn't on their Hidden from Claude list, so the refusal says what it is.
+    static func notesFile(_ paths: [String]) -> AskClaudeToolOutcome? {
+        let notes = (AskClaudeNotes.defaultFileURL().path as NSString).standardizingPath
+        guard paths.contains(where: { ($0 as NSString).standardizingPath == notes }) else { return nil }
+        return AskClaudeToolOutcome(result: "That’s the file your notes are kept in: its lines are the <notes> block, and only the notes tool changes it.",
+                                    isError: true, step: "Left alone: Notes for Claude’s file")
+    }
 
     private func hiddenFolder() -> AskClaudeToolOutcome {
         AskClaudeToolOutcome(result: "That folder is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",

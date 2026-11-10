@@ -2050,8 +2050,13 @@ final class AskClaudeChat: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }), case .noted(let noted, undone: false) = items[index].kind else {
             return false
         }
-        guard notes.undo(noted) else {
-            addNote("That line has changed since. Edit it in Notes for Claude, on the General page of Settings ▸ Ask Claude.")
+        if let refusal = notes.takeBack(noted) {
+            let why = switch refusal {
+            case .changedSince: "That line has changed since."
+            case .full: "Putting that line back would make the notes too long."
+            case .unwritable: "The notes file couldn’t be written."
+            }
+            addNote(why + " Edit them in Notes for Claude, on the General page of Settings ▸ Ask Claude.")
             return false
         }
         items[index].kind = .noted(noted, undone: true)

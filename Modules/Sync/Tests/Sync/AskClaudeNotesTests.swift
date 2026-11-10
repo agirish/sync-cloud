@@ -52,6 +52,21 @@ import EventsTestSupport
         #expect(notes.read().isEmpty == false)
     }
 
+    @Test func aQuoteMustBeAboutTheNoteNotAnyWordsOfTheirs() {
+        let notes = store()
+        // "the letter" is theirs, but says nothing of Raj: a share's sentence can't ride in on it.
+        let words = ["Summarize the letter for me"]
+        #expect(notes.apply(.add(text: "Your accountant retires in spring.", section: .about, because: "the letter"), ownWords: words)
+                == .failure(.notFromQuote))
+        #expect(notes.apply(.add(text: "Your accountant retires in spring.", section: .about, because: "the"), ownWords: words)
+                == .failure(.notFromQuote))
+        // A name is a detail: the letter's name can't ride in on "my accountant".
+        let asked = ["Remember what the letter says about my accountant"]
+        #expect(notes.apply(.add(text: "Your accountant is Mallory Reyes.", section: .about, because: "about my accountant"),
+                            ownWords: asked) == .failure(.detailNotQuoted("Mallory")))
+        #expect(notes.read().isEmpty)
+    }
+
     @Test func detailsMustComeFromTheirWords() {
         let notes = store()
         let words = ["My accountant is Raj, email him about taxes"]
@@ -110,6 +125,54 @@ import EventsTestSupport
         #expect(notes.read().contains("- Your accountant is Raj."))
     }
 
+    @Test func aLineIsFoundByItsTextWhenClaudesOwnAddMovedIt() throws {
+        let notes = store()
+        #expect(notes.save("## About you\n- Amma is your mother.\n\n## How you like answers\n- Brief."))
+        // Claude had "Brief." as line 5; its own add above it makes that line 6.
+        _ = try notes.apply(.add(text: "Your sister is Priya.", section: .about, because: "my sister Priya"),
+                            ownWords: ["my sister Priya"]).get()
+        _ = try notes.apply(.replace(line: 5, old: "Brief.", text: "Brief, with sizes in MB.", because: "sizes in MB"),
+                            ownWords: ["give sizes in MB"]).get()
+        #expect(notes.read().hasSuffix("## How you like answers\n- Brief, with sizes in MB.\n"))
+        // Two lines with that text and the number on neither: which one is unknown, so neither.
+        #expect(notes.save("## About you\n- Old.\n- Old."))
+        #expect(notes.apply(.remove(line: 9, old: "Old."), ownWords: []) == .failure(.noSuchLine))
+    }
+
+    @Test func replaceKeepsTheLinesOwnDetailsAndMakesNoCopy() throws {
+        let notes = store()
+        #expect(notes.save("## About you\n- Your accountant is Raj, raj@example.com.\n- Raj does your taxes."))
+        // The email was in the line already: only what's new must be quoted.
+        _ = try notes.apply(.replace(line: 2, old: "Your accountant is Raj, raj@example.com.",
+                                     text: "Your accountant Raj is retiring, raj@example.com.", because: "Raj is retiring"),
+                            ownWords: ["Raj is retiring"]).get()
+        #expect(notes.read().contains("- Your accountant Raj is retiring, raj@example.com."))
+        #expect(notes.apply(.replace(line: 3, old: "Raj does your taxes.", text: "Your accountant Raj is retiring, raj@example.com.",
+                                     because: "Raj is retiring, raj@example.com"), ownWords: ["Raj is retiring, raj@example.com"])
+                == .failure(.alreadyThere))
+    }
+
+    @Test func undoPutsBackWhoWroteTheLine() throws {
+        let notes = store()
+        #expect(notes.save("## About you\n- Your accountant is Raj."))
+        let theirs = try #require(notes.origin(of: "Your accountant is Raj."))
+        let replaced = try notes.apply(.replace(line: 2, old: "Your accountant is Raj.", text: "Your accountant is Ravi.",
+                                                because: "it's Ravi"), ownWords: ["no, it's Ravi"]).get()
+        #expect(notes.undo(replaced))
+        #expect(notes.origin(of: "Your accountant is Raj.") == theirs)
+        let removed = try notes.apply(.remove(line: 2, old: "Your accountant is Raj."), ownWords: []).get()
+        #expect(notes.undo(removed))
+        #expect(notes.origin(of: "Your accountant is Raj.") == theirs)
+    }
+
+    @Test func windowsLineEndsReadAsPlainOnes() throws {
+        let notes = store()
+        try Data("## About you\r\n- Amma is your mother.\r\n".utf8).write(to: notes.fileURL)
+        defer { try? FileManager.default.removeItem(at: notes.fileURL) }
+        #expect(AskClaudeNotes.lines(of: notes.read()).first?.section == .about)
+        _ = try notes.apply(.remove(line: 2, old: "Amma is your mother."), ownWords: []).get()
+    }
+
     @Test func undoLeavesALineChangedSinceAlone() throws {
         let notes = store()
         let added = try notes.apply(.add(text: "Amma is your mother.", section: .about, because: mom), ownWords: [mom]).get()
@@ -150,6 +213,34 @@ import EventsTestSupport
         let found = AskClaudeNotes.hiddenMentions(in: text, hidden: hidden)
         #expect(found.map(\.line.number) == [2, 4])
         #expect(found.map(\.names) == [["People/Amma"], ["Tax Returns"]])
+        // A file's name with its extension counts on its own, and a name only as whole words:
+        // "Tax Return" isn't named by "Tax Returns".
+        let more = "## About you\n- Your passport scan is Passport.pdf.\n- Old Tax Returns are archived."
+        let named = AskClaudeNotes.hiddenMentions(in: more, hidden: ["/Users/me/IDs/Passport.pdf", "/Users/me/Tax Return"])
+        #expect(named.map(\.names) == [["Passport.pdf"]])
+        let folder = AskClaudeNotes.hiddenMentions(in: "- Amma’s papers go in the Amma folder.\n- Amma is your mother.",
+                                                   hidden: ["/Users/me/Documents/Amma"])
+        #expect(folder.map(\.line.number) == [1] && folder.first?.names == ["Amma"])
+    }
+
+    @Test func claudesChangeKeepsTheHeadingsTheyLeftEmpty() throws {
+        let notes = store()
+        #expect(notes.save("## About you\n\n## How you like answers\n- Brief."))
+        let added = try notes.apply(.add(text: "Brief, with sizes in MB.", section: .answers, because: "sizes in MB"),
+                                    ownWords: ["sizes in MB"]).get()
+        #expect(notes.read().hasPrefix("## About you\n"))
+        #expect(notes.undo(added))
+        #expect(notes.read() == "## About you\n\n## How you like answers\n- Brief.\n")
+    }
+
+    @Test func undoSaysWhyItCouldnt() throws {
+        let notes = store()
+        let added = try notes.apply(.add(text: "Amma is your mother.", section: .about, because: mom), ownWords: [mom]).get()
+        _ = try notes.apply(.remove(line: 2, old: "Amma is your mother."), ownWords: []).get()
+        let gone = AskClaudeNoted(change: .removed, section: .about, before: "Amma is your mother.", after: nil, quote: nil)
+        #expect(notes.save("## How you like answers\n- " + String(repeating: "x", count: AskClaudeNotes.limit - 30)))
+        #expect(notes.takeBack(gone) == .full)
+        #expect(notes.takeBack(added) == .changedSince)
     }
 
     @Test func removingLinesThatNameAHiddenFolderKeepsTheRest() throws {
