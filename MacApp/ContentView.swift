@@ -1356,7 +1356,7 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
         // The theme is the one Appearance control no view can render on its own: it lives on NSApp,
         // so the AppKit surfaces (NSAlert prompts, NSOpenPanel, the About panel, the Activity Log
-        // and Sync History windows) follow it too. Applied from the root view rather than the
+        // window) follow it too. Applied from the root view rather than the
         // Settings picker so it re-applies whoever writes the key; App.init covers launch.
         .onChange(of: appearanceModeRaw) { AppAppearance.applyPersisted() }
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue, tint: surfaceTint)
@@ -4047,7 +4047,7 @@ struct ContentView: View {
             gate.fileStack = { [weak manager = syncManager] in manager?.undoManager }
             gate.refuse = { [weak manager = syncManager] reason in
                 Logger.shared.info("Undo refused while a run is going — \(reason)")
-                manager?.banner = .warning(reason, log: .warn)
+                manager?.banner = .refusal(reason, log: .warn)
             }
         }
         // "Save as rule…"'s offer holds its message open while it is up — see `holdChanged`.

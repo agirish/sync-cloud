@@ -720,8 +720,9 @@ extension FileSyncManager {
             toCopy.contains { $0.action == direction }
         }
         var resolved: Set<UUID> = []
-        // One run per direction. The message reports a run only when there was one: with two, each
-        // run's row in Events says its own sentence, and this message is a row of its own.
+        // One run per direction, neither posting a message of its own (`postBanner: false`). This
+        // message reports the run when there was one; with two it can lead neither, so it is a row
+        // of its own and each run's row builds its sentence from its records.
         var runs: [UUID] = []
         for direction in directions {
             let receipt = SyncRunReceipt()

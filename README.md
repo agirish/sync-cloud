@@ -158,7 +158,7 @@ about you and your household with your own folder names in front of you. Nothing
 Save. Reopen it from **Help ▸ Set Up SyncCloud…**.
 
 ### 🛟 Safe by design
-Atomic, backed-up overwrites; Trash-backed deletes; grouped **Undo/Redo** and **Undo Last Run**;
+Atomic, backed-up overwrites; Trash-backed deletes; grouped **Undo/Redo**, and **Undo…** on a run in Activity, which lists what it puts back first;
 From/To confirmations; collision choices (replace, keep both, skip, or merge folders); and a guard
 that refuses an ambiguous path rather than guessing.
 

@@ -1660,7 +1660,8 @@ extension FileSyncManager {
                              permanentlyDeleted: items.count - reachedTrash,
                              declined: result.declined,
                              refusedByGate: result.refused,
-                             stoppedShort: result.stoppedShort)
+                             stoppedShort: result.stoppedShort,
+                             runId: items.isEmpty ? nil : deleteRunId)
     }
 }
 

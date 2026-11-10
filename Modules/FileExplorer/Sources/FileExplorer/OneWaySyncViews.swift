@@ -523,7 +523,7 @@ enum OneWaySyncWords {
         }
     }
 
-    /// Why a sync held something, in the words of Now's rows.
+    /// Why a sync held something, in the words of its rows above Events.
     static func why(_ reason: OneWaySyncWaitReason) -> String {
         switch reason {
         case .overRemovalLimit, .overRemovalLimitAcrossFolders: return "Over the removal limit"

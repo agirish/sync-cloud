@@ -83,7 +83,9 @@ import Sync
         #expect(ActivityEventRun.headline([deleted]) == "Deleted “x.pdf”")
         #expect(ActivityEventRun.headline([record(run, .matchDates, "/A/x.pdf", "/B/x.pdf")]) == "Matched the date of “x.pdf”")
         #expect(ActivityEventRun.headline([record(run, .newFolder, "/A/New")]) == "Made the folder “New”")
-        #expect(ActivityEventRun.headline((0..<2).map { record(run, .delete, "/A/\($0)") }) == "2 to the Trash")
+        #expect(ActivityEventRun.headline((0..<2).map {
+            SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/A/\($0)", reachedTrash: true)
+        }) == "2 to the Trash")
     }
 
     /// A run's detail line names where it happened and how much it moved.
@@ -96,6 +98,33 @@ import Sync
         let dates = [record(run, .matchDates, "/Pics/a.jpg", "/Pics/a.jpg")]
         #expect(ActivityEventRun.detail(dates) == "/Pics")
         #expect(ActivityEventRun.commonFolder(["/a/b/c", "/a/b", "/a/bc"]) == "/a")
+    }
+
+    /// A run Sync History's cap cut says its count is only what is kept.
+    @Test func aCutRunSaysItsCountIsWhatIsKept() throws {
+        let run = UUID()
+        let records = (0..<3).map { record(run, .copy, "/A/\($0)", "/B/\($0)", seconds: Double($0)) }
+        let row = try #require(runs(ActivityEvents.build(records: records, messages: [], oneWay: [], changes: [],
+                                                         choice: .all, search: "", start: nil,
+                                                         trimmedRuns: [run])).first)
+        #expect(row.isCut)
+        #expect(ActivityEventsView.recordsLabel(row) == "3 records kept")
+    }
+
+    /// Deletes with no way back are "deleted", never "to the Trash".
+    @Test func permanentDeletesAreNotCalledTrash() {
+        let run = UUID()
+        let trashed = (0..<2).map { SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/A/t\($0)", reachedTrash: true) }
+        let gone = (0..<3).map { SyncHistoryRecord(runId: run, action: .delete, sourcePath: "/A/g\($0)", reachedTrash: false) }
+        #expect(ActivityEventRun.headline(trashed + gone) == "2 to the Trash, 3 deleted")
+    }
+
+    /// A run across two volumes names no common folder rather than "/".
+    @Test func aRunAcrossVolumesNamesNoRootFolder() {
+        let run = UUID()
+        let records = [record(run, .copy, "/Volumes/One/a.txt", "/Users/me/Box/a.txt"),
+                       record(run, .copy, "/Users/me/Docs/b.txt", "/Users/me/Box/b.txt")]
+        #expect(ActivityEventRun.detail(records) == "→ /Users/me/Box")
     }
 
     // MARK: Messages

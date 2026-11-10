@@ -30,19 +30,31 @@ public struct DeleteOutcome: Sendable, Equatable {
     /// A Stop ended the run with items not yet visited, left on disk because the user asked. False
     /// for a Stop during or after the last item, when nothing was left to stop.
     public let stoppedShort: Bool
+    /// The Sync History run the delete recorded, for a caller that posts its own message over the
+    /// delete's ("Reclaimed 1.2 MB"); nil when it removed nothing.
+    public let runId: UUID?
 
     public init(trashed: Int = 0, trashedWithoutLocation: Int = 0, permanentlyDeleted: Int = 0,
-                declined: Int = 0, refusedByGate: Int = 0, stoppedShort: Bool = false) {
+                declined: Int = 0, refusedByGate: Int = 0, stoppedShort: Bool = false, runId: UUID? = nil) {
         self.trashed = trashed
         self.trashedWithoutLocation = trashedWithoutLocation
         self.permanentlyDeleted = permanentlyDeleted
         self.declined = declined
         self.refusedByGate = refusedByGate
         self.stoppedShort = stoppedShort
+        self.runId = runId
     }
 
     /// Items that actually left their place, by any route.
     public var removed: Int { trashed + trashedWithoutLocation + permanentlyDeleted }
+
+    /// Equal by what happened. The run id names which run it was, so two deletes that did the same
+    /// are still equal outcomes.
+    public static func == (lhs: DeleteOutcome, rhs: DeleteOutcome) -> Bool {
+        lhs.trashed == rhs.trashed && lhs.trashedWithoutLocation == rhs.trashedWithoutLocation
+            && lhs.permanentlyDeleted == rhs.permanentlyDeleted && lhs.declined == rhs.declined
+            && lhs.refusedByGate == rhs.refusedByGate && lhs.stoppedShort == rhs.stoppedShort
+    }
 
     /// Whether ⌘Z can fully reverse this run. False for a mixed batch too: the restore-undo brings
     /// back only items whose Trash location is known, and would silently leave the rest.

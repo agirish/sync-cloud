@@ -61,7 +61,7 @@ public enum OneWaySyncLadder: Equatable, Sendable {
     }
 }
 
-/// A sheet one-way sync opens, from Now, History, Settings or the toolbar.
+/// A sheet one-way sync opens, from Activity's Events, Settings or the toolbar.
 public enum OneWaySyncSheet: Identifiable, Equatable {
     /// Setup, or *Review First Run…* (`replacing` an earlier sync's record).
     case setup(replacing: Bool)
@@ -144,9 +144,9 @@ public final class OneWaySyncController: ObservableObject {
     @Published public private(set) var otherMac: OneWaySyncMacMarker?
     /// What a pass is doing now; nil while none runs.
     @Published public internal(set) var activity: String?
-    /// The last pass's look: what Now's sheets read until a fresher one.
+    /// The last pass's look: what the sheets of Events' rows read until a fresher one.
     @Published public private(set) var lastLook: OneWaySyncLook?
-    /// What Now lists as skipped: the last look's, or until a pass looks, what the record knows
+    /// What Events lists as skipped: the last look's, or until a pass looks, what the record knows
     /// Dropbox refused.
     public var skippedCount: Int { lastLook?.skipped.count ?? record?.refused.count ?? 0 }
     @Published public var sheet: OneWaySyncSheet?
@@ -256,9 +256,9 @@ public final class OneWaySyncController: ObservableObject {
     /// Dropbox. Set by whoever opens setup; nil falls back to iCloud Drive ▸ Documents and
     /// Dropbox ▸ Documents.
     public var setupPrefill: (iCloud: URL, dropbox: URL)?
-    /// Opens Activity on Now, and Settings on Sync: set by the app.
+    /// Opens Activity on Events, and Settings on Sync: set by the app.
     public var onOpenActivity: () -> Void = {}
-    /// Opens Activity on History: the overview's way to the sync's History (the page's "its page").
+    /// Opens Activity's Events on one-way sync's entries: the overview's way to the sync's History (the page's "its page").
     public var onOpenHistory: () -> Void = {}
     /// Hears the paths SyncCloud's own sync wrote, so the panes read them again: the folder
     /// watcher marks this process's writes as its own, and a pane never re-reads them by itself.

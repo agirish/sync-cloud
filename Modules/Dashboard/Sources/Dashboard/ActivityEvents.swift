@@ -38,8 +38,11 @@ struct ActivityEventRun {
     /// How many records it has in all, for "3 of 24".
     let total: Int
     /// The message that reported it, which leads its row. Runs that post none (a pane's rename, New
-    /// Folder, an Ask Claude plan) and runs from earlier sessions build their own sentence.
+    /// Folder, an Ask Claude plan), and runs whose message was cleared or aged out, build their own
+    /// sentence.
     let message: ActivityMessage?
+    /// Some of its records were dropped by Sync History's in-memory cap: `total` is what is kept.
+    var isCut = false
 
     /// Its newest record's time: when it ended.
     var date: Date { records.first?.timestamp ?? .distantPast }
@@ -64,11 +67,14 @@ struct ActivityEventRun {
     static func headline(_ records: [SyncHistoryRecord]) -> String {
         if records.count == 1, let record = records.first { return sentence(record) }
         let order: [SyncAction] = [.copy, .move, .delete, .matchDates, .newFolder]
-        let counts = Dictionary(grouping: records, by: \.action).mapValues(\.count)
-        let parts = order.compactMap { action -> String? in
+        // A delete with no way back is "deleted", not "to the Trash", as its own sentence says.
+        let counts = Dictionary(grouping: records.filter { !$0.isPermanentDelete }, by: \.action).mapValues(\.count)
+        var parts = order.compactMap { action -> String? in
             guard let count = counts[action] else { return nil }
             return phrase(action, count)
         }
+        let deleted = records.filter(\.isPermanentDelete).count
+        if deleted > 0 { parts.append("\(deleted.formatted()) deleted") }
         let text = parts.joined(separator: ", ")
         return text.prefix(1).uppercased() + text.dropFirst()
     }
@@ -105,13 +111,15 @@ struct ActivityEventRun {
     static func detail(_ records: [SyncHistoryRecord]) -> String? {
         guard !records.isEmpty else { return nil }
         var parts: [String] = []
+        // A side with no folder in common (two volumes, say) is left unnamed rather than called "/".
         let from = commonFolder(records.map { parent($0.sourcePath) })
         let destinations = records.compactMap(\.destPath)
-        if destinations.count == records.count {
-            let to = commonFolder(destinations.map(parent))
-            parts.append(from == to ? tilde(from) : "\(tilde(from)) → \(tilde(to))")
-        } else {
-            parts.append(tilde(from))
+        let to = destinations.count == records.count ? commonFolder(destinations.map(parent)) : nil
+        switch (from == "/" ? nil : from, to == "/" ? nil : to) {
+        case let (from?, to?): parts.append(from == to ? tilde(from) : "\(tilde(from)) → \(tilde(to))")
+        case let (from?, nil): parts.append(tilde(from))
+        case let (nil, to?): parts.append("→ \(tilde(to))")
+        case (nil, nil): break
         }
         let bytes = records.compactMap(\.sizeBytes).reduce(0, +)
         if bytes > 0 { parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
@@ -166,7 +174,7 @@ enum ActivityEvents {
     /// and lists only the matching records; a search also finds a run by its message's words.
     static func build(records: [SyncHistoryRecord], messages: [ActivityMessage], oneWay: [OneWaySyncHistoryEntry],
                       changes: [SettingsChange], choice: ActivityEventsChoice, search: String,
-                      start: Date?) -> [ActivityEvent] {
+                      start: Date?, trimmedRuns: Set<UUID> = []) -> [ActivityEvent] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
         var events: [ActivityEvent] = []
 
@@ -187,17 +195,21 @@ enum ActivityEvents {
             }
             // A search for a message's words finds its whole run.
             if !needle.isEmpty, choice == .all {
-                let unfiltered = SyncHistoryFilter.apply(records, action: nil, search: "", start: start)
-                for (runId, message) in messageForRun where byRun[runId] == nil && says(message, needle) {
-                    let own = unfiltered.filter { $0.runId == runId }
-                    guard !own.isEmpty else { continue }
+                let matched = messageForRun.filter { byRun[$0.key] == nil && says($0.value, needle) }
+                // One pass over the records for every matched message, not one per message.
+                let unfiltered = matched.isEmpty ? [:] : Dictionary(
+                    grouping: SyncHistoryFilter.apply(records, action: nil, search: "", start: start), by: \.runId)
+                for runId in matched.keys {
+                    guard let own = unfiltered[runId], !own.isEmpty else { continue }
                     order.append(runId)
                     byRun[runId] = own
                 }
             }
             for runId in order {
                 guard let own = byRun[runId], let total = totals[runId] else { continue }
-                events.append(.run(ActivityEventRun(id: runId, records: own, total: total, message: messageForRun[runId])))
+                var run = ActivityEventRun(id: runId, records: own, total: total, message: messageForRun[runId])
+                run.isCut = trimmedRuns.contains(runId)
+                events.append(.run(run))
             }
         }
 

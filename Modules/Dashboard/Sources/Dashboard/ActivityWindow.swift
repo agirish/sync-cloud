@@ -101,7 +101,7 @@ public struct ActivityWindow<Events: View>: View {
     }
 }
 
-/// "One run · 12 records ✕" — the filter a Recent row's link set, above the list it narrows, with
+/// "10:41–10:43 ✕" — the filter a row's Show in Log set, above the list it narrows, with
 /// the way back to all of it.
 struct ActivityFilterChip: View {
     let text: String

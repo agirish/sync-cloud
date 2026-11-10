@@ -366,7 +366,7 @@ extension FileSyncManager {
             switch staleness {
             case .changed(_, let side):
                 let end = side == .right ? "on the right" : "on the left"
-                banner = .warning("“\(name)” changed \(end) since it was verified — run Verify All again", log: .warn)
+                banner = .refusal("“\(name)” changed \(end) since it was verified — run Verify All again", log: .warn)
             case .unstamped:
                 banner = .refusal("“\(name)” cannot be re-checked against its verification — run Verify All again", log: .warn)
             }

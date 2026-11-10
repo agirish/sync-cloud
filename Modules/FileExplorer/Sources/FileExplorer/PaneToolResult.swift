@@ -44,10 +44,10 @@ public struct PaneToolResult {
         case .failure: severity = .error
         }
         if let path = result.download { followUps.append(.download(path)) }
-        self.init(banner: OperationBanner(message: result.message, severity: severity,
-                                          log: .loggedAtSite,
-                                          detail: result.detail, followUps: followUps),
-                  open: host.open, reveal: host.reveal, download: host.download)
+        var banner = OperationBanner(message: result.message, severity: severity, log: .loggedAtSite,
+                                     detail: result.detail, followUps: followUps)
+        banner.isRefusal = result.isRefusal
+        self.init(banner: banner, open: host.open, reveal: host.reveal, download: host.download)
     }
 
     /// Save as PDF's ending.

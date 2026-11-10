@@ -409,8 +409,8 @@ extension ContentView {
             // does not cover.
             .disabled(pendingDestination != nil)
 
-            // Activity: Now, History and Log in one window. It wears a dot while an unseen problem
-            // waits there, and then opens on Now.
+            // Activity: Events and Log in one window. It wears a dot while an unseen problem
+            // waits there, and then opens on Events.
             ActivityToolbarButton(center: .shared) {
                 _ = ActivityCenter.shared.tabForOpening()
                 ActivityCenter.shared.markSeen()

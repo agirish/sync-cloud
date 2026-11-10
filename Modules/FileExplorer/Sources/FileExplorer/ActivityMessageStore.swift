@@ -10,7 +10,9 @@ import Sync
 /// repeat folding into a row appends that row again, and the newest line for an id wins when the
 /// file is read, so a write never rewrites the file: the installed app and a worktree build beside
 /// it can both append without either losing the other's lines. The file is rewritten only to trim
-/// it, as it is read at launch, and to clear it.
+/// it (at launch, and once it holds twice what it keeps), to forget the runs' messages when Sync
+/// History is cleared, and to clear it; each of those reads the file as it is then, so lines
+/// another copy appended survive, and so do a newer build's.
 ///
 /// What a message's buttons can't do later is not kept: its Undo, whose step numbers start again
 /// at every launch, and Download, whose path may name another file by then.
@@ -20,8 +22,10 @@ public final class ActivityMessageStore: @unchecked Sendable {
     public static let maxAge: TimeInterval = 90 * 86_400
 
     public let fileURL: URL
-    /// Appends and rewrites, in order, off the main thread.
+    /// Every read and write of the file, in order, off the main thread except `load`.
     private let queue = DispatchQueue(label: "com.abhishekgirish.SyncCloud.activity-messages")
+    /// Lines appended since the file was last trimmed; read and written only on `queue`.
+    private var appendedSinceTrim = 0
 
     public init(fileURL: URL = ActivityMessageStore.defaultFileURL()) {
         self.fileURL = fileURL
@@ -40,41 +44,35 @@ public final class ActivityMessageStore: @unchecked Sendable {
     }
 
     /// The kept messages, newest first: the newest line for each id, inside ``maxAge`` and
-    /// ``maxMessages``. Rewrites the file when it holds far more lines than that, keeping lines this
-    /// build can't read (a newer build's), so running an older build never deletes them.
+    /// ``maxMessages``, trimming the file as it reads it.
     public func load(now: Date = Date()) -> [ActivityMessage] {
-        queue.sync {
-            guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return [] }
-            let lines = data.split(separator: UInt8(ascii: "\n"))
-            var byId: [UUID: (order: Int, saved: SavedActivityMessage)] = [:]
-            var unreadable: [Data] = []
-            for (order, line) in lines.enumerated() {
-                if let saved = try? Self.decoder.decode(SavedActivityMessage.self, from: Data(line)),
-                   saved.version <= SavedActivityMessage.currentVersion {
-                    byId[saved.id] = (order, saved)
-                } else {
-                    unreadable.append(Data(line))
-                }
-            }
-            let kept = Self.kept(byId.values.map(\.saved), now: now)
-            if lines.count > Self.maxMessages * 2 || kept.count < byId.count {
-                rewrite(kept.reversed(), keeping: unreadable)
-            }
-            return kept.map(\.restored)
-        }
+        queue.sync { trimFile(now: now).map(\.restored) }
     }
 
     /// Appends `message`, unless it is a refusal.
     public func save(_ message: ActivityMessage) {
         guard !message.isRefusal, let line = Self.line(for: message) else { return }
-        queue.async { self.append(line) }
+        queue.async {
+            self.append(line)
+            self.appendedSinceTrim += 1
+            // Past twice the cap, what the next launch reads and decodes is mostly dead lines.
+            if self.appendedSinceTrim > Self.maxMessages { _ = self.trimFile(now: Date()) }
+        }
     }
 
-    /// Replaces everything kept with `messages` (newest first): Clear, or a clear of the runs they
-    /// reported.
-    public func replaceAll(with messages: [ActivityMessage]) {
-        let saved = messages.filter { !$0.isRefusal }.map(SavedActivityMessage.init)
-        queue.async { self.rewrite(saved.reversed(), keeping: []) }
+    /// Empties the file: Clear Messages. Everything goes, whichever copy of the app wrote it.
+    public func clearAll() {
+        queue.async { self.write(Data()) }
+    }
+
+    /// Drops every kept message that reported a run: Sync History was cleared, and each would be a
+    /// row with nothing behind it. Reads the file as it is, so another copy's other lines stay.
+    public func forgetRunMessages() {
+        queue.async {
+            let file = self.read()
+            let kept = file.saved.filter { $0.runId == nil }
+            self.rewrite(kept.sorted { $0.date < $1.date }, keeping: file.newer)
+        }
     }
 
     /// Waits for every write to reach the disk: at quit.
@@ -90,42 +88,91 @@ public final class ActivityMessageStore: @unchecked Sendable {
             .prefix(maxMessages))
     }
 
-    private func append(_ line: Data) {
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: fileURL.path) {
-            fm.createFile(atPath: fileURL.path, contents: nil)
+    /// The file's lines: the newest for each id this build reads, and the lines a newer build wrote,
+    /// kept as they are. A line that is neither (half a line a crash left, say) is dropped.
+    private func read() -> (saved: [SavedActivityMessage], newer: [Data], lines: Int) {
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return ([], [], 0) }
+        let lines = data.split(separator: UInt8(ascii: "\n"))
+        var byId: [UUID: SavedActivityMessage] = [:]
+        var newer: [Data] = []
+        for line in lines {
+            let bytes = Data(line)
+            if let saved = try? Self.decoder.decode(SavedActivityMessage.self, from: bytes),
+               saved.version <= SavedActivityMessage.currentVersion {
+                byId[saved.id] = saved
+            } else if let version = (try? Self.decoder.decode(VersionOnly.self, from: bytes))?.version,
+                      version > SavedActivityMessage.currentVersion {
+                newer.append(bytes)
+            }
         }
-        guard let handle = try? FileHandle(forWritingTo: fileURL) else {
-            Logger.shared.warning("Activity: couldn’t open \(fileURL.lastPathComponent) to keep a message")
+        return (Array(byId.values), newer, lines.count)
+    }
+
+    /// Trims the file to what it keeps, when it holds more than that or lines no build can read.
+    /// Returns what it keeps, newest first.
+    private func trimFile(now: Date) -> [SavedActivityMessage] {
+        let file = read()
+        let kept = Self.kept(file.saved, now: now)
+        if file.lines > kept.count + file.newer.count {
+            rewrite(kept.reversed(), keeping: file.newer)
+        }
+        appendedSinceTrim = 0
+        return kept
+    }
+
+    /// Appends one line, opened for appending so two copies of the app writing at once each land
+    /// whole; starts a fresh line first if the file doesn't end in one.
+    private func append(_ line: Data) {
+        // Read too, so `endsMidLine` can look at the last byte; O_APPEND puts every write at the end.
+        let fd = open(fileURL.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
+        guard fd >= 0 else {
+            Logger.shared.warning("Activity: couldn’t open \(fileURL.lastPathComponent) to keep a message (errno \(errno))")
             return
         }
-        defer { try? handle.close() }
-        do {
-            try handle.seekToEnd()
-            try handle.write(contentsOf: line + Data([UInt8(ascii: "\n")]))
-        } catch {
-            Logger.shared.warning("Activity: couldn’t keep a message in \(fileURL.lastPathComponent): \(error.localizedDescription)")
+        defer { close(fd) }
+        var bytes = Data()
+        if endsMidLine(fd) { bytes.append(UInt8(ascii: "\n")) }
+        bytes.append(line)
+        bytes.append(UInt8(ascii: "\n"))
+        let written = bytes.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+        if written != bytes.count {
+            Logger.shared.warning("Activity: couldn’t keep a message in \(fileURL.lastPathComponent) (errno \(errno))")
         }
     }
 
-    /// Writes `saved`, oldest first, then the lines this build can't read, in one atomic replace.
-    private func rewrite<S: Sequence>(_ saved: S, keeping unreadable: [Data]) where S.Element == SavedActivityMessage {
+    /// Whether the file's last byte is not a newline: what a write cut short leaves.
+    private func endsMidLine(_ fd: Int32) -> Bool {
+        let size = lseek(fd, 0, SEEK_END)
+        guard size > 0 else { return false }
+        var last: UInt8 = 0
+        return pread(fd, &last, 1, size - 1) == 1 && last != UInt8(ascii: "\n")
+    }
+
+    /// Writes `saved`, oldest first, then a newer build's lines, in one atomic replace.
+    private func rewrite<S: Sequence>(_ saved: S, keeping newer: [Data]) where S.Element == SavedActivityMessage {
         var data = Data()
         for message in saved {
             guard let line = try? Self.encoder.encode(message) else { continue }
             data.append(line)
             data.append(UInt8(ascii: "\n"))
         }
-        for line in unreadable {
+        for line in newer {
             data.append(line)
             data.append(UInt8(ascii: "\n"))
         }
+        write(data)
+    }
+
+    private func write(_ data: Data) {
         do {
             try data.write(to: fileURL, options: .atomic)
         } catch {
             Logger.shared.warning("Activity: couldn’t rewrite \(fileURL.lastPathComponent): \(error.localizedDescription)")
         }
     }
+
+    /// A line's version alone, to tell a newer build's line from a broken one.
+    private struct VersionOnly: Decodable { let version: Int }
 
     static func line(for message: ActivityMessage) -> Data? {
         try? encoder.encode(SavedActivityMessage(message))
@@ -182,6 +229,7 @@ struct SavedActivityMessage: Codable, Equatable {
                                        followUps: followUps, repeats: repeats, undoStep: nil, runId: runId,
                                        span: spanStart...max(spanStart, spanEnd), source: source)
         restored.isStopped = isStopped
+        restored.isFromEarlierSession = true
         return restored
     }
 }

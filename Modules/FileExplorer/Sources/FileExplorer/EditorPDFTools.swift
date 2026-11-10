@@ -45,6 +45,9 @@ public struct EditorPDFToolBanner: Equatable, Identifiable, Sendable {
     public var detail: String?
     /// A file only in the cloud now: the banner offers Download for it.
     public var download: String?
+    /// A refusal: the tool didn't start (another is running, this file can't take it). Shown, never
+    /// kept past the session in Activity.
+    public var isRefusal = false
 }
 
 /// How a run ended: what a sheet needs to decide whether to close.
@@ -537,7 +540,7 @@ public final class EditorPDFTools: ObservableObject {
         guard running == nil else {
             let busy = Self.busyMessage
             Logger.shared.info("\(writer) refused \(tool.logDetail) of \(logName) — \(running?.tool ?? "another tool") is running")
-            if bannerFailures { banner = EditorPDFToolBanner(message: busy, kind: .failure) }
+            if bannerFailures { banner = EditorPDFToolBanner(message: busy, kind: .failure, isRefusal: true) }
             return .failed(busy)
         }
         let generation = self.generation

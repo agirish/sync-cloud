@@ -5,7 +5,7 @@ import SwiftUI
 /// `~/sync-cloud-history.jsonl`, so a crash mid-write costs at most the last line. The file uses
 /// the log's `LogFileWriter` (serial queue, one handle, trimmed at 5 MB); the memory copy is capped.
 ///
-/// `@MainActor` because `records` drives the Sync History window. Recording is best-effort and
+/// `@MainActor` because `records` drives Activity's Events. Recording is best-effort and
 /// never blocks or fails the file operation it records, but not silent: a record that can't be
 /// encoded is announced through `reportDroppedRecords`.
 @MainActor
@@ -16,6 +16,10 @@ public final class SyncHistoryStore: ObservableObject {
     /// The records observed by the UI, oldest-first (append order). Capped at
     /// `maxInMemoryRecords`; the disk file is trimmed independently by `LogFileWriter`.
     @Published public private(set) var records: [SyncHistoryRecord] = []
+
+    /// Runs the in-memory cap cut: some of their records were dropped from `records` (the file
+    /// still has them). Activity's Events says such a run's count is only what is kept.
+    public private(set) var trimmedRunIds: Set<UUID> = []
 
     /// The on-disk destination. Public so the UI can reveal it in Finder, mirroring the log file.
     public let fileURL: URL
@@ -61,7 +65,9 @@ public final class SyncHistoryStore: ObservableObject {
                                      + "couldn’t be are in this session’s History only")
             })
         self.reportDroppedRecords = reportDroppedRecords
-        self.records = Self.loadRecords(from: fileURL)
+        let loaded = Self.loadRecords(from: fileURL)
+        self.records = loaded.records
+        self.trimmedRunIds = loaded.trimmed
     }
 
     /// The `shared` store's file, mirroring `Logger.defaultLogFileURL` so tests never fill or
@@ -105,7 +111,9 @@ public final class SyncHistoryStore: ObservableObject {
         guard !newRecords.isEmpty else { return }
         records.append(contentsOf: newRecords)
         if records.count > Self.maxInMemoryRecords {
-            records.removeFirst(records.count - Self.maxInMemoryRecords)
+            let cut = records.count - Self.maxInMemoryRecords
+            trimmedRunIds.formUnion(records.prefix(cut).map(\.runId))
+            records.removeFirst(cut)
         }
         // A record that can't be encoded is dropped from the file, not failing the caller, and
         // the drops are announced once per call: a batch is one gesture, and a systematic failure
@@ -141,10 +149,11 @@ public final class SyncHistoryStore: ObservableObject {
     /// Empties both the in-memory mirror and the on-disk file.
     ///
     /// Silent on purpose: the user-facing clear logs at its confirm
-    /// (`SyncHistoryView.clearIfConfirmed`). A line here would fire from every test fixture's
+    /// (`ActivityEventsView.clearIfConfirmed`). A line here would fire from every test fixture's
     /// cleanup and break `Logger.shared`'s exact-count suite in the same package.
     public func clear() {
         records.removeAll()
+        trimmedRunIds = []
         writer.clear()
     }
 
@@ -164,18 +173,21 @@ public final class SyncHistoryStore: ObservableObject {
 
     /// Loads and decodes every well-formed line from disk, dropping any malformed line rather
     /// than failing the whole load, then caps to the newest `maxInMemoryRecords`.
-    private static func loadRecords(from url: URL) -> [SyncHistoryRecord] {
+    private static func loadRecords(from url: URL) -> (records: [SyncHistoryRecord], trimmed: Set<UUID>) {
         guard let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8) else { return [] }
+              let text = String(data: data, encoding: .utf8) else { return ([], []) }
         var loaded: [SyncHistoryRecord] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let lineData = line.data(using: .utf8),
                   let record = try? decoder.decode(SyncHistoryRecord.self, from: lineData) else { continue }
             loaded.append(record)
         }
+        var trimmed: Set<UUID> = []
         if loaded.count > maxInMemoryRecords {
-            loaded.removeFirst(loaded.count - maxInMemoryRecords)
+            let cut = loaded.count - maxInMemoryRecords
+            trimmed = Set(loaded.prefix(cut).map(\.runId))
+            loaded.removeFirst(cut)
         }
-        return loaded
+        return (loaded, trimmed)
     }
 }

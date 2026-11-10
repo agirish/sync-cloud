@@ -38,7 +38,7 @@ extension OperationBanner.FollowUp {
 public struct ActivityNowView: View {
     let runs: [ProgressCapsuleListedRun]
     @ObservedObject var center: ActivityCenter
-    /// The cloud app status, whose rows Now lists.
+    /// The cloud app status, whose rows the band lists.
     @ObservedObject var cloudApps: CloudAppMonitor
     /// Why writes wait while a long run goes; a row's Undo waits too.
     let runWriteLock: String?
@@ -145,12 +145,12 @@ public struct ActivityNowView: View {
             section("Recent")
             Spacer()
             if !center.recent.isEmpty {
-                Button("Clear") { center.clear() }
+                Button("Clear…") { if ActivityCenter.confirmClearMessages() { center.clear() } }
                     .buttonStyle(.link)
                     .controlSize(.small)
                     .padding(.trailing, 12)
                     .padding(.bottom, 4)
-                    .help("Clear Recent — Activity’s Events keeps the runs, and the log keeps its lines")
+                    .help("Clear every message, earlier sessions’ too — runs keep their records in Events, and the log its lines")
             }
         }
     }

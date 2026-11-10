@@ -992,9 +992,9 @@ extension FileSyncManager {
         if removed == 0, let kind = refusals.all[group.id] {
             switch kind {
             case .missingBaseline:
-                banner = .warning("A copy of “\(group.keeper.name)” couldn’t be fully checked against the scan — review it manually before removing.", log: .warn)
+                banner = .refusal("A copy of “\(group.keeper.name)” couldn’t be fully checked against the scan — review it manually before removing.", log: .warn)
             case .drifted:
-                banner = .warning("A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.", log: .warn)
+                banner = .refusal("A copy of “\(group.keeper.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.", log: .warn)
             case .holdsKeeper:
                 banner = .refusal("A copy of “\(group.keeper.name)” holds the copy another duplicate group keeps — rescan before removing it.", log: .warn)
             }
@@ -1006,6 +1006,7 @@ extension FileSyncManager {
         guard !dropFullyRemovedGroups(from: [group]).isEmpty else {
             if currentError == nil {
                 banner = .warning("Removed \(removed) of \(paths.count) copies — the group stays listed until the rest are handled.", log: .warn)
+                    .reporting(run: outcome.runId)
             }
             return false
         }
@@ -1013,7 +1014,7 @@ extension FileSyncManager {
             // Promise ⌘Z only when the delete can be taken back. On a Trash-less volume the files
             // are gone and nothing was registered, so ⌘Z would undo whatever was on the stack
             // before.
-            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable)
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable).reporting(run: outcome.runId)
         }
         Logger.shared.info("Duplicates: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
         return true
@@ -1125,26 +1126,26 @@ extension FileSyncManager {
         case .matches, .copyVanished:
             break   // nothing to refuse
         case .noLiveGroup:
-            banner = .warning("The duplicate scan has moved on since these copies were compared — rescan before trashing “\(copy.name)”.", log: .loggedAtSite)
+            banner = .refusal("The duplicate scan has moved on since these copies were compared — rescan before trashing “\(copy.name)”.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — no current group holds it together with the keeper \(keeper.path), so the pair could not be re-verified")
         case .keeperDrifted(missingBaseline: true):
-            banner = .warning("“\(keeper.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so “\(copy.name)” can’t be proven redundant. Review them manually.", log: .loggedAtSite)
+            banner = .refusal("“\(keeper.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so “\(copy.name)” can’t be proven redundant. Review them manually.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for the keeper \(keeper.path) (subtree unreadable, too deep, or a link cycle), so the copy is not provably redundant")
         case .keeperDrifted(missingBaseline: false):
-            banner = .warning("“\(keeper.name)” is no longer what the scan saw — rescan before trashing “\(copy.name)”.", log: .loggedAtSite)
+            banner = .refusal("“\(keeper.name)” is no longer what the scan saw — rescan before trashing “\(copy.name)”.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the keeper \(keeper.path) is no longer what the scan saw, so the copy may be its last intact instance")
         case .copyDrifted(missingBaseline: true):
-            banner = .warning("“\(copy.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy. Review it manually.", log: .loggedAtSite)
+            banner = .refusal("“\(copy.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy. Review it manually.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
         case .copyDrifted(missingBaseline: false):
-            banner = .warning("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.", log: .loggedAtSite)
+            banner = .refusal("“\(copy.name)” changed since it was scanned — it may no longer be a copy. Rescan before trashing it.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — it changed after the scan, so it is no longer provably a duplicate")
         case .keeperNotKept(let groupKeeperName):
-            banner = .warning("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can’t be trashed against it here. Compare against the copy being kept, or resolve the whole group.", log: .loggedAtSite)
+            banner = .refusal("This group is keeping “\(groupKeeperName)”, not “\(keeper.name)” — so “\(copy.name)” can’t be trashed against it here. Compare against the copy being kept, or resolve the whole group.", log: .loggedAtSite)
             Logger.shared.warning("Duplicates: refused to trash \(copy.path) — the removal named \(keeper.path) as the keeper, but the live group keeps a different copy, so nothing here was verified against the copy this group is actually keeping")
         case .copyHeld(let hold):
             let wording = Self.removalHoldWording(hold, name: copy.name, path: copy.path)
-            banner = .warning(wording.banner, log: .loggedAtSite)
+            banner = .refusal(wording.banner, log: .loggedAtSite)
             Logger.shared.warning(wording.log)
         }
     }
@@ -1290,7 +1291,7 @@ extension FileSyncManager {
             : "Duplicates: permanently deleted the compared copy \(copy.path), keeping \(keeper.path), reclaimed \(Self.formatBytes(bytes))")
         removeResolvedDuplicateCopy(atPath: copy.path)
         if currentError == nil {
-            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable)
+            banner = .success("Reclaimed \(Self.formatBytes(bytes))", undoable: outcome.isUndoable).reporting(run: outcome.runId)
         }
         return true
     }
@@ -1470,7 +1471,7 @@ extension FileSyncManager {
             let isUndoable = outcome.isUndoable
             if done.count == eligible.count, refused == 0, outcome.declined == 0 {
                 banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s")",
-                                  undoable: isUndoable)
+                                  undoable: isUndoable).reporting(run: outcome.runId)
             } else {
                 // Partial (refused groups, a declined fallback, a cancelled dialog): claim only
                 // what landed, and name what was refused rather than folding it into "the rest stay
@@ -1496,7 +1497,7 @@ extension FileSyncManager {
                 }
                 let refusalClause = clauses.isEmpty ? "" : " " + clauses.joined(separator: "; ") + ";"
                 banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups —\(refusalClause) the rest stay listed.",
-                                  undoable: isUndoable, log: .warn)
+                                  undoable: isUndoable, log: .warn).reporting(run: outcome.runId)
             }
         }
     }
@@ -1791,7 +1792,7 @@ extension FileSyncManager {
             guard plan.blockedLinkedDirs.isEmpty else {
                 let dirs = plan.blockedLinkedDirs.map { "“\($0)”" }.joined(separator: ", ")
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
-                banner = .warning("Can’t merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.", log: .loggedAtSite)
+                banner = .refusal("Can’t merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.", log: .loggedAtSite)
                 allTrashed = false
                 continue
             }
@@ -1803,7 +1804,7 @@ extension FileSyncManager {
                 Logger.shared.warning("Duplicates merge: “\(redundant.name)” holds \(plan.unreadDirs.count) folder(s) that could not be read (\(plan.unreadDirs.joined(separator: ", "))) — refusing to merge and trash it")
                 // The copy's own folder unreadable comes back as one entry bearing its name.
                 let what = plan.unreadDirs == [redundant.name] ? "“\(redundant.name)”" : "\(dirs) in “\(redundant.name)”"
-                banner = .warning("Can’t merge “\(group.name)”: \(what) couldn’t be read, so its contents can’t be checked. Open it, or make it available offline, then rescan.", log: .loggedAtSite)
+                banner = .refusal("Can’t merge “\(group.name)”: \(what) couldn’t be read, so its contents can’t be checked. Open it, or make it available offline, then rescan.", log: .loggedAtSite)
                 allTrashed = false
                 continue
             }

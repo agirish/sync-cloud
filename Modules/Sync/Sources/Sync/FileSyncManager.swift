@@ -241,7 +241,7 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// Why Undo Last Run would refuse right now, in the user's words, or nil when it would act.
-    /// Shown in the Sync History window's own alert (`undoLastSyncRunAskingFirst`), where the click
+    /// Shown in Activity's Events' own alert (`undoLastSyncRunAskingFirst`), where the click
     /// happened. The advice names the main window because ⌘Z in Sync History acts on that window's
     /// own, empty undo stack.
     public var lastSyncRunUndoRefusal: String? {
@@ -288,7 +288,7 @@ public class FileSyncManager: ObservableObject {
         return nil
     }
 
-    /// `lastSyncRunUndoRefusal`, logged: Sync History's alert leaves no trace, so the log keeps the
+    /// `lastSyncRunUndoRefusal`, logged: Events' alert leaves no trace, so the log keeps the
     /// line.
     private func loggedRunUndoRefusal() -> String? {
         let refusal = lastSyncRunUndoRefusal

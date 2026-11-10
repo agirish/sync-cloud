@@ -122,7 +122,7 @@ enum OneWaySyncNotifier {
     }
 }
 
-/// A notification's click opens that message in the Activity window, on Now with the row picked
+/// A notification's click opens that message in the Activity window, on Events with the row picked
 /// out; not the popover, which hangs from a main window that may be behind other apps.
 final class OperationNotificationClicks: NSObject, UNUserNotificationCenterDelegate {
     static let shared = OperationNotificationClicks()

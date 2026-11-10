@@ -4,9 +4,9 @@ import Settings
 import SwiftUI
 import Sync
 
-/// Settings changes in History: every setting changed from Ask Claude's chat, listed in Activity ▸
-/// History among the sync records by time, with Revert while the setting still holds what was set
-/// there. What History needs to list them, filter them and put one back.
+/// Settings changes in Activity's Events: every setting changed from Ask Claude's chat, listed among
+/// the runs by time, with Revert while the setting still holds what was set there. What Events needs
+/// to list them, filter them and put one back.
 @MainActor
 public struct HistorySettingsChanges {
     let log: SettingsChangeLog
@@ -89,12 +89,12 @@ public struct HistorySettingsChanges {
     public static func askToClear() -> Bool {
         NativeAlerts.confirmIrreversible(
             messageText: "Clear settings changes?",
-            informativeText: "The settings changed from Ask Claude’s chat are taken off History, with their Revert buttons. The settings stay as they are, and sync history isn’t affected.",
+            informativeText: "The settings changed from Ask Claude’s chat are taken off Activity’s Events, with their Revert buttons. The settings stay as they are, and sync history isn’t affected.",
             confirmTitle: "Clear")
     }
 }
 
-/// One settings change in History's list, in a sync record's shape: a glyph, a Setting pill and
+/// One settings change in Events' list, in a sync record's shape: a glyph, a Setting pill and
 /// the time, then what changed and who changed it, with Revert at the end.
 struct SettingsChangeHistoryRow: View {
     let change: SettingsChange

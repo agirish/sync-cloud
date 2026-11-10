@@ -97,16 +97,20 @@ import Events
         #expect(banner.runId != nil)
     }
 
-    /// A delete of something already gone records nothing, and its message reports no run.
-    @Test func aDeleteThatRemovedNothingReportsNoRun() async throws {
+    /// A delete hands its run back in its outcome, for Duplicates, whose "Reclaimed 1.2 MB" replaces
+    /// the delete's own message and must still report the run.
+    @Test func aDeleteHandsItsRunBackInItsOutcome() async throws {
         let store = makeTempHistoryStore(prefix: "RunReportingMessageTest")
         defer { removeHistoryStoreFiles(store) }
         let fm = MockFileManager()
         try folders(fm, "/dst")
+        file(fm, "/dst/copy.txt")
         let manager = manager(store, fm)
-        await manager.deleteItems(at: ["/dst/never.txt"], fileManager: fm, reportsNothingToDo: true)
-        #expect(store.records.isEmpty)
-        #expect(manager.banner?.runId == nil)
+        let outcome = await manager.deleteItems(at: ["/dst/copy.txt"], fileManager: fm)
+        #expect(outcome.runId != nil)
+        #expect(outcome.runId == store.records.first?.runId)
+        let nothing = await manager.deleteItems(at: ["/dst/never.txt"], fileManager: fm)
+        #expect(nothing.runId == nil)
     }
 
     /// A bulk sync's message reports its run; a second run's message reports the second, not the first.
@@ -134,18 +138,35 @@ import Events
         #expect(store.records.last?.runId == second)
     }
 
-    /// A rename records a run and posts no message: the next message is not that run's.
-    @Test func aRenamesRunIsNotTheNextMessagesRun() async throws {
+    /// Copy Remaining reports its run when it ran one direction, and none when it ran two: a
+    /// message can lead one run's row, not two.
+    @Test func copyRemainingReportsARunOnlyForOneDirection() async throws {
         let store = makeTempHistoryStore(prefix: "RunReportingMessageTest")
         defer { removeHistoryStoreFiles(store) }
         let fm = MockFileManager()
-        try folders(fm, "/dst")
-        file(fm, "/dst/old.txt")
+        try folders(fm, "/L", "/R")
         let manager = manager(store, fm)
-        await manager.renameItem(at: "/dst/old.txt", to: "new.txt", fileManager: fm)
-        #expect(store.records.count == 1)
-        await manager.deleteItems(at: ["/dst/never.txt"], fileManager: fm, reportsNothingToDo: true)
-        #expect(manager.banner != nil)
-        #expect(manager.banner?.runId == nil, "the rename's run was handed to an unrelated message")
+        func toRight(_ name: String) -> FileDifference {
+            FileDifference(relativePath: name, leftItemPath: "/L/\(name)", rightItemPath: "/R/\(name)",
+                           type: .missingOnRight, action: .copyToRight, description: "Missing on right", leftFileSize: 10)
+        }
+        func toLeft(_ name: String) -> FileDifference {
+            FileDifference(relativePath: name, leftItemPath: "/L/\(name)", rightItemPath: "/R/\(name)",
+                           type: .missingOnLeft, action: .copyToLeft, description: "Missing on left", rightFileSize: 10)
+        }
+        file(fm, "/L/a.txt")
+        let one = [toRight("a.txt")]
+        manager.differences = one
+        await manager.copyRemaining(one, isMove: false)
+        let reported = try #require(manager.banner?.runId)
+        #expect(store.records.last?.runId == reported)
+
+        file(fm, "/L/b.txt")
+        file(fm, "/R/c.txt")
+        let two = [toRight("b.txt"), toLeft("c.txt")]
+        manager.differences = two
+        await manager.copyRemaining(two, isMove: false)
+        #expect(Set(store.records.map(\.runId)).count == 3, "two directions are two runs")
+        #expect(manager.banner?.runId == nil, "a message reported one of two runs")
     }
 }

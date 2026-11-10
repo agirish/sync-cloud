@@ -87,22 +87,49 @@ import Sync
         #expect(!back.contains { $0.message == "Too old" })
     }
 
-    /// A trim keeps the lines this build can't read, so an older build never deletes a newer one's.
-    @Test func aTrimKeepsLinesThisBuildCannotRead() throws {
+    /// A trim keeps the lines a newer build wrote, so an older build never deletes them, and drops
+    /// lines no build can read.
+    @Test func aTrimKeepsANewerBuildsLinesAndDropsBrokenOnes() throws {
         let url = scratchURL()
         defer { try? FileManager.default.removeItem(at: url) }
         let store = ActivityMessageStore(fileURL: url)
         store.save(message("Too old", at: Date().addingTimeInterval(-ActivityMessageStore.maxAge - 60)))
         store.flush()
-        let foreign = #"{"version":99,"id":"from-a-newer-build"}"#
-        let handle = try FileHandle(forWritingTo: url)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data((foreign + "\n").utf8))
-        try handle.close()
+        let newer = #"{"version":99,"id":"from-a-newer-build"}"#
+        let broken = #"{"message":"half a li"#
+        try append(url, newer + "\n" + broken + "\n")
         #expect(ActivityMessageStore(fileURL: url).load().isEmpty)
         let text = try String(contentsOf: url, encoding: .utf8)
         #expect(!text.contains("Too old"), "the trim didn't rewrite the file")
-        #expect(text.contains(foreign), "the trim dropped a line from a newer build")
+        #expect(text.contains(newer), "the trim dropped a line from a newer build")
+        #expect(!text.contains(broken), "the trim kept a line no build can read")
+    }
+
+    /// Half a line left by a crash doesn't swallow the next message: it starts a line of its own.
+    @Test func aLineCutShortDoesNotSwallowTheNext() throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try append(url, #"{"message":"cut sh"#)
+        let store = ActivityMessageStore(fileURL: url)
+        store.save(message("Saved 1 PDF"))
+        store.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Saved 1 PDF"])
+    }
+
+    /// A long session trims the file as it goes, rather than leaving it all for the next launch.
+    @Test func aLongSessionTrimsAsItGoes() throws {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = ActivityMessageStore(fileURL: url)
+        var row = message("Skipped 3 items", severity: .warning)
+        for count in 1...(ActivityMessageStore.maxMessages * 2 + 10) {
+            row.repeats = count
+            store.save(row)
+        }
+        store.flush()
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").count
+        #expect(lines <= ActivityMessageStore.maxMessages + 1, "\(lines) lines: nothing trimmed the file mid-session")
+        #expect(ActivityMessageStore(fileURL: url).load().first?.repeats == ActivityMessageStore.maxMessages * 2 + 10)
     }
 
     /// Clear empties the file, the earlier sessions' messages too.
@@ -113,9 +140,35 @@ import Sync
         let center = ActivityCenter()
         center.attachMessages(store)
         center.record(OperationBanner.success("Copied 2 items"), finishedRun: nil, seen: true)
+        store.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().count == 1, "the message was never written")
         center.clear()
         store.flush()
         #expect(ActivityMessageStore(fileURL: url).load().isEmpty)
+    }
+
+    /// Forgetting the runs' messages reads the file as it is: another copy's other lines survive.
+    @Test func forgettingRunsKeepsAnotherCopysOtherLines() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mine = ActivityMessageStore(fileURL: url)
+        let center = ActivityCenter()
+        center.attachMessages(mine)
+        let theirs = ActivityMessageStore(fileURL: url)
+        theirs.save(message("Couldn’t move “a.pdf”", severity: .error))
+        theirs.save(message("Copied 4 items", runId: UUID()))
+        theirs.flush()
+        center.forgetRunMessages()
+        mine.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Couldn’t move “a.pdf”"])
+    }
+
+    private func append(_ url: URL, _ text: String) throws {
+        if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(text.utf8))
+        try handle.close()
     }
 
     // MARK: ActivityCenter
@@ -164,6 +217,66 @@ import Sync
         store.flush()
         #expect(center.recent.map(\.message) == ["Saved 1 PDF"])
         #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Saved 1 PDF"])
+    }
+
+    /// A message this session never folds into a row from an earlier one.
+    @Test func aNewMessageNeverFoldsIntoAnEarlierSessionsRow() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let earlier = ActivityMessageStore(fileURL: url)
+        var old = message("Skipped 3 items", at: Date().addingTimeInterval(-60), severity: .warning)
+        old.followUps = []
+        old.detail = nil
+        earlier.save(old)
+        earlier.flush()
+        let center = ActivityCenter()
+        center.attachMessages(ActivityMessageStore(fileURL: url))
+        center.record(ActivityMessage(message: "Skipped 3 items", severity: .warning), seen: true)
+        #expect(center.recent.count == 2)
+        #expect(center.recent.allSatisfy { $0.repeats == 1 })
+    }
+
+    /// The same message published again with its words amended is one row, updated.
+    @Test func theSameMessageAgainUpdatesItsRow() {
+        let center = ActivityCenter()
+        var banner = OperationBanner.success("Moved 3 items to the Trash")
+        center.record(banner, finishedRun: nil, seen: true)
+        banner.message += ". Includes 2 items the filter is hiding"
+        center.record(banner, finishedRun: nil, seen: true)
+        #expect(center.recent.map(\.message) == ["Moved 3 items to the Trash. Includes 2 items the filter is hiding"])
+    }
+
+    /// What this launch said before the store was attached is kept too.
+    @Test func whatWasSaidBeforeAttachIsKept() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let center = ActivityCenter()
+        center.record(OperationBanner.success("Saved 1 PDF"), finishedRun: nil, seen: true)
+        let store = ActivityMessageStore(fileURL: url)
+        center.attachMessages(store)
+        store.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Saved 1 PDF"])
+    }
+
+    /// A problem waiting when Activity opens is pointed at, so a filter left on can't hide it.
+    @Test func aWaitingProblemIsPointedAt() {
+        let center = ActivityCenter()
+        center.record(OperationBanner.success("Copied 2 items"), finishedRun: nil, seen: false)
+        center.record(OperationBanner.error("Couldn’t move “a.pdf”", log: .error), finishedRun: nil, seen: false)
+        let problem = center.recent[0].id
+        center.record(OperationBanner.success("Saved 1 PDF"), finishedRun: nil, seen: false)
+        center.tab = .log
+        #expect(center.tabForOpening() == .events)
+        #expect(center.pointRequest == problem)
+    }
+
+    /// One-way sync's History… is kept until Events takes it, so it holds when the window opens later.
+    @Test func oneWaySyncHistoryWaitsForEvents() {
+        let center = ActivityCenter()
+        center.tab = .log
+        center.showOneWaySyncHistory()
+        #expect(center.tab == .events)
+        #expect(center.wantsOneWaySyncHistory)
     }
 
     /// A refusal is drawn as a warning, and says it is one.

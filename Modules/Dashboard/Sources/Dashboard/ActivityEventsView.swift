@@ -39,15 +39,8 @@ public struct ActivityEventsView: View {
 
     /// The reason the last Undo… click refused, while its alert is up.
     @State private var undoRefusal: String?
-    @State private var selectedAction: ActivityEventsChoice = .all
-    @State private var dateRange: DateRange = .all
-    @State private var searchText = ""
-    /// Runs opened by hand while no filter narrows them.
-    @State private var opened: Set<UUID> = []
-    /// Runs closed by hand while a filter opens every match.
-    @State private var closedWhileFiltered: Set<UUID> = []
-    /// How many of a run's records it lists, past the first page.
-    @State private var shownRecords: [UUID: Int] = [:]
+    /// Filters, open runs and paging, kept while the tab is away (Show in Log and back).
+    @ObservedObject private var state: ActivityEventsState
     @State private var oneWayEntries: [OneWaySyncHistoryEntry] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
@@ -65,8 +58,10 @@ public struct ActivityEventsView: View {
                 runWriteLock: String? = nil,
                 undoableRun: @escaping @MainActor () -> UUID? = { nil },
                 onUndoRun: @escaping @MainActor () -> String? = { nil },
-                confirmClearHistory: @escaping @MainActor () -> Bool = ActivityEventsView.defaultClearConfirmation) {
+                confirmClearHistory: @escaping @MainActor () -> Bool = ActivityEventsView.defaultClearConfirmation,
+                state: ActivityEventsState = .shared) {
         self.store = store
+        self.state = state
         self.center = center
         self.oneWay = oneWay
         self.settings = settings
@@ -115,7 +110,7 @@ public struct ActivityEventsView: View {
 
     /// A coarse relative date window, enough for "what did I do recently" without a date picker.
     /// Resolves to a lower bound at render time; the upper bound is always now.
-    private enum DateRange: String, CaseIterable, Identifiable {
+    enum DateRange: String, CaseIterable, Identifiable {
         case all = "All time"
         case lastHour = "Last hour"
         case today = "Today"
@@ -158,20 +153,37 @@ public struct ActivityEventsView: View {
 
     /// Whether a filter is narrowing runs to their matching files, which opens every match.
     private var narrowsRuns: Bool {
-        selectedAction.action != nil || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        state.choice.action != nil || !state.search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The timeline as the filters leave it, built again only when what it is built from changed.
+    /// The window redraws for many reasons (the manager publishes often); most change nothing here.
+    private func events(changes allChanges: [SettingsChange]) -> [ActivityEvent] {
+        let start = state.dateRange.start()
+        let key = ActivityEventsState.BuildKey(
+            records: store.records.count, firstRecord: store.records.first?.id, lastRecord: store.records.last?.id,
+            trimmed: store.trimmedRunIds.count, recent: center.recentVersion, oneWay: oneWayEntries.map(\.id),
+            changes: allChanges.count, lastChange: allChanges.last?.id, choice: state.choice, search: state.search,
+            start: start.map { ($0.timeIntervalSinceReferenceDate / 60).rounded(.down) })
+        if let cache = state.cache, cache.key == key { return cache.events }
+        let events = ActivityEvents.build(records: store.records, messages: center.recent, oneWay: oneWayEntries,
+                                          changes: allChanges, choice: state.choice, search: state.search,
+                                          start: start, trimmedRuns: store.trimmedRunIds)
+        state.cache = (key, events)
+        return events
     }
 
     public var body: some View {
         let allChanges = settings.map { settingsLog.visible(hiding: $0.hiddenNames()) } ?? []
         // One pass per body render, shared by the list, the empty state, and Export.
-        let events = ActivityEvents.build(records: store.records, messages: center.recent, oneWay: oneWayEntries,
-                                          changes: allChanges, choice: selectedAction, search: searchText,
-                                          start: dateRange.start())
+        let events = events(changes: allChanges)
         let total = store.records.count + center.recent.count + oneWayEntries.count + allChanges.count
+        // Asked once a render, not once a row.
+        let undoable = undoableRun()
         VStack(spacing: 0) {
             toolbar(exportable: Self.records(in: events), hasChanges: !allChanges.isEmpty)
             Divider().opacity(0.6)
-            list(events: events, total: total)
+            list(events: events, total: total, undoable: undoable)
         }
         .frame(minWidth: 460, minHeight: 160)
         .alert(Self.undoRefusalTitle,
@@ -181,15 +193,26 @@ public struct ActivityEventsView: View {
         } message: {
             Text(undoRefusal ?? "")
         }
-        // One-way sync's entries, read again after each sync.
-        .task(id: oneWay.state?.lastSyncAt) { oneWayEntries = OneWaySyncHistoryEntryRow.entries(oneWay) }
-        // One-way sync's History…: its entries alone.
-        .onChange(of: center.oneWaySyncHistoryRequests) { _, _ in
-            clearFilters()
-            selectedAction = .oneWaySync
+        // One-way sync's entries, read again after each sync, off the main thread: one file each.
+        .task(id: oneWay.state?.lastSyncAt) {
+            let history = oneWay.store?.history
+            oneWayEntries = await Task.detached { history?.entries() ?? [] }.value
         }
-        .onChange(of: searchText) { _, _ in closedWhileFiltered = [] }
-        .onChange(of: selectedAction) { _, _ in closedWhileFiltered = [] }
+        // One-way sync's History…: its entries alone, asked for perhaps before this tab was shown.
+        .onChange(of: center.wantsOneWaySyncHistory, initial: true) { _, wants in
+            guard wants else { return }
+            center.wantsOneWaySyncHistory = false
+            clearFilters()
+            state.choice = .oneWaySync
+        }
+        // A notification's click, Show in Events, a waiting problem: its row, once.
+        .onChange(of: center.pointRequest, initial: true) { _, id in
+            guard let id else { return }
+            center.pointRequest = nil
+            point(at: id, in: events)
+        }
+        .onChange(of: state.search) { _, _ in state.closedWhileFiltered = [] }
+        .onChange(of: state.choice) { _, _ in state.closedWhileFiltered = [] }
     }
 
     /// The runs' records the list shows, for Export: settings changes and messages aren't exported.
@@ -201,9 +224,9 @@ public struct ActivityEventsView: View {
     }
 
     private func clearFilters() {
-        selectedAction = .all
-        dateRange = .all
-        searchText = ""
+        state.choice = .all
+        state.dateRange = .all
+        state.search = ""
     }
 
     // MARK: Toolbar
@@ -218,7 +241,7 @@ public struct ActivityEventsView: View {
                 // What the pickers and buttons leave: they keep their own widths first.
                 .layoutPriority(-1)
 
-            Picker("Action", selection: $selectedAction) {
+            Picker("Action", selection: $state.choice) {
                 ForEach(Self.actionOptions, id: \.label) { option in
                     Text(option.label).tag(option.action)
                 }
@@ -234,7 +257,7 @@ public struct ActivityEventsView: View {
             .labelsHidden()
             .frame(width: 130)
 
-            Picker("Range", selection: $dateRange) {
+            Picker("Range", selection: $state.dateRange) {
                 ForEach(DateRange.allCases) { range in
                     Text(range.rawValue).tag(range)
                 }
@@ -267,11 +290,11 @@ public struct ActivityEventsView: View {
         .padding(.vertical, 10)
     }
 
-    /// The trash: three records, each cleared on its own. Messages go at once, as Recent's Clear
-    /// always did, since the runs keep their records; Sync History and settings changes ask first.
+    /// The trash: three records, each cleared on its own, each asking first. Messages are kept across
+    /// quits, so a clear takes earlier sessions' too.
     private func clearControl(hasChanges: Bool) -> some View {
         Menu {
-            Button("Clear Messages") { center.clear() }
+            Button("Clear Messages…") { if ActivityCenter.confirmClearMessages() { center.clear() } }
                 .disabled(center.recent.isEmpty)
             Button("Clear Sync History…") {
                 // The messages that reported its runs go too: each would be a row with nothing behind it.
@@ -302,10 +325,10 @@ public struct ActivityEventsView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField(settings == nil ? "Filter by path or words…" : "Filter by path, setting or words…", text: $searchText)
+            TextField(settings == nil ? "Filter by path or words…" : "Filter by path, setting or words…", text: $state.search)
                 .textFieldStyle(.plain)
-            if !searchText.isEmpty {
-                Button(action: { searchText = "" }) {
+            if !state.search.isEmpty {
+                Button(action: { state.search = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .scaledFont(.body)
                         .hoverInk()
@@ -319,7 +342,7 @@ public struct ActivityEventsView: View {
 
     // MARK: List
 
-    private func list(events: [ActivityEvent], total: Int) -> some View {
+    private func list(events: [ActivityEvent], total: Int, undoable: UUID?) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
@@ -327,7 +350,7 @@ public struct ActivityEventsView: View {
                         Section {
                             ForEach(Array(day.events.enumerated()), id: \.element.id) { index, event in
                                 if index > 0 { Divider().padding(.leading, 12) }
-                                row(event)
+                                row(event, undoable: undoable)
                                     .id(event.id)
                             }
                         } header: {
@@ -338,8 +361,14 @@ public struct ActivityEventsView: View {
                 .padding(.bottom, 12)
             }
             .background(.regularMaterial.opacity(0.5))
-            // A notification's click, or Show in Events, brings its row into view.
-            .onChange(of: center.highlighted, initial: true) { _, id in point(at: id, proxy: proxy) }
+            // After the update that put the pointed-at row back in the list, not before it.
+            .onChange(of: state.scrollTarget) { _, target in
+                guard let target else { return }
+                state.scrollTarget = nil
+                withDesignAnimation(.default, reduceMotion: reduceMotion) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+            }
         }
         .overlay {
             if events.isEmpty { emptyState(total: total) }
@@ -359,13 +388,14 @@ public struct ActivityEventsView: View {
     }
 
     @ViewBuilder
-    private func row(_ event: ActivityEvent) -> some View {
+    private func row(_ event: ActivityEvent, undoable: UUID?) -> some View {
         switch event {
         case .run(let run):
-            runRow(run)
+            runRow(run, undoable: undoable)
         case .message(let message):
             ActivityMessageRow(message: message, center: center, runWriteLock: runWriteLock, time: .clock)
                 .background { highlight(message.id) }
+                .modifier(ArrivalFlash(id: message.id, center: center))
         case .oneWay(let entry):
             OneWaySyncHistoryEntryRow(entry: entry, controller: oneWay)
         case .setting(let change):
@@ -379,25 +409,27 @@ public struct ActivityEventsView: View {
 
     // MARK: A run
 
-    private func runRow(_ run: ActivityEventRun) -> some View {
+    private func runRow(_ run: ActivityEventRun, undoable: UUID?) -> some View {
         let open = isOpen(run)
         return VStack(alignment: .leading, spacing: 0) {
             if let message = run.message {
-                // Its message leads, with the run's own Undo… in place of the message's.
+                // Its message leads. Where the run's Undo… stands, the message's own Undo goes; where
+                // it doesn't (a mixed delete keeps its step but drops the run's pairing), it stays.
                 ActivityMessageRow(message: message, center: center, runWriteLock: runWriteLock, time: .clock,
-                                   showsUndo: false) {
-                    runControls(run, isOpen: open)
+                                   showsUndo: undoable != run.id) {
+                    runControls(run, isOpen: open, undoable: undoable)
                 }
             } else {
-                builtHeader(run, isOpen: open)
+                builtHeader(run, isOpen: open, undoable: undoable)
             }
             if open { runRecords(run) }
         }
         .background { highlight(run.message?.id) }
+        .modifier(ArrivalFlash(id: run.message?.id, center: center))
     }
 
     /// A run no message reported: its sentence built from its records.
-    private func builtHeader(_ run: ActivityEventRun, isOpen: Bool) -> some View {
+    private func builtHeader(_ run: ActivityEventRun, isOpen: Bool, undoable: UUID?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             Image(systemName: run.records.first?.action.systemImage ?? "clock.arrow.circlepath")
                 .foregroundStyle(.secondary)
@@ -423,7 +455,7 @@ public struct ActivityEventsView: View {
                         .truncationMode(.middle)
                 }
                 HStack(spacing: 6) {
-                    runControls(run, isOpen: isOpen)
+                    runControls(run, isOpen: isOpen, undoable: undoable)
                     Button("Show in Log") { center.doors.showInLog(run.span) }
                         .buttonStyle(.link)
                         .help("The log, narrowed to the minutes around this run")
@@ -439,7 +471,7 @@ public struct ActivityEventsView: View {
 
     /// The run's files toggle, and Undo… on the one run it can reverse.
     @ViewBuilder
-    private func runControls(_ run: ActivityEventRun, isOpen: Bool) -> some View {
+    private func runControls(_ run: ActivityEventRun, isOpen: Bool, undoable: UUID?) -> some View {
         Button {
             toggle(run, isOpen: isOpen)
         } label: {
@@ -448,7 +480,7 @@ public struct ActivityEventsView: View {
         .buttonStyle(.link)
         .accessibilityValue(isOpen ? "Open" : "Closed")
         .help(isOpen ? "Hide this run’s files" : "Show this run’s files")
-        if undoableRun() == run.id {
+        if undoable == run.id {
             Button {
                 undoRefusal = onUndoRun()
             } label: {
@@ -461,34 +493,40 @@ public struct ActivityEventsView: View {
         }
     }
 
-    /// "24 records", or "3 of 24 records" while a filter narrows it.
+    /// "24 records", or "3 of 24 records" while a filter narrows it; "5,000 kept" when Sync History's
+    /// cap cut the run, whose whole count is no longer known.
     static func recordsLabel(_ run: ActivityEventRun) -> String {
         let total = run.total.formatted()
-        if run.isNarrowed { return "\(run.records.count.formatted()) of \(total) records" }
-        return run.total == 1 ? "1 record" : "\(total) records"
+        let label: String
+        if run.isNarrowed {
+            label = "\(run.records.count.formatted()) of \(total) records"
+        } else {
+            label = run.total == 1 ? "1 record" : "\(total) records"
+        }
+        return run.isCut ? label + " kept" : label
     }
 
     private func isOpen(_ run: ActivityEventRun) -> Bool {
-        narrowsRuns ? !closedWhileFiltered.contains(run.id) : opened.contains(run.id)
+        narrowsRuns ? !state.closedWhileFiltered.contains(run.id) : state.opened.contains(run.id)
     }
 
     private func toggle(_ run: ActivityEventRun, isOpen: Bool) {
         if narrowsRuns {
-            if isOpen { closedWhileFiltered.insert(run.id) } else { closedWhileFiltered.remove(run.id) }
+            if isOpen { state.closedWhileFiltered.insert(run.id) } else { state.closedWhileFiltered.remove(run.id) }
         } else {
-            if isOpen { opened.remove(run.id) } else { opened.insert(run.id) }
+            if isOpen { state.opened.remove(run.id) } else { state.opened.insert(run.id) }
         }
     }
 
     private func runRecords(_ run: ActivityEventRun) -> some View {
-        let shown = shownRecords[run.id] ?? Self.recordPage
+        let shown = state.shownRecords[run.id] ?? Self.recordPage
         return VStack(alignment: .leading, spacing: density.metrics.logListSpacing) {
             ForEach(run.records.prefix(shown)) { record in
                 SyncHistoryRow(record: record, density: density)
             }
             if run.records.count > shown {
                 Button("Show \(min(Self.recordPage, run.records.count - shown).formatted()) More") {
-                    shownRecords[run.id] = shown + Self.recordPage
+                    state.shownRecords[run.id] = shown + Self.recordPage
                 }
                 .buttonStyle(.link)
                 .scaledFont(.system(size: 11))
@@ -506,24 +544,18 @@ public struct ActivityEventsView: View {
         }
     }
 
-    /// Brings a message's row into view: its own, or the run's it leads, opened. Clears the filters
-    /// first, so none hides it.
-    private func point(at id: UUID?, proxy: ScrollViewProxy) {
-        guard let id else { return }
-        clearFilters()
+    /// Brings a message's row into view: its own, or that of the run it leads, opened. Clears the
+    /// filters only when they hide it, then scrolls once the list has it again.
+    private func point(at id: UUID, in shown: [ActivityEvent]) {
         var target = "message-\(id)"
         if let runId = center.recent.first(where: { $0.id == id })?.runId,
            store.records.contains(where: { $0.runId == runId }) {
             target = "run-\(runId)"
-            opened.insert(runId)
+            state.opened.insert(runId)
+            state.closedWhileFiltered.remove(runId)
         }
-        Task { @MainActor in
-            // After the cleared filters have put the row back in the list.
-            await Task.yield()
-            withDesignAnimation(.default, reduceMotion: reduceMotion) {
-                proxy.scrollTo(target, anchor: .center)
-            }
-        }
+        if !shown.contains(where: { $0.id == target }) { clearFilters() }
+        state.scrollTarget = target
     }
 
     @ViewBuilder
@@ -584,7 +616,7 @@ public struct ActivityEventsView: View {
 /// `timeFormatter`.
 struct SyncHistoryRow: View {
     let record: SyncHistoryRecord
-    /// List-density setting, passed down by `SyncHistoryView`, which already reads the key, so
+    /// List-density setting, passed down by `ActivityEventsView`, which already reads the key, so
     /// there is one storage observer per window rather than per row. Comfortable is the two-line
     /// pill/meta-over-path layout; compact is one baseline row where the path middle-truncates but
     /// stays visible, since the path is the record.
@@ -653,6 +685,7 @@ struct SyncHistoryRow: View {
                             Image(systemName: "arrow.right")
                                 .scaledFont(.caption2)
                                 .foregroundStyle(.tertiary)
+                                .accessibilityHidden(true)
                             Text(Self.displayPath(dest))
                         }
                         .scaledFont(.system(.subheadline, design: .monospaced))
@@ -667,6 +700,8 @@ struct SyncHistoryRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
+        // One element per file, so VoiceOver reads a run's files one at a time.
+        .accessibilityElement(children: .combine)
     }
 
     private var actionPill: some View {
@@ -741,3 +776,60 @@ struct SyncHistoryRow: View {
     }
 }
 
+
+/// Events' filters, open runs and paging, kept while the window is open: switching to Log and back
+/// (Show in Log on a run) finds Events as it was left. One for the app's one Activity window; a
+/// test passes its own.
+@MainActor
+public final class ActivityEventsState: ObservableObject {
+    public static let shared = ActivityEventsState()
+
+    @Published var choice: ActivityEventsChoice = .all
+    @Published var dateRange: ActivityEventsView.DateRange = .all
+    @Published var search = ""
+    /// Runs opened by hand while no filter narrows them.
+    @Published var opened: Set<UUID> = []
+    /// Runs closed by hand while a filter opens every match.
+    @Published var closedWhileFiltered: Set<UUID> = []
+    /// How many of a run's records it lists, past the first page.
+    @Published var shownRecords: [UUID: Int] = [:]
+    /// The row to scroll to on the next update, set by pointing at one.
+    @Published var scrollTarget: String?
+
+    /// What the timeline was last built from; equal means the build would come out the same.
+    struct BuildKey: Equatable {
+        let records: Int
+        let firstRecord: UUID?
+        let lastRecord: UUID?
+        let trimmed: Int
+        let recent: Int
+        let oneWay: [UUID]
+        let changes: Int
+        let lastChange: UUID?
+        let choice: ActivityEventsChoice
+        let search: String
+        /// The range's start to the minute: "Last hour" moves with the clock.
+        let start: Double?
+    }
+    /// The last build: not published, a cache.
+    var cache: (key: BuildKey, events: [ActivityEvent])?
+
+    public init() {}
+}
+
+/// A message arriving while Events is open flashes its row once, as the popover's rows do. A fade,
+/// so Reduce Motion keeps it.
+private struct ArrivalFlash: ViewModifier {
+    let id: UUID?
+    @ObservedObject var center: ActivityCenter
+
+    func body(content: Content) -> some View {
+        content.keyframeAnimator(initialValue: 0.0, trigger: center.flashes) { row, glow in
+            row.background(RoundedRectangle(cornerRadius: Radius.chip)
+                .fill(LiquidGlassHue.stored().accentColor.opacity(id != nil && id == center.flashedRow ? glow : 0)))
+        } keyframes: { _ in
+            LinearKeyframe(0.22, duration: 0.15)
+            LinearKeyframe(0, duration: 1.45)
+        }
+    }
+}

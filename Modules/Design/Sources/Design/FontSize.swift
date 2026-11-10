@@ -228,7 +228,7 @@ public extension View {
     ///
     /// The one line each window root adds. Unlike `AppAppearance` it can't be set once on `NSApp`:
     /// it rides the SwiftUI environment, so every scene opts in (the main window, Activity Log,
-    /// Sync History, Keyboard Shortcuts). Settings is an in-window overlay and inherits it.
+    /// Keyboard Shortcuts). Settings is an in-window overlay and inherits it.
     func appFontSizeFromSettings() -> some View {
         modifier(PersistedAppFontSize())
     }

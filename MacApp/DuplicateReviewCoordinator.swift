@@ -491,16 +491,16 @@ struct DuplicateReviewCoordinator {
                                     syncManager: FileSyncManager) {
         switch verdict {
         case .keepDrifted(missingBaseline: true):
-            syncManager.banner = .warning("The left copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so the right copy can’t be proven redundant. Review them manually.", log: .loggedAtSite)
+            syncManager.banner = .refusal("The left copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so the right copy can’t be proven redundant. Review them manually.", log: .loggedAtSite)
             Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for the left copy \(review.keepPath) (subtree unreadable, too deep, or a link cycle), so the right copy is not provably redundant")
         case .keepDrifted(missingBaseline: false):
-            syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.", log: .loggedAtSite)
+            syncManager.banner = .refusal("The left copy is no longer what the scan saw — rescan before trashing the right copy.", log: .loggedAtSite)
             Logger.shared.warning("Refused to trash \(review.deletePath): the left copy \(review.keepPath) is no longer what the scan saw, so the right copy may be its last intact instance")
         case .deleteDrifted(missingBaseline: true):
-            syncManager.banner = .warning("The right copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy of the left one. Review it manually.", log: .loggedAtSite)
+            syncManager.banner = .refusal("The right copy couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so it can’t be proven still a copy of the left one. Review it manually.", log: .loggedAtSite)
             Logger.shared.warning("Refused to trash \(review.deletePath): the scan recorded no baseline for it (subtree unreadable, too deep, or a link cycle), so it is not provably still a duplicate")
         case .deleteDrifted(missingBaseline: false):
-            syncManager.banner = .warning("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.", log: .loggedAtSite)
+            syncManager.banner = .refusal("The right copy has changed since the scan — it is no longer a copy of the left one. Rescan before trashing it.", log: .loggedAtSite)
             Logger.shared.warning("Refused to trash \(review.deletePath): it changed since the scan, so it is no longer provably a duplicate")
         case .matches, .deleteVanished:
             break   // nothing to refuse

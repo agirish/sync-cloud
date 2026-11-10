@@ -3,7 +3,7 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// Activity ▸ Now's one-way sync rows on Activity's owner: read back after a quit, notified once,
+/// the rows above Activity ▸ Events's one-way sync rows on Activity's owner: read back after a quit, notified once,
 /// reminded when due, and a click picking out the row. A fresh center and a scratch file per
 /// test, because the app's are `.shared` and Application Support.
 @MainActor

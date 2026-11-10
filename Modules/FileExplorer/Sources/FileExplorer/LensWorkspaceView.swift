@@ -2936,7 +2936,7 @@ public struct LensWorkspaceView: View {
                             Task { @MainActor in
                                 let outcome = await syncManager.applyScaffold(for: finding)
                                 if let refusal = outcome.refusal {
-                                    syncManager.banner = .warning(refusal, log: .warn)
+                                    syncManager.banner = .refusal(refusal, log: .warn)
                                 } else {
                                     handOffToToFile(finding)
                                 }
@@ -3236,7 +3236,7 @@ public struct LensWorkspaceView: View {
             syncManager.banner = .refusal(sentence, log: .warn)
             return
         case .unavailable:
-            syncManager.banner = .warning(
+            syncManager.banner = .refusal(
                 "There is no longer a finding for that folder — the survey may have been "
                 + "updated since the menu was opened.", log: .warn)
             return
@@ -3251,7 +3251,7 @@ public struct LensWorkspaceView: View {
             Task { @MainActor in
                 let outcome = await syncManager.applyScaffold(for: finding)
                 if let refusal = outcome.refusal {
-                    syncManager.banner = .warning(refusal, log: .warn)
+                    syncManager.banner = .refusal(refusal, log: .warn)
                 } else {
                     handOffToToFile(finding)
                 }

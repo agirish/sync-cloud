@@ -100,7 +100,7 @@ public struct OneWaySyncReversal: Equatable, Sendable, Identifiable {
     }
 }
 
-/// The answers to Now's rows. Each does one thing on disk and leaves the rest to the next
+/// The answers to one-way sync's rows above Events. Each does one thing on disk and leaves the rest to the next
 /// pass, which finds both sides agreeing and records them; none of them edits the record behind
 /// the planner's back except where a folder's own record changes (renamed, stopped, removed).
 ///

@@ -92,6 +92,22 @@ import Foundation
         #expect(store.records.last?.sourcePath == "/src/item-5000.txt")
     }
 
+    /// A run the cap cuts is named, so Activity's Events says its count is only what is kept; a run
+    /// it leaves whole is not, and a clear forgets them.
+    @Test func theCapNamesTheRunsItCut() throws {
+        let url = makeTempURL()
+        defer { removeLogFiles(at: url) }
+        let store = SyncHistoryStore(fileURL: url)
+        defer { store.flushToDisk() }
+        let cut = UUID()
+        let whole = UUID()
+        store.appendBatch((0..<4_999).map { record(runId: cut, source: "/src/a-\($0).txt") })
+        store.appendBatch((0..<2).map { record(runId: whole, source: "/src/b-\($0).txt") })
+        #expect(store.trimmedRunIds == [cut])
+        store.clear()
+        #expect(store.trimmedRunIds.isEmpty)
+    }
+
     @Test func testClearEmptiesMemoryAndDisk() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }

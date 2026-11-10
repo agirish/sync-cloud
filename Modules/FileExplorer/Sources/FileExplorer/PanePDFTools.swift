@@ -137,7 +137,7 @@ public final class PanePDFTools: ObservableObject {
     }
 
     private func refuseWhileBusy() {
-        let note = EditorPDFToolBanner(message: EditorPDFTools.busyMessage, kind: .note)
+        let note = EditorPDFToolBanner(message: EditorPDFTools.busyMessage, kind: .note, isRefusal: true)
         switch current {
         case .single(let tools): tools.banner = note
         case .batch(let batch): batch.banner = note
@@ -185,7 +185,7 @@ public final class PanePDFTools: ObservableObject {
             return
         }
         tools.attach(path: path, pageCount: pageCount, encryption: encryption, droppedParts: droppedParts)
-        func refuse(_ message: String) { tools.banner = EditorPDFToolBanner(message: message, kind: .note) }
+        func refuse(_ message: String) { tools.banner = EditorPDFToolBanner(message: message, kind: .note, isRefusal: true) }
         switch request {
         case .rotateAll:
             if !tools.offersPageTools { refuse(tools.disabledReason ?? "“\(name)” has no pages to rotate.") }

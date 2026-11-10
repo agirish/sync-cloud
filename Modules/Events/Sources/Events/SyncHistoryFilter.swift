@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure filtering for the Sync History window, the analogue of the Activity Log's
+/// Pure filtering for Activity's Events and its export, the analogue of the Activity Log's
 /// `LogEntryFilter`. Kept out of the view so it is testable without any `@State`.
 public enum SyncHistoryFilter {
 
@@ -14,7 +14,7 @@ public enum SyncHistoryFilter {
     ///     matches everything.
     ///   - start: Keep records at or after this instant. `nil` imposes no lower bound.
     ///   - end: Keep records at or before this instant. `nil` imposes no upper bound.
-    ///   - runId: Keep only this run's records, for Activity's Show in History. `nil` keeps all.
+    ///   - runId: Keep only this run's records. `nil` keeps all.
     public static func apply(
         _ records: [SyncHistoryRecord],
         action: SyncAction?,

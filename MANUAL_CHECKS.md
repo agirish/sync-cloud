@@ -464,30 +464,28 @@ and key refusals are tested; this is what is not.
 - [ ] **A stale Undo says so.** In Recent, the delete's Undo is greyed: "Undo the newer “Rename”
   first." ⌘Z once in the main window (the rename comes back undone) → the delete's Undo is live
   again; click it → the file is back, and the row says "Already undone".
-- [ ] **One window.** Window ▸ Activity, ⌘L, or the toolbar's Activity button → one window with
-  Now · History · Log. Window ▸ Sync History opens it on History; there is no Activity Log item.
-  Close it on Log, press ⌘L → it opens on Log.
-- [ ] **Links down a level.** After a copy from Compare, its Recent row's Show in History → History,
-  "One run · N records", only that copy's rows; Show All brings back the rest. Show in Log → Log,
-  "Only 14:02:11 – 14:06:07", the lines of those minutes.
+- [ ] ~~**One window.**~~ Superseded 2026-11-09 by TE339: two tabs, Events and Log, and no
+  Window ▸ Sync History. See "Activity's Events and Log (TE339)".
+- [ ] ~~**Links down a level.**~~ Superseded 2026-11-09 by TE339: a run's row opens to its files in
+  place. Show in Log → Log, "Only 14:02:11 – 14:06:07", still holds.
 - [ ] **A stop is grey.** Save six files as PDF and press Stop after the second → Recent's row has a
   gray stop glyph and "Stopped. Saved 2 of 6 as PDF."; stop a copy while away in another app → no
   red dot.
 - [ ] **The dot.** Start a large merge, switch to another app, let it end with a skipped file (or any
-  warning) → the toolbar's Activity button has a red dot; opening Activity shows Now and the dot
-  goes. A success while away leaves none.
+  warning) → the toolbar's Activity button has a red dot; opening Activity shows Events, scrolled to
+  the problem's row, and the dot goes. A success while away leaves none.
 - [ ] **Edit's own results.** In Edit, Compress the open PDF → its banner in Edit, and a row in Recent.
   Fill & Sign → Save a Copy → a row too. A file changed on disk (the reload banner) adds no row.
 
 ## Activity: long scans, notifications, VoiceOver (Run Room TE226–TE228, 2026-10-27)
 
-- [ ] **Long scans in Now.** Start Read documents in Organize, then open Activity → Now lists
+- [ ] **Long scans at the top of Events.** Start Read documents in Organize, then open Activity → the band lists
   "Reading documents · N of M" with Show and no Stop; the toolbar has no capsule for it. Pause it on
   its card → the row says "paused at"; Show brings Organize forward on the card.
 - [ ] **A notification opens its row.** General ▸ Notify when operations finish in the background on.
   Start a large copy, switch to another app, let it end → the notification's title is the run
   ("Copying 1,204 items"), its body the message and any skipped files. Click it → SyncCloud comes
-  forward with Activity on Now and that row marked.
+  forward with Activity on Events and that row marked.
 - [ ] **VoiceOver.** With VoiceOver on, end a Compress and a Save as PDF within a second of each
   other → one announcement, "2 new in Activity: …". A failure interrupts what VoiceOver was reading;
   a success waits. Focus the capsule with two runs → "Activity, 2 running. Merging Photos, …".
@@ -522,7 +520,7 @@ and key refusals are tested; this is what is not.
   the file stays in the Trash. When the merge ends, the message's Undo (if still up) and ⌘Z put it back.
 - [ ] **Typing undo goes on.** During a merge, type in a document in Edit, then ⌘Z → the typing is
   undone. Edit ▸ Undo reads "Undo Typing" and is live.
-- [ ] **Sync History.** During a run, Window ▸ Sync History → Undo Last Run… is greyed with the reason.
+- [ ] **A run's Undo….** During a run, the newest run's Undo… in Activity's Events is greyed with the reason.
 
 ## Nothing jumps in Edit or the tab strip (TE210/213/214 follow-ups, 2026-10-26)
 
@@ -1078,7 +1076,7 @@ Needs an API key, a folder survey from Setup, and a few loose files in Downloads
 
 ## Activity's Events and Log (TE339, 2026-11-09)
 
-Copy a folder of a few files to another source first, so there is a run to look at.
+Select 24 files and copy them to the other pane first, so there is a run to look at.
 
 - [ ] **Two tabs.** Window ▸ Activity (⌘L): the tabs read Events and Log. Window has no Sync History
   item.
@@ -1093,8 +1091,11 @@ Copy a folder of a few files to another source first, so there is a run to look 
   something else in the main window first (New Folder): the copy's row no longer offers Undo….
 - [ ] **Filters reach into runs.** Type part of one file's name in the filter: the run opens to that
   file alone and says "1 of 24 records". Clear the field: it closes again.
-- [ ] **Messages and clears.** A failed move is its own row. The trash menu has Clear Messages (no
-  question), Clear Sync History… and Clear Settings Changes… (each asks).
+- [ ] **Messages and clears.** A failed move is its own row. The trash menu has Clear Messages…,
+  Clear Sync History… and Clear Settings Changes…, and each asks first. The capsule popover's Clear…
+  asks too.
+- [ ] **Show in Log and back.** Filter Events, open a run, then its Show in Log, then Events: the
+  filter and the open run are as you left them.
 - [ ] **Pointing at a row.** With a filter set, click a background-finish notification: the filter
   clears and the run's row is shown, opened and highlighted. In the capsule's popover, Show in Events
   on a message does the same.

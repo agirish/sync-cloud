@@ -1,6 +1,6 @@
 import Foundation
 
-/// Serializes `SyncHistoryRecord`s to the Sync History window's two export formats: CSV for a
+/// Serializes `SyncHistoryRecord`s to Activity's Events' two export formats: CSV for a
 /// spreadsheet, JSON for tooling. Pure functions of their input (no I/O, clock or locale), so tests
 /// can pin the escaping and shape the export writes.
 public enum SyncHistoryExporter {

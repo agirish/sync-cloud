@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Design
 import Sync
 
 /// One message in Activity's Recent list — a result as the window or Edit said it, kept in full.
@@ -29,6 +30,9 @@ public struct ActivityMessage: Identifiable, Equatable {
     public var foldedIDs: [UUID] = []
     /// A refusal (`OperationBanner.isRefusal`): shown this session, never kept past it.
     public var isRefusal = false
+    /// Read back from an earlier session's file: never folded into by this session's messages,
+    /// whose Undo, Download and minutes belong to now.
+    public var isFromEarlierSession = false
 
     public enum Source: String, Codable, Equatable {
         case window
@@ -74,6 +78,7 @@ public struct ActivityMessage: Identifiable, Equatable {
         message == other.message && detail == other.detail && severity == other.severity
             && followUps == other.followUps && source == other.source && undoStep == nil && other.undoStep == nil
             && runId == nil && other.runId == nil && isRefusal == other.isRefusal
+            && !isFromEarlierSession && !other.isFromEarlierSession
     }
 }
 
@@ -118,7 +123,12 @@ public final class ActivityCenter: ObservableObject {
     /// Save as PDF from a pane's row menu or File ▸.
     public let paneSaveAsPDF = PaneSaveAsPDF()
 
-    @Published public private(set) var recent: [ActivityMessage] = []
+    @Published public private(set) var recent: [ActivityMessage] = [] {
+        didSet { recentVersion &+= 1 }
+    }
+    /// Bumped with every change to `recent`, in place ones included: what Events' cached timeline is
+    /// keyed by, so a redraw that changed nothing rebuilds nothing.
+    public private(set) var recentVersion = 0
     /// A problem arrived that nobody has seen: the toolbar's Activity button wears a dot until
     /// Activity is opened.
     @Published public private(set) var hasUnseenProblem = false
@@ -135,8 +145,13 @@ public final class ActivityCenter: ObservableObject {
     @Published public var tab: ActivityTab = .events
     /// Show in Log's minutes: set by a message's row, read by the Log tab.
     @Published public var logSpan: ClosedRange<Date>?
-    /// Bumped to ask Events for one-way sync's entries alone: one-way sync's History… button.
-    @Published public private(set) var oneWaySyncHistoryRequests = 0
+    /// One-way sync's History… asked for its entries alone, and Events hasn't shown them yet: kept
+    /// until Events appears, which may be after the window opens.
+    @Published public var wantsOneWaySyncHistory = false
+    /// A row Events should bring into view, once: a notification's click, Show in Events, a
+    /// problem waiting. Events takes it (setting nil) when it scrolls there, so the same row can be
+    /// asked for again, and coming back to the tab later doesn't jump.
+    @Published public var pointRequest: UUID?
     /// The popover under the capsule is open, so the capsule stays for it.
     @Published public var popoverIsOpen = false
     /// The Recent row a notification's click picked out, drawn marked until another is.
@@ -164,10 +179,20 @@ public final class ActivityCenter: ObservableObject {
     // MARK: Recent
 
     /// Writes a message into Recent: folded into the newest row when it says the same again, then
-    /// trimmed to the newest fifty. `seen` is whether it showed where the reader was looking; a
+    /// trimmed to the newest `keep`. `seen` is whether it showed where the reader was looking; a
     /// problem that didn't leaves the dot on the Activity button. `dotWaits`: the message is the
     /// capsule's, so its dot waits for ``releaseDot()``.
     public func record(_ message: ActivityMessage, seen: Bool, dotWaits: Bool = false) {
+        // The same message published again with its words amended (a delete's "Includes 3 items
+        // the filter is hiding"): one row, updated, not a second row with the same id.
+        if let index = recent.firstIndex(where: { $0.id == message.id }) {
+            var row = message
+            row.repeats = recent[index].repeats
+            row.foldedIDs = recent[index].foldedIDs
+            recent[index] = row
+            messageStore?.save(row)
+            return
+        }
         if let newest = recent.first, newest.saysTheSame(as: message) {
             recent[0].repeats += 1
             recent[0].foldedIDs.append(message.id)
@@ -245,6 +270,7 @@ public final class ActivityCenter: ObservableObject {
                                       source: .edit)
         message.isStopped = ActivityMessage.isQuietStop(stopped: ActivityMessage.saysStopped(result.banner.message),
                                                         message: result.banner.message, severity: result.banner.severity)
+        message.isRefusal = result.banner.isRefusal
         record(message, seen: seen)
     }
 
@@ -253,7 +279,24 @@ public final class ActivityCenter: ObservableObject {
         recent = []
         hasUnseenProblem = false
         dotHeldFor = nil
-        messageStore?.replaceAll(with: [])
+        messageStore?.clearAll()
+    }
+
+    /// Asks before Clear: it removes what earlier sessions kept too, which nothing else has.
+    /// Cancel is the default and the destructive button takes no Return, as History's clears do.
+    public static func confirmClearMessages() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear every message?"
+        alert.informativeText = "Removes the messages Activity kept, from this session and earlier ones. Runs keep their records in Events, and the log keeps its lines."
+        alert.addButton(withTitle: "Clear Messages")
+        alert.addButton(withTitle: "Cancel")
+        if let clear = alert.buttons.first {
+            clear.hasDestructiveAction = true
+            clear.keyEquivalent = ""
+        }
+        alert.buttons.last?.keyEquivalent = "\r"
+        return NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn
     }
 
     // MARK: Kept across quits
@@ -263,7 +306,10 @@ public final class ActivityCenter: ObservableObject {
     public func attachMessages(_ store: ActivityMessageStore, now: Date = Date()) {
         messageStore = store
         let mine = Set(recent.map(\.id))
-        recent += store.load(now: now).filter { !mine.contains($0.id) }
+        let kept = store.load(now: now)
+        // What this launch said before the store was attached is kept too.
+        for message in recent { store.save(message) }
+        recent += kept.filter { !mine.contains($0.id) }
         recent.sort { $0.date > $1.date }
         if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
     }
@@ -271,9 +317,8 @@ public final class ActivityCenter: ObservableObject {
     /// Sync History was cleared: the messages that reported its runs go with them, or Events would
     /// list each as a row of its own with nothing behind it.
     public func forgetRunMessages() {
-        guard recent.contains(where: { $0.runId != nil }) else { return }
         recent.removeAll { $0.runId != nil }
-        messageStore?.replaceAll(with: recent)
+        messageStore?.forgetRunMessages()
     }
 
     /// Waits for the kept messages to reach the disk: at quit.
@@ -292,6 +337,7 @@ public final class ActivityCenter: ObservableObject {
     public func openWindow(highlighting id: UUID?) {
         // A repeat folded into an earlier row is that row.
         highlighted = id.map { id in recent.first { $0.foldedIDs.contains(id) }?.id ?? id }
+        pointRequest = highlighted
         tab = .events
         markSeen()
         windowRequests += 1
@@ -299,7 +345,14 @@ public final class ActivityCenter: ObservableObject {
 
     /// The tab the button and ⌘L open: the last one used, or Events while a problem waits.
     public func tabForOpening() -> ActivityTab {
-        if hasUnseenProblem { tab = .events }
+        if hasUnseenProblem {
+            tab = .events
+            // Pointed at, so a filter left on can't hide it.
+            if let problem = recent.first(where: { $0.severity != .success && !$0.isStopped && !$0.isRefusal }) {
+                highlighted = problem.id
+                pointRequest = problem.id
+            }
+        }
         return tab
     }
 
@@ -307,7 +360,7 @@ public final class ActivityCenter: ObservableObject {
     /// window.
     public func showOneWaySyncHistory() {
         tab = .events
-        oneWaySyncHistoryRequests += 1
+        wantsOneWaySyncHistory = true
     }
 
     // MARK: One-way sync (RD67, DC)

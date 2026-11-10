@@ -3,11 +3,11 @@ import Events
 import Foundation
 import Sync
 
-/// Now's buttons, each answered here: the sheets they open, and the one-step answers that run at
+/// The buttons of one-way sync's rows above Events, each answered here: the sheets they open, and the one-step answers that run at
 /// once and then sync.
 extension OneWaySyncController {
 
-    /// Answers one of Now's buttons for `row`; any sheet it opens goes over `host`'s window.
+    /// Answers one of those buttons for `row`; any sheet it opens goes over `host`'s window.
     public func perform(_ button: OneWaySyncNoticeButton, row: OneWaySyncNoticeRow, from host: OneWaySyncSheetHost = .main) {
         sheetHost = host
         let notice = row.members.first
