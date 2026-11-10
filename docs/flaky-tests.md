@@ -1875,6 +1875,15 @@ the cancel handler's cancel, turns it red after its 10 s bound; removing the spa
 leaves it green (its stop always lands after the task is stored) and turns
 `aCallerCancelledBeforeTheHashLaneCancelsItsTaskToo` red instead, after that test's 5 s wait.
 
+#### Seen: 46–76 park give-ups in every local full Sync run, 2026-11-09 — a slow `cfprefsd`, not this
+
+Every local `swift test --package-path Modules/Sync` was red while hosted CI stayed green. Most
+issues were the budget's own `a park reservation for 1 thread(s) waited out 60.0 seconds … N more
+are queued`. The message says "something took a reservation and never gave it back", but nothing
+had: the holders were slow. The cause was the user's `cfprefsd` agent. See
+["A cfprefsd agent that has cached every scratch suite makes each defaults wipe a quarter-second wait"](#56-a-cfprefsd-agent-that-has-cached-every-scratch-suite-makes-each-defaults-wipe-a-quarter-second-wait),
+which has the numbers and the remedy. **Check the agent before reading this section's diagnosis.**
+
 ---
 
 ### 11. Five palette tests the fixture dismissed out from under itself — FIXED
@@ -5342,6 +5351,24 @@ have outlasted the stall above.
 thread waiting anyway. On the slow agent, an interleaved A/B gave a main-queue hop of 18.6 s with
 the change and 30.8 s without it, and red both ways. Why the main thread still waited was not
 measured.
+
+**In Sync it shows up as park give-ups, 2026-11-09.** The suite has no main-actor teardown queue to
+trip. There, the wipes and every other defaults call block cooperative-pool threads instead. A
+local full run at `6f93e0a37` failed with 48 issues. 46 were `ParkThreadBudget` give-ups
+(`waited out 60.0 seconds … 65 more are queued`), and the other 2 were
+`RestructureUnansweredFolderTests` answers that missed their bound. The give-ups land in the suites of
+"Every gate parks at once, on the pool their releases need" (`UnansweredListingTests`, `UnansweredFolderTests`,
+`DifferenceResolutionTests`, `ScanSupersedenceTests` and more), and the set moves from run to run.
+- **It was not the commit.** `v7.0`, green when it was cut, gave 114 issues on the same agent.
+- **It was not the live-profile suites,** though they hold pool threads too. A `sample` 25 s into a
+  run found 8 of 10 default-QoS pool threads in them, computing or waiting in `dispatch_once` on
+  `FilingCardReplayTests.Fixture.shared` and `FolderSurveyGroundTruth.report`, with the rest and
+  the main thread in synchronous XPC to `cfprefsd`. But a run with
+  `SYNCCLOUD_SKIP_MACHINE_PINNED=liveProfile` was still red, with 81 issues.
+- **It was the agent.** The Sync process sat near one core of ten while the park queue grew. That
+  is waiting, not load. A standalone flush probe took 220 ms (median of 15). After the `SIGTERM`
+  restart, it took 1.3 ms, and the next full run, live-profile suites included, passed: 4,537
+  tests in 365.9 s, at load 25–70, with no give-ups.
 
 **Before blaming a commit.**
 1. **Did the host restart?** Look for `Restarting after unexpected exit` and a test count far
