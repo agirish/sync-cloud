@@ -1683,11 +1683,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 AskClaudeFilingCard.Folder(label: breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
                                            path: s.folder, confidence: AskClaudeFiling.label(s.confidence),
                                            reason: s.reason, fromFile: s.evidenceToken != nil,
-                                           note: s.outsidePlace ? shortPlace.map { "Outside \($0)" } : nil)
+                                           note: s.outsidePlace ? shortPlace.map { "Outside \($0)" } : nil, isNew: s.isNew)
+            }
+            let named = answer.namedSiblings.map {
+                AskClaudeFilingCard.NamedSiblings(label: breadcrumb($0.parent, sources: ctx.sources, fallback: ($0.parent as NSString).lastPathComponent),
+                                                  path: $0.parent, names: $0.names)
             }
             return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
                                        staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
-                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel)
+                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel,
+                                       namedSiblings: named)
         }
     }
 
@@ -1994,6 +1999,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let preferring: String? = place
         var rows: [AskClaudePlan.Row] = []
         var noHome = 0, atHome = 0
+        // TE327: new folders named like their siblings, by path, with what they are named like.
+        var newHomes: [String: String] = [:]
         for file in page {
             guard let answer = await ctx.whereToFile(file.path, preferring), case .suggested(let list) = answer.outcome,
                   let best = list.first else {
@@ -2012,6 +2019,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 AskClaudePlan.Choice(label: Self.breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
                                      path: s.folder, confidence: AskClaudeFiling.label(s.confidence), reason: s.reason)
             }
+            for s in list where s.isNew { newHomes[s.folder] = s.reason }
             let fromLabel = Self.breadcrumb((file.path as NSString).deletingLastPathComponent, sources: ctx.sources,
                                             fallback: ((file.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)
             let label = choices[0].label
@@ -2055,7 +2063,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         for path in making {
             let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
             var row = AskClaudePlan.Row(id: rows.count, name: "New folder “\(name)”", change: .newFolder(in: parent, name: name),
-                                        ticked: false, reason: "For the files filed in it",
+                                        ticked: false, reason: newHomes[path] ?? "For the files filed in it",
                                         folderLabel: Self.breadcrumb(parent, sources: ctx.sources, fallback: (parent as NSString).lastPathComponent))
             row.forMoves = true
             rows.append(row)

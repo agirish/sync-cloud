@@ -37,25 +37,35 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         /// They named a place and this folder isn't in it: kept because the file plainly belongs
         /// here.
         public let outsidePlace: Bool
+        /// Not made yet: a folder named like its siblings (TE327), made on the card with the move.
+        public let isNew: Bool
+        /// For a new folder, the siblings it is named like.
+        public let siblings: [String]
 
         public init(folder: String, relativePath: String, confidence: FilingConfidence, reason: String,
-                    evidenceToken: String?, outsidePlace: Bool = false) {
+                    evidenceToken: String?, outsidePlace: Bool = false, isNew: Bool = false, siblings: [String] = []) {
             self.folder = folder
             self.relativePath = relativePath
             self.confidence = confidence
             self.reason = reason
             self.evidenceToken = evidenceToken
             self.outsidePlace = outsidePlace
+            self.isNew = isNew
+            self.siblings = siblings
         }
     }
 
     public let outcome: Outcome
     /// When the profile's folders were surveyed; nil when unknown.
     public let surveyedAt: Date?
+    /// The best folder's siblings, when they are plain names and no dated folder was offered:
+    /// Claude may name a new one like them (decision JG).
+    public let namedSiblings: FilingNewHome.NamedSiblings?
 
-    public init(outcome: Outcome, surveyedAt: Date?) {
+    public init(outcome: Outcome, surveyedAt: Date?, namedSiblings: FilingNewHome.NamedSiblings? = nil) {
         self.outcome = outcome
         self.surveyedAt = surveyedAt
+        self.namedSiblings = namedSiblings
     }
 
     /// Days since the survey, counted as Restructure counts them: calendar days, midnight to
@@ -148,7 +158,46 @@ extension FileSyncManager {
                                                outsidePlace: placeRelative.map { !Self.isAtOrUnder(relative, $0) } ?? false)
         }
         Logger.shared.info("Filing help: “\(fileName)” → \(shown.map(\.relativePath).joined(separator: ", ")) (\(confidence.rawValue)\(snippet == nil ? ", by name" : ""))")
-        return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt)
+        // TE327: a new folder named like its siblings leads, the closest folder second, whatever
+        // its confidence (decision JH). Inside a named place when there is one.
+        let base = placeRelative.map { root + "/" + $0 } ?? root
+        let children = { [profile] (folder: String) in Self.childFolders(folder, root: root, profile: profile) }
+        // Two folders and their parents listed, here: the hidden list's matcher stays on this actor.
+        let newHome = FilingNewHome.dated(fileName: fileName, candidates: kept.prefix(2).map(\.path), within: base,
+                                          childFolders: children, exists: { FileManager.default.fileExists(atPath: $0) },
+                                          isHidden: isHidden)
+        if let newHome, let best = shown.first {
+            let relative = String(newHome.path.dropFirst(root.count + 1))
+            Logger.shared.info("Filing help: a new folder \(relative) for “\(fileName)”, named like its siblings")
+            let made = FilingHelpAnswer.Suggestion(folder: newHome.path, relativePath: relative, confidence: .medium,
+                                                   reason: newHome.reason, evidenceToken: nil, isNew: true,
+                                                   siblings: newHome.siblings)
+            return FilingHelpAnswer(outcome: .suggested([made, best]), surveyedAt: surveyedAt)
+        }
+        let named = shown.first.flatMap { best in
+            FilingNewHome.named(parent: (best.folder as NSString).deletingLastPathComponent, within: base,
+                                childFolders: children, isHidden: isHidden)
+        }
+        return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt, namedSiblings: named)
+    }
+
+    /// The folders in `folder`: the survey's, and those on disk now (made since, or never surveyed).
+    nonisolated static func childFolders(_ folder: String, root: String, profile: FolderProfile) -> [String] {
+        var names = Set<String>()
+        if let relative = relative(folder, toRoot: root) {
+            for key in profile.folders.keys {
+                let parent = (key as NSString).deletingLastPathComponent
+                if parent == relative { names.insert((key as NSString).lastPathComponent) }
+            }
+        }
+        let url = URL(fileURLWithPath: folder)
+        let listed = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                                                                   options: [.skipsHiddenFiles])) ?? []
+        for item in listed {
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            if values?.isDirectory == true, values?.isPackage != true { names.insert(item.lastPathComponent) }
+        }
+        return names.sorted()
     }
 
     /// The survey's router index for filing help, its hidden folders left out, kept per survey.

@@ -28,14 +28,35 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         /// Not in the place they named, but kept because the file plainly belongs here:
         /// "Outside Travel".
         public let note: String?
+        /// A folder not made yet, named like its siblings (TE327): Make and Move Here makes it.
+        /// Optional so a chat saved before it reads.
+        public let isNew: Bool?
 
-        public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool, note: String? = nil) {
+        public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool, note: String? = nil,
+                    isNew: Bool = false) {
             self.label = label
             self.path = path
             self.confidence = confidence
             self.reason = reason
             self.fromFile = fromFile
             self.note = note
+            self.isNew = isNew ? true : nil
+        }
+    }
+
+    /// The best folder's siblings when they are plain names (TE327, decision JG): Claude may offer
+    /// a new one like them. Its label and names; never on the card.
+    public struct NamedSiblings: Codable, Equatable, Sendable {
+        /// "iCloud › Documents › Travel › Trips".
+        public let label: String
+        /// Absolute. Never sent to Claude.
+        public let path: String
+        public let names: [String]
+
+        public init(label: String, path: String, names: [String]) {
+            self.label = label
+            self.path = path
+            self.names = names
         }
     }
 
@@ -50,9 +71,10 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
     public let canRefine: Bool
     /// The place they named, by source and folder ("Dropbox", "iCloud › Documents › Travel").
     public let place: String?
+    public let namedSiblings: NamedSiblings?
 
     public init(fileName: String, filePath: String, kind: Kind, folders: [Folder] = [], staleDays: Int? = nil,
-                canRefine: Bool = false, place: String? = nil) {
+                canRefine: Bool = false, place: String? = nil, namedSiblings: NamedSiblings? = nil) {
         self.fileName = fileName
         self.filePath = filePath
         self.kind = kind
@@ -60,6 +82,7 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         self.staleDays = staleDays
         self.canRefine = canRefine
         self.place = place
+        self.namedSiblings = namedSiblings
     }
 }
 
@@ -100,12 +123,17 @@ public enum AskClaudeFiling {
                     continue
                 }
                 let note = folder.note.map { " · \(AskClaudeScreenCard.escape($0)), where it plainly belongs" } ?? ""
-                lines.append("\(rank): \(AskClaudeScreenCard.escape(folder.label)) · \(folder.confidence) · \(AskClaudeScreenCard.escape(folder.reason))\(note)")
+                let what = folder.isNew == true ? "a new folder, \(AskClaudeScreenCard.escape(folder.label)), not made yet" : AskClaudeScreenCard.escape(folder.label)
+                lines.append("\(rank): \(what) · \(folder.confidence) · \(AskClaudeScreenCard.escape(folder.reason))\(note)")
+            }
+            if let named = card.namedSiblings {
+                lines.append("The folders in \(AskClaudeScreenCard.escape(named.label)) are named \(named.names.map(AskClaudeScreenCard.escape).joined(separator: ", ")). If those are one kind of name (places, people, companies, cars) and the file plainly belongs to a new one of that kind, you may offer a new folder there named the same way, with the move, on one propose_changes card; say the closest folder above is the other choice. Otherwise don’t offer one.")
             }
             if let days = card.staleDays {
                 lines.append("Their survey is \(days) days old, so folders made since aren’t known; Update the Survey is in Organize ▸ Restructure.")
             }
-            lines.append("They have a card with Go to Folder and Move Here\(card.canRefine ? ", and Refine with Claude" : ""). Nothing was moved.")
+            let makes = card.folders.contains { $0.isNew == true } ? ", Make and Move Here for the new folder (one Apply makes it and moves the file)" : ""
+            lines.append("They have a card with Go to Folder and Move Here\(makes)\(card.canRefine ? ", and Refine with Claude" : ""). Nothing was \(makes.isEmpty ? "moved" : "moved or made").")
             return lines.joined(separator: "\n")
         }
     }

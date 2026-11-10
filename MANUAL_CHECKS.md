@@ -1101,3 +1101,28 @@ Copy a folder of a few files to another source first, so there is a run to look 
 - [ ] **One-way sync.** From a one-way sync sheet, History… opens Events showing one-way syncs alone.
 - [ ] **Quit and relaunch.** Runs, one-way syncs and settings changes are still there under their
   days; messages are gone, and a run built its own sentence.
+
+## A new home when none fits (TE327, 2026-11-09)
+
+Needs an API key and a folder survey from Setup. Make a scratch folder in the survey with three
+year folders, say Travel/Trips/Test Trip/2024, 2025 and 2026, and put a PDF named
+"Test Ticket 2027.pdf" in Downloads.
+
+- [ ] **The new folder leads.** Ask "Where should Test Ticket 2027.pdf go?": the card's first folder
+  is …/Test Trip/2027 with the new-folder icon, "New folder · Medium · Named like 2024, 2025,
+  2026"; the runner-up is a folder that exists. Its first button says Go to Test Trip.
+- [ ] **One Apply, one Undo.** Make and Move Here: a card with New folder "2027" and the move. Apply:
+  "Made 1 folder and moved 1 file", and the Activity window’s Events tab lists both. Undo: the file is back in Downloads
+  and 2027 is gone.
+- [ ] **Rename.** Make and Move Here again, open the folder row, Rename… to "2027 Spring": the move's
+  folder follows. Rename… to "2026": the folder row is struck through ("2026 is already there")
+  and the file goes into 2026. A name with "/" shows the reason and Return does nothing; Esc puts
+  the name back.
+- [ ] **The other choice.** Move Here on the runner-up: a card with the move alone, no folder.
+- [ ] **Two files, one folder.** Add "Test Hotel 2027.pdf" to Downloads and say "file the loose
+  files" into the survey: both go under one new folder row 2027, unticked (Medium). Tick both,
+  untick one: the folder stays ticked; untick the other: the folder unticks.
+- [ ] **Hidden.** Hide Test Trip from Claude (Settings ▸ Ask Claude) and ask about the ticket again:
+  no 2027 is offered, and nothing in Test Trip is named.
+- [ ] **Named siblings.** Ask about a ticket to a country your Trips folder lacks: Claude may offer a
+  new country folder on a card, with the move, and says the closest folder is the other choice.

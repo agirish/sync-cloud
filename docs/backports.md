@@ -15167,3 +15167,23 @@ window on older lines).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Their own Activity and Sync History | CLOSED — not owed, a redesign |
+
+## A new folder named like its siblings on Ask Claude's filing card (TE327) — main only
+
+2026-11-09, for v7.1 (decisions JG, JH). On `main`: filing help offers a new folder when the
+folders beside a file's best home are years or year ranges its name fits (`FilingNewHome.dated`,
+reusing `DestinationSuggestions.yearFolder`), first, with the closest folder second; Make and Move
+Here puts the folder and the move on one card, and a card's new folder can be renamed
+(`AskClaudePlan.renameNewFolder`). Where the siblings are plain names, Claude is told them and may
+propose one. Never inside a hidden folder. No change to the tool list or system text. No
+maintenance line has Ask Claude's cards:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePlan.swift')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

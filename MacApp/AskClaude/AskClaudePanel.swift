@@ -1514,20 +1514,21 @@ private struct AskClaudeThreadRow: View, Equatable {
             switch card.kind {
             case .suggestions:
                 ForEach(Array(card.folders.enumerated()), id: \.offset) { index, folder in
+                    // TE327: a new folder shows how it's named, and its buttons make it.
+                    let isNew = folder.isNew == true
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
-                            Image(systemName: "folder").foregroundStyle(.secondary)
+                            Image(systemName: isNew ? "folder.badge.plus" : "folder").foregroundStyle(isNew ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
                             Text(folder.label).scaledFont(.callout.weight(.medium)).lineLimit(2).truncationMode(.head)
                         }
-                        Text("\(index == 0 ? "" : "Runner-up · ")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
+                        Text("\(index == 0 ? "" : "Runner-up · ")\(isNew ? "New folder · " : "")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
                             .scaledFont(.footnote).foregroundStyle(.secondary)
                         HStack(spacing: 6) {
-                            Button("Go to Folder") { onFilingCard(.goTo(folder.path)) }
+                            AskClaudeNewFolderButtons.goTo(folder) { onFilingCard(.goTo($0)) }
+                            Button(isNew ? "Make and Move Here" : "Move Here") { onFilingCard(.moveHere(item: item.id, file: card.filePath, folder: folder.path, label: folder.label)) }
                                 .controlSize(.small)
-                                .help("Shows this folder in Browse. Nothing is moved.")
-                            Button("Move Here") { onFilingCard(.moveHere(item: item.id, file: card.filePath, folder: folder.path, label: folder.label)) }
-                                .controlSize(.small)
-                                .help("Makes this a card with one move. Nothing moves until you click Apply.")
+                                .help(isNew ? "Makes a card with the new folder and the move. Nothing changes until you click Apply; one Undo takes both back."
+                                            : "Makes this a card with one move. Nothing moves until you click Apply.")
                         }
                     }
                 }
@@ -1786,6 +1787,9 @@ private struct AskClaudeThreadRow: View, Equatable {
                 line("Goes to", destination)
             }
             if let reason = row.reason { line("Why", reason) }
+            if editable, case .newFolder(_, let name) = row.change {
+                AskClaudeNewFolderNameField(name: name) { onPlanCard(item.id, .renameFolder(row.id, $0)) }
+            }
             if row.teaches, row.wasUnsure != true, let was = row.pickedFromLabel { line("Was", was) }
             if let note = row.note { line("Note", note) }
             if !fileFacts.isEmpty { line("File", fileFacts.joined(separator: " · ")) }
@@ -2048,6 +2052,8 @@ enum AskClaudePlanAction: Equatable {
     case choose(Int, AskClaudePlan.Choice)
     /// Choose Folder… in a row's details.
     case chooseFolder(Int)
+    /// A new folder's name, edited in its details (TE327).
+    case renameFolder(Int, String)
     /// The card's own buttons.
     case apply, notNow, undo
     /// A row's details: Quick Look on the item, Go to Folder on where it goes.

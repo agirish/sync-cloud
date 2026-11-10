@@ -494,6 +494,19 @@ extension ContentView {
             }
             let label = AskClaudeBrowseTools.breadcrumb(path, sources: askClaudeSources, fallback: url.lastPathComponent)
             askClaudeChat.updatePlan(id) { $0.choose(AskClaudePlan.Choice(label: label, path: path), forRow: row) }
+        case .renameFolder(let row, let name):
+            // TE327: a folder of that name already there, in any case, takes the files instead.
+            var problem: String?
+            askClaudeChat.updatePlan(id) { plan in
+                problem = plan.renameNewFolder(row, to: name) { path in
+                    let parent = (path as NSString).deletingLastPathComponent
+                    let wanted = (path as NSString).lastPathComponent
+                    let names = (try? FileManager.default.contentsOfDirectory(atPath: parent)) ?? []
+                    return names.first { $0.caseInsensitiveCompare(wanted) == .orderedSame }
+                        .map { (parent as NSString).appendingPathComponent($0) }
+                }
+            }
+            if let problem { askClaudeChat.addNote(problem) }
         case .apply:
             askClaudeApplyPlan(id)
         case .quickLook(let path):
@@ -617,7 +630,12 @@ extension ContentView {
             // The card becomes a plan card with this one move, checked now.
             let change = AskClaudePlan.Change.move(from: file, toFolder: folder)
             let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-            let refusal = syncManager.planRefusal(change, isHidden: { hidden.isHidden($0) }, protected: Set(askClaudeSources.map(\.root)))
+            let protected = Set(askClaudeSources.map(\.root))
+            // TE327: a new folder named like its siblings is made on the same card, so one Apply
+            // makes both and one Undo takes both back.
+            let making = FileManager.default.fileExists(atPath: folder) ? nil : folder
+            let refusal = syncManager.planRefusal(change, creating: making.map { [$0] } ?? [], isHidden: { hidden.isHidden($0) },
+                                                  protected: protected)
             let name = (file as NSString).lastPathComponent
             let landing = AskClaudeLooseFiles.landingName(for: name, in: folder)
             var row = AskClaudePlan.Row(id: 0, name: name, change: change, ticked: true,
@@ -636,7 +654,21 @@ extension ContentView {
                     row.reason = "Your pick"
                 }
             }
-            askClaudeChat.replace(item, with: .plan(AskClaudePlan(title: "Move \(name)", subtitle: "", rows: [row])))
+            var rows = [row]
+            if let making, case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {
+                let parent = (making as NSString).deletingLastPathComponent, folderName = (making as NSString).lastPathComponent
+                let newFolder = AskClaudePlan.Change.newFolder(in: parent, name: folderName)
+                let shown = card.folders.first { $0.path == folder }
+                var made = AskClaudePlan.Row(id: 1, name: "New folder “\(folderName)”", change: newFolder, ticked: true,
+                                             reason: shown?.reason ?? "For the file filed in it",
+                                             folderLabel: label.components(separatedBy: " › ").dropLast().joined(separator: " › "),
+                                             refusal: syncManager.planRefusal(newFolder, isHidden: { hidden.isHidden($0) }, protected: protected))
+                made.forMoves = true
+                rows.insert(made, at: 0)
+            }
+            var plan = AskClaudePlan(title: "Move \(name)", subtitle: "", rows: rows)
+            plan.tickNeededFolders()
+            askClaudeChat.replace(item, with: .plan(plan))
         }
     }
 

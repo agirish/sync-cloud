@@ -62,7 +62,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public struct Row: Codable, Equatable, Sendable, Identifiable {
         public let id: Int
         /// The item's own name, as the card shows it.
-        public let name: String
+        public var name: String
         public var change: Change
         public var ticked: Bool
         /// "High", "Medium" or "Needs your pick", To File's words; nil for a change no ranking made.
@@ -321,6 +321,66 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             if landingName != name { notes.insert(Self.landingNote(landingName), at: 0) }
             rows[index].note = notes.isEmpty ? nil : notes.joined(separator: " · ")
         }
+    }
+
+    /// Why `name` can't name a new folder, or nil (TE327).
+    public static func folderNameProblem(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "A folder needs a name." }
+        if trimmed.contains("/") || trimmed.contains(":") { return "A folder name can’t contain “:” or “/”." }
+        if trimmed.hasPrefix(".") { return "A name starting with “.” would hide the folder." }
+        if trimmed.utf8.count > 255 { return "That name is too long for a folder." }
+        return nil
+    }
+
+    /// Renames the new folder row `id` makes (TE327). Moves into it, folders made inside it and
+    /// its rows' choices follow. When a folder of that name is already there, found by `existing`,
+    /// the moves go into that one and this row makes nothing. Returns why it couldn't, or nil.
+    @discardableResult
+    public mutating func renameNewFolder(_ id: Int, to name: String, existing: (String) -> String?) -> String? {
+        guard state == .proposed, let index = rows.firstIndex(where: { $0.id == id }),
+              case .newFolder(let parent, let old) = rows[index].change else { return "That row makes no folder." }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = Self.folderNameProblem(name) { return problem }
+        guard name != old else { return nil }
+        let oldPath = (parent as NSString).appendingPathComponent(old)
+        let parentLabel = rows[index].folderLabel ?? ""
+        let oldLabel = parentLabel.isEmpty ? old : parentLabel + " › " + old
+        let taken = existing((parent as NSString).appendingPathComponent(name))
+        let newPath = taken ?? (parent as NSString).appendingPathComponent(name)
+        let newName = (newPath as NSString).lastPathComponent
+        let newLabel = parentLabel.isEmpty ? newName : parentLabel + " › " + newName
+        func moved(_ path: String) -> String? {
+            if path == oldPath { return newPath }
+            return path.hasPrefix(oldPath + "/") ? newPath + path.dropFirst(oldPath.count) : nil
+        }
+        func relabeled(_ label: String) -> String {
+            if label == oldLabel { return newLabel }
+            return label.hasPrefix(oldLabel + " › ") ? newLabel + label.dropFirst(oldLabel.count) : label
+        }
+        rows[index].change = .newFolder(in: parent, name: newName)
+        rows[index].name = "New folder “\(newName)”"
+        if taken != nil {
+            rows[index].refusal = "\(newName) is already there; the files go into it"
+            rows[index].ticked = false
+        }
+        for i in rows.indices where i != index {
+            switch rows[i].change {
+            case .move(let from, let to):
+                if let to = moved(to) { rows[i].change = .move(from: from, toFolder: to) }
+            case .newFolder(let inside, let made):
+                if let inside = moved(inside) { rows[i].change = .newFolder(in: inside, name: made) }
+            default: break
+            }
+            rows[i].folderLabel = rows[i].folderLabel.map(relabeled)
+            rows[i].choices = rows[i].choices.map { choice in
+                guard let path = moved(choice.path) else { return choice }
+                return Choice(label: relabeled(choice.label), path: path, confidence: choice.confidence, reason: choice.reason)
+            }
+        }
+        tickNeededFolders()
+        noteLandingNames()
+        return nil
     }
 
     /// A new folder made for the card's moves is ticked while a ticked move goes into it, and

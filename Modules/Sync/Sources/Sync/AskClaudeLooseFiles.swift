@@ -215,11 +215,17 @@ extension AskClaudeLooseFiles {
             return lines.joined(separator: "\n")
         }
         lines.append("rows: name|folder|confidence|ticked|note")
+        // Folders the card makes: a move into one goes to "a new folder" (TE327).
+        let made = Set(plan.rows.compactMap { row -> String? in
+            if case .newFolder = row.change { return row.change.path }
+            return nil
+        })
         for (group, rows) in plan.groups {
             for row in rows {
                 let folder: String
                 switch group {
-                case .folder(let label): folder = label
+                case .folder(let label):
+                    if case .move(_, let to) = row.change, made.contains(to) { folder = "new folder: " + label } else { folder = label }
                 case .needsPick: folder = "needs their pick: " + row.choices.map(\.label).joined(separator: " or ")
                 case .alreadyFiled: folder = "already filed; a Trash row"
                 case .emptied: folder = "emptied folders; a Trash row"

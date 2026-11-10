@@ -3321,6 +3321,25 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!out.result.contains("W-2"), "the word read from the file went out from a folder not shared")
     }
 
+    /// TE327: a new folder named like its siblings leads, says it's new, and Claude hears what
+    /// the card offers; named siblings reach Claude by label, never by path.
+    @Test func aNewFolderLeadsAndNamedSiblingsReachClaudeByLabel() async throws {
+        let made = FilingHelpAnswer.Suggestion(folder: Self.root + "/Documents/Travel/IN-US/2027", relativePath: "Travel/IN-US/2027",
+                                               confidence: .medium, reason: "Named like 2024, 2025, 2026", evidenceToken: nil,
+                                               isNew: true, siblings: ["2024", "2025", "2026"])
+        let out = await ask(runner(FilingHelpAnswer(outcome: .suggested([made, suggestion("Travel/IN-US", .low)]), surveyedAt: nil)))
+        let card = try #require(out.filing)
+        #expect(card.folders.map(\.isNew) == [true, nil])
+        #expect(out.result.contains("best: a new folder, iCloud › Documents › Travel › IN-US › 2027, not made yet"))
+        #expect(out.result.contains("Make and Move Here"))
+        let named = FilingHelpAnswer(outcome: .suggested([suggestion("Travel/Trips/IN-US", .medium)]), surveyedAt: nil,
+                                     namedSiblings: .init(parent: Self.root + "/Documents/Travel/Trips", names: ["India", "Singapore"]))
+        let trips = await ask(runner(named))
+        #expect(trips.filing?.namedSiblings?.label == "iCloud › Documents › Travel › Trips")
+        #expect(trips.result.contains("The folders in iCloud › Documents › Travel › Trips are named India, Singapore."))
+        #expect(!trips.result.contains(Self.root), "a path went to Claude")
+    }
+
     @Test func aHighAnswerOffersNoRefineAndAMissingProfileSaysSo() async throws {
         let high = FilingHelpAnswer(outcome: .suggested([suggestion("Taxes/2025", .high)]), surveyedAt: nil)
         let card = try #require(await ask(runner(high)).filing)
@@ -3448,6 +3467,30 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(plan.leftHere == "Left here: 1 app or installer, 1 file no folder fits")
         #expect(plan.subtitle == "into Home › Documents" && plan.more == nil)
         #expect(!out.result.contains("Fits how this folder is used"), "a reason went to Claude")
+    }
+
+    /// TE327: two files sharing one new folder share one row that makes it, named like its
+    /// siblings, ticked only while a move into it is; Claude hears the moves go to a new folder.
+    @Test func twoFilesShareOneNewFolderRow() async throws {
+        let new = FilingHelpAnswer.Suggestion(folder: dir + "/Documents/Travel/Trips/2027", relativePath: "Travel/Trips/2027",
+                                              confidence: .medium, reason: "Named like 2024, 2025, 2026", evidenceToken: nil,
+                                              isNew: true, siblings: ["2024", "2025", "2026"])
+        let homes = [new, s("Travel/Trips", .low)]
+        let out = await call(["into": .string("Documents")],
+                             runner(extra: ["JAL Ticket.pdf": homes, "Ticket.pdf": homes], configure: { $0.shared = [$0.root] }))
+        var plan = try #require(out.plan)
+        // The fixture's other homes aren't on disk either; this is the one for the new year.
+        let folders = plan.rows.filter { if case .newFolder = $0.change { $0.change.path == new.folder } else { false } }
+        #expect(folders.count == 1)
+        let folder = try #require(folders.first)
+        #expect(folder.change == .newFolder(in: dir + "/Documents/Travel/Trips", name: "2027"))
+        #expect(folder.reason == "Named like 2024, 2025, 2026" && !folder.ticked && folder.refusal == nil)
+        let moves = plan.rows.filter { if case .move(_, let to) = $0.change { to == new.folder } else { false } }
+        #expect(Set(moves.map(\.name)) == ["JAL Ticket.pdf", "Ticket.pdf"])
+        #expect(moves.allSatisfy { !$0.ticked && $0.refusal == nil && $0.choices.count == 2 })
+        plan.setTicked(true, row: moves[0].id)
+        #expect(plan.rows.first { $0.id == folder.id }?.ticked == true)
+        #expect(out.result.contains("JAL Ticket.pdf|new folder: Home › Documents › Travel › Trips › 2027|Medium|not ticked|"))
     }
 
     /// 10 a card, and a Next button that asks for the next ones in their own words.
