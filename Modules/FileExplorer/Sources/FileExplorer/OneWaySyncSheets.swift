@@ -679,7 +679,7 @@ struct OneWaySyncOverviewSheet: View {
             Button("Choose Folders…") { controller.open(.chooseFolders, from: .main) }
                 .disabled(controller.isRunning || !controller.isSetUp)
             Button("History…") { dismiss(); controller.onOpenHistory() }
-                .help("This sync’s History in Activity, with Reverse in iCloud…")
+                .help("This sync in Activity’s Events, with Reverse in iCloud…")
             Button("Open Activity") { dismiss(); controller.onOpenActivity() }
             Button("Settings…") { dismiss(); controller.onOpenSettings() }
             Button("Done") { dismiss() }

@@ -67,7 +67,7 @@ enum ShortcutsReference {
             // The panel's own key, caught by `AskClaudeColumnView` ahead of the field editor, not a
             // menu chord, so no registry check asks for this row.
             Item(keys: "⌥ Space", action: "In Ask Claude, talk; again to send, Esc to cancel"),
-            Item(keys: "⌘ L", action: "Open Activity — runs, messages, Sync History and the log"),
+            Item(keys: "⌘ L", action: "Open Activity — events and the log"),
             // The slider's own stops, never a size Settings can't reach. The same keys zoom a PDF
             // that has the keyboard (`PDFZoomVerbs`), so the row names both, as ⌘I's does.
             Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, or zoom a focused PDF"),

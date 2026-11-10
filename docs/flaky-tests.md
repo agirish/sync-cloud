@@ -1762,6 +1762,11 @@ test's wait began, so the wait it checks for was never entered. Five local runs 
 (3.2–5.0 s each), and so did a rerun of the failed job. The suite's second sighting in a day, both
 on hosted VMs and neither reproduced; a third is the point to look at the latch itself.
 
+**Third sighting, 2026-11-09:** red once on hosted CI at `232be9d75` (Activity's Events tab), whose
+`Modules/Sync` change was eight comment lines and one refusal sentence. Same check, `latch.waited`,
+after 1.96 s, in a 567-test chunk that took 9.6 s. Three local runs of the suite passed (2.2–3.7 s).
+The suite has now been red three times on hosted VMs and never here, so the latch is due a look.
+
 #### Seen: `DifferenceResolutionTests` and `OneWaySyncDropboxGateTests`, 2026-11-03 — a new chunk layout — FIXED
 
 Red on all three hosted runs after the v7.0 review's fixes landed (`21768afdc`, `9096b548a` twice),
