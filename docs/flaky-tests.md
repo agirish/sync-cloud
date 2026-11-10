@@ -2822,6 +2822,14 @@ turns it red, after the bound. The two "never held clear" tests in the suite rea
 after a fixed `pump(0.3)` too; each keeps that 0.3 s as its window for the absence and now also
 waits, bounded, for a recorded turn before requiring one.
 
+#### Seen: `PaneInfoRoomMountTests.aDeepStackIsRevealedToTheRoom`, 2026-11-10
+
+Red once on hosted CI at `04e1c47d4` (Activity messages linked to runs by id), whose only
+`Modules/FileExplorer` change was `ActivityCenter` and its tests, no layout. The check
+`abs(room.frame.maxX - viewport.maxX) < 1.5` failed after 21.5 s, in a 797-test chunk. Three
+local runs of the suite passed (2.3–5.9 s), and the next commit, `86d2ca221`, which carries the
+same `Modules/FileExplorer` tree, went green. Not reproduced.
+
 ### 18. A named NSPasteboard is machine-global, so two test PROCESSES share it
 
 **Symptom.** A pasteboard assertion fails with a value from a fixture **this process never
