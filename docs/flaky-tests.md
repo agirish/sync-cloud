@@ -1754,18 +1754,47 @@ So the wait itself was not starved; the walk had already been let go, the scan h
 there was no running scan left to show. The 10 s went on the steps before `latch.end()`.
 Not reproduced; the base-SHA tree hash is the proof it is not the change.
 
-#### Seen: `ScanShownTests.aScanThatEndsInsideTheWaitIsNeverShown`, 2026-11-02
+**Not the race above** (2026-11-09). This test already holds its scan in the walk and waits for
+`latch.waited` with `waitUntil`, so its wait always begins first. Here the checks before
+`latch.end()` passed, the scan premise included. The `waitUntil` after it then saw 293 scheduler
+turns, so the main actor was turning, yet the wait task never published the scan as shown. So by
+`latch.end()` the park's own bound (10 s and 500 turns) had run out, and the scan was ending.
+Neither of the test's bounded waits before it failed, and between them they use about 150 turns, so
+the time went on something the turn count does not see. The likeliest step is `awaitSignal`'s
+`DispatchQueue.global()` block, a default-QoS thread, waiting for GCD to admit it, as in "A
+main-queue defaults observer parks every scratch-suite wipe on the main thread". Not proven; seen
+once.
 
-Red once on hosted CI at `60d1d4cb4`, the TE294 review fixes, whose only `Modules/Sync` change was
-the PDF card's model and its tests. `latch.waited` failed after 2.1 s: the scan ended before the
-test's wait began, so the wait it checks for was never entered. Five local runs of the suite passed
-(3.2–5.0 s each), and so did a rerun of the failed job. The suite's second sighting in a day, both
-on hosted VMs and neither reproduced; a third is the point to look at the latch itself.
+#### Seen: `ScanShownTests.aScanThatEndsInsideTheWaitIsNeverShown`, 2026-11-02 and 2026-11-09 — FIXED
 
-**Third sighting, 2026-11-09:** red once on hosted CI at `232be9d75` (Activity's Events tab), whose
-`Modules/Sync` change was eight comment lines and one refusal sentence. Same check, `latch.waited`,
-after 1.96 s, in a 567-test chunk that took 9.6 s. Three local runs of the suite passed (2.2–3.7 s).
-The suite has now been red three times on hosted VMs and never here, so the latch is due a look.
+Red twice on hosted CI, each time with one issue, `latch.waited`, and every later check green:
+at `60d1d4cb4` (the TE294 review fixes, 2.1 s) and at `232be9d75` (Activity's Events tab, run
+42744963667, 2.0 s, in a 567-test chunk that took 9.6 s). Neither commit changed the scan, and both reruns passed, as did eight local
+runs of the suite.
+
+**Mechanism.** The test let its scan run unheld, then checked that the scan's wait had begun.
+`executeScan` starts that wait on an unstructured main-actor `Task`. The task gets its first turn
+only when the scan hands over the main actor, and the scan's only suspensions are awaits on tasks it
+has just detached: the walk, then the filter pass. As in "An await on a task that has already
+finished does not suspend", a slow 3-vCPU VM can finish both detached tasks before the main thread
+reaches either await. The whole scan then runs in one main-actor stretch, ends, and cancels a wait
+that has not started yet. `waitUntil` finds the scan done on its first poll and never suspends
+either, so the premise reads `latch.waited` before the wait task has run. The green
+`latch.returned` wait after it shows the task did run, after the scan. That is the right product
+behaviour (a cancelled wait never lights the scan up). Only the test's assumed order broke.
+
+**Reproduced** with `usleep(300_000)` between creating each detached task and awaiting it, in
+`executeScan` and `applyFilters`: the same single issue at the same line.
+
+**Fix, 2026-11-09.** The scan now parks in its walk (`enumeratorGate`, `.parksAThread`) until its
+wait has begun. The test checks `isScanning` there, releases the walk, awaits the scan, and only
+then ends the wait. Each step waits for the one before, so the order the test is named for,
+wait begun, scan ended inside it, wait ended, holds by construction rather than by timing. Green
+under the same `usleep` repro. With the wait task's guard (`!Task.isCancelled, isScanning,
+scanStartedAt == started`) removed, it fails `!published.contains(true)` and `!manager.isScanShown`.
+
+**Tell.** A premise about work an unstructured `Task` was started to do, read right after the
+work that started it finished unheld. Ask whether anything made that work hand over its actor.
 
 #### Seen: `DifferenceResolutionTests` and `OneWaySyncDropboxGateTests`, 2026-11-03 — a new chunk layout — FIXED
 

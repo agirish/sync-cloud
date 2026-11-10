@@ -82,20 +82,36 @@ import Testing
     /// A scan that ends inside the wait is never shown, not during it and not when the wait ends
     /// afterwards. Every value `isScanShown` publishes is recorded, so a rise that came and went
     /// between two looks is still caught.
-    @Test func aScanThatEndsInsideTheWaitIsNeverShown() async throws {
-        let manager = FileSyncManager(fileManager: try disk())
+    ///
+    /// The scan parks in its walk until its wait has begun, then ends, then the wait ends: each
+    /// step waits for the one before. Unheld, the scan's awaits are on tasks it has just detached,
+    /// and an await on a task that has already finished does not suspend, so on a loaded machine the
+    /// whole scan can run without handing the main actor to the task that starts the wait.
+    @Test(.parksAThread) func aScanThatEndsInsideTheWaitIsNeverShown() async throws {
+        let mockFM = try disk()
+        let gate = ParkGate()
+        mockFM.enumeratorGate = gate
+        let manager = FileSyncManager(fileManager: mockFM)
         let latch = Latch()
         manager.scanShownWait = { await latch.wait() }
         var published: [Bool] = []
         let sink = manager.$isScanShown.sink { published.append($0) }
         defer { sink.cancel() }
 
-        await manager.scanDirectories(left: Self.left, leftPath: "/L", right: Self.right, rightPath: "/R")
-        await waitUntil("the scan finishes") { manager.hasScanned && !manager.isScanning }
-        // Premise: the scan really ran, and its wait really began — otherwise "never shown" would be
-        // a statement about a scan, or a wait, that never happened.
+        let scan = Task {
+            await manager.scanDirectories(left: Self.left, leftPath: "/L", right: Self.right, rightPath: "/R")
+        }
+        await awaitSignal(gate.entered, "the scan never reached its walk — nothing held it running")
+        await waitUntil("the scan starts its wait") { latch.waited }
+        // Premise: the wait began while the scan ran, so the scan below ends inside it.
+        #expect(manager.isScanning, "premise: the scan ended before its wait began")
+
+        gate.release.signal()
+        await scan.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the scan was never actually held")
+        // Premise: the scan really ran, so "never shown" is a statement about a real scan.
+        #expect(manager.hasScanned && !manager.isScanning)
         #expect(manager.differences.map(\.relativePath) == ["only_left.txt"])
-        #expect(latch.waited, "premise: the scan never started its wait")
 
         // Now end the wait, after the scan: a wait that outlives its scan must not light it up.
         latch.end()
