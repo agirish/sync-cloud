@@ -374,7 +374,7 @@ public final class ChangedFileLedger: @unchecked Sendable {
     }
 }
 
-/// A row Activity ▸ Now shows for a cloud app that isn't syncing: information, no notification.
+/// A row above Activity ▸ Events for a cloud app that isn't syncing: information, no notification.
 public struct CloudAppNotice: Identifiable, Equatable, Sendable {
     public enum Action: Equatable, Sendable {
         case open(CloudApp)

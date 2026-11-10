@@ -176,11 +176,11 @@ import AppKit
         let message = try source("MacApp/ContentView+ResultMessage.swift")
         #expect(message.contains("guard !refusedWhileRunLocked() else { return }"),
                 "the message's Undo undoes during a run if the grey is slipped")
-        let history = try source("Modules/Dashboard/Sources/Dashboard/SyncHistoryView.swift")
-        #expect(history.contains(".lockedDuringRun()\n            .help(\"Reverse the most recent sync run\")"))
+        let events = try source("Modules/Dashboard/Sources/Dashboard/ActivityEventsView.swift")
+        #expect(events.contains(".lockedDuringRun()\n            .help(\"Reverse this run — asks first, listing what it puts back\")"))
         let app = try source("MacApp/SyncCloudApp.swift")
         #expect(app.contains(".modifier(RunWriteLockFromManager(syncManager: syncManager))"),
-                "Sync History is not told when a run is going")
+                "Activity's Events is not told when a run is going")
         #expect(app.contains("RunUndoGate.shared.install()"))
     }
 }

@@ -1075,3 +1075,29 @@ Needs an API key, a folder survey from Setup, and a few loose files in Downloads
 - [ ] **No key.** Remove the API key in Settings ▸ Ask Claude ▸ Key & Spending, then File with Claude on a file:
   the setup shows, the file is a chip, "File this" is in the box, and nothing is sent. Save the
   key and press Return: it's asked.
+
+## Activity's Events and Log (TE339, 2026-11-09)
+
+Copy a folder of a few files to another source first, so there is a run to look at.
+
+- [ ] **Two tabs.** Window ▸ Activity (⌘L): the tabs read Events and Log. Window has no Sync History
+  item.
+- [ ] **The band.** Start a long copy, open Activity: it is listed at the top with Stop, and the
+  timeline sits under it. Shrink the window to its smallest: the band takes at most a third and
+  scrolls; the timeline keeps the rest.
+- [ ] **A run is one row.** After the copy, Events shows one row with its message ("Copied 24 items…")
+  and "24 records". Click it: the files open under it. Click again: they close.
+- [ ] **A run with no message.** Rename a file in a pane, then look at Events: a row says
+  "Renamed “a” to “b”" with "1 record".
+- [ ] **Undo….** On the newest run, Undo… asks first, listing the files, then reverses the run. Do
+  something else in the main window first (New Folder): the copy's row no longer offers Undo….
+- [ ] **Filters reach into runs.** Type part of one file's name in the filter: the run opens to that
+  file alone and says "1 of 24 records". Clear the field: it closes again.
+- [ ] **Messages and clears.** A failed move is its own row. The trash menu has Clear Messages (no
+  question), Clear Sync History… and Clear Settings Changes… (each asks).
+- [ ] **Pointing at a row.** With a filter set, click a background-finish notification: the filter
+  clears and the run's row is shown, opened and highlighted. In the capsule's popover, Show in Events
+  on a message does the same.
+- [ ] **One-way sync.** From a one-way sync sheet, History… opens Events showing one-way syncs alone.
+- [ ] **Quit and relaunch.** Runs, one-way syncs and settings changes are still there under their
+  days; messages are gone, and a run built its own sentence.

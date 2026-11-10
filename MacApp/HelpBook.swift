@@ -417,7 +417,7 @@ enum HelpBook {
                         "A person in People can be a card with their name, relationship, full names and what else they’re called, plus Move Up and Move Down; each field saves on Return or when you leave it, with Undo. Add Person puts the same fields in the card, and adds the person when you click Add Person.",
                         "A button can be a card too: Refresh, Show in Finder, Sweep Now and the like run on a click. One that can’t be undone — removing a folder you added, a person or the API key, a Clear All, Clear Log, Reset Setup or Reset All — asks first inside the card, in Settings’ own words, with Cancel first — Escape presses it; Reset All also names what it would let Claude do again. Showing a hidden folder to Claude again asks too.",
                         "Ask for a new API key and the card holds a field for it, with 16 dots for the key already saved: the key goes to your Keychain and Claude never sees it. A message with your Anthropic API key in it isn’t sent — its card shows it masked, with Save as API Key and Edit Message.",
-                        "Every setting changed from the chat, and every rule saved from a card, is listed in the Activity window’s History tab for 90 days, after the chat is gone, among the copies and moves by time, as a Setting entry that says who changed it. The path filter finds a setting by its name or values, and the action menu’s Settings Changes shows them alone. Revert puts a value back while the setting still holds what was set there; one that raises Claude’s spending or access asks first. The trash’s Clear Settings Changes… empties the list.",
+                        "Every setting changed from the chat, and every rule saved from a card, is listed in the Activity window’s Events tab for 90 days, after the chat is gone, among the runs by time, as a Setting entry that says who changed it. The path filter finds a setting by its name or values, and the action menu’s Settings Changes shows them alone. Revert puts a value back while the setting still holds what was set there; one that raises Claude’s spending or access asks first. The trash’s Clear Settings Changes… empties the list.",
                     ]),
                 ],
                 related: ["ask-claude", "ask-claude-changes", "appearance", "intelligence", "activity-log"]
@@ -522,8 +522,8 @@ enum HelpBook {
                         "Sync Now copies what changed in iCloud. A renamed folder moves once in Dropbox, with nothing uploaded again, and an edit that keeps a file’s size and date is copied too. A deletion is copied once the file has been gone 30 minutes and a later Sync Now still finds it gone.",
                         "The pill says when there is something to sync. Once a file or folder is added, edited, renamed, moved or deleted on either side, it reads “3 changes since 14:02 · Sync Now”, and the sync’s row in Compare’s sidebar shows 3. Sync Now’s own copies, opening a file, and iCloud downloading or offloading one don’t count, and nor does an edit that keeps a file’s size and modification date, though Sync Now still copies it. When SyncCloud can’t tell what changed, it reads “Changes may be waiting · Sync Now”.",
                         "Whatever the sync removes or replaces goes to a SyncCloud Removed folder in Dropbox. A file Dropbox won’t take is listed as skipped, and tried again once it changes in iCloud.",
-                        "What needs you waits in the Activity window’s Now tab: a file changed directly in Dropbox, with Choose a Version…, and more removals in a day than the limit, with Review… and Match iCloud. The whole sync stops there, and says why, when Dropbox isn’t running, hasn’t uploaded a changed file for 30 minutes or is full, or when SyncCloud can’t read a folder; a synced folder that becomes shared stops it too. A stop because Dropbox or iCloud wasn’t there clears as soon as it’s back.",
-                        "Each sync is in the Activity window’s History tab for 90 days, with Reverse in iCloud…, which also moves a file moved in from a folder that isn’t synced back to it.",
+                        "What needs you waits at the top of the Activity window’s Events tab: a file changed directly in Dropbox, with Choose a Version…, and more removals in a day than the limit, with Review… and Match iCloud. The whole sync stops there, and says why, when Dropbox isn’t running, hasn’t uploaded a changed file for 30 minutes or is full, or when SyncCloud can’t read a folder; a synced folder that becomes shared stops it too. A stop because Dropbox or iCloud wasn’t there clears as soon as it’s back.",
+                        "Each sync is a row in the Activity window’s Events tab for 90 days, with Reverse in iCloud…, which also moves a file moved in from a folder that isn’t synced back to it.",
                         "Each side says what it is: the iCloud pane says “Changes made here” and the Dropbox pane “Kept as a copy”. In the Dropbox pane, renaming or deleting a synced file isn’t offered and moving one is refused, and Show in iCloud finds the file it comes from.",
                         "Settings ▸ Compare has a One-Way Sync page: Pause, Choose Folders…, what to do with changes made in Dropbox, files you stopped syncing, SyncCloud Removed with Show and Choose Items to Empty…, whose list also offers Restore to iCloud, and Turn Off One-Way Sync…. Resume says what the next sync would do first. Taking the sync over from another Mac, with Sync From This Mac Instead…, lists the files only in Dropbox as one group to review before anything moves.",
                     ]),
@@ -942,7 +942,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "One amber line runs along the top of the file list — “Dropbox isn’t running · files may be out of date” — with Open Dropbox at its end.",
-                        "An amber dot marks the source in the source menu, the sidebar and Settings ▸ Sources, and the Activity window’s Now tab has a row for it, with Dismiss.",
+                        "An amber dot marks the source in the source menu, the sidebar and Settings ▸ Sources, and the top of the Activity window’s Events tab has a row for it, with Dismiss.",
                         "It also covers a cloud folder that doesn’t answer, iCloud signed out or iCloud Drive turned off, and a file SyncCloud changed that still hasn’t uploaded after 30 minutes. A hidden folder that never answers, such as OneDrive’s Trash, doesn’t count.",
                         "Picking a source checks it at once. A warning that appears on its own waits until the app has been missing five minutes, and sources turned off in Settings get none.",
                     ]),
@@ -953,19 +953,20 @@ enum HelpBook {
             Topic(id: "activity-log", title: "Activity, the log and troubleshooting", systemImage: "clock.arrow.circlepath", article: Article(
                 intro: "Every scan and file operation is logged. If something looks off, Activity is where to look — and its log is what to send if you need help.",
                 blocks: [
-                    .paragraph("Activity is one window with three tabs. Now lists what is running, each with its own Stop, and Recent: every message this session, in full, with its buttons — Undo, Reveal in Browse, Open in Edit — newest first, the newest 50 kept until you quit. History holds One-Way Sync’s runs above Sync History, whose list also has the settings changed from Ask Claude’s chat. Log is the live event stream."),
+                    .paragraph("Activity is one window with two tabs. Events lists, at its top, what is running, each with its own Stop, and what is waiting on you. Under that is everything SyncCloud did, newest first and by day. A sync run is one row, led by the message it showed with its buttons — Reveal in Browse, Open in Edit — and it opens to the files it changed. A message with no run, each one-way sync, and the settings changed from Ask Claude’s chat are rows beside the runs. Runs, syncs and settings changes stay after you quit; messages last until SyncCloud quits. Log is the live event stream."),
                     .bullets([
                         "Open it from Window ▸ Activity, the Activity button in the toolbar, or ⌘L. It opens on the tab you used last since SyncCloud started.",
-                        "Click the progress capsule in the middle of the toolbar for a quick look at Now; Open as Window at its foot opens the window.",
+                        "Click the progress capsule in the middle of the toolbar for a quick look at what is running and the latest messages. Open as Window at its foot opens the window, and a message’s Show in Events opens its run’s row there.",
                         "A long run that ends after you moved to another workspace — a merge started in Organize finishing while you are in Browse — says so in the capsule for five seconds, with its Undo or Reveal, rather than in a pane you are not looking at. If another run is still going, the capsule’s count says so, and the run comes back after.",
                         "A PDF tool run on several files from a pane asks its question in a sheet and then goes on in the capsule, with Stop, so the window stays usable. A PDF run waiting for other PDF work shows a clock.",
-                        "Reading documents, a duplicate scan and a reorganization being applied are listed in Now too, with Show, which goes to their card — their Pause and Stop stay there. They never bring up the capsule.",
-                        "Now also holds what is waiting on you rather than running: a one-way sync’s questions and stops, and a cloud app that isn’t syncing, with Dismiss.",
+                        "Reading documents, a duplicate scan and a reorganization being applied are listed at the top of Events too, with Show, which goes to their card — their Pause and Stop stay there. They never bring up the capsule.",
+                        "The top of Events also holds what is waiting on you rather than running: a one-way sync’s questions and stops, and a cloud app that isn’t syncing, with Dismiss.",
                         "With “Notify when operations finish in the background” on in General, a notification names the run that ended; click it to open Activity on that message.",
-                        "A red dot on the Activity button means a problem arrived that you may not have seen: while you were away from SyncCloud, or shown in the capsule while you worked elsewhere. Activity opens on Now while it is there, and opening Activity clears it.",
+                        "A red dot on the Activity button means a problem arrived that you may not have seen: while you were away from SyncCloud, or shown in the capsule while you worked elsewhere. Activity opens on Events while it is there, and opening Activity clears it.",
                         "A run you stopped is listed in gray, saying what it kept — it is not a problem, so it leaves no red dot.",
-                        "A message’s Undo in Recent works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
-                        "Show in History narrows History to that run’s records; Show in Log narrows the log to the minutes around the message. Show All puts the whole list back.",
+                        "A message’s Undo works while its step is the newest one. After something newer, it says what to undo first; ⌘Z in the main window steps back through them.",
+                        "The newest run of this session has Undo… on its row while nothing newer is on top of the undo stack. It lists what it will put back, then reverses the whole run in one step.",
+                        "A run’s records button opens its files in place. A path or action filter opens every run with a match and lists only the matching files, as “3 of 24 records”. Show in Log narrows the log to the minutes around the message, and Show All puts the whole log back.",
                         "In Log, filter by severity and copy lines straight from the window.",
                         "Copy Log for Sharing, in Log’s bar and in the Advanced settings, copies the whole log with email addresses, your home folder and the names in your People lists masked. The log file itself keeps everything.",
                         "The full log is written to sync-cloud.log — Help ▸ Reveal Log File in Finder opens it.",
@@ -980,11 +981,11 @@ enum HelpBook {
                 blocks: [
                     .paragraph("Unlike the live log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
                     .bullets([
-                        "Open it from Window ▸ Sync History: it is Activity’s History tab.",
+                        "It is in Activity’s Events tab, where each run is one row that opens to its records.",
                         "Filter by action, date range, or path, and search across everything recorded.",
                         "Export the current view to CSV or JSON for a spreadsheet or your own tooling.",
-                        "Undo Last Run… shows what the most recent sync did, then reverses it in one step: a copy is removed, and the file it replaced comes back from the Trash; a moved file goes back where it came from; a file whose date was matched gets its own date back. A file that changed since is left as it is, and the banner says so.",
-                        "An item moved to the Trash is listed as Move to Trash, and Undo Last Run puts it back. Delete is kept for an item deleted outright, on a disk with no Trash, which has no way back. Undo Last Run takes back only a whole run: if one item in it was deleted outright, or the Mac did not say where in the Trash one went, it leaves that run alone. ⌘Z still puts back the items it knows the place of, and an item the Mac did not place is in the Trash for Finder to put back.",
+                        "Undo… on the newest run shows what it did, then reverses it in one step: a copy is removed, and the file it replaced comes back from the Trash; a moved file goes back where it came from; a file whose date was matched gets its own date back. A file that changed since is left as it is, and the banner says so.",
+                        "An item moved to the Trash is listed as Move to Trash, and Undo… puts it back. Delete is kept for an item deleted outright, on a disk with no Trash, which has no way back. Undo… takes back only a whole run: if one item in it was deleted outright, or the Mac did not say where in the Trash one went, it leaves that run alone. ⌘Z still puts back the items it knows the place of, and an item the Mac did not place is in the Trash for Finder to put back.",
                         "A Restructure landing is the one thing that does not appear here. It moves files, but it keeps its own reversal — the one behind “Undo This Reorganization…” — and writes a single summary line to Activity’s log.",
                     ]),
                     .tip("Undoing a run reuses the same safe reversal as ⌘Z — files come back from where they went, and you can redo afterward."),
@@ -1078,22 +1079,6 @@ extension HelpBook.Mood {
         case .caution: return SemanticColor.caution
         case .copyRight: return .blue
         case .copyLeft: return .purple
-        }
-    }
-}
-
-// MARK: - Menu commands
-
-/// The Window ▸ Sync History item: Activity on its History tab, the durable, exportable,
-/// reversible history. A separate View, not inline in `.commands`, because `openWindow` is an
-/// Environment value the App struct doesn't carry, as with `ShortcutsWindowCommand`.
-struct SyncHistoryWindowCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Sync History") {
-            ActivityCenter.shared.tab = .history
-            openWindow(id: ActivityCenter.windowID)
         }
     }
 }

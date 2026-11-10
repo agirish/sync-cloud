@@ -319,9 +319,9 @@ struct SyncOperationAlerts {
     /// - Returns: True to reverse the last run.
     static func confirmUndoLastSyncRun(_ preview: SyncRunUndoPreview) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Undo the last sync run?"
+        alert.messageText = "Undo this sync run?"
         alert.informativeText = preview.confirmationDetail()
-        alert.addButton(withTitle: "Undo Last Run") // Return key default
+        alert.addButton(withTitle: "Undo Run")      // Return key default
         alert.addButton(withTitle: "Cancel")         // Escape
         return isConfirmed(alert.runModal())
     }

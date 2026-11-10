@@ -15,7 +15,7 @@ import IOKit
 /// | `state.json` | the settings, the removal window, Pause, the last sync |
 /// | `exclusions.json` | files you stopped syncing, apart from the record so a new first run keeps them |
 /// | `outside.json` | iCloud's files in unsynced and shared folders at the last pass, by ID: where a file moved in came from |
-/// | `notices.json` | Activity ▸ Now's saved rows (`OneWaySyncNoticeStore`) |
+/// | `notices.json` | the rows above Activity ▸ Events (`OneWaySyncNoticeStore`) |
 /// | `History/` | one entry per sync that changed or held something (`OneWaySyncHistoryStore`) |
 /// | `sync.lock` | held by the one process that syncs (`OneWaySyncProcessLock`) |
 ///

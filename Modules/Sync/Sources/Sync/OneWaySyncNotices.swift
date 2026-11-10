@@ -7,7 +7,7 @@ import Darwin
 import Events
 import Foundation
 
-/// A row in Activity ▸ Now for one-way sync: under *Needs you*, something waiting for the
+/// A one-way sync row above Activity ▸ Events: under *Needs you*, something waiting for the
 /// user, or under *For your information*.
 ///
 /// Saved, so it survives a quit. A *Needs you* row stays until answered or until its cause clears,

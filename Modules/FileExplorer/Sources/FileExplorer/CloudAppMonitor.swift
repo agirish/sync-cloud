@@ -70,7 +70,7 @@ public final class CloudAppMonitor: ObservableObject {
 
     @Published public private(set) var problems: [String: CloudAppProblem] = [:]
     @Published public private(set) var skipped: [String: [CloudSkippedFile]] = [:]
-    /// The rows Activity ▸ Now shows: every notice not dismissed at its current signature.
+    /// The rows above Activity ▸ Events: every notice not dismissed at its current signature.
     @Published public private(set) var notices: [CloudAppNotice] = []
 
     private var model = CloudAppStatusModel()

@@ -102,7 +102,7 @@ import Sync
         var steps = (0..<1_200).map { OneWaySyncHistoryStep(step: OneWaySyncStep(action: .adopt(iCloudPath: "F/\($0)", dropboxPath: "F/\($0)")), status: .confirmed) }
         steps += (0..<1_500).map { OneWaySyncHistoryStep(step: OneWaySyncStep(action: .copy(from: "F/n\($0)", to: "F/n\($0)", needsDownload: false)), status: .confirmed) }
         let entry = OneWaySyncHistoryEntry(firstRun: UUID(), startedAt: 1_790_000_000, steps: steps, held: [], finishedAt: 1_790_000_100)
-        #expect(OneWaySyncHistoryRows.headline(entry).hasPrefix("Synced \(1_500.formatted()) · "))
+        #expect(OneWaySyncHistoryEntryRow.headline(entry) == "Synced \(1_500.formatted())")
     }
 
     /// History's right-hand column says what a step did.

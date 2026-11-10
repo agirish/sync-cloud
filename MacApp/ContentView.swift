@@ -1161,9 +1161,9 @@ struct ContentView: View {
             // first.
             .task {
                 syncManager.oneWaySyncRefusal = { paths in OneWaySyncController.shared.refusal(forChanging: paths) }
-                oneWaySync.onOpenActivity = { openActivityOnNow() }
+                oneWaySync.onOpenActivity = { openActivityOnEvents() }
                 oneWaySync.onOpenHistory = {
-                    ActivityCenter.shared.tab = .history
+                    ActivityCenter.shared.showOneWaySyncHistory()
                     openWindow(id: ActivityCenter.windowID)
                 }
                 oneWaySync.onOpenSettings = { openSettings(on: SettingsPlace(.oneWaySync)) }

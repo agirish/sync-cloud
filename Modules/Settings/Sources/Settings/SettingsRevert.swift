@@ -1,7 +1,7 @@
 import Foundation
 import Sync
 
-/// Revert, on a Changed from Chat row in Activity ▸ History: a value goes back only while it is
+/// Revert, on a Changed from Chat row in Activity ▸ Events: a value goes back only while it is
 /// still the one set there, so Revert never overwrites a later change.
 ///
 /// Revert is its own row in the record, isn't on any ⌘Z stack, and is told to Claude in an open

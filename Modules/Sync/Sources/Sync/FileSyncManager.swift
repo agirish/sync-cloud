@@ -262,7 +262,7 @@ public class FileSyncManager: ObservableObject {
             : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) in the main window to reverse it."
     }
 
-    /// Reverses the most recent sync run for Sync History's Undo Last Run: asks `confirm` with the
+    /// Reverses the most recent sync run for its Undo… in Activity's Events: asks `confirm` with the
     /// preview, and reverses only on yes. Reuses the tested `UndoManager` stack, no new
     /// file-mutating path; a bulk run is one grouped step, so it reverses at once.
     ///
@@ -280,7 +280,7 @@ public class FileSyncManager: ObservableObject {
         // modal re-arms the pairing under the same name.
         guard current.runToken == preview.runToken else {
             Logger.shared.warning("Undo Last Run refused: the run on top of the undo stack is not the one the confirmation listed (\(preview.operationCount) operation(s) shown, \(current.operationCount) on top)")
-            return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo Last Run… again to see what it would reverse."
+            return "Another sync run finished while you were deciding, so nothing was undone. Choose Undo… on the run again to see what it would reverse."
         }
         reverseLastSyncRun()
         return nil

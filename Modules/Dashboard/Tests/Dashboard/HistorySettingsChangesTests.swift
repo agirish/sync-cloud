@@ -5,8 +5,8 @@ import Settings
 import Sync
 @testable import Dashboard
 
-/// Settings changed from the chat are listed in History among the sync records, by time, in plain
-/// words, and History's filters reach them.
+/// Settings changed from the chat are listed in Activity's Events among the runs, by time, in plain
+/// words, and its filters reach them.
 @MainActor
 @Suite struct HistorySettingsChangesTests {
 
@@ -40,25 +40,31 @@ import Sync
         #expect(HistorySettingsChanges.filter(both, search: "", start: at.addingTimeInterval(-60)) == [theme])
     }
 
-    /// All Actions and Settings Changes show them; a kind of record, or one run's records, don't.
-    @Test func theActionFilterAndShowInHistoryDecideWhetherTheyShow() {
+    /// All Events and Settings Changes show them; a kind of record, Messages or One-Way Sync don't.
+    @Test func theActionFilterDecidesWhetherTheyShow() {
         let all = [change("Theme", "Light", "Dark")]
-        #expect(SyncHistoryView.shownChanges(all, choice: .all, runId: nil, search: "", start: nil) == all)
-        #expect(SyncHistoryView.shownChanges(all, choice: .settings, runId: nil, search: "", start: nil) == all)
-        #expect(SyncHistoryView.shownChanges(all, choice: .action(.copy), runId: nil, search: "", start: nil).isEmpty)
-        #expect(SyncHistoryView.shownChanges(all, choice: .all, runId: UUID(), search: "", start: nil).isEmpty)
-        #expect(SyncHistoryView.settingsOption.label == "Settings Changes")
+        func shown(_ choice: ActivityEventsChoice) -> Int {
+            ActivityEvents.build(records: [], messages: [], oneWay: [], changes: all, choice: choice, search: "",
+                                 start: nil).count
+        }
+        #expect(shown(.all) == 1)
+        #expect(shown(.settings) == 1)
+        #expect(shown(.action(.copy)) == 0)
+        #expect(shown(.messages) == 0)
+        #expect(shown(.oneWaySync) == 0)
+        #expect(ActivityEventsView.settingsOption.label == "Settings Changes")
     }
 
-    /// One list, newest first, records and settings changes between each other by time.
-    @Test func recordsAndChangesInterleaveNewestFirst() {
+    /// One list, newest first, runs and settings changes between each other by time.
+    @Test func runsAndChangesInterleaveNewestFirst() {
         let older = SyncHistoryRecord(runId: UUID(), timestamp: at.addingTimeInterval(-600), action: .copy,
                                       sourcePath: "/a", destPath: "/b")
         let newer = SyncHistoryRecord(runId: UUID(), timestamp: at.addingTimeInterval(600), action: .move,
                                       sourcePath: "/c", destPath: "/d")
         let theme = change("Theme", "Light", "Dark")
-        let ids = SyncHistoryView.items(records: [newer, older], changes: [theme]).map(\.id)
-        #expect(ids == ["record-\(newer.id)", "setting-\(theme.id)", "record-\(older.id)"])
+        let ids = ActivityEvents.build(records: [older, newer], messages: [], oneWay: [], changes: [theme], choice: .all,
+                                       search: "", start: nil).map(\.id)
+        #expect(ids == ["run-\(newer.runId)", "setting-\(theme.id)", "run-\(older.runId)"])
     }
 
     /// Revert's "Show to Claude again?" asks as Settings' Remove and the card do, with Cancel the

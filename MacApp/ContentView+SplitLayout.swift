@@ -38,9 +38,9 @@ extension ContentView {
         return relative.isEmpty ? root : (root as NSString).appendingPathComponent(relative)
     }
 
-    /// Opens Activity on Now: the toolbar chip's and the strip's door.
-    func openActivityOnNow() {
-        ActivityCenter.shared.tab = .now
+    /// Opens Activity on Events: the toolbar chip's and the strip's door.
+    func openActivityOnEvents() {
+        ActivityCenter.shared.tab = .events
         ActivityCenter.shared.markSeen()
         openWindow(id: ActivityCenter.windowID)
     }

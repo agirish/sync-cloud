@@ -16,7 +16,7 @@ public struct ActivityMessage: Identifiable, Equatable {
     /// The undo step this message's operation registered, when it offered Undo. The row's Undo is
     /// live only while that step is still the newest.
     public var undoStep: Int?
-    /// The Sync History run it reported, for Show in History.
+    /// The Sync History run it reported: Events draws it as that run's sentence.
     public var runId: UUID?
     /// The minutes its run wrote to the log, for Show in Log.
     public var span: ClosedRange<Date>
@@ -77,19 +77,17 @@ public struct ActivityDoors {
     public var openInEdit: (String) -> Void
     public var reveal: ([String]) -> Void
     public var download: (String) -> Void
-    public var showInHistory: (UUID) -> Void
     public var showInLog: (ClosedRange<Date>) -> Void
     /// A long scan's Show: opens its card.
     public var showScan: (ActivityScan) -> Void
 
     public init(openInEdit: @escaping (String) -> Void = { _ in }, reveal: @escaping ([String]) -> Void = { _ in },
-                download: @escaping (String) -> Void = { _ in }, showInHistory: @escaping (UUID) -> Void = { _ in },
+                download: @escaping (String) -> Void = { _ in },
                 showInLog: @escaping (ClosedRange<Date>) -> Void = { _ in },
                 showScan: @escaping (ActivityScan) -> Void = { _ in }) {
         self.openInEdit = openInEdit
         self.reveal = reveal
         self.download = download
-        self.showInHistory = showInHistory
         self.showInLog = showInLog
         self.showScan = showScan
     }
@@ -129,10 +127,11 @@ public final class ActivityCenter: ObservableObject {
     @Published public private(set) var flashedRow: UUID?
     @Published public private(set) var flashes = 0
     /// The Activity window's tab: the last one used, which the button and ⌘L reopen.
-    @Published public var tab: ActivityTab = .now
-    /// Show in History's run, and Show in Log's minutes: set by a Recent row, read by the tab.
-    @Published public var historyRun: UUID?
+    @Published public var tab: ActivityTab = .events
+    /// Show in Log's minutes: set by a message's row, read by the Log tab.
     @Published public var logSpan: ClosedRange<Date>?
+    /// Bumped to ask Events for one-way sync's entries alone: one-way sync's History… button.
+    @Published public private(set) var oneWaySyncHistoryRequests = 0
     /// The popover under the capsule is open, so the capsule stays for it.
     @Published public var popoverIsOpen = false
     /// The Recent row a notification's click picked out, drawn marked until another is.
@@ -263,24 +262,32 @@ public final class ActivityCenter: ObservableObject {
         releaseDot()
     }
 
-    /// The Activity window on Now, with `id`'s row picked out.
+    /// The Activity window on Events, with `id`'s row picked out: the message's own row, or the
+    /// run's row it is the sentence of.
     public func openWindow(highlighting id: UUID?) {
         // A repeat folded into an earlier row is that row.
         highlighted = id.map { id in recent.first { $0.foldedIDs.contains(id) }?.id ?? id }
-        tab = .now
+        tab = .events
         markSeen()
         windowRequests += 1
     }
 
-    /// The tab the button and ⌘L open: the last one used, or Now while a problem waits.
+    /// The tab the button and ⌘L open: the last one used, or Events while a problem waits.
     public func tabForOpening() -> ActivityTab {
-        if hasUnseenProblem { tab = .now }
+        if hasUnseenProblem { tab = .events }
         return tab
+    }
+
+    /// Events showing one-way sync's entries alone: one-way sync's History…. The caller opens the
+    /// window.
+    public func showOneWaySyncHistory() {
+        tab = .events
+        oneWaySyncHistoryRequests += 1
     }
 
     // MARK: One-way sync (RD67, DC)
 
-    /// Now's one-way sync rows, saved so they survive a quit: *Needs you* until answered or the
+    /// The one-way sync rows above Events' timeline, saved so they survive a quit: *Needs you* until answered or the
     /// cause clears, information until dismissed. Empty until ``attachOneWaySync(_:now:)``.
     @Published public private(set) var oneWaySync = OneWaySyncNoticeBoard()
     /// The row a one-way sync notification's click picked out.
@@ -335,10 +342,10 @@ public final class ActivityCenter: ObservableObject {
         settleOneWaySync(now: now)
     }
 
-    /// The Activity window on Now, with a one-way sync row picked out.
+    /// The Activity window on Events, with a one-way sync row picked out.
     public func openWindow(highlightingNotice id: String) {
         highlightedNotice = oneWaySync.shownRow(for: id) ?? id
-        tab = .now
+        tab = .events
         markSeen()
         windowRequests += 1
     }
@@ -421,16 +428,16 @@ public final class ActivityCenter: ObservableObject {
     }
 }
 
-/// The Activity window's three tabs.
+/// The Activity window's two tabs: Events, what runs and needs you above everything SyncCloud did,
+/// and Log, the lines it wrote.
 public enum ActivityTab: String, CaseIterable, Identifiable, Sendable {
-    case now, history, log
+    case events, log
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .now: return "Now"
-        case .history: return "History"
+        case .events: return "Events"
         case .log: return "Log"
         }
     }

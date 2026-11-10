@@ -47,13 +47,13 @@ import Sync
         #expect(!center.hasUnseenProblem)
     }
 
-    /// The button and ⌘L reopen the last tab used, or Now while a problem waits.
-    @Test func opensOnTheLastTabOrNowForAProblem() {
+    /// The button and ⌘L reopen the last tab used, or Events while a problem waits.
+    @Test func opensOnTheLastTabOrEventsForAProblem() {
         let center = ActivityCenter()
         center.tab = .log
         #expect(center.tabForOpening() == .log)
         center.record(message("Couldn’t copy 3 items", .error), seen: false)
-        #expect(center.tabForOpening() == .now)
+        #expect(center.tabForOpening() == .events)
     }
 
     /// A history run is linked to the first message after it records, and to no later one, so an

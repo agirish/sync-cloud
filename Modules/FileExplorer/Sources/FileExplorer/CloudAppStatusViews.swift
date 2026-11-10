@@ -151,7 +151,8 @@ public struct CloudAppStatusDot: View {
     }()
 }
 
-/// Activity ▸ Now's rows for cloud apps that aren't syncing: information, with no notification.
+/// The rows above Activity ▸ Events for cloud apps that aren't syncing: information, with no
+/// notification.
 /// Dismiss hides a row until what it says changes.
 struct CloudAppNoticeRows: View {
     @ObservedObject var monitor: CloudAppMonitor

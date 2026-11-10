@@ -4,21 +4,20 @@ import Design
 import Events
 import FileExplorer
 
-/// One Activity window with three tabs, Now · History · Log, each answering "what did SyncCloud
-/// just do?" at its own depth: a message is one sentence, a run has its Sync History records, and
-/// it wrote its own lines to the log. A Recent row links down a level, to its run's records or to
-/// its minutes in the log.
+/// One Activity window with two tabs. Events: what runs and needs you, on a band above everything
+/// SyncCloud did, where a run is one row that opens to its files. Log: the lines it wrote, which a
+/// row links down to by its minutes.
 ///
-/// History and Log are their own views, without their title rows, which the tab replaces. A row's
-/// Undo acts on the main window's undo stack; ⌘Z pressed in this window has a stack of its own.
-public struct ActivityWindow<History: View>: View {
+/// A row's Undo acts on the main window's undo stack; ⌘Z pressed in this window has a stack of its
+/// own.
+public struct ActivityWindow<Events: View>: View {
     @ObservedObject var center: ActivityCenter
     let activeProgress: Progress?
     let activeProgressStartedAt: Date?
     let runWriteLock: String?
     /// The long scans, listed under the runs.
     let scans: [ProgressCapsuleListedRun]
-    let history: History
+    let events: Events
     /// The window's hue for the tab picker's selection — the app's, never the system's.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
@@ -26,13 +25,25 @@ public struct ActivityWindow<History: View>: View {
 
     public init(center: ActivityCenter, activeProgress: Progress?, activeProgressStartedAt: Date?,
                 runWriteLock: String?, scans: [ProgressCapsuleListedRun] = [],
-                @ViewBuilder history: () -> History) {
+                @ViewBuilder events: () -> Events) {
         self.center = center
         self.scans = scans
         self.activeProgress = activeProgress
         self.activeProgressStartedAt = activeProgressStartedAt
         self.runWriteLock = runWriteLock
-        self.history = history()
+        self.events = events()
+    }
+
+    /// What runs and needs you, ticking for the runs' progress and ages. Only this ticks: Events'
+    /// timeline under it says times of day and never redraws on a clock.
+    private var band: some View {
+        ActivityRunsReader(activeProgress: activeProgress, activeProgressStartedAt: activeProgressStartedAt,
+                           center: center) { entries in
+            TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                ActivityNowView(runs: entries.map { $0.listed() } + scans, center: center,
+                                runWriteLock: runWriteLock, now: timeline.date)
+            }
+        }
     }
 
     public var body: some View {
@@ -52,28 +63,29 @@ public struct ActivityWindow<History: View>: View {
             .accessibilityLabel("Activity")
             Divider().opacity(0.6)
             switch center.tab {
-            case .now:
-                ActivityRunsReader(activeProgress: activeProgress, activeProgressStartedAt: activeProgressStartedAt,
-                                   center: center) { entries in
-                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
-                        ActivityNowView(runs: entries.map { $0.listed() } + scans, center: center,
-                                        runWriteLock: runWriteLock, now: timeline.date)
+            case .events:
+                GeometryReader { proxy in
+                    VStack(spacing: 0) {
+                        // What runs and needs you: at most a third of the window, scrolling inside
+                        // itself past that, so the timeline always keeps room. Only the band ticks.
+                        ScrollView { band }
+                            .frame(maxHeight: proxy.size.height / 3)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Divider().opacity(0.6)
+                        events
                     }
                 }
-            case .history:
-                history
             case .log:
                 LogViewer(span: $center.logSpan, showsTitle: false)
             }
         }
-        // Pinned to the top: Now is only as tall as its rows, and a taller window would centre the
-        // whole stack, tabs included.
+        // Pinned to the top, so the tabs never drift down a tall window.
         .frame(minWidth: 420, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity, alignment: .top)
         // At Clear, the same ground Settings' card gives its text, between the content and the
         // glass below, so the two read alike.
         .clearWindowGround(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted)
-        // One ground for all three tabs: the main window's glass, at its level and hue. Without
-        // it, at Clear the tabs and Now show the window behind straight through.
+        // One ground for both tabs: the main window's glass, at its level and hue. Without
+        // it, at Clear the tabs and the band show the window behind straight through.
         .liquidGlassAppBackground(level: GlassLevel(rawValue: glassLevelRaw) ?? .frosted,
                                   hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue, tint: surfaceTint)
         // Keep the glass from greying out when this window isn't key, as the main window does.

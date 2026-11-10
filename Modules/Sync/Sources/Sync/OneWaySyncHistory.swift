@@ -5,7 +5,7 @@
 
 import Foundation
 
-/// One sync in Activity ▸ History: what it set out to do, written before anything is applied, and
+/// One sync in Activity ▸ Events: what it set out to do, written before anything is applied, and
 /// each step ticked off as it lands. It is what *Reverse in iCloud* reads, and what a launch
 /// after a crash reads to find a sync cut short.
 ///

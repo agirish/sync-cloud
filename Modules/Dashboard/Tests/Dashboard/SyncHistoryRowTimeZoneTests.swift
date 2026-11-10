@@ -80,7 +80,7 @@ import Events
         #expect(SyncHistoryRow.previousDateText(match) == "was " + SyncHistoryRow.timeString(previous))
         #expect(SyncHistoryRow.previousDateText(SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/l/a.txt")) == nil)
 
-        let source = try DashboardSource.read("SyncHistoryView.swift")
+        let source = try DashboardSource.read("ActivityEventsView.swift")
         #expect(source.contains("if let previous = Self.previousDateText(record) {"), "the row no longer draws the previous date")
     }
 }

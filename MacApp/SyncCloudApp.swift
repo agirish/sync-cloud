@@ -783,10 +783,8 @@ struct SyncCloudApp: App {
             // equivalent, so its scene's is suppressed (`.commandsRemoved()`) and an item with ⌘/
             // put here; `ShortcutsWindowCommand` is the only thing registering ⌘/, and
             // `everyDeclaredChordIsOnAMenuItem` checks it. Activity keeps its automatic entry, with
-            // ⌘L put on it at launch (`ActivityMenuKey`). Sync History, under the name people know,
-            // opens Activity on its History tab.
+            // ⌘L put on it at launch (`ActivityMenuKey`); its Events tab holds the sync history.
             CommandGroup(before: .windowArrangement) {
-                SyncHistoryWindowCommand()      // Activity, on its History tab
                 ShortcutsWindowCommand()        // ⌘/
             }
         }
@@ -938,7 +936,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedSyncManager = manager
     }
 
-    /// One-way sync's saved rows in Activity ▸ Now, read at launch with the reminders that came due
+    /// One-way sync's saved rows above Activity ▸ Events, read at launch with the reminders that came due
     /// while SyncCloud was closed, then hourly and on wake. Only in the installed app
     /// (`OneWaySyncLaunchGate`): a test host or another build beside it would read and write the
     /// user's saved rows and post the same reminders twice.
@@ -1445,8 +1443,8 @@ final class GlassLogLinePending: @unchecked Sendable {
     }
 }
 
-/// The main window's run lock, for the Activity window: Sync History's Undo Last Run waits during a
-/// long run as Edit ▸ Undo does. Observes the manager here, so the scene body does not.
+/// The main window's run lock, for the Activity window: a run's Undo… waits during a long run as
+/// Edit ▸ Undo does. Observes the manager here, so the scene body does not.
 private struct RunWriteLockFromManager: ViewModifier {
     @ObservedObject var syncManager: FileSyncManager
 
@@ -1467,9 +1465,7 @@ private struct ActivityWindowHost: View {
                        activeProgressStartedAt: syncManager.activeProgressStartedAt,
                        runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason },
                        scans: ActivityScanRows.rows(syncManager) { ActivityCenter.shared.doors.showScan($0) }) {
-            // One-way sync's History entries, with Reverse in iCloud…, above Sync History.
-            OneWaySyncHistoryHost()
-            SyncHistoryView(
+            ActivityEventsView(
                 store: .shared,
                 // Settings changed from Ask Claude's chat, with Revert, among the records.
                 settings: HistorySettingsChanges(
@@ -1482,34 +1478,19 @@ private struct ActivityWindowHost: View {
                     hiddenNames: { AskClaudePrivacy.hiddenFolders(in: .standard).map { ($0 as NSString).lastPathComponent } },
                     lists: { SettingsLists(settings: settings, sync: syncManager, defaults: .standard) },
                     people: { SettingsPeople(store: syncManager.filingPeopleStore) }),
-                runFilter: Binding(get: { ActivityCenter.shared.historyRun },
-                                   set: { ActivityCenter.shared.historyRun = $0 }),
-                showsTitle: false,
-                onUndoLastSyncRun: {
-                    // Prompts only when the last recorded run is still on top of the undo stack;
-                    // otherwise the reason comes back and the tab shows it itself.
+                runWriteLock: syncManager.activeProgress.map { $0.runLockReason ?? Progress.genericRunLockReason },
+                // The one run Undo… can reverse: the last recorded, while it still tops the stack.
+                undoableRun: { syncManager.lastSyncRunUndoPreview?.records.first?.runId },
+                onUndoRun: {
+                    // Prompts only when that run is still on top of the undo stack; otherwise the
+                    // reason comes back and the tab shows it itself.
                     syncManager.undoLastSyncRunAskingFirst(confirm: SyncOperationAlerts.confirmUndoLastSyncRun)
                 })
             // Launch at login is macOS's: read before a settings change's Revert compares with it.
             .task { await LoginItemController.shared.refresh().value }
         }
-        // One-way sync's sheets opened from Now's rows and History, over this window.
+        // One-way sync's sheets opened from Events' rows, over this window.
         .oneWaySyncSheets(host: .activity)
-    }
-}
-
-/// One-way sync's History entries over Sync History's, in a height of their own, only when it
-/// has any.
-private struct OneWaySyncHistoryHost: View {
-    @ObservedObject var controller = OneWaySyncController.shared
-
-    var body: some View {
-        if controller.isSetUp {
-            ScrollView { OneWaySyncHistoryRows() }
-                .frame(maxHeight: 240)
-                .fixedSize(horizontal: false, vertical: true)
-            Divider()
-        }
     }
 }
 

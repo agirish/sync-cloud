@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import FileExplorer
 @testable import Dashboard
 import Events
 
@@ -32,7 +33,7 @@ import Events
         #expect(store.records.count == 1)
         var asked = 0
 
-        let cleared = SyncHistoryView.clearIfConfirmed(store: store, confirm: { asked += 1; return false })
+        let cleared = ActivityEventsView.clearIfConfirmed(store: store, confirm: { asked += 1; return false })
 
         #expect(cleared == false)
         #expect(asked == 1)
@@ -46,7 +47,7 @@ import Events
         defer { try? FileManager.default.removeItem(at: url) }
         var recordsVisibleWhenAsked = -1
 
-        let cleared = SyncHistoryView.clearIfConfirmed(store: store, confirm: {
+        let cleared = ActivityEventsView.clearIfConfirmed(store: store, confirm: {
             recordsVisibleWhenAsked = store.records.count
             return true
         })
@@ -61,7 +62,8 @@ import Events
         // the shipping button does rather than a parallel code path.
         let (store, url) = makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
-        let view = SyncHistoryView(store: store, onUndoLastSyncRun: { nil }, confirmClearHistory: { false })
+        let view = ActivityEventsView(store: store, center: ActivityCenter(), onUndoRun: { nil },
+                                      confirmClearHistory: { false })
         _ = view.body
         #expect(store.records.count == 1)
     }

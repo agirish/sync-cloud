@@ -15,7 +15,7 @@ public struct SettingsChange: Codable, Equatable, Identifiable, Sendable {
         case card
         /// A card's Undo or Redo, or Edit ▸ Undo or Redo with the chat in front.
         case undo, redo
-        /// Revert, in Activity ▸ History.
+        /// Revert, in Activity ▸ Events.
         case revert
         /// A filing rule saved from a card. It has no Revert: rules are removed in Organize ▸
         /// Rules.

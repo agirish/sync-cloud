@@ -32,8 +32,9 @@ extension OperationBanner.FollowUp {
     }
 }
 
-/// Activity's Now: what is running, and what was said. Both the capsule's popover and the Activity
-/// window's first tab, drawing the same rows off ``ActivityCenter``.
+/// What is running, what needs you, and — in the capsule's popover — what was said. The popover
+/// draws all of it; the Activity window draws the first part as the band above Events' timeline,
+/// which lists what was said itself. Both read ``ActivityCenter``.
 public struct ActivityNowView: View {
     let runs: [ProgressCapsuleListedRun]
     @ObservedObject var center: ActivityCenter
@@ -45,7 +46,6 @@ public struct ActivityNowView: View {
     let onOpenWindow: (() -> Void)?
     /// What "2 min ago" is counted from: the host's timeline tick.
     let now: Date
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(runs: [ProgressCapsuleListedRun], center: ActivityCenter, runWriteLock: String?,
                 now: Date = Date(), cloudApps: CloudAppMonitor = .shared, onOpenWindow: (() -> Void)? = nil) {
@@ -106,42 +106,23 @@ public struct ActivityNowView: View {
         .frame(width: ProgressCapsuleRunList.width, alignment: .leading)
     }
 
-    /// The Activity window's Now: the popover's sections at the window's width, set straight on the
-    /// window as History's are, with a hairline between them and Recent taking the rest.
+    /// The band above Events' timeline: the popover's first sections at the window's width. The
+    /// window caps its height and scrolls it, so the timeline always keeps room.
     private var window: some View {
         VStack(alignment: .leading, spacing: 0) {
             running(fillsWidth: true)
             // One-way sync's saved rows: what needs you first, under what runs.
             if !center.oneWaySync.rows.isEmpty {
                 Divider()
-                ScrollView { OneWaySyncNowRows(center: center, host: .activity) }
-                    .frame(maxHeight: 320)
-                    .fixedSize(horizontal: false, vertical: true)
+                OneWaySyncNowRows(center: center, host: .activity)
             }
-            // A cloud app not syncing: information, between what runs and what was said.
+            // A cloud app not syncing: information, under what runs.
             if !cloudApps.notices.isEmpty {
                 Divider()
                 CloudAppNoticeRows(monitor: cloudApps)
             }
-            Divider()
-            recentHeader
-            if center.recent.isEmpty {
-                nothingYet
-                Spacer(minLength: 0)
-            } else {
-                // A notification's click brings its row into view.
-                ScrollViewReader { proxy in
-                    ScrollView { recentRows }
-                        .onChange(of: center.highlighted, initial: true) { _, id in
-                            guard let id else { return }
-                            withDesignAnimation(.default, reduceMotion: reduceMotion) {
-                                proxy.scrollTo(id, anchor: .center)
-                            }
-                        }
-                }
-            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder private func running(fillsWidth: Bool) -> some View {
@@ -171,7 +152,7 @@ public struct ActivityNowView: View {
                     .controlSize(.small)
                     .padding(.trailing, 12)
                     .padding(.bottom, 4)
-                    .help("Clear Recent — Sync History and the log keep their own records")
+                    .help("Clear Recent — Activity’s Events keeps the runs, and the log keeps its lines")
             }
         }
     }
@@ -189,7 +170,7 @@ public struct ActivityNowView: View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(Array(center.recent.enumerated()), id: \.element.id) { index, message in
                 if index > 0 { Divider().padding(.leading, 12) }
-                ActivityRecentRow(message: message, center: center, runWriteLock: runWriteLock, now: now)
+                ActivityMessageRow(message: message, center: center, runWriteLock: runWriteLock, time: .age(now: now))
                     .background(message.id == center.highlighted
                                 ? RoundedRectangle(cornerRadius: Radius.chip).fill(LiquidGlassHue.stored().accentColor.opacity(0.14))
                                 : nil)
@@ -218,13 +199,35 @@ public struct ActivityNowView: View {
     }
 }
 
-/// One message in Recent, in full: its sentence and detail line, when, and its buttons. Its Undo is
-/// live only while its step is the newest.
-struct ActivityRecentRow: View {
+/// One message, in full: its sentence and detail line, when, and its buttons. Recent's row in the
+/// capsule's popover, and a message's row in Activity's Events, where it also leads a run's row:
+/// `extra` puts the run's records toggle and its Undo… before the message's own buttons. Its own
+/// Undo is live only while its step is the newest.
+public struct ActivityMessageRow<Extra: View>: View {
     let message: ActivityMessage
     @ObservedObject var center: ActivityCenter
     let runWriteLock: String?
-    let now: Date
+    let time: Time
+    /// The message's own Undo, by its step. Off where a run's Undo… stands in for it.
+    let showsUndo: Bool
+    let extra: Extra
+
+    /// How a row says when: "2 min. ago" in the popover, which ticks, or the time of day in Events,
+    /// whose day headers carry the date and which never redraws on a clock.
+    public enum Time {
+        case age(now: Date)
+        case clock
+    }
+
+    public init(message: ActivityMessage, center: ActivityCenter, runWriteLock: String?, time: Time,
+                showsUndo: Bool = true, @ViewBuilder extra: () -> Extra) {
+        self.message = message
+        self.center = center
+        self.runWriteLock = runWriteLock
+        self.time = time
+        self.showsUndo = showsUndo
+        self.extra = extra()
+    }
 
     /// "2 min. ago", counted from the host's tick, so a row's age moves with the clock.
     static func age(of date: Date, now: Date) -> String {
@@ -233,7 +236,20 @@ struct ActivityRecentRow: View {
         return now.timeIntervalSince(date) < 5 ? "now" : formatter.localizedString(for: date, relativeTo: now)
     }
 
-    var body: some View {
+    private var when: String {
+        switch time {
+        case .age(let now): return Self.age(of: message.date, now: now)
+        case .clock: return message.date.formatted(date: .omitted, time: .shortened)
+        }
+    }
+
+    /// In Events a row holds controls of its own beside the message's, so VoiceOver reaches each.
+    private var inEvents: Bool {
+        if case .clock = time { return true }
+        return false
+    }
+
+    public var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             // A stop is grey whatever it saved: the reader ended it.
             Image(systemName: message.isStopped ? "stop.circle.fill" : Self.symbol(message.severity))
@@ -252,7 +268,7 @@ struct ActivityRecentRow: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 6)
-                    Text(Self.age(of: message.date, now: now))
+                    Text(when)
                         .scaledFont(.system(size: 10.5))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -269,14 +285,16 @@ struct ActivityRecentRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: inEvents ? .contain : .combine)
     }
 
     @ViewBuilder private var actions: some View {
         let followUps = message.followUps
-        let hasUndo = message.undoStep != nil
-        if hasUndo || !followUps.isEmpty || message.runId != nil || message.source == .window {
+        let hasUndo = showsUndo && message.undoStep != nil
+        let linksToEvents = !inEvents && message.runId != nil
+        if hasUndo || !followUps.isEmpty || linksToEvents || message.source == .window || Extra.self != EmptyView.self {
             HStack(spacing: 6) {
+                extra
                 if hasUndo {
                     let refusal = runWriteLock ?? center.undoRefusal(for: message)
                     Button {
@@ -294,10 +312,13 @@ struct ActivityRecentRow: View {
                         .help(here.isEmpty && !Self.isDownload(followUp)
                               ? PaneToolResult.goneMessage(followUp.paths) : followUp.help)
                 }
-                if let runId = message.runId {
-                    Button("Show in History") { center.doors.showInHistory(runId) }
-                        .buttonStyle(.link)
-                        .help("Sync History, narrowed to this run’s records")
+                if linksToEvents {
+                    Button("Show in Events") {
+                        center.popoverIsOpen = false
+                        center.openWindow(highlighting: message.id)
+                    }
+                    .buttonStyle(.link)
+                    .help("This run’s row in Activity’s Events, with its files")
                 }
                 if message.source == .window {
                     Button("Show in Log") { center.doors.showInLog(message.span) }
@@ -337,5 +358,13 @@ struct ActivityRecentRow: View {
         case .warning: return SemanticColor.warning
         case .error: return SemanticColor.error
         }
+    }
+}
+
+extension ActivityMessageRow where Extra == EmptyView {
+    public init(message: ActivityMessage, center: ActivityCenter, runWriteLock: String?, time: Time,
+                showsUndo: Bool = true) {
+        self.init(message: message, center: center, runWriteLock: runWriteLock, time: time,
+                  showsUndo: showsUndo) { EmptyView() }
     }
 }

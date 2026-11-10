@@ -67,7 +67,7 @@ public struct RunCapsuleHost: View {
                                 now: timeline.date,
                                 onOpenWindow: {
                                     center.popoverIsOpen = false
-                                    center.tab = .now
+                                    center.tab = .events
                                     openWindow(id: ActivityCenter.windowID)
                                 })
             }

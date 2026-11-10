@@ -132,7 +132,7 @@ public struct SettingsLookup {
                 "\(change.name)" + (change.valueWords.map { ": \($0)" } ?? "") + ", \(change.howWords), "
                     + change.at.formatted(date: .abbreviated, time: .shortened)
             }.joined(separator: "\n")
-            if recent.count > 20 { answer += "\nand \(recent.count - 20) more, in Activity ▸ History." }
+            if recent.count > 20 { answer += "\nand \(recent.count - 20) more, in Activity’s Events tab." }
         }
         return answer
     }

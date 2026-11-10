@@ -15154,3 +15154,16 @@ text. Ask Claude exists only on `main`.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Activity's Events and Log tabs (TE339) — main only
+
+2026-11-09, for v7.1. On `main`: Activity has two tabs, Events and Log. Events holds what runs and
+needs you on a band at the top, then one timeline where each sync run is one row, led by its
+message and opening to its records, beside messages, one-way syncs and settings changes. A run's
+Undo… replaces Undo Last Run…, and Window ▸ Sync History is gone. A redesign of a window, not a
+fix: the maintenance lines keep their own Activity (Now · History · Log on `v6.x`, the Sync History
+window on older lines).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Their own Activity and Sync History | CLOSED — not owed, a redesign |

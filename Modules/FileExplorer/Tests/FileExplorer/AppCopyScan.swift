@@ -342,6 +342,8 @@ enum AppCopyScan {
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift", contains: #"fold) more""#, reason: fold),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RenamePassLens.swift", contains: #""Show fewer""#, reason: fold),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/RenamePassLens.swift", contains: #"stepsBeforeFold) more""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/OneWaySyncViews.swift", contains: #""1 change""#, reason: fold),
+            .init(file: "Modules/FileExplorer/Sources/FileExplorer/OneWaySyncViews.swift", contains: #"formatted()) changes""#, reason: fold),
             .init(file: "Modules/FileExplorer/Sources/FileExplorer/DifferencesView.swift", contains: #"count) selected""#,
                   reason: "a count beside a clear glyph — the selection chip says what is selected, not a verb"),
             .init(file: "Modules/Dashboard/Sources/Dashboard/DashboardViews.swift", contains: "everything that is theirs",

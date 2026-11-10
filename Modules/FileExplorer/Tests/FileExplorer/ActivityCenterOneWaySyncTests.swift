@@ -87,11 +87,11 @@ import Sync
             Self.notice("edited:\($0)", scope: .file(folder: "Legal", path: "Legal/\($0).pdf"))
         }
         center.raiseOneWaySync(files, now: Self.t0)
-        center.tab = .history
+        center.tab = .log
         let requests = center.windowRequests
         center.openWindow(highlightingNotice: "edited:2")
         #expect(center.highlightedNotice == "group:Legal")
-        #expect(center.tab == .now)
+        #expect(center.tab == .events)
         #expect(center.windowRequests == requests + 1)
     }
 }

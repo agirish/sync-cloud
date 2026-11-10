@@ -241,7 +241,7 @@ enum EditorRevealInBrowse {
         case pdfToolBanner
         /// Save as PDF's banner — the PDFs a run just saved.
         case saveAsPDFBanner
-        /// A message's row in Activity's Recent — the files a result named.
+        /// A message's row in Activity — the files a result named.
         case activity
 
         var name: String {
@@ -250,7 +250,7 @@ enum EditorRevealInBrowse {
             case .railRow: return "a rail row's menu"
             case .pdfToolBanner: return "the PDF tools' banner"
             case .saveAsPDFBanner: return "the Save as PDF banner"
-            case .activity: return "Activity’s Recent"
+            case .activity: return "an Activity message"
             }
         }
     }

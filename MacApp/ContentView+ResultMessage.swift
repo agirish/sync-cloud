@@ -346,11 +346,6 @@ extension ContentView {
                 revealInBrowse(first, with: EditorRevealInBrowse.companions(of: paths), from: .activity)
             },
             download: { path in downloadFromEdit(path) },
-            showInHistory: { runId in
-                ActivityCenter.shared.historyRun = runId
-                ActivityCenter.shared.tab = .history
-                openWindow(id: ActivityCenter.windowID)
-            },
             showInLog: { span in
                 ActivityCenter.shared.logSpan = span
                 ActivityCenter.shared.tab = .log

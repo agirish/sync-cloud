@@ -13,9 +13,8 @@ import AppKit
 @MainActor
 @Suite struct WindowMenuTests {
 
-    /// Each auxiliary window is reachable, and reachable once. Sync History is Activity's History
-    /// tab, and keeps its item under the name people know.
-    @Test(arguments: ["Activity", "Sync History", "Keyboard Shortcuts"])
+    /// Each auxiliary window is reachable, and reachable once.
+    @Test(arguments: ["Activity", "Keyboard Shortcuts"])
     func eachAuxiliaryWindowAppearsExactlyOnceInTheWholeMenuBar(window: String) throws {
         let everywhere = try (NSApp.mainMenu?.items ?? []).flatMap { top -> [String] in
             guard let sub = top.submenu else { return [] }
@@ -25,6 +24,15 @@ import AppKit
                 "\(window) appears \(everywhere.filter { $0 == window }.count) times across the menu bar")
         #expect(menuTitles(try appMenu("Window")).contains(window),
                 "\(window) is not in the Window menu, which is where a Mac user looks for a window")
+    }
+
+    /// Sync History is a part of Activity's Events, not a tab or a window: no menu item names it.
+    @Test func noMenuItemOpensSyncHistory() throws {
+        let everywhere = (NSApp.mainMenu?.items ?? []).flatMap { top -> [String] in
+            guard let sub = top.submenu else { return [] }
+            return menuTitles(sub)
+        }
+        #expect(!everywhere.contains("Sync History"), "a menu item still opens a Sync History tab that no longer exists")
     }
 
     /// The main window keeps its own opener. **Never** suppress more scenes' automatic entries with

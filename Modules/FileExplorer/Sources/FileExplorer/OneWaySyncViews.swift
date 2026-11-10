@@ -240,9 +240,9 @@ public struct OneWaySyncRoleChip: View {
     }
 }
 
-// MARK: - Activity ▸ Now
+// MARK: - Above Activity ▸ Events
 
-/// Activity ▸ Now's one-way sync rows: *Needs you*, then *For your information*. A row under
+/// One-way sync's rows above Activity ▸ Events: *Needs you*, then *For your information*. A row under
 /// *Needs you* stays until answered or its cause clears; an information row has Dismiss.
 public struct OneWaySyncNowRows: View {
     @ObservedObject var center: ActivityCenter
@@ -346,100 +346,119 @@ public struct OneWaySyncNowRows: View {
     }
 }
 
-// MARK: - Activity ▸ History
+// MARK: - Activity ▸ Events
 
-/// One-way sync's History entries: each sync that changed or held something, newest first, with
+/// One one-way sync in Activity's Events: what it changed and held, opened in place, with
 /// *Reverse in iCloud…* while it can be.
-public struct OneWaySyncHistoryRows: View {
+public struct OneWaySyncHistoryEntryRow: View {
+    let entry: OneWaySyncHistoryEntry
     @ObservedObject var controller: OneWaySyncController
-    @State private var entries: [OneWaySyncHistoryEntry] = []
-    @State private var expanded: Set<UUID> = []
-    @State private var showsAll = false
-    /// The newest shown before *Show older*: History keeps 90 days, and Reverse reaches all of it.
-    static let firstShown = 30
+    @State private var isExpanded = false
 
-    public init(controller: OneWaySyncController = .shared) {
+    public init(entry: OneWaySyncHistoryEntry, controller: OneWaySyncController = .shared) {
+        self.entry = entry
         self.controller = controller
     }
 
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !entries.isEmpty {
-                Text("One-Way Sync")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(showsAll ? entries : Array(entries.prefix(Self.firstShown))) { entry in
-                    Divider().padding(.leading, 12)
-                    entryRow(entry)
-                }
-                if !showsAll, entries.count > Self.firstShown {
-                    Button("Show \(entries.count - Self.firstShown) Older") { showsAll = true }
-                        .buttonStyle(.link)
-                        .scaledFont(.system(size: 11))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                }
-            }
-        }
-        .task(id: controller.state?.lastSyncAt) { load() }
+    /// Every sync that changed or held something, newest first: History keeps 90 days, and
+    /// Reverse reaches all of it.
+    public static func entries(_ controller: OneWaySyncController = .shared) -> [OneWaySyncHistoryEntry] {
+        controller.store?.history.entries() ?? []
     }
 
-    func load() {
-        entries = controller.store?.history.entries() ?? []
+    /// When it ran, for its place in the timeline.
+    public static func date(_ entry: OneWaySyncHistoryEntry) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(entry.startedAt))
     }
 
-    /// "Synced 4 · 32 wait for you · 31 Oct 2026, 10:14": the changes a sync made, never the
-    /// files it found already the same.
-    static func headline(_ entry: OneWaySyncHistoryEntry) -> String {
-        let done = entry.steps.filter { $0.status == .confirmed && OneWaySyncWords.isChange($0.step.action) }.count
+    /// "Synced 4 · 32 wait for you": the changes a sync made, never the files it found already the
+    /// same. The row's time stands beside it.
+    public static func headline(_ entry: OneWaySyncHistoryEntry) -> String {
+        let done = changedSteps(entry).filter { $0.status == .confirmed }.count
         let held = entry.held.count
         var parts: [String] = []
         if done > 0 || held == 0 { parts.append("Synced \(done.formatted())") }
         if held > 0 { parts.append("\(held.formatted()) wait\(held == 1 ? "s" : "") for you") }
         if entry.finishedAt == nil { parts.append("cut short") }
-        let when = Date(timeIntervalSince1970: TimeInterval(entry.startedAt)).formatted(date: .abbreviated, time: .shortened)
-        return parts.joined(separator: " · ") + " · " + when
+        return parts.joined(separator: " · ")
     }
 
-    @ViewBuilder func entryRow(_ entry: OneWaySyncHistoryEntry) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Button {
-                    if expanded.contains(entry.id) { expanded.remove(entry.id) } else { expanded.insert(entry.id) }
-                } label: {
-                    Label(Self.headline(entry), systemImage: expanded.contains(entry.id) ? "chevron.down" : "chevron.right")
+    /// Whether Events' filter field finds it: in its headline, or in a path it changed or held.
+    public static func matches(_ entry: OneWaySyncHistoryEntry, search: String) -> Bool {
+        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return true }
+        if "One-way sync \(headline(entry))".localizedCaseInsensitiveContains(needle) { return true }
+        return changedSteps(entry).contains { OneWaySyncWords.paths($0.step).localizedCaseInsensitiveContains(needle) }
+            || entry.held.contains { OneWaySyncWords.subject($0.subject).localizedCaseInsensitiveContains(needle) }
+    }
+
+    private static func changedSteps(_ entry: OneWaySyncHistoryEntry) -> [OneWaySyncHistoryStep] {
+        entry.steps.filter { OneWaySyncWords.isChange($0.step.action) }
+    }
+
+    public var body: some View {
+        let changed = Self.changedSteps(entry)
+        let lines = changed.count + entry.held.count
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(entry.held.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(OneWaySyncPalette.hold))
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("One-way sync: \(Self.headline(entry))")
                         .scaledFont(.system(size: 12, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Text(Self.date(entry).formatted(date: .omitted, time: .shortened))
+                        .scaledFont(.system(size: 10.5))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
-                .buttonStyle(.plain)
-                Spacer()
-                if controller.reversible(entry) {
-                    Button("Reverse in iCloud…") { controller.open(.reverse(entry.id), from: .activity) }
-                        .controlSize(.small)
-                        .disabled(controller.isRunning)
+                Text("iCloud → Dropbox")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if lines > 0 {
+                        Button {
+                            isExpanded.toggle()
+                        } label: {
+                            Label(lines == 1 ? "1 change" : "\(lines.formatted()) changes",
+                                  systemImage: isExpanded ? "chevron.down" : "chevron.right")
+                        }
+                        .buttonStyle(.link)
+                        .accessibilityValue(isExpanded ? "Open" : "Closed")
+                        .help(isExpanded ? "Hide what this sync changed" : "Show what this sync changed")
+                    }
+                    if controller.reversible(entry) {
+                        Button("Reverse in iCloud…") { controller.open(.reverse(entry.id), from: .activity) }
+                            .disabled(controller.isRunning)
+                    }
                 }
-            }
-            if expanded.contains(entry.id) {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(entry.steps.enumerated()).filter { OneWaySyncWords.isChange($0.element.step.action) }, id: \.offset) { _, step in
-                        line(OneWaySyncWords.kind(step.step), OneWaySyncWords.paths(step.step), OneWaySyncWords.outcome(step),
-                             held: step.status != .confirmed)
+                .controlSize(.small)
+                .scaledFont(.system(size: 11))
+                if isExpanded {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(changed.enumerated()), id: \.offset) { _, step in
+                            line(OneWaySyncWords.kind(step.step), OneWaySyncWords.paths(step.step), OneWaySyncWords.outcome(step),
+                                 held: step.status != .confirmed)
+                        }
+                        let same = entry.steps.filter { if case .adopt = $0.step.action { return true } else { return false } }.count
+                        if same > 0 {
+                            line("Same", same == 1 ? "1 file already the same" : "\(same.formatted()) files already the same", "Recorded", held: false)
+                        }
+                        ForEach(Array(entry.held.enumerated()), id: \.offset) { _, wait in
+                            line("Waits", OneWaySyncWords.subject(wait.subject), OneWaySyncWords.why(wait.reason), held: true)
+                        }
                     }
-                    let same = entry.steps.filter { if case .adopt = $0.step.action { return true } else { return false } }.count
-                    if same > 0 {
-                        line("Same", same == 1 ? "1 file already the same" : "\(same.formatted()) files already the same", "Recorded", held: false)
-                    }
-                    ForEach(Array(entry.held.enumerated()), id: \.offset) { _, wait in
-                        line("Waits", OneWaySyncWords.subject(wait.subject), OneWaySyncWords.why(wait.reason), held: true)
-                    }
+                    .padding(.top, 2)
                 }
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
     }
 
     private func line(_ kind: String, _ paths: String, _ outcome: String, held: Bool) -> some View {
@@ -458,6 +477,7 @@ public struct OneWaySyncHistoryRows: View {
                 .frame(maxWidth: 220, alignment: .trailing)
         }
         .scaledFont(.system(size: 11))
+        .accessibilityElement(children: .combine)
     }
 }
 
