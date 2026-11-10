@@ -525,7 +525,7 @@ extension FileSyncManager {
         // One undo action reverts the whole run, so ⌘Z is honest.
         registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "File")) by Automation",
                          fileManager: fm)
-        recordSyncHistory(records)
+        let recordedRun = recordSyncHistory(records)
 
         // Drop the filed rows from the current preview: their files have moved.
         if let report = automationDryRun {
@@ -549,8 +549,8 @@ extension FileSyncManager {
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s")."
                        + (failures > 0 ? " \(failures) couldn’t be filed." : "")
                        + (rootUnavailable > 0 ? " " + FileOperationError.destinationRootUnavailable.localizedDescription : "")
-                       + changedNote, undoable: true, log: .warn)
-            : .success("Filed \(n) file\(n == 1 ? "" : "s")", undoable: true)
+                       + changedNote, undoable: true, log: .warn).reporting(run: recordedRun)
+            : .success("Filed \(n) file\(n == 1 ? "" : "s")", undoable: true).reporting(run: recordedRun)
         return (n, failures)
     }
 }

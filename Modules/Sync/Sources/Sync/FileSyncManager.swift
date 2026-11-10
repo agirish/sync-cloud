@@ -175,8 +175,6 @@ public class FileSyncManager: ObservableObject {
     /// can tell when answered whether the run on top is still the one it showed. The name can't:
     /// every bulk run is "Sync run".
     private(set) var lastRecordedRunToken: UUID?
-    /// When the pairing was last armed — how recent the run is, for its message's Show in History.
-    private(set) var lastRecordedRunAt: Date?
     /// Whether any run armed the pairing this session. Tells "the pairing was invalidated" (a
     /// manual ⌘Z, a mixed delete, a manager swap) from "no sync run yet", so a fresh launch's
     /// refusal doesn't claim history changed since a last sync run.
@@ -198,15 +196,19 @@ public class FileSyncManager: ObservableObject {
     /// undo group for these records (an all-permanent delete). Pairing them would describe this run
     /// while reversing whatever sits on top. The previous pairing stays live: its group is still
     /// the top.
-    func recordSyncHistory(_ records: [SyncHistoryRecord], pairedWithUndo: Bool = true) {
-        guard !records.isEmpty else { return }
+    ///
+    /// Returns the run's id, for the operation to put on the message that reports it
+    /// (``OperationBanner/reporting(run:)``), or nil when there was nothing to record.
+    @discardableResult
+    func recordSyncHistory(_ records: [SyncHistoryRecord], pairedWithUndo: Bool = true) -> UUID? {
+        guard let runId = records.first?.runId else { return nil }
         syncHistoryStore.appendBatch(records)
-        guard pairedWithUndo else { return }
+        guard pairedWithUndo else { return runId }
         lastRecordedRunUndoName = undoManager?.undoActionName
         lastRecordedRunRecords = records
         lastRecordedRunToken = UUID()
-        lastRecordedRunAt = Date()
         hasArmedRunPairingThisSession = true
+        return runId
     }
 
     /// Drops the run-undo pairing. Called on every direct undo or redo (wired in the `undoManager`
@@ -2657,14 +2659,6 @@ public class FileSyncManager: ObservableObject {
     /// Activity. Its title is the run's own ("Merging “Photos”"), which names a notification of its
     /// ending. `cancelled` says it was stopped, so its ending is a stop, not a problem.
     public private(set) var lastFinishedRun: (started: Date, ended: Date, title: String?, cancelled: Bool)?
-    /// The run whose records the last history-recorded operation wrote (its token changes with
-    /// each), for its message's Show in History. `recordedAt` matters: a run that ended in an
-    /// alert, with no message, must not hand its records to the next message minutes later.
-    public var lastRecordedRun: (token: UUID, runId: UUID, recordedAt: Date)? {
-        guard let token = lastRecordedRunToken, let runId = lastRecordedRunRecords.first?.runId,
-              let recordedAt = lastRecordedRunAt else { return nil }
-        return (token, runId, recordedAt)
-    }
     /// Short-lived banner for operation completion toasts; its severity drives the icon, tint and
     /// dismissal.
     ///

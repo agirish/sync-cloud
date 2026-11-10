@@ -16,7 +16,8 @@ public struct ActivityMessage: Identifiable, Equatable {
     /// The undo step this message's operation registered, when it offered Undo. The row's Undo is
     /// live only while that step is still the newest.
     public var undoStep: Int?
-    /// The Sync History run it reported: Events draws it as that run's sentence.
+    /// The Sync History run it reported, from the operation that recorded it
+    /// (`OperationBanner.runId`): Events draws it as that run's sentence.
     public var runId: UUID?
     /// The minutes its run wrote to the log, for Show in Log.
     public var span: ClosedRange<Date>
@@ -65,10 +66,12 @@ public struct ActivityMessage: Identifiable, Equatable {
         return !["failed", "couldn’t"].contains { lower.contains($0) }
     }
 
-    /// The same words and the same weight — what folds a repeat into the row before it.
+    /// The same words and the same weight — what folds a repeat into the row before it. Never a
+    /// message that reports a run: each run is a row of its own in Events, led by its own message.
     func saysTheSame(as other: ActivityMessage) -> Bool {
         message == other.message && detail == other.detail && severity == other.severity
             && followUps == other.followUps && source == other.source && undoStep == nil && other.undoStep == nil
+            && runId == nil && other.runId == nil
     }
 }
 
@@ -197,18 +200,11 @@ public final class ActivityCenter: ObservableObject {
         flashes &+= 1
     }
 
-    /// The window's message, as it was published. `run` is the history run the manager last
-    /// recorded, attached only to the first message after it and only when recorded just now, so a
-    /// later message (a rename minutes after a run that ended in an alert, say) isn't linked to an
-    /// old run. `finishedRun` is the last long run's minutes, when it ended just now.
-    public func record(_ banner: OperationBanner, run: (token: UUID, runId: UUID, recordedAt: Date)?,
-                       finishedRun: (started: Date, ended: Date, cancelled: Bool)?, seen: Bool, dotWaits: Bool = false,
-                       now: Date = Date()) {
-        var runId: UUID?
-        if let run, run.token != attachedRunToken, now.timeIntervalSince(run.recordedAt) < Self.runLinkWindow {
-            attachedRunToken = run.token
-            runId = run.runId
-        }
+    /// The window's message, as it was published, with the run it reports when the operation
+    /// that recorded one put its id on it. `finishedRun` is the last long run's minutes, when it
+    /// ended just now.
+    public func record(_ banner: OperationBanner, finishedRun: (started: Date, ended: Date, cancelled: Bool)?,
+                       seen: Bool, dotWaits: Bool = false, now: Date = Date()) {
         var start = now.addingTimeInterval(-60)
         var stoppedRun = false
         if let finishedRun, now.timeIntervalSince(finishedRun.ended) < 10 {
@@ -222,20 +218,15 @@ public final class ActivityCenter: ObservableObject {
         }
         var message = ActivityMessage(id: banner.id, date: now, message: banner.message, detail: banner.detail,
                                       severity: banner.severity, followUps: banner.followUps,
-                                      undoStep: banner.isUndoable ? undoSteps.last : nil, runId: runId,
+                                      undoStep: banner.isUndoable ? undoSteps.last : nil, runId: banner.runId,
                                       span: start...now.addingTimeInterval(5))
         message.isStopped = ActivityMessage.isQuietStop(stopped: stoppedRun || ActivityMessage.saysStopped(banner.message),
                                                         message: banner.message, severity: banner.severity)
         record(message, seen: seen, dotWaits: dotWaits)
     }
 
-    /// The history run already linked to a message.
-    private var attachedRunToken: UUID?
     /// The ended run whose ending a message already reported, named by when it ended.
     private var stopClaimedBy: Date?
-    /// How long after its records are written a run's message may still arrive: the records are
-    /// written as its undo is registered, before the identity walks of its copies finish.
-    static let runLinkWindow: TimeInterval = 30
 
     /// Edit's own PDF tool and Fill & Sign results, which live on Edit's model rather than in the
     /// window's message. Edit's disk-change and read-only notices are questions, not messages, and

@@ -129,13 +129,15 @@ extension FileSyncManager {
             return (matched, changed, failures)
         }
 
+        // The run its message reports, once recorded.
+        var recordedRun: UUID?
         if !outcome.matched.isEmpty {
             registerDateMatchUndo(outcome.matched.map(\.1), restoringPrevious: true,
                                   actionName: "Match \(CountedNoun.phrase(outcome.matched.count, "Date"))", fileManager: activeFM)
             // Recorded in Sync History and paired for Undo Last Run, like every other run: one
             // record per file, armed in the same turn that registered the undo step.
             let runId = UUID()
-            recordSyncHistory(outcome.matched.map { diff, state in
+            recordedRun = recordSyncHistory(outcome.matched.map { diff, state in
                 SyncHistoryRecord(runId: runId, action: .matchDates,
                                   sourcePath: diff.leftItemPath, destPath: state.url.path,
                                   sizeBytes: Int(state.size), direction: "→ Right",
@@ -159,9 +161,11 @@ extension FileSyncManager {
             parts += Self.leftOutPhrases(held, linkOnEitherSide: true)
             // The dates it did match are one undo step all the same, so the banner keeps its Undo.
             banner = .warning(parts.joined(separator: "; "), undoable: !outcome.matched.isEmpty, log: .warn)
+                .reporting(run: recordedRun)
         } else {
             banner = .success("\(CountedNoun.phrase(outcome.matched.count, "file")) now match — dates set, nothing copied",
                               undoable: true)
+                .reporting(run: recordedRun)
         }
     }
 
@@ -348,7 +352,9 @@ extension FileSyncManager {
 
     /// `syncAll`, returning the ids of the rows it resolved (empty when it copied nothing), for a
     /// caller that has to say which landed (`copyRemaining`).
-    func syncAllResolving(direction: FileDifference.SyncAction, isMove: Bool, subset: [FileDifference]?, confirmed: Bool, postBanner: Bool) async -> Set<UUID> {
+    /// `receipt` takes the run's id, for a caller that writes the message itself (`postBanner` off).
+    func syncAllResolving(direction: FileDifference.SyncAction, isMove: Bool, subset: [FileDifference]?, confirmed: Bool,
+                          postBanner: Bool, receipt: SyncRunReceipt? = nil) async -> Set<UUID> {
         let source = subset ?? differences
         // A row whose direction is a guess (`FileDifference.heldBack`) is not taken in bulk: the
         // user approves a count, not each row, so a wrong guess would overwrite the other side.
@@ -634,7 +640,8 @@ extension FileSyncManager {
         // Armed here, in the turn that closed the group, not after the walks below: after an
         // await the stack may be topped by a rename or a ⌘Z, and Undo Last Run would describe
         // this run while reversing that.
-        recordSyncHistory(historyRecords)
+        let recordedRun = recordSyncHistory(historyRecords)
+        receipt?.runId = recordedRun
         // Nothing left for Stop to stop: the capsule drops it, and so does the Differences list's
         // Cancel, which reads the flag only on redraw, so the count is republished to force one.
         progress.markFinishing(isMove ? "the move" : "the sync")
@@ -677,6 +684,7 @@ extension FileSyncManager {
             banner = .success((result.successes.count == 1
                 ? "\(pastTense) 1 item"
                 : "\(pastTense) \(result.successes.count) items") + heldNote, undoable: true)
+                .reporting(run: recordedRun)
         }
 
         // The run's finish line, written whatever came of it, so an all-failed or cancelled run
@@ -712,10 +720,16 @@ extension FileSyncManager {
             toCopy.contains { $0.action == direction }
         }
         var resolved: Set<UUID> = []
+        // One run per direction. The message reports a run only when there was one: with two, each
+        // run's row in Events says its own sentence, and this message is a row of its own.
+        var runs: [UUID] = []
         for direction in directions {
+            let receipt = SyncRunReceipt()
             resolved.formUnion(await syncAllResolving(direction: direction, isMove: isMove, subset: toCopy,
-                                                      confirmed: true, postBanner: false))
+                                                      confirmed: true, postBanner: false, receipt: receipt))
+            if let run = receipt.runId { runs.append(run) }
         }
+        let reported = runs.count == 1 ? runs.first : nil
         let pastTense = isMove ? "Moved" : "Copied"
         let head = resolved.isEmpty
             ? "Nothing was \(isMove ? "moved" : "copied")"
@@ -723,9 +737,9 @@ extension FileSyncManager {
         let message = ([head] + Self.leftOutPhrases(held)).joined(separator: "; ")
         if resolved.count < toCopy.count || resolved.isEmpty {
             // A row that did not land has told the user already, in its own alert.
-            banner = .warning(message, log: .warn)
+            banner = .warning(message, log: .warn).reporting(run: reported)
         } else {
-            banner = .success(message, undoable: directions.count == 1)
+            banner = .success(message, undoable: directions.count == 1).reporting(run: reported)
         }
         return resolved
     }

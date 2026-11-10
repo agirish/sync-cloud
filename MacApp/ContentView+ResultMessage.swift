@@ -331,7 +331,7 @@ extension ContentView {
         // Copied into Activity's Recent as it is published, not spoken again. A problem the
         // capsule showed for its ten seconds while the reader worked elsewhere leaves the Activity
         // button's dot.
-        ActivityCenter.shared.record(banner, run: syncManager.lastRecordedRun,
+        ActivityCenter.shared.record(banner,
                                      finishedRun: fileRunEnded(by: banner).map { ($0.started, $0.ended, $0.cancelled) },
                                      seen: NSApp.isActive && !toCapsule, dotWaits: toCapsule)
         return toCapsule

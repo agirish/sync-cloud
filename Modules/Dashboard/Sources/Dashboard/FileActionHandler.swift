@@ -171,9 +171,10 @@ public class FileActionHandler {
         let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
             guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
+            let receipt = SyncRunReceipt()
             let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
-                                                          fileManager: syncManager.fileManager)
-            setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName, hiddenByFilter: hidden)
+                                                          fileManager: syncManager.fileManager, receipt: receipt)
+            setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName, hiddenByFilter: hidden, run: receipt.runId)
         }
     }
 
@@ -190,9 +191,10 @@ public class FileActionHandler {
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
         Logger.shared.info("User initiated move of \(nodes.count) item(s)")
+        let receipt = SyncRunReceipt()
         let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right,
-                                                     fileManager: syncManager.fileManager)
-        setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName, hiddenByFilter: hidden)
+                                                     fileManager: syncManager.fileManager, receipt: receipt)
+        setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName, hiddenByFilter: hidden, run: receipt.runId)
         return movedNodes
     }
 
@@ -247,9 +249,10 @@ public class FileActionHandler {
         Logger.shared.info("User initiated move of \(nodes.count) item(s) to a dropped-on directory")
         let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
+            let receipt = SyncRunReceipt()
             let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
-                                                         fileManager: syncManager.fileManager)
-            setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden)
+                                                         fileManager: syncManager.fileManager, receipt: receipt)
+            setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden, run: receipt.runId)
         }
     }
 
@@ -290,9 +293,10 @@ public class FileActionHandler {
         Logger.shared.info("User pasted \(nodes.count) item(s) (\(isCut ? "move" : "copy"))")
         let hidden = syncManager.typeFilterHiddenCounts(inside: nodes)
         Task {
+            let receipt = SyncRunReceipt()
             if isCut {
                 let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath,
-                                                             fileManager: syncManager.fileManager)
+                                                             fileManager: syncManager.fileManager, receipt: receipt)
                 let successfullyMovedIds = Set(movedNodes.map { $0.id })
                 syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
                 if syncManager.clipboardNodes.isEmpty {
@@ -307,11 +311,11 @@ public class FileActionHandler {
                         syncManager.clipboardPasteboardChangeCount = pasteboard.changeCount
                     }
                 }
-                setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden)
+                setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName, hiddenByFilter: hidden, run: receipt.runId)
             } else {
                 let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath,
-                                                              fileManager: syncManager.fileManager)
-                setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName, hiddenByFilter: hidden)
+                                                              fileManager: syncManager.fileManager, receipt: receipt)
+                setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName, hiddenByFilter: hidden, run: receipt.runId)
             }
         }
     }
@@ -378,9 +382,10 @@ public class FileActionHandler {
     ///
     /// `hiddenByFilter` is `typeFilterHiddenCounts` taken before the transfer: a folder carries
     /// everything in it, and the banner says how much of that the type filter was hiding, in the
-    /// Trash prompt's words. Only what landed counts.
+    /// Trash prompt's words. Only what landed counts. `run` is the Sync History run the transfer
+    /// recorded, which the message reports in Activity's Events.
     private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String,
-                                   hiddenByFilter: [String: Int] = [:]) {
+                                   hiddenByFilter: [String: Int] = [:], run: UUID? = nil) {
         guard !nodes.isEmpty else { return }
         let includes = Self.filterHidingClause(nodes.reduce(0) { $0 + (hiddenByFilter[$1.id] ?? 0) })
         // copyItems/moveItems register one grouped undo for the whole batch, so a single ⌘Z
@@ -388,6 +393,7 @@ public class FileActionHandler {
         syncManager.banner = .success((nodes.count == 1
             ? "\(verb) “\(nodes[0].name)” to \(destinationName)"
             : "\(verb) \(nodes.count) items to \(destinationName)") + includes, undoable: true)
+            .reporting(run: run)
     }
 
     /// ". Includes 3 items the filter is hiding", or "" for none: the Trash prompt's words.

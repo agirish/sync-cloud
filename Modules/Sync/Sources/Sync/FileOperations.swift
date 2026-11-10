@@ -7,7 +7,8 @@ extension FileSyncManager {
     /// Copies the given nodes from one pane to the other (left → right or right → left). Resolves collisions via `collisionResolver`.
     /// - Returns: The nodes that were successfully copied (may be fewer if user skips or errors occur).
     @discardableResult
-    public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default,
+                          receipt: SyncRunReceipt? = nil) async -> [FileNode] {
         let placed = panePlacements(of: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
         return await transferItems(
             nodes: nodes,
@@ -21,14 +22,16 @@ extension FileSyncManager {
                                                  leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
                                                  placedByThePane: placed),
             direction: fromLeft ? "→ Right" : "← Left",
-            fileManager: fm
+            fileManager: fm,
+            receipt: receipt
         )
     }
 
     /// Moves the given nodes to the opposite pane (removes from source). Collisions handled via `collisionResolver`.
     /// - Returns: The nodes that were successfully moved.
     @discardableResult
-    public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default,
+                          receipt: SyncRunReceipt? = nil) async -> [FileNode] {
         let placed = panePlacements(of: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
         return await transferItems(
             nodes: nodes,
@@ -42,7 +45,8 @@ extension FileSyncManager {
                                                  leftOpenAt: paneOpenAt(true), rightOpenAt: paneOpenAt(false),
                                                  placedByThePane: placed),
             direction: fromLeft ? "→ Right" : "← Left",
-            fileManager: fm
+            fileManager: fm,
+            receipt: receipt
         )
     }
 
@@ -61,7 +65,8 @@ extension FileSyncManager {
     /// Copies multiple files to a specific absolute destination directory path.
     /// - Returns: Nodes that were successfully copied.
     @discardableResult
-    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default,
+                          receipt: SyncRunReceipt? = nil) async -> [FileNode] {
         // Expand once and use it for both the root-existence guard and the per-item targets, so a
         // "~/…" caller's targets match the path the guard stats.
         let expandedDestination = (destinationPath as NSString).expandingTildeInPath
@@ -71,14 +76,16 @@ extension FileSyncManager {
             destinationDescription: "to \(destinationPath)",
             destinationRoot: expandedDestination,
             targetURL: { node in URL(fileURLWithPath: expandedDestination).appendingPathComponent(node.name) },
-            fileManager: fm
+            fileManager: fm,
+            receipt: receipt
         )
     }
 
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
     /// - Returns: Nodes that were successfully moved.
     @discardableResult
-    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default,
+                          receipt: SyncRunReceipt? = nil) async -> [FileNode] {
         // Same single expansion as copyItems(toPath:); a misdirected move would also remove the
         // sources.
         let expandedDestination = (destinationPath as NSString).expandingTildeInPath
@@ -88,7 +95,8 @@ extension FileSyncManager {
             destinationDescription: "to \(destinationPath)",
             destinationRoot: expandedDestination,
             targetURL: { node in URL(fileURLWithPath: expandedDestination).appendingPathComponent(node.name) },
-            fileManager: fm
+            fileManager: fm,
+            receipt: receipt
         )
     }
 
@@ -300,7 +308,8 @@ extension FileSyncManager {
         targetURL deriveTargetURL: @escaping @Sendable (FileNode) throws -> URL,
         mergeOnly isLandingFolderRow: @escaping @Sendable (FileNode) -> Bool = { _ in false },
         direction: String? = nil,
-        fileManager fm: FileManaging
+        fileManager fm: FileManaging,
+        receipt: SyncRunReceipt? = nil
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
         // A merge's children are a batch of their own (several collisions, one gesture), so they
@@ -745,7 +754,10 @@ extension FileSyncManager {
                     direction: direction
                 )
             }
-            recordSyncHistory(records)
+            // Recorded first, then handed back: `receipt?.runId = recordSyncHistory(…)` would skip
+            // the recording whenever there is no receipt, optional chaining and all.
+            let recordedRun = recordSyncHistory(records)
+            receipt?.runId = recordedRun
         }
         // What landed stays visible through a type filter until the pane moves.
         for item in transferred { noteOwnWrite(atPath: item.to.path) }
@@ -1520,6 +1532,8 @@ extension FileSyncManager {
             }
         }
         
+        // The run Sync History records below, named now so the success banner can report it.
+        let deleteRunId = UUID()
         // The success banner for whatever was removed, independent of any failure below, so one
         // busy item doesn't hide the banner and its ⌘Z for the items that did trash.
         if !items.isEmpty {
@@ -1561,6 +1575,7 @@ extension FileSyncManager {
             // offered now would pin to whatever step tops the stack before it.
             self.banner = .success(deleted + kept,
                                    undoable: restoreUndoHandback == nil && successfullyTrashed.count == items.count)
+                .reporting(run: deleteRunId)
         }
         // One line here for anything the gate kept. A caller-supplied gate needn't log, and a
         // wholly refused batch would otherwise leave no record at all, so a delete that removed
@@ -1594,7 +1609,7 @@ extension FileSyncManager {
         // from the Trash backup (nil for a permanent delete). Built synchronously, so this returns
         // at the same point relative to `activeFileOperationsCount`.
         if !items.isEmpty {
-            let runId = UUID()
+            let runId = deleteRunId
             let records = items.map { item in
                 let size = item.trashed.flatMap {
                     ((try? fm.attributesOfItem(atPath: $0.path))?[.size] as? NSNumber)?.intValue

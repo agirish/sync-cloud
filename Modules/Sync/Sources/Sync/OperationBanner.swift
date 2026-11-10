@@ -55,6 +55,11 @@ public struct OperationBanner: Equatable, Sendable {
     /// See ``LogLevel``.
     public var log: LogLevel
 
+    /// The Sync History run this message reports, set by the operation that recorded it, so
+    /// Activity's Events draws the message as that run's sentence. Nil for a message no run
+    /// carries: a refusal, a failure that changed nothing, Edit's PDF tools.
+    public var runId: UUID?
+
     /// A door out of a finished result.
     public enum FollowUp: Equatable, Sendable {
         /// "Open in Edit" — the file just written.
@@ -88,4 +93,22 @@ public struct OperationBanner: Equatable, Sendable {
     public static func error(_ message: String, log: LogLevel) -> OperationBanner {
         OperationBanner(message: message, severity: .error, log: log)
     }
+
+    /// This message, reporting `run`: the id ``FileSyncManager/recordSyncHistory(_:pairedWithUndo:)``
+    /// handed back, or nil when the operation recorded nothing.
+    public func reporting(run: UUID?) -> OperationBanner {
+        var banner = self
+        banner.runId = run
+        return banner
+    }
+}
+
+/// Where an operation that records a run hands its id back to a caller that writes the message
+/// itself, such as a pane's copy, whose sentence is the app's. One per call, read after it returns.
+@MainActor
+public final class SyncRunReceipt {
+    /// The run's id, once recorded; nil while nothing was.
+    public internal(set) var runId: UUID?
+
+    public init() {}
 }
