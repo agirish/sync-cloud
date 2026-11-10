@@ -108,6 +108,8 @@ struct PaneActionDelegate: FileActionDelegate {
     /// delegate's own tests draw the menus without them.
     var canAskClaude = false
     var onAskClaude: ([String]) -> Void = { _ in }
+    /// File with Claude: the same rows, with the question asked.
+    var onFileWithClaude: ([String]) -> Void = { _ in }
     var askClaudeRefusalFor: ([String]) -> String? = { _ in nil }
     var hiddenFromClaude: (String) -> Bool = { _ in false }
     var hiddenFromClaudeCover: (String) -> String? = { _ in nil }
@@ -346,6 +348,11 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleAskClaude(_ nodes: [FileNode]) {
         guard canAskClaude, !nodes.isEmpty else { return }
         onAskClaude(nodes.map(\.id))
+    }
+
+    func handleFileWithClaude(_ nodes: [FileNode]) {
+        guard canAskClaude, !nodes.isEmpty else { return }
+        onFileWithClaude(nodes.map(\.id))
     }
 
     func isHiddenFromClaude(_ node: FileNode) -> Bool { hiddenFromClaude(node.id) }

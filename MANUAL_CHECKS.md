@@ -1054,3 +1054,24 @@ For the after-GA-prep sitting. Ask two short questions in one chat first, then N
 - [ ] **The menu.** Notes for Claude… under the text box opens Settings ▸ Ask Claude ▸ General.
 - [ ] **Reset All keeps them.** Reset All Settings…: its text lists Notes for Claude as kept, and
   the notes and the switch are as they were.
+
+## File with Claude (TE326, 2026-11-09)
+
+Needs an API key, a folder survey from Setup, and a few loose files in Downloads.
+
+- [ ] **One file.** Right-click a PDF in Downloads: File with Claude sits under Ask Claude About
+  This. Click it: the panel opens, "File this · About <name>" is sent, and the answer names a
+  folder from the survey with Go to Folder.
+- [ ] **Several.** Select three files, right-click ▸ File with Claude: "File these" goes about all
+  three, and any move comes on a card that moves nothing until Apply.
+- [ ] **A folder.** Right-click a folder ▸ File with Claude: "File the loose files in this folder";
+  Claude counts them and asks where they go.
+- [ ] **Organize menu.** Select two files and choose Organize ▸ File with Claude: the same as the
+  row menu. With nothing selected, the item is greyed.
+- [ ] **Hidden.** Right-click a file in a folder hidden from Claude: File with Claude is greyed,
+  and its tooltip says it's hidden.
+- [ ] **While Claude answers.** Ask something long, then File with Claude on a file: it waits as
+  Next with that file, and goes when the answer ends. A chip you'd attached yourself stays in the box.
+- [ ] **No key.** Remove the API key in Settings ▸ Ask Claude ▸ Key & Spending, then File with Claude on a file:
+  the setup shows, the file is a chip, "File this" is in the box, and nothing is sent. Save the
+  key and press Return: it's asked.

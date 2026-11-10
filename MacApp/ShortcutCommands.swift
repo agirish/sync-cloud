@@ -69,13 +69,16 @@ struct OrganizeVerbs {
     /// bar sits outside the anchor that keeps it alive across a lens switch.
     let planShape: (() -> Void)?
     let setUpLikeSiblings: (() -> Void)?
+    /// The row menu's File with Claude, over the whole selection: it asks a question and moves
+    /// nothing itself. `nil` with no selection, no Ask Claude, or a row hidden from Claude.
+    var fileWithClaude: (() -> Void)? = nil
 
     /// During a long run the verbs that write go silent; Organize, Find Duplicates, Keep Name (a
     /// list the app keeps, not a file) and Plan, whose sheet's Apply greys itself, stay.
     func lockingWrites() -> OrganizeVerbs {
         OrganizeVerbs(organizeFolder: organizeFolder, findDuplicates: findDuplicates,
                       fixName: nil, keepName: keepName, undoReorganisation: nil,
-                      planShape: planShape, setUpLikeSiblings: nil)
+                      planShape: planShape, setUpLikeSiblings: nil, fileWithClaude: fileWithClaude)
     }
 }
 
@@ -1756,15 +1759,19 @@ extension ContentView {
         // Selection-free, so it is resolved before the selection guard: the ledger undo is
         // available whether or not a row is selected.
         let undoReorganisation = shortcutUndoReorganisation
-        guard actionHandler != nil,
-              let pane = activePane,
+        let delegate = actionHandler == nil ? nil : activePane.map { paneActionDelegate(for: paneContext(isLeft: $0 == .left)) }
+        // Any selection, as the row menu takes several rows; resolved before the single-row guard.
+        let fileWithClaude: (() -> Void)? = delegate.flatMap { delegate in
+            guard !selection.isEmpty, delegate.canAskClaude, delegate.askClaudeRefusal(selection) == nil else { return nil }
+            return { delegate.handleFileWithClaude(selection) }
+        }
+        guard let delegate,
               selection.count == 1,
               let node = selection.first else {
             return OrganizeVerbs(organizeFolder: nil, findDuplicates: nil, fixName: nil,
                                  keepName: nil, undoReorganisation: undoReorganisation,
-                                 planShape: nil, setUpLikeSiblings: nil)
+                                 planShape: nil, setUpLikeSiblings: nil, fileWithClaude: fileWithClaude)
         }
-        let delegate = paneActionDelegate(for: paneContext(isLeft: pane == .left))
         let can = OrganizeVerbAvailability.resolve(selectionCount: selection.count,
                                                    isDirectory: node.isDirectory,
                                                    isRisky: delegate.riskyName(for: node) != nil)
@@ -1777,7 +1784,8 @@ extension ContentView {
             // Availability is the resolver's answer, so an item is greyed or offered by whether
             // the folder resolves to a finding that carries the surface, never by a second opinion.
             planShape: restructureVerb(.plan, for: node),
-            setUpLikeSiblings: restructureVerb(.setUp, for: node))
+            setUpLikeSiblings: restructureVerb(.setUp, for: node),
+            fileWithClaude: fileWithClaude)
     }
 
     /// One of the two Restructure folder verbs as a runnable, or `nil` (greying the item) when the
@@ -2657,6 +2665,9 @@ struct OrganizeVerbCommands: View {
             .disabled(verbs?.organizeFolder == nil)
         Button("Find Duplicates of This") { verbs?.findDuplicates?() }
             .disabled(verbs?.findDuplicates == nil)
+        // Asks Claude where the selection goes; its card moves nothing until Apply.
+        Button("File with Claude") { verbs?.fileWithClaude?() }
+            .disabled(verbs?.fileWithClaude == nil)
         // The two name verbs are a different act from the two above — those ask Organize a question
         // about a folder, these repair or bless a name — and unlike them they are available only
         // for a name the app would rewrite, so they are usually the greyed half of this menu.

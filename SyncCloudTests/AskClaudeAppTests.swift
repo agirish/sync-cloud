@@ -3176,6 +3176,62 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
+/// File with Claude on a row's menu: what it asks, and that while Claude answers it waits
+/// as Next about the rows alone, leaving the box's chips for the next question.
+@MainActor
+@Suite struct AskClaudeFileWithTests {
+
+    @Test func theQuestionSaysFilesArePlacedAndFoldersFileTheirLooseFiles() {
+        #expect(AskClaudeFileWith.question(files: 1, folders: 0) == "File this")
+        #expect(AskClaudeFileWith.question(files: 3, folders: 0) == "File these")
+        #expect(AskClaudeFileWith.question(files: 0, folders: 1) == "File the loose files in this folder")
+        #expect(AskClaudeFileWith.question(files: 0, folders: 2) == "File the loose files in these folders")
+        #expect(AskClaudeFileWith.question(files: 1, folders: 1) == "File these, and the loose files in each folder")
+    }
+
+    @Test func whileClaudeAnswersItWaitsAboutTheRowsAndTheBoxKeepsItsChips() {
+        let d = ScratchDefaults("AskClaudeFileWithTests.queue")
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d)
+        typealias A = AskClaudeChat.Attachment
+        let inTheBox = A(path: "/c/Lease.pdf", name: "Lease.pdf", isDirectory: false)
+        let rows = [A(path: "/c/JAL.pdf", name: "JAL.pdf", isDirectory: false), A(path: "/c/Hotel.pdf", name: "Hotel.pdf", isDirectory: false)]
+        chat.attach([inTheBox])
+        AskClaudeFileWith.queue("File these", about: rows, on: chat)
+        #expect(chat.queued == AskClaudeChat.Queued(text: "File these", attachments: rows, spoken: false))
+        #expect(chat.attachments == [inTheBox])
+        // A second one joins the first, as a second Return does.
+        let scans = A(path: "/c/Scans", name: "Scans", isDirectory: true)
+        AskClaudeFileWith.queue("File the loose files in this folder", about: [scans], on: chat)
+        #expect(chat.queued?.text == "File these\nFile the loose files in this folder")
+        #expect(chat.queued?.attachments == rows + [scans])
+        #expect(chat.attachments == [inTheBox])
+    }
+
+    @Test func thePaneHandsTheRowsOnOnlyWithAskClaudeBehindIt() {
+        let manager = FileSyncManager.scratch()
+        let settings = SettingsManager.scratch()
+        var handed: [[String]] = []
+        func delegate(asks: Bool) -> PaneActionDelegate {
+            var d = PaneActionDelegate(
+                handler: nil, syncManager: manager, settings: settings, isLeft: true,
+                leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
+                forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
+                ignoreStateToken: [], keptNamesToken: [],
+                onFindDuplicatesOf: { _ in },
+                onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
+                onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            d.canAskClaude = asks
+            d.onFileWithClaude = { handed.append($0) }
+            return d
+        }
+        let rows = [FileNode(id: "/c/a.pdf", name: "a.pdf", isDirectory: false), FileNode(id: "/c/T", name: "T", isDirectory: true)]
+        delegate(asks: false).handleFileWithClaude(rows)
+        #expect(handed.isEmpty)
+        delegate(asks: true).handleFileWithClaude(rows)
+        #expect(handed == [["/c/a.pdf", "/c/T"]])
+    }
+}
+
 /// Filing help's tool: the card it shows and what Claude is told.
 @MainActor
 @Suite struct AskClaudeFilingToolTests {

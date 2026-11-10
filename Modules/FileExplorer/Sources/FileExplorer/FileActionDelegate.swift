@@ -189,6 +189,10 @@ public protocol FileActionDelegate: Sendable {
     /// Opens Ask Claude with these rows attached above its text box.
     func handleAskClaude(_ nodes: [FileNode])
 
+    /// File with Claude: Ask Claude opens and asks to file these rows, with them attached.
+    /// Refused by ``askClaudeRefusal(_:)`` as Ask Claude About This is.
+    func handleFileWithClaude(_ nodes: [FileNode])
+
     /// Whether this row is on the Hidden from Claude list, itself or through a folder above it.
     /// Read when the menu is built, so the label can be a render old; the item acts on what its
     /// label said (`FileContextMenu.favoriteLabelStillHolds`), as Favorites does.
@@ -270,6 +274,7 @@ extension FileActionDelegate {
     public var canAskClaude: Bool { false }
     public func askClaudeRefusal(_ nodes: [FileNode]) -> String? { nil }
     public func handleAskClaude(_ nodes: [FileNode]) {}
+    public func handleFileWithClaude(_ nodes: [FileNode]) {}
     public func isHiddenFromClaude(_ node: FileNode) -> Bool { false }
     public func hiddenFromClaudeCover(_ node: FileNode) -> String? { nil }
     public func handleSetHiddenFromClaude(_ node: FileNode, hidden: Bool) {}
@@ -277,14 +282,27 @@ extension FileActionDelegate {
 
 // MARK: - Ask Claude About This (TE263)
 
-/// The row menu's Ask Claude items: Ask Claude About This (or About These N Items), and for one
-/// row Hide from Claude or Show to Claude. Its own view so the pane rows and a test can draw it.
+/// The row menu's Ask Claude items: Ask Claude About This (or About These N Items), File with
+/// Claude, and for one row Hide from Claude or Show to Claude. Its own view so the pane
+/// rows and a test can draw it.
 struct AskClaudeMenuItems: View {
     let nodes: [FileNode]
     let delegate: FileActionDelegate
 
     static func askTitle(_ count: Int) -> String {
         count == 1 ? "Ask Claude About This" : "Ask Claude About These \(count) Items"
+    }
+
+    /// One title however many rows: Ask Claude About These N Items, just above, counts them.
+    static let fileTitle = "File with Claude"
+
+    static func fileHelp(_ nodes: [FileNode]) -> String {
+        let folders = nodes.filter(\.isDirectory).count
+        if folders == 0 { return "Asks Claude where \(nodes.count == 1 ? "this goes" : "these go"). Nothing moves until you press Apply." }
+        if folders == nodes.count {
+            return "Asks Claude to file the loose files in \(folders == 1 ? "this folder" : "these folders"). Nothing moves until you press Apply."
+        }
+        return "Asks Claude where these go, and to file the loose files in each folder. Nothing moves until you press Apply."
     }
 
     static func hideTitle(hidden: Bool, cover: String?) -> String {
@@ -303,6 +321,16 @@ struct AskClaudeMenuItems: View {
         }
         .disabled(refusal != nil)
         .help(refusal ?? "Opens Ask Claude with \(nodes.count == 1 ? "this" : "these") attached, for your question.")
+        // The same rows, with the question asked. After Ask, so the two Claude items sit
+        // together with Hide from Claude after them.
+        Button {
+            guard delegate.askClaudeRefusal(nodes) == nil else { return }
+            delegate.handleFileWithClaude(nodes)
+        } label: {
+            Label(Self.fileTitle, systemImage: "tray.and.arrow.down")
+        }
+        .disabled(refusal != nil)
+        .help(refusal ?? Self.fileHelp(nodes))
         if nodes.count == 1, let node = nodes.first {
             let hidden = delegate.isHiddenFromClaude(node)
             // Hidden by a folder above it: Show takes that folder off the list, and all it holds

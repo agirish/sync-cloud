@@ -343,11 +343,23 @@ extension ContentView {
     /// A row's Ask Claude About This: the panel opens, or comes forward, with these attached above
     /// its text box and the caret in it.
     func askClaudeAttach(_ paths: [String]) {
+        let items = askClaudeChips(paths)
+        guard !items.isEmpty else { return }
+        askClaudeChat.attach(items)
+        Logger.shared.info("Ask Claude: attached \(items.count) item\(items.count == 1 ? "" : "s") from a row’s menu")
+        askClaudeHolder.visibility.restored = false
+        askClaudeHolder.visibility.tucked = false
+        askClaudeHolder.visibility.isOpen = true
+        askClaudeHolder.visibility.focusRequests += 1
+    }
+
+    /// Rows as chips, leaving out any hidden from Claude. A name two chips share (a Compare row's
+    /// two sides) says which source each is.
+    private func askClaudeChips(_ paths: [String]) -> [AskClaudeChat.Attachment] {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let kept = paths.filter { !hidden.isHidden($0) }
-        // A name two chips share (a Compare row's two sides) says which source each is.
         let names = (askClaudeChat.attachments.map(\.path) + kept).map { ($0 as NSString).lastPathComponent.lowercased() }
-        let items = kept.map { path in
+        return kept.map { path in
             var isFolder: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isFolder)
             var name = (path as NSString).lastPathComponent
@@ -357,13 +369,41 @@ extension ContentView {
             }
             return AskClaudeChat.Attachment(path: path, name: name, isDirectory: exists && isFolder.boolValue)
         }
-        guard !items.isEmpty else { return }
-        askClaudeChat.attach(items)
-        Logger.shared.info("Ask Claude: attached \(items.count) item\(items.count == 1 ? "" : "s") from a row’s menu")
+    }
+
+    /// A row's File with Claude: the panel opens and asks to file these, so where_to_file
+    /// or file_loose_files answer with their cards. The box's draft and chips are left for the
+    /// next question. With no key saved nothing is sent: the setup shows, with the rows as chips
+    /// and the question in the box for Return once the key is in. While Claude answers, it waits
+    /// as Next.
+    func askClaudeFileWith(_ paths: [String]) {
+        let chips = askClaudeChips(paths)
+        guard !chips.isEmpty else { return }
+        let question = AskClaudeFileWith.question(files: chips.filter { !$0.isDirectory }.count,
+                                                  folders: chips.filter(\.isDirectory).count)
+        let chat = askClaudeChat
+        let wasOpen = askClaudeHolder.visibility.isOpen
         askClaudeHolder.visibility.restored = false
         askClaudeHolder.visibility.tucked = false
         askClaudeHolder.visibility.isOpen = true
-        askClaudeHolder.visibility.focusRequests += 1
+        if !AnthropicKeychain.isConfigured {
+            chat.attach(chips)
+            // Added to what's typed, never in its place. A panel opening now reads `draft` as it
+            // appears; an open one hears `draftToRestore`.
+            if wasOpen {
+                chat.draftToRestore = question
+            } else {
+                chat.draft = chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? question : chat.draft + "\n" + question
+            }
+            askClaudeHolder.visibility.focusRequests += 1
+            Logger.shared.info("Ask Claude: File with Claude on \(chips.count) item\(chips.count == 1 ? "" : "s") waits for a key")
+        } else if chat.isRunning {
+            AskClaudeFileWith.queue(question, about: chips, on: chat)
+            Logger.shared.info("Ask Claude: File with Claude on \(chips.count) item\(chips.count == 1 ? "" : "s") waits for the answer")
+        } else {
+            Logger.shared.info("Ask Claude: File with Claude on \(chips.count) item\(chips.count == 1 ? "" : "s")")
+            askClaudeSend(question, attached: chips, spoken: false)
+        }
     }
 
     /// Why a row's Ask Claude About This can't take these, for its tooltip, or nil.
@@ -1858,5 +1898,29 @@ struct AskClaudeToolbarButton: View {
         .help(ShortcutHint.tooltip(visibility.isOpen ? "Close Ask Claude" : "Open Ask Claude", AppChord.askClaude.display))
         .accessibilityLabel("Ask Claude")
         .accessibilityAddTraits(visibility.isOpen ? .isSelected : [])
+    }
+}
+
+/// What File with Claude asks: files are placed by where_to_file; a folder files its
+/// loose files, never itself, by file_loose_files.
+enum AskClaudeFileWith {
+    static func question(files: Int, folders: Int) -> String {
+        switch (files, folders) {
+        case (1, 0): "File this"
+        case (_, 0): "File these"
+        case (0, 1): "File the loose files in this folder"
+        case (0, _): "File the loose files in these folders"
+        default: "File these, and the loose files in each folder"
+        }
+    }
+
+    /// Holds the question as Next while Claude answers, about these rows only. The queue
+    /// takes the box's chips, so the ones already there are set aside and put back after.
+    @MainActor
+    static func queue(_ question: String, about chips: [AskClaudeChat.Attachment], on chat: AskClaudeChat) {
+        let inTheBox = chat.takeAttachments()
+        chat.attach(chips)
+        chat.queue(question, spoken: false)
+        chat.attach(inTheBox)
     }
 }

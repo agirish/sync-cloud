@@ -4383,6 +4383,7 @@ struct ContentView: View {
             armedComparePath: comparePick?.armed.id,
             canAskClaude: true,
             onAskClaude: { askClaudeAttach($0) },
+            onFileWithClaude: { askClaudeFileWith($0) },
             askClaudeRefusalFor: { askClaudeRowRefusal($0) },
             hiddenFromClaude: { askClaudeIsHidden($0) },
             hiddenFromClaudeCover: { askClaudeHiddenCover($0) },

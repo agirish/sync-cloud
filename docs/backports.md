@@ -15142,3 +15142,15 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## File with Claude on the row menu and Organize menu (TE326) — main only
+
+2026-11-09, for v7.1. On `main`: a pane row's menu has File with Claude under Ask Claude About
+This, and Organize has it after Find Duplicates of This. It opens Ask Claude with the selection
+attached and asks "File this", "File these" or "File the loose files in this folder"; while Claude
+answers it waits as Next, and with no key it waits in the box. No change to the tool list or system
+text. Ask Claude exists only on `main`.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

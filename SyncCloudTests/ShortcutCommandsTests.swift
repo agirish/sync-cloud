@@ -49,7 +49,7 @@ import Foundation
             organizeLens: OrganizeLensSwitch(current: .duplicates, select: { _ in }),
             organizeVerbs: OrganizeVerbs(organizeFolder: {}, findDuplicates: {},
                                          fixName: {}, keepName: {}, undoReorganisation: {},
-                                         planShape: {}, setUpLikeSiblings: {}),
+                                         planShape: {}, setUpLikeSiblings: {}, fileWithClaude: {}),
             // Every closure non-nil, `openInEditor` included, or the suspension test below would
             // pass without proving the item was live to begin with.
             paneRowVerbs: PaneRowVerbs(openInNewTab: {}, quickLook: {}, openInEditor: {},
@@ -102,7 +102,8 @@ import Foundation
         let organize = try #require(locked.effectiveOrganizeVerbs)
         #expect(organize.fixName == nil && organize.setUpLikeSiblings == nil && organize.undoReorganisation == nil)
         #expect(organize.organizeFolder != nil && organize.findDuplicates != nil
-                && organize.keepName != nil && organize.planShape != nil)
+                && organize.keepName != nil && organize.planShape != nil && organize.fileWithClaude != nil,
+                "a verb that only asks or opens went silent")
 
         // Reading, and Edit's own document, stay live.
         #expect(locked.effectiveGoBack != nil && locked.effectiveRescan != nil

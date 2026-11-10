@@ -167,16 +167,16 @@ import AppKit
                 "the Organize menu opens with \(organize.prefix(5))")
     }
 
-    /// The order is the argument: the four folder verbs, then the two that open a Restructure
-    /// surface, then the ledger undo, which is about a landing that already happened, not a thing
-    /// to do with a selection.
+    /// The order is the argument: the folder verbs with File with Claude after them, then the two
+    /// that open a Restructure surface, then the ledger undo, which is about a landing that already
+    /// happened, not a thing to do with a selection.
     @Test func theVerbsFollowTheSections() throws {
         let organize = menuTitles(try appMenu("Organize"))
-        #expect(organize.suffix(7) == ["Organize This Folder…", "Find Duplicates of This",
+        #expect(organize.suffix(8) == ["Organize This Folder…", "Find Duplicates of This", "File with Claude",
                                        "Fix Name", "Always Allow This Name",
                                        "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
                                        "Undo This Reorganization…"],
-                "the Organize menu ends with \(organize.suffix(7))")
+                "the Organize menu ends with \(organize.suffix(8))")
     }
 
     /// The ledger undo must never sit beside ⌘Z's Undo, where the two would be confused, so Edit

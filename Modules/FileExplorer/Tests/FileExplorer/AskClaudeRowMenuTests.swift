@@ -4,9 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Ask Claude About This on a row's menu, read off the real row menu through
-/// `NSHostingMenu`: where it sits, what it says for one row and for several, and that a hidden row
-/// gets its item greyed and Show to Claude instead of Hide.
+/// Ask Claude About This on a row's menu, and File with Claude after it, read
+/// off the real row menu through `NSHostingMenu`: where they sit, what they say for one row and for
+/// several, and that a hidden row gets both greyed and Show to Claude instead of Hide.
 @MainActor
 @Suite struct AskClaudeRowMenuTests {
 
@@ -53,20 +53,36 @@ import Testing
 
     private let file = FileNode(id: "/a/never-on-disk-lease.pdf", name: "never-on-disk-lease.pdf", isDirectory: false)
 
-    @Test func oneRowGetsAskAndHideRightAfterCopyPath() throws {
+    @Test func oneRowGetsAskFileAndHideRightAfterCopyPath() throws {
         let titles = Self.menu(selecting: [], row: file, delegate: Stub()).map(\.title)
         let copyPath = try #require(titles.firstIndex(of: "Copy Path"), "the menu reads \(titles)")
-        #expect(Array(titles.dropFirst(copyPath + 1).prefix(2)) == ["Ask Claude About This", "Hide from Claude"],
+        #expect(Array(titles.dropFirst(copyPath + 1).prefix(3)) == ["Ask Claude About This", "File with Claude", "Hide from Claude"],
                 "the menu reads \(titles)")
     }
 
-    @Test func severalRowsGetOneItemCountingThem() {
+    /// File with Claude's tooltip says what it asks: where files go, or a folder's loose files.
+    @Test func fileWithClaudeSaysWhatItAsksForFilesAndFolders() throws {
+        let folder = FileNode(id: "/a/Scans", name: "Scans", isDirectory: true)
+        let forFile = try #require(Self.menu(selecting: [], row: file, delegate: Stub()).first { $0.title == "File with Claude" })
+        #expect(forFile.isEnabled)
+        #expect(forFile.toolTip == "Asks Claude where this goes. Nothing moves until you press Apply.")
+        let forFolder = try #require(Self.menu(selecting: [], row: folder, delegate: Stub()).first { $0.title == "File with Claude" })
+        #expect(forFolder.toolTip == "Asks Claude to file the loose files in this folder. Nothing moves until you press Apply.")
+    }
+
+    @Test func severalRowsGetOneItemCountingThem() throws {
         let a = FileNode(id: "/a/x.txt", name: "x.txt", isDirectory: false)
         let b = FileNode(id: "/a/y.txt", name: "y.txt", isDirectory: false)
         let c = FileNode(id: "/a/z", name: "z", isDirectory: true)
         let titles = Self.menu(selecting: [a, b, c], row: a, delegate: Stub()).map(\.title)
-        #expect(titles.contains("Ask Claude About These 3 Items"), "the menu reads \(titles)")
+        let ask = try #require(titles.firstIndex(of: "Ask Claude About These 3 Items"), "the menu reads \(titles)")
+        // One title for any count: the item above it counts them.
+        #expect(titles.dropFirst(ask + 1).first == "File with Claude", "the menu reads \(titles)")
+        #expect(titles.filter { $0 == "File with Claude" }.count == 1)
         #expect(!titles.contains("Hide from Claude"))
+        let items = Self.menu(selecting: [a, b, c], row: a, delegate: Stub())
+        #expect(items.first { $0.title == "File with Claude" }?.toolTip
+                == "Asks Claude where these go, and to file the loose files in each folder. Nothing moves until you press Apply.")
     }
 
     @Test func aHiddenRowIsGreyedAndOffersShow() throws {
@@ -75,6 +91,8 @@ import Testing
         let items = Self.menu(selecting: [], row: file, delegate: stub)
         let ask = try #require(items.first { $0.title == "Ask Claude About This" }, "the menu reads \(items.map(\.title))")
         #expect(!ask.isEnabled)
+        let fileItem = try #require(items.first { $0.title == "File with Claude" }, "the menu reads \(items.map(\.title))")
+        #expect(!fileItem.isEnabled && fileItem.toolTip == "It’s hidden from Claude.")
         #expect(items.contains { $0.title == "Show to Claude" } && !items.contains { $0.title == "Hide from Claude" })
     }
 
