@@ -211,7 +211,9 @@ extension AskClaudeLooseFiles {
                 case .alreadyFiled, .emptied: trash += rows.count
                 }
             }
-            lines.append("On the card: \(homed) with a home, \(sure) of them sure (High, ticked), in \(folders.count) folder\(folders.count == 1 ? "" : "s"); \(picks) needing their pick; \(trash) Trash row\(trash == 1 ? "" : "s"). The files’ names and homes weren’t sent to you: a home can come from a file’s first page.")
+            let named = plan.namedRows.count
+            let renamed = named == 0 ? "" : "; \(named) with a new name made on their Mac"
+            lines.append("On the card: \(homed) with a home, \(sure) of them sure (High, ticked), in \(folders.count) folder\(folders.count == 1 ? "" : "s"); \(picks) needing their pick; \(trash) Trash row\(trash == 1 ? "" : "s")\(renamed). The files’ names and homes weren’t sent to you: a home can come from a file’s first page\(named == 0 ? "" : ", and a new name always does").")
             if let nextFrom, plan.more != nil {
                 lines.append("The card has a Next button; when they ask for the next ones, call again with the same folder and into, and from \(nextFrom).")
             }
@@ -234,7 +236,8 @@ extension AskClaudeLooseFiles {
                 case .alreadyFiled: folder = "already filed; a Trash row"
                 case .emptied: folder = "emptied folders; a Trash row"
                 }
-                lines.append([row.name, folder, row.confidence ?? "", row.ticked ? "ticked" : "not ticked", row.note ?? ""]
+                let note = [row.newName.map { "renamed to \($0)" }, row.note].compactMap { $0 }.joined(separator: " · ")
+                lines.append([row.name, folder, row.confidence ?? "", row.ticked ? "ticked" : "not ticked", note]
                     .map(AskClaudeScreenCard.escape).joined(separator: "|"))
             }
         }

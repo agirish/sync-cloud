@@ -3244,7 +3244,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     private let file = FileNode(id: root + "/Downloads/scan.pdf", name: "scan.pdf", isDirectory: false, fileSize: 2_000)
 
     private func runner(_ answer: FilingHelpAnswer?, canRefine: Bool = true, sharesRoot: Bool = false,
-                        asked: PlaceBox = PlaceBox()) -> AskClaudeBrowseTools {
+                        asked: PlaceBox = PlaceBox(), named: AskClaudeNaming.Named? = nil) -> AskClaudeBrowseTools {
         let file = self.file
         return browseTools(browseContext(
             root: Self.root,
@@ -3258,7 +3258,32 @@ private final class OffersADownload: AskClaudeToolRunning {
             ctx.canRefineFiling = canRefine
             ctx.shared = sharesRoot ? [Self.root] : []
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
+            ctx.nameFile = { _, _ in named }
         })
+    }
+
+    /// TE328: the name a scan takes in each folder is on the card, and Claude is told only that one
+    /// was made, until the file's folder shares (decision IW).
+    @Test func aScansNewNameIsOnTheCardAndHeldFromClaude() async throws {
+        let answer = FilingHelpAnswer(outcome: .suggested([suggestion("Taxes/2025", .high), suggestion("Bank", .medium)]), surveyedAt: nil)
+        let named = AskClaudeNaming.Named(outcome: .named(.init(year: 2025, from: "Ally", what: "1099-INT")),
+                                          facts: .init(year: 2025, from: "Ally", what: "1099-INT"),
+                                          names: [Self.root + "/Documents/Taxes/2025": .init(name: "2025 Ally 1099-INT.pdf", basis: .like("2024 Ally 1099-INT.pdf"))])
+        let held = await ask(runner(answer, named: named))
+        let card = try #require(held.filing)
+        #expect(card.folders.map { $0.newName } == ["2025 Ally 1099-INT.pdf", nil])
+        #expect(card.folders[0].nameBasis == "Named like 2024 Ally 1099-INT.pdf" && card.nameFacts?.from == "Ally")
+        #expect(card.names == AskClaudeHeldNames(shared: false))
+        #expect(!held.result.contains("Ally") && held.result.contains("The name isn’t sent to you"))
+        let shared = await ask(runner(answer, sharesRoot: true, named: named))
+        #expect(shared.filing?.names == AskClaudeHeldNames(shared: true, sharedBy: "Downloads"))
+        #expect(shared.result.contains("renamed there to 2025 Ally 1099-INT.pdf"))
+        // A file Apple Intelligence couldn't read keeps its name, and the card says why.
+        let locked = await ask(runner(answer, named: .init(outcome: .locked)))
+        #expect(locked.filing?.nameKept == "Locked with a password, so Apple Intelligence can’t read it" && locked.filing?.names == nil)
+        #expect(locked.result.contains("Apple Intelligence couldn’t name it") && !locked.result.contains("password"))
+        let off = await ask(runner(answer, named: .init(outcome: .unavailable, unavailable: AskClaudeNaming.Availability.off.cardLine)))
+        #expect(off.filing?.names?.unavailable?.hasPrefix("Apple Intelligence is off") == true)
     }
 
     final class PlaceBox: @unchecked Sendable { var places: [String?] = [] }
@@ -3423,6 +3448,24 @@ private final class OffersADownload: AskClaudeToolRunning {
     private func call(_ input: [String: JSONFragment], _ runner: AskClaudeBrowseTools) async -> AskClaudeToolOutcome {
         var handles = AskClaudeHandles()
         return await runner.run(AskClaudeToolCall(id: "t", name: "file_loose_files", input: .object(input)), handles: &handles)
+    }
+
+    /// TE328: a scan's row lands under its new name, for its own folder; Claude gets a count.
+    @Test func aScansRowCarriesItsNewNameAndClaudeACount() async throws {
+        let dir = self.dir
+        let out = await call(["into": .string("Documents")], runner(fallback: s("Misc", .high), configure: { ctx in
+            ctx.nameFile = { path, folders in
+                guard (path as NSString).lastPathComponent == "scan0042.pdf" else { return nil }
+                #expect(folders == [dir + "/Documents/Health", dir + "/Documents/Insurance"])
+                return .init(outcome: .named(.init(year: 2025, from: "Kaiser", what: "EOB")), facts: .init(year: 2025, from: "Kaiser", what: "EOB"),
+                             names: [dir + "/Documents/Health": .init(name: "2025 Kaiser EOB.pdf", basis: .plain)])
+            }
+        }))
+        let plan = try #require(out.plan)
+        let scan = try #require(plan.rows.first { $0.name == "scan0042.pdf" })
+        #expect(scan.newName == "2025 Kaiser EOB.pdf" && scan.nameBasis == "Named by year, who it’s from and what it is")
+        #expect(plan.namedRows.count == 1 && plan.names == AskClaudeHeldNames(shared: false))
+        #expect(out.result.contains("1 with a new name made on their Mac") && !out.result.contains("Kaiser"))
     }
 
     /// No place yet, so a count and two buttons, and no card.

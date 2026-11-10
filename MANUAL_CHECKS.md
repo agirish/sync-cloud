@@ -1165,3 +1165,24 @@ price, no receipt.
   (or Apple Intelligence); "open the events folder" goes into the folder.
 - [ ] **Claude knows the tabs.** Ask "where do I see what synced last night?": Claude names the
   Activity window's Events tab, not History.
+
+## Names from inside (TE328, 2026-11-09)
+
+Needs an API key, a folder survey from Setup, and Apple Intelligence on. Put a statement's first
+page in Downloads as a picture-only PDF named "Scan 0001.pdf" (a screenshot of it, opened in
+Preview and exported as PDF), and a password-protected PDF named "Scan 0002.pdf".
+
+- [ ] **The name is on the card.** Select Scan 0001.pdf, right-click ▸ File with Claude: the card's
+  folder says "As <year> <from> <what>.pdf" with a purple line saying where its style came from,
+  and "Claude hasn’t seen the new name…" with Share 1 Name and Folder. Claude's reply names no part
+  of it.
+- [ ] **Edit, keep, apply, undo.** Move Here, open the row: Rename… to your own name (".pdf" stays),
+  then Keep Scan 0001.pdf, then Rename… again. Apply: "Moved 1 file, 1 of them renamed"; the file
+  is in its folder under the new name. Undo: back in Downloads as Scan 0001.pdf.
+- [ ] **Share.** On a new card, Share 1 Name and Folder: the strip says Claude has it; ask Claude
+  "what will it be called?" and it says the name.
+- [ ] **Locked and off.** File Scan 0002.pdf: the card says it's locked and it keeps its name. Turn
+  Apple Intelligence off in System Settings and file Scan 0001.pdf: the card says Apple
+  Intelligence is off, and no name is offered.
+- [ ] **A folder that shares.** Set Downloads to Share Without Asking from the shield, and file Scan
+  0001.pdf: the strip says Downloads shares without asking, with no button. Set it back.

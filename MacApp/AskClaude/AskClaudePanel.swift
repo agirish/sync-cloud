@@ -1526,6 +1526,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                         }
                         Text("\(index == 0 ? "" : "Runner-up · ")\(isNew ? "New folder · " : "")\(folder.confidence) · \(folder.reason)\(folder.note.map { " · \($0)" } ?? "")")
                             .scaledFont(.footnote).foregroundStyle(.secondary)
+                        AskClaudeFolderNameLine(folder: folder)
                         HStack(spacing: 6) {
                             AskClaudeNewFolderButtons.goTo(folder) { onFilingCard(.goTo($0)) }
                             Button(isNew ? "Make and Move Here" : "Move Here") { onFilingCard(.moveHere(item: item.id, file: card.filePath, folder: folder.path, label: folder.label)) }
@@ -1534,6 +1535,10 @@ private struct AskClaudeThreadRow: View, Equatable {
                                             : "Makes this a card with one move. Nothing moves until you click Apply.")
                         }
                     }
+                }
+                if let kept = card.nameKept { Text(kept).scaledFont(.footnote).foregroundStyle(.secondary) }
+                if let names = card.names {
+                    AskClaudeHeldNamesStrip(names: names, count: card.folders.filter { $0.newName != nil }.count, canShare: true) { onFilingCard(.shareNames(item: item.id)) }
                 }
                 if let days = card.staleDays {
                     Text("From a survey \(days) days old: folders made since aren’t known. Update the Survey is in Organize ▸ Restructure.")
@@ -1640,6 +1645,9 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Text(left).scaledFont(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if let names = plan.names {
+                AskClaudeHeldNamesStrip(names: names, count: plan.namedRows.count, canShare: plan.state == .proposed) { onPlanCard(item.id, .shareNames) }
+            }
             planFooter(plan)
         }
         .padding(10)
@@ -1704,7 +1712,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Image(systemName: Self.symbol(for: row.name, change: row.change))
                     .scaledFont(.callout).foregroundStyle(.secondary)
                     .frame(width: 18)
-                Text(row.name)
+                Text(row.newName ?? row.name)
                     .scaledFont(.body)
                     .lineLimit(1).truncationMode(.middle)
                     .strikethrough(row.refusal != nil || row.applied == false)
@@ -1740,6 +1748,7 @@ private struct AskClaudeThreadRow: View, Equatable {
             .help("Click for where it goes and why")
             .accessibilityAddTraits(.isButton)
             .accessibilityHint(isOpen ? "Closes its details" : "Opens its details")
+            AskClaudeRowNameLine(row: row)
             if isOpen { planDetails(row, editable: editable) }
         }
         .padding(.horizontal, 6).padding(.vertical, 5)
@@ -1790,6 +1799,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 line("Goes to", destination)
             }
             if let reason = row.reason { line("Why", reason) }
+            AskClaudeNameDetails(row: row, editable: editable) { onPlanCard(item.id, .setName(row.id, $0)) }
             if editable, case .newFolder(_, let name) = row.change {
                 AskClaudeNewFolderNameField(name: name) { onPlanCard(item.id, .renameFolder(row.id, $0)) }
             }
@@ -2057,6 +2067,10 @@ enum AskClaudePlanAction: Equatable {
     case chooseFolder(Int)
     /// A new folder's name, edited in its details (TE327).
     case renameFolder(Int, String)
+    /// The name a move lands under, typed in its details, or nil to keep its own (TE328).
+    case setName(Int, String?)
+    /// Share Names and Folders (TE328).
+    case shareNames
     /// The card's own buttons.
     case apply, notNow, undo
     /// A row's details: Quick Look on the item, Go to Folder on where it goes.
@@ -2074,6 +2088,8 @@ enum AskClaudeFilingAction: Equatable {
     case openSetup
     /// Move Here: the card becomes a one-row plan card.
     case moveHere(item: UUID, file: String, folder: String, label: String)
+    /// Share Names and Folders (TE328).
+    case shareNames(item: UUID)
 }
 
 /// How a card row says where it goes, short.

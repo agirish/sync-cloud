@@ -15217,3 +15217,20 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Names from inside a file on Ask Claude's filing cards (TE328) — main only
+
+2026-11-09, for v7.1 (decisions IW, JL). On `main`: a file whose name says nothing
+(`ContentName.needsName`) is read on this Mac, page 1 only, by Apple Intelligence
+(`AskClaudeNaming`), and named in the style of the folder it goes to (`ContentName.propose`):
+Renames' own numbering in a numbered folder (`FileSyncManager.incomingName`), the folder's closest
+name otherwise. The name rides on the filing card's move (`AskClaudePlan.Row.newName`,
+`applyPlan(names:)`), held from Claude until Share Names and Folders unless the folder shares
+without asking. No change to the tool list or system text. No maintenance line has Ask Claude's
+cards:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePlan.swift')"; done
+# measured 2026-11-09, against origin: 0 on every line
+```

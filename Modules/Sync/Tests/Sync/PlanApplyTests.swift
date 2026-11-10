@@ -58,6 +58,39 @@ import Events
                                 protected: [dir + "/Documents"])
     }
 
+    /// A move with a new name (TE328) lands under it, a taken one numbered, never over the other
+    /// file; one Undo brings both back under their old names.
+    @Test func aMoveWithANewNameLandsUnderItAndUndoesToTheOldName() async throws {
+        defer { cleanUp() }
+        try write("Downloads/Scan 0042.pdf", "ally")
+        try write("Downloads/Scan 0043.pdf", "pge")
+        try write("Documents/Taxes/2025 Ally 1099-INT.pdf", "the filed one")
+        let before = tree()
+        let out = await manager.applyPlan([(id: 0, change: .move(from: dir + "/Downloads/Scan 0042.pdf", toFolder: dir + "/Documents/Taxes")),
+                                           (id: 1, change: .move(from: dir + "/Downloads/Scan 0043.pdf", toFolder: dir + "/Documents/Taxes")),
+                                           (id: 2, change: .move(from: dir + "/Downloads/JAL Ticket.pdf", toFolder: dir + "/Documents/Taxes"))],
+                                          names: [0: "2025 Ally 1099-INT.pdf", 1: "10. Oct 2025.pdf"], actionName: "Move",
+                                          isHidden: { _ in false }, protected: [])
+        #expect(out.rows[0] == .done("Renamed and moved, as 2025 Ally 1099-INT 2.pdf"))
+        #expect(out.rows[1] == .done("Renamed and moved") && out.rows[2] == .done("Moved"))
+        #expect(FileManager.default.contents(atPath: dir + "/Documents/Taxes/2025 Ally 1099-INT.pdf") == Data("the filed one".utf8))
+        #expect(FileManager.default.contents(atPath: dir + "/Documents/Taxes/2025 Ally 1099-INT 2.pdf") == Data("ally".utf8))
+        #expect(FileManager.default.contents(atPath: dir + "/Documents/Taxes/10. Oct 2025.pdf") == Data("pge".utf8))
+        #expect(out.landed[1] == dir + "/Documents/Taxes/10. Oct 2025.pdf")
+        manager.undoManager?.undo()
+        await waitUntil("one undo restores both old names", timeout: 20) { self.tree() == before }
+        #expect(tree() == before)
+    }
+
+    /// A new name is checked as a name: one that would hide the file or address another folder.
+    @Test func aNewNameIsCheckedBeforeAnythingRuns() {
+        defer { cleanUp() }
+        let move = AskClaudePlan.Change.move(from: dir + "/Downloads/Ticket.pdf", toFolder: dir + "/Documents/Taxes")
+        #expect(manager.planRefusal(move, newName: ".Ticket.pdf", isHidden: { _ in false }, protected: []) == "A name starting with “.” would hide the file")
+        #expect(manager.planRefusal(move, newName: "a/b.pdf", isHidden: { _ in false }, protected: []) == "Names can’t contain “/”.")
+        #expect(manager.planRefusal(move, newName: "2025 Ally.pdf", isHidden: { _ in false }, protected: []) == nil)
+    }
+
     /// The whole card applies, and one Undo puts the tree back exactly as it was.
     @Test func aCardAppliesAllItsRowsAndOneUndoRestoresTheTree() async throws {
         defer { cleanUp() }

@@ -45,8 +45,9 @@ extension FileSyncManager {
     /// Why one change can't run, or nil: checked when Claude proposes it and again at Apply, so
     /// nothing is asked partway through. `creating` are folders the card makes first;
     /// `protected` are the sources' own folders.
-    public func planRefusal(_ change: AskClaudePlan.Change, creating: Set<String> = [], isHidden: (String) -> Bool,
-                            protected: Set<String>) -> String? {
+    /// `newName` is the name a move lands under instead of its own (TE328).
+    public func planRefusal(_ change: AskClaudePlan.Change, creating: Set<String> = [], newName: String? = nil,
+                            isHidden: (String) -> Bool, protected: Set<String>) -> String? {
         let fm = FileManager.default
         func exists(_ path: String) -> Bool { fm.fileExists(atPath: path) }
         func isFolder(_ path: String) -> Bool {
@@ -83,7 +84,8 @@ extension FileSyncManager {
             if PathBoundary.resolvesToSameDirectory(parent(from), toFolder, caseSensitive: false) { return "It’s already there" }
             if Self.isAtOrInside(toFolder, from) { return "A folder can’t go inside itself" }
             if !Self.onSameDisk(from, toFolder) { return "That’s on another disk; only moves on this Mac’s disk can be applied" }
-            return checkName(name(from))
+            if let newName, newName.hasPrefix(".") { return "A name starting with “.” would hide the file" }
+            return checkName(newName ?? name(from))
         case .rename(let path, let to):
             if let why = checkItem(path) ?? checkName(to) { return why }
             let target = (parent(path) as NSString).appendingPathComponent(to)
@@ -137,7 +139,9 @@ extension FileSyncManager {
     /// renames and moves, then the Trash. Each row is checked again at the click; one that fails
     /// is skipped with the reason, and the rest run. No dialog: a taken name keeps both, and
     /// nothing is deleted outright. Every change is a History record, a new folder included.
-    public func applyPlan(_ rows: [(id: Int, change: AskClaudePlan.Change)], actionName: String,
+    /// `names` are the names moves land under instead of their own, by row (TE328): one step
+    /// renames and moves, and Undo puts the file back under its old name.
+    public func applyPlan(_ rows: [(id: Int, change: AskClaudePlan.Change)], names: [Int: String] = [:], actionName: String,
                           isHidden: (String) -> Bool, protected: Set<String>) async -> AskClaudePlanOutcome {
         var outcome = AskClaudePlanOutcome()
         if let blocker = planApplyBlocker {
@@ -149,7 +153,7 @@ extension FileSyncManager {
         for row in rows { if case .newFolder(let folder, let name) = row.change { creating.insert((folder as NSString).appendingPathComponent(name)) } }
         var runnable: [(id: Int, change: AskClaudePlan.Change)] = []
         for row in rows {
-            if let why = planRefusal(row.change, creating: creating, isHidden: isHidden, protected: protected) {
+            if let why = planRefusal(row.change, creating: creating, newName: names[row.id], isHidden: isHidden, protected: protected) {
                 outcome.rows[row.id] = .refused(why)
             } else {
                 runnable.append(row)
@@ -226,7 +230,8 @@ extension FileSyncManager {
                     case .move(let from, let toFolder):
                         let src = URL(fileURLWithPath: from)
                         guard fm.fileExists(atPath: src.path) else { done.rows[id] = .refused("It isn’t there any more"); continue }
-                        var dst = URL(fileURLWithPath: toFolder).appendingPathComponent(src.lastPathComponent)
+                        let landing = names[id] ?? src.lastPathComponent
+                        var dst = URL(fileURLWithPath: toFolder).appendingPathComponent(landing)
                         if fm.fileExists(atPath: dst.path) { dst = Self.generateUniqueURL(for: dst, fileManager: fm) }
                         var isFolder: ObjCBool = false
                         let isFile = fm.fileExists(atPath: src.path, isDirectory: &isFolder) && !isFolder.boolValue
@@ -242,7 +247,11 @@ extension FileSyncManager {
                         done.movedTo.append(dst.path)
                         done.landed[id] = dst.path
                         if isFile { done.filed.append((from: src, to: dst)) }
-                        done.rows[id] = .done(dst.lastPathComponent == src.lastPathComponent ? "Moved" : "Moved, as \(dst.lastPathComponent)")
+                        if names[id] != nil {
+                            done.rows[id] = .done(dst.lastPathComponent == landing ? "Renamed and moved" : "Renamed and moved, as \(dst.lastPathComponent)")
+                        } else {
+                            done.rows[id] = .done(dst.lastPathComponent == src.lastPathComponent ? "Moved" : "Moved, as \(dst.lastPathComponent)")
+                        }
                     case .trash(let path, let copyOf):
                         let url = URL(fileURLWithPath: path)
                         guard fm.fileExists(atPath: url.path) else { done.rows[id] = .refused("It isn’t there any more"); continue }

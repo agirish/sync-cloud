@@ -97,6 +97,17 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var pickedFromLabel: String?
         /// It needed their pick (no folder was sure) before they chose one.
         public var wasUnsure: Bool?
+        /// The name a move lands under instead of its own (TE328), before a taken name is
+        /// numbered; nil keeps its name. Made from inside the file, so held like content.
+        public var newName: String?
+        /// Where the new name's style came from: "Named like 2024 Ally 1099-INT.pdf", "Your name".
+        public var nameBasis: String?
+        /// They typed it: a folder change keeps it.
+        public var nameTyped: Bool?
+        /// Why a file that wanted a name keeps its own: "Locked with a password, so …".
+        public var nameKept: String?
+        /// What its first page said, so a folder change can name it in that folder's style.
+        public var nameFacts: ContentName.Facts?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
@@ -185,9 +196,11 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public var nextAsk: String?
     /// The Next button's label: "Next 10".
     public var nextLabel: String?
+    /// Whether Claude has the card's new names (TE328); nil when the card has none.
+    public var names: AskClaudeHeldNames?
 
     private enum CodingKeys: String, CodingKey {
-        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names
     }
 
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
@@ -222,10 +235,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     }
 
     static func summary(_ done: [Row], failed: Int) -> String {
-        var moved = 0, renamed = 0, made = 0, trashed = 0
+        var moved = 0, renamed = 0, made = 0, trashed = 0, renamedMoves = 0
         for row in done {
             switch row.change {
-            case .move: moved += 1
+            case .move:
+                moved += 1
+                if row.newName != nil { renamedMoves += 1 }
             case .rename: renamed += 1
             case .newFolder: made += 1
             case .trash: trashed += 1
@@ -234,7 +249,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
         var parts: [String] = []
         if made > 0 { parts.append("made \(made) folder\(made == 1 ? "" : "s")") }
-        if moved > 0 { parts.append("moved \(moved) file\(moved == 1 ? "" : "s")") }
+        if moved > 0 { parts.append("moved \(moved) file\(moved == 1 ? "" : "s")" + (renamedMoves == 0 ? "" : ", \(renamedMoves) of them renamed")) }
         if renamed > 0 { parts.append("renamed \(renamed)") }
         if trashed > 0 { parts.append("moved \(trashed) to the Trash") }
         var text = parts.isEmpty ? "Nothing changed" : ListFormatter.localizedString(byJoining: parts)
@@ -301,6 +316,50 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// "Kept as Ticket 2.pdf: the name is taken".
     public static func landingNote(_ landing: String) -> String { "Kept as \(landing): the name is taken" }
 
+    /// The names Apply gives, by row: each ticked move with a new name (TE328).
+    public var newNames: [Int: String] {
+        Dictionary(uniqueKeysWithValues: runnable.compactMap { row in row.newName.map { (row.id, $0) } })
+    }
+
+    /// The rows with a new name made from inside the file, or typed for one.
+    public var namedRows: [Row] { rows.filter { $0.newName != nil } }
+
+    /// Sets the name row `id` lands under: their typed `name`, or nil to keep its own. Returns why
+    /// it can't be that name, or nil. The extension stays the file's own.
+    @discardableResult
+    public mutating func setName(_ name: String?, row id: Int) -> String? {
+        guard state == .proposed, let index = rows.firstIndex(where: { $0.id == id }),
+              case .move(let from, _) = rows[index].change else { return "That row moves no file." }
+        guard let name else {
+            rows[index].newName = nil
+            rows[index].nameBasis = nil
+            rows[index].nameTyped = nil
+            noteLandingNames()
+            return nil
+        }
+        let ext = (from as NSString).pathExtension
+        let stem = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = ContentName.stemProblem(stem) { return problem }
+        let full = ext.isEmpty ? stem : stem + "." + ext
+        rows[index].newName = full == (from as NSString).lastPathComponent ? nil : full
+        rows[index].nameBasis = rows[index].newName == nil ? nil : ContentName.typedBasis
+        rows[index].nameTyped = rows[index].newName == nil ? nil : true
+        noteLandingNames()
+        return nil
+    }
+
+    /// A row's name made again for the folder it now goes to (`named` gives the proposal), unless
+    /// they typed it.
+    public mutating func renameForFolders(_ named: (ContentName.Facts, String, String) -> ContentName.Proposal?) {
+        for index in rows.indices where rows[index].nameTyped != true {
+            guard let facts = rows[index].nameFacts, case .move(let from, let to) = rows[index].change else { continue }
+            let proposal = named(facts, from, to)
+            rows[index].newName = proposal?.name
+            rows[index].nameBasis = proposal?.basis.line
+        }
+        noteLandingNames()
+    }
+
     /// Each move's landing name noted on its row, in the order Apply runs them: a
     /// name taken in its folder, on the disk or by a ticked move above it, lands numbered.
     public mutating func noteLandingNames(fileManager fm: FileManager = .default) {
@@ -308,7 +367,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         var reserved = Set<String>()
         for index in rows.indices {
             guard case .move(let from, let toFolder) = rows[index].change else { continue }
-            let name = (from as NSString).lastPathComponent
+            let name = rows[index].newName ?? (from as NSString).lastPathComponent
             let folder = URL(fileURLWithPath: toFolder).resolvingSymlinksInPath()
             let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: folder)
             // Apply's own naming, with the names the rows above take counted as taken.

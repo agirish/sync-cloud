@@ -482,6 +482,7 @@ extension ContentView {
             askClaudeChat.updatePlan(id) { $0.setTicked(ticked, row: row) }
         case .choose(let row, let choice):
             askClaudeChat.updatePlan(id) { $0.choose(choice, forRow: row) }
+            askClaudeRenameForFolders(id)
         case .chooseFolder(let row):
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
@@ -502,6 +503,7 @@ extension ContentView {
             }
             let label = AskClaudeBrowseTools.breadcrumb(path, sources: askClaudeSources, fallback: url.lastPathComponent)
             askClaudeChat.updatePlan(id) { $0.choose(AskClaudePlan.Choice(label: label, path: path), forRow: row) }
+            askClaudeRenameForFolders(id)
         case .renameFolder(let row, let name):
             // TE327: a folder of that name already there, in any case, takes the files instead.
             var problem: String?
@@ -515,6 +517,13 @@ extension ContentView {
                 }
             }
             if let problem { askClaudeChat.addNote(problem) }
+            askClaudeRenameForFolders(id)
+        case .setName(let row, let name):
+            var problem: String?
+            askClaudeChat.updatePlan(id) { problem = $0.setName(name, row: row) }
+            if let problem { askClaudeChat.addNote(problem) }
+        case .shareNames:
+            askClaudeSharePlanNames(id)
         case .apply:
             askClaudeApplyPlan(id)
         case .quickLook(let path):
@@ -575,8 +584,8 @@ extension ContentView {
         let protected = Set(askClaudeSources.map(\.root))
         Task { @MainActor in
             let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-            let outcome = await syncManager.applyPlan(rows, actionName: plan.title, isHidden: { hidden.isHidden($0) },
-                                                      protected: protected)
+            let outcome = await syncManager.applyPlan(rows, names: plan.newNames, actionName: plan.title,
+                                                      isHidden: { hidden.isHidden($0) }, protected: protected)
             askClaudeChat.updatePlan(id) { $0.record(outcome) }
             if let applied = askClaudeChat.plan(id) { askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied)) }
             await askClaudeOfferCardRules(id, landed: outcome.landed)
@@ -674,10 +683,63 @@ extension ContentView {
                 made.forMoves = true
                 rows.insert(made, at: 0)
             }
+            // TE328: the name it takes in that folder, held as the filing card held it.
+            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind,
+               let index = rows.firstIndex(where: { $0.id == 0 }) {
+                let shown = card.folders.first { $0.path == folder }
+                (rows[index].newName, rows[index].nameBasis) = (shown?.newName, shown?.nameBasis)
+                (rows[index].nameKept, rows[index].nameFacts) = (card.nameKept, card.nameFacts)
+            }
             var plan = AskClaudePlan(title: "Move \(name)", subtitle: "", rows: rows)
+            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind { plan.names = card.names }
             plan.tickNeededFolders()
+            plan.noteLandingNames()
             askClaudeChat.replace(item, with: .plan(plan))
+        case .shareNames(let item):
+            askClaudeShareFilingNames(item)
         }
+    }
+
+    // MARK: Names from inside (TE328)
+
+    /// The name a file whose first page gave `facts` takes in `folder`, in that folder's style.
+    func askClaudeName(_ facts: ContentName.Facts, ext: String, into folder: String) -> ContentName.Proposal? {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        return syncManager.contentName(facts, ext: ext, into: folder, isHidden: { hidden.isHidden($0) })
+    }
+
+    /// A card's made names, made again for the folders its rows now go to.
+    private func askClaudeRenameForFolders(_ id: UUID) {
+        askClaudeChat.updatePlan(id) { plan in
+            plan.renameForFolders { facts, from, to in askClaudeName(facts, ext: (from as NSString).pathExtension, into: to) }
+        }
+    }
+
+    /// Share Names and Folders on a plan card (decision IW): Claude gets each new name and its
+    /// folder with the next question, and nothing else.
+    private func askClaudeSharePlanNames(_ id: UUID) {
+        guard let plan = askClaudeChat.plan(id), plan.names?.shared == false, !plan.namedRows.isEmpty else { return }
+        let lines = plan.namedRows.compactMap { row -> String? in
+            guard case .move(let from, _) = row.change, let newName = row.newName else { return nil }
+            return "“\(row.name)” \(AskClaudeChat.fileMark(from)) → \(newName), into \(row.folderLabel ?? "its folder")"
+        }
+        askClaudeChat.tellClaude("They shared the new names and folders from your card “\(plan.title)”, made on their Mac from what each file says: "
+            + lines.joined(separator: "; ") + ". No other content was shared.")
+        askClaudeChat.updatePlan(id) { $0.names?.shared = true }
+        Logger.shared.info("Ask Claude: shared \(lines.count) new name\(lines.count == 1 ? "" : "s") from a card")
+    }
+
+    /// Share Names and Folders on filing help's card.
+    private func askClaudeShareFilingNames(_ item: UUID) {
+        guard case .filing(var card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind,
+              card.names?.shared == false else { return }
+        let names = card.folders.compactMap { folder in folder.newName.map { "\($0) in \(folder.label)" } }
+        guard !names.isEmpty else { return }
+        askClaudeChat.tellClaude("They shared the names Apple Intelligence made on their Mac for “\(card.fileName)” \(AskClaudeChat.fileMark(card.filePath)) from what it says: "
+            + names.joined(separator: "; or ") + ". No other content was shared.")
+        card.names?.shared = true
+        askClaudeChat.replace(item, with: .filing(card))
+        Logger.shared.info("Ask Claude: shared \(names.count) new name\(names.count == 1 ? "" : "s") from filing help")
     }
 
     /// Refine with Claude from filing help's card: Organize scans the file's folder, then a plan for
@@ -1198,6 +1260,9 @@ extension ContentView {
                 let page = fetches ? nil : await syncManager.filingHelpPage(path)
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
                 return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
+            },
+            nameFile: { path, folders in
+                await AskClaudeNaming.named(path, into: folders) { facts, ext, folder in askClaudeName(facts, ext: ext, into: folder) }
             },
             ruleFromCorrection: { path, folder, name, words, also, page in
                 syncManager.ruleFromCorrection(path, into: folder, name: name, phrases: words, also: also, pageSample: page)

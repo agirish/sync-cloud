@@ -119,6 +119,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Where a file belongs by the Filing profile, preferring a place they named, absolute;
         /// nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
+        /// TE328: a badly named file read on this Mac, named for each of these folders; nil when its
+        /// name is fine.
+        var nameFile: (_ path: String, _ folders: [String]) async -> AskClaudeNaming.Named? = { _, _ in nil }
         /// The rule a correction teaches, from page 1; nil when the folder isn't in a survey.
         var ruleFromCorrection: (_ path: String, _ folder: String, _ name: String, _ words: [String], _ also: [String],
                                  _ page: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? = { _, _, _, _, _, _ in nil }
@@ -1656,7 +1659,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let answer = await ctx.whereToFile(path, place) else {
             return AskClaudeToolOutcome(result: "Filing help can’t run right now.", isError: true, step: "Filing help couldn’t run")
         }
-        let card = Self.filingCard(answer, node: node, ctx: ctx, place: place)
+        var card = Self.filingCard(answer, node: node, ctx: ctx, place: place)
+        if card.kind == .suggestions, let named = await ctx.nameFile(path, card.folders.map(\.path)) {
+            card = Self.named(card, named, sharedBy: ctx.sharesFreely(path) ? Self.folderLabel(of: path, ctx) : nil)
+        }
         let step: String
         switch card.kind {
         case .suggestions: step = "Found where \(node.name) fits: \(card.folders.first?.label ?? "")"
@@ -1665,6 +1671,33 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .noMatch: step = "No folder fits \(node.name)"
         }
         return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, sharesFreely: ctx.sharesFreely(path)), step: step, filing: card)
+    }
+
+    /// A filing card with the names a file takes in each of its folders (TE328), held unless the
+    /// file's folder shares without asking (`sharedBy`).
+    static func named(_ card: AskClaudeFilingCard, _ named: AskClaudeNaming.Named, sharedBy: String?) -> AskClaudeFilingCard {
+        var folders = card.folders
+        for index in folders.indices {
+            let proposal = named.names[folders[index].path]
+            folders[index].newName = proposal?.name
+            folders[index].nameBasis = proposal?.basis.line
+        }
+        var out = AskClaudeFilingCard(fileName: card.fileName, filePath: card.filePath, kind: card.kind, folders: folders,
+                                      staleDays: card.staleDays, canRefine: card.canRefine, place: card.place,
+                                      namedSiblings: card.namedSiblings)
+        out.nameKept = named.outcome.keptReason
+        out.nameFacts = named.facts
+        if folders.contains(where: { $0.newName != nil }) || named.unavailable != nil {
+            out.names = AskClaudeHeldNames(shared: sharedBy != nil, sharedBy: sharedBy, unavailable: named.unavailable)
+        }
+        return out
+    }
+
+    /// The folder holding `path`, by its last name: "Downloads".
+    static func folderLabel(of path: String, _ ctx: Context) -> String {
+        let folder = (path as NSString).deletingLastPathComponent
+        return breadcrumb(folder, sources: ctx.sources, fallback: (folder as NSString).lastPathComponent)
+            .components(separatedBy: " › ").last ?? (folder as NSString).lastPathComponent
     }
 
     /// The card for an answer: each folder by source and path, as To File shows it.
@@ -2000,6 +2033,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let preferring: String? = place
         var rows: [AskClaudePlan.Row] = []
         var noHome = 0, atHome = 0
+        var namesOff: String?
         // TE327: new folders named like their siblings, by path, with what they are named like.
         var newHomes: [String: String] = [:]
         for file in page {
@@ -2044,6 +2078,13 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         note: best.outsidePlace ? "Outside \((place as NSString).lastPathComponent)" : nil,
                                         folderLabel: label, choices: choices)
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
+            // TE328: a badly named file is read on this Mac and named for its folder.
+            if let named = await ctx.nameFile(file.path, choices.map(\.path)) {
+                let proposal = named.names[best.folder]
+                (row.newName, row.nameBasis) = (proposal?.name, proposal?.basis.line)
+                (row.nameKept, row.nameFacts) = (named.outcome.keptReason, named.facts)
+                namesOff = namesOff ?? named.unavailable
+            }
             rows.append(row)
         }
         // Subfolders these files would leave empty, as one unticked Trash row.
@@ -2109,6 +2150,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                  leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "), more: more)
         plan.tickNeededFolders()
         plan.noteLandingNames()
+        if !plan.namedRows.isEmpty || namesOff != nil {
+            let shares = ctx.sharesFreely(folder.absolute)
+            plan.names = AskClaudeHeldNames(shared: shares, sharedBy: shares ? folder.label : nil, unavailable: namesOff)
+        }
         if end < total {
             // The same words they could type; Claude has the place and where to start from.
             plan.nextAsk = "Show me the next \(next) loose file\(next == 1 ? "" : "s")."

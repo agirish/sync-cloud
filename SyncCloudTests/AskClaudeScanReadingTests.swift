@@ -211,6 +211,17 @@ enum ScanFixture {
         #expect(read.recognized.isEmpty && read.blank.isEmpty && read.failed.isEmpty && read.ocrNote == nil)
     }
 
+    /// Naming a scan reads page 1 alone (TE328): the other pages aren't drawn or read.
+    @Test func firstPageOnlyReadsPageOneAlone() async throws {
+        let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0)") })
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let calls = Calls()
+        let read = try #require(await AskClaudeReading.read(url.path, extractWithin: ScanFixture.laneWait, firstPageOnly: true) { _ in
+            calls.next() == 1 ? "Ally Bank Form 1099-INT 2025" : "Another page"
+        })
+        #expect(calls.count == 1 && read.recognized == [0] && read.pages[0] == "Ally Bank Form 1099-INT 2025")
+    }
+
     /// A blank page and a failed reading are said as such, not as pages read by OCR.
     @Test func blankAndFailedPagesAreSaid() async throws {
         let url = try ScanFixture.pdf((1...3).map { .picture("Scanned page \($0)") })

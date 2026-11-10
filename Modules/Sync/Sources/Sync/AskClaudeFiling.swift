@@ -31,6 +31,9 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
         /// A folder not made yet, named like its siblings (TE327): Make and Move Here makes it.
         /// Optional so a chat saved before it reads.
         public let isNew: Bool?
+        /// The name the file takes here, made from inside it (TE328), and where its style came from.
+        public var newName: String?
+        public var nameBasis: String?
 
         public init(label: String, path: String, confidence: String, reason: String, fromFile: Bool, note: String? = nil,
                     isNew: Bool = false) {
@@ -72,6 +75,12 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
     /// The place they named, by source and folder ("Dropbox", "iCloud › Documents › Travel").
     public let place: String?
     public let namedSiblings: NamedSiblings?
+    /// Why the file keeps its own name though it wanted one (TE328): locked, a picture, …
+    public var nameKept: String?
+    /// What its first page said, for Move Here's card.
+    public var nameFacts: ContentName.Facts?
+    /// Whether Claude has the new names; nil when no folder gives one.
+    public var names: AskClaudeHeldNames?
 
     public init(fileName: String, filePath: String, kind: Kind, folders: [Folder] = [], staleDays: Int? = nil,
                 canRefine: Bool = false, place: String? = nil, namedSiblings: NamedSiblings? = nil) {
@@ -113,6 +122,7 @@ public enum AskClaudeFiling {
         case .noMatch:
             return "No folder in their folder survey fits \(name). Say so; don’t guess one."
         case .suggestions:
+            let namesGo = sharesFreely || card.names?.shared == true
             var lines = ["Where \(name) fits, by how they file (their folder survey, read on their Mac, free):"]
             for (i, folder) in card.folders.enumerated() {
                 let rank = i == 0 ? "best" : "runner-up"
@@ -124,7 +134,15 @@ public enum AskClaudeFiling {
                 }
                 let note = folder.note.map { " · \(AskClaudeScreenCard.escape($0)), where it plainly belongs" } ?? ""
                 let what = folder.isNew == true ? "a new folder, \(AskClaudeScreenCard.escape(folder.label)), not made yet" : AskClaudeScreenCard.escape(folder.label)
-                lines.append("\(rank): \(what) · \(folder.confidence) · \(AskClaudeScreenCard.escape(folder.reason))\(note)")
+                // TE328 (decision IW): a name made from inside the file goes only where the file shares.
+                let renamed = folder.newName.map { namesGo ? " · renamed there to \(AskClaudeScreenCard.escape($0))" : "" } ?? ""
+                lines.append("\(rank): \(what) · \(folder.confidence) · \(AskClaudeScreenCard.escape(folder.reason))\(note)\(renamed)")
+            }
+            if card.folders.contains(where: { $0.newName != nil }) && !namesGo {
+                lines.append("Apple Intelligence made a new name for it on their Mac from its first page, in each folder’s style. The name isn’t sent to you: it comes from what the file says. Don’t guess it. Their card has Share Names and Folders.")
+            }
+            if card.nameKept != nil {
+                lines.append("Its name says nothing about it, but it keeps it: Apple Intelligence couldn’t name it. The card says why.")
             }
             if let named = card.namedSiblings {
                 lines.append("The folders in \(AskClaudeScreenCard.escape(named.label)) are named \(named.names.map(AskClaudeScreenCard.escape).joined(separator: ", ")). If those are one kind of name (places, people, companies, cars) and the file plainly belongs to a new one of that kind, you may offer a new folder there named the same way, with the move, on one propose_changes card; say the closest folder above is the other choice. Otherwise don’t offer one.")

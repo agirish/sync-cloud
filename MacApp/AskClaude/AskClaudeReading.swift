@@ -168,7 +168,9 @@ enum AskClaudeReading {
     /// `extractWithin`, `ocrWithin` and `recognize` are for tests: a text layer's wait that a full
     /// test run's queue in the PDFKit lane can't run out, a time limit that can run out, and a
     /// reading that can be slow, fail (nil) or find nothing.
+    /// `firstPageOnly` OCRs page 1 alone, for naming a scan by it (TE328).
     nonisolated static func read(_ path: String, extractWithin layerLimit: Duration = extractTimeout, ocrWithin limit: Duration = ocrTimeout,
+                                 firstPageOnly: Bool = false,
                                  recognize: @escaping @Sendable (CGImage) -> String? = { PictureText.text(in: $0, reader: "Ask Claude") }) async -> Read? {
         guard isPaged(path) else { return await extract(path).map { Read(pages: $0, pageCount: $0.count) } }
         let url = URL(fileURLWithPath: path)
@@ -180,7 +182,7 @@ enum AskClaudeReading {
         var read = Read(pages: layer.pages, pageCount: layer.pageCount)
         // A locked PDF's pages draw blank, so OCR would only say it found nothing.
         if layer.locked { read.locked = true; return read }
-        let scanned = layer.pages.indices.filter { isNearEmpty(layer.pages[$0]) }
+        let scanned = layer.pages.indices.filter { (!firstPageOnly || $0 == 0) && isNearEmpty(layer.pages[$0]) }
         if !scanned.isEmpty {
             let reading = Array(scanned.prefix(maxOCRPages))
             let progress = OCRProgress()
