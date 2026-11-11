@@ -50,7 +50,7 @@ import Design
         // A NUL in the first kilobyte: nothing to show at all.
         let binary = folder.appendingPathComponent("blob.txt")
         try Data([0x00, 0x01, 0x02]).write(to: binary)
-        guard case .refused(let reason) = EditorFileStore.load(path: binary.path, into: document) else {
+        guard case .refused(let reason, .binary) = EditorFileStore.load(path: binary.path, into: document) else {
             Issue.record("a binary file did not come back refused")
             return
         }

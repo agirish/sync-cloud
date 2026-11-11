@@ -5,6 +5,7 @@ import PDFKit
 import PDFToolkitCore
 import SwiftUI
 import Sync
+import Events
 @testable import FileExplorer
 import FileExplorerTestSupport
 
@@ -83,7 +84,9 @@ enum PDFURLOpens {
 @Suite(.serialized) final class EditorPDFDocumentTests {
 
     let folder = NSTemporaryDirectory() + "editor-pdf-" + UUID().uuidString
-    var lines: [String] = []
+    /// What the model logged, with each line's level.
+    var logged: [EditorLogLine] = []
+    var lines: [String] { logged.map(\.text) }
     /// Never the shared domain — see `EditorWorkspaceView.readingSettings(from:)`.
     private let defaults = ScratchDefaults("EditorPDFDocumentTests")
 
@@ -119,7 +122,7 @@ enum PDFURLOpens {
     }
 
     private func open(_ pdf: EditorPDFDocument, _ file: String) async -> EditorPDFDocument.Phase? {
-        await loaded(pdf) { pdf.open(path: file, log: { [weak self] in self?.lines.append($0) }) }
+        await loaded(pdf) { pdf.open(path: file, log: { [weak self] in self?.logged.append($0) }) }
     }
 
     // MARK: Opening
@@ -137,7 +140,7 @@ enum PDFURLOpens {
         #expect(facts?.paperFact(page: 0) == "Letter, 8.5 × 11 in")
         #expect(facts?.hasText == true)
         #expect(facts?.fileSize != nil)
-        #expect(lines.last == "Editor opened \(file) (PDF, 3 pages)")
+        #expect(logged.last == .info("Editor opened \(file) (PDF, 3 pages)"))
     }
 
     /// A scan's pages are pictures: nothing to select, and the header's second row says so.
@@ -159,7 +162,8 @@ enum PDFURLOpens {
         #expect(await open(pdf, file) == .refused(EditorPDFDocument.unreadableReason))
         #expect(pdf.document == nil)
         #expect(pdf.refusal == EditorPDFDocument.unreadableReason)
-        #expect(lines.last == "Editor could not open \(file) — \(EditorPDFDocument.unreadableReason)")
+        // A PDF PDFKit couldn't open is a warning, not a limit the card explains.
+        #expect(logged.last == EditorLogLine(.warning, "Editor could not open \(file) — \(EditorPDFDocument.unreadableReason)"))
     }
 
     /// A cloud-only PDF is never parsed in place, since `PDFDocument(url:)` would download it on the
@@ -170,9 +174,11 @@ enum PDFURLOpens {
         let pdf = EditorPDFDocument(isCloudOnly: { _ in true })
         var phases: [EditorPDFDocument.Phase] = []
         pdf.onLoaded = { phases.append($0) }
-        pdf.open(path: file, log: { _ in })
+        pdf.open(path: file, log: { [weak self] in self?.logged.append($0) })
         // Synchronous: no lane round trip happened.
         #expect(phases == [.refused(EditorPDFDocument.notDownloadedReason)])
+        #expect(logged.last == .info("Editor could not open \(file) — \(EditorPDFDocument.notDownloadedReason)"),
+                "not downloaded is a state the card states, so INFO")
         #expect(pdf.document == nil)
         #expect(pdf.refusal == EditorPDFDocument.notDownloadedReason)
     }
@@ -188,9 +194,12 @@ enum PDFURLOpens {
         #expect(await open(pdf, file) == .locked)
         #expect(pdf.document == nil, "a locked document must not reach the page view")
         #expect(!pdf.canPrint)
+        // A password-protected PDF waits for its password: INFO, not a failure.
+        #expect(logged.last == .info("Editor opened \(file) (PDF, locked — waiting for its password)"))
 
         #expect(await pdf.unlock(password: "wrong") == false)
         #expect(pdf.phase == .locked)
+        #expect(logged.last == .info("Editor could not unlock \(file) — the password was not accepted"))
         #expect(await pdf.unlock(password: secret) == true)
         #expect(pdf.phase == .open)
         #expect(pdf.document != nil)
@@ -346,6 +355,8 @@ enum PDFURLOpens {
         let phase = await loaded(pdf) { try? FileManager.default.removeItem(atPath: file) }
         #expect(phase == .refused(EditorPDFDocument.goneReason))
         #expect(pdf.document == nil)
+        #expect(logged.last == .info("Editor could not open \(file) — \(EditorPDFDocument.goneReason)"),
+                "a file gone from disk is a state the card states, so INFO")
     }
 
     // MARK: The lane

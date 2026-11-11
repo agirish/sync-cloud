@@ -700,7 +700,7 @@ import EventsTestSupport
         #expect(await log.holds(.info, containing: "\(rig.path) agrees with the document again"),
                 "the banner went with nothing in the log")
 
-        #expect(rig.watch.reloadQuietly(rig.path, opened: .refused(reason: EditorFileStore.keptChangingReason)) == .nothing)
+        #expect(rig.watch.reloadQuietly(rig.path, opened: .refused(reason: EditorFileStore.keptChangingReason, kind: .keptChanging)) == .nothing)
         #expect(await log.holds(.info, containing: "\(rig.path) kept changing while it was read"))
     }
 

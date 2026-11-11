@@ -41,7 +41,7 @@ enum EditorOpenRoute {
     /// path (⌘S, autosave, the settle, the quit flush) has nothing to write.
     @discardableResult
     static func load(path: String, document: EditorDocument, undoStore: EditorUndoStore,
-                     pdf: EditorPDFDocument, log: @escaping (String) -> Void) -> Kind {
+                     pdf: EditorPDFDocument, log: @escaping (EditorLogLine) -> Void) -> Kind {
         switch kind(of: path) {
         case .pdf:
             emptyText(document, undoStore: undoStore)
@@ -51,7 +51,7 @@ enum EditorOpenRoute {
             // Released before the text is read, so a long scan's pages are not held across it.
             if let open = pdf.path {
                 pdf.close()
-                log("Editor closed \(open) (PDF) to open \(path)")
+                log(.info("Editor closed \(open) (PDF) to open \(path)"))
             }
             EditorDocumentLoad.run(path: path, document: document, undoStore: undoStore, log: log)
             return .text

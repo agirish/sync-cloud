@@ -193,13 +193,14 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = try write(Data([0x00, 0x01, 0x02]), named: "blob.txt", in: folder)
 
-        guard case .refused(let reason) = EditorFileStore.open(path: path) else {
+        guard case .refused(let reason, let kind) = EditorFileStore.open(path: path) else {
             Issue.record("a NUL-bearing file was offered for editing")
             return
         }
         // Edit's own words, not Compare's "the preview shows it properly".
         #expect(reason == "This isn’t a text file, so Edit can’t open it.")
         #expect(reason != BoundedTextRead.Outcome.binary.caption, "Edit says Compare's sentence again")
+        #expect(kind == .binary && kind.logLevel == .info, "a binary file is a limit the card states")
     }
 
     /// A file past the read cap is refused in Edit's words (what it is, and what Edit opens), not
@@ -208,23 +209,25 @@ import Foundation
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = try write(Data(count: BoundedTextRead.maxBytes + 1), named: "huge.md", in: folder)
-        guard case .refused(let reason) = EditorFileStore.open(path: path) else {
+        guard case .refused(let reason, let kind) = EditorFileStore.open(path: path) else {
             Issue.record("a file past the cap was opened")
             return
         }
         #expect(reason == "Too large to open in Edit — 4.2 MB, and Edit opens text files up to 4.2 MB.")
         #expect(BoundedTextRead.Outcome.tooLarge(bytes: BoundedTextRead.maxBytes + 1).caption?
                     .hasPrefix("Too large to diff") == true, "Compare lost its own wording")
+        #expect(kind == .tooLarge && kind.logLevel == .info, "a file past the cap is a limit the card states")
     }
 
     @Test func aFileThatIsNotThereIsRefusedRatherThanOpenedEmpty() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = folder.appendingPathComponent("gone.md").path
-        guard case .refused = EditorFileStore.open(path: path) else {
+        guard case .refused(_, let kind) = EditorFileStore.open(path: path) else {
             Issue.record("a missing file opened as something")
             return
         }
+        #expect(kind == .unreadable && kind.logLevel == .warning, "a file that can't be read is logged as a warning")
     }
 
     // MARK: The stat guard

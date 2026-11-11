@@ -592,12 +592,12 @@ public final class EditorDiskWatch: ObservableObject {
         }
         // Another writer is part-way through its save. Look again once it has settled, rather than
         // put a refusal where the text was.
-        if opened == .refused(reason: EditorFileStore.keptChangingReason) {
+        if case .refused(_, .keptChanging) = opened {
             Logger.shared.info("[edit] \(path) kept changing while it was read — looking again once it settles")
             eventArrived()
             return .nothing
         }
-        if case .refused(let reason) = opened {
+        if case .refused(let reason, _) = opened {
             return keepTextOverUnreadable(document, path: path, reason: reason)
         }
         // Both stamps, so a reload that shouldn't have happened can be told apart afterwards.

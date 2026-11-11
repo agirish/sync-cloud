@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 import FileExplorer
 @testable import SyncCloud
 
@@ -36,7 +37,7 @@ import FileExplorer
 
     @discardableResult
     private func load(_ path: String, _ document: EditorDocument, _ store: EditorUndoStore,
-                      log: ((String) -> Void)? = nil) -> EditorFileStore.OpenResult {
+                      log: ((EditorLogLine) -> Void)? = nil) -> EditorFileStore.OpenResult {
         EditorDocumentLoad.run(path: path, document: document, undoStore: store,
                                log: { log?($0) })
     }
@@ -186,14 +187,16 @@ import FileExplorer
         let a = try file("a.md", "alpha")
         let document = EditorDocument()
         let store = EditorUndoStore()
-        var lines: [String] = []
+        var logged: [EditorLogLine] = []
+        var lines: [String] { logged.map(\.text) }
 
-        load(a, document, store) { lines.append($0) }
-        #expect(lines == ["Editor opened \(a)"])
+        load(a, document, store) { logged.append($0) }
+        #expect(logged == [.info("Editor opened \(a)")])
 
         let missing = (folder as NSString).appendingPathComponent("not-here.md")
-        load(missing, document, store) { lines.append($0) }
+        load(missing, document, store) { logged.append($0) }
         #expect(lines.count == 2, "a refused load wrote no line: \(lines)")
+        #expect(logged.last?.level == .warning, "a file that couldn’t be read was not logged as a warning")
         #expect(lines.last?.hasPrefix("Editor could not open \(missing)") == true,
                 "a refusal was not logged as one: \(lines)")
         #expect(lines.last?.contains("opened") == false,
@@ -209,10 +212,12 @@ import FileExplorer
             .write(to: URL(fileURLWithPath: path))
         let document = EditorDocument()
         let store = EditorUndoStore()
-        var lines: [String] = []
+        var logged: [EditorLogLine] = []
+        var lines: [String] { logged.map(\.text) }
 
-        let result = load(path, document, store) { lines.append($0) }
+        let result = load(path, document, store) { logged.append($0) }
         if case .readOnly = result {
+            #expect(logged.last?.level == .info)
             #expect(lines.last?.hasPrefix("Editor opened \(path) read-only") == true,
                     "a read-only open was not logged as one: \(lines)")
         } else {

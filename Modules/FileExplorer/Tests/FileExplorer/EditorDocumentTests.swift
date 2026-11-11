@@ -61,7 +61,7 @@ import Foundation
 
     @Test func aRefusedFileShowsItsReasonAndOffersNothingToEdit() {
         let document = EditorDocument()
-        document.open(.refused(reason: "Couldn't be read."), at: "/tmp/blob.bin")
+        document.open(.refused(reason: "Couldn't be read.", kind: .unreadable), at: "/tmp/blob.bin")
         #expect(document.refusal == "Couldn't be read.")
         #expect(document.isReadOnly)
         #expect(document.text.isEmpty)

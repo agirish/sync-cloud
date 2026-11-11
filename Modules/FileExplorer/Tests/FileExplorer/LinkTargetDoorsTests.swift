@@ -60,7 +60,7 @@ import Sync
         let cloud = Self.only(file)
 
         #expect(BoundedTextRead.read(path: link, isCloudOnly: cloud) == .cloudOnly)
-        let refused = EditorFileStore.Opened.refused(reason: EditorFileStore.refusal(for: .cloudOnly))
+        let refused = EditorFileStore.Opened.refused(reason: EditorFileStore.refusal(for: .cloudOnly), kind: .notDownloaded)
         #expect(EditorFileStore.open(path: file, isCloudOnly: cloud) == refused)
         #expect(EditorFileStore.open(path: link, isCloudOnly: cloud) == refused)
         guard case .editable = EditorFileStore.open(path: link, isCloudOnly: { _ in false }) else {
@@ -82,7 +82,7 @@ import Sync
         let tooLarge = BoundedTextRead.Outcome.tooLarge(bytes: BoundedTextRead.maxBytes + 1)
         #expect(BoundedTextRead.read(path: link, isCloudOnly: { _ in false }) == tooLarge)
         #expect(EditorFileStore.open(path: link, isCloudOnly: { _ in false })
-                == .refused(reason: EditorFileStore.refusal(for: tooLarge)))
+                == .refused(reason: EditorFileStore.refusal(for: tooLarge), kind: .tooLarge))
     }
 
     /// The Files tab draws a link to a cloud-only file dim, with Download, as it draws the file;

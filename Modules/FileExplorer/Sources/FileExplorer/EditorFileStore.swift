@@ -65,8 +65,41 @@ public enum EditorFileStore {
         /// taken before the read so a later change is noticed. Before, not after: a write landing
         /// mid-read then reads as a change and the read-only document reloads, the safe direction.
         case readOnly(text: String, reason: String, stamp: Stamp? = nil)
-        /// Nothing to show; `reason` is already reader-facing prose.
-        case refused(reason: String)
+        /// Nothing to show; `reason` is already reader-facing prose, and `kind` sets the level the
+        /// refusal is logged at.
+        case refused(reason: String, kind: RefusalKind)
+    }
+
+    /// Why a file was refused, for the level its log line takes (`docs/logging.md`): WARN when the
+    /// file couldn't be read as it should have been, INFO for a limit the card already explains.
+    public enum RefusalKind: Equatable, Sendable {
+        /// The read failed: permissions, a vanished file, an I/O error.
+        case unreadable
+        /// It wouldn't hold still across two reads.
+        case keptChanging
+        /// Not text: it has a NUL in it.
+        case binary
+        /// Past the read cap.
+        case tooLarge
+        /// A cloud placeholder, not downloaded.
+        case notDownloaded
+
+        init(_ outcome: BoundedTextRead.Outcome) {
+            switch outcome {
+            case .tooLarge: self = .tooLarge
+            case .binary: self = .binary
+            case .cloudOnly: self = .notDownloaded
+            case .text, .unreadable: self = .unreadable
+            }
+        }
+
+        /// WARN for a file that should have opened and didn't; INFO for a limit the card states.
+        public var logLevel: LogLevel {
+            switch self {
+            case .unreadable, .keptChanging: return .warning
+            case .binary, .tooLarge, .notDownloaded: return .info
+            }
+        }
     }
 
     /// Why a lossy decode opens read-only. `BoundedTextRead` decodes invalid UTF-8 with
@@ -100,14 +133,14 @@ public enum EditorFileStore {
                 guard let stamp = stamp(ofPath: path, fileManager: fileManager),
                       let before, before == stamp else {
                     if attempt == 0 { continue }
-                    return .refused(reason: keptChangingReason)
+                    return .refused(reason: keptChangingReason, kind: .keptChanging)
                 }
                 return .editable(text: text, stamp: stamp, encoding: encoding)
             case .tooLarge, .cloudOnly, .binary, .unreadable:
-                return .refused(reason: refusal(for: outcome))
+                return .refused(reason: refusal(for: outcome), kind: RefusalKind(outcome))
             }
         }
-        return .refused(reason: keptChangingReason)
+        return .refused(reason: keptChangingReason, kind: .keptChanging)
     }
 
     /// Edit's own words for a file it won't open. `BoundedTextRead`'s captions are written for
@@ -567,8 +600,8 @@ public enum EditorFileStore {
         case opened
         /// Shown, but not saveable; the reason is already reader-facing prose.
         case readOnly(String)
-        /// Nothing to show, same.
-        case refused(String)
+        /// Nothing to show, same, with why, for the log line's level.
+        case refused(String, RefusalKind)
     }
 
     /// Reads `path` and puts it in `document`.
@@ -583,7 +616,7 @@ public enum EditorFileStore {
         switch outcome {
         case .editable: return .opened
         case .readOnly(_, let reason, _): return .readOnly(reason)
-        case .refused(let reason): return .refused(reason)
+        case .refused(let reason, let kind): return .refused(reason, kind)
         }
     }
 

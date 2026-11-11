@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Combine
+import Events
 import Sync
 import FileExplorer
 @testable import SyncCloud
@@ -141,14 +142,16 @@ import FileExplorer
         let document = EditorDocument()
         let undoStore = EditorUndoStore()
         var log: [String] = []
+        var loadLevel: LogLevel?
         EditorHandOffRun.run(
             path, pane: .staysPut, syncManager: FileSyncManager.scratch(), paneRoot: dir.path,
             openDocument: nil, isRefused: false, paneFolder: { dir.path }, settle: { true },
             endNaming: {}, showEdit: {},
             // The real act `loadIntoEditor` performs, not a transcription of it.
             load: { EditorDocumentLoad.run(path: $0, document: document, undoStore: undoStore,
-                                           log: { log.append($0) }) },
+                                           log: { log.append($0.text); loadLevel = $0.level }) },
             log: { log.append($0) })
+        #expect(loadLevel == .info, "a binary file is a limit the card states, not a warning")
         #expect(log.count == 2, "a .staysPut hand-off writes its decision and the load's line: \(log)")
         #expect(log.last?.hasPrefix("Editor could not open \(path)") == true, "the fixture was not refused: \(log)")
         #expect(!log.contains { $0.contains("opened") }, "a refused file was logged as opened: \(log)")

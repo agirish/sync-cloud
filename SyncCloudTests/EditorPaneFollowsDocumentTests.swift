@@ -270,7 +270,7 @@ import FileExplorer
         func load(_ p: String) {
             // The real act `loadIntoEditor` performs, not a transcription of it.
             EditorDocumentLoad.run(path: p, document: document, undoStore: undoStore,
-                                   log: { log.append($0) })
+                                   log: { log.append($0.text) })
         }
         // The hand-off.
         EditorHandOffRun.run(path, pane: .followsTheFile, syncManager: FileSyncManager.scratch(),

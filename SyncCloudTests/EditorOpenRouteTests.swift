@@ -52,7 +52,7 @@ import FileExplorer
     private func route(_ path: String, _ document: EditorDocument, _ store: EditorUndoStore,
                        _ pdf: EditorPDFDocument) -> EditorOpenRoute.Kind {
         EditorOpenRoute.load(path: path, document: document, undoStore: store, pdf: pdf,
-                             log: { [weak self] in self?.lines.append($0) })
+                             log: { [weak self] in self?.lines.append($0.text) })
     }
 
     /// Waits for the PDF model's load to come back from the lane, bounded in lane turns, not

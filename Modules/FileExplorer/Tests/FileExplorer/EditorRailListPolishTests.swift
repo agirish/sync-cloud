@@ -188,7 +188,7 @@ import FileExplorerTestSupport
     static func refusedDocument(_ reason: String) throws -> EditorDocument {
         let path = try TestTextFiles.write(named: "refused.md")
         let document = EditorDocument()
-        document.open(.refused(reason: reason), at: path)
+        document.open(.refused(reason: reason, kind: .unreadable), at: path)
         return document
     }
 }

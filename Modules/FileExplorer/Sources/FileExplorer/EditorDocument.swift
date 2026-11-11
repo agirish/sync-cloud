@@ -311,7 +311,7 @@ public final class EditorDocument: ObservableObject {
             self.encoding = nil
             self.readOnlyReason = reason
             self.refusal = nil
-        case .refused(let reason):
+        case .refused(let reason, _):
             // Both fields carry the reason. `refusal` is what the view switches on, so the reader
             // sees one caption, not a caption and a banner. `readOnlyReason` is set too because
             // `isReadOnly` derives from it and gates the save path: a refused document must not be

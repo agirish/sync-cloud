@@ -717,7 +717,7 @@ extension ContentView {
         // A PDF goes to its own model before any text read (`EditorOpenRoute`), which empties the
         // text document so no save path has anything to write while the PDF is on screen.
         let kind = EditorOpenRoute.load(path: path, document: editorDocument, undoStore: editorUndoStore,
-                                        pdf: editorPDF, log: { Logger.shared.info($0) })
+                                        pdf: editorPDF, log: { $0.write() })
         // Every way into Edit ends here, so this one call records them all: once the load has
         // opened the file, and never for one it refused.
         if recordsRecent {

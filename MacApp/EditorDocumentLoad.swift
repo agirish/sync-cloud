@@ -41,7 +41,7 @@ enum EditorDocumentLoad {
     @MainActor
     @discardableResult
     static func run(path: String, document: EditorDocument, undoStore: EditorUndoStore,
-                    log: (String) -> Void) -> EditorFileStore.OpenResult {
+                    log: (EditorLogLine) -> Void) -> EditorFileStore.OpenResult {
         // The outgoing document's autosave count, before it is replaced. Not for a reload of the
         // same file, which is still the document being typed in.
         if document.path != path, let tally = EditorAutosaveTally.closeOut(document.path) {
@@ -62,13 +62,14 @@ enum EditorDocumentLoad {
     }
 
     /// One line per load, whatever the read did, so a refusal is as visible in the log as a success.
+    /// A refusal takes its kind's level (`EditorFileStore.RefusalKind.logLevel`); the rest are INFO.
     /// Separate from ``run(path:document:undoStore:log:)`` so a test can check the wording without
     /// a load.
-    static func logLine(path: String, result: EditorFileStore.OpenResult) -> String {
+    static func logLine(path: String, result: EditorFileStore.OpenResult) -> EditorLogLine {
         switch result {
-        case .refused(let reason): return "Editor could not open \(path) — \(reason)"
-        case .readOnly(let reason): return "Editor opened \(path) read-only — \(reason)"
-        case .opened: return "Editor opened \(path)"
+        case .refused(let reason, let kind): return EditorLogLine(kind.logLevel, "Editor could not open \(path) — \(reason)")
+        case .readOnly(let reason): return .info("Editor opened \(path) read-only — \(reason)")
+        case .opened: return .info("Editor opened \(path)")
         }
     }
 }

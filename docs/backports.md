@@ -15264,3 +15264,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
   "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePlan.swift')"; done
 # measured 2026-11-09, against origin: 0 on every line
 ```
+
+## An editor open refusal logs at its kind's level — recorded, not owed
+
+2026-11-11, for v7.1 (logging plan C6, deferred part). On `main`, a file Edit won't open carries
+why (`EditorFileStore.RefusalKind`), and its "Editor could not open …" line takes a level from it:
+WARN for a file that couldn't be read or kept changing, and for a PDF that couldn't be read; INFO
+for a binary file, one past the read cap, one not downloaded, and a PDF gone from disk. A locked PDF
+is still INFO, waiting for its password. `v6.x` and `v5.x` log every refusal at INFO; `v4.x` and
+older have no such line.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git grep -c 'Editor could not open' origin/$l -- MacApp Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-11, against origin: v6.x 3, v5.x 1, the rest 0
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | Every editor open refusal at INFO | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No editor refusal line | CLOSED — does not apply |

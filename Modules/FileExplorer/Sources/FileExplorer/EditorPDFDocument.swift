@@ -93,7 +93,7 @@ public final class EditorPDFDocument: ObservableObject {
     private var watcher: EditorFileWatcher?
     private var pending: Task<Void, Never>?
     private var activation: NSObjectProtocol?
-    private var log: (String) -> Void = { _ in }
+    private var log: (EditorLogLine) -> Void = { _ in }
 
     /// How long the watch lets a burst of events settle before it looks: an atomic save empties the
     /// path for a moment.
@@ -120,7 +120,7 @@ public final class EditorPDFDocument: ObservableObject {
         self.view = view
         find = EditorPDFFind(view: view)
         fill = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
-        find.log = { [weak self] in self?.log($0) }
+        find.log = { [weak self] in self?.log(.info($0)) }
         fill.tools = tools
         tools.fill = fill
     }
@@ -144,7 +144,7 @@ public final class EditorPDFDocument: ObservableObject {
     /// A cloud-only file is refused without being parsed: `PDFDocument(url:)` on a dataless file
     /// downloads it synchronously on whatever thread asked, which here is the lane every duplicate
     /// scan waits on. The fetch-then-open path a file from Finder takes is the way in for those.
-    public func open(path: String, log: @escaping (String) -> Void) {
+    public func open(path: String, log: @escaping (EditorLogLine) -> Void) {
         close()
         self.log = log
         self.path = path
@@ -221,11 +221,11 @@ public final class EditorPDFDocument: ObservableObject {
         // The file changed under the attempt: what was tried was the old file, and a wrong answer
         // here would blame the password.
         guard generation == self.generation else {
-            log("Editor's unlock of \(path) was overtaken — the file changed on disk while it was tried")
+            log(.info("Editor's unlock of \(path) was overtaken — the file changed on disk while it was tried"))
             return .reloaded
         }
         guard let unlocked else {
-            log("Editor could not unlock \(path) — the password was not accepted")
+            log(.info("Editor could not unlock \(path) — the password was not accepted"))
             return .refused
         }
         let facts = unlocked.facts
@@ -245,7 +245,7 @@ public final class EditorPDFDocument: ObservableObject {
         fill.attach(path: path, boxes: facts.boxes, encryption: .lockedToOpen, allowsFilling: facts.allowsFilling,
                     comments: facts.comments)
         phase = .open
-        log("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))")
+        log(.info("Editor unlocked \(path) (PDF, \(Self.pages(facts.pageCount)))"))
         onLoaded?(.open)
         return .opened
     }
@@ -376,17 +376,23 @@ public final class EditorPDFDocument: ObservableObject {
 
     /// One line per load, in `EditorDocumentLoad.logLine`'s shape. Separate so the wording can be
     /// asserted without a lane.
+    ///
+    /// A PDF PDFKit couldn't open is WARN; every other line is INFO, a refusal included: not
+    /// downloaded, or gone from disk, is a state the card states, and a locked PDF waits for its
+    /// password rather than being refused.
     static func logLine(path: String, phase: Phase, pageCount: Int?, reloaded: Bool = false,
-                        page: Int = 0) -> String {
+                        page: Int = 0) -> EditorLogLine {
         switch phase {
-        case .loading: return "Editor is opening \(path) (PDF)"
-        case .locked: return "Editor opened \(path) (PDF, locked — waiting for its password)"
-        case .refused(let reason): return "Editor could not open \(path) — \(reason)"
+        case .loading: return .info("Editor is opening \(path) (PDF)")
+        case .locked: return .info("Editor opened \(path) (PDF, locked — waiting for its password)")
+        case .refused(let reason):
+            return EditorLogLine(reason == unreadableReason ? .warning : .info,
+                                 "Editor could not open \(path) — \(reason)")
         case .open:
             let pages = Self.pages(pageCount ?? 0)
-            return reloaded
+            return .info(reloaded
                 ? "Editor reloaded \(path) (PDF, \(pages)) — changed elsewhere; kept page \(page + 1)"
-                : "Editor opened \(path) (PDF, \(pages))"
+                : "Editor opened \(path) (PDF, \(pages))")
         }
     }
 
@@ -463,7 +469,7 @@ public final class EditorPDFDocument: ObservableObject {
             guard confirmingGone, foundGoneOnce else {
                 if !foundGoneOnce {
                     foundGoneOnce = true
-                    log("Editor found \(path) missing — looking once more before letting it go, in case a save is putting a new file in its place")
+                    log(.info("Editor found \(path) missing — looking once more before letting it go, in case a save is putting a new file in its place"))
                 }
                 eventArrived()
                 return
