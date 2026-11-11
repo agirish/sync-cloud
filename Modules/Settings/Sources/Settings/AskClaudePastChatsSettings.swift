@@ -53,7 +53,9 @@ struct AskClaudePastChatsSettings: View {
             let ask = confirm ?? { RemovalPrompt.shortenPastChats(count: $0, keep: choice.label.lowercased()).ask() }
             guard ask(expired) else { return }
         }
+        let old = defaults.string(forKey: AskClaudePastChatKeep.defaultsKey) ?? AskClaudePastChatKeep.standard.rawValue
         defaults.set(choice.rawValue, forKey: AskClaudePastChatKeep.defaultsKey)
+        SettingsWindowLog.log("intelligence.keepPastChats", from: .string(old), to: .string(choice.rawValue))
         if expired > 0 {
             files?.prune(keep: choice, now: now())
             NotificationCenter.default.post(name: AskClaudePastChatFiles.didChange, object: nil)

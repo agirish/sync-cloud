@@ -15323,3 +15323,23 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s grouped=%s firstOnly=%s undoC
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | A line per pane failure, the delete's first only; a line per undo item; one receipt line | RECORDED — not owed |
+
+## The Settings window logs each change it commits — main only
+
+2026-11-11, for v7.1. On `main`, a change committed in the Settings window writes one INFO line,
+`Settings: Theme: System → Dark (Settings window)` (`SettingsWindowLog`): the value only for a
+plain setting, the name alone for the API key, Hidden from Claude and Shared without asking. A
+change whose owner already logs it (sources, ignore patterns, people, the log level, Reset All)
+gets no second line. Every line has a Settings window and no such line; none has `SettingsWriter`,
+so none has a second route to tell apart:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s view=%s writer=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Settings/SettingsView.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'SettingsWriter.swift')"; done
+# measured 2026-11-11, against origin: view=1 writer=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | A Settings window change leaves no line unless its owner writes one | RECORDED — not owed |

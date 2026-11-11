@@ -302,6 +302,7 @@ struct CloudKeyRow: View {
         revealedKey = nil
         let after = Self.afterSave(typed: apiKeyField, status: status, stored: hasStoredKey,
                                    wasReplacing: isReplacingKey)
+        if after.failure == nil { SettingsWindowLog.log("intelligence.apiKey", isReplacingKey ? "replaced" : "saved") }
         apiKeyField = after.field
         isReplacingKey = after.isReplacing
         keyTestResult = after.failure.map { .invalid($0) }
@@ -328,6 +329,7 @@ struct CloudKeyRow: View {
         revealedKey = nil
         isReplacingKey = false
         hasStoredKey = refusal != nil
+        if refusal == nil { SettingsWindowLog.log("intelligence.apiKey", "removed") }
         // `.invalid` renders its message verbatim; `.failed` would prefix "Couldn't reach
         // Anthropic" and blame the network for a local refusal. As in `saveTypedKey`.
         keyTestResult = refusal.map { .invalid($0) }

@@ -24,7 +24,7 @@ public struct NotesForClaudeSection: View {
 
     public var body: some View {
         SettingsSection("Notes for Claude", caption: Self.caption) {
-            Toggle("Let Claude add to its notes", isOn: $claudeMayWrite)
+            Toggle("Let Claude add to its notes", isOn: $claudeMayWrite.loggingSettingsChange("intelligence.notesOn"))
                 .help("Off, Claude still reads your notes but can’t change them.")
             if let draft {
                 editor(draft)
@@ -130,7 +130,10 @@ public struct NotesForClaudeSection: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard Self.maySave(draftOver: base, now: store.read(), confirm: RemovalPrompt.saveOverChangedNotes().ask) else { return }
-                    if store.save(draft) { self.draft = nil }
+                    if store.save(draft) {
+                        self.draft = nil
+                        SettingsWindowLog.log("intelligence.notes", "edited by hand")
+                    }
                 }
                 .disabled(over)
                 .keyboardShortcut(.defaultAction)

@@ -924,8 +924,8 @@ struct GeneralSettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection("Startup") {
-                LaunchAtLoginRow(showsCaption: false)
-                Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
+                LaunchAtLoginRow(showsCaption: false, logsChanges: true)
+                Toggle("Reopen panes where I left off", isOn: $restoreLastFocus.loggingSettingsChange("general.reopenPanes"))
                     .help("Reopens each pane with the tabs and folders it had when you last quit. Off, every pane starts with one tab at its source’s opening folder.")
             }
 
@@ -934,7 +934,7 @@ struct GeneralSettingsTab: View {
                 caption: "For every copy, move and sync. Folder conflicts always ask; deleted items go to the Trash either way."
             ) {
                 SettingsRow("When a file already exists") {
-                    Picker("When a file already exists", selection: $settings.conflictPolicy) {
+                    Picker("When a file already exists", selection: $settings.conflictPolicy.loggingSettingsChange("sync.whenFileExists")) {
                         ForEach(ConflictPolicy.allCases) { policy in
                             Text(policy.displayName).tag(policy)
                         }
@@ -943,16 +943,16 @@ struct GeneralSettingsTab: View {
                     .fixedSize()
                     .help("What a copy, move, or sync does when a file of the same name is already there: ask, keep both, replace it (the old one goes to the Trash), or skip it. Folder conflicts always ask.")
                 }
-                Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
+                Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer.loggingSettingsChange("sync.confirmTransfer"))
                     .help("Shows what will be copied or moved, and where, before it starts. Off, copies and moves start at once.")
-                Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
+                Toggle("Confirm before deleting", isOn: $confirmBeforeDelete.loggingSettingsChange("sync.confirmDelete"))
                     .help("Asks before moving items to the Trash. They go to the Trash either way, and Undo brings them back.")
-                Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
+                Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit.loggingSettingsChange("general.warnBeforeQuit"))
                     .help("Asks before quitting while a copy, move, or delete is still running. Off, SyncCloud quits at once.")
             }
 
             SettingsSection("Notifications") {
-                NotifyInBackgroundRow(showsCaption: false)
+                NotifyInBackgroundRow(showsCaption: false, logsChanges: true)
                 OneWaySyncNotifyRow()
             }
         }
@@ -975,6 +975,8 @@ struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    /// Tint when the slider was grabbed, so its release logs one change, not every step.
+    @State private var tintAtGrab: Double?
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
@@ -983,7 +985,7 @@ struct AppearanceSettingsTab: View {
     var body: some View {
         SettingsPage {
             SettingsSection("Theme") {
-                Picker("Theme", selection: $appearanceModeRaw) {
+                Picker("Theme", selection: $appearanceModeRaw.loggingSettingsChange("appearance.theme")) {
                     ForEach(AppearanceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
                     }
@@ -995,10 +997,13 @@ struct AppearanceSettingsTab: View {
             }
 
             AccentColorSection(selectedHue: selectedHue,
-                               onSelect: { selectedHueRaw = $0.rawValue })
+                               onSelect: { hue in
+                                   SettingsWindowLog.log("appearance.accent", from: .string(selectedHueRaw), to: .string(hue.rawValue))
+                                   selectedHueRaw = hue.rawValue
+                               })
 
             SettingsSection("Glass effect") {
-                Picker("Glass effect", selection: $glassLevelRaw) {
+                Picker("Glass effect", selection: $glassLevelRaw.loggingSettingsChange("appearance.glass")) {
                     ForEach(GlassLevel.allCases) { level in
                         Text(level.displayName).tag(level.rawValue)
                     }
@@ -1032,6 +1037,13 @@ struct AppearanceSettingsTab: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .fixedSize()
+                    } onEditingChanged: { editing in
+                        if editing {
+                            tintAtGrab = surfaceTint
+                        } else if let grabbed = tintAtGrab {
+                            tintAtGrab = nil
+                            SettingsWindowLog.log("appearance.tint", from: .double(grabbed), to: .double(surfaceTint))
+                        }
                     }
                     .labelsHidden()
                     .accessibilityValue("\(Int(surfaceTint * 100)) percent")
@@ -1045,7 +1057,7 @@ struct AppearanceSettingsTab: View {
             }
 
             SettingsSection("Content surface") {
-                Picker("Content surface", selection: $surfaceStyleRaw) {
+                Picker("Content surface", selection: $surfaceStyleRaw.loggingSettingsChange("appearance.surface")) {
                     ForEach(SurfaceStyle.allCases) { style in
                         Text(style.displayName).tag(style.rawValue)
                     }
@@ -1159,6 +1171,8 @@ struct ReadabilitySettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     @AppStorage(FontSize.defaultsKey) private var fontSizePercent: Int = FontSize.medium.percent
+    /// Text size when the slider was grabbed, so its release logs one change, not every step.
+    @State private var sizeAtGrab: Int?
 
     /// The resolved text size. `FontSize.init(percent:)` clamps, so an out-of-range stored value
     /// is honoured rather than discarded.
@@ -1169,12 +1183,15 @@ struct ReadabilitySettingsTab: View {
 
     private var selectedHue: LiquidGlassHue { LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue }
 
+    /// A preset tile sets both; each logs its own change.
     private var sizeBinding: Binding<FontSize> {
         Binding(get: { fontSize }, set: { fontSizePercent = $0.percent })
+            .loggingSettingsChange("readability.textSize", as: { .int($0.percent) })
     }
 
     private var densityBinding: Binding<ListDensity> {
         Binding(get: { listDensity }, set: { listDensityRaw = $0.rawValue })
+            .loggingSettingsChange("readability.rowSpacing")
     }
 
     /// The value the slider is fed for a stored percentage, and the value a slider position
@@ -1260,7 +1277,14 @@ struct ReadabilitySettingsTab: View {
                                 ),
                                 in: Double(FontSize.minimumPercent)...Double(FontSize.maximumPercent),
                                 step: Double(FontSize.step)
-                            )
+                            ) { editing in
+                                if editing {
+                                    sizeAtGrab = fontSizePercent
+                                } else if let grabbed = sizeAtGrab {
+                                    sizeAtGrab = nil
+                                    SettingsWindowLog.log("readability.textSize", from: .int(grabbed), to: .int(fontSizePercent))
+                                }
+                            }
                             .labelsHidden()
                             .accessibilityValue("\(fontSize.percent) percent")
                             .help("Sets the size of text throughout SyncCloud, from \(FontSize.minimumPercent)% to \(FontSize.maximumPercent)%.")
@@ -1285,7 +1309,7 @@ struct ReadabilitySettingsTab: View {
                 // "Row spacing", not "List density": spacing is what the person changes, and it
                 // pairs with "Text size" above. The stored key is still `listDensity`.
                 LabeledContent("Row spacing") {
-                    Picker("Row spacing", selection: $listDensityRaw) {
+                    Picker("Row spacing", selection: $listDensityRaw.loggingSettingsChange("readability.rowSpacing")) {
                         ForEach(ListDensity.allCases) { density in
                             Text(density.displayName).tag(density.rawValue)
                         }
@@ -1405,7 +1429,7 @@ struct ProvidersSettingsTab: View {
     private var nameChecks: some View {
         SettingsSection(caption: "Folder sources accept any name; this says which provider’s rules to hold them to.") {
             SettingsRow("Check folder names against") {
-                Picker("Check folder names against", selection: $settings.folderNameRule) {
+                Picker("Check folder names against", selection: $settings.folderNameRule.loggingSettingsChange("sources.folderNameRule")) {
                     ForEach(FolderNameRuleOption.all) { option in
                         Text(option.label).tag(option.value)
                     }
@@ -2166,8 +2190,10 @@ struct BrowseSettingsTab: View {
                 }
                 // Written only after the answer, and only what changed: any write is a defaults
                 // change other windows react to.
+                let old = columnResizeModeRaw
                 columnResizeModeRaw = choice.mode
                 if choice.overrides != overrides { columnWidthOverrides = choice.overrides }
+                SettingsWindowLog.log("readability.columnWidths", from: .string(old), to: .string(choice.mode))
             })
     }
 
@@ -2190,10 +2216,10 @@ struct BrowseSettingsTab: View {
     // Titleless sections: each page is one group, and the strip already names it.
     private var panes: some View {
         SettingsSection(caption: "For every pane in every workspace, Compare’s Differences included.") {
-            Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
+            Toggle("Show hidden files by default", isOn: $showHiddenByDefault.loggingSettingsChange("general.showHiddenByDefault"))
                 .help("Starts each launch with hidden files shown in both panes. Showing or hiding them while you work lasts until you quit.")
             SettingsRow("Sort panes by") {
-                Picker("Sort panes by", selection: $settings.defaultSortOption) {
+                Picker("Sort panes by", selection: $settings.defaultSortOption.loggingSettingsChange("general.sortPanesBy")) {
                     ForEach(SortOption.allCases, id: \.self) { option in
                         Text(option.rawValue).tag(option)
                     }
@@ -2202,7 +2228,7 @@ struct BrowseSettingsTab: View {
                 .fixedSize()
                 .help("Sorts the files in both panes. Changing the sort from a pane’s menu changes this too.")
             }
-            Toggle(isOn: $settings.rescanWhenFilesChange) {
+            Toggle(isOn: $settings.rescanWhenFilesChange.loggingSettingsChange("sync.rescanOnChange")) {
                 Text("Rescan when files change")
             }
             .help("Rescans a pane by itself when something in its folder changes, so rows can move while you look at them. Off, the scan age says “changed since” and the list waits for Refresh.")
@@ -2239,7 +2265,7 @@ struct BrowseSettingsTab: View {
     private var window: some View {
         SettingsSection(caption: "View as and the status bar are Browse’s. The sidebar shows in every workspace but Edit.") {
             SettingsRow("View as") {
-                Picker("View as", selection: $browseViewModeRaw) {
+                Picker("View as", selection: $browseViewModeRaw.loggingSettingsChange(label: "View as", words: { PaneViewMode(rawValue: $0)?.displayName ?? $0 })) {
                     ForEach([PaneViewMode.columns, .tree]) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
                     }
@@ -2250,10 +2276,10 @@ struct BrowseSettingsTab: View {
                 .fixedSize()
                 .help("How Browse shows its pane: Columns opens a column per folder, Tree expands folders in place.")
             }
-            Toggle("Show sidebar", isOn: $sidebarVisible)
+            Toggle("Show sidebar", isOn: $sidebarVisible.loggingSettingsChange(label: "Show sidebar", words: \.onOff))
                 .help("The folder sidebar beside the panes, in every workspace but Edit, which keeps its own. View ▸ Sidebar changes it too.")
             SettingsRow("Sidebar recents") {
-                Picker("Sidebar recents", selection: $recentsModeRaw) {
+                Picker("Sidebar recents", selection: $recentsModeRaw.loggingSettingsChange(label: "Sidebar recents", words: { $0 })) {
                     ForEach(RecentsMode.allCases, id: \.rawValue) { mode in
                         Text(mode.rawValue).tag(mode.rawValue)
                     }
@@ -2262,9 +2288,9 @@ struct BrowseSettingsTab: View {
                 .fixedSize()
                 .help("What the sidebar’s Recents heading lists: the folders you were last in, the ones you return to on different days, or the ones you stay in most. Its icon cycles through them too.")
             }
-            Toggle("Show tab bar", isOn: $tabBarVisible)
+            Toggle("Show tab bar", isOn: $tabBarVisible.loggingSettingsChange(label: "Show tab bar", words: \.onOff))
                 .help("The tab bar above each pane. It shows anyway while a pane has a second tab. View ▸ Tab Bar changes it too.")
-            Toggle("Show status bar", isOn: $statusBarVisible)
+            Toggle("Show status bar", isOn: $statusBarVisible.loggingSettingsChange(label: "Show status bar", words: \.onOff))
                 .help("The line under Browse’s pane with its item count. View ▸ Status Bar changes it too.")
         }
     }
@@ -2308,7 +2334,7 @@ struct SyncSettingsTab: View {
             // Rows come from `SettingsPickerOptions`, which adds the stored value when it isn't
             // offered, so an off-list tolerance shows rather than leaving the picker blank.
             SettingsRow("Treat dates as equal within") {
-                Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
+                Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds.loggingSettingsChange("sync.dateTolerance")) {
                     ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
                         Text(option.label).tag(option.value)
                     }
@@ -2317,15 +2343,15 @@ struct SyncSettingsTab: View {
                 .fixedSize()
                 .help("Counts two modification dates as the same when they are this close, so a provider rounding dates on upload doesn’t show up as a difference.")
             }
-            Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
+            Toggle(isOn: $settings.autoVerifySameSizeDuringScan.loggingSettingsChange("sync.verifySameSize")) {
                 Text("Verify same-size files during scans")
             }
             .help("During each scan, checksums same-size files that differ only by date and hides the ones that are identical. Files over 100 MB are left for Verify All. Thorough, but slower on large folders.")
-            Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
+            Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly.loggingSettingsChange("sync.ignoreGoogleDriveNewer")) {
                 Text("Ignore “newer on Google Drive” when same size")
             }
             .help("When Google Drive is in the right pane, hides differences where only its copy is newer and the sizes match — Drive often rewrites file dates.")
-            Toggle("Group by folder", isOn: $groupByFolder)
+            Toggle("Group by folder", isOn: $groupByFolder.loggingSettingsChange("sync.groupByFolder"))
                 .help("Breaks the Differences list into a section per top-level folder. Off, it is one flat list, so a sort by size runs across the whole comparison. The list’s filter menu changes it too.")
         }
     }
@@ -2334,15 +2360,22 @@ struct SyncSettingsTab: View {
     private var ignored: some View {
         // No caption: "remove one" means nothing until there is one, so the list says it itself.
         SettingsSection("Ignored items") {
-            Toggle(isOn: $settings.rememberIgnoredItems) {
+            Toggle(isOn: $settings.rememberIgnoredItems.loggingSettingsChange("sync.rememberIgnored")) {
                 Text("Remember ignored items across rescans")
             }
             .help("Keeps an item you ignore from the Differences list hidden through rescans, folder changes, and relaunches, for each pair of sources. Off, an ignore lasts only until you move to another folder.")
             if let syncManager, let store = syncManager.ignoredItemsStore {
                 IgnoredItemsList(
                     store: store,
-                    onRemove: { syncManager.unignoreRootRelative($0) },
-                    onClear: { syncManager.clearAllIgnoredItems() }
+                    onRemove: {
+                        syncManager.unignoreRootRelative($0)
+                        SettingsWindowLog.log("sync.ignoredItems", "an item no longer ignored")
+                    },
+                    onClear: {
+                        let count = store.rootRelativePaths.count
+                        syncManager.clearAllIgnoredItems()
+                        SettingsWindowLog.log("sync.ignoredItems", "Clear All, \(count) no longer ignored")
+                    }
                 )
             }
         }
@@ -2484,7 +2517,7 @@ struct DuplicatesSettingsTab: View {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
                 // offered set still displays (and survives) instead of rendering as no selection.
                 SettingsRow("Ignore files smaller than") {
-                    Picker("Ignore files smaller than", selection: $duplicateMinFileSize) {
+                    Picker("Ignore files smaller than", selection: $duplicateMinFileSize.loggingSettingsChange("duplicates.minSize")) {
                         ForEach(SettingsPickerOptions.minFileSize(including: duplicateMinFileSize)) { option in
                             Text(option.label).tag(option.value)
                         }
@@ -2494,7 +2527,7 @@ struct DuplicatesSettingsTab: View {
                     .help("Leaves files below this size out of the results. They still count when whole folders are compared.")
                 }
                 SettingsRow("Folders overlap at") {
-                    Picker("Folders overlap at", selection: $duplicateOverlapThreshold) {
+                    Picker("Folders overlap at", selection: $duplicateOverlapThreshold.loggingSettingsChange("duplicates.overlap")) {
                         ForEach(SettingsPickerOptions.overlapThreshold(including: duplicateOverlapThreshold)) { option in
                             Text(option.label).tag(option.value)
                         }
@@ -2503,9 +2536,9 @@ struct DuplicatesSettingsTab: View {
                     .fixedSize()
                     .help("How much of their content two same-named folders must share to be grouped as overlapping. Below it, they’re treated as unrelated.")
                 }
-                Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $duplicateDetectVersions)
+                Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $duplicateDetectVersions.loggingSettingsChange("duplicates.detectVersions"))
                     .help("Groups files whose names differ only by a marker like “(1)”, “copy”, “-v2”, or “final”, even though their contents differ.")
-                Toggle("Read PDFs to find copies a byte hash misses", isOn: $duplicateDetectSameText)
+                Toggle("Read PDFs to find copies a byte hash misses", isOn: $duplicateDetectSameText.loggingSettingsChange("duplicates.readPDFs"))
                     .help("Reads the text of PDFs to find one document saved twice with different bytes. No OCR; the first scan of a large folder takes a few minutes longer.")
             }
 
@@ -2556,6 +2589,10 @@ struct FilingSettingsTab: View {
     /// See `SettingsView.onOpenRules`. nil hides the button.
     var onOpenRules: (() -> Void)? = nil
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
+    /// The inbox when its field took focus: the field writes every keystroke, so the change is
+    /// logged once, at Return or when focus leaves.
+    @State private var inboxAtFocus: String?
+    @FocusState private var inboxFocused: Bool
 
     var body: some View {
         SettingsPage {
@@ -2568,6 +2605,12 @@ struct FilingSettingsTab: View {
                     TextField("None", text: $filingInbox)
                         .frame(maxWidth: 180)
                         .multilineTextAlignment(.trailing)
+                        .focused($inboxFocused)
+                        .onSubmit(commitInbox)
+                        .onChange(of: inboxFocused) { _, focused in
+                            if focused { inboxAtFocus = filingInbox } else { commitInbox() }
+                        }
+                        .onDisappear(perform: commitInbox)
                 }
                 .help("The folder (relative to the provider root) where loose files pile up — e.g. “TODO”. Organize offers it on its overview as a one-click way to narrow to that folder. It does not open there on its own; leave this blank and the offer disappears.")
                 if let onOpenRules {
@@ -2583,6 +2626,13 @@ struct FilingSettingsTab: View {
                 FolderSurveysSection(syncManager: syncManager, sources: surveySources)
             }
         }
+    }
+
+    /// Logs the inbox's change since its field took focus, once.
+    private func commitInbox() {
+        guard let was = inboxAtFocus else { return }
+        inboxAtFocus = inboxFocused ? filingInbox : nil
+        SettingsWindowLog.log("organize.inbox", from: .string(was), to: .string(filingInbox))
     }
 }
 
@@ -2621,16 +2671,16 @@ struct EditSettingsTab: View {
     @ViewBuilder
     private var text: some View {
         SettingsSection("Text", content: {
-            Toggle("Wrap lines", isOn: $wraps)
+            Toggle("Wrap lines", isOn: $wraps.loggingSettingsChange(label: "Wrap lines", words: \.onOff))
                 .help("Wraps lines at the column edge. Off, a long line runs on with a horizontal scroller, as a log or a CSV needs.")
-            Toggle("Readable line length", isOn: $readableLineLength)
+            Toggle("Readable line length", isOn: $readableLineLength.loggingSettingsChange(label: "Readable line length", words: \.onOff))
                 .disabled(!wraps)
                 .help("Keeps wrapped text to a readable column in a wide window, rather than edge to edge. It means nothing while Wrap lines is off.")
-            Toggle("Paper background", isOn: $drawsPage)
+            Toggle("Paper background", isOn: $drawsPage.loggingSettingsChange(label: "Paper background", words: \.onOff))
                 .help("Sets Source’s text on a page — white in Light Mode, dark gray in Dark Mode — rather than on the window’s glass.")
-            Toggle("Typewriter scrolling", isOn: $typewriterScrolling)
+            Toggle("Typewriter scrolling", isOn: $typewriterScrolling.loggingSettingsChange(label: "Typewriter scrolling", words: \.onOff))
                 .help("Holds the caret’s line at mid-height as you type and move with the keyboard. A click, a drag and the trackpad leave the text where it is.")
-            Toggle("Check spelling while typing", isOn: $checksSpelling)
+            Toggle("Check spelling while typing", isOn: $checksSpelling.loggingSettingsChange(label: "Check spelling while typing", words: \.onOff))
                 .help("Underlines misspelled words. It never changes your text: nothing in the editor corrects or replaces words for you.")
         }, caption: {
             // The rule, then its one exception.
@@ -2641,13 +2691,13 @@ struct EditSettingsTab: View {
         })
 
         SettingsSection("Markdown") {
-            Toggle("Format bar", isOn: $showsFormatBar)
+            Toggle("Format bar", isOn: $showsFormatBar.loggingSettingsChange(label: "Format bar", words: \.onOff))
                 .help("The bar of formatting buttons above a Markdown file’s text. View ▸ Format Bar changes it too.")
-            Toggle("Labels on the format bar", isOn: $formatBarShowsLabels)
+            Toggle("Labels on the format bar", isOn: $formatBarShowsLabels.loggingSettingsChange(label: "Labels on the format bar", words: \.onOff))
                 .help("Puts a word beside each icon where there is room. Right-clicking the bar changes it too: Icon and Text, or Icon Only.")
-            Toggle("Continue lists", isOn: $continuesLists)
+            Toggle("Continue lists", isOn: $continuesLists.loggingSettingsChange(label: "Continue lists", words: \.onOff))
                 .help("Return carries a list on, and Tab and ⇧Tab move an item in and out. ⌘Z takes a new marker back.")
-            Toggle("Edit in Preview (experimental)", isOn: $editsInPreview)
+            Toggle("Edit in Preview (experimental)", isOn: $editsInPreview.loggingSettingsChange(label: "Edit in Preview (experimental)", words: \.onOff))
                 .help("Lets you type in Preview, for small changes. Experimental, and for Markdown files only.")
         }
     }
@@ -2656,7 +2706,7 @@ struct EditSettingsTab: View {
     private var pdf: some View {
         SettingsSection("Reading") {
             SettingsRow("Page layout") {
-                Picker("Page layout", selection: $pdfLayoutRaw) {
+                Picker("Page layout", selection: $pdfLayoutRaw.loggingSettingsChange(label: "Page layout", words: { EditorPDFLayout(rawValue: $0)?.title ?? $0 })) {
                     ForEach(EditorPDFLayout.allCases, id: \.rawValue) { layout in
                         Text(layout.title).tag(layout.rawValue)
                     }
@@ -2665,7 +2715,7 @@ struct EditSettingsTab: View {
                 .fixedSize()
                 .help("How a PDF’s pages are laid out when it opens. The reader’s own layout menu changes it too.")
             }
-            Toggle("Cover page separately", isOn: $coverSeparately)
+            Toggle("Cover page separately", isOn: $coverSeparately.loggingSettingsChange(label: "Cover page separately", words: \.onOff))
                 .disabled(!(EditorPDFLayout(rawValue: pdfLayoutRaw) ?? EditorPDFSettings.layoutDefault).isTwoUp)
                 .help("In the two-page layouts, shows the first page on its own, so a book’s spreads pair as they do in print.")
         }
@@ -2729,12 +2779,12 @@ struct OrganizeSuggestionsPage: View {
                 "On-device",
                 caption: "Free, and runs on this Mac. Changes apply on the next scan."
             ) {
-                Toggle("Suggest folders with Apple Intelligence", isOn: $filingUseAI)
+                Toggle("Suggest folders with Apple Intelligence", isOn: $filingUseAI.loggingSettingsChange("intelligence.onDeviceAI"))
                     .help("Lets Organize ask the on-device model where files belong. Off, or where it isn’t available, Organize suggests from names and metadata alone. Nothing here opens a network connection. Refine and saved suggestions need it on.")
                 // `.firstTextBaseline`, so the glyph sits on the label's baseline rather than
                 // centring on the switch, which at Large text leaves it high.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Toggle("Read file contents on this Mac", isOn: $filingReadContents)
+                    Toggle("Read file contents on this Mac", isOn: $filingReadContents.loggingSettingsChange("intelligence.readContents"))
                         .help("Lets Organize read the text inside your files, on this Mac, for better folder suggestions. Refine sends an excerpt of each file too, when you click it.")
                     helpPointer
                 }
@@ -2758,7 +2808,7 @@ struct OrganizeSuggestionsPage: View {
                 "Saved suggestions",
                 caption: "With reuse on, an unchanged file keeps its suggestion, so Refine doesn’t pay for it twice."
             ) {
-                Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts)
+                Toggle("Reuse suggestions for files that haven’t changed", isOn: $filingReuseVerdicts.loggingSettingsChange("intelligence.reuseSuggestions"))
                     .disabled(!filingUseAI)
                     .help("Gives a file that hasn’t been edited, renamed, or moved the suggestion it got last time, instead of asking the model — or paying Claude — again.")
                 SettingsRow("Saved suggestions") {
@@ -2852,7 +2902,7 @@ struct IntelligenceSettingsTab: View {
             SettingsRow("Model") {
                 Picker("Model", selection: Binding(
                     get: { AskClaudeModels.option(for: askClaudeModel).id },
-                    set: { askClaudeModel = $0 })) {
+                    set: { askClaudeModel = $0 }).loggingSettingsChange("intelligence.askClaudeModel")) {
                     ForEach(AskClaudeModels.options) { option in
                         Text(option.label).tag(option.id)
                     }
@@ -2862,7 +2912,7 @@ struct IntelligenceSettingsTab: View {
                 .help("Sonnet 5.5 answers a typical question for about a cent. A change carries on in the open chat from its next question; the menu under Ask Claude’s text box changes it too.")
             }
             SettingsRow("Answers") {
-                Picker("Answers", selection: $askClaudeAnswers) {
+                Picker("Answers", selection: $askClaudeAnswers.loggingSettingsChange("intelligence.answers")) {
                     ForEach(AskClaudeDetail.allCases, id: \.rawValue) { detail in
                         Text(detail.label).tag(detail.rawValue)
                     }
@@ -2904,9 +2954,11 @@ struct IntelligenceSettingsTab: View {
                                     .help("This is hidden by its path. If it was renamed or moved, add it again under its new name.")
                             }
                             Button("Remove") {
-                                Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
+                                if Self.unhideIfConfirmed(folder, in: .standard, confirm: RemovalPrompt.showToClaude(
                                     named: (folder as NSString).lastPathComponent,
-                                    isFolder: Self.isFolderOrMissing(folder)).ask)
+                                    isFolder: Self.isFolderOrMissing(folder)).ask) {
+                                    SettingsWindowLog.log("intelligence.hidden", "removed")
+                                }
                                 askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
                             }
                             .controlSize(.small)
@@ -2923,6 +2975,7 @@ struct IntelligenceSettingsTab: View {
                         panel.prompt = "Hide from Claude"
                         if panel.runModal() == .OK {
                             for url in panel.urls { AskClaudePrivacy.hide(url.path, in: .standard) }
+                            SettingsWindowLog.log("intelligence.hidden", "added")
                             NotesForClaudeSection.offerToRemoveLines(naming: panel.urls.map(\.path))
                             askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
                         }
@@ -2944,6 +2997,7 @@ struct IntelligenceSettingsTab: View {
                                 .lineLimit(1).truncationMode(.middle)
                             Button("Remove") {
                                 AskClaudePrivacy.stopSharing(folder, in: .standard)
+                                SettingsWindowLog.log("intelligence.shared", "removed")
                                 askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
                             }
                             .controlSize(.small)
@@ -2959,9 +3013,10 @@ struct IntelligenceSettingsTab: View {
                         panel.allowsMultipleSelection = true
                         panel.prompt = "Share Without Asking"
                         if panel.runModal() == .OK {
-                            for url in panel.urls {
+                            let shared = panel.urls.filter { url in
                                 Self.shareIfConfirmed(url.path, in: .standard) { $0.ask() }
                             }
+                            if !shared.isEmpty { SettingsWindowLog.log("intelligence.shared", "added") }
                             askClaudeHidden = AskClaudePrivacy.hiddenFolders(in: .standard)
                             askClaudeShared = AskClaudePrivacy.sharedFolders(in: .standard)
                         }
@@ -3007,7 +3062,7 @@ struct IntelligenceSettingsTab: View {
             caption: "Estimated from list prices. Ask Claude, Refine, Try Another and Refine Names share it, and stop at it until the month turns."
         ) {
             SettingsRow("Monthly limit") {
-                Picker("Monthly limit", selection: $askClaudeLimitUSD) {
+                Picker("Monthly limit", selection: $askClaudeLimitUSD.loggingSettingsChange("intelligence.monthlyLimit")) {
                     ForEach(AskClaudeSpend.limitChoices, id: \.self) { value in
                         Text(value == 0 ? "No limit" : AskClaudeSpend.format(value)).tag(value)
                     }

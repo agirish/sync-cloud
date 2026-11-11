@@ -343,7 +343,8 @@ import Testing
             "SettingsRow": #"SettingsRow\( ?"([^"]+)""#,
             "SettingsSection": #"SettingsSection\( ?"([^"]+)""#,
             "Toggle(label:)": #"Toggle\( ?"([^"]+)""#,
-            "Toggle(isOn:){Text}": #"Toggle\(isOn: [^)]*\) \{ Text\("([^"]+)"\)"#,
+            // One level of parentheses inside the binding: `$x.loggingSettingsChange("id")`.
+            "Toggle(isOn:){Text}": #"Toggle\(isOn: (?:[^()]|\([^()]*\))*\) \{ Text\("([^"]+)"\)"#,
             // A control labelled this way ("Column widths") is invisible to the scan without it.
             "LabeledContent": #"LabeledContent\( ?"([^"]+)""#,
         ]

@@ -1,5 +1,6 @@
 import AppKit
 import Design
+import Events
 import PDFToolkitCore
 import SwiftUI
 
@@ -53,6 +54,8 @@ public struct EditorPDFSavedSignaturesList: View {
                                   confirm: (EditorPDFSignature, String) -> Bool) -> Bool {
         guard confirm(signature, signature.spokenName(among: store.saved)) else { return false }
         store.delete(signature.id)
+        // Settings' change line (C11), in its words; never the typed words, which may be a name.
+        Logger.shared.info("Settings: Saved signatures: a \(signature.kind == .signature ? "signature" : "set of initials") deleted (Settings window)")
         return true
     }
 

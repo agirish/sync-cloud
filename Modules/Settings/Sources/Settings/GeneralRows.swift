@@ -23,16 +23,22 @@ public struct LaunchAtLoginRow: View {
     /// Whether the plain explanation shows under the switch. Settings ▸ General drops it (TE332:
     /// the label says it); the approval hint shows either way, since it is what to do next.
     private let showsCaption: Bool
+    /// Whether a change writes Settings' change line: in the Settings window, not in setup.
+    private let logsChanges: Bool
 
-    public init(showsCaption: Bool = true) {
+    public init(showsCaption: Bool = true, logsChanges: Bool = false) {
         self.showsCaption = showsCaption
+        self.logsChanges = logsChanges
     }
 
     public var body: some View {
     SettingsSection {
         Toggle("Launch SyncCloud at login", isOn: Binding(
             get: { loginItem.isOn },
-            set: { loginItem.setFromUser($0) }))
+            set: { on in
+                if logsChanges { SettingsWindowLog.log("general.launchAtLogin", from: .bool(loginItem.isOn), to: .bool(on)) }
+                loginItem.setFromUser(on)
+            }))
             .help("Adds SyncCloud to your Mac’s Login Items, so it opens when you log in.")
     } caption: {
         if loginItem.needsApproval {
@@ -66,14 +72,18 @@ public struct NotifyInBackgroundRow: View {
     /// Whether the plain explanation shows under the switch — see `LaunchAtLoginRow.showsCaption`.
     /// The refused-permission hint shows either way.
     private let showsCaption: Bool
+    /// See `LaunchAtLoginRow.logsChanges`.
+    private let logsChanges: Bool
 
-    public init(showsCaption: Bool = true) {
+    public init(showsCaption: Bool = true, logsChanges: Bool = false) {
         self.showsCaption = showsCaption
+        self.logsChanges = logsChanges
     }
 
     public var body: some View {
     SettingsSection {
-        Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
+        Toggle("Notify when operations finish in the background",
+               isOn: logsChanges ? $notifyInBackground.loggingSettingsChange("general.notifyInBackground") : $notifyInBackground)
             .help("Posts a system notification when a copy, sync, or verify finishes while SyncCloud isn’t the active app. Turning it on asks macOS for permission.")
     } caption: {
         if notifyInBackground && notificationsDenied {
@@ -97,7 +107,7 @@ public struct OneWaySyncNotifyRow: View {
 
     public var body: some View {
     SettingsSection {
-        Toggle("Notify when One-Way Sync needs attention", isOn: $notifyOneWaySync)
+        Toggle("Notify when One-Way Sync needs attention", isOn: $notifyOneWaySync.loggingSettingsChange("general.notifyOneWaySync"))
             .help("Posts a notification when One-Way Sync needs you, whichever app is in front, and a reminder while it waits. Separate from the background switch. Turning it on asks macOS for permission.")
     } caption: {
         if notifyOneWaySync && notificationsDenied {

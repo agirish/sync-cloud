@@ -18,7 +18,7 @@ public struct AskClaudeSuggestionsSection: View {
 
     public var body: some View {
         SettingsSection("Suggestions", caption: Self.caption) {
-            Toggle("Show suggestions above the text box", isOn: $enabled)
+            Toggle("Show suggestions above the text box", isOn: $enabled.loggingSettingsChange("intelligence.suggestions"))
                 .help("Off, Ask Claude shows no suggestion chips.")
             let off = AskClaudeSuggestions.Kind.allCases.filter { memory.off.contains($0) }
             ForEach(off, id: \.self) { kind in
@@ -28,7 +28,10 @@ public struct AskClaudeSuggestionsSection: View {
                     Button("Suggest Again") {
                         var memory = memory
                         memory.off.remove(kind)
-                        if let data = try? JSONEncoder().encode(memory) { memoryData = data }
+                        if let data = try? JSONEncoder().encode(memory) {
+                            memoryData = data
+                            SettingsWindowLog.log("intelligence.suggestions", "\(kind.title) suggested again")
+                        }
                     }
                     .disabled(!enabled)
                 }

@@ -222,7 +222,7 @@ import Testing
         #expect(rows.contains("BackgroundNotificationPermission.request {"))
 
         // Group by folder: Settings and the table read one key.
-        #expect(settings.contains("Toggle(\"Group by folder\", isOn: $groupByFolder)"))
+        #expect(settings.contains("Toggle(\"Group by folder\", isOn: $groupByFolder.loggingSettingsChange(\"sync.groupByFolder\"))"))
         let differences = try source("FileExplorer/Sources/FileExplorer/DifferencesView.swift")
         #expect(differences.contains("@AppStorage(DifferencesSettings.groupByFolderKey)"))
         #expect(!differences.contains("\"differencesGroupByFolder\""), "the table spells the key itself again")

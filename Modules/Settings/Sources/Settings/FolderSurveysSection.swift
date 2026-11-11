@@ -47,7 +47,10 @@ struct FolderSurveysSection: View {
             presenting: forgetting
         ) { source in
             Button("Forget Survey", role: .destructive) {
+                // Refused while its documents are read, which the manager logs itself.
+                let refused = syncManager.isReadingDocuments(ofSource: source.root)
                 syncManager.forgetSourceSurvey(root: source.root)
+                if !refused { SettingsWindowLog.log("organize.surveyForget", source.name) }
                 generation += 1
             }
         } message: { _ in

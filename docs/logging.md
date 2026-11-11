@@ -68,6 +68,12 @@ Apply in this order; the first rule that applies wins.
   underlying error, never its whole userInfo; the app's own errors keep their reason.
 - **Ask Claude:** no words from the user's question, at any site (`AskClaudeToolOutcome.logStep`).
   Anthropic's error message is allowed, capped at 300 characters (`AskClaudeProblem.httpLogLine`).
+- **Settings changes:** one INFO line per change, whatever made it. In the Settings window,
+  `SettingsWindowLog` writes it where the control commits (a switch's set, a slider's release, a
+  field's Return): `Settings: Theme: System → Dark (Settings window)`, the value only for a
+  `.plain` catalog entry. Ask Claude's go through `SettingsWriter`, which names the cause. Where
+  the owner already writes the line (sources, ignore patterns, people, the log level, Reset All),
+  the window adds none. `SettingsWindowLogTests` fails for a new row that does neither.
 - **Banners state their log level** (`OperationBanner.LogLevel`). `.loggedAtSite` is only for a
   banner whose site logs its own WARN or ERROR beside it (`BannerLoggedAtSiteScanTests`);
   `.notMirrored` only for a per-item reporter under a cap, such as `UndoRunLog`'s.
