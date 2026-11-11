@@ -7,6 +7,7 @@ SLOT="$(cd "$(dirname "$0")" && pwd)/build-slot"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/build-slot-test.XXXXXX")
 export BUILD_SLOT_DIR="$WORK/slots"
 unset BUILD_SLOT_HELD BUILD_SLOT_TIMEOUT BUILD_SLOT_NICE BUILD_SLOTS
+export BUILD_SLOT_CFPREFSD_MS=0  # no cfprefsd probe, except where section 11 tests it
 failures=0
 
 check() {  # check <description> <command…>
@@ -804,6 +805,70 @@ print(out.decode().split("sigints=")[-1].strip())
 EOF
 )
 check "Ctrl-C in a terminal reaches the command exactly once (got $ctrl_c)" same "$ctrl_c" 1
+
+# 11. A test command first times one cfprefsd flush, and warns when it is slow. The probe runs
+#     against the real agent; a slow agent is faked, because a real one takes weeks to grow.
+cfprefsd=$(/usr/bin/python3 - "$SLOT" <<'EOF'
+import contextlib, importlib.machinery, io, os, sys, types
+def load(name):
+    module = types.ModuleType(name)
+    importlib.machinery.SourceFileLoader(name, sys.argv[1]).exec_module(module)
+    return module
+
+real, slot = load("real"), load("slot")  # slot's probe is replaced below; real's never is
+
+def said(took, bound=None):
+    if bound is None:
+        os.environ.pop("BUILD_SLOT_CFPREFSD_MS", None)
+    else:
+        os.environ["BUILD_SLOT_CFPREFSD_MS"] = bound
+    slot.flush_milliseconds = took if callable(took) else (lambda: took)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        slot.check_cfprefsd()
+    return err.getvalue()
+
+def probed():
+    raise AssertionError("probed")
+
+took = real.flush_milliseconds()
+print("probe", "number" if isinstance(took, float) and took >= 0 else repr(took))
+plist = os.path.expanduser("~/Library/Preferences/%s.plist" % real.CFPREFSD_PROBE)
+print("plist", "left" if os.path.exists(plist) else "gone")
+slow, pid = said(300.0), real.cfprefsd_agent_pid()
+print("slow", "warns" if "300 ms" in slow and "kill -TERM %d" % pid in slow
+      and "A cfprefsd agent that has cached every scratch suite" in slow else repr(slow))
+print("fast", "quiet" if said(10.0) == "" else "warns")
+print("bound", "warns" if said(10.0, "5") else "quiet")
+print("off", "skipped" if said(probed, "0") == "" else "probed")
+print("broken", "quiet" if said(None) == "" else "warns")
+for c in (["swift", "test"], ["arch", "-arm64", "swift", "test"], ["xcodebuild", "-scheme", "S", "test"],
+          ["xcodebuild", "test-without-building"], ["/x/scripts/test-shards", "Modules/Sync"]):
+    assert real.runs_tests(c), c
+for c in (["swift", "build"], ["xcodebuild", "build-for-testing"], ["sh", "-c", "swift test"]):
+    assert not real.runs_tests(c), c
+print("classify", "ok")
+EOF
+)
+for line in "probe number" "plist gone" "slow warns" "fast quiet" "bound warns" "off skipped" \
+            "broken quiet" "classify ok"; do
+  check "cfprefsd check: $line" grep -qx "$line" <<< "$cfprefsd"
+done
+mkdir -p "$WORK/bin7"
+printf '#!/bin/sh\nexit 7\n' > "$WORK/bin7/swift"
+chmod +x "$WORK/bin7/swift"
+BUILD_SLOT_CFPREFSD_MS=50 PATH="$WORK/bin7:$PATH" "$SLOT" swift test --filter X 2> /dev/null
+check "a test command's exit status survives the cfprefsd check" same "$?" 7
+tripped() {  # tripped <command…>: does build-slot warn about cfprefsd when any flush is too slow?
+  BUILD_SLOT_CFPREFSD_MS=0.000001 PATH="$WORK/bin7:$PATH" "$SLOT" "$@" 2>&1 >/dev/null |
+    grep -q 'cfprefsd took'
+}
+check "a test command warns about a slow cfprefsd" tripped swift test --filter X
+check "a build does not probe cfprefsd" eval '! tripped swift build'
+check "a nested test command does not probe again" eval '! BUILD_SLOT_HELD=1 tripped swift test'
+BUILD_SLOT_CFPREFSD_MS=fast "$SLOT" true 2> /dev/null; nan=$?
+BUILD_SLOT_CFPREFSD_MS=fast PATH="$WORK/bin7:$PATH" "$SLOT" swift test 2> /dev/null
+check "a bad \$BUILD_SLOT_CFPREFSD_MS stops a test command, exit 2" same "$?:$nan" 2:0
 
 kill "$watchdog" 2>/dev/null
 rm -rf "$WORK"

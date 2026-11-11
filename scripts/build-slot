@@ -51,6 +51,10 @@ share the slots by worktree as above. The slot count is read on every poll.
 Slot count: $BUILD_SLOTS, else the number in ~/Library/Caches/SyncCloud-build-slots/slots, else 3.
 $BUILD_SLOT_TIMEOUT: give up after this many seconds of waiting, exit 75 (default: wait forever,
     reporting the holders once a minute on stderr).
+$BUILD_SLOT_CFPREFSD_MS: before a test command (swift test, xcodebuild test…, test-shards), one
+    flush through the user's cfprefsd agent is timed, and taking this many ms or more prints a
+    warning: a month-old agent turns every local test run red (docs/flaky-tests.md). Default 50,
+    fractions allowed, 0 disables. The agent is never restarted for you.
 $BUILD_SLOT_NICE: nice increment for compile-only commands (default 10, 0 disables). Test runs
     are never deprioritised — several suites are timing-sensitive (docs/flaky-tests.md).
 
@@ -824,6 +828,119 @@ def compile_only(command):
     return False
 
 
+def runs_tests(command):
+    """True for a command that runs test suites: `swift test`, `xcodebuild test…`, test-shards."""
+    args = without_arch(command)
+    if not args:
+        return False
+    tool = os.path.basename(args[0])
+    if tool == "xcodebuild":
+        return bool({"test", "test-without-building"} & set(args[1:]))
+    if tool == "swift":
+        return len(args) > 1 and args[1] == "test"
+    return tool == "test-shards"
+
+
+CFPREFSD_PROBE = "com.abhishekgirish.SyncCloud.build-slot-probe"  # one name, so the probe never
+# adds a domain of its own to the agent it is timing
+
+
+def flush_milliseconds():
+    """The fastest of three flushes of one defaults domain through the user's cfprefsd agent.
+
+    The SPI `wipeDefaultsSuite` calls after every test's scratch suite. Its cost grows with every
+    domain the agent has cached; a fresh agent answers in about 1 ms, a month-old one in hundreds
+    (docs/flaky-tests.md, "A cfprefsd agent that has cached every scratch suite makes each defaults
+    wipe a quarter-second wait"). The fastest of three, so a load spike cannot fake a slow agent.
+    None when the SPI is gone or anything fails: the check must never stop a build.
+    """
+    try:
+        import ctypes
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        flush = cf._CFPreferencesFlushCachesForIdentifier
+        make = cf.CFStringCreateWithCString
+        make.restype = ctypes.c_void_p
+        make.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        number = cf.CFNumberCreate
+        number.restype = ctypes.c_void_p
+        number.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p]
+        cf.CFPreferencesSetAppValue.argtypes = [ctypes.c_void_p] * 3
+        cf.CFPreferencesAppSynchronize.argtypes = [ctypes.c_void_p]
+        flush.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        utf8 = 0x08000100
+        domain = make(None, CFPREFSD_PROBE.encode(), utf8)
+        key = make(None, b"probe", utf8)
+        user = ctypes.c_void_p.in_dll(cf, "kCFPreferencesCurrentUser")
+        one = ctypes.c_int32(1)
+        value = number(None, 3, ctypes.byref(one))  # kCFNumberSInt32Type
+        times = []
+        try:
+            for _ in range(3):
+                cf.CFPreferencesSetAppValue(key, value, domain)
+                cf.CFPreferencesAppSynchronize(domain)
+                began = time.perf_counter()
+                flush(domain, user)
+                times.append((time.perf_counter() - began) * 1000)
+        finally:
+            cf.CFPreferencesSetAppValue(key, None, domain)
+            cf.CFPreferencesAppSynchronize(domain)
+            flush(domain, user)
+            for ref in (domain, key, value):
+                cf.CFRelease(ref)
+            try:
+                os.remove(os.path.expanduser("~/Library/Preferences/%s.plist" % CFPREFSD_PROBE))
+            except OSError:
+                pass
+        return min(times)
+    except Exception:  # noqa: BLE001 — a probe that cannot run says nothing
+        return None
+
+
+def cfprefsd_agent_pid():
+    """The pid of this user's cfprefsd agent, or None."""
+    try:
+        listing = subprocess.run(["ps", "-axo", "pid=,uid=,command="], stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, errors="replace", timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in listing.splitlines():
+        fields = line.split(None, 2)
+        if (len(fields) == 3 and fields[0].isdigit() and fields[1] == str(os.getuid())
+                and fields[2].endswith("cfprefsd agent")):
+            return int(fields[0])
+    return None
+
+
+def check_cfprefsd():
+    """Warn before a test run when cfprefsd is slow enough to turn it red.
+
+    Never restarts the agent: it is the user's preferences daemon, so that call is theirs.
+    $BUILD_SLOT_CFPREFSD_MS sets the bound in milliseconds, fractions allowed (default 50; 0
+    disables the check).
+    """
+    text = os.environ.get("BUILD_SLOT_CFPREFSD_MS") or "50"
+    try:
+        bound = float(text)
+    except ValueError:
+        bound = -1.0
+    if not bound >= 0:  # also refuses nan
+        note("$BUILD_SLOT_CFPREFSD_MS must be a number of milliseconds, 0 or more, got %r" % text)
+        sys.exit(2)
+    if bound == 0:
+        return
+    took = flush_milliseconds()
+    if took is None or took < bound:
+        return
+    pid = cfprefsd_agent_pid()
+    restart = ("kill -TERM %d" % pid) if pid else "kill -TERM <your cfprefsd agent's pid>"
+    note("cfprefsd took %.0f ms to flush one defaults domain (a fresh agent: about 1 ms; this "
+         "warns at %g). Test runs here will go red at their waits, on any commit. Restart it, and "
+         "launchd starts a fresh one: %s. See docs/flaky-tests.md, \"A cfprefsd agent that has "
+         "cached every scratch suite makes each defaults wipe a quarter-second wait\"."
+         % (took, bound, restart))
+
+
 def tty_already_signalled():
     """True when SIGINT came from Ctrl-C, which the terminal sends to the command as well."""
     try:
@@ -1055,6 +1172,8 @@ def main(argv):
     nice = env_number("BUILD_SLOT_NICE", 10, 0) if compile_only(argv) else 0
     if os.environ.get("BUILD_SLOT_HELD"):
         return run(argv, os.environ, nice)
+    if runs_tests(argv):
+        check_cfprefsd()
     try:
         os.makedirs(SLOT_DIR, exist_ok=True)
         worktree = worktree_of(os.getcwd())

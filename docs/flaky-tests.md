@@ -5341,6 +5341,15 @@ defaults call. On 2026-11-09, at 18:06, the Sync session sent `SIGTERM` to it. T
 4.5 MB, and a flush took 1.1 ms. The next day, after 19 hours of test runs, it held 14–42 MB, and a
 flush took 3 ms. How fast it grows back toward the slow size is not known.
 
+**Warned before every test run, since 2026-11-11.** `scripts/build-slot` times one flush through
+the agent before it runs a test command (`swift test`, `xcodebuild test…`, `test-shards`), and at
+50 ms or more it says so on stderr, with the `kill -TERM` for your agent. It does not restart the
+agent itself, because that daemon serves every app on the Mac. `$BUILD_SLOT_CFPREFSD_MS` moves the
+bound, and 0 turns the check off. The probe reuses one domain name, so it adds nothing to the
+agent's cache. The slow case was not reproduced: caching 3,000 throwaway domains moved a fresh
+agent's flush from 0.17 ms to 0.36 ms, so whatever grew it to 346 MB took more than that. The
+probe makes the same call that took 220 ms on the slow agent.
+
 **Fix in the tests, 2026-11-10.** Both teardown tests have two-minute limits, like the Setup walk
 tests (mechanism 44). Even on green local runs they took 51–59 s, a few seconds from the old limit.
 On the next day's agent they took 24.6–26.5 s, in two full runs of 67 and 70 s with no restart.
