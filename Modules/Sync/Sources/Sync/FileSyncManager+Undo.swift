@@ -72,16 +72,16 @@ extension FileSyncManager {
         from backup: URL,
         actionName: String,
         error: Error,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         // Build the message off the main actor (it reads the non-Sendable `error`), then hop once to
         // log and raise the banner — `Logger.shared` and `banner` are both main-actor isolated.
         let logMessage = "Undo/Redo (\(actionName)): FAILED to restore \"\(name)\" at \(destination.path) from backup \(backup.path) — destination may now be empty (\(error.localizedDescription))"
-        await MainActor.run {
-            Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn’t restore the original of “\(name)” — it may have been removed from the Trash", log: .loggedAtSite)
-        }
+        await reportUndoItem(.error, logMessage, kind: "couldn’t be restored", item: destination,
+                             banner: "Undo couldn’t restore the original of “\(name)” — it may have been removed from the Trash",
+                             run: run, on: target)
     }
 
     /// Reports an undo or redo move that put the item back whole at `restored` but, moving across
@@ -92,15 +92,15 @@ extension FileSyncManager {
         leftover: URL,
         isRedo: Bool,
         actionName: String,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = restored.lastPathComponent
         let step = isRedo ? "Redo" : "Undo"
         let logMessage = "\(step) (\(actionName)): moved \"\(name)\" to \(restored.path) whole, but what it moved from at \(leftover.path) could not be fully removed — part of it is still there"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("\(step) moved “\(name)” \(isRedo ? "again" : "back"), but the copy where it was couldn’t be fully removed", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "moved whole, with part left where they were", item: restored,
+                             banner: "\(step) moved “\(name)” \(isRedo ? "again" : "back"), but the copy where it was couldn’t be fully removed",
+                             run: run, on: target)
     }
 
     /// Reports a failed redo (a copy, move or mkdir, usually because the source vanished) with an
@@ -110,16 +110,16 @@ extension FileSyncManager {
         of destination: URL,
         actionName: String,
         error: Error,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         // Build the message off the main actor (it reads the non-Sendable `error`), then hop once to
         // log and raise the banner — `Logger.shared` and `banner` are both main-actor isolated.
         let logMessage = "Undo/Redo (\(actionName)): FAILED to redo \"\(name)\" at \(destination.path) — item left out of the next undo state (\(error.localizedDescription))"
-        await MainActor.run {
-            Logger.shared.error(logMessage)
-            target.banner = .warning("Redo couldn’t re-apply “\(name)” — its source may no longer exist", log: .loggedAtSite)
-        }
+        await reportUndoItem(.error, logMessage, kind: "couldn’t be redone", item: destination,
+                             banner: "Redo couldn’t re-apply “\(name)” — its source may no longer exist",
+                             run: run, on: target)
     }
 
     /// Reports a copy-undo permanent delete that failed after the user confirmed it. The copy is
@@ -129,14 +129,13 @@ extension FileSyncManager {
         of destination: URL,
         actionName: String,
         error: Error,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the item remains on disk (\(error.localizedDescription))"
-        await MainActor.run {
-            Logger.shared.error(logMessage)
-            target.banner = .warning("Undo couldn’t remove “\(name)” — it is still on disk", log: .loggedAtSite)
-        }
+        await reportUndoItem(.error, logMessage, kind: "couldn’t be deleted permanently", item: destination,
+                             banner: "Undo couldn’t remove “\(name)” — it is still on disk", run: run, on: target)
     }
 
     /// What a refused undo was about to do, for `reportUndoRefusedChangedItem`: the two callers do
@@ -146,6 +145,15 @@ extension FileSyncManager {
         case removeTheCopyItProduced
         /// The move-undo: it would have moved the item back where it came from. Nothing is removed.
         case moveItBackToItsSource
+    }
+
+    /// A drift refusal's kind, for an undo run's closing line (`UndoRunLog`).
+    nonisolated static func undoRefusalKind(_ verdict: DriftVerdict) -> String {
+        switch verdict {
+        case .changed: "left in place, changed since"
+        case .indeterminate: "left in place, couldn’t be checked"
+        case .unchanged: "refused with an unchanged verdict, a programming error"
+        }
     }
 
     /// Reports an undo refused because the item it would remove or move is no longer the one it
@@ -158,6 +166,7 @@ extension FileSyncManager {
         actionName: String,
         verdict: DriftVerdict,
         intent: RefusedUndoIntent,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
@@ -186,10 +195,8 @@ extension FileSyncManager {
             logMessage = "Undo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
             bannerMessage = "Undo left “\(name)” in place"
         }
-        await MainActor.run {
-            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
-            target.banner = .warning(bannerMessage, log: .loggedAtSite)
-        }
+        await reportUndoItem(verdict == .unchanged ? .error : .warning, logMessage, kind: undoRefusalKind(verdict),
+                             item: destination, banner: bannerMessage, run: run, on: target)
     }
 
     /// Reports a move-undo refused because the identity recorded for the item is `.absent`:
@@ -199,14 +206,13 @@ extension FileSyncManager {
     nonisolated static func reportUndoRefusedUnrecordedItem(
         of destination: URL,
         actionName: String,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to move \"\(name)\" back to its original location — nothing was recorded at \(destination.path) when this undo was registered, so there is no item to move back; leaving the disk exactly as it is"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — there was nothing to move back", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "left in place, with nothing recorded to move back", item: destination,
+                             banner: "Undo left “\(name)” in place — there was nothing to move back", run: run, on: target)
     }
 
     /// Reports a redo refused because the item at the source is no longer the one its undo put
@@ -218,6 +224,7 @@ extension FileSyncManager {
         of source: URL,
         actionName: String,
         verdict: DriftVerdict,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = source.lastPathComponent
@@ -236,10 +243,8 @@ extension FileSyncManager {
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
             bannerMessage = "Redo left “\(name)” in place"
         }
-        await MainActor.run {
-            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
-            target.banner = .warning(bannerMessage, log: .loggedAtSite)
-        }
+        await reportUndoItem(verdict == .unchanged ? .error : .warning, logMessage, kind: undoRefusalKind(verdict),
+                             item: source, banner: bannerMessage, run: run, on: target)
     }
 
     /// Whether a redo may replace what is at its destination: only nothing (`.unchanged`) or the
@@ -268,6 +273,7 @@ extension FileSyncManager {
         of destination: URL,
         actionName: String,
         verdict: DriftVerdict,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
@@ -281,10 +287,10 @@ extension FileSyncManager {
             logMessage = "Redo (\(actionName)): REFUSED to re-apply \"\(name)\" — a different item is at \(destination.path) now, not the one the undo left there, and the redo would replace it; leaving both in place"
             bannerMessage = "Redo left “\(name)” alone — a different item is at its destination now"
         }
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning(bannerMessage, log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage,
+                             kind: verdict == .indeterminate ? "left alone, what is at the destination couldn’t be checked"
+                                : "left alone, a different item at the destination",
+                             item: destination, banner: bannerMessage, run: run, on: target)
     }
 
     /// Reports a merge-emptied source folder that the redo left in place because it is no longer
@@ -292,14 +298,13 @@ extension FileSyncManager {
     nonisolated static func reportRedoLeftMergeSourceFolder(
         _ folder: URL,
         actionName: String,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = folder.lastPathComponent
         let logMessage = "Redo (\(actionName)): left \"\(name)\" at \(folder.path) in place rather than move it to the Trash — the merge trashed it only once it was empty, and it still holds items this redo did not move"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("Redo left “\(name)” in place — it still holds items the redo didn’t move", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "left in place, holding items the redo didn’t move", item: folder,
+                             banner: "Redo left “\(name)” in place — it still holds items the redo didn’t move", run: run, on: target)
     }
 
     /// Reports a delete-redo refused because the item at the restored path is no longer the one its
@@ -310,6 +315,7 @@ extension FileSyncManager {
         at url: URL,
         actionName: String,
         verdict: DriftVerdict,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = url.lastPathComponent
@@ -328,10 +334,8 @@ extension FileSyncManager {
             logMessage = "Redo (\(actionName)): refusal reported for \"\(name)\" with an unchanged verdict — this is a programming error"
             bannerMessage = "Redo left “\(name)” in place"
         }
-        await MainActor.run {
-            if logMessage.hasSuffix("this is a programming error") { Logger.shared.error(logMessage) } else { Logger.shared.warning(logMessage) }
-            target.banner = .warning(bannerMessage, log: .loggedAtSite)
-        }
+        await reportUndoItem(verdict == .unchanged ? .error : .warning, logMessage, kind: undoRefusalKind(verdict),
+                             item: url, banner: bannerMessage, run: run, on: target)
     }
 
     /// Reports a copy-undo refused because the copy is locked in Finder by a lock it didn't carry
@@ -339,14 +343,14 @@ extension FileSyncManager {
     nonisolated static func reportUndoRefusedLockedItem(
         of destination: URL,
         actionName: String,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — it is locked, and the lock was not one the copy carried from its original, so this undo does not lift it; leaving it in place"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "left in place, locked", item: destination,
+                             banner: "Undo left “\(name)” in place — it’s locked. Unlock it in Get Info, then undo again",
+                             run: run, on: target)
     }
 
     /// Whether the copy at `destination` carries its `source`'s Finder lock, the only lock a
@@ -390,14 +394,13 @@ extension FileSyncManager {
         of destination: URL,
         actionName: String,
         error: Error,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): couldn't move \"\(name)\" at \(destination.path) to the Trash — transient failure, left in place for a retry instead of escalating to a permanent delete (\(error.localizedDescription))"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("Undo couldn’t remove “\(name)” — it looks busy; try again", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "left in place, busy", item: destination,
+                             banner: "Undo couldn’t remove “\(name)” — it looks busy; try again", run: run, on: target)
     }
 
     /// The byte size of the regular file at `url`, or nil for a folder or an unreadable or missing
@@ -540,6 +543,7 @@ extension FileSyncManager {
         restoring destination: URL,
         actionName: String,
         verdict: DriftVerdict,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
@@ -551,10 +555,10 @@ extension FileSyncManager {
         let bannerMessage = unreadable
             ? "Undo didn’t restore “\(name)” — the item in the Trash under that name couldn’t be read"
             : "Undo didn’t restore “\(name)” — the item in the Trash under that name isn’t the one SyncCloud put there"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning(bannerMessage, log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage,
+                             kind: unreadable ? "not restored, the item in the Trash couldn’t be read"
+                                : "not restored, a different item in the Trash",
+                             item: destination, banner: bannerMessage, run: run, on: target)
     }
 
     /// Reports a copy- or move-undo refused before its irreversible step because the backup it
@@ -564,14 +568,15 @@ extension FileSyncManager {
         at backup: URL,
         leaving destination: URL,
         actionName: String,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
         let logMessage = "Undo (\(actionName)): REFUSED to undo \"\(name)\" at \(destination.path) — the original it would restore from \(backup.path) could not be read, so it cannot be confirmed as the item this operation put in the Trash; leaving both as they are"
-        await MainActor.run {
-            Logger.shared.warning(logMessage)
-            target.banner = .warning("Undo left “\(name)” in place — the original in the Trash couldn’t be read", log: .loggedAtSite)
-        }
+        await reportUndoItem(.warning, logMessage, kind: "left in place, the original in the Trash couldn’t be read",
+                             item: destination,
+                             banner: "Undo left “\(name)” in place — the original in the Trash couldn’t be read",
+                             run: run, on: target)
     }
 
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
@@ -587,19 +592,20 @@ extension FileSyncManager {
         to destination: URL,
         actionName: String,
         fileManager fm: FileManaging,
+        run: UndoRunLog,
         on target: FileSyncManager
     ) async -> UndoRestoreOutcome {
         guard let overwritten else { return .nothingToRestore }
         guard verdict == .unchanged else {
             await reportUndoRefusedTrashStranger(at: overwritten, restoring: destination,
-                                                 actionName: actionName, verdict: verdict, on: target)
+                                                 actionName: actionName, verdict: verdict, run: run, on: target)
             return .failed
         }
         do {
             try fm.moveItem(at: overwritten, to: destination)
             return .restored
         } catch {
-            await reportUndoRestoreFailure(of: destination, from: overwritten, actionName: actionName, error: error, on: target)
+            await reportUndoRestoreFailure(of: destination, from: overwritten, actionName: actionName, error: error, run: run, on: target)
             return .failed
         }
     }
@@ -798,12 +804,14 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Undo", actionName)
             let redoParamResolver = AsyncValueResolver<[CopyRedoParam]>()
             target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                        defer { run.close(logger) }
                         let items = await stateResolver.get()
 
                         // Undoing a copy deletes it. Without a Trash that is permanent, so it needs
@@ -897,9 +905,11 @@ extension FileSyncManager {
                             if !FileSyncManager.entryExists(at: item.destination, fileManager: fm) {
                                 vanished += 1
                                 markHandled(item.destination)
-                                logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
+                                if run.admit(.info, kind: "no longer on disk", name: item.destination.path) {
+                                    logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
+                                }
                                 undoneCopies.append(undone(item))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: backupVerdict(item), to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: backupVerdict(item), to: item.destination, actionName: actionName, fileManager: fm, run: run, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -916,7 +926,7 @@ extension FileSyncManager {
                                 break
                             case .changed, .indeterminate:
                                 leftInPlace += 1
-                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, intent: .removeTheCopyItProduced, on: target)
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, verdict: verdict, intent: .removeTheCopyItProduced, run: run, on: target)
                                 continue
                             }
                             // A locked copy can't be trashed. A lock it carried from its source is
@@ -924,7 +934,7 @@ extension FileSyncManager {
                             // is the user's, and the undo refuses and says so.
                             if FileSyncManager.isLocked(item.destination, fileManager: fm), !item.copiedLock {
                                 leftInPlace += 1
-                                await FileSyncManager.reportUndoRefusedLockedItem(of: item.destination, actionName: actionName, on: target)
+                                await FileSyncManager.reportUndoRefusedLockedItem(of: item.destination, actionName: actionName, run: run, on: target)
                                 continue
                             }
                             // Check the backup before the copy goes. An unreadable one refuses the
@@ -935,7 +945,7 @@ extension FileSyncManager {
                             if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedUnreadableBackup(
-                                    at: overwritten, leaving: item.destination, actionName: actionName, on: target)
+                                    at: overwritten, leaving: item.destination, actionName: actionName, run: run, on: target)
                                 continue
                             }
                             let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
@@ -948,7 +958,7 @@ extension FileSyncManager {
                                 // prompt (as in deleteItems): a retry may trash it recoverably.
                                 if FileSyncManager.isTransientTrashFailure(error) {
                                     leftInPlace += 1
-                                    await FileSyncManager.reportUndoTransientTrashFailure(of: item.destination, actionName: actionName, error: error, on: target)
+                                    await FileSyncManager.reportUndoTransientTrashFailure(of: item.destination, actionName: actionName, error: error, run: run, on: target)
                                 } else {
                                     trashFailures.append(item)
                                 }
@@ -958,7 +968,7 @@ extension FileSyncManager {
                             markHandled(item.destination)
                             undoneCopies.append(undone(item))
 
-                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, run: run, on: target) {
                             case .restored: restored += 1
                             case .failed: restoreFailures += 1
                             case .nothingToRestore: break
@@ -997,7 +1007,7 @@ extension FileSyncManager {
                                 if let overwritten = item.overwritten, itemBackupVerdict == .indeterminate {
                                     leftInPlace += 1
                                     await FileSyncManager.reportUndoRefusedUnreadableBackup(
-                                        at: overwritten, leaving: item.destination, actionName: actionName, on: target)
+                                        at: overwritten, leaving: item.destination, actionName: actionName, run: run, on: target)
                                     continue
                                 }
                                 let liftedLock = FileSyncManager.liftCopiedLock(item, fileManager: fm)
@@ -1006,13 +1016,13 @@ extension FileSyncManager {
                                 } catch {
                                     FileSyncManager.relock(item.destination, liftedLock, fileManager: fm)
                                     // The copy survives, so its backup must not be restored over it.
-                                    await FileSyncManager.reportUndoRemoveFailure(of: item.destination, actionName: actionName, error: error, on: target)
+                                    await FileSyncManager.reportUndoRemoveFailure(of: item.destination, actionName: actionName, error: error, run: run, on: target)
                                     continue
                                 }
                                 removed += 1
                                 markHandled(item.destination)
                                 undoneCopies.append(undone(item))
-                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, verdict: itemBackupVerdict, to: item.destination, actionName: actionName, fileManager: fm, run: run, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
                                 case .nothingToRestore: break
@@ -1021,7 +1031,7 @@ extension FileSyncManager {
                         }
 
                         await redoParamResolver.resolve(redoParams())
-                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, \(duplicateRegistrations) duplicate registration(s) skipped, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
+                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, \(duplicateRegistrations) duplicate registration(s) skipped, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)" + run.summaryNote)
                 }
             }
         }
@@ -1033,12 +1043,14 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Redo", actionName)
             let nextUndoStateResolver = AsyncValueResolver<[CopyUndoItemState]>()
             target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                        defer { run.close(logger) }
                         let params = await paramResolver.get()
                         var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
@@ -1058,7 +1070,7 @@ extension FileSyncManager {
                             guard atDestination == .unchanged else {
                                 leftInPlace += 1
                                 await FileSyncManager.reportRedoRefusedOccupiedDestination(
-                                    of: param.destination, actionName: actionName, verdict: atDestination, on: target)
+                                    of: param.destination, actionName: actionName, verdict: atDestination, run: run, on: target)
                                 continue
                             }
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1080,13 +1092,13 @@ extension FileSyncManager {
                                 // Keep a failed re-copy out of the next undo state, or its undo would
                                 // prompt to delete a file that isn't on disk.
                                 redoFailures += 1
-                                await FileSyncManager.reportRedoFailure(of: param.destination, actionName: actionName, error: error, on: target)
+                                await FileSyncManager.reportRedoFailure(of: param.destination, actionName: actionName, error: error, run: run, on: target)
                             }
                         }
 
                         FileSyncManager.logIndeterminateRegistrations(unreadable, of: params.count, actionName: actionName)
                         await nextUndoStateResolver.resolve(nextState)
-                        logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (a different item at the destination)")
+                        logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (a different item at the destination)" + run.summaryNote)
                 }
             }
         }
@@ -1105,6 +1117,7 @@ extension FileSyncManager {
             guard !target.undoReplayBlockedByLanding(actionName) else { return }
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Undo", actionName)
             let redoParamResolver = AsyncValueResolver<[MoveRedoParam]>()
             target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
@@ -1114,6 +1127,7 @@ extension FileSyncManager {
                     // An original parked by this undo's cleanup is the item it moved back from, so
                     // the alert words it as an undo.
                     await ParkedSourceLeftovers.$undoing.withValue(true) {
+                        defer { run.close(logger) }
                         let items = await stateResolver.get()
 
                         // Redo params come only from items that actually moved back. A refused item
@@ -1141,7 +1155,7 @@ extension FileSyncManager {
                             if item.movedIdentity == .absent {
                                 nothingRecorded += 1
                                 await FileSyncManager.reportUndoRefusedUnrecordedItem(
-                                    of: item.to, actionName: actionName, on: target)
+                                    of: item.to, actionName: actionName, run: run, on: target)
                                 continue
                             }
                             // The moved item is gone: not drift, just nothing to move back. Still
@@ -1158,7 +1172,9 @@ extension FileSyncManager {
                             let parentExists = fm.fileExists(atPath: item.to.deletingLastPathComponent().path)
                             if parentExists, !FileSyncManager.entryExists(at: item.to, fileManager: fm) {
                                 vanished += 1
-                                logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
+                                if run.admit(.info, kind: "no longer on disk", name: item.to.path) {
+                                    logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
+                                }
                                 if let trashed = item.overwritten {
                                     // Only the item this move put in the Trash.
                                     let backupVerdict = FileSyncManager.trashBackupVerdict(
@@ -1167,14 +1183,14 @@ extension FileSyncManager {
                                         restoreFailures += 1
                                         await FileSyncManager.reportUndoRefusedTrashStranger(
                                             at: trashed, restoring: item.to, actionName: actionName,
-                                            verdict: backupVerdict, on: target)
+                                            verdict: backupVerdict, run: run, on: target)
                                         continue
                                     }
                                     do {
                                         try fm.moveItem(at: trashed, to: item.to)
                                     } catch {
                                         restoreFailures += 1
-                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, on: target)
+                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, run: run, on: target)
                                     }
                                 }
                                 continue
@@ -1201,15 +1217,15 @@ extension FileSyncManager {
                             } ?? .unchanged
                             if moveVerdict != .unchanged {
                                 leftInPlace += 1
-                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, on: target)
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.to, actionName: actionName, verdict: moveVerdict, intent: .moveItBackToItsSource, run: run, on: target)
                             } else if !sameItemAsMoved && FileSyncManager.entryExists(at: item.from, fileManager: fm) {
                                 // `entryExists`, not `fileExists`: a dangling link is an occupant.
                                 restoreFailures += 1
-                                await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                                await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, run: run, on: target)
                             } else if let trashed = item.overwritten, backupVerdict == .indeterminate {
                                 leftInPlace += 1
                                 await FileSyncManager.reportUndoRefusedUnreadableBackup(
-                                    at: trashed, leaving: item.to, actionName: actionName, on: target)
+                                    at: trashed, leaving: item.to, actionName: actionName, run: run, on: target)
                             } else {
                                 do {
                                     // Recreate the source's parent only here, once a move is
@@ -1227,10 +1243,10 @@ extension FileSyncManager {
                                     movedBack += 1
                                     await FileSyncManager.reportMovedWithLeftoverRemains(
                                         restored: item.from, leftover: item.to, isRedo: false,
-                                        actionName: actionName, on: target)
+                                        actionName: actionName, run: run, on: target)
                                 } catch {
                                     restoreFailures += 1
-                                    await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
+                                    await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, run: run, on: target)
                                 }
                             }
 
@@ -1245,13 +1261,13 @@ extension FileSyncManager {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRefusedTrashStranger(
                                         at: trashed, restoring: item.to, actionName: actionName,
-                                        verdict: backupVerdict, on: target)
+                                        verdict: backupVerdict, run: run, on: target)
                                 } else {
                                     do {
                                         try fm.moveItem(at: trashed, to: item.to)
                                     } catch {
                                         restoreFailures += 1
-                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, on: target)
+                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, run: run, on: target)
                                     }
                                 }
                             }
@@ -1271,7 +1287,8 @@ extension FileSyncManager {
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
                                     + (vanished > 0 ? ", \(vanished) no longer on disk" : "")
                                     // Separate from `leftInPlace`, whose parenthetical wouldn't fit it.
-                                    + (nothingRecorded > 0 ? ", \(nothingRecorded) with nothing recorded to move back" : ""))
+                                    + (nothingRecorded > 0 ? ", \(nothingRecorded) with nothing recorded to move back" : "")
+                                    + run.summaryNote)
                     }
                 }
             }
@@ -1284,12 +1301,14 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Redo", actionName)
             let nextUndoStateResolver = AsyncValueResolver<[MoveUndoItemState]>()
             target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                        defer { run.close(logger) }
                         let params = await paramResolver.get()
                         var nextState: [MoveUndoItemState] = []
                         var redoFailures = 0
@@ -1319,7 +1338,7 @@ extension FileSyncManager {
                             guard verdict == .unchanged else {
                                 leftInPlace += 1
                                 await FileSyncManager.reportRedoRefusedChangedItem(
-                                    of: param.from, actionName: actionName, verdict: verdict, on: target)
+                                    of: param.from, actionName: actionName, verdict: verdict, run: run, on: target)
                                 continue
                             }
                             replayable.append((param: param, recheckAtItsMove: false))
@@ -1345,7 +1364,7 @@ extension FileSyncManager {
                                     guard verdict == .unchanged else {
                                         leftInPlace += 1
                                         await FileSyncManager.reportRedoRefusedChangedItem(
-                                            of: param.from, actionName: actionName, verdict: verdict, on: target)
+                                            of: param.from, actionName: actionName, verdict: verdict, run: run, on: target)
                                         continue
                                     }
                                 }
@@ -1358,7 +1377,7 @@ extension FileSyncManager {
                                !FileSyncManager.mergeLeftNothing(in: param.from, fileManager: fm) {
                                 leftInPlace += 1
                                 await FileSyncManager.reportRedoLeftMergeSourceFolder(
-                                    param.from, actionName: actionName, on: target)
+                                    param.from, actionName: actionName, run: run, on: target)
                                 continue
                             }
                             // The destination must still hold what the undo left there:
@@ -1369,7 +1388,7 @@ extension FileSyncManager {
                             guard atDestination == .unchanged else {
                                 leftInPlace += 1
                                 await FileSyncManager.reportRedoRefusedOccupiedDestination(
-                                    of: param.to, actionName: actionName, verdict: atDestination, on: target)
+                                    of: param.to, actionName: actionName, verdict: atDestination, run: run, on: target)
                                 continue
                             }
                             // Create the destination's parent only if there is a source to move
@@ -1396,19 +1415,19 @@ extension FileSyncManager {
                                 // whose move back would meet them.
                                 await FileSyncManager.reportMovedWithLeftoverRemains(
                                     restored: param.to, leftover: param.from, isRedo: true,
-                                    actionName: actionName, on: target)
+                                    actionName: actionName, run: run, on: target)
                             } catch {
                                 // Keep a failed re-move out of the next undo state, or its undo would
                                 // restore from an empty destination.
                                 redoFailures += 1
-                                await FileSyncManager.reportRedoFailure(of: param.to, actionName: actionName, error: error, on: target)
+                                await FileSyncManager.reportRedoFailure(of: param.to, actionName: actionName, error: error, run: run, on: target)
                             }
                         }
 
                         // Handed back in undo order, the reverse of the replay: every move state in
                         // this chain is stored in the order its undo processes it.
                         await nextUndoStateResolver.resolve(Array(nextState.reversed()))
-                        logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (changed or unverifiable)")
+                        logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (changed or unverifiable)" + run.summaryNote)
                 }
             }
         }
@@ -1422,6 +1441,8 @@ extension FileSyncManager {
             guard !target.undoReplayBlockedByLanding("New Folder") else { return }
             Logger.shared.info("User triggered Undo: New Folder")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            // One item, so never past the cap; its reporters take a run all the same.
+            let run = UndoRunLog("Undo", "New Folder")
             target.registerCreateFolderRedo(url: url, fileManager: fm)
             let slot = target.claimFileOperationSlot()
             Task { await target.enqueueFileOperation(slot: slot) {
@@ -1467,7 +1488,7 @@ extension FileSyncManager {
                     // A transient failure stays retryable, as in deleteItems and the copy-undo: a
                     // permanent-delete prompt could destroy a folder a retry would trash recoverably.
                     if FileSyncManager.isTransientTrashFailure(error) {
-                        await FileSyncManager.reportUndoTransientTrashFailure(of: url, actionName: "New Folder", error: error, on: target)
+                        await FileSyncManager.reportUndoTransientTrashFailure(of: url, actionName: "New Folder", error: error, run: run, on: target)
                         return
                     }
                     // The folder was created empty, but the user may have filled it since —
@@ -1483,7 +1504,7 @@ extension FileSyncManager {
                             }
                         } catch {
                             await FileSyncManager.reportUndoRemoveFailure(
-                                of: url, actionName: "New Folder", error: error, on: target)
+                                of: url, actionName: "New Folder", error: error, run: run, on: target)
                         }
                     } else {
                         _ = await MainActor.run {
@@ -1500,6 +1521,7 @@ extension FileSyncManager {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: New Folder")
+            let run = UndoRunLog("Redo", "New Folder")
             target.registerCreateFolderUndo(url: url, fileManager: fm)
             let slot = target.claimFileOperationSlot()
             Task { await target.enqueueFileOperation(slot: slot) {
@@ -1508,7 +1530,7 @@ extension FileSyncManager {
                 } catch {
                     // The paired undo registered above skips when no directory exists at `url`,
                     // so a failed re-create stays a reported no-op instead of poisoning it.
-                    await FileSyncManager.reportRedoFailure(of: url, actionName: "New Folder", error: error, on: target)
+                    await FileSyncManager.reportRedoFailure(of: url, actionName: "New Folder", error: error, run: run, on: target)
                 }
             } }
         }
@@ -1525,12 +1547,14 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Redo", actionName)
             let nextResolver = AsyncValueResolver<[RestoreItemState]>()
             target.registerRestoreItems(stateResolver: nextResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                        defer { run.close(logger) }
                         let fmLocal = fm
                         let items = await itemsResolver.get()
                         var trashedItems: [RestoreItemState] = []
@@ -1546,7 +1570,7 @@ extension FileSyncManager {
                             guard verdict == .unchanged else {
                                 refused += 1
                                 await FileSyncManager.reportRedoRefusedTrashOfChangedItem(
-                                    at: url, actionName: actionName, verdict: verdict, on: target)
+                                    at: url, actionName: actionName, verdict: verdict, run: run, on: target)
                                 continue
                             }
                             var t: NSURL?
@@ -1559,14 +1583,17 @@ extension FileSyncManager {
                             } catch {
                                 // Was silent: the summary said "trashed 3 of 4" with no path or reason.
                                 notTrashed += 1
-                                logger.error("Redo (\(actionName)): FAILED to move \(url.path) to the Trash — "
-                                             + "\(FileSyncManager.trashFailureDiagnosis(error))")
+                                if run.admit(.error, kind: "couldn’t be moved to the Trash", name: url.path) {
+                                    logger.error("Redo (\(actionName)): FAILED to move \(url.path) to the Trash — "
+                                                 + "\(FileSyncManager.trashFailureDiagnosis(error))")
+                                }
                             }
                         }
                         await nextResolver.resolve(trashedItems)
                         logger.info("Redo (\(actionName)): trashed \(trashedItems.count) of \(items.count) item(s)"
                                     + (refused > 0 ? ", refused \(refused) that changed since the undo" : "")
-                                    + (notTrashed > 0 ? ", \(notTrashed) couldn't be trashed" : ""))
+                                    + (notTrashed > 0 ? ", \(notTrashed) couldn't be trashed" : "")
+                                    + run.summaryNote)
                 }
             }
         }
@@ -1581,12 +1608,14 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            let run = UndoRunLog("Undo", actionName)
             let redoItemResolver = AsyncValueResolver<[FileSyncManager.TrashRedoItemState]>()
             target.registerTrashItems(itemsResolver: redoItemResolver, actionName: actionName, fileManager: fm)
 
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
+                    defer { run.close(logger) }
                     let items = await stateResolver.get()
                     var restored = 0
                     var restoreFailures = 0
@@ -1601,14 +1630,14 @@ extension FileSyncManager {
                             // Refuse rather than trash it: the item stays in the Trash and out of the
                             // redo list.
                             restoreFailures += 1
-                            await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                            await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, run: run, on: target)
                         } else if backupVerdict != .unchanged {
                             // The item in the Trash isn't the one this delete put there. It stays
                             // there, and out of the redo list.
                             restoreFailures += 1
                             await FileSyncManager.reportUndoRefusedTrashStranger(
                                 at: item.trashedBackup, restoring: item.original, actionName: actionName,
-                                verdict: backupVerdict, on: target)
+                                verdict: backupVerdict, run: run, on: target)
                         } else {
                             do {
                                 _ = try FileSyncManager.safeMoveItem(at: item.trashedBackup, to: item.original, fileManager: fm)
@@ -1622,12 +1651,12 @@ extension FileSyncManager {
                                                       restoredIdentity: ItemIdentity.snapshot(at: item.original, fileManager: fm)))
                             } catch {
                                 restoreFailures += 1
-                                await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: error, on: target)
+                                await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: error, run: run, on: target)
                             }
                         }
                     }
                     await redoItemResolver.resolve(restoredItems)
-                    logger.info("Undo (\(actionName)): restored \(restored) of \(items.count) deleted item(s) from Trash, \(restoreFailures) restore failure(s)")
+                    logger.info("Undo (\(actionName)): restored \(restored) of \(items.count) deleted item(s) from Trash, \(restoreFailures) restore failure(s)" + run.summaryNote)
                 }
             }
         }

@@ -1160,10 +1160,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         // The test host is SyncCloud.app too: Launch Services can hand it a double-click made
         // during a test run, and nothing there would ever take the queue. Logged, not swallowed.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            Logger.shared.info(ExternalOpen.receiptLine(urls) + " — this is a test host, which opens nothing")
+            for line in ExternalOpen.receiptLines(urls, note: " — this is a test host, which opens nothing") {
+                Logger.shared.info(line)
+            }
             return
         }
-        Logger.shared.info(ExternalOpen.receiptLine(urls, atLaunch: !hasFinishedLaunching))
+        for line in ExternalOpen.receiptLines(urls, atLaunch: !hasFinishedLaunching) { Logger.shared.info(line) }
         externalOpens.receive(urls, atLaunch: !hasFinishedLaunching)
     }
 

@@ -150,8 +150,10 @@ extension FileSyncManager {
             Logger.shared.warning("Match dates: left \(diff.relativePath) alone — it changed since it was verified")
         }
         recordTransferFailures(outcome.failures)
-        for (diff, error) in outcome.failures {
-            Logger.shared.error("Match dates: could not set the date of \(diff.rightItemPath): \(error.localizedDescription)")
+        // Grouped by kind, every file named: a locked folder of 500 files is two lines, not 500.
+        for line in GroupedFailureLog.lines("Match dates",
+                                            outcome.failures.map { (name: $0.0.rightItemPath, error: $0.1) }) {
+            Logger.shared.error(line)
         }
         let leftOut = outcome.changed.count + outcome.failures.count + held.count
         if leftOut > 0 {
@@ -670,12 +672,13 @@ extension FileSyncManager {
                 Logger.shared.error(line)
             }
             let (firstDiff, firstError) = result.failures[0]
+            // The group lines name the alert's failure too, so its own line isn't written.
             present(.bulkFailed(
                 verb: "sync",
                 failureCount: result.failures.count,
                 firstPath: firstDiff.sourceItemPath,
                 firstReason: firstError.localizedDescription
-            ))
+            ), logged: false)
         }
         // Completion banner. A clean run offers Undo, which reverses the grouped "Sync run" step
         // in one go. On a partial run the failure alert already speaks, so stay quiet.

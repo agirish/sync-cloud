@@ -381,19 +381,21 @@ extension FileSyncManager {
             progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the copy")
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)], nodeStarts: [Int], redirectedIntoTrash: [URL: URL], landedIdentities: [URL: ItemIdentity]) in
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [ItemError], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)], nodeStarts: [Int], redirectedIntoTrash: [URL: URL], landedIdentities: [URL: ItemIdentity]) in
             guard self != nil else { return ([], [], [], 0, [], [], [], [:], [:]) }
             // One stat before any I/O: a missing destination root fails the whole operation rather
             // than being recreated by the per-item folder creation below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [], [], 0, [], [], [], [:], [:])
+                // No item failed: the whole run did, so the log names the root it couldn't find.
+                let root = destinationRootPath.isEmpty ? "(no destination folder)" : destinationRootPath
+                return ([ItemError(name: root, FileOperationError.destinationRootUnavailable)], [], [], 0, [], [], [], [:], [:])
             }
             // Publish progress only once this operation starts, or it would clobber the progress
             // of one still running ahead in the queue.
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
-            var taskErrors: [Error] = []
+            var taskErrors: [ItemError] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             // One identity walk per copied item (parallel to `targetItems`; empty for moves),
             // started the moment that copy lands. The loop can block on prompts (`resolveCollision`
@@ -522,7 +524,7 @@ extension FileSyncManager {
                     abandonedAtCancel = true
                     return false
                 } catch {
-                    taskErrors.append(error)
+                    taskErrors.append(ItemError(sourceURL, error))
                 }
                 return true
             }
@@ -541,7 +543,7 @@ extension FileSyncManager {
                 do {
                     children = try Self.mergeChildren(of: source, fileManager: fm)
                 } catch {
-                    taskErrors.append(error)
+                    taskErrors.append(ItemError(source, error))
                     return
                 }
                 for child in children {
@@ -623,7 +625,7 @@ extension FileSyncManager {
                 do {
                     targetURL = try deriveTargetURL(node)
                 } catch {
-                    taskErrors.append(error)
+                    taskErrors.append(ItemError(sourceURL, error))
                     await MainActor.run {
                         progress?.completedUnitCount = Int64(index + 1)
                     }
@@ -670,7 +672,7 @@ extension FileSyncManager {
                         // Merge only. Where it can't merge, it is refused without asking.
                         let mergeOnly = isLandingFolderRow(node)
                         if mergeOnly && !offersMerge {
-                            taskErrors.append(FileOperationError.landingFolderMergesOnly(name: node.name))
+                            taskErrors.append(ItemError(sourceURL, FileOperationError.landingFolderMergesOnly(name: node.name)))
                             await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
                             continue
                         }
@@ -685,7 +687,7 @@ extension FileSyncManager {
                         )
                         var resolution = await MainActor.run { resolveCollision(collision) }
                         if mergeOnly, resolution == .replace || resolution == .keepBoth {
-                            taskErrors.append(FileOperationError.landingFolderMergesOnly(name: node.name))
+                            taskErrors.append(ItemError(sourceURL, FileOperationError.landingFolderMergesOnly(name: node.name)))
                             resolution = .skip
                         }
                         switch resolution {
@@ -708,7 +710,7 @@ extension FileSyncManager {
                                     Logger.shared.info("Merged \"\(node.name)\" into \(targetURL.path)\(stopped ? " (stopped at Cancel)" : ""): \(summary)")
                                 }
                             } catch {
-                                taskErrors.append(error)
+                                taskErrors.append(ItemError(sourceURL, error))
                             }
                             if abandonedAtCancel { break items }
                             await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
@@ -819,14 +821,14 @@ extension FileSyncManager {
             transferredNodes = prunedNodes.filter { landedIDs.contains($0.id) && seen.insert($0.id).inserted }
         }
 
-        if let firstError = result.errors.first {
+        if let firstError = result.errors.first?.error {
             let reason = firstError.localizedDescription
-            // The errors carry no item, so the alert can't name one, but it still speaks for the
-            // whole run: the count in the message, the other reasons in the log.
+            // The alert speaks for the whole run: the count in its message, the first reason.
             let items = result.errors.count == 1 ? "the selected items" : "\(result.errors.count) items"
-            // `present` logs the first error; log the rest here so every failure is recorded once.
-            for error in result.errors.dropFirst() {
-                Logger.shared.error("\(isMove ? "Move" : "Copy") Failed: \(error.localizedDescription)")
+            // Every failure, grouped by kind and named, once: one ERROR line per kind, then every
+            // item in it. The alert's own line would repeat the first, so it isn't written.
+            for line in GroupedFailureLog.lines(isMove ? "Move" : "Copy", result.errors) {
+                Logger.shared.error(line)
             }
             let failure: SyncError = isMove
                 ? .moveFailed(items: items, reason: reason)
@@ -835,9 +837,9 @@ extension FileSyncManager {
             // behind" is presented as the operation ends, before this, and `present` replaces; the
             // failure would hide the news of a hidden full-size duplicate. So it mentions it.
             if let leftover = currentError, leftover.isParkedOriginalLeftover {
-                present(failure.mentioning(leftover))
+                present(failure.mentioning(leftover), logged: false)
             } else {
-                present(failure)
+                present(failure, logged: false)
             }
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
@@ -1343,13 +1345,13 @@ extension FileSyncManager {
             progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
         }
 
-        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [Error], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int, stoppedShort: Bool) in
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [ItemError], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int, stoppedShort: Bool) in
             guard self != nil else { return ([], [], 0, 0, false) }
             // Publish progress only once this operation starts (see transferItems above).
             if let progress {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
-            var taskErrors: [Error] = []
+            var taskErrors: [ItemError] = []
             var trashedItems: [(original: URL, trashed: URL?, reachedTrash: Bool)] = []
             var trashFailures: [URL] = []
             var refused = 0
@@ -1452,8 +1454,8 @@ extension FileSyncManager {
                                 case .parkedAndNotRestored(let parkedURL):
                                     // Nothing was deleted, but the item is no longer at its path,
                                     // so the ordinary "untouched" refusal below would be false.
-                                    taskErrors.append(SyncError.trashParkedAndNotRestored(
-                                        originalPath: path, parkedPath: parkedURL.path))
+                                    taskErrors.append(ItemError(url, SyncError.trashParkedAndNotRestored(
+                                        originalPath: path, parkedPath: parkedURL.path)))
                                     resolved = true
                                 case .untouched:
                                     break
@@ -1469,11 +1471,11 @@ extension FileSyncManager {
                             Logger.shared.warning(
                                 "Delete: the system refused to move \(path) to the Trash — "
                                 + "\(Self.trashFailureDiagnosis(error))")
-                            taskErrors.append(
+                            taskErrors.append(ItemError(url,
                                 Self.isPermissionRefusal(error)
                                     ? SyncError.trashNotPermitted(
                                         path: path, reason: error.localizedDescription)
-                                    : error)
+                                    : error))
                         } else if !resolved {
                             trashFailures.append(url)
                         }
@@ -1508,7 +1510,7 @@ extension FileSyncManager {
                             try fm.removeItem(at: url)
                             trashedItems.append((original: url, trashed: nil, reachedTrash: false))
                         } catch {
-                            taskErrors.append(error)
+                            taskErrors.append(ItemError(url, error))
                         }
                     }
                 } else {
@@ -1584,10 +1586,16 @@ extension FileSyncManager {
             Logger.shared.info("Delete: the caller's removal gate kept \(result.refused) of \(prunedPaths.count) selected item(s); \(items.count) removed")
         }
         // Any failure (a busy item, say), after the success banner, so a mixed batch reports both.
-        if let firstError = result.errors.first {
+        if let firstError = result.errors.first?.error {
+            // Every failure is logged, grouped by kind and named; the alert holds only the first,
+            // and its own line would repeat it.
+            Logger.shared.error("Delete: \(result.errors.count) of \(prunedPaths.count) item(s) couldn’t be moved to the Trash")
+            for line in GroupedFailureLog.lines("Delete", result.errors) {
+                Logger.shared.error(line)
+            }
             // A `SyncError` already carries its title, path and remedy; `.deleteFailed(reason:)`
             // would flatten them into the generic sentence.
-            present(firstError as? SyncError ?? .deleteFailed(reason: firstError.localizedDescription))
+            present(firstError as? SyncError ?? .deleteFailed(reason: firstError.localizedDescription), logged: false)
         } else if items.isEmpty, result.declined > 0 {
             // Before the "already gone" branch: these items are the opposite of gone.
             Logger.shared.info("Delete: kept \(result.declined) item(s) that could not be moved to the Trash — the permanent delete was declined")

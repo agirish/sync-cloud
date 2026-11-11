@@ -159,7 +159,13 @@ import EventsTestSupport
 
         #expect(manager.lastTransferFailures?.ids == Set(diffs.map(\.id)), "the failed rows were not marked")
         #expect(manager.banner?.message == "0 dates matched; 2 failed")
-        #expect(await loggerHasError(log, containing: "v1-locked.txt"))
-        #expect(await loggerHasError(log, containing: "v2-locked.txt"))
+        // One cause (the lock), so one group: a head line naming the first, and one line naming
+        // both, sorted, rather than a line per file.
+        let mine = await log.entries.filter { $0.level == .error && $0.message.contains(base.lastPathComponent) }
+            .map { $0.message.components(separatedBy: " | Location: ")[0] }
+        #expect(mine.count == 2, "\(mine)")
+        #expect(mine.contains { $0.hasPrefix("Match dates: 2 item(s) failed — ") && $0.contains("v1-locked.txt: ") }, "\(mine)")
+        #expect(mine.contains { $0.hasPrefix("Match dates: failed (")
+            && $0.hasSuffix("\(right.path)/v1-locked.txt, \(right.path)/v2-locked.txt") }, "\(mine)")
     }
 }

@@ -154,14 +154,17 @@ enum ExternalOpen {
         return groups
     }
 
-    /// One line on receipt, written by the delegate first, so the log shows an open arrived even
+    /// The lines on receipt, written by the delegate first, so the log shows an open arrived even
     /// when the window has to wait. Paths are spelled as ``plan(_:isFolder:)`` spells them, so one
-    /// search finds both lines.
-    static func receiptLine(_ urls: [URL], atLaunch: Bool = false, droppedOnEdit: Bool = false) -> String {
+    /// search finds both lines. Every path, sorted, split by ``LogNames`` (at most 200 or 16 KB a
+    /// line), so a drop of thousands is several readable lines and never loses a name. `note`
+    /// follows the count, before the paths.
+    static func receiptLines(_ urls: [URL], atLaunch: Bool = false, droppedOnEdit: Bool = false,
+                             note: String = "") -> [String] {
         let how = droppedOnEdit ? "Dropped \(urls.count) item(s) on Edit's empty page"
             : "Handed \(urls.count) item(s) from outside the app"
-        return "[open] \(how)\(atLaunch ? ", launching SyncCloud" : ""): "
-            + urls.map { $0.isFileURL ? $0.standardizedFileURL.path : $0.absoluteString }.joined(separator: ", ")
+        return LogNames.lines("[open] \(how)\(atLaunch ? ", launching SyncCloud" : "")\(note)",
+                              urls.map { $0.isFileURL ? $0.standardizedFileURL.path : $0.absoluteString })
     }
 
     /// One line per batch the window acts on, naming where each item went. Worded as a decision,

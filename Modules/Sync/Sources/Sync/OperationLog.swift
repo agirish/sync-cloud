@@ -145,17 +145,45 @@ extension LogError {
 /// reason and the first item's full description (a provider's own words can't be rebuilt from a
 /// code), then every name in the group (``LogNames``). Groups and names sorted, so runs compare.
 public enum GroupedFailureLog {
+    public static func lines(_ operation: String, _ failures: [ItemError]) -> [String] {
+        lines(operation, failures.map { (name: $0.name, error: $0.error) })
+    }
+
     public static func lines(_ operation: String, _ failures: [(name: String, error: Error)]) -> [String] {
         let groups = Dictionary(grouping: failures, by: { LogError.groupKey($0.error) })
         var out: [String] = []
         for key in groups.keys.sorted() {
-            let group = groups[key] ?? []
+            // Sorted by name, so the first item is the same whatever order the workers finished in.
+            let group = (groups[key] ?? []).sorted { $0.name < $1.name }
             guard let first = group.first else { continue }
             out.append("\(operation): \(group.count) item(s) failed — \(LogError.groupReason(first.error)) [\(key)]; "
-                       + "first: \(first.name): \(first.error.localizedDescription)")
+                       + "first: \(first.name): \(fullDescription(first.error))")
             out += LogNames.lines("\(operation): failed (\(LogError.groupReason(first.error)))", group.map(\.name))
         }
         return out
+    }
+
+    /// An error's own words: a `SyncError` isn't a `LocalizedError`, so its localized description
+    /// is the generic "couldn’t be completed", and its log description carries the reason.
+    static func fullDescription(_ error: Error) -> String {
+        (error as? SyncError)?.logDescription ?? error.localizedDescription
+    }
+}
+
+/// One item's failure in a batch: the error, and the item it happened to, so a grouped log line
+/// can name it. A failure of the whole batch (a destination root that's gone) is named by that root.
+public struct ItemError: Sendable {
+    public let name: String
+    public let error: Error
+
+    public init(_ url: URL, _ error: Error) {
+        self.name = url.path
+        self.error = error
+    }
+
+    public init(name: String, _ error: Error) {
+        self.name = name
+        self.error = error
     }
 }
 

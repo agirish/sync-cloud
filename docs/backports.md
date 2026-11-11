@@ -15302,3 +15302,24 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The scan's start and mode on two lines, no walked counts | RECORDED — not owed |
+
+## Pane copy, move and delete failures grouped; Undo capped; the open receipt split (logging C7) — recorded, not owed
+
+2026-11-11, for v7.1. On `main`: a pane copy, move or delete logs its failures as
+`GroupedFailureLog` lines (one ERROR line per kind, every item named, at most 200 a line), not a
+line per failure, and a delete logs every failure where it logged only the first, the one its
+alert showed. An undo or redo writes its first 20 items' lines and then one line per kind naming
+the rest (`UndoRunLog`). Finder's open receipt splits its paths by `LogNames`. Logging only:
+nothing the maintenance lines do to files changes, and they keep the older lines.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s grouped=%s firstOnly=%s undoCap=%s\n' $l \
+  "$(git grep -c 'enum GroupedFailureLog' origin/$l -- Modules | wc -l | tr -d ' ')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FileOperations.swift | grep -c 'if let firstError = result.errors.first')" \
+  "$(git grep -c 'class UndoRunLog' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-11, against origin: grouped=0 firstOnly=2 undoCap=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | A line per pane failure, the delete's first only; a line per undo item; one receipt line | RECORDED — not owed |

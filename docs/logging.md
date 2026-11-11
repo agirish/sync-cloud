@@ -59,12 +59,18 @@ Apply in this order; the first rule that applies wins.
 - **Never drop a name.** Lists use `LogNames.lines`: sorted, at most 200 names or 16 KB a line,
   continuation lines saying which slice. A batch's failures use `GroupedFailureLog`: one line per
   kind of failure, keyed by `LogError.groupKey`, never by the description, which names the file.
+  Pane copy, move and delete collect an `ItemError` per failure for it, and their alert writes no
+  line of its own (`present(_:logged: false)`), since the group lines already name its failure.
+- **Per-item lines in a loop are capped, not dropped.** An undo or redo (`UndoRunLog`) writes its
+  first 20 items' lines, then one line per kind naming every item past them; its banners are
+  `.notMirrored`, and its summary line names the last one shown. Each ⌘Z is a run of its own.
 - **Errors go through `LogError.describe`**: a system error gives domain, code, message and
   underlying error, never its whole userInfo; the app's own errors keep their reason.
 - **Ask Claude:** no words from the user's question, at any site (`AskClaudeToolOutcome.logStep`).
   Anthropic's error message is allowed, capped at 300 characters (`AskClaudeProblem.httpLogLine`).
 - **Banners state their log level** (`OperationBanner.LogLevel`). `.loggedAtSite` is only for a
-  banner whose site logs its own WARN or ERROR beside it (`BannerLoggedAtSiteScanTests`).
+  banner whose site logs its own WARN or ERROR beside it (`BannerLoggedAtSiteScanTests`);
+  `.notMirrored` only for a per-item reporter under a cap, such as `UndoRunLog`'s.
 - **Once-per-X gates** (`OncePerLaunch`, `FilingWarningBudget`) name their key and scope, and say
   what they held back.
 - **Copy rules apply to log text outside a `Logger` call:** a standalone literal needs curly

@@ -2471,10 +2471,12 @@ public class FileSyncManager: ObservableObject {
     /// `currentError` + retry-handler + log triple so call sites stay one line and the three
     /// can never drift apart. Public so UI-side coordinators (FileActionHandler) can surface
     /// pre-flight failures — e.g. a pane whose provider root vanished — through the same alert.
-    public func present(_ error: SyncError, retry: (@MainActor () -> Void)? = nil) {
+    /// `logged: false` is for a batch whose grouped failure lines (`GroupedFailureLog`) already
+    /// name every failure, the alert's included, so its line would only repeat the first.
+    public func present(_ error: SyncError, retry: (@MainActor () -> Void)? = nil, logged: Bool = true) {
         currentError = error
         currentErrorRetry = retry
-        Logger.shared.error(error.logDescription)
+        if logged { Logger.shared.error(error.logDescription) }
     }
 
     /// The rows the last bulk transfer failed on, or nil when the last one was clean. Drives the

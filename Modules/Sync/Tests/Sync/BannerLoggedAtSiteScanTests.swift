@@ -9,7 +9,7 @@ import Testing
 /// most of these sites are reached only through a race or a refusal no test can stage cheaply.
 ///
 /// "Beside" is the 12 lines above the mark and the 4 below it, which holds every site's line today
-/// (the per-item Undo and Duplicates reporters log just above their banner; the review
+/// (the per-item Duplicates reporters log just above their banner; the review
 /// coordinator just below). `PaneToolResult` is the one exception: it carries a PDF tool's or
 /// Save as PDF's ending, and each tool writes its own line for every ending.
 @Suite struct BannerLoggedAtSiteScanTests {
@@ -48,7 +48,8 @@ import Testing
                 offenders += Self.unbacked(text).map { "\(path):\($0)" }
             }
         }
-        #expect(marks >= 30, "the scan found \(marks) marks — it has stopped reading the sources")
+        // 27 when the Undo reporters went to `.notMirrored` under their run's cap (`UndoRunLog`).
+        #expect(marks >= 20, "the scan found \(marks) marks — it has stopped reading the sources")
         #expect(offenders.isEmpty, "\(offenders) mark a banner as logged at its site with no WARN or ERROR line beside it")
     }
 

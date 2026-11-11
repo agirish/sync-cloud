@@ -544,7 +544,7 @@ extension ContentView {
             // queue and rules (the first file here, the rest in the pane, a folder named in a
             // banner, a cloud file fetched first).
             onDropFiles: { urls in
-                Logger.shared.info(ExternalOpen.receiptLine(urls, droppedOnEdit: true))
+                for line in ExternalOpen.receiptLines(urls, droppedOnEdit: true) { Logger.shared.info(line) }
                 externalOpens.receive(urls)
             },
             railWidth: railWidth)
