@@ -35,6 +35,21 @@ import Testing
         #expect(call(.eject, "Macintosh HD") == nil)
     }
 
+    /// Two disks alike in name (two cards called Untitled), or two folders alike but for an accent:
+    /// no call, so nothing is ejected or opened by whichever came first. One spelt exactly so wins.
+    @Test func twoAlikeNamesAreNoCall() {
+        let two = AskClaudeQuickCommand.Lists(disks: ["Untitled", "Untitled"], sources: [], folders: ["Résumé", "Resume"],
+                                              folderOnScreen: "", settingsTabs: [])
+        let route = { (action: AskClaudeQuickCommand.Action, target: String) in
+            AskClaudeQuickCommand.call(for: .init(steps: 1, action: action, target: target), lists: two)
+        }
+        #expect(route(.eject, "Untitled") == nil)
+        #expect(route(.eject, "untitled") == nil)
+        #expect(route(.goTo, "resume") == nil)
+        #expect(route(.goTo, "Resume")?.input["folder"] == .string("Resume"))
+        #expect(AskClaudeQuickCommand.direct("go to resume", lists: two) == nil)
+    }
+
     /// A folder on screen goes as a path from the source; a source as itself; a partial name only
     /// when it means one place.
     @Test func goToTakesAFolderOnScreenOrASource() {
@@ -153,6 +168,10 @@ import Testing
     /// A name that is two things is no call here: the model, then Claude, decide.
     @Test func aNameThatIsTwoThingsIsNoCall() {
         #expect(direct("open events") == nil, "Activity's Events and the folder Events")
+        // And it goes to Claude, not the model, whose lists hold the folder but not Activity.
+        #expect(AskClaudeQuickCommand.said("open events", lists: screen) == .twoThings)
+        #expect(AskClaudeQuickCommand.said("open taxes", lists: screen) != .twoThings)
+        #expect(AskClaudeQuickCommand.said("what's in my taxes folder", lists: screen) == .nothing)
         #expect(place("open the events tab") == "activity:Events")
         #expect(direct("open the events folder")?.input["folder"] == .string("Documents/Events"))
     }
@@ -182,6 +201,9 @@ import Testing
         #expect(AskClaudeActivityPlace(place: "activity", tab: "History") == .events)
         #expect(AskClaudeActivityPlace(place: "activity", tab: "Logs") == .log)
         #expect(AskClaudeActivityPlace(place: "activity", tab: "Now playing") == nil)
+        // Now and History were folded into Events: an older chat may still ask for them.
+        #expect(AskClaudeActivityPlace(place: "activity", tab: "Now") == .events)
+        #expect(AskClaudeActivityPlace(place: "activity", tab: "runs") == .events)
         #expect(AskClaudeActivityPlace(place: "events", tab: nil)?.label == "Activity ▸ Events")
         #expect(AskClaudeActivityPlace(place: "trash", tab: nil) == nil)
     }

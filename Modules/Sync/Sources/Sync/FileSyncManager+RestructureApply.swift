@@ -58,14 +58,27 @@ public enum SurveyRefreshOutcome: Equatable, Sendable {
     /// The walk landed and the survey was replaced. `folders` is what the new one holds,
     /// `previousFolders` what the old one did.
     case updated(folders: Int, previousFolders: Int)
-    /// A guard closed, or the re-derive failed. The sentence is the whole of what to show.
+    /// A guard closed, so nothing ran. The sentence is the whole of what to show.
     case refused(String)
+    /// The walk ran and the re-derive failed; the survey stands as it was.
+    case failed(String)
 
-    /// The refusal sentence, or nil when it worked, for a caller that renders the two differently
-    /// (the Scaffolded card puts its refusal on the card that asked).
+    /// The sentence when it didn't work, refused or failed, or nil when it did, for a caller that
+    /// renders the two differently (the Scaffolded card puts it on the card that asked).
     public var refusal: String? {
-        if case .refused(let sentence) = self { return sentence }
-        return nil
+        switch self {
+        case .refused(let sentence), .failed(let sentence): return sentence
+        case .updated: return nil
+        }
+    }
+
+    /// The window's message for it: a refusal is kept for the session only, a failure past it.
+    public var banner: OperationBanner {
+        switch self {
+        case .updated: return .success(sentence)
+        case .refused(let sentence): return .refusal(sentence, log: .warn)
+        case .failed(let sentence): return .warning(sentence, log: .warn)
+        }
     }
 
     /// The one spelling of what to tell the user, so call sites can't drift apart. Success names
@@ -73,7 +86,7 @@ public enum SurveyRefreshOutcome: Equatable, Sendable {
     /// that did nothing.
     public var sentence: String {
         switch self {
-        case .refused(let sentence):
+        case .refused(let sentence), .failed(let sentence):
             return sentence
         case .updated(let folders, let previousFolders):
             let delta = folders - previousFolders
@@ -613,7 +626,7 @@ extension FileSyncManager {
                 + "\(oldDirectoryId) → \(newId); \(previousFolders) → \(folders) folder(s)")
             return .updated(folders: folders, previousFolders: previousFolders)
         case .failure(let sentence):
-            return .refused("The survey was not refreshed — " + sentence)
+            return .failed("The survey was not refreshed — " + sentence)
         }
     }
 

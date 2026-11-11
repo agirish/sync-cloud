@@ -149,6 +149,29 @@ import EventsTestSupport
         #expect(await loggedLine(containing: "the batch removed nothing") != nil)
     }
 
+    /// A batch the last check refuses whole, after a confirmed permanent delete, removed nothing:
+    /// its message is a refusal, kept for this session only, like the pre-check's.
+    @MainActor
+    @Test func aBatchTheLastCheckRefusesWholeSaysSoAsARefusal() async throws {
+        let mockFM = MockFileManager()
+        mockFM.shouldFailTrash = true
+        let manager = makeManager(mockFM)
+        manager.permanentDeleteConfirmer = { _ in
+            mockFM.virtualDisk["/b/x"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
+            mockFM.virtualDisk["/b/y"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
+            return true
+        }
+        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
+
+        await manager.applyRecommendedDuplicates([g1, g2])
+
+        #expect(mockFM.virtualDisk["/b/x"] != nil && mockFM.virtualDisk["/b/y"] != nil,
+                "a copy that changed while the dialog was open was destroyed")
+        let banner = try #require(manager.banner, "the refused batch said nothing")
+        #expect(banner.message.contains("changed since they were scanned"), "\(banner.message)")
+        #expect(banner.isRefusal)
+    }
+
     // MARK: Verify-then-trash ordering, and the two user-paced windows
 
     /// A group that drifts while the batch's delete waits in the serialized queue is refused at the

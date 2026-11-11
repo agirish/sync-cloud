@@ -108,6 +108,10 @@ final class AskClaudeChat: ObservableObject {
         var question: String
         var attachments: [Attachment]
         var editable: Bool
+        /// False for words the app built and they clicked (a button under Claude's question, a
+        /// card's Next, File with Claude): editable, but not words they wrote, so no note of
+        /// Claude's may quote them (TE307). Nil, as typed, in chats saved before.
+        var typed: Bool? = nil
         /// The past chat it carried as text (Continue, TE306): Edit and Retry carry it again, built
         /// afresh against what is hidden then.
         var carriedFrom: UUID? = nil
@@ -175,6 +179,9 @@ final class AskClaudeChat: ObservableObject {
     /// chat, the cache being cold. A Refine or Try Another card's update doesn't count; it would
     /// keep a cold transcript going at uncached prices. Nil until the first question.
     private var talkedAt: Date?
+    /// What the answers Edit and Retry took back cost: spent all the same, so Past Chats' row
+    /// counts it with the receipts still in the chat.
+    private var takenBackUSD = 0.0
     /// This chat's id in Past Chats (TE306).
     private var chatID = UUID()
     /// The folder of the chat's first question, for its row in Past Chats.
@@ -419,11 +426,14 @@ final class AskClaudeChat: ObservableObject {
         var continuing: Bool?
         /// Continue in a New Chat was pressed: the past chat the next question carries as text.
         var carryFrom: UUID?
+        /// What answers taken back by Edit and Retry cost; absent while nothing was.
+        var takenBackUSD: Double?
 
         init(items: [Item], lastActivity: Date, engine: AskClaudeEngine.Snapshot, sinceLastAnswer: [String]?,
              hiddenAtStart: [String]?, sharesAnswers: Bool?, sharesNames: Bool? = nil, carried: [String: [String]]? = nil,
              talkedAt: Date? = nil, folder: String? = nil, id: UUID? = nil, earlier: UUID? = nil, expired: [UUID]? = nil,
-             continuing: Bool? = nil, carryFrom: UUID? = nil) {
+             continuing: Bool? = nil, carryFrom: UUID? = nil, takenBackUSD: Double? = nil) {
+            self.takenBackUSD = takenBackUSD
             self.continuing = continuing
             self.carryFrom = carryFrom
             self.expired = expired
@@ -461,6 +471,7 @@ final class AskClaudeChat: ObservableObject {
             expired = try container.decodeIfPresent([UUID].self, forKey: .expired)
             continuing = try container.decodeIfPresent(Bool.self, forKey: .continuing)
             carryFrom = try container.decodeIfPresent(UUID.self, forKey: .carryFrom)
+            takenBackUSD = try container.decodeIfPresent(Double.self, forKey: .takenBackUSD)
         }
     }
 
@@ -575,17 +586,9 @@ final class AskClaudeChat: ObservableObject {
         tellClaude(line)
     }
 
-    /// What Claude is told after Apply: the card, its summary, and each row that didn't run, why.
-    static func applyReport(_ plan: AskClaudePlan) -> String {
-        var line = "They applied your card “\(plan.title)”: \(plan.summary ?? "applied.")"
-        let missed = plan.rows.filter { $0.applied == false }
-        if !missed.isEmpty {
-            line += " Didn’t run: " + missed.prefix(10).map { "\($0.name) (\($0.result ?? "skipped"))" }.joined(separator: "; ")
-            if missed.count > 10 { line += "; and \(missed.count - 10) more" }
-            line += "."
-        }
-        return line
-    }
+    /// What Claude is told after Apply: the card, its summary, and each row that didn't run, why;
+    /// a count for a card whose rows Claude never had (`AskClaudePlan.applyReport`).
+    static func applyReport(_ plan: AskClaudePlan) -> String { plan.applyReport }
 
     /// A PDF card's run still going, as Claude hears it with each question until it ends.
     static func stillRunning(_ title: String, progress: String?) -> String {
@@ -761,7 +764,10 @@ final class AskClaudeChat: ObservableObject {
         carryFrom = stored.carryFrom
         // A chat saved only for its carry has nothing asked yet.
         lastActivity = items.isEmpty ? nil : stored.lastActivity
-        talkedAt = items.isEmpty ? nil : stored.talkedAt ?? stored.lastActivity
+        // A chat saved before `talkedAt` took `lastActivity`; one with no question yet (only Refine
+        // cards) has no talk to time, as it hadn't before the quit.
+        talkedAt = stored.talkedAt ?? (items.contains { if case .user = $0.kind { true } else { false } } ? stored.lastActivity : nil)
+        takenBackUSD = stored.takenBackUSD ?? 0
         // Judged against what was hidden when the chat began, not at this launch: a folder hidden
         // and then a quit must still keep what Claude saw of it out of the next question. A chat
         // saved without it can't be judged, so it starts over once if anything is hidden.
@@ -890,7 +896,8 @@ final class AskClaudeChat: ObservableObject {
                       sharesNames: sharesNames ? true : nil, carried: carried.isEmpty ? nil : carried, talkedAt: talkedAt,
                       folder: folder, id: chatID, earlier: earlierID,
                       expired: expiredCards.isEmpty ? nil : expiredCards.map(\.self),
-                      continuing: continuing ? true : nil, carryFrom: carryFrom)
+                      continuing: continuing ? true : nil, carryFrom: carryFrom,
+                      takenBackUSD: takenBackUSD > 0 ? takenBackUSD : nil)
     }
 
     // MARK: Past chats (TE306)
@@ -1686,15 +1693,15 @@ final class AskClaudeChat: ObservableObject {
 
     /// Starts a question about `screen`, run with `tools`.
     func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
-             screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
-        ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, preparing: { screen }, tools: tools)
+             typed: Bool = true, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
+        ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, preparing: { screen }, tools: tools)
     }
 
     /// Starts a question whose screen takes a moment to read (a folder the pane hasn't loaded is
     /// read from disk first). The question shows, and the chat counts as running, at once: a
     /// second Send in that moment would otherwise pass and then be dropped with its draft cleared.
     func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
-             preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
+             typed: Bool = true, preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isRunning else { return }
         // Before any restart below empties the thread this is looked for in.
@@ -1761,7 +1768,8 @@ final class AskClaudeChat: ObservableObject {
         let sent = (carry.map { $0 + "\n\n" } ?? "") + Self.withSinceLastAnswer(named, question)
 
         let questionItem = Item(kind: .user(shown ?? question), spoken: spoken ? true : nil,
-                                asked: Asked(question: question, attachments: attached, editable: editable, carriedFrom: carrySource))
+                                asked: Asked(question: question, attachments: attached, editable: editable,
+                                             typed: typed ? nil : false, carriedFrom: carrySource))
         items.append(questionItem)
         askedItem = questionItem.id
         turnReads = nil
@@ -1840,7 +1848,8 @@ final class AskClaudeChat: ObservableObject {
     /// model and gives the tool call, or nil for Claude. A call runs through Ask Claude's own tools,
     /// shows as the question and its step line only (no receipt: nothing was sent), and Claude
     /// hears of it with the next question. A call the tool refuses goes to Claude after all, who
-    /// can say why or find another way; so does nil, through `otherwise`, as if typed there.
+    /// can say why or find another way; so does nil, through `otherwise`, as if typed there. A
+    /// refusal past their own say (`settled`) is shown instead, and a stop ends it.
     func tryOnDevice(_ question: String, spoken: Bool = false,
                      decide: @escaping @MainActor () async -> AskClaudeToolCall?,
                      tools: AskClaudeToolRunning, otherwise: @escaping @MainActor () -> Void) {
@@ -1864,8 +1873,14 @@ final class AskClaudeChat: ObservableObject {
         problemThisRun = false
         run += 1
         let thisRun = run
+        let readKey = self.readKey
+        let known = cachedKey
         task = Task { [weak self] in
-            let call = await decide()
+            // No key: nothing runs here either. Claude's way shows where to add one, and a fresh
+            // column stays on its key setup until there is one (decision MX).
+            let hasKey: Bool
+            if known != nil { hasKey = true } else { hasKey = await Task.detached(priority: .userInitiated) { readKey() }.value != nil }
+            let call = hasKey ? await decide() : nil
             guard let self, self.run == thisRun else { return }
             @MainActor func end() {
                 self.isRunning = false
@@ -1888,7 +1903,15 @@ final class AskClaudeChat: ObservableObject {
             var handles = self.engine.handles
             let outcome = await tools.run(call, handles: &handles)
             guard self.run == thisRun else { return }
-            guard !outcome.isError else {
+            // Stopped while it ran: a tool cut short says it didn't get there, which is no reason
+            // to ask Claude. What it did do stays done.
+            if outcome.isError, Task.isCancelled || self.stoppedThisRun {
+                self.items.append(Item(kind: .note("Stopped.")))
+                end()
+                self.save()
+                return
+            }
+            guard !outcome.isError || outcome.settled else {
                 Logger.shared.info("Ask Claude’s on-device command was refused (\(outcome.logStep ?? outcome.step)); asking Claude")
                 self.items.removeAll { $0.id == questionItem.id }
                 end()
@@ -1897,7 +1920,7 @@ final class AskClaudeChat: ObservableObject {
             }
             self.engine.handles = handles
             Logger.shared.info("Ask Claude ran \(call.name) on this Mac: \(outcome.logStep ?? outcome.step)")
-            self.items.append(Item(kind: outcome.movedView.map { .moved($0) } ?? .step(outcome.step, isError: false)))
+            self.items.append(Item(kind: outcome.movedView.map { .moved($0) } ?? .step(outcome.step, isError: outcome.isError)))
             self.sinceLastAnswer.append(AskClaudeQuickCommand.toldClaude(question: question, result: outcome.result))
             self.lastActivity = self.now()
             end()
@@ -2019,6 +2042,7 @@ final class AskClaudeChat: ObservableObject {
         if let from = items[index].asked?.carriedFrom { carryFrom = from }
         let keptIDs = Set(kept.map(\.id))
         for item in gone where !keptIDs.contains(item.id) {
+            if case .receipt(let receipt) = item.kind { takenBackUSD += receipt.costUSD }
             pdfThumbnails[item.id] = nil
             askAgainContexts[item.id] = nil
             caughtMessages[item.id] = nil
@@ -2037,7 +2061,7 @@ final class AskClaudeChat: ObservableObject {
     /// The questions they typed or said in this chat, never a share or a card's button: what a
     /// note of Claude's must quote (TE307).
     var ownWords: [String] {
-        items.compactMap { item in item.asked?.editable == true ? item.asked?.question : nil }
+        items.compactMap { item in item.asked?.editable == true && item.asked?.typed != false ? item.asked?.question : nil }
     }
 
     /// Their notes, the file Claude's ✎ lines change; a test points it elsewhere.
@@ -2137,6 +2161,7 @@ final class AskClaudeChat: ObservableObject {
         expiredCards = []
         chatID = UUID()
         folder = nil
+        takenBackUSD = 0
         continuing = false
         carryFrom = nil
         onDeviceRunning = false

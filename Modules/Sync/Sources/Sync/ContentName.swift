@@ -37,6 +37,13 @@ public enum ContentName {
         /// No style to copy: year, who it's from, what it is.
         case plain
 
+        /// Made from what the folder holds (a file's shape, its numbering): a name that tells what
+        /// is in that folder, so it goes to Claude only where that folder shares too (decision NF).
+        public var copiesFolder: Bool {
+            if case .plain = self { return false }
+            return true
+        }
+
         /// The card's line under the name.
         public var line: String {
             switch self {
@@ -297,5 +304,5 @@ public struct AskClaudeHeldNames: Codable, Equatable, Sendable {
     }
 
     /// Under the held line: what the button sends.
-    public static let foot = "Not shared yet. Share Names and Folders sends each new name and its folder. No other content."
+    public static let foot = "Not shared yet. Share Names and Folders sends each file’s name, its new name and its folder. No other content."
 }

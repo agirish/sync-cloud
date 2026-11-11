@@ -72,7 +72,7 @@ struct FolderSurveysSection: View {
             defer { counting = nil }
             switch await syncManager.planSourceDocumentSurvey(sourceRoot: source.root) {
             case .failure(let refusal):
-                syncManager.banner = .warning(refusal.sentence, log: .warn)
+                syncManager.banner = .refusal(refusal.sentence, log: .warn)
             case .success(let plan) where plan.total == 0:
                 syncManager.banner = .success("Nothing to read — no document in \(source.name) is in a format this app can open.")
             case .success(let plan):

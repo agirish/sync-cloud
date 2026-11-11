@@ -55,10 +55,43 @@ import SwiftUI
                 == .named(.init(year: 2025, month: 11, day: 15, from: "Acme", what: "Earnings Statement")))
     }
 
-    /// What Claude hears names no word from inside the file.
-    @Test func whatClaudeIsToldSaysNothingFromInside() {
-        #expect(named.told == "a new name made on their Mac")
-        #expect(AskClaudeNaming.Outcome.locked.told == "keeps its name: locked, so it couldn’t be read")
+    /// A name rides on a move, and Move Here refuses a move into the folder the file is in: that
+    /// folder gets no name on the card.
+    @Test func theFilesOwnFolderGetsNoNewName() {
+        let card = AskClaudeFilingCard(fileName: "Scan 0042.pdf", filePath: "/d/Taxes/2025/Scan 0042.pdf", kind: .suggestions, folders: [
+            .init(label: "Taxes › 2025", path: "/d/Taxes/2025", confidence: "High", reason: "Fits", fromFile: false),
+            .init(label: "Bank", path: "/d/Bank", confidence: "Medium", reason: "Fits", fromFile: false)])
+        let facts = ContentName.Facts(year: 2025, from: "Ally", what: "1099-INT")
+        let named = AskClaudeNaming.Named(outcome: .named(facts), facts: facts, names: [
+            "/d/Taxes/2025": .init(name: "2025 Ally 1099-INT.pdf", basis: .plain),
+            "/d/Bank": .init(name: "2025 Ally Bank 1099-INT.pdf", basis: .plain)])
+        let out = AskClaudeBrowseTools.named(card, named, sharedBy: nil)
+        #expect(out.folders.map(\.newName) == [nil, "2025 Ally Bank 1099-INT.pdf"])
+    }
+
+    /// Share Names and Folders sends what its foot says, and nothing about a folder hidden since.
+    @Test func sharingLeavesOutAFolderHiddenSince() throws {
+        func row(_ id: Int, _ name: String, to folder: String, label: String) -> AskClaudePlan.Row {
+            var row = AskClaudePlan.Row(id: id, name: name, change: .move(from: "/d/\(name)", toFolder: folder), ticked: true, folderLabel: label)
+            row.newName = "New \(name)"
+            return row
+        }
+        let plan = AskClaudePlan(title: "File 2 Loose Files", subtitle: "", rows: [
+            row(0, "Scan 1.pdf", to: "/docs/Taxes", label: "Docs › Taxes"), row(1, "Scan 2.pdf", to: "/docs/Medical", label: "Docs › Medical")])
+        let shared = try #require(AskClaudeNaming.shareLine(plan, isHidden: { $0.hasPrefix("/docs/Medical") }))
+        #expect(shared.count == 1)
+        #expect(shared.text.contains("“Scan 1.pdf” ⟦/d/Scan 1.pdf⟧ → New Scan 1.pdf, into Docs › Taxes"))
+        #expect(!shared.text.contains("Medical") && !shared.text.contains("Scan 2"))
+        #expect(AskClaudeNaming.shareLine(plan, isHidden: { $0.hasPrefix("/docs") }) == nil)
+        #expect(AskClaudeHeldNames.foot.contains("each file’s name, its new name and its folder"))
+
+        var bank = AskClaudeFilingCard.Folder(label: "Docs › Bank", path: "/docs/Bank", confidence: "High", reason: "Fits", fromFile: false)
+        bank.newName = "2025 Ally.pdf"
+        var medical = AskClaudeFilingCard.Folder(label: "Docs › Medical", path: "/docs/Medical", confidence: "Medium", reason: "Fits", fromFile: false)
+        medical.newName = "2025 Kaiser.pdf"
+        let card = AskClaudeFilingCard(fileName: "Scan.pdf", filePath: "/d/Scan.pdf", kind: .suggestions, folders: [bank, medical])
+        let one = try #require(AskClaudeNaming.shareLine(card, isHidden: { $0.hasPrefix("/docs/Medical") }))
+        #expect(one.count == 1 && one.text.contains("2025 Ally.pdf in Docs › Bank") && !one.text.contains("Medical"))
     }
 }
 

@@ -3,16 +3,18 @@ import Events
 import Sync
 
 /// Activity's messages, kept across quits: every one that says something happened or failed, never
-/// a refusal (`OperationBanner.isRefusal`), which only buries what did happen. Events draws them
-/// beside the runs, and a run's row keeps its own sentence after a relaunch.
+/// a refusal (`OperationBanner.isRefusal`), which only buries what did happen, nor a note of
+/// something still under way (`OperationBanner.isInProgress`). Events draws them beside the runs,
+/// and a run's row keeps its own sentence after a relaunch.
 ///
 /// One JSON line per write, appended to `~/sync-cloud-activity.jsonl` beside the history file. A
 /// repeat folding into a row appends that row again, and the newest line for an id wins when the
-/// file is read, so a write never rewrites the file: the installed app and a worktree build beside
-/// it can both append without either losing the other's lines. The file is rewritten only to trim
-/// it (at launch, and once it holds twice what it keeps), to forget the runs' messages when Sync
-/// History is cleared, and to clear it; each of those reads the file as it is then, so lines
-/// another copy appended survive, and so do a newer build's.
+/// file is read, so a write never rewrites the file. The file is rewritten only to trim it (at
+/// launch, and once it holds twice what it keeps), to forget the runs' messages when Sync History
+/// is cleared, and to clear it; each of those reads the file as it is then, so a newer build's
+/// lines survive. Every append and every read-and-rewrite holds an exclusive `flock` on the file,
+/// so the installed app and a worktree build beside it never lose each other's lines, and a row
+/// another copy cleared or forgot is not written back by this one's next repeat of it.
 ///
 /// What a message's buttons can't do later is not kept: its Undo, whose step numbers start again
 /// at every launch, and Download, whose path may name another file by then.
@@ -26,6 +28,12 @@ public final class ActivityMessageStore: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.abhishekgirish.SyncCloud.activity-messages")
     /// Lines appended since the file was last trimmed; read and written only on `queue`.
     private var appendedSinceTrim = 0
+    /// The rows this store has written, so a later line for one (a repeat, an amended sentence)
+    /// is written only while the file still holds it; read and written only on `queue`.
+    private var written: Set<UUID> = []
+    /// Runs inside every read-and-rewrite, after the read and before the write, holding the lock:
+    /// for a test to act as another copy of the app at the worst moment.
+    var beforeRewrite: (@Sendable () -> Void)?
 
     public init(fileURL: URL = ActivityMessageStore.defaultFileURL()) {
         self.fileURL = fileURL
@@ -46,32 +54,48 @@ public final class ActivityMessageStore: @unchecked Sendable {
     /// The kept messages, newest first: the newest line for each id, inside ``maxAge`` and
     /// ``maxMessages``, trimming the file as it reads it.
     public func load(now: Date = Date()) -> [ActivityMessage] {
-        queue.sync { trimFile(now: now).map(\.restored) }
+        queue.sync { (withFileLock { _ in trimFile(now: now) } ?? trimFile(now: now)).map(\.restored) }
     }
 
-    /// Appends `message`, unless it is a refusal.
+    /// Appends `message`, unless it is a refusal or a note of something under way. A row this store
+    /// wrote before is written again only while the file still holds it: one another copy of the
+    /// app cleared or forgot stays gone.
     public func save(_ message: ActivityMessage) {
-        guard !message.isRefusal, let line = Self.line(for: message) else { return }
+        guard !message.isRefusal, !message.isInProgress, let line = Self.line(for: message) else { return }
+        let id = message.id
         queue.async {
-            self.append(line)
+            let appended = self.withFileLock { fd -> Bool in
+                if self.written.contains(id), !self.fileHolds(id) { return false }
+                self.append(line, to: fd)
+                return true
+            } ?? false
+            guard appended else { return }
+            self.written.insert(id)
             self.appendedSinceTrim += 1
             // Past twice the cap, what the next launch reads and decodes is mostly dead lines.
-            if self.appendedSinceTrim > Self.maxMessages { _ = self.trimFile(now: Date()) }
+            if self.appendedSinceTrim > Self.maxMessages {
+                _ = self.withFileLock { _ in self.trimFile(now: Date()) }
+            }
         }
     }
 
     /// Empties the file: Clear Messages. Everything goes, whichever copy of the app wrote it.
     public func clearAll() {
-        queue.async { self.write(Data()) }
+        queue.async {
+            if self.withFileLock({ _ in self.write(Data()) }) == nil { self.write(Data()) }
+            self.written.removeAll()
+        }
     }
 
     /// Drops every kept message that reported a run: Sync History was cleared, and each would be a
     /// row with nothing behind it. Reads the file as it is, so another copy's other lines stay.
     public func forgetRunMessages() {
         queue.async {
-            let file = self.read()
-            let kept = file.saved.filter { $0.runId == nil }
-            self.rewrite(kept.sorted { $0.date < $1.date }, keeping: file.newer)
+            _ = self.withFileLock { _ in
+                let file = self.read()
+                let kept = file.saved.filter { $0.runId == nil }
+                self.rewrite(kept.sorted { $0.date < $1.date }, keeping: file.newer)
+            }
         }
     }
 
@@ -120,16 +144,46 @@ public final class ActivityMessageStore: @unchecked Sendable {
         return kept
     }
 
-    /// Appends one line, opened for appending so two copies of the app writing at once each land
-    /// whole; starts a fresh line first if the file doesn't end in one.
-    private func append(_ line: Data) {
-        // Read too, so `endsMidLine` can look at the last byte; O_APPEND puts every write at the end.
-        let fd = open(fileURL.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
-        guard fd >= 0 else {
-            Logger.shared.warning("Activity: couldn’t open \(fileURL.lastPathComponent) to keep a message (errno \(errno))")
-            return
+    /// Runs `body` holding an exclusive `flock` on the file, handed the descriptor, opened for
+    /// appending (and reading, so `endsMidLine` can look at the last byte). Another copy of the app
+    /// waits for the lock before it appends or reads to rewrite, so neither loses the other's
+    /// lines. A rewrite replaces the file, so a lock taken on the file it replaced is let go and
+    /// taken again on the one now at the path. Nil, after a log line, when the file can't be opened.
+    private func withFileLock<T>(_ body: (Int32) -> T) -> T? {
+        while true {
+            let fd = open(fileURL.path, O_RDWR | O_APPEND | O_CREAT, 0o644)
+            guard fd >= 0 else {
+                Logger.shared.warning("Activity: couldn’t open \(fileURL.lastPathComponent) to keep messages (errno \(errno))")
+                return nil
+            }
+            var locked = flock(fd, LOCK_EX)
+            while locked != 0, errno == EINTR { locked = flock(fd, LOCK_EX) }
+            guard locked == 0 else {
+                Logger.shared.warning("Activity: couldn’t lock \(fileURL.lastPathComponent) (errno \(errno)); writing unlocked")
+                defer { close(fd) }
+                return body(fd)
+            }
+            var held = stat(), atPath = stat()
+            if fstat(fd, &held) == 0, stat(fileURL.path, &atPath) == 0,
+               held.st_dev == atPath.st_dev, held.st_ino == atPath.st_ino {
+                defer { flock(fd, LOCK_UN); close(fd) }
+                return body(fd)
+            }
+            // Replaced while this waited: lock the file now at the path.
+            flock(fd, LOCK_UN)
+            close(fd)
         }
-        defer { close(fd) }
+    }
+
+    /// Whether the file still has a line for `id`: a byte search, no decoding.
+    private func fileHolds(_ id: UUID) -> Bool {
+        guard let data = try? Data(contentsOf: fileURL) else { return false }
+        return data.range(of: Data("\"id\":\"\(id.uuidString)\"".utf8)) != nil
+    }
+
+    /// Appends one line to `fd`, opened for appending so two copies of the app writing at once
+    /// each land whole; starts a fresh line first if the file doesn't end in one.
+    private func append(_ line: Data, to fd: Int32) {
         var bytes = Data()
         if endsMidLine(fd) { bytes.append(UInt8(ascii: "\n")) }
         bytes.append(line)
@@ -150,6 +204,7 @@ public final class ActivityMessageStore: @unchecked Sendable {
 
     /// Writes `saved`, oldest first, then a newer build's lines, in one atomic replace.
     private func rewrite<S: Sequence>(_ saved: S, keeping newer: [Data]) where S.Element == SavedActivityMessage {
+        beforeRewrite?()
         var data = Data()
         for message in saved {
             guard let line = try? Self.encoder.encode(message) else { continue }

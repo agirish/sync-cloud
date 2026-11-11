@@ -820,7 +820,7 @@ extension FileSyncManager {
             // Said on screen, not only logged: otherwise the click does nothing visible and the
             // remedy, a model with a known price, sits in the log. The gate has logged the
             // specifics; this says the sentence the user needs.
-            banner = .warning("Couldn’t ask Claude for another folder — the chosen model has no "
+            banner = .refusal("Couldn’t ask Claude for another folder — the chosen model has no "
                               + "known price, so the cost can’t be checked. Keeping the on-device "
                               + "suggestion; pick one of the offered models in the Ask Claude chat’s model menu.", log: .warn)
             return false
@@ -833,7 +833,7 @@ extension FileSyncManager {
                 + "raise the limit in Settings ▸ Ask Claude to keep using Claude.")
             // As for `.blocked` above, with a different remedy, so a different sentence.
             if filingRefineShowsBanner {
-                banner = .warning("Couldn’t ask Claude for another folder — it would pass your monthly Claude "
+                banner = .refusal("Couldn’t ask Claude for another folder — it would pass your monthly Claude "
                                   + "limit. Keeping the earlier suggestion; raise the limit in "
                                   + "Settings ▸ Ask Claude to keep using Claude.", log: .warn)
             }
@@ -1313,7 +1313,7 @@ extension FileSyncManager {
                 || AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults)).holds(suggestion.filePath))
         let hidden = useClaude ? claudeHiddenMatcher() : AskClaudePrivacy.Matcher([])
         if hidden.isHidden(suggestion.filePath) {
-            banner = .warning("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
+            banner = .refusal("“\(suggestion.fileName)” is hidden from Claude, so it wasn’t asked "
                               + "for another folder. Choose one instead.", log: .warn)
             replaceFilingSuggestion(suggestion.id, candidates: [])
             return
@@ -1462,15 +1462,18 @@ extension FileSyncManager {
         // A folder that asks each time kept this on this Mac: say so, and offer the one page to Claude.
         if routesToClaude, filingRefineClassifier != nil, !useClaude {
             filingTryAnotherNotes[suggestion.filePath] = FilingTryAnotherNote(
-                text: "This folder asks before Claude reads files, so Try Another used this Mac.", offersClaudeWithPage: true)
+                text: "This folder asks before Claude reads files, so Try Another used this Mac.",
+                offersClaudeWithPage: filingPageSamples[suggestion.filePath] != nil)
         }
     }
 
     /// Whether the card for `suggestion` may offer "Ask Claude with Page 1…": Claude is set up, the
-    /// file is not hidden from it, and its folder asks each time (a shared folder's Try Another
-    /// already asks Claude).
+    /// file is not hidden from it, its folder asks each time (a shared folder's Try Another
+    /// already asks Claude), and a first page was read: without one the click would send, and
+    /// bill, the name alone.
     public func canAskClaudeWithPage(_ suggestion: FilingSuggestion) -> Bool {
         guard filingRefineClassifier != nil, filingCloudRefineAvailable else { return false }
+        guard filingPageSamples[suggestion.filePath] != nil else { return false }
         if claudeHiddenMatcher().isHidden(suggestion.filePath) { return false }
         return !AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: filingContentDefaults)).holds(suggestion.filePath)
     }

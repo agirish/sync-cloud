@@ -105,7 +105,8 @@ import Testing
         #expect(calls.count == 3, "expected exactly two call sites, found \(calls.count - 1)")
         for (index, tail) in calls.dropFirst().enumerated() {
             let window = String(tail.prefix(600))
-            #expect(window.contains(".success(outcome.sentence)"),
+            // `outcome.banner` says success too (`SurveyRefreshOutcome.banner`).
+            #expect(window.contains(".success(outcome.sentence)") || window.contains("syncManager.banner = outcome.banner"),
                     "call site \(index + 1) never reports a successful refresh — the path that works is the one that says nothing")
         }
     }

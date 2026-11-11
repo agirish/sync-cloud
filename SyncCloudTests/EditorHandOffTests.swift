@@ -272,6 +272,21 @@ import FileExplorer
                 "Edit's Download opens a file the reader has moved on from, or never opens it")
     }
 
+    /// "Downloading “Lease.pdf”…" is a note of something under way, not an outcome: Activity keeps
+    /// it for this session only, and it lights no dot. Both doors that fetch say it through the one
+    /// builder.
+    @MainActor
+    @Test func theDownloadingNoteIsNeverKept() throws {
+        let note = ContentView.downloadingNote("Lease.pdf", opensOnArrival: true)
+        #expect(note.isInProgress)
+        #expect(note.message == "Downloading “Lease.pdf” — it opens here when it arrives.")
+        #expect(ContentView.downloadingNote("Lease.pdf", opensOnArrival: false).isInProgress)
+        let editor = CodeText(try macAppFile("ContentView+Editor.swift"))
+        #expect(!editor.contains(".warning(\"Downloading"), "a Downloading note is posted as a warning, which Activity keeps")
+        #expect(editor.count(of: "Self.downloadingNote(name, opensOnArrival:") == 2,
+                "Edit's Download and the external open's fetch must both use the session-only note")
+    }
+
     /// Reveal in Browse leaves the open document alone, from any rail row as from the open file's
     /// header. ⌘4 must come back to the document exactly as it was, unsaved edits and all, so the
     /// verb may move the pane and the workspace and nothing else.

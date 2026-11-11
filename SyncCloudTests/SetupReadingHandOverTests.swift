@@ -373,4 +373,13 @@ import Testing
         #expect(report.isComplete)
         #expect(fixture.corpusExists(in: first), "the reading did not land in the profile in use")
     }
+
+    /// A reading that couldn't start says so as a refusal, kept for this session only, as the same
+    /// refusal from To File's menu is; one that ran is kept.
+    @Test func aReadingThatCouldNotStartIsARefusal() {
+        let refused = DocumentSurveyStarter.Outcome.refused(.alreadyRunning).banner
+        #expect(refused?.isRefusal == true)
+        #expect(refused?.message == FileSyncManager.DocumentSurveyRefusal.alreadyRunning.sentence)
+        #expect(DocumentSurveyStarter.Outcome.nothingToRead.banner?.isRefusal == false)
+    }
 }

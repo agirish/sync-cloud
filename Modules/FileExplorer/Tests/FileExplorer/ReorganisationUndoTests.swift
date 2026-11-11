@@ -52,6 +52,8 @@ import Testing
         let refusal = ReorganisationUndo.banner(after: refused)
         #expect(refusal.severity == .warning)
         #expect(refusal.message == "A later reorganization sits on top of this one.")
+        // Nothing moved back: kept for this session only, as the pre-check's refusal is.
+        #expect(refusal.isRefusal)
 
         var partial = FileSyncManager.RestructureApplyOutcome()
         partial.filesMoved = 3
@@ -59,6 +61,7 @@ import Testing
         let banner = ReorganisationUndo.banner(after: partial)
         #expect(banner.severity == .warning, "a partial undo read as a clean one")
         #expect(banner.message.contains("1 skipped"))
+        #expect(!banner.isRefusal, "a partial undo moved files back, so it is kept")
     }
 
     /// An undo that moved back files changed since the landing names them: it can't tell an edit

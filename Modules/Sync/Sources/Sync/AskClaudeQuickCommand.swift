@@ -86,8 +86,9 @@ public enum AskClaudeQuickCommand {
         return !words.isEmpty && words.count <= maxWords
     }
 
-    /// The model's instructions. Names are escaped as the screen card escapes them, one per line
-    /// of a list, so a folder name can't pass for an instruction or another entry.
+    /// The model's instructions. Names are escaped as the screen card escapes them, so a folder
+    /// name can't pass for an instruction. The lists are comma-joined, so "Taxes, Private" can read
+    /// as two; `call(for:)` only runs a name that is on a list, whole.
     public static func instructions(_ lists: Lists) -> String {
         func list(_ names: [String]) -> String {
             names.isEmpty ? "(none)" : names.map(AskClaudeScreenCard.escape).joined(separator: ", ")
@@ -160,11 +161,25 @@ public enum AskClaudeQuickCommand {
     /// A command said in so many words, run with no model at all: "open Settings", "show the log",
     /// "go to Downloads", "Edit", "sort by size", "list view". Same answer every time, no Apple
     /// Intelligence needed, nothing sent. A name that could be two things ("open Events" beside a
-    /// folder called Events) is no call here, and goes to the model, then Claude, as before.
+    /// folder called Events) is no call here; see `said`.
     ///
     /// A bare name needs a verb, except a workspace's or one of the app's own places: a bare
     /// folder name is as likely a reply as a go-to.
     public static func direct(_ question: String, lists: Lists) -> AskClaudeToolCall? {
+        if case .call(let call) = said(question, lists: lists) { return call }
+        return nil
+    }
+
+    /// What `direct` makes of words said in so many words.
+    public enum Said: Equatable {
+        case call(AskClaudeToolCall)
+        /// A name that is two things here: Claude's to ask about. Not the model's, whose lists
+        /// hold folders and sources but not the app's own places, so it would see one of them.
+        case twoThings
+        case nothing
+    }
+
+    public static func said(_ question: String, lists: Lists) -> Said {
         func tool(_ name: AskClaudeToolCatalog.Name, _ input: [String: JSONFragment]) -> AskClaudeToolCall {
             AskClaudeToolCall(id: "on-device", name: name.rawValue, input: .object(input))
         }
@@ -174,12 +189,12 @@ public enum AskClaudeQuickCommand {
         text = strip(text, prefixes: ["please "])
         text = strip(text, suffixes: [" please"])
         switch text {
-        case "show hidden files": return tool(.view, ["hidden_files": .bool(true)])
-        case "hide hidden files": return tool(.view, ["hidden_files": .bool(false)])
+        case "show hidden files": return .call(tool(.view, ["hidden_files": .bool(true)]))
+        case "hide hidden files": return .call(tool(.view, ["hidden_files": .bool(false)]))
         default: break
         }
         for sort in Sort.allCases where sort != .none {
-            if text == "sort by \(sort.rawValue)" { return tool(.view, ["sort": .string(sort.rawValue)]) }
+            if text == "sort by \(sort.rawValue)" { return .call(tool(.view, ["sort": .string(sort.rawValue)])) }
         }
         let verbs = ["open up ", "open ", "show me ", "show ", "go to ", "switch to ", "take me to ", "bring up ", "view "]
         let verb = verbs.first { text.hasPrefix($0) }
@@ -187,12 +202,12 @@ public enum AskClaudeQuickCommand {
         name = strip(name, prefixes: ["the ", "my "])
         let modes = ["list view": "list", "as list": "list", "as a list": "list",
                      "column view": "columns", "columns view": "columns", "as columns": "columns", "in columns": "columns"]
-        if let mode = modes[name], verb != nil || name.hasSuffix(" view") { return tool(.view, ["mode": .string(mode)]) }
+        if let mode = modes[name], verb != nil || name.hasSuffix(" view") { return .call(tool(.view, ["mode": .string(mode)])) }
         // "the Events tab" is no folder; "the Taxes folder" is no place.
         let asPlace = [" tab", " window", " workspace", " pane", " page"].contains { name.hasSuffix($0) }
         let asFolder = name.hasSuffix(" folder")
         if asPlace || asFolder { name = String(name[..<name.lastIndex(of: " ")!]) }
-        guard !name.isEmpty else { return nil }
+        guard !name.isEmpty else { return .nothing }
 
         // Each with whether it may come bare: the app's own windows, tabs and workspaces may; Help,
         // a source and a folder need a verb ("help" alone asks Claude for it).
@@ -202,7 +217,7 @@ public enum AskClaudeQuickCommand {
                 found.append((tool(.showInApp, ["place": .string("settings")]), true))
             } else if let tab = settingsTab(in: name, lists.settingsTabs) {
                 // "Edit settings", "settings Edit": the tab must be one Settings has, or it's no place.
-                guard let tab else { return nil }
+                guard let tab else { return .nothing }
                 found.append((tool(.showInApp, ["place": .string("settings"), "tab": .string(tab)]), true))
             } else if let activity = AskClaudeActivityPlace(place: name, tab: nil) {
                 var input: [String: JSONFragment] = ["place": .string("activity")]
@@ -219,8 +234,9 @@ public enum AskClaudeQuickCommand {
                 found.append((tool(.goTo, ["folder": .string(path(folder, under: lists.folderOnScreen))]), false))
             }
         }
-        guard found.count == 1, verb != nil || found[0].bare else { return nil }
-        return found[0].call
+        if found.count > 1 { return .twoThings }
+        guard found.count == 1, verb != nil || found[0].bare else { return .nothing }
+        return .call(found[0].call)
     }
 
     /// The Settings tab "X settings", "settings X" or "X in Settings" names: nil when it names
@@ -249,9 +265,15 @@ public enum AskClaudeQuickCommand {
 
     private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
+    /// The one name that is this one, ignoring case and accents; of two ("Résumé" and "Resume",
+    /// two disks called Untitled) only one spelt exactly so, else none: a command that could
+    /// mean either never runs here.
     private static func exact(_ name: String, in names: [String]) -> String? {
         guard !name.isEmpty else { return nil }
-        return names.first { $0.compare(name, options: options) == .orderedSame }
+        let alike = names.filter { $0.compare(name, options: options) == .orderedSame }
+        if alike.count <= 1 { return alike.first }
+        let same = alike.filter { $0 == name }
+        return same.count == 1 ? same[0] : nil
     }
 
     private static func holding(_ name: String, in names: [String]) -> [String] {
@@ -291,7 +313,8 @@ public enum AskClaudeActivityPlace: Equatable, Sendable {
         if log.contains(place) { self = .log; return }
         guard place == "activity" || place == "activity window" else { return nil }
         if tab.isEmpty { self = .lastUsed }
-        else if events.contains(tab) || tab == "history" { self = .events }
+        // Now and History were folded into Events (TE339): an older chat may still name them.
+        else if events.contains(tab) || ["history", "now", "runs"].contains(tab) { self = .events }
         else if log.contains(tab) { self = .log }
         else { return nil }
     }

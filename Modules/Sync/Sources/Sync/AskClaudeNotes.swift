@@ -1,5 +1,6 @@
 import Events
 import Foundation
+import NaturalLanguage
 
 /// Notes for Claude (TE307): one Markdown file Claude keeps about them, across chats, like a
 /// project's CLAUDE.md. Claude adds to it with its `notes` tool as it learns; they read and edit
@@ -314,7 +315,8 @@ public struct AskClaudeNotes {
         if AskClaudeKeyCatch.key(in: line) != nil || line.range(of: #"(?i)\b(password|passcode|pin)\s*(is|:)"#, options: .regularExpression) != nil {
             return .key
         }
-        if line.range(of: #"\d(?:[ -]?\d){6,}"#, options: .regularExpression) != nil { return .number }
+        // Joined by spaces, hyphens, dots or slashes: 4111.1111.1111.1111 is a card number too.
+        if line.range(of: #"\d(?:[ .\-/]?\d){6,}"#, options: .regularExpression) != nil { return .number }
         if line.range(of: permissionPattern, options: [.regularExpression, .caseInsensitive]) != nil { return .permission }
         let kept = Set(keeping.map(folded))
         for detail in details(in: line) where !quoted.contains(folded(detail)) && !kept.contains(folded(detail)) {
@@ -358,16 +360,33 @@ public struct AskClaudeNotes {
         return specifics + names(in: line)
     }
 
-    /// Capitalized words past a sentence's first, less the app's own words.
+    /// Capitalized words, less the app's own words. A sentence's first word counts only when it
+    /// isn't an ordinary word: "Mallory is your accountant." names Mallory as surely as
+    /// "Your accountant is Mallory." does, while "Prefers short answers." names no one.
     static func names(in line: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"(?<![\p{L}\p{N}@.])\p{Lu}[\p{L}\p{N}’'-]+"#) else { return [] }
         return regex.matches(in: line, range: NSRange(line.startIndex..., in: line)).compactMap { match in
             guard let range = Range(match.range, in: line) else { return nil }
             let before = line[..<range.lowerBound].reversed().first { !$0.isWhitespace && $0 != "-" && $0 != "*" && $0 != "(" && $0 != "“" && $0 != "\"" }
-            if before == nil || ".!?:;".contains(before!) { return nil }
             let word = String(line[range]).trimmingCharacters(in: CharacterSet(charactersIn: "’'-"))
-            return appWords.contains(word.lowercased()) ? nil : word
+            if appWords.contains(word.lowercased()) { return nil }
+            if before == nil || ".!?:;".contains(before!) {
+                return commonWords.contains(word.lowercased()) || isOrdinaryWord(at: range, in: line) ? nil : word
+            }
+            return word
         }
+    }
+
+    /// Whether the word at `range` is a dictionary word, by its English lemma: "Prefers" is
+    /// "prefer", "Accountant" is "accountant"; a name has none ("Priya") or keeps its capital
+    /// ("Mallory"). Unsure is a name: a note refused is safer than one a share wrote.
+    private static func isOrdinaryWord(at range: Range<String.Index>, in line: String) -> Bool {
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = line
+        tagger.setLanguage(.english, range: line.startIndex..<line.endIndex)
+        guard let lemma = tagger.tag(at: range.lowerBound, unit: .word, scheme: .lemma).0?.rawValue,
+              let first = lemma.first else { return false }
+        return first.isLowercase
     }
 
     private static let appWords: Set<String> = [

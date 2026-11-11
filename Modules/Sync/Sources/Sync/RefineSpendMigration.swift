@@ -46,6 +46,8 @@ public enum RefineSpendMigration {
         /// Refine's Claude switch was off and a folder is shared without asking: Try Another, which
         /// stayed on this Mac, now asks Claude for files there.
         public var tryAnotherAsksClaude: Bool? = nil
+        /// False when no API key was saved at the upgrade: Try Another asks Claude only once one is.
+        public var keySaved: Bool? = nil
 
         /// The notice's words: the old caps named, what happens now, what Refine had cost, and
         /// Try Another's change when it applies.
@@ -53,7 +55,8 @@ public enum RefineSpendMigration {
             var parts: [String] = []
             if hadLimits != false { parts.append(limitsText) }
             if tryAnotherAsksClaude == true {
-                parts.append("Try Another now asks Claude, with the file’s first page, about a file in a folder you share "
+                parts.append((keySaved == false ? "Once you save an API key, Try Another asks Claude" : "Try Another now asks Claude")
+                    + ", with the file’s first page, about a file in a folder you share "
                     + "without asking. Before, it stayed on this Mac, because Refine’s Claude switch was off. "
                     + "To keep it on this Mac, take those folders off Shared without asking, on the Privacy page.")
             }
@@ -78,7 +81,9 @@ public enum RefineSpendMigration {
 
     /// Runs once. Returns the log line when it did anything.
     @discardableResult
-    public static func applyAtLaunch(defaults: UserDefaults = .standard, now: Date = Date()) -> String? {
+    /// - Parameter keySaved: whether an Anthropic key is saved, so the notice doesn't say Try Another
+    ///   asks Claude on a Mac that can't yet.
+    public static func applyAtLaunch(defaults: UserDefaults = .standard, now: Date = Date(), keySaved: Bool = true) -> String? {
         guard !defaults.bool(forKey: doneKey) else { return nil }
         if FilingSpendStore.isUnreadable(defaults: defaults) {
             return "Refine’s spend record couldn’t be read, so its spend wasn’t carried into Ask Claude’s limit; it will be tried again at the next launch"
@@ -103,7 +108,8 @@ public enum RefineSpendMigration {
             let notice = Notice(monthlyCapUSD: monthlyCap, totalCapUSD: totalCap, spentThisMonthUSD: month,
                                 spentTotalUSD: max(total, entries.reduce(0) { $0 + $1.estimatedCostUSD }),
                                 since: entries.map(\.timestamp).min(), requests: entries.count,
-                                hadLimits: hadLimits, tryAnotherAsksClaude: tryAnotherAsksClaude ? true : nil)
+                                hadLimits: hadLimits, tryAnotherAsksClaude: tryAnotherAsksClaude ? true : nil,
+                                keySaved: tryAnotherAsksClaude && !keySaved ? false : nil)
             if let data = try? JSONEncoder().encode(notice) { defaults.set(data, forKey: noticeKey) }
             line += ": \(AskClaudeSpend.format(month)) of this month carried into Ask Claude’s total"
                 + (tryAnotherAsksClaude ? ", Try Another now asks Claude in shared folders" : "") + ", notice pending"

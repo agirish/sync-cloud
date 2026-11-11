@@ -131,7 +131,7 @@ struct AskClaudeHeldNamesStrip: View {
                     if canShare {
                         Button(AskClaudeHeldNames.shareButton(count), action: onShare)
                             .controlSize(.small)
-                            .help("Claude gets each new name and its folder with your next question, and nothing else from the files.")
+                            .help("Claude gets each file’s name, its new name and its folder with your next question, and nothing else from the files.")
                     }
                 }
             }

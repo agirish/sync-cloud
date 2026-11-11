@@ -90,6 +90,19 @@ import Testing
         #expect(defaults.object(forKey: RefineSpendMigration.switchKey) == nil)
     }
 
+    /// No key saved at the upgrade: Try Another can't ask Claude yet, and the notice says when it will.
+    @Test func withNoKeyTheNoticeSaysTryAnotherAsksOnceOneIsSaved() throws {
+        let defaults = ScratchDefaults("RefineSpendMigration")
+        AskClaudePrivacy.setSharedFolders(["/Users/someone"], in: defaults)
+
+        RefineSpendMigration.applyAtLaunch(defaults: defaults, now: now, keySaved: false)
+
+        let notice = try #require(RefineSpendMigration.pendingNotice(in: defaults))
+        #expect(notice.keySaved == false)
+        #expect(notice.text.hasPrefix("Once you save an API key, Try Another asks Claude, with the file’s first page"), "\(notice.text)")
+        #expect(!notice.text.contains("Try Another now asks Claude"))
+    }
+
     /// The switch was on: Try Another already asked Claude, so there's nothing new to say.
     @Test func aSwitchThatWasOnLeavesTryAnotherUnsaid() {
         let defaults = ScratchDefaults("RefineSpendMigration")

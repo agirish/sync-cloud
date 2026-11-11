@@ -60,7 +60,14 @@ public final class PaneInfoSlot {
     /// the room the arriving one has just written.
     private var owner: UUID?
 
+    /// Bumped by a Get Info while Info is open already: the stack brings Info back into view, as
+    /// it does when Info opens, or the click would seem to do nothing with Info scrolled off.
+    public private(set) var revealRequests = 0
+
     public init() {}
+
+    /// Asks the stack to bring Info into view.
+    public func requestReveal() { revealRequests += 1 }
 
     func report(_ room: Room, owner: UUID) {
         self.owner = owner

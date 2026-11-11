@@ -143,6 +143,8 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] != nil, "an edited copy must never be trashed as redundant")
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("changed since it was scanned") == true)
+        // Nothing was removed: a refusal, kept for this session only, as the gate's twin is.
+        #expect(manager.banner?.isRefusal == true)
     }
 
     /// A scan that recorded no date still resolves on size alone, rather than refusing the group
@@ -187,6 +189,7 @@ import Events
         #expect(said.contains("protected"), "the banner does not say why nothing was removed: “\(said)”")
         // And both copies are still there — nothing was trashed on the way to that message.
         #expect(mockFM.virtualDisk["/b/x"] != nil)
+        #expect(manager.banner?.isRefusal == true, "nothing left the disk, so it is kept for this session only")
     }
 
     /// A banner that names a cause must have checked it. A group with no redundant copies also
@@ -213,6 +216,7 @@ import Events
         #expect(!said.contains("changed since they were scanned"),
                 "…and it is not drift either: “\(said)”")
         #expect(said.contains("Nothing to remove"), "the banner stopped saying nothing was removed: “\(said)”")
+        #expect(manager.banner?.isRefusal == true)
     }
 
     /// …and the drift wording still covers the case it is for.
@@ -231,6 +235,7 @@ import Events
         #expect(manager.banner?.message.contains("changed since they were scanned") == true,
                 "a genuinely drifted batch stopped telling the user to rescan: “\(manager.banner?.message ?? "nil")”")
         #expect(mockFM.virtualDisk["/b/x"] != nil, "a drifted copy was trashed")
+        #expect(manager.banner?.isRefusal == true)
     }
 
     /// Space the user never got back must not be reported as reclaimed. A group whose redundant

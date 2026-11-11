@@ -91,6 +91,7 @@ import Testing
         #expect(await m.refineFilingSuggestions(m.filingSuggestions) == nil)
         #expect(sent.all.isEmpty)
         #expect(m.banner?.message == "Nothing was sent — those files are hidden from Claude.")
+        #expect(m.banner?.isRefusal == true, "nothing was sent, so Activity keeps it for this session only")
     }
 
     @Test func withNothingHiddenEveryFileIsSent() async throws {
@@ -172,6 +173,8 @@ import Testing
         await tryAnotherUntilReAsked(m, sent, file: "mystery-0.pdf")
         #expect(sent.all.isEmpty)
         #expect(m.banner?.message == "“mystery-0.pdf” is hidden from Claude, so it wasn’t asked for another folder. Choose one instead.")
+        // A refusal, so the hidden file's name is never written to the kept messages file.
+        #expect(m.banner?.isRefusal == true)
 
         // The unhidden file in the same scan is re-asked, so the loop above could reach a re-ask.
         await tryAnotherUntilReAsked(m, sent, file: "mystery-1.pdf")

@@ -184,4 +184,18 @@ import Testing
         #expect(refused.sentence == "No folder survey is loaded.")
         #expect(SurveyRefreshOutcome.updated(folders: 2, previousFolders: 1).refusal == nil)
     }
+
+    /// Update the Survey's message: a guard that stopped it is a refusal, kept for the session
+    /// only; a walk that ran and failed is kept past it, like any failure.
+    @Test func aRefusedRefreshIsARefusalAndAFailedOneIsKept() {
+        let refused = SurveyRefreshOutcome.refused("Wait for the duplicate scan to finish first.").banner
+        #expect(refused.isRefusal)
+        #expect(refused.message == "Wait for the duplicate scan to finish first.")
+        let failed = SurveyRefreshOutcome.failed("The survey was not refreshed — the disk is full").banner
+        #expect(!failed.isRefusal)
+        #expect(failed.severity == .warning)
+        #expect(SurveyRefreshOutcome.failed("x").refusal == "x", "the card shows a failure as it shows a refusal")
+        let updated = SurveyRefreshOutcome.updated(folders: 2, previousFolders: 1).banner
+        #expect(updated.severity == .success && !updated.isRefusal)
+    }
 }

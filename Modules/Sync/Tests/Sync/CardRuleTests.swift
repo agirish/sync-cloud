@@ -36,6 +36,16 @@ import Testing
         #expect(AutomationRuleProposer.cardNameWord("Chase Statement Oct 2026.pdf") == "chase")
     }
 
+    /// A browser's or scanner's word says nothing about whose a file is: a rule on "download"
+    /// would take every statement whose footer says "Download our app".
+    @Test func aScannerOrBrowserWordIsNeverTheRulesWord() {
+        for name in ["download-9.pdf", "attachment.pdf", "export (2).pdf", "Unnamed Printout.pdf", "PXL_20261003.jpg"] {
+            #expect(AutomationRuleProposer.cardNameWord(name) == nil, "\(name)")
+        }
+        #expect(AutomationRuleProposer.cardNameWord("Download Chase Statement.pdf") == "chase")
+        #expect(AutomationRuleProposer.cardNameWord("Export - Ally 1099.pdf") == "ally")
+    }
+
     @Test func aNameWithNoSuchWordOffersNothingWithoutTheSurveysMemory() {
         // Page 1 alone would key on its longest word: a guess, so no rule.
         #expect(AutomationRuleProposer.cardWords(fileName: "Scan 0042.pdf", destinationRelativePath: "Travel/Trips",
@@ -145,6 +155,51 @@ import Testing
         // A second pick keeps the folder the card had.
         plan.choose(.init(label: "Receipts", path: "/docs/Receipts"), forRow: 0)
         #expect(!plan.rows[0].teaches && plan.rows[0].pickedFrom == "/docs/Receipts")
+    }
+
+    /// TE327 leads with a new folder of the app's; the router's own best is second. Taking either
+    /// corrects nothing, so no rule pins every lease to 2026.
+    @Test func takingTheRoutersFolderOverTheAppsNewOneTeachesNothing() {
+        func card() -> AskClaudePlan {
+            let choices: [AskClaudePlan.Choice] = [.init(label: "Lease › 2027", path: "/docs/Lease/2027", isNew: true),
+                                                   .init(label: "Lease › 2026", path: "/docs/Lease/2026"),
+                                                   .init(label: "Home", path: "/docs/Home")]
+            return AskClaudePlan(title: "File 1", subtitle: "", rows: [
+                .init(id: 0, name: "Lease 2027.pdf", change: .move(from: "/d/Lease 2027.pdf", toFolder: "/docs/Lease/2027"),
+                      ticked: false, confidence: "Medium", folderLabel: "Lease › 2027", choices: choices)])
+        }
+        var plan = card()
+        plan.choose(plan.rows[0].choices[1], forRow: 0)
+        #expect(!plan.rows[0].teaches && plan.rows[0].pickedFrom == "/docs/Lease/2026" && plan.rows[0].pickedFromLabel == "Lease › 2026")
+        plan.choose(plan.rows[0].choices[0], forRow: 0)
+        #expect(!plan.rows[0].teaches, "back to the app's new folder")
+        plan.choose(plan.rows[0].choices[2], forRow: 0)
+        #expect(plan.rows[0].teaches, "a folder of their own")
+        // Renamed, the new folder is still the app's.
+        var renamed = card()
+        renamed.rows.append(.init(id: 1, name: "New folder “2027”", change: .newFolder(in: "/docs/Lease", name: "2027"), ticked: true))
+        renamed.choose(renamed.rows[0].choices[1], forRow: 0)
+        #expect(renamed.renameNewFolder(1, to: "2027 Lease", existing: { _ in nil }) == nil)
+        renamed.choose(renamed.rows[0].choices[0], forRow: 0)
+        #expect(renamed.rows[0].change == .move(from: "/d/Lease 2027.pdf", toFolder: "/docs/Lease/2027 Lease") && !renamed.rows[0].teaches)
+    }
+
+    /// Move Here on filing help's card, the same way: the app's new folder or the router's best
+    /// is no pick; the runner-up past them is.
+    @Test func moveHereOnTheRoutersFolderUnderTheAppsNewOneTeachesNothing() {
+        let card = AskClaudeFilingCard(fileName: "Lease 2027.pdf", filePath: "/d/Lease 2027.pdf", kind: .suggestions, folders: [
+            .init(label: "Lease › 2027", path: "/docs/Lease/2027", confidence: "Medium", reason: "Named like", fromFile: false, isNew: true),
+            .init(label: "Lease › 2026", path: "/docs/Lease/2026", confidence: "Medium", reason: "Fits", fromFile: false),
+            .init(label: "Home", path: "/docs/Home", confidence: "Medium", reason: "Fits", fromFile: false)])
+        func moveHere(_ folder: String) -> AskClaudePlan.Row {
+            var row = AskClaudePlan.Row(id: 0, name: "Lease 2027.pdf", change: .move(from: "/d/Lease 2027.pdf", toFolder: folder), ticked: true)
+            row.noteMoveHere(card)
+            return row
+        }
+        #expect(!moveHere("/docs/Lease/2026").chosen && !moveHere("/docs/Lease/2026").teaches)
+        #expect(!moveHere("/docs/Lease/2027").teaches)
+        let home = moveHere("/docs/Home")
+        #expect(home.teaches && home.pickedFrom == "/docs/Lease/2026" && home.reason == "Your pick")
     }
 
     @Test func theCardSaysWhatTaughtItAndWhereTheFilesWent() throws {

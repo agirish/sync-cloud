@@ -182,7 +182,7 @@ struct AskClaudeSuggestionChip: View {
         }()
         return .init(isRunning: chat.isRunning, hasQueued: chat.queued != nil, isEditing: chat.editing != nil,
                      isListening: listening, hasDraft: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                     canAsk: keySaved && !overLimit)
+                     canAsk: keySaved && !overLimit, hasAttachments: !chat.attachments.isEmpty)
     }
 
     private func folder(_ target: AskClaudeSuggestionSources.Target) -> AskClaudeSuggestions.Folder {

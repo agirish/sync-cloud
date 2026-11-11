@@ -115,9 +115,13 @@ public enum AskClaudeSuggestions {
         public var isListening = false
         public var hasDraft = false
         public var canAsk = true
+        /// Items attached above the box: they were attached for a question of their own, and the
+        /// chip's click would send them with its own.
+        public var hasAttachments = false
 
         public init(isRunning: Bool = false, hasQueued: Bool = false, isEditing: Bool = false,
-                    isListening: Bool = false, hasDraft: Bool = false, canAsk: Bool = true) {
+                    isListening: Bool = false, hasDraft: Bool = false, canAsk: Bool = true, hasAttachments: Bool = false) {
+            self.hasAttachments = hasAttachments
             self.isRunning = isRunning
             self.hasQueued = hasQueued
             self.isEditing = isEditing
@@ -126,7 +130,7 @@ public enum AskClaudeSuggestions {
             self.canAsk = canAsk
         }
 
-        public var isFree: Bool { canAsk && !isRunning && !hasQueued && !isEditing && !isListening && !hasDraft }
+        public var isFree: Bool { canAsk && !isRunning && !hasQueued && !isEditing && !isListening && !hasDraft && !hasAttachments }
     }
 
     // MARK: Memory

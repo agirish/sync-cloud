@@ -381,6 +381,8 @@ import Combine
         #expect(manager.banner?.message.contains("couldn’t be fully checked") == true)
         #expect(manager.banner?.message.contains("changed since") != true,
                 "no change was measured, so none may be claimed")
+        // Nothing was removed, so Activity keeps it for this session only.
+        #expect(manager.banner?.isRefusal == true)
 
         // The batch draws the same line when every refusal is a missing baseline.
         manager.banner = nil
@@ -388,6 +390,7 @@ import Combine
         #expect(mockFM.virtualDisk["/b/Photos"] != nil)
         #expect(manager.banner?.message.contains("couldn’t be fully checked") == true)
         #expect(manager.banner?.message.contains("changed since") != true)
+        #expect(manager.banner?.isRefusal == true)
     }
 
     /// Nested folders are entries too — a subdirectory is present in the baseline in its own

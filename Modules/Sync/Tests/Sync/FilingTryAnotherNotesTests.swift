@@ -54,9 +54,11 @@ extension HandBuiltRefineSuites {
         return m
     }
 
-    private func scanned(_ m: FileSyncManager, files: Int = 1) async throws -> URL {
+    /// A scan that read each file's first page, as a real one does for a file on this Mac.
+    private func scanned(_ m: FileSyncManager, files: Int = 1, readPages: Bool = true) async throws -> URL {
         let root = HandBuiltFiling.root("notes", files: files)
         HandBuiltFiling.build(m, root: root)
+        if readPages { for s in m.filingSuggestions { m.filingPageSamples[s.filePath] = "Invoice from Northwind for March" } }
         return root
     }
 
@@ -74,6 +76,21 @@ extension HandBuiltRefineSuites {
         #expect(claude.count == 0)
         let note = try #require(m.filingTryAnotherNotes[c.filePath])
         #expect(note.text == "This folder asks before Claude reads files, so Try Another used this Mac." && note.offersClaudeWithPage)
+    }
+
+    /// A file whose first page wasn't read (cloud-only, or reading off): the click would send, and
+    /// bill, its name alone, so neither the button nor the note offers it.
+    @Test func noPageReadOffersNoPage() async throws {
+        let claude = Counter()
+        let m = manager(claude)
+        let root = try await scanned(m, readPages: false); defer { try? FileManager.default.removeItem(at: root) }
+        let c = try card(m)
+        #expect(!m.canAskClaudeWithPage(c))
+
+        await m.tryAnotherFolder(for: c)
+
+        #expect(claude.count == 0)
+        #expect(m.filingTryAnotherNotes[c.filePath]?.offersClaudeWithPage == false)
     }
 
     @Test func theClickSendsThePageToClaudeAndClearsTheNote() async throws {

@@ -67,7 +67,9 @@ import Testing
         let facts = AskClaudeSuggestions.Facts(workspace: "Browse", downloads: [downloads((1...6).map { ago(Double($0)) })])
         #expect(pick(facts) != nil)
         for busy in [AskClaudeSuggestions.Box(isRunning: true), .init(hasQueued: true), .init(isEditing: true),
-                     .init(isListening: true), .init(hasDraft: true), .init(canAsk: false)] {
+                     .init(isListening: true), .init(hasDraft: true), .init(canAsk: false),
+                     // Items attached for a question of their own: the chip's click would send them.
+                     .init(hasAttachments: true)] {
             #expect(pick(facts, box: busy) == nil)
         }
     }

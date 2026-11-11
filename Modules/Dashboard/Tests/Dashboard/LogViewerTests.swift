@@ -331,6 +331,41 @@ import Events
             #expect(shown.emptyState == .none)
             #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: shown.emptyState))
         }
+
+        /// Show in Log on a message from an earlier session whose minutes the log no longer holds:
+        /// with the history read, the list says the log doesn't reach them, not that it is empty.
+        @Test func minutesTheLogNoLongerHoldsAreSaidToBeGone() {
+            let span = now.addingTimeInterval(-90 * 86_400)...now.addingTimeInterval(-90 * 86_400 + 300)
+            let older = LogEntry(timestamp: now.addingTimeInterval(-3_600), level: .info, message: "later line")
+            let shown = LogViewerContents(session: [], history: .loaded(entries: [older], revealed: 25),
+                                          minimumLevel: nil, search: "", pageSize: 25, span: span, now: now)
+            #expect(shown.emptyState == .spanNotInLog)
+            // Unnarrowed, the same empty log is still "nothing from earlier sessions".
+            #expect(contents(history: .loaded(entries: [], revealed: 25)).emptyState == .noEarlierActivity)
+        }
+    }
+
+    // MARK: Show in Log on an earlier session's message
+
+    /// Show in Log's minutes from before this launch are only in the earlier sessions' log, so the
+    /// Log reads it as it opens; minutes from this session, or a log already read, need nothing.
+    @Test func minutesFromAnEarlierSessionReadTheEarlierLog() {
+        let launch = Date(timeIntervalSince1970: 1_780_000_000)
+        let earlier = launch.addingTimeInterval(-86_400)...launch.addingTimeInterval(-86_100)
+        let now = launch.addingTimeInterval(60)...launch.addingTimeInterval(120)
+        #expect(LogViewer.spanNeedsHistory(earlier, sessionStart: launch, history: .notLoaded))
+        #expect(!LogViewer.spanNeedsHistory(now, sessionStart: launch, history: .notLoaded))
+        #expect(!LogViewer.spanNeedsHistory(nil, sessionStart: launch, history: .notLoaded))
+        #expect(!LogViewer.spanNeedsHistory(earlier, sessionStart: launch, history: .loaded(entries: [], revealed: 25)))
+        #expect(!LogViewer.spanNeedsHistory(earlier, sessionStart: launch, history: .loading(token: UUID())))
+    }
+
+    /// …and the view asks as it opens and whenever Show in Log narrows it again.
+    @Test func theLogAsksForTheEarlierLogWhenItOpensOnOldMinutes() throws {
+        let viewer = try DashboardSource.read("LogViewer.swift", codeOnly: true)
+        #expect(viewer.contains(".onAppear { loadHistoryIfTheSpanNeedsIt() }"))
+        #expect(viewer.contains(".onChange(of: span) { _, _ in loadHistoryIfTheSpanNeedsIt() }"))
+        #expect(viewer.contains("if Self.spanNeedsHistory(span, sessionStart: logger.sessionStart, history: history) { loadHistory() }"))
     }
 
     // MARK: Isolation

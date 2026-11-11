@@ -113,6 +113,38 @@ import Events
         #expect(nothing.runId == nil)
     }
 
+    /// A Duplicates merge trashes the folded copy through `deleteItems`, which records a run and
+    /// says "Moved 1 item…"; the merge's own "Merged …" replaces that message, so it must report
+    /// the run in its place, or Events shows the run under the trash's sentence and the merge as a
+    /// row of its own. A real file manager (the merge hashes real bytes) on a Trash-less volume, so
+    /// nothing reaches the real Trash.
+    @Test func aMergesMessageReportsTheRunItsTrashRecorded() async throws {
+        let store = makeTempHistoryStore(prefix: "RunReportingMessageTest")
+        defer { removeHistoryStoreFiles(store) }
+        let base = try makeCanonicalTempRoot(prefix: "RunReportingMerge")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper"), redundant = base.appendingPathComponent("Copy")
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        try writeBytes(redundant.appendingPathComponent("unique.txt"), bytes: 4000, fill: 0x55)
+        let k = DuplicateCopy.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)
+        let r = DuplicateCopy.stub(redundant.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1)
+        let group = DuplicateGroup.stub([k, r], matchType: .overlapping(sharedFraction: 0.5), reclaimable: 4000)
+
+        let manager = FileSyncManager(fileManager: TrashRefusingVolume())
+        manager.syncHistoryStore = store
+        manager.undoManager = UndoManager()
+        manager.permanentDeleteConfirmer = { _ in true }
+        manager.duplicateGroups = [group]
+
+        #expect(await manager.mergeDuplicateGroup(group) == true)
+        let banner = try #require(manager.banner)
+        #expect(banner.message.hasPrefix("Merged “"), "\(banner.message)")
+        let trashRun = try #require(store.records.first(where: { $0.action == .delete })?.runId,
+                                    "the merge's trash recorded no run, so there is nothing to report")
+        #expect(banner.runId == trashRun)
+    }
+
     /// A bulk sync's message reports its run; a second run's message reports the second, not the first.
     @Test func eachBulkSyncsMessageReportsItsOwnRun() async throws {
         let store = makeTempHistoryStore(prefix: "RunReportingMessageTest")

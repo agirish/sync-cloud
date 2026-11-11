@@ -27,3 +27,18 @@ import Foundation
         #expect(listeners == 2, "the scan found \(listeners) listeners; a new or renamed one needs adding here")
     }
 }
+
+/// A button under Claude's question and a card's Next answer Claude: their words go to Claude and
+/// are never tried as a command on this Mac, where "Into Documents" could become a go-to.
+@Suite struct AnswerButtonsGoToClaudeTests {
+    @Test func aButtonsWordsSkipTheOnDeviceLane() throws {
+        let code = sourceCodeOnly(try macAppFile("ContentView+AskClaude.swift"))
+        for anchor in ["onChoice:", "case .next:"] {
+            let start = try #require(code.range(of: anchor), "no \(anchor) in the panel's wiring")
+            let body = code[start.upperBound...].prefix(400)
+            let send = try #require(body.range(of: "askClaudeSend("), "\(anchor) no longer sends")
+            let call = body[send.lowerBound...].prefix { $0 != "\n" }
+            #expect(call.contains("typed: false") && !call.contains("onDevice: true"), "\(anchor): \(call)")
+        }
+    }
+}

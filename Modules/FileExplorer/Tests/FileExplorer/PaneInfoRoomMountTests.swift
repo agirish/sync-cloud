@@ -118,6 +118,31 @@ import Sync
                 "the reveal parked the stack at \(room.frame.maxX), not at the visible edge \(viewport.maxX)")
     }
 
+    /// Info scrolled off the trailing edge comes back on a reveal request (Get Info with Info open),
+    /// as it does when it opens. Mutation: without the request's onChange, the stack stays put.
+    @Test func aRevealRequestBringsInfoBack() async throws {
+        let slot = PaneInfoSlot()
+        let (window, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot))
+        defer { _ = window }
+        let stack = try #require(slot.stackScroller)
+        // Scrolled back to the first column, until it holds: the mount's own reveal can still be
+        // landing on a loaded machine and put the stack back. Bounded.
+        var away = try #require(slot.room)
+        for _ in 0..<40 {
+            stack.contentView.scroll(to: .zero)
+            stack.reflectScrolledClipView(stack.contentView)
+            await pump(window, seconds: 0.25)
+            away = try #require(slot.room)
+            if let viewport = away.viewport, away.frame.maxX > viewport.maxX + 50 { break }
+        }
+        let viewport = try #require(away.viewport)
+        try #require(away.frame.maxX > viewport.maxX + 50, "the stack never scrolled Info off (\(away.frame.maxX) vs \(viewport.maxX))")
+        slot.requestReveal()
+        await pump(window, seconds: 1.0)
+        let back = try #require(slot.room)
+        #expect(abs(back.frame.maxX - viewport.maxX) < 1.5, "Info stayed off at \(back.frame.maxX), edge \(viewport.maxX)")
+    }
+
     /// Info finds the scroll view a swipe over it is handed to: the stack's, never a column's list,
     /// which would turn a sideways swipe over Info into a vertical scroll of some column.
     @Test func infoFindsTheStacksScrollView() async throws {
@@ -193,6 +218,18 @@ import Sync
         #expect(step(&routing, phase: [], momentumPhase: [], overInfo: true))
         #expect(!step(&routing, phase: [], momentumPhase: [], overInfo: false))
         #expect(!routing.claimed)
+    }
+
+    /// Info scrolled past the stack's edge keeps its frame there, over the next pane: a swipe in
+    /// that pane isn't over Info as seen, and is that pane's alone. Mutation: judging by Info's
+    /// frame alone sends To File's swipes to the rail's columns.
+    @Test func onlyTheInfoYouCanSeeClaimsASwipe() {
+        let info = NSRect(x: 600, y: 0, width: 300, height: 500)
+        let stack = NSRect(x: 0, y: 0, width: 700, height: 500)
+        #expect(PaneInfoWheelRouting.isOverInfo(NSPoint(x: 650, y: 100), info: info, stack: stack))
+        #expect(!PaneInfoWheelRouting.isOverInfo(NSPoint(x: 800, y: 100), info: info, stack: stack))
+        #expect(!PaneInfoWheelRouting.isOverInfo(NSPoint(x: 100, y: 100), info: info, stack: stack))
+        #expect(!PaneInfoWheelRouting.isOverInfo(NSPoint(x: 650, y: 100), info: info, stack: nil))
     }
 
     /// A cancelled gesture lets go.

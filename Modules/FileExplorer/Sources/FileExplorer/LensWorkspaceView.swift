@@ -2979,9 +2979,7 @@ public struct LensWorkspaceView: View {
                             Task { @MainActor in
                                 refreshSurveyRefusal = nil
                                 let outcome = await syncManager.refreshDerivedProfile()
-                                syncManager.banner = outcome.refusal == nil
-                                    ? .success(outcome.sentence)
-                                    : .warning(outcome.sentence, log: .warn)
+                                syncManager.banner = outcome.banner
                             }
                         },
                         // The engine's own guard, as the enabled state, so a running landing

@@ -65,6 +65,11 @@ public struct OperationBanner: Equatable, Sendable {
     /// kept past the session, where it would only bury what did happen. Set by ``refusal(_:log:)``.
     public var isRefusal = false
 
+    /// A note about something still under way ("Downloading “Lease.pdf”…"), which its ending
+    /// replaces: no outcome yet, so never kept past the session and no problem to point at. Set by
+    /// ``inProgress(_:log:)``.
+    public var isInProgress = false
+
     /// A door out of a finished result.
     public enum FollowUp: Codable, Equatable, Sendable {
         /// "Open in Edit" — the file just written.
@@ -103,6 +108,14 @@ public struct OperationBanner: Equatable, Sendable {
     public static func refusal(_ message: String, log: LogLevel) -> OperationBanner {
         var banner = OperationBanner(message: message, severity: .warning, log: log)
         banner.isRefusal = true
+        return banner
+    }
+
+    /// Something still under way, said until its ending replaces it: drawn as a warning, kept for
+    /// the session only.
+    public static func inProgress(_ message: String, log: LogLevel) -> OperationBanner {
+        var banner = OperationBanner(message: message, severity: .warning, log: log)
+        banner.isInProgress = true
         return banner
     }
 

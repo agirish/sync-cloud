@@ -31,6 +31,15 @@ struct PaneInfoWheelRouting {
         }
         return answer
     }
+
+    /// Whether a point is over Info as it is seen: inside Info's frame and inside the stack's
+    /// scroll view, which Info is masked to. Info scrolled past the stack's edge still has its
+    /// frame there, over the next pane, and a swipe in that pane is that pane's. All in window
+    /// coordinates; no stack, no claim.
+    static func isOverInfo(_ point: NSPoint, info: NSRect, stack: NSRect?) -> Bool {
+        guard let stack else { return false }
+        return info.contains(point) && stack.contains(point)
+    }
 }
 
 public extension View {
@@ -87,9 +96,11 @@ struct PaneInfoWheelForwarder: NSViewRepresentable {
 
         private func handle(_ event: NSEvent) {
             guard let window, event.window === window else { return }
-            let overInfo = bounds.contains(convert(event.locationInWindow, from: nil))
+            let scroller = slot?.stackScroller.flatMap { $0.window === window ? $0 : nil }
+            let overInfo = PaneInfoWheelRouting.isOverInfo(event.locationInWindow, info: convert(bounds, to: nil),
+                                                           stack: scroller.map { $0.convert($0.bounds, to: nil) })
             guard routing.forwards(phase: event.phase, momentumPhase: event.momentumPhase, overInfo: overInfo),
-                  let stack = slot?.stackScroller, stack.window === window else { return }
+                  let stack = scroller else { return }
             stack.scrollWheel(with: event)
         }
     }

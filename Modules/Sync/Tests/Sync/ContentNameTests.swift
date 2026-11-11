@@ -159,13 +159,70 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: dir) }
         var p = plan(dir)
         p.choose(.init(label: "Bank", path: dir + "/Bank"), forRow: 0)
-        p.renameForFolders { facts, _, folder in
+        p.renameForFolders { facts, _, folder, _ in
             folder.hasSuffix("/Bank") ? .init(name: "\(facts.year) Bank Copy.pdf", basis: .plain) : nil
         }
         #expect(p.rows[0].newName == "2025 Bank Copy.pdf" && p.rows[0].nameBasis == "Named by year, who it’s from and what it is")
         _ = p.setName("Mine", row: 0)
-        p.renameForFolders { _, _, _ in .init(name: "Other.pdf", basis: .plain) }
+        p.renameForFolders { _, _, _, _ in .init(name: "Other.pdf", basis: .plain) }
         #expect(p.rows[0].newName == "Mine.pdf")
+    }
+
+    /// Two scans filed together into a folder numbered by position take two numbers: each row's
+    /// name is made with the names of the ticked rows above it counted as in the folder.
+    @Test func twoScansIntoANumberedFolderTakeTwoNumbers() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let ally = dir + "/Ally"
+        try FileManager.default.createDirectory(atPath: ally, withIntermediateDirectories: true)
+        for (i, month) in ["Jan", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep"].enumerated() {
+            FileManager.default.createFile(atPath: ally + String(format: "/%02d. %@ 2025.pdf", i + 1, month), contents: Data("s".utf8))
+        }
+        func row(_ id: Int, _ file: String, month: Int, ticked: Bool = true) -> AskClaudePlan.Row {
+            var row = AskClaudePlan.Row(id: id, name: file, change: .move(from: dir + "/" + file, toFolder: ally), ticked: ticked)
+            row.nameFacts = .init(year: 2025, month: month, from: "Ally", what: "Statement")
+            return row
+        }
+        func name(_ facts: ContentName.Facts, _ from: String, _ to: String, _ taken: [String]) -> ContentName.Proposal? {
+            ContentName.propose(facts, ext: "pdf", folderPath: to, relativePath: "",
+                                folderFiles: FileSyncManager.namingFiles(in: to, isHidden: { _ in false }, taken: taken), profile: nil)
+        }
+        var p = AskClaudePlan(title: "File 3", subtitle: "", rows: [row(0, "Scan 0041.pdf", month: 10), row(1, "Scan 0042.pdf", month: 11),
+                                                                    row(2, "Scan 0043.pdf", month: 12, ticked: false)])
+        p.renameForFolders(name)
+        #expect(p.rows.map(\.newName) == ["09. Oct 2025.pdf", "10. Nov 2025.pdf", "11. Dec 2025.pdf"])
+        let ordinals = p.rows.compactMap { $0.newName.flatMap(OrdinalMonthName.parse)?.ordinal }
+        #expect(Set(ordinals).count == 3)
+        // An unticked row lands nowhere, so it takes no number from the rows below it.
+        p.setTicked(false, row: 0)
+        p.renameForFolders(name)
+        #expect(p.rows[1].newName == "09. Nov 2025.pdf")
+    }
+
+    /// A name made again is one Claude never saw: the strip stops saying Claude has it.
+    @Test func aNameMadeAgainIsHeldAgain() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        var p = plan(dir)
+        p.names = AskClaudeHeldNames(shared: true)
+        p.renameForFolders { _, _, _, _ in .init(name: "2025 Ally 1099-INT.pdf", basis: .plain) }
+        #expect(p.names?.shared == true, "the same name stays shared")
+        p.renameForFolders { _, _, _, _ in .init(name: "2025 Ally Statement.pdf", basis: .plain) }
+        #expect(p.names?.shared == false)
+        // Sent to another folder, the name Claude has went with the folder it had.
+        var moved = plan(dir)
+        moved.names = AskClaudeHeldNames(shared: true)
+        moved.choose(.init(label: "Bank", path: dir + "/Bank"), forRow: 0)
+        #expect(moved.names?.shared == false)
+        // A typed name, too; a folder shared without asking keeps them shared.
+        var typed = plan(dir)
+        typed.names = AskClaudeHeldNames(shared: true)
+        _ = typed.setName("Mine", row: 0)
+        #expect(typed.names?.shared == false)
+        var free = plan(dir)
+        free.names = AskClaudeHeldNames(shared: true, sharedBy: "Downloads")
+        _ = free.setName("Mine", row: 0)
+        #expect(free.names?.shared == true)
     }
 
     /// What the strip says, and that a held card's loose-files result counts names without them.
@@ -192,5 +249,31 @@ import Testing
         #expect(AskClaudeFiling.result(card, sharesFreely: true).contains("renamed there to 2025 Ally 1099-INT.pdf"))
         card.names = AskClaudeHeldNames(shared: true)
         #expect(AskClaudeFiling.result(card, sharesFreely: false).contains("renamed there to 2025 Ally 1099-INT.pdf"))
+    }
+
+    /// Decision NF: a name styled after the files of a folder that asks first tells what that folder
+    /// holds, so it waits for Share Names and Folders though the file's own folder shares. A plain
+    /// name still goes. Mutation: ignoring `nameHeld` sends Taxes' file name to Claude.
+    @Test func aNameCopiedFromAFolderThatAsksIsHeldThoughTheFileShares() throws {
+        var copied = AskClaudeFilingCard.Folder(label: "iCloud › Taxes", path: "/r/Taxes", confidence: "High", reason: "Like its neighbours", fromFile: false)
+        copied.newName = "2025 Ally Bank 1099-INT Corrected.pdf"
+        copied.nameHeld = true
+        var plain = AskClaudeFilingCard.Folder(label: "iCloud › Inbox", path: "/r/Inbox", confidence: "Medium", reason: "Recent files", fromFile: false)
+        plain.newName = "2025 Ally statement.pdf"
+        var card = AskClaudeFilingCard(fileName: "Scan 0042.pdf", filePath: "/d/Scan 0042.pdf", kind: .suggestions, folders: [copied, plain])
+        let sent = AskClaudeFiling.result(card, sharesFreely: true)
+        #expect(!sent.contains("Corrected") && sent.contains("Their card has Share Names and Folders"), "\(sent)")
+        #expect(sent.contains("renamed there to 2025 Ally statement.pdf"))
+        card.names = AskClaudeHeldNames(shared: true)
+        #expect(AskClaudeFiling.result(card, sharesFreely: true).contains("renamed there to 2025 Ally Bank 1099-INT Corrected.pdf"))
+
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        var p = plan(dir)
+        p.rows[0].nameHeld = true
+        let loose = AskClaudeLooseFiles.result(p, leftHereCount: 0, nextFrom: nil, rows: true)
+        #expect(!loose.contains("renamed to") && loose.contains("1 new name copy the style"), "\(loose)")
+        #expect(ContentName.Basis.like("2024 Ally.pdf").copiesFolder && ContentName.Basis.numbered(after: nil).copiesFolder)
+        #expect(!ContentName.Basis.plain.copiesFolder)
     }
 }

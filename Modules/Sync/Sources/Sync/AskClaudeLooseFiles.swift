@@ -236,10 +236,14 @@ extension AskClaudeLooseFiles {
                 case .alreadyFiled: folder = "already filed; a Trash row"
                 case .emptied: folder = "emptied folders; a Trash row"
                 }
-                let note = [row.newName.map { "renamed to \($0)" }, row.note].compactMap { $0 }.joined(separator: " · ")
+                let note = [row.nameHeld == true ? nil : row.newName.map { "renamed to \($0)" }, row.note].compactMap { $0 }.joined(separator: " · ")
                 lines.append([row.name, folder, row.confidence ?? "", row.ticked ? "ticked" : "not ticked", note]
                     .map(AskClaudeScreenCard.escape).joined(separator: "|"))
             }
+        }
+        let held = plan.rows.filter { $0.newName != nil && $0.nameHeld == true }.count
+        if held > 0 {
+            lines.append("\(held) new name\(held == 1 ? "" : "s") copy the style of files in a folder that asks before Claude reads it, so \(held == 1 ? "it isn’t" : "they aren’t") sent to you; their card has Share Names and Folders. Don’t guess \(held == 1 ? "it" : "them").")
         }
         if let left = plan.leftHere, leftHereCount > 0 { lines.append(AskClaudeScreenCard.escape(left)) }
         if let nextFrom, let more = plan.more {

@@ -163,6 +163,70 @@ import Sync
         #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Couldn’t move “a.pdf”"])
     }
 
+    /// Two copies of the app share the file. A line the other appends while this one rewrites (a
+    /// trim, a forget) must survive: the rewrite holds the file's lock from its read to its write,
+    /// so the other's append waits for it. Without the lock the append lands in the file the
+    /// rewrite is about to replace, and is lost. The other copy is given half a second to land
+    /// inside the rewrite, so a lock that is missing shows as a lost line, not a hang.
+    @Test func aLineAnotherCopyAppendsDuringARewriteSurvives() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mine = ActivityMessageStore(fileURL: url)
+        mine.save(message("Copied 4 items", runId: UUID()))
+        mine.flush()
+        let theirs = ActivityMessageStore(fileURL: url)
+        mine.beforeRewrite = {
+            theirs.save(ActivityMessage(message: "Couldn’t move “a.pdf”", severity: .error))
+            let landed = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async { theirs.flush(); landed.signal() }
+            _ = landed.wait(timeout: .now() + 0.5)
+        }
+        mine.forgetRunMessages()
+        mine.flush()
+        mine.beforeRewrite = nil
+        theirs.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Couldn’t move “a.pdf”"],
+                "the other copy's message was lost to the rewrite")
+    }
+
+    /// Another copy cleared the file: this copy's next repeat of a row it kept doesn't bring the
+    /// cleared row back. A new message is still kept.
+    @Test func aRowAnotherCopyClearedIsNotWrittenBackByARepeat() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let mine = ActivityMessageStore(fileURL: url)
+        let center = ActivityCenter()
+        center.attachMessages(mine)
+        center.record(ActivityMessage(message: "Skipped 3 items", severity: .warning), seen: true)
+        mine.flush()
+        let theirs = ActivityMessageStore(fileURL: url)
+        theirs.clearAll()
+        theirs.flush()
+        // The same sentence again folds into the row this copy still shows.
+        center.record(ActivityMessage(message: "Skipped 3 items", severity: .warning), seen: true)
+        #expect(center.recent.first?.repeats == 2)
+        center.record(OperationBanner.success("Saved 1 PDF"), finishedRun: nil, seen: true)
+        mine.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Saved 1 PDF"],
+                "a row the other copy cleared came back")
+    }
+
+    /// A note of something still under way ("Downloading “Lease.pdf”…") is shown and never kept,
+    /// and lights no dot: its ending says whether anything went wrong.
+    @Test func aNoteOfSomethingUnderWayIsNeverKept() {
+        let url = scratchURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = ActivityMessageStore(fileURL: url)
+        let center = ActivityCenter()
+        center.attachMessages(store)
+        center.record(OperationBanner.inProgress("Downloading “Lease.pdf”…", log: .info), finishedRun: nil, seen: false)
+        #expect(center.recent.first?.isInProgress == true)
+        #expect(!center.hasUnseenProblem, "a download under way lit the problem dot")
+        center.record(OperationBanner.success("Copied 2 items"), finishedRun: nil, seen: true)
+        store.flush()
+        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Copied 2 items"])
+    }
+
     private func append(_ url: URL, _ text: String) throws {
         if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
         let handle = try FileHandle(forWritingTo: url)
@@ -277,6 +341,25 @@ import Sync
         center.showOneWaySyncHistory()
         #expect(center.tab == .events)
         #expect(center.wantsOneWaySyncHistory)
+    }
+
+    // MARK: Refusals flagged where they are said
+
+    /// Two refusals no test can reach by running them, flagged where they are said: Settings'
+    /// document reading that can't start (its twin in To File is a refusal), and Try Another
+    /// stood down by the spend limit or an unpriced model, which sent nothing.
+    @Test func refusalsWithNoRunnableTestAreFlaggedAtTheirSites() throws {
+        let path = "Settings/Sources/Settings/FolderSurveysSection.swift"
+        let settings = try #require(try? String(contentsOf: SourceText.modules.appendingPathComponent(path), encoding: .utf8),
+                                    "cannot read \(path) — the scan would be vacuous")
+        let count = try SourceText.body(of: "private func count(_ source: (name: String, root: String)) {", in: settings)
+        #expect(count.contains("case .failure(let refusal):\n                syncManager.banner = .refusal(refusal.sentence, log: .warn)"),
+                "Settings shows a reading that couldn’t start as a message kept for 90 days")
+
+        let filing = try SourceText.sync("FileSyncManager+Filing.swift")
+        let gate = try SourceText.body(of: "func cloudSpendWithinCapsWithoutPrompting(", in: filing)
+        #expect(gate.components(separatedBy: "banner = .refusal(").count == 3, "both stand-downs must be refusals")
+        #expect(!gate.contains("banner = .warning("), "a re-ask that sent nothing is kept as a warning")
     }
 
     /// A refusal is drawn as a warning, and says it is one.

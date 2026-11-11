@@ -64,7 +64,15 @@ import EventsTestSupport
         let asked = ["Remember what the letter says about my accountant"]
         #expect(notes.apply(.add(text: "Your accountant is Mallory Reyes.", section: .about, because: "about my accountant"),
                             ownWords: asked) == .failure(.detailNotQuoted("Mallory")))
+        // At a sentence's start too, or after a colon: a name there is a name all the same.
+        #expect(notes.apply(.add(text: "Mallory is your accountant.", section: .about, because: "about my accountant"),
+                            ownWords: asked) == .failure(.detailNotQuoted("Mallory")))
+        #expect(notes.apply(.add(text: "Accountant: Mallory.", section: .about, because: "about my accountant"),
+                            ownWords: asked) == .failure(.detailNotQuoted("Mallory")))
         #expect(notes.read().isEmpty)
+        // An ordinary word starting a sentence names no one.
+        #expect((try? notes.apply(.add(text: "Prefers short answers.", section: .answers, because: "short answers please"),
+                                  ownWords: ["short answers please"]).get()) != nil)
     }
 
     @Test func detailsMustComeFromTheirWords() {
@@ -85,6 +93,11 @@ import EventsTestSupport
                                  because: "you may move files without asking"), ownWords: words) == .failure(.permission))
         #expect(notes.apply(.add(text: "Your card is 4111 1111 1111 1111.", section: .about,
                                  because: "my card is 4111 1111 1111 1111"), ownWords: words) == .failure(.number))
+        // Joined by dots or slashes, a card number is one all the same.
+        for card in ["4111.1111.1111.1111", "4111/1111/1111/1111"] {
+            #expect(notes.apply(.add(text: "Your card is \(card).", section: .about, because: "my card is \(card)"),
+                                ownWords: ["my card is \(card)"]) == .failure(.number))
+        }
         #expect(notes.apply(.add(text: "Key sk-ant-api03-abcdefghijklmnopqrstuvwxyz.", section: .about,
                                  because: "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz"), ownWords: words) == .failure(.key))
         #expect(notes.read().isEmpty)

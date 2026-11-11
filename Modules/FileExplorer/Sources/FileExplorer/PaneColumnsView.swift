@@ -367,6 +367,8 @@ struct PaneColumnsView: View {
                 guard let current, current > (previous ?? 0) else { return }
                 revealDeepestColumn(proxy)
             }
+            // And when Get Info asks for Info already open, maybe scrolled off the trailing edge.
+            .onChange(of: infoRoom?.slot.revealRequests) { _, _ in revealDeepestColumn(proxy) }
             // A reveal waiting out a hold must not outlive its pane: the queued chain holds this
             // view's captures and the `ScrollViewProxy` (see `PaneColumnHoldGate.cancelPendingReveal`).
             .onDisappear { holdGate.cancelPendingReveal() }

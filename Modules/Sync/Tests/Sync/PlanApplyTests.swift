@@ -356,3 +356,47 @@ import Events
         #expect(store.records.last?.sourcePath == dir + "/New")
     }
 }
+
+/// What Claude is told after Apply and Undo: never the rows of a card it was given only counts
+/// for, nor a hidden folder's name, nor a new name it hasn't seen.
+@Suite struct PlanReportTests {
+
+    private func card() -> AskClaudePlan {
+        var plan = AskClaudePlan(title: "File 3 Loose Files", subtitle: "", rows: [
+            .init(id: 0, name: "Scan 0041.pdf", change: .move(from: "/d/Scan 0041.pdf", toFolder: "/docs/Medical"), ticked: true),
+            .init(id: 1, name: "Scan 0042.pdf", change: .move(from: "/d/Scan 0042.pdf", toFolder: "/docs/Medical"), ticked: true),
+            .init(id: 2, name: "Scan 0043.pdf", change: .move(from: "/d/Scan 0043.pdf", toFolder: "/docs/Taxes"), ticked: true),
+        ])
+        plan.rows[2].newName = "2025 Ally 1099-INT.pdf"
+        plan.names = AskClaudeHeldNames()
+        plan.record(AskClaudePlanOutcome(rows: [0: .done("Moved"), 1: .refused("Medical is hidden from Claude"),
+                                                2: .failed("“2025 Ally 1099-INT.pdf” couldn’t be moved to “Taxes”.")],
+                                         undoName: "File 3 Loose Files"))
+        return plan
+    }
+
+    @Test func aHiddenFolderAndAHeldNameStayOutOfTheReport() {
+        let report = card().applyReport
+        #expect(report.contains("Scan 0042.pdf (its folder is hidden from Claude)"))
+        #expect(report.contains("Scan 0043.pdf (it couldn’t be moved; their card says why)"))
+        #expect(!report.contains("Medical") && !report.contains("Ally"))
+        var shared = card()
+        shared.names = AskClaudeHeldNames(shared: true)
+        #expect(shared.applyReport.contains("Scan 0043.pdf (“2025 Ally 1099-INT.pdf” couldn’t be moved to “Taxes”.)"), "Claude has the name")
+    }
+
+    @Test func aHeldCardsReportsAreCounts() {
+        var plan = card()
+        plan.rowsHeld = true
+        let report = plan.applyReport
+        #expect(report.hasPrefix("They applied your card “File 3 Loose Files”: Moved 1 file."))
+        #expect(report.hasSuffix(" 2 didn’t run; their card says why."))
+        #expect(!report.contains("Scan 004"))
+        #expect(plan.undoReport(notBack: [0]) == "They undid your card “File 3 Loose Files”, but 1 didn’t go back.")
+        #expect(card().undoReport(notBack: [0]) == "They undid your card “File 3 Loose Files”, but 1 didn’t go back: Scan 0041.pdf.")
+        #expect(plan.undoReport(notBack: []) == "They undid your card “File 3 Loose Files”: everything it did is back where it was.")
+        // Saved with the chat.
+        let decoded = try? JSONDecoder().decode(AskClaudePlan.self, from: JSONEncoder().encode(plan))
+        #expect(decoded?.rowsHeld == true)
+    }
+}

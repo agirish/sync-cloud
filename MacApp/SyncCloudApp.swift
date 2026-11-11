@@ -256,7 +256,7 @@ struct SyncCloudApp: App {
             // Refine's own spend and caps give way to Ask Claude's one limit: this month's spend is
             // carried into its total, the old caps and history become one notice, and the old record
             // goes. Once, by its stamp; a record that can't be read waits for the next launch.
-            if let line = RefineSpendMigration.applyAtLaunch() {
+            if let line = RefineSpendMigration.applyAtLaunch(keySaved: AnthropicKeychain.isConfigured) {
                 Logger.shared.info(line)
             }
 

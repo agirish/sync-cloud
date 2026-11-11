@@ -165,7 +165,7 @@ extension ContentView {
         if askClaudeChat.askAgain == nil {
             askClaudeChat.askAgain = { asked, shown, spoken in
                 if asked.editable {
-                    askClaudeSend(asked.question, attached: asked.attachments, spoken: spoken)
+                    askClaudeSend(asked.question, attached: asked.attachments, spoken: spoken, typed: asked.typed != false)
                 } else {
                     let attached = asked.attachments.filter { !askClaudeIsHidden($0.path) }
                     askClaudeAsk(asked.question, shown: shown, attached: attached, spoken: spoken)
@@ -205,7 +205,10 @@ extension ContentView {
                               onPlanCard: { askClaudePlanCard($0, $1) },
                               onChoice: { id, index in
                                   guard let choice = askClaudeChat.takeChoice(id, at: index) else { return }
-                                  if let sends = choice.sends { askClaudeSend(sends) } else { askClaudeHolder.visibility.focusRequests += 1 }
+                                  // The button answers Claude: its words go to Claude, never tried as a command here.
+                                  if let sends = choice.sends {
+                                      askClaudeSend(sends, attached: askClaudeChat.takeAttachments(), spoken: false, typed: false)
+                                  } else { askClaudeHolder.visibility.focusRequests += 1 }
                               },
                               onRuleCard: { askClaudeRuleCard($0, save: $1) },
                               settingsBridge: askClaudeSettingsBridge,
@@ -267,7 +270,7 @@ extension ContentView {
     }
 
     func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false,
-                      editable: Bool = false) {
+                      editable: Bool = false, typed: Bool = true) {
         // Kept for the at-limit card's Ask Again, which asks this same question again.
         askClaudeChat.lastAsked = (shown, attached)
         let tools = askClaudeTools()
@@ -278,10 +281,10 @@ extension ContentView {
         guard askClaudeItems(folder) == nil else {
             var screen = askClaudeScreen()
             screen.attached = attachedRows
-            askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, screen: screen, tools: tools)
+            askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, screen: screen, tools: tools)
             return
         }
-        askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, preparing: {
+        askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, preparing: {
             let fromDisk = await AskClaudeDisk.list(folder) ?? []
             var screen = askClaudeScreen(fallbackRows: fromDisk)
             screen.attached = attachedRows
@@ -299,7 +302,9 @@ extension ContentView {
     /// A question with the chips it was asked about: the box's, or a queued question's own.
     /// `onDevice`: typed or said in the box, so a simple command may run on this Mac first
     /// (TE338). A button's words, Retry and a card's Next go to Claude: they answer it.
-    func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool, onDevice: Bool = false) {
+    /// `typed`: false for words the app built and they clicked, which no note may quote.
+    func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool, onDevice: Bool = false,
+                       typed: Bool = true) {
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
@@ -314,15 +319,19 @@ extension ContentView {
             askClaudeChat.tryOnDevice(question, spoken: spoken, decide: {
                 // Said in so many words ("open the log", "Edit"): no model needed, so the same
                 // answer every time, with Apple Intelligence off too.
-                if let call = AskClaudeQuickCommand.direct(question, lists: lists) { return call }
+                switch AskClaudeQuickCommand.said(question, lists: lists) {
+                case .call(let call): return call
+                case .twoThings: return nil
+                case .nothing: break
+                }
                 guard let route = await AskClaudeOnDevice.route(question, lists: lists) else { return nil }
                 return AskClaudeQuickCommand.call(for: route, lists: lists)
             }, tools: askClaudeTools(), otherwise: {
-                askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
+                askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed)
             })
             return
         }
-        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true)
+        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed)
     }
 
     /// The words a spoken question is listened for: from what the screen card would show Claude,
@@ -410,7 +419,7 @@ extension ContentView {
             Logger.shared.info("Ask Claude: File with Claude on \(chips.count) item\(chips.count == 1 ? "" : "s") waits for the answer")
         } else {
             Logger.shared.info("Ask Claude: File with Claude on \(chips.count) item\(chips.count == 1 ? "" : "s")")
-            askClaudeSend(question, attached: chips, spoken: false)
+            askClaudeSend(question, attached: chips, spoken: false, typed: false)
         }
     }
 
@@ -480,6 +489,8 @@ extension ContentView {
         switch action {
         case .tick(let row, let ticked):
             askClaudeChat.updatePlan(id) { $0.setTicked(ticked, row: row) }
+            // Names are made in card order, counting the ticked rows above as landed.
+            askClaudeRenameForFolders(id)
         case .choose(let row, let choice):
             askClaudeChat.updatePlan(id) { $0.choose(choice, forRow: row) }
             askClaudeRenameForFolders(id)
@@ -508,13 +519,7 @@ extension ContentView {
             // TE327: a folder of that name already there, in any case, takes the files instead.
             var problem: String?
             askClaudeChat.updatePlan(id) { plan in
-                problem = plan.renameNewFolder(row, to: name) { path in
-                    let parent = (path as NSString).deletingLastPathComponent
-                    let wanted = (path as NSString).lastPathComponent
-                    let names = (try? FileManager.default.contentsOfDirectory(atPath: parent)) ?? []
-                    return names.first { $0.caseInsensitiveCompare(wanted) == .orderedSame }
-                        .map { (parent as NSString).appendingPathComponent($0) }
-                }
+                problem = plan.renameNewFolder(row, to: name) { AskClaudePlan.existingFolder($0) }
             }
             if let problem { askClaudeChat.addNote(problem) }
             askClaudeRenameForFolders(id)
@@ -538,8 +543,9 @@ extension ContentView {
                 if outcome.isError { askClaudeChat.addNote("Couldn’t go there: \(outcome.step).") }
             }
         case .next:
-            guard let ask = askClaudeChat.plan(id)?.nextAsk else { return }
-            askClaudeSend(ask)
+            guard let ask = askClaudeChat.plan(id)?.nextAsk, !askClaudeChat.isRunning else { return }
+            // Next answers the card: to Claude, never tried as a command here.
+            askClaudeSend(ask, attached: askClaudeChat.takeAttachments(), spoken: false, typed: false)
         case .notNow:
             guard askClaudeChat.plan(id)?.state == .proposed else { return }
             askClaudeChat.updatePlan(id) { $0.state = .declined }
@@ -563,10 +569,7 @@ extension ContentView {
             Task { @MainActor in
                 let notBack = await undoing.value
                 askClaudeChat.updatePlan(id) { $0.recordUndo(notBack: notBack) }
-                let missed = plan.rows.filter { notBack.contains($0.id) }.map(\.name)
-                askClaudeChat.tellClaude(missed.isEmpty
-                    ? "They undid your card “\(plan.title)”: everything it did is back where it was."
-                    : "They undid your card “\(plan.title)”, but \(missed.count) didn’t go back: \(missed.prefix(10).joined(separator: "; ")).")
+                askClaudeChat.tellClaude(plan.undoReport(notBack: notBack))
             }
         }
     }
@@ -660,16 +663,8 @@ extension ContentView {
                                         folderLabel: label, refusal: refusal)
             // TE331 (decision JC): Move Here on the runner-up, or on any folder of an unsure
             // answer, is their pick, and teaches a rule at Apply.
-            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind,
-               let best = card.folders.first {
-                let unsure = best.confidence == AskClaudeFiling.label(.low)
-                if unsure || best.path != folder {
-                    row.pickedFrom = best.path
-                    row.pickedFromLabel = best.label
-                    row.wasUnsure = unsure
-                    row.chosen = true
-                    row.reason = "Your pick"
-                }
+            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {
+                row.noteMoveHere(card)
             }
             var rows = [row]
             if let making, case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {
@@ -691,7 +686,11 @@ extension ContentView {
                 (rows[index].nameKept, rows[index].nameFacts) = (card.nameKept, card.nameFacts)
             }
             var plan = AskClaudePlan(title: "Move \(name)", subtitle: "", rows: rows)
-            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind { plan.names = card.names }
+            if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {
+                plan.names = card.names
+                // A folder picked by a word from page 1 may never have reached Claude.
+                if card.folders.first(where: { $0.path == folder })?.fromFile == true { plan.rowsHeld = true }
+            }
             plan.tickNeededFolders()
             plan.noteLandingNames()
             askClaudeChat.replace(item, with: .plan(plan))
@@ -703,15 +702,18 @@ extension ContentView {
     // MARK: Names from inside (TE328)
 
     /// The name a file whose first page gave `facts` takes in `folder`, in that folder's style.
-    func askClaudeName(_ facts: ContentName.Facts, ext: String, into folder: String) -> ContentName.Proposal? {
+    /// `taken`: the names files above it on the same card land under there.
+    func askClaudeName(_ facts: ContentName.Facts, ext: String, into folder: String, taken: [String] = []) -> ContentName.Proposal? {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-        return syncManager.contentName(facts, ext: ext, into: folder, isHidden: { hidden.isHidden($0) })
+        return syncManager.contentName(facts, ext: ext, into: folder, taken: taken, isHidden: { hidden.isHidden($0) })
     }
 
     /// A card's made names, made again for the folders its rows now go to.
     private func askClaudeRenameForFolders(_ id: UUID) {
         askClaudeChat.updatePlan(id) { plan in
-            plan.renameForFolders { facts, from, to in askClaudeName(facts, ext: (from as NSString).pathExtension, into: to) }
+            plan.renameForFolders { facts, from, to, taken in
+                askClaudeName(facts, ext: (from as NSString).pathExtension, into: to, taken: taken)
+            }
         }
     }
 
@@ -719,27 +721,29 @@ extension ContentView {
     /// folder with the next question, and nothing else.
     private func askClaudeSharePlanNames(_ id: UUID) {
         guard let plan = askClaudeChat.plan(id), plan.names?.shared == false, !plan.namedRows.isEmpty else { return }
-        let lines = plan.namedRows.compactMap { row -> String? in
-            guard case .move(let from, _) = row.change, let newName = row.newName else { return nil }
-            return "“\(row.name)” \(AskClaudeChat.fileMark(from)) → \(newName), into \(row.folderLabel ?? "its folder")"
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        guard let shared = AskClaudeNaming.shareLine(plan, isHidden: { hidden.isHidden($0) }) else {
+            askClaudeChat.addNote("The new names go into folders hidden from Claude, so there’s nothing to share.")
+            return
         }
-        askClaudeChat.tellClaude("They shared the new names and folders from your card “\(plan.title)”, made on their Mac from what each file says: "
-            + lines.joined(separator: "; ") + ". No other content was shared.")
+        askClaudeChat.tellClaude(shared.text)
         askClaudeChat.updatePlan(id) { $0.names?.shared = true }
-        Logger.shared.info("Ask Claude: shared \(lines.count) new name\(lines.count == 1 ? "" : "s") from a card")
+        Logger.shared.info("Ask Claude: shared \(shared.count) new name\(shared.count == 1 ? "" : "s") from a card")
     }
 
     /// Share Names and Folders on filing help's card.
     private func askClaudeShareFilingNames(_ item: UUID) {
         guard case .filing(var card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind,
               card.names?.shared == false else { return }
-        let names = card.folders.compactMap { folder in folder.newName.map { "\($0) in \(folder.label)" } }
-        guard !names.isEmpty else { return }
-        askClaudeChat.tellClaude("They shared the names Apple Intelligence made on their Mac for “\(card.fileName)” \(AskClaudeChat.fileMark(card.filePath)) from what it says: "
-            + names.joined(separator: "; or ") + ". No other content was shared.")
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        guard let shared = AskClaudeNaming.shareLine(card, isHidden: { hidden.isHidden($0) }) else {
+            askClaudeChat.addNote("The new names go into folders hidden from Claude, so there’s nothing to share.")
+            return
+        }
+        askClaudeChat.tellClaude(shared.text)
         card.names?.shared = true
         askClaudeChat.replace(item, with: .filing(card))
-        Logger.shared.info("Ask Claude: shared \(names.count) new name\(names.count == 1 ? "" : "s") from filing help")
+        Logger.shared.info("Ask Claude: shared \(shared.count) new name\(shared.count == 1 ? "" : "s") from filing help")
     }
 
     /// Refine with Claude from filing help's card: Organize scans the file's folder, then a plan for
@@ -915,8 +919,9 @@ extension ContentView {
 
     func askClaudeScreen(fallbackRows: [FileNode]? = nil) -> AskClaudeScreen {
         let folder = askClaudeFolder
-        // One matcher for the whole card: rows share their folder's resolved spelling.
-        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+        // One matcher for the whole card: rows share their folder's resolved spelling. Notes for
+        // Claude's file is no row either: only its notes tool changes it (TE307).
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard) + [AskClaudeNotes.defaultFileURL().path])
         let absolute = AskClaudeBrowseTools.absolute(folder, root: askClaudeRoot)
         let all = askClaudeItems(absolute) ?? fallbackRows ?? []
         let shown = hidden.isEmpty ? all : all.filter { !hidden.isHidden($0.id) }
@@ -1109,7 +1114,7 @@ extension ContentView {
     /// named.
     private var askClaudeDisks: [AskClaudeBrowseTools.Disk] {
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
-        return SidebarSourceModel.orderedVolumes(Self.mountedVolumesAsLastSeen())
+        return AskClaudeBrowseTools.namedApart(SidebarSourceModel.orderedVolumes(Self.mountedVolumesAsLastSeen())
             .filter { $0.isRemovable && !$0.isInternal && !hidden.isHidden($0.path) }
             .map { volume in
                 // Both halves, as the sidebar's own Eject asks: a source on it, and an unmount
@@ -1118,7 +1123,7 @@ extension ContentView {
                     name: volume.name, path: volume.path,
                     losesItsSource: volume.losesItsSourcesOnUnmount
                         && !FolderSource.idsOnVolume(volume.path, in: settings.folderSources).isEmpty)
-            }
+            })
     }
 
     /// Ask Claude's eject: the sidebar's confirmation, as a sheet on this window, then the
@@ -1261,8 +1266,10 @@ extension ContentView {
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
                 return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
             },
-            nameFile: { path, folders in
-                await AskClaudeNaming.named(path, into: folders) { facts, ext, folder in askClaudeName(facts, ext: ext, into: folder) }
+            nameFile: { path, folders, taken in
+                await AskClaudeNaming.named(path, into: folders) { facts, ext, folder in
+                    askClaudeName(facts, ext: ext, into: folder, taken: taken[folder] ?? [])
+                }
             },
             ruleFromCorrection: { path, folder, name, words, also, page in
                 syncManager.ruleFromCorrection(path, into: folder, name: name, phrases: words, also: also, pageSample: page)

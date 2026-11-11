@@ -160,6 +160,9 @@ enum LogEmptyState: Equatable {
     /// Entries exist (this session and/or loaded history), but the level filter and/or search hide
     /// them all.
     case noMatches
+    /// Show in Log's minutes, with the history loaded, and the log holds nothing from them: it is
+    /// trimmed by size, and a kept message can be older than its oldest line.
+    case spanNotInLog
 
     /// - Parameters:
     ///   - hasVisibleRows: any session or history rows are currently shown.
@@ -256,12 +259,15 @@ struct LogViewerContents {
         visibleHistory = Array(historyMatches.prefix(history.revealed))
         nextReveal = LogHistoryState.nextRevealCount(
             matchCount: historyMatches.count, revealed: history.revealed, pageSize: pageSize)
-        emptyState = LogEmptyState.classify(
+        let state = LogEmptyState.classify(
             hasVisibleRows: !(sessionRows.isEmpty && visibleHistory.isEmpty),
             hasRawEntries: !session.isEmpty || !(loadedHistory?.isEmpty ?? true),
             historyLoaded: history.isLoaded,
             historyReadFailed: history.readFailed
         )
+        // Nothing in the minutes asked for, with the whole log read: the log no longer reaches
+        // them, which "nothing from earlier sessions" would misstate.
+        emptyState = span != nil && state == .noEarlierActivity ? .spanNotInLog : state
     }
 }
 
@@ -277,6 +283,16 @@ public struct LogViewer: View {
     public init(span: Binding<ClosedRange<Date>?> = .constant(nil), showsTitle: Bool = true) {
         _span = span
         self.showsTitle = showsTitle
+    }
+
+    /// Whether Show in Log's minutes reach back before this launch while the earlier sessions' log
+    /// isn't read: a message kept from an earlier session. Its minutes are only in that history,
+    /// so the Log reads it as it opens rather than showing an empty list.
+    nonisolated static func spanNeedsHistory(_ span: ClosedRange<Date>?, sessionStart: Date,
+                                             history: LogHistoryState) -> Bool {
+        guard let span, span.lowerBound < sessionStart else { return false }
+        if case .notLoaded = history { return true }
+        return false
     }
 
     /// "14:02:11 – 14:06:07", in the reader's own clock.
@@ -438,6 +454,11 @@ public struct LogViewer: View {
         }
     }
 
+    @MainActor
+    private func loadHistoryIfTheSpanNeedsIt() {
+        if Self.spanNeedsHistory(span, sessionStart: logger.sessionStart, history: history) { loadHistory() }
+    }
+
     public var body: some View {
         // One pure pass per render from the session entries and the history state: the rows, the
         // chip tallies, the revealed history page, the "Show N more" remainder and the empty state,
@@ -596,6 +617,9 @@ public struct LogViewer: View {
         // list doesn't stay expanded to hundreds of filtered rows.
         .onChange(of: selectedLevel) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         .onChange(of: searchText) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
+        // Show in Log on a message from an earlier session: read the earlier history now.
+        .onAppear { loadHistoryIfTheSpanNeedsIt() }
+        .onChange(of: span) { _, _ in loadHistoryIfTheSpanNeedsIt() }
         // Drives the search field's reveal/hide transition (see above).
         .designAnimation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // The main window's glass, level and hue, so the Activity Log reads as the same frosted
@@ -904,6 +928,12 @@ public struct LogViewer: View {
                     selectedLevel = nil
                     searchText = ""
                 }
+            )
+        case .spanNotInLog:
+            EmptyStateView(
+                icon: "clock.badge.questionmark",
+                title: "Nothing logged in these minutes",
+                message: "The log keeps only its newest few megabytes, so an older message’s minutes may be gone from it. Show All puts the whole log back."
             )
         case .noEarlierActivity:
             EmptyStateView(

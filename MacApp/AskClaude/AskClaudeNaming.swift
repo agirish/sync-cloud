@@ -37,19 +37,6 @@ enum AskClaudeNaming {
             case .cloudOnly: "Only in the cloud, so it isn’t downloaded to be read"
             }
         }
-
-        /// What Claude is told against the file's handle. Says nothing about what's inside.
-        var told: String {
-            switch self {
-            case .named: "a new name made on their Mac"
-            case .locked: "keeps its name: locked, so it couldn’t be read"
-            case .picture: "keeps its name: a picture"
-            case .noWords: "keeps its name: no words on page 1"
-            case .notSure: "keeps its name: Apple Intelligence couldn’t tell what it is"
-            case .unavailable: "keeps its name: Apple Intelligence isn’t available"
-            case .cloudOnly: "keeps its name: only in the cloud, so it wasn’t read"
-            }
-        }
     }
 
     /// One file's reading, and the name it takes in each folder it may go to, by folder path.
@@ -80,6 +67,31 @@ enum AskClaudeNaming {
             if let proposal = name(facts, ext, folder) { named.names[folder] = proposal }
         }
         return named
+    }
+
+    // MARK: Share Names and Folders
+
+    /// What Claude is told when they click Share Names and Folders on a plan card, and how many
+    /// names it gives: each file, its new name and its folder. A row going into a folder hidden
+    /// since the card was made is left out; nil when no row is left.
+    @MainActor static func shareLine(_ plan: AskClaudePlan, isHidden: (String) -> Bool) -> (text: String, count: Int)? {
+        let lines = plan.namedRows.compactMap { row -> String? in
+            guard case .move(let from, let to) = row.change, let newName = row.newName, !isHidden(to) else { return nil }
+            return "“\(row.name)” \(AskClaudeChat.fileMark(from)) → \(newName), into \(row.folderLabel ?? "its folder")"
+        }
+        guard !lines.isEmpty else { return nil }
+        return ("They shared the new names and folders from your card “\(plan.title)”, made on their Mac from what each file says: "
+            + lines.joined(separator: "; ") + ". No other content was shared.", lines.count)
+    }
+
+    /// The same on filing help's card: the file, and its new name in each folder not hidden since.
+    @MainActor static func shareLine(_ card: AskClaudeFilingCard, isHidden: (String) -> Bool) -> (text: String, count: Int)? {
+        let names = card.folders.compactMap { folder in
+            isHidden(folder.path) ? nil : folder.newName.map { "\($0) in \(folder.label)" }
+        }
+        guard !names.isEmpty else { return nil }
+        return ("They shared the names Apple Intelligence made on their Mac for “\(card.fileName)” \(AskClaudeChat.fileMark(card.filePath)) from what it says: "
+            + names.joined(separator: "; or ") + ". No other content was shared.", names.count)
     }
 
     enum Availability: Equatable, Sendable {

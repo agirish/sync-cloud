@@ -31,7 +31,7 @@ public enum ReorganisationUndo {
 
     /// The banner an undo leaves — success included.
     static func banner(after outcome: FileSyncManager.RestructureApplyOutcome) -> OperationBanner {
-        if let refusal = outcome.refusal { return .warning(refusal, log: .warn) }
+        if let refusal = outcome.refusal { return .refusal(refusal, log: .warn) }
         if let failure = outcome.surveyRefreshFailure { return .warning(failure, log: .warn) }
         if !outcome.skipped.isEmpty || !outcome.verifierMismatches.isEmpty {
             return .warning("Reorganization undone — \(outcome.summary). The log names what "

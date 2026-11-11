@@ -941,6 +941,8 @@ private final class SnippetBox: @unchecked Sendable {
                 "the banner does not say why the click declined: \(banner.message)")
         #expect(banner.message.contains("Settings"),
                 "the banner does not name the remedy: \(banner.message)")
+        // Nothing was sent: a refusal, kept for this session only.
+        #expect(banner.isRefusal)
     }
 
     /// And it still runs when there is room: the guard must not become "never re-ask". Same

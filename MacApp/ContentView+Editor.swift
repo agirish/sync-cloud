@@ -1092,6 +1092,13 @@ extension ContentView {
     /// row is re-listed, so it stops being dim.
     static let editDownloadWait: Duration = .seconds(600)
 
+    /// The note shown while a file comes down from the cloud: not an outcome, so Activity keeps it
+    /// for this session only.
+    static func downloadingNote(_ name: String, opensOnArrival: Bool) -> OperationBanner {
+        .inProgress(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
+                                   : "Downloading “\(name)”…", log: .info)
+    }
+
     func downloadFromEdit(_ path: String) {
         let name = ExternalOpen.name(path)
         let opensOnArrival = editorOpenPath == path && editorOpenIsRefused
@@ -1102,8 +1109,7 @@ extension ContentView {
         CloudDownloadRequest.requestDownload(path: path, name: name,
                                              from: PaneToken(isLeft: true, isSingleSource: layoutMode == .singleSource),
                                              whenUnavailable: { _ in })
-        let note = OperationBanner.warning(opensOnArrival ? "Downloading “\(name)” — it opens here when it arrives."
-                                                          : "Downloading “\(name)”…", log: .info)
+        let note = Self.downloadingNote(name, opensOnArrival: opensOnArrival)
         syncManager.banner = note
         Task { @MainActor in
             // Ten minutes, not the external open's one: Download was asked for here, and a large
@@ -1138,7 +1144,7 @@ extension ContentView {
               MaterializationStatus.isCloudOnly(atPath: MaterializationStatus.linkTarget(of: path)) else { return }
         let name = ExternalOpen.name(path)
         Logger.shared.info("[open] \(path) is still in the cloud — fetching it before Edit can read it")
-        syncManager.banner = .warning("Downloading “\(name)” — it opens here when it arrives.", log: .info)
+        syncManager.banner = Self.downloadingNote(name, opensOnArrival: true)
         Task { @MainActor in
             let landed = await ExternalOpen.fetch(path)
             guard editorOpenPath == path, editorOpenIsRefused else {

@@ -1864,6 +1864,63 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         }
     }
 
+    /// Words the app built and they clicked (a button's, a card's Next) aren't theirs: no note of
+    /// Claude's may quote them. Typed ones are.
+    @Test func clickedWordsAreNotTheirOwn() async {
+        let d = defaults()
+        let chat = makeChat(OneLineTransport(text: "ok"), defaults: d)
+        chat.ask("Into Documents, by how I file", editable: true, typed: false, screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        chat.ask("my accountant is Raj", editable: true, screen: screen, tools: NoTools())
+        await waitUntilIdle(chat)
+        #expect(chat.ownWords == ["my accountant is Raj"])
+    }
+
+    /// Stopped while a command ran here: the tool cut short says it didn't get there, which is no
+    /// reason to ask Claude. Mutation: without the stop check, the question goes to Claude, billed.
+    @Test func aStopDuringACommandHereSendsNothingToClaude() async {
+        let d = defaults()
+        let chat = makeChat(OneLineTransport(text: "x"), defaults: d)
+        var wentToClaude = 0
+        chat.tryOnDevice("go to Dropbox", decide: { AskClaudeToolCall(id: "on-device", name: "go_to", input: .object(["source": .string("Dropbox")])) },
+                         tools: WaitsForStop(), otherwise: { wentToClaude += 1 })
+        await waitUntil("the command is running", timeout: 10) { WaitsForStop.started }
+        chat.stop()
+        await waitUntilIdle(chat)
+        #expect(wentToClaude == 0)
+        #expect(chat.items.last?.kind == .note("Stopped."))
+    }
+
+    /// An eject they confirmed and macOS refused is the answer: shown, told to Claude with the next
+    /// question, and never handed to Claude to ask them a second time.
+    @Test func aRefusalPastTheirSayStaysHere() async {
+        let d = defaults()
+        let chat = makeChat(OneLineTransport(text: "x"), defaults: d)
+        let tools = RecordsCalls(AskClaudeToolOutcome(result: "macOS didn’t eject SD Card: busy.", isError: true,
+                                                      step: "Couldn’t eject SD Card", settled: true))
+        var wentToClaude = 0
+        chat.tryOnDevice("eject SD Card", decide: { AskClaudeToolCall(id: "on-device", name: "eject", input: .object(["disk": .string("SD Card")])) },
+                         tools: tools, otherwise: { wentToClaude += 1 })
+        await waitUntilIdle(chat)
+        #expect(wentToClaude == 0)
+        #expect(chat.items.map(\.kind) == [.user("eject SD Card"), .step("Couldn’t eject SD Card", isError: true)])
+    }
+
+    /// With no key saved, nothing runs here either: the question takes Claude's way, which says
+    /// where to add one (decision MX). Mutation: without the key check, the command runs.
+    @Test func withNoKeyNoCommandRunsHere() async {
+        let d = defaults()
+        let chat = makeChat(OneLineTransport(text: "x"), defaults: d, readKey: { nil })
+        let tools = RecordsCalls(AskClaudeToolOutcome(result: "Opened Settings.", step: "Opened Settings"))
+        var wentToClaude = 0
+        chat.tryOnDevice("open settings", decide: { AskClaudeToolCall(id: "on-device", name: "show_in_app", input: .object(["place": .string("settings")])) },
+                         tools: tools, otherwise: { wentToClaude += 1 })
+        await waitUntilIdle(chat)
+        #expect(tools.calls.isEmpty)
+        #expect(wentToClaude == 1)
+        #expect(chat.items.isEmpty)
+    }
+
     /// A question's first key warms the on-device model, once per question: not every key, and
     /// not clearing the box.
     @Test func aQuestionsFirstKeyWarmsTheOnDeviceModelOnce() {
@@ -3258,7 +3315,7 @@ private final class OffersADownload: AskClaudeToolRunning {
             ctx.canRefineFiling = canRefine
             ctx.shared = sharesRoot ? [Self.root] : []
             ctx.now = { Date(timeIntervalSince1970: 1_792_000_000) }
-            ctx.nameFile = { _, _ in named }
+            ctx.nameFile = { _, _, _ in named }
         })
     }
 
@@ -3454,7 +3511,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func aScansRowCarriesItsNewNameAndClaudeACount() async throws {
         let dir = self.dir
         let out = await call(["into": .string("Documents")], runner(fallback: s("Misc", .high), configure: { ctx in
-            ctx.nameFile = { path, folders in
+            ctx.nameFile = { path, folders, _ in
                 guard (path as NSString).lastPathComponent == "scan0042.pdf" else { return nil }
                 #expect(folders == [dir + "/Documents/Health", dir + "/Documents/Insurance"])
                 return .init(outcome: .named(.init(year: 2025, from: "Kaiser", what: "EOB")), facts: .init(year: 2025, from: "Kaiser", what: "EOB"),
@@ -3466,6 +3523,68 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(scan.newName == "2025 Kaiser EOB.pdf" && scan.nameBasis == "Named by year, who it’s from and what it is")
         #expect(plan.namedRows.count == 1 && plan.names == AskClaudeHeldNames(shared: false))
         #expect(out.result.contains("1 with a new name made on their Mac") && !out.result.contains("Kaiser"))
+        #expect(plan.rowsHeld == true, "Apply and Undo tell Claude counts")
+    }
+
+    /// Decision NF: Downloads shares without asking, but a name styled after the files in Health,
+    /// which asks first, waits for Share Names and Folders: it tells what Health holds. Where
+    /// Health shares too, it goes with the card. Mutation: without `nameHeld`, Claude gets it.
+    @Test func aNameCopiedFromAFolderThatAsksWaitsForTheClick() async throws {
+        let dir = self.dir
+        func run(sharing: [String]) async throws -> (AskClaudeToolOutcome, AskClaudePlan) {
+            let out = await call(["into": .string("Documents")], runner(extra: ["scan0042.pdf": [s("Health", .high)]], fallback: s("Misc", .high), configure: { ctx in
+                ctx.shared = sharing
+                ctx.nameFile = { path, folders, _ in
+                    guard (path as NSString).lastPathComponent == "scan0042.pdf" else { return nil }
+                    let facts = ContentName.Facts(year: 2025, from: "Kaiser", what: "EOB")
+                    return .init(outcome: .named(facts), facts: facts,
+                                 names: [dir + "/Documents/Health": .init(name: "2025 Kaiser EOB Corrected.pdf", basis: .like("2024 Kaiser EOB Corrected.pdf"))])
+                }
+            }))
+            return (out, try #require(out.plan))
+        }
+        let (held, heldPlan) = try await run(sharing: [dir + "/Downloads"])
+        #expect(heldPlan.rows.first { $0.name == "scan0042.pdf" }?.nameHeld == true)
+        #expect(heldPlan.names?.shared == false && heldPlan.names?.sharedBy == nil, "the card must offer the click")
+        #expect(!held.result.contains("Corrected") && held.result.contains("1 new name copy the style"), "\(held.result)")
+        let (sent, sentPlan) = try await run(sharing: [dir + "/Downloads", dir + "/Documents"])
+        #expect(sentPlan.rows.first { $0.name == "scan0042.pdf" }?.nameHeld == nil)
+        #expect(sent.result.contains("renamed to 2025 Kaiser EOB Corrected.pdf"))
+
+        // Filing help's card, the same.
+        let folder = AskClaudeFilingCard.Folder(label: "Home › Documents › Health", path: dir + "/Documents/Health", confidence: "High",
+                                                reason: "Fits", fromFile: false)
+        let card = AskClaudeFilingCard(fileName: "scan0042.pdf", filePath: dir + "/Downloads/scan0042.pdf", kind: .suggestions, folders: [folder])
+        let named = AskClaudeNaming.Named(outcome: .named(.init(year: 2025, from: "Kaiser", what: "EOB")),
+                                          names: [dir + "/Documents/Health": .init(name: "2025 Kaiser EOB Corrected.pdf", basis: .like("2024 Kaiser EOB Corrected.pdf"))])
+        let filed = AskClaudeBrowseTools.named(card, named, sharedBy: "Downloads", folderShares: { _ in false })
+        #expect(filed.folders[0].nameHeld == true && filed.names?.shared == false)
+        #expect(!AskClaudeFiling.result(filed, sharesFreely: true).contains("Corrected"))
+    }
+
+    /// Names on one card are made in card order: each file is named with the names the ticked
+    /// rows above it land under in its folder counted as there, so two scans into a numbered
+    /// folder can't take the same number.
+    @Test func eachRowsNameCountsTheTickedRowsAboveIt() async throws {
+        final class Seen: @unchecked Sendable { var taken: [String: [String: [String]]] = [:] }
+        let seen = Seen()
+        let out = await call(["into": .string("Documents")], runner(configure: { ctx in
+            ctx.nameFile = { path, folders, taken in
+                let name = (path as NSString).lastPathComponent
+                seen.taken[name] = taken
+                let facts = ContentName.Facts(year: 2025, from: "Ally", what: "Statement")
+                return .init(outcome: .named(facts), facts: facts, names: [folders[0]: .init(name: "New \(name)", basis: .plain)])
+            }
+        }))
+        let plan = try #require(out.plan)
+        let trips = dir + "/Documents/Travel/Trips"
+        var above: [String] = []
+        for row in plan.rows {
+            guard case .move(_, let to) = row.change, to == trips else { continue }
+            #expect((seen.taken[row.name]?[trips] ?? []) == above, "\(row.name)")
+            if row.ticked { above.append(row.newName ?? row.name) }
+        }
+        #expect(above.count >= 2, "two ticked rows into one folder")
     }
 
     /// No place yet, so a count and two buttons, and no card.
@@ -3645,6 +3764,23 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
+/// Two disks called alike (two cards called Untitled) go by their mount points' names, and a name
+/// two disks answer to ejects neither.
+@MainActor
+@Suite struct AskClaudeDiskNamesTests {
+    @Test func twoUntitledCardsAreNamedApartAndNeitherIsGuessed() {
+        let two = [AskClaudeBrowseTools.Disk(name: "Untitled", path: "/Volumes/Untitled"),
+                   AskClaudeBrowseTools.Disk(name: "Untitled", path: "/Volumes/Untitled 1"),
+                   AskClaudeBrowseTools.Disk(name: "SD Card", path: "/Volumes/SD Card")]
+        #expect(AskClaudeBrowseTools.disk(named: "Untitled", in: two) == nil)
+        let apart = AskClaudeBrowseTools.namedApart(two)
+        #expect(apart.map(\.name) == ["Untitled", "Untitled 1", "SD Card"])
+        #expect(AskClaudeBrowseTools.disk(named: "Untitled 1", in: apart)?.path == "/Volumes/Untitled 1")
+        #expect(AskClaudeBrowseTools.disk(named: "Untitled", in: apart)?.path == "/Volumes/Untitled")
+        #expect(AskClaudeBrowseTools.disk(named: "sd card", in: apart)?.path == "/Volumes/SD Card")
+    }
+}
+
 /// Claude proposes a card of changes; nothing runs from the tool.
 @MainActor
 @Suite final class AskClaudeProposeChangesTests {
@@ -3701,6 +3837,23 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(out.result.contains("Nothing has happened") && out.result.contains("Never say it’s done"))
         #expect(FileManager.default.fileExists(atPath: dir + "/Downloads/JAL Ticket.pdf"))
         #expect(!FileManager.default.fileExists(atPath: dir + "/Documents/Travel/Trips/Japan 2026"))
+    }
+
+    /// Notes for Claude's file is never moved, renamed or trashed from a card, whatever handle
+    /// reached Claude for it: only its notes tool changes it (TE307).
+    @Test func notesForClaudesFileIsNeverOnACard() async throws {
+        var handles = AskClaudeHandles()
+        let notes = handles.handle(for: AskClaudeNotes.defaultFileURL().path)
+        let changes: [JSONFragment] = [
+            .object(["action": .string("trash"), "handle": .string(notes)]),
+            .object(["action": .string("move"), "handle": .string(notes), "folder": .string("Downloads")]),
+            .object(["action": .string("rename"), "handle": .string(notes), "name": .string("Old notes.md")]),
+        ]
+        let out = await runner().run(AskClaudeToolCall(id: "t", name: "propose_changes", input: .object(["changes": .array(changes)])),
+                                     handles: &handles)
+        let plan = try #require(out.plan)
+        #expect(plan.rows.allSatisfy { $0.refusal == "Notes for Claude’s file is changed only by its notes" && !$0.ticked },
+                "\(plan.rows.map(\.refusal))")
     }
 
     /// A name in a hidden folder is refused as hidden, never as taken: "Private is already there"
@@ -4138,6 +4291,16 @@ private final class OffersADownload: AskClaudeToolRunning {
         _ = cardsOnly.addRefineCard(card())
         clock += 2 * 3600
         #expect(!cardsOnly.startsOverAtNextQuestion, "no question yet: nothing to replay, and the card would go")
+
+        // The same after a relaunch: a saved chat of cards alone has had no talk to time.
+        let cardsURL = store()
+        defer { try? FileManager.default.removeItem(at: cardsURL.deletingLastPathComponent()) }
+        let saved = makeChat(OneLineTransport(text: "hi"), defaults: defaults("cardsSaved"), now: { clock }, storeURL: cardsURL)
+        _ = saved.addRefineCard(card())
+        clock += 2 * 3600
+        let relaunched = makeChat(OneLineTransport(text: "hi"), defaults: defaults("cardsSaved"), now: { clock }, storeURL: cardsURL)
+        #expect(!relaunched.items.isEmpty, "the card was saved")
+        #expect(!relaunched.startsOverAtNextQuestion, "a relaunch timed cards alone as talk")
     }
 
     /// "This hour" means it: a Try Another after the line's hour starts a new line.
@@ -4259,6 +4422,17 @@ private final class OffersADownload: AskClaudeToolRunning {
 
 /// Answers every call with one outcome, and keeps the tool names it was asked for.
 @MainActor
+/// A tool that runs until the question is stopped, then says it didn't get there, as a go-to's
+/// bounded wait does when its sleeps throw at once.
+private final class WaitsForStop: AskClaudeToolRunning {
+    nonisolated(unsafe) static var started = false
+    func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        Self.started = true
+        while !Task.isCancelled { try? await Task.sleep(nanoseconds: 5_000_000) }
+        return AskClaudeToolOutcome(result: "The pane hadn’t got there.", isError: true, step: "Hadn’t got there")
+    }
+}
+
 private final class RecordsCalls: AskClaudeToolRunning {
     let outcome: AskClaudeToolOutcome
     private(set) var calls: [String] = []

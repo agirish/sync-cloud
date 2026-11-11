@@ -176,7 +176,7 @@ enum DocumentSurveyStarter {
         /// The banner it is told on, or nil for one that says nothing.
         var banner: OperationBanner? {
             switch self {
-            case .refused(let refusal): return .warning(refusal.sentence, log: .warn)
+            case .refused(let refusal): return .refusal(refusal.sentence, log: .warn)
             case .nothingToRead:
                 return .success("Nothing to read — no document here is in a format this app can open.")
             case .counted: return nil   // the card says it, with its estimate

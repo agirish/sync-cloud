@@ -169,8 +169,11 @@ extension FileSyncManager {
         if let newHome, let best = shown.first {
             let relative = String(newHome.path.dropFirst(root.count + 1))
             Logger.shared.info("Filing help: a new folder \(relative) for “\(fileName)”, named like its siblings")
+            // It is made in or beside the folder it was found by, so a folder picked by a word
+            // read from the file passes that word on: its path says what the file holds.
+            let besideFolder = kept.prefix(2).first { [$0.path, ($0.path as NSString).deletingLastPathComponent].contains(newHome.parent) }
             let made = FilingHelpAnswer.Suggestion(folder: newHome.path, relativePath: relative, confidence: .medium,
-                                                   reason: newHome.reason, evidenceToken: nil, isNew: true,
+                                                   reason: newHome.reason, evidenceToken: besideFolder?.evidenceToken, isNew: true,
                                                    siblings: newHome.siblings)
             return FilingHelpAnswer(outcome: .suggested([made, best]), surveyedAt: surveyedAt)
         }

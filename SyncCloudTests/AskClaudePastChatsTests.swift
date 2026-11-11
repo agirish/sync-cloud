@@ -62,6 +62,25 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(entry.lines.contains(.answer("In Immigration.")))
     }
 
+    /// What the row says a chat cost counts the answers Edit and Retry took back: spent all the
+    /// same. Mutation: summing only the receipts left counts one answer of two.
+    @Test func aTakenBackAnswerStillCounts() async throws {
+        defer { clean() }
+        let d = defaults()
+        let (chat, past) = make(PastChatTransport(), d)
+        chat.ask("Where is my I-797?", screen: screen(), tools: NoTools())
+        await waitUntilIdle(chat)
+        let one = chat.items.reduce(0.0) { if case .receipt(let r) = $1.kind { $0 + r.costUSD } else { $0 } }
+        #expect(one > 0)
+        let first = try #require(chat.items.first?.id)
+        #expect(chat.rewind(from: first))
+        chat.ask("Where is my I-94?", screen: screen(), tools: NoTools())
+        await waitUntilIdle(chat)
+        chat.newChat()
+        let entry = try #require(past.entries.first)
+        #expect(abs(entry.costUSD - 2 * one) < 0.000_001, "row says \(entry.costUSD), two answers cost \(2 * one)")
+    }
+
     /// Decision JK: an hour away, the next question starts a new chat and the old one stays above it.
     @Test func anHourAwayKeepsTheEarlierChatInViewAboveTheNewOne() async {
         defer { clean() }

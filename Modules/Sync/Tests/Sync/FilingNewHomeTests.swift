@@ -150,6 +150,21 @@ import Testing
         #expect(named.parent == root + "/Travel/Trips")
         #expect(Set(named.names) == ["India", "IN-US", "Mauritius", "Singapore"])
     }
+
+    /// A folder picked by a word from page 1 stays off what Claude is told; so does a new year
+    /// made inside it, whose path names it.
+    @Test func aNewYearInAFolderPickedFromPageOneIsPickedFromPageOneToo() async throws {
+        let kaiser = "Medical/Kaiser"
+        let m = manager("fromFile", folders: [kaiser, "Medical"] + ["2024", "2025", "2026"].map { "\(kaiser)/\($0)" },
+                        anchors: [kaiser: ["kaiser", "permanente"], "Home/Utilities": ["meter"]])
+        let answer = await m.whereToFile("/x/Receipt 2027-01-03.pdf", snippet: "Kaiser Permanente member services",
+                                         isHidden: { _ in false })
+        guard case .suggested(let list) = answer.outcome else { Issue.record("no suggestion: \(answer)"); return }
+        let new = try #require(list.first)
+        #expect(new.isNew && new.relativePath == "\(kaiser)/2027")
+        #expect(list.count == 2 && list[1].relativePath == kaiser && list[1].evidenceToken != nil)
+        #expect(new.evidenceToken == list[1].evidenceToken, "the word that picked Kaiser picked its new year")
+    }
 }
 
 /// TE327 on the card: renaming a new folder carries its files.
@@ -193,6 +208,29 @@ import Testing
         #expect(plan.runnable.allSatisfy { if case .newFolder = $0.change { false } else { true } })
     }
 
+    /// Named back from a folder already there to a free name, it makes its folder again.
+    @Test func aFreeNameAfterATakenOneMakesTheFolderAgain() {
+        var plan = card()
+        #expect(plan.renameNewFolder(0, to: "India", existing: { $0 == "/d/Trips/India" ? $0 : nil }) == nil)
+        #expect(plan.rows[0].refusal != nil && !plan.rows[0].ticked)
+        #expect(plan.renameNewFolder(0, to: "Japan 2028", existing: { _ in nil }) == nil)
+        #expect(plan.rows[0].refusal == nil && plan.rows[0].ticked)
+        #expect(plan.rows[0].change == .newFolder(in: "/d/Trips", name: "Japan 2028"))
+        #expect(plan.rows[1].change == .move(from: "/x/jal.pdf", toFolder: "/d/Trips/Japan 2028"))
+        #expect(plan.runnable.contains { $0.id == 0 }, "Apply makes it")
+    }
+
+    /// Only a folder takes the files: a file of that name is no place to put them.
+    @Test func aFileOfThatNameIsNoFolderAlreadyThere() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("new-folder-\(UUID().uuidString)").path
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try FileManager.default.createDirectory(atPath: dir + "/India", withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: dir + "/Japan", contents: Data("x".utf8))
+        #expect(AskClaudePlan.existingFolder(dir + "/india") == dir + "/India")
+        #expect(AskClaudePlan.existingFolder(dir + "/japan") == nil)
+        #expect(AskClaudePlan.existingFolder(dir + "/Mauritius") == nil)
+    }
+
     @Test func aBadNameChangesNothing() {
         let before = card()
         for bad in ["", "  ", "Japan/Tokyo", "Japan: Tokyo", ".Japan", String(repeating: "a", count: 256)] {
@@ -234,6 +272,23 @@ import Testing
         #expect(text.contains("one propose_changes card"))
         #expect(text.contains("Otherwise don’t offer one."))
         #expect(!text.contains("/d/Trips"))
+    }
+
+    /// Kaiser was picked by a word on page 1: its siblings' names, Kaiser's among them, and their
+    /// parent would say what the file holds.
+    @Test func theSiblingsOfAFolderPickedFromPageOneStayOnTheCard() {
+        func card(fromFile: Bool) -> AskClaudeFilingCard {
+            AskClaudeFilingCard(fileName: "Receipt.pdf", filePath: "/x/Receipt.pdf", kind: .suggestions, folders: [
+                .init(label: "Documents › Medical › Kaiser", path: "/d/Medical/Kaiser", confidence: "Medium", reason: "Matched", fromFile: fromFile),
+                .init(label: "Documents › Home", path: "/d/Home", confidence: "Needs your pick", reason: "Fits", fromFile: false)],
+                namedSiblings: .init(label: "Documents › Medical", path: "/d/Medical", names: ["Kaiser", "Stanford", "Sutter"]))
+        }
+        let held = AskClaudeFiling.result(card(fromFile: true), sharesFreely: false)
+        #expect(!held.contains("Medical") && !held.contains("Kaiser") && !held.contains("Stanford"))
+        #expect(held.contains("best: a folder picked by a word read from the file"))
+        // Shared freely, or picked by its name, they go.
+        #expect(AskClaudeFiling.result(card(fromFile: true), sharesFreely: true).contains("The folders in Documents › Medical are named Kaiser, Stanford, Sutter."))
+        #expect(AskClaudeFiling.result(card(fromFile: false), sharesFreely: false).contains("The folders in Documents › Medical are named"))
     }
 
     @Test func aMoveIntoAFolderTheCardMakesIsSaidSo() {

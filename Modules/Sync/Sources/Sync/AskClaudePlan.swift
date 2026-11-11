@@ -38,12 +38,15 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public let path: String
         public let confidence: String?
         public let reason: String?
+        /// A new folder the app offered ahead of the router's best (TE327), not made yet.
+        public let isNew: Bool?
 
-        public init(label: String, path: String, confidence: String? = nil, reason: String? = nil) {
+        public init(label: String, path: String, confidence: String? = nil, reason: String? = nil, isNew: Bool? = nil) {
             self.label = label
             self.path = path
             self.confidence = confidence
             self.reason = reason
+            self.isNew = isNew
         }
     }
 
@@ -95,6 +98,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         /// sent elsewhere teaches a rule at Apply. Nil until they pick.
         public var pickedFrom: String?
         public var pickedFromLabel: String?
+        /// The new folder the app offered it ahead of `pickedFrom` (TE327), absolute: going there
+        /// is taking the card's offer, not a pick that teaches.
+        public var offeredNew: String?
         /// It needed their pick (no folder was sure) before they chose one.
         public var wasUnsure: Bool?
         /// The name a move lands under instead of its own (TE328), before a taken name is
@@ -102,6 +108,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var newName: String?
         /// Where the new name's style came from: "Named like 2024 Ally 1099-INT.pdf", "Your name".
         public var nameBasis: String?
+        /// The name copies a file in a folder that doesn't share without asking: held until Share
+        /// Names and Folders, though the files' folder shares (decision NF). Nil when not.
+        public var nameHeld: Bool?
         /// They typed it: a folder change keeps it.
         public var nameTyped: Bool?
         /// Why a file that wanted a name keeps its own: "Locked with a password, so …".
@@ -128,20 +137,49 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
 
         /// A folder they set teaches a rule (TE331, decision JC): any pick for a row that was
-        /// unsure, and otherwise a folder other than the one the card had.
+        /// unsure, and otherwise a folder other than the one the card had. When the card led with
+        /// a new folder of the app's (TE327), the one it had is the router's first existing
+        /// folder, and neither is a pick.
         public var teaches: Bool {
             guard chosen, case .move(_, let to) = change else { return false }
             if wasUnsure == true { return true }
             guard let pickedFrom else { return false }
-            return (pickedFrom as NSString).standardizingPath != (to as NSString).standardizingPath
+            let going = (to as NSString).standardizingPath
+            if let offeredNew, (offeredNew as NSString).standardizingPath == going { return false }
+            return (pickedFrom as NSString).standardizingPath != going
         }
 
-        /// Marks the row as set by them, from where it was going: on the first pick only.
+        /// Marks the row as set by them, from where it was going: on the first pick only. Going
+        /// to a new folder the app offered, it was going to the router's first existing folder.
         public mutating func notePick() {
             guard !chosen, case .move(_, let to) = change else { return }
             pickedFrom = to
             pickedFromLabel = folderLabel
+            if let offered = choices.first(where: { $0.isNew == true && $0.path == to }),
+               let ranked = choices.first(where: { $0.isNew != true }) {
+                offeredNew = offered.path
+                pickedFrom = ranked.path
+                pickedFromLabel = ranked.label
+            }
             wasUnsure = group == .needsPick
+        }
+
+        /// Marks a move made by Move Here on filing help's `card` as their pick when it is one
+        /// (TE331, decision JC): the runner-up, or any folder of an unsure answer. A new folder
+        /// the app leads with (TE327) is no ranking of the router's: the router's best is the
+        /// first folder already there, and taking either corrects nothing.
+        public mutating func noteMoveHere(_ card: AskClaudeFilingCard) {
+            guard case .move(_, let folder) = change, let best = card.folders.first else { return }
+            let unsure = best.confidence == AskClaudeFiling.label(.low)
+            let ranked = card.folders.first { $0.isNew != true } ?? best
+            let offered = card.folders.first { $0.isNew == true }?.path
+            guard unsure || (ranked.path != folder && offered != folder) else { return }
+            pickedFrom = ranked.path
+            pickedFromLabel = ranked.label
+            offeredNew = offered
+            wasUnsure = unsure
+            chosen = true
+            reason = "Your pick"
         }
 
         public var group: Group {
@@ -198,9 +236,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public var nextLabel: String?
     /// Whether Claude has the card's new names (TE328); nil when the card has none.
     public var names: AskClaudeHeldNames?
+    /// Claude wasn't given its rows (a loose-files card from a folder that doesn't share freely,
+    /// a move into a folder picked from page 1): what Apply and Undo tell it is counts.
+    public var rowsHeld: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names, rowsHeld
     }
 
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
@@ -291,8 +332,10 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// A row sent to another folder from its menu: it moves to that folder's group
     /// and is ticked.
     public mutating func choose(_ choice: Choice, forRow id: Int) {
-        guard let index = rows.firstIndex(where: { $0.id == id }), case .move(let from, _) = rows[index].change else { return }
+        guard let index = rows.firstIndex(where: { $0.id == id }), case .move(let from, let was) = rows[index].change else { return }
         rows[index].notePick()
+        // The name Claude was given went with the folder it was given.
+        if rows[index].newName != nil, was != choice.path { namesChanged() }
         rows[index].change = .move(from: from, toFolder: choice.path)
         rows[index].folderLabel = choice.label
         rows[index].confidence = choice.confidence ?? rows[index].confidence
@@ -330,6 +373,8 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     public mutating func setName(_ name: String?, row id: Int) -> String? {
         guard state == .proposed, let index = rows.firstIndex(where: { $0.id == id }),
               case .move(let from, _) = rows[index].change else { return "That row moves no file." }
+        let before = rows[index].newName
+        defer { if rows[index].newName != before { namesChanged() } }
         guard let name else {
             rows[index].newName = nil
             rows[index].nameBasis = nil
@@ -348,16 +393,35 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         return nil
     }
 
-    /// A row's name made again for the folder it now goes to (`named` gives the proposal), unless
-    /// they typed it.
-    public mutating func renameForFolders(_ named: (ContentName.Facts, String, String) -> ContentName.Proposal?) {
-        for index in rows.indices where rows[index].nameTyped != true {
-            guard let facts = rows[index].nameFacts, case .move(let from, let to) = rows[index].change else { continue }
-            let proposal = named(facts, from, to)
-            rows[index].newName = proposal?.name
-            rows[index].nameBasis = proposal?.basis.line
+    /// A row's name made again for the folder it now goes to, unless they typed it. `named` gives
+    /// the proposal from the facts, the file, its folder and the names the ticked rows above take
+    /// in that folder: names are made in card order, so two scans filed together into a numbered
+    /// folder take two numbers, not the same one.
+    public mutating func renameForFolders(_ named: (ContentName.Facts, String, String, [String]) -> ContentName.Proposal?) {
+        var taking: [String: [String]] = [:]
+        var changed = false
+        for index in rows.indices {
+            guard case .move(let from, let to) = rows[index].change else { continue }
+            let folder = (to as NSString).standardizingPath
+            if rows[index].nameTyped != true, let facts = rows[index].nameFacts {
+                let proposal = named(facts, from, to, taking[folder] ?? [])
+                changed = changed || rows[index].newName != proposal?.name
+                rows[index].newName = proposal?.name
+                rows[index].nameBasis = proposal?.basis.line
+            }
+            if rows[index].ticked, rows[index].refusal == nil {
+                taking[folder, default: []].append(rows[index].newName ?? (from as NSString).lastPathComponent)
+            }
         }
+        if changed { namesChanged() }
         noteLandingNames()
+    }
+
+    /// A new name Claude never saw: the card holds its names again, unless the files' folder
+    /// shares without asking.
+    mutating func namesChanged() {
+        guard names?.shared == true, names?.sharedBy == nil else { return }
+        names?.shared = false
     }
 
     /// Each move's landing name noted on its row, in the order Apply runs them: a
@@ -420,8 +484,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         rows[index].change = .newFolder(in: parent, name: newName)
         rows[index].name = "New folder “\(newName)”"
         if taken != nil {
-            rows[index].refusal = "\(newName) is already there; the files go into it"
+            rows[index].refusal = Self.alreadyThere(newName)
             rows[index].ticked = false
+        } else if rows[index].refusal?.hasSuffix(Self.alreadyThere("")) == true {
+            // Named back from a folder already there: it makes this one again, ticked below
+            // while a ticked move goes into it.
+            rows[index].refusal = nil
         }
         for i in rows.indices where i != index {
             switch rows[i].change {
@@ -432,13 +500,32 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             default: break
             }
             rows[i].folderLabel = rows[i].folderLabel.map(relabeled)
+            rows[i].offeredNew = rows[i].offeredNew.map { moved($0) ?? $0 }
             rows[i].choices = rows[i].choices.map { choice in
                 guard let path = moved(choice.path) else { return choice }
-                return Choice(label: relabeled(choice.label), path: path, confidence: choice.confidence, reason: choice.reason)
+                return Choice(label: relabeled(choice.label), path: path, confidence: choice.confidence, reason: choice.reason,
+                              isNew: choice.isNew)
             }
         }
         tickNeededFolders()
         noteLandingNames()
+        return nil
+    }
+
+    /// A new folder's refusal when its name is taken: "India is already there; the files go into it".
+    static func alreadyThere(_ name: String) -> String { "\(name) is already there; the files go into it" }
+
+    /// The folder already at `path` in any case, as it is spelled on disk, or nil: a file of that
+    /// name is no folder the files could go into.
+    public static func existingFolder(_ path: String, fileManager fm: FileManager = .default) -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        let wanted = (path as NSString).lastPathComponent
+        let names = (try? fm.contentsOfDirectory(atPath: parent)) ?? []
+        for name in names where name.caseInsensitiveCompare(wanted) == .orderedSame {
+            let found = (parent as NSString).appendingPathComponent(name)
+            var isDirectory: ObjCBool = false
+            if fm.fileExists(atPath: found, isDirectory: &isDirectory), isDirectory.boolValue { return found }
+        }
         return nil
     }
 
@@ -463,5 +550,38 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         summary = missed.isEmpty ? "Undone: everything is back where it was."
             : "Undone, except \(missed.count): " + ListFormatter.localizedString(byJoining: missed.prefix(5).map { $0 })
                 + (missed.count > 5 ? " and \(missed.count - 5) more" : "") + " didn’t go back."
+    }
+
+    // MARK: What Claude is told
+
+    /// What Claude is told once Apply has run: the summary, and the rows that didn't run. A card
+    /// whose rows Claude never had gives a count, not the files or why.
+    public var applyReport: String {
+        var line = "They applied your card “\(title)”: \(summary ?? "applied.")"
+        let missed = rows.filter { $0.applied == false }
+        guard !missed.isEmpty else { return line }
+        if rowsHeld == true { return line + " \(missed.count) didn’t run; their card says why." }
+        line += " Didn’t run: " + missed.prefix(10).map { "\($0.name) (\(Self.toldWhy($0, namesHeld: names?.shared == false)))" }
+            .joined(separator: "; ")
+        if missed.count > 10 { line += "; and \(missed.count - 10) more" }
+        return line + "."
+    }
+
+    /// What Claude is told once Undo has run, with rows `notBack` those it didn't put back.
+    public func undoReport(notBack: [Int]) -> String {
+        let missed = rows.filter { notBack.contains($0.id) }.map(\.name)
+        if missed.isEmpty { return "They undid your card “\(title)”: everything it did is back where it was." }
+        if rowsHeld == true { return "They undid your card “\(title)”, but \(missed.count) didn’t go back." }
+        return "They undid your card “\(title)”, but \(missed.count) didn’t go back: \(missed.prefix(10).joined(separator: "; "))."
+    }
+
+    /// Why a row didn't run, as Claude hears it: never a hidden folder's name, nor a reason that
+    /// may carry a new name Claude hasn't been given.
+    static func toldWhy(_ row: Row, namesHeld: Bool) -> String {
+        guard let why = row.result else { return "skipped" }
+        if why.hasSuffix(" is hidden from Claude") { return "its folder is hidden from Claude" }
+        if why == "It’s hidden from Claude" { return why }
+        if row.newName != nil, namesHeld { return "it couldn’t be moved; their card says why" }
+        return why
     }
 }

@@ -30,6 +30,9 @@ public struct ActivityMessage: Identifiable, Equatable {
     public var foldedIDs: [UUID] = []
     /// A refusal (`OperationBanner.isRefusal`): shown this session, never kept past it.
     public var isRefusal = false
+    /// A note about something still under way (`OperationBanner.isInProgress`): shown this
+    /// session, never kept past it, and no problem for the dot.
+    public var isInProgress = false
     /// Read back from an earlier session's file: never folded into by this session's messages,
     /// whose Undo, Download and minutes belong to now.
     public var isFromEarlierSession = false
@@ -78,6 +81,7 @@ public struct ActivityMessage: Identifiable, Equatable {
         message == other.message && detail == other.detail && severity == other.severity
             && followUps == other.followUps && source == other.source && undoStep == nil && other.undoStep == nil
             && runId == nil && other.runId == nil && isRefusal == other.isRefusal
+            && isInProgress == other.isInProgress
             && !isFromEarlierSession && !other.isFromEarlierSession
     }
 }
@@ -204,10 +208,11 @@ public final class ActivityCenter: ObservableObject {
             recent.insert(message, at: 0)
             if recent.count > Self.keep { recent.removeLast(recent.count - Self.keep) }
         }
-        // The row as it now stands, folded or new; the store keeps all but a refusal.
+        // The row as it now stands, folded or new; the store keeps all but a refusal or a note.
         messageStore?.save(recent[0])
-        // A stop the reader asked for is not a problem they missed.
-        if message.severity != .success, !message.isStopped, !seen {
+        // A stop the reader asked for is not a problem they missed, nor is a note of what is
+        // still under way.
+        if message.severity != .success, !message.isStopped, !message.isInProgress, !seen {
             if dotWaits, !hasUnseenProblem { dotHeldFor = message.id }
             hasUnseenProblem = true
         }
@@ -254,6 +259,7 @@ public final class ActivityCenter: ObservableObject {
         message.isStopped = ActivityMessage.isQuietStop(stopped: stoppedRun || ActivityMessage.saysStopped(banner.message),
                                                         message: banner.message, severity: banner.severity)
         message.isRefusal = banner.isRefusal
+        message.isInProgress = banner.isInProgress
         record(message, seen: seen, dotWaits: dotWaits)
     }
 
@@ -348,7 +354,7 @@ public final class ActivityCenter: ObservableObject {
         if hasUnseenProblem {
             tab = .events
             // Pointed at, so a filter left on can't hide it.
-            if let problem = recent.first(where: { $0.severity != .success && !$0.isStopped && !$0.isRefusal }) {
+            if let problem = recent.first(where: { $0.severity != .success && !$0.isStopped && !$0.isRefusal && !$0.isInProgress }) {
                 highlighted = problem.id
                 pointRequest = problem.id
             }

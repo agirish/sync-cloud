@@ -123,6 +123,8 @@ extension ContentView {
         let isLeft = paneInfoTargetIsLeft(for: path)
         guard paneInfoAvailable(isLeft: isLeft) else { return }
         setPaneInfo(isLeft: isLeft, true)
+        // Open already but scrolled off the stack's edge: bring it back, or Get Info looks dead.
+        (isLeft ? paneInfoSlotLeft : paneInfoSlotRight).requestReveal()
     }
 
     /// This pane's Get Info target, while the pane still holds it.

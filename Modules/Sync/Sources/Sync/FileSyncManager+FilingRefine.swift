@@ -174,7 +174,7 @@ extension FileSyncManager {
         let hiddenCount = filingSuggestionsHiddenFromClaude(scope)
         guard !eligible.isEmpty else {
             if hiddenCount > 0 {
-                banner = .warning("Nothing was sent — "
+                banner = .refusal("Nothing was sent — "
                     + (hiddenCount == 1 ? "that file is" : "those files are") + " hidden from Claude.", log: .warn)
             }
             return nil

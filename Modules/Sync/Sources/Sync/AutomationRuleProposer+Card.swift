@@ -77,11 +77,14 @@ extension AutomationRuleProposer {
     }
 
     /// The first word of a file's name that says whose it is: not a kind of paper, a year, a
-    /// month or a number.
+    /// month, a number, or a word a scanner or browser puts in a name ("download", "export"). A
+    /// name that says nothing about its file ("download-9.pdf") gives none, so the survey's
+    /// phrase from page 1 is taken instead.
     static func cardNameWord(_ fileName: String) -> String? {
+        guard !ContentName.needsName(fileName) else { return nil }
         let stem = (fileName as NSString).deletingPathExtension
         return canonicalPhrase(stem).split(separator: " ").map(String.init).first { word in
-            !cardKindWords.contains(word) && !FilingEngine.stopwords.contains(word)
+            !cardKindWords.contains(word) && !FilingEngine.stopwords.contains(word) && !ContentName.genericWords.contains(word)
                 && !word.allSatisfy(\.isNumber) && AutomationTravelDate.month(named: word) == nil
         }
     }

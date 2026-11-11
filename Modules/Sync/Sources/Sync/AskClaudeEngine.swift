@@ -78,12 +78,16 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
     /// The step as the log writes it, when the panel's `step` carries words from the question
     /// (a search's terms, an argument that matched nothing). Nil logs `step` itself.
     public let logStep: String?
+    /// An error past the person's own say (an eject they confirmed and macOS refused): what
+    /// happened, not a reason to try again. A command run on this Mac stops there and shows it,
+    /// rather than handing the question to Claude to ask them a second time.
+    public let settled: Bool
 
     public init(result: String, isError: Bool = false, step: String, logStep: String? = nil, movedView: String? = nil,
                 passage: AskClaudePassage? = nil, download: AskClaudeDownload? = nil,
                 filing: AskClaudeFilingCard? = nil, plan: AskClaudePlan? = nil, choices: [AskClaudeChoice]? = nil,
                 rule: AskClaudeRuleCard? = nil, settings: AskClaudeSettingCard? = nil, pdf: AskClaudePDFCard? = nil,
-                found: AskClaudeFoundNames? = nil, noted: AskClaudeNoted? = nil) {
+                found: AskClaudeFoundNames? = nil, noted: AskClaudeNoted? = nil, settled: Bool = false) {
         self.result = result
         self.isError = isError
         self.step = step
@@ -99,6 +103,7 @@ public struct AskClaudeToolOutcome: Equatable, Sendable {
         self.pdf = pdf
         self.found = found
         self.noted = noted
+        self.settled = settled
     }
 }
 

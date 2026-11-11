@@ -365,8 +365,15 @@ final class AskClaudePastChats: ObservableObject {
         }
         let questions = lines.compactMap { if case .question(let text, _) = $0 { text } else { nil } }
         let answers = lines.compactMap { if case .answer(let text) = $0 { text } else { nil } }
-        let cost = chat.items.reduce(0.0) { sum, item in
-            if case .receipt(let receipt) = item.kind { sum + receipt.costUSD } else { sum }
+        // Everything the chat spent: its answers, those Edit and Retry took back, and the Refine
+        // and Try Another cards in it.
+        let cost = chat.items.reduce(chat.takenBackUSD ?? 0) { sum, item in
+            switch item.kind {
+            case .receipt(let receipt): sum + receipt.costUSD
+            case .refine(let card): sum + (card.answers?.costUSD ?? 0)
+            case .tryAnother(let line): sum + line.costUSD
+            default: sum
+            }
         }
         let folder = folderIsHidden(chat, context: context) ? nil : chat.folder.map { redact(($0 as NSString).lastPathComponent, names) }
         return Entry(id: file.id, lastAsked: lastAsked, bytes: bytes,

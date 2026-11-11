@@ -120,8 +120,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
         /// TE328: a badly named file read on this Mac, named for each of these folders; nil when its
-        /// name is fine.
-        var nameFile: (_ path: String, _ folders: [String]) async -> AskClaudeNaming.Named? = { _, _ in nil }
+        /// name is fine. `taken`, by folder: the names files above it on the same card land under
+        /// there, so two scans into a numbered folder take two numbers.
+        var nameFile: (_ path: String, _ folders: [String], _ taken: [String: [String]]) async -> AskClaudeNaming.Named? = { _, _, _ in nil }
         /// The rule a correction teaches, from page 1; nil when the folder isn't in a survey.
         var ruleFromCorrection: (_ path: String, _ folder: String, _ name: String, _ words: [String], _ also: [String],
                                  _ page: String?) -> Result<AutomationRuleProposer.Correction, AutomationRuleProposer.CorrectionRefusal>? = { _, _, _, _, _, _ in nil }
@@ -1660,8 +1661,13 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return AskClaudeToolOutcome(result: "Filing help can’t run right now.", isError: true, step: "Filing help couldn’t run")
         }
         var card = Self.filingCard(answer, node: node, ctx: ctx, place: place)
-        if card.kind == .suggestions, let named = await ctx.nameFile(path, card.folders.map(\.path)) {
-            card = Self.named(card, named, sharedBy: ctx.sharesFreely(path) ? Self.folderLabel(of: path, ctx) : nil)
+        // Never for the folder it is in: Move Here refuses a move there, so its name couldn't ride on one.
+        let elsewhere = card.folders.map(\.path).filter {
+            !PathBoundary.resolvesToSameDirectory((path as NSString).deletingLastPathComponent, $0, caseSensitive: false)
+        }
+        if card.kind == .suggestions, !elsewhere.isEmpty, let named = await ctx.nameFile(path, elsewhere, [:]) {
+            card = Self.named(card, named, sharedBy: ctx.sharesFreely(path) ? Self.folderLabel(of: path, ctx) : nil,
+                              folderShares: ctx.sharesFreely)
         }
         let step: String
         switch card.kind {
@@ -1674,14 +1680,23 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     }
 
     /// A filing card with the names a file takes in each of its folders (TE328), held unless the
-    /// file's folder shares without asking (`sharedBy`).
-    static func named(_ card: AskClaudeFilingCard, _ named: AskClaudeNaming.Named, sharedBy: String?) -> AskClaudeFilingCard {
+    /// file's folder shares without asking (`sharedBy`). Never for the folder the file is in: a
+    /// name rides on a move, and Move Here refuses a move there.
+    /// A name copied from a folder that doesn't share (`folderShares` false) is held all the same
+    /// (decision NF): the card then offers Share Names and Folders.
+    static func named(_ card: AskClaudeFilingCard, _ named: AskClaudeNaming.Named, sharedBy: String?,
+                      folderShares: (String) -> Bool = { _ in true }) -> AskClaudeFilingCard {
         var folders = card.folders
+        let own = (card.filePath as NSString).deletingLastPathComponent
         for index in folders.indices {
-            let proposal = named.names[folders[index].path]
+            let isOwn = PathBoundary.resolvesToSameDirectory(own, folders[index].path, caseSensitive: false)
+            let proposal = isOwn ? nil : named.names[folders[index].path]
             folders[index].newName = proposal?.name
             folders[index].nameBasis = proposal?.basis.line
+            folders[index].nameHeld = sharedBy != nil && proposal?.basis.copiesFolder == true && !folderShares(folders[index].path) ? true : nil
         }
+        // Some held: Claude doesn't have them all, so the card offers the click.
+        let sharedBy = folders.contains { $0.nameHeld == true } ? nil : sharedBy
         var out = AskClaudeFilingCard(fileName: card.fileName, filePath: card.filePath, kind: card.kind, folders: folders,
                                       staleDays: card.staleDays, canRefine: card.canRefine, place: card.place,
                                       namedSiblings: card.namedSiblings)
@@ -1895,7 +1910,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         for index in rows.indices {
             // A place in a hidden folder is refused before anything is checked on disk, so "already
             // there" can't say what a hidden folder holds.
-            if let hidden = Self.places(rows[index].change).first(where: ctx.isHidden) {
+            // Nor is a hidden item itself, or Notes for Claude's file, moved, renamed or trashed:
+            // a handle to one can come from an older card or chat.
+            if Self.notesFile(Self.items(rows[index].change)) != nil {
+                rows[index].refusal = "Notes for Claude’s file is changed only by its notes"
+                rows[index].ticked = false
+                continue
+            }
+            if let hidden = (Self.items(rows[index].change) + Self.places(rows[index].change)).first(where: ctx.isHidden) {
                 rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
                 rows[index].ticked = false
                 continue
@@ -1934,6 +1956,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             return [folder, (folder as NSString).appendingPathComponent(name)]
         default:
             return []
+        }
+    }
+
+    /// The item a change takes from where it is: a move's, a rename's or a trash's.
+    static func items(_ change: AskClaudePlan.Change) -> [String] {
+        switch change {
+        case .move(let from, _): return [from]
+        case .rename(let path, _): return [path]
+        case .trash(let path, _): return [path]
+        case .trashIfEmptied(let folders): return folders
+        default: return []
         }
     }
 
@@ -1977,7 +2010,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let surveyName = (surveyRoot as NSString).lastPathComponent
         // Off the main thread: a cloud folder can be slow to list. The list's matcher is built
         // there, since it reads the disk too.
-        let hiddenList = ctx.hidden
+        // Notes for Claude's file is no loose file: only its notes tool changes it.
+        let hiddenList = ctx.hidden + [AskClaudeNotes.defaultFileURL().path]
         let found = await Task.detached(priority: .userInitiated) {
             let matcher = AskClaudePrivacy.Matcher(hiddenList)
             return AskClaudeLooseFiles.collect(in: folder.absolute, isHidden: { matcher.isHidden($0) })
@@ -2036,6 +2070,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var namesOff: String?
         // TE327: new folders named like their siblings, by path, with what they are named like.
         var newHomes: [String: String] = [:]
+        // The names the ticked moves above land under, by folder, in card order.
+        var taking: [String: [String]] = [:]
         for file in page {
             guard let answer = await ctx.whereToFile(file.path, preferring), case .suggested(let list) = answer.outcome,
                   let best = list.first else {
@@ -2052,7 +2088,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             // carries no reason at all.
             let choices = list.map { s in
                 AskClaudePlan.Choice(label: Self.breadcrumb(s.folder, sources: ctx.sources, fallback: s.relativePath),
-                                     path: s.folder, confidence: AskClaudeFiling.label(s.confidence), reason: s.reason)
+                                     path: s.folder, confidence: AskClaudeFiling.label(s.confidence), reason: s.reason,
+                                     isNew: s.isNew ? true : nil)
             }
             for s in list where s.isNew { newHomes[s.folder] = s.reason }
             let fromLabel = Self.breadcrumb((file.path as NSString).deletingLastPathComponent, sources: ctx.sources,
@@ -2078,13 +2115,17 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         note: best.outsidePlace ? "Outside \((place as NSString).lastPathComponent)" : nil,
                                         folderLabel: label, choices: choices)
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
-            // TE328: a badly named file is read on this Mac and named for its folder.
-            if let named = await ctx.nameFile(file.path, choices.map(\.path)) {
+            // TE328: a badly named file is read on this Mac and named for its folder, with the
+            // names the ticked rows above land under counted as there.
+            if let named = await ctx.nameFile(file.path, choices.map(\.path), taking) {
                 let proposal = named.names[best.folder]
                 (row.newName, row.nameBasis) = (proposal?.name, proposal?.basis.line)
+                // Decision NF: a name copied from a folder that asks first is held.
+                if proposal?.basis.copiesFolder == true, !ctx.sharesFreely(best.folder) { row.nameHeld = true }
                 (row.nameKept, row.nameFacts) = (named.outcome.keptReason, named.facts)
                 namesOff = namesOff ?? named.unavailable
             }
+            if row.ticked { taking[best.folder, default: []].append(row.newName ?? file.name) }
             rows.append(row)
         }
         // Subfolders these files would leave empty, as one unticked Trash row.
@@ -2151,7 +2192,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         plan.tickNeededFolders()
         plan.noteLandingNames()
         if !plan.namedRows.isEmpty || namesOff != nil {
-            let shares = ctx.sharesFreely(folder.absolute)
+            // Claude has them all only when none copies a folder that asks first (decision NF).
+            let shares = ctx.sharesFreely(folder.absolute) && !plan.rows.contains { $0.nameHeld == true }
             plan.names = AskClaudeHeldNames(shared: shares, sharedBy: shares ? folder.label : nil, unavailable: namesOff)
         }
         if end < total {
@@ -2168,6 +2210,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // can be picked from a file's first page, and the names of a folder off screen are held
         // like a lookup's. The card shows them all; Claude gets the counts.
         let sendsRows = ctx.sharesFreely(folder.absolute)
+        // So Apply and Undo tell Claude counts, not the rows it never had.
+        if !sendsRows { plan.rowsHeld = true }
         return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end,
                                                                        rows: sendsRows),
                                     step: "Found homes for \(files - rows.filter(\.alreadyFiled).count) of \(page.count) files · \(sure) sure", plan: plan)
@@ -2359,18 +2403,34 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         step: "Didn’t eject \(disk.name): canceled")
         case .refused(let why):
             return AskClaudeToolOutcome(result: "macOS didn’t eject \(disk.name): \(why) Usually a file on it is open in an app; they can quit that app and ask again.",
-                                        isError: true, step: "Couldn’t eject \(disk.name)")
+                                        isError: true, step: "Couldn’t eject \(disk.name)", settled: true)
         }
     }
 
     /// The disk a name means: its exact name, ignoring case and accents, else the one disk whose
-    /// name holds it ("Foresight" for "Foresight 1.1.0.42"). Two that hold it are no answer.
+    /// name holds it ("Foresight" for "Foresight 1.1.0.42"). Two that answer to it are no answer:
+    /// two cards both called Untitled must never eject whichever comes first.
     static func disk(named name: String, in disks: [Disk]) -> Disk? {
         guard !name.isEmpty else { return nil }
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
-        if let exact = disks.first(where: { $0.name.compare(name, options: options) == .orderedSame }) { return exact }
+        let exact = disks.filter { $0.name.compare(name, options: options) == .orderedSame }
+        if exact.count > 1 { return disks.filter { $0.name == name }.count == 1 ? disks.first { $0.name == name } : nil }
+        if let exact = exact.first { return exact }
         let holding = disks.filter { $0.name.range(of: name, options: options) != nil }
         return holding.count == 1 ? holding[0] : nil
+    }
+
+    /// Disks named apart: two that share a name ("Untitled", as cards come) go by their mount
+    /// points' names, "Untitled" and "Untitled 1", as macOS mounted them, so each can be named
+    /// and the confirmation says which. Any still alike stay so, and `disk(named:)` won't pick.
+    static func namedApart(_ disks: [Disk]) -> [Disk] {
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        func shared(_ name: String) -> Bool { disks.filter { $0.name.compare(name, options: options) == .orderedSame }.count > 1 }
+        return disks.map { disk in
+            let mountName = (disk.path as NSString).lastPathComponent
+            guard shared(disk.name), !mountName.isEmpty else { return disk }
+            return Disk(name: mountName, path: disk.path, losesItsSource: disk.losesItsSource)
+        }
     }
 
     // MARK: Shared

@@ -15075,6 +15075,36 @@ for l in v6.x v5.x v4.x v3.x v2.x; do
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code; a Replace logged by its Info collision line | CLOSED — does not apply |
 
+## Third review since v7.0: command lanes, filing cards, notes, past chats, Events — recorded, not owed
+
+2026-11-10, for v7.1. On `main`, a third adversarial review fixed: a command run on this Mac that
+Stop or a confirmed-then-refused eject no longer hands to Claude; two disks or folders alike in name
+never guessed; a name that is two things going straight to Claude; a button's words and a card's
+Next going to Claude; nothing run on this Mac with no key; the suggestion chip held while items
+are attached; Notes for Claude's file kept off the screen card, cards and loose files; a name at a
+note's start and a card number with dots or slashes refused; Past Chats' cost counting taken-back
+answers and Refine cards; Ask Claude with Page 1… offered only with a page; the upgrade notice with
+no key; Info's swipe and Get Info reveal; filing cards' page-1 folder and siblings, rule words,
+numbering, held reports, new-folder picks and copied-style names (decision NF); Events' refusals,
+merge linking, download notes, a locked messages file and Show in Log's older minutes. All of it is
+code the maintenance lines don't have.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do
+  printf '%-5s quick=%s notes=%s msgstore=%s wheel=%s refusal=%s tryAnother=%s\n' $l \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeQuickCommand.swift')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeNotes.swift')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'ActivityMessageStore')" \
+    "$(git ls-tree -r --name-only origin/$l | grep -c 'PaneInfoWheelForwarding.swift')" \
+    "$(git grep -l 'isRefusal' origin/$l -- Modules MacApp | wc -l | tr -d ' ')" \
+    "$(git grep -l 'filingTryAnotherNotes' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-11, against origin: every line 0 on all six
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | none of the reviewed code | CLOSED — does not apply |
+
 ## Ask Claude runs simple commands on this Mac (TE338) — main only
 
 2026-11-09, for v7.1. On `main`: a short command typed or said in Ask Claude goes first to Apple's

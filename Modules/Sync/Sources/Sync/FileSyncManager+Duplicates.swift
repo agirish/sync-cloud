@@ -968,10 +968,10 @@ extension FileSyncManager {
             if drifted.isDirectory, drifted.contentSnapshot == nil {
                 // "Unreadable, or nested too deep": the scan records nil for any subtree it
                 // couldn't cover, which includes the walk's depth cap and its symlink-cycle guard.
-                banner = .warning("“\(drifted.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so there’s no baseline to prove it unchanged. Review it manually before removing.", log: .loggedAtSite)
+                banner = .refusal("“\(drifted.name)” couldn’t be fully checked against the scan — the scan couldn’t read all of it (unreadable, or nested too deep), so there’s no baseline to prove it unchanged. Review it manually before removing.", log: .loggedAtSite)
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) has no scan baseline (its subtree wasn't fully coverable at scan time: unreadable, too deep, or a link cycle)")
             } else {
-                banner = .warning("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.", log: .loggedAtSite)
+                banner = .refusal("“\(drifted.name)” changed since it was scanned — it may no longer be a copy. Rescan before removing it.", log: .loggedAtSite)
                 Logger.shared.warning("Duplicates: refused to remove copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) changed after the scan")
             }
             return false
@@ -1380,7 +1380,7 @@ extension FileSyncManager {
                 // Every eligible group was refused by the checks. When every refusal was a folder
                 // with no baseline, "changed since they were scanned" asserts a change nobody
                 // measured — and a rescan reproduces the nil baseline, not a fresh one.
-                banner = .warning(Self.allRefusedBatchBanner(refused: refused,
+                banner = .refusal(Self.allRefusedBatchBanner(refused: refused,
                                                              missingBaseline: refusedForMissingBaseline,
                                                              holdsKeeper: 0), log: .warn)
             } else if !verifiedButEmpty.isEmpty {
@@ -1393,7 +1393,7 @@ extension FileSyncManager {
                         && group.redundantCopies.allSatisfy(\.isProtectedFromRemoval)
                 }
                 let subject = verifiedButEmpty.count == 1 ? "this group" : "these groups"
-                banner = .warning(allProtected
+                banner = .refusal(allProtected
                     ? "Nothing to remove — every copy in \(subject) is protected."
                     : "Nothing to remove — \(subject) offered no copies to remove.", log: .warn)
             }
@@ -1445,7 +1445,7 @@ extension FileSyncManager {
             // all-refused phase 1.
             Logger.shared.info("Duplicates: the batch removed nothing — \(refused) group(s) refused, \(outcome.declined) permanent delete(s) declined")
             if outcome.declined == 0, gateRefused.count == survivors.count, !gateRefused.isEmpty {
-                banner = .warning(Self.allRefusedBatchBanner(refused: refused,
+                banner = .refusal(Self.allRefusedBatchBanner(refused: refused,
                                                              missingBaseline: refusedForMissingBaseline,
                                                              holdsKeeper: refusedForHoldingKeeper), log: .warn)
             }
@@ -1910,6 +1910,9 @@ extension FileSyncManager {
         // left by accident.
         var declinedCopies = 0
         var trashedForUndo: (originals: [URL], backups: [URL?])?
+        // The Sync History run the trash recorded: every ending below replaces its message, so
+        // each reports the run in its place.
+        var trashRun: UUID?
         // A Cancel must not start a destructive step that hadn't begun. Otherwise folds completed
         // before the Cancel would be trashed after it, and on a Trash-less volume the Cancel would
         // be answered by a permanent-delete alert (and `deleteItems`' own progress, with its own
@@ -1931,6 +1934,7 @@ extension FileSyncManager {
                 // The merge is not over when the trash is: the lock stays up through the undo
                 // registration and identity walk below.
                 resumingProgress: progress)
+            trashRun = outcome.runId
             if outcome.permanentlyDeleted > 0 { anyPermanentlyDeleted = true }
             if outcome.trashedWithoutLocation > 0 { anyTrashedWithoutLocation = true }
             declinedCopies = outcome.declined
@@ -2025,17 +2029,17 @@ extension FileSyncManager {
                 // Stopped while the copies went to the Trash: the folds stand, and so do the copies
                 // the trash had not reached.
                 banner = .warning("Merge of “\(group.name)” stopped — \(totalFolded) file\(totalFolded == 1 ? "" : "s") folded into \(group.keeper.name), and the copies not yet moved to the Trash are still on disk. The group stays listed and a retry skips what landed.",
-                                  undoable: offersUndo, log: .warn)
+                                  undoable: offersUndo, log: .warn).reporting(run: trashRun)
             } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.",
-                                  undoable: offersUndo, log: .warn)
+                                  undoable: offersUndo, log: .warn).reporting(run: trashRun)
             } else if declinedCopies > 0 {
                 // The fold itself succeeded; the copies are still here because the user said so.
                 banner = .warning("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name), but \(declinedCopies == 1 ? "the redundant copy can’t" : "\(declinedCopies) redundant copies can’t") be moved to the Trash and you chose not to delete \(declinedCopies == 1 ? "it" : "them") permanently. \(declinedCopies == 1 ? "It stays" : "They stay") on disk and the group stays listed.",
-                                  undoable: offersUndo, log: .warn)
+                                  undoable: offersUndo, log: .warn).reporting(run: trashRun)
             } else if totalFolded > 0 {
                 banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.",
-                                  undoable: offersUndo, log: .warn)
+                                  undoable: offersUndo, log: .warn).reporting(run: trashRun)
             }
             return false
         }
@@ -2055,7 +2059,7 @@ extension FileSyncManager {
         // hand, so it asks itself (`offersUndo`).
         let registeredUndo = offersUndo
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name).",
-                          undoable: registeredUndo)
+                          undoable: registeredUndo).reporting(run: trashRun)
         Logger.shared.info("Duplicates: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         if copyUndoWithheld {
             // He audits this log, and this is the case where the fold can't be taken back. Say what
