@@ -378,6 +378,19 @@ extension FileSyncManager {
         }
     }
 
+    /// What each side of a scan compared, for its completed line: "walked 1204 files and 87
+    /// folders on the left, 3 files and 1 folder on the right". The root's own `""` record, written
+    /// only when the root couldn't be listed, is neither.
+    nonisolated static func walkedText(left: [String: FileDiffEngine.FileInfo],
+                                       right: [String: FileDiffEngine.FileInfo]) -> String {
+        func side(_ info: [String: FileDiffEngine.FileInfo]) -> String {
+            let folders = info.lazy.filter { !$0.key.isEmpty && $0.value.isDirectory }.count
+            let files = info.count - folders - (info[""] == nil ? 0 : 1)
+            return "\(files) \(files == 1 ? "file" : "files") and \(folders) \(folders == 1 ? "folder" : "folders")"
+        }
+        return "walked \(side(left)) on the left, \(side(right)) on the right"
+    }
+
     /// The pane's relative path, for the load's start line: the same root at a different focus is
     /// a different load.
     func relativeSuffix(isLeft: Bool) -> String {
@@ -714,7 +727,9 @@ extension FileSyncManager {
         // outcome even when a refresh supersedes the scan mid-flight.
         let scanTag = "#\(request.generation)"
         let scanStart = Elapsed()
-        Logger.shared.info("[scan] \(scanTag) start: comparing \(request.left.displayName) and \(request.right.displayName)")
+        // The start line is written once the branch below is known, so it says in one line which
+        // folders it compares and where their trees come from.
+        let logLineStart = "[scan] \(scanTag) start: comparing \(request.left.displayName) and \(request.right.displayName)"
 
         let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
         let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
@@ -743,6 +758,8 @@ extension FileSyncManager {
         struct ScanOutcome: Sendable {
             let differences: [FileDifference]
             let coverage: PartialComparison
+            /// What each side's map held, for the completed line.
+            let walked: String
         }
         let newDifferences: ScanOutcome?
         // When the cached trees were read, so the publish below dates the comparison by its walks
@@ -760,10 +777,10 @@ extension FileSyncManager {
             let rightReadAt = prefetchedTreeReadAt[rightURL.path]
             walksReadAt = [leftReadAt, rightReadAt].compactMap { $0 }.min()
             // At Info, with the walks' ages: the branch can change the answer, not only the time,
-            // since a budget-stopped disk walk and a pane walk can stop in different places. Its
-            // own record, like `[filter]`'s, not a suffix on the completed line.
+            // since a budget-stopped disk walk and a pane walk can stop in different places. On the
+            // start line, not a suffix on the completed line, which a discarded scan never writes.
             let now = Date()
-            Logger.shared.info("[scan] \(scanTag) compares the panes' cached walks of “\(leftURL.path)” "
+            Logger.shared.info(logLineStart + " from the panes' cached walks of “\(leftURL.path)” "
                                + "(walked \(Self.ageText(since: leftReadAt, now: now))) and “\(rightURL.path)” "
                                + "(walked \(Self.ageText(since: rightReadAt, now: now))), reading neither folder")
 
@@ -806,7 +823,8 @@ extension FileSyncManager {
                     ),
                     coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo,
                                                    leftWalkStopped: leftWalkStopped,
-                                                   rightWalkStopped: rightWalkStopped))
+                                                   rightWalkStopped: rightWalkStopped),
+                    walked: Self.walkedText(left: leftFilesInfo, right: rightFilesInfo))
             }
             newDifferences = await withTaskCancellationHandler {
                 await computeTask.value
@@ -814,11 +832,11 @@ extension FileSyncManager {
                 computeTask.cancel()
             }
         } else {
-            // The Info twin of the cached branch's line, naming the side that missed: after a
+            // The twin of the cached branch's start line, naming the side that missed: after a
             // source switch, a miss on the pane that stayed means its walk wasn't kept.
             let missing = [prefetchedTrees[leftURL.path] == nil ? "left" : nil,
                            prefetchedTrees[rightURL.path] == nil ? "right" : nil].compactMap { $0 }
-            Logger.shared.info("[scan] \(scanTag) walks “\(leftURL.path)” and “\(rightURL.path)” from disk: "
+            Logger.shared.info(logLineStart + " by walking “\(leftURL.path)” and “\(rightURL.path)” from disk: "
                                + "no cached walk of \(missing.count == 1 ? "the \(missing[0]) one" : "either folder")")
             // Read before detaching: inside, each would hop back to the main actor and queue the
             // walk behind whatever it was doing, before the clock below starts.
@@ -868,7 +886,8 @@ extension FileSyncManager {
                             caseInsensitive: caseInsensitive,
                             dateToleranceSeconds: dateTolerance
                         ),
-                        coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo))
+                        coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo),
+                        walked: Self.walkedText(left: leftFilesInfo, right: rightFilesInfo))
 
                 } catch is CancellationError {
                     // Superseded mid-walk; the publish gate below discards the scan anyway.
@@ -942,7 +961,8 @@ extension FileSyncManager {
 
             // `.info`, matching the start line: at different levels, an Info log would show scans
             // starting and never ending.
-            Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(scanStart.text)")
+            Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(scanStart.text); "
+                               + outcome.walked)
             // Its own record, so the line above stays half of a started/completed pair. `[filter]`
             // so it greps on its own.
             Logger.shared.info("[filter] \(filterGateSummary(rawDifferenceCount: results.count))")

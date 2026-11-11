@@ -15284,3 +15284,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
 |---|---|---|
 | `v6.x` / `v5.x` | Every editor open refusal at INFO | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No editor refusal line | CLOSED — does not apply |
+
+## A scan says its branch on its start line, and counts what it walked — recorded, not owed
+
+2026-11-11, for v7.1 (logging plan C12, deferred part). On `main`, `[scan] #n start: comparing …`
+also says whether the scan reads the panes' cached walks (with their ages) or walks both folders
+from disk (naming the side with no cached walk), where a second line used to; and
+`[scan] #n completed: found N differences in T` ends with the files and folders each side held
+(`FileSyncManager.walkedText`). Every maintenance line has the older scan lines, without the counts.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l \
+  "$(git grep -c 'walkedText' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-11, against origin: 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The scan's start and mode on two lines, no walked counts | RECORDED — not owed |

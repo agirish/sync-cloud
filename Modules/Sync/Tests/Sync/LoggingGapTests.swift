@@ -322,10 +322,11 @@ import Testing
                 "a switch on the left pane emptied the right pane's Back stack")
     }
 
-    /// A Compare says at Info whether it read the panes' cached walks or walked the disk, and how
-    /// old the walks were. The branch decides the answer as well as the time: a disk walk stops at
-    /// the node budget, so cold and warm Compares of one pair can count different differences. The
-    /// roots carry this run's token, so no other suite's scan can answer for these.
+    /// A Compare's start line says at Info whether it read the panes' cached walks or walked the
+    /// disk, and how old the walks were. The branch decides the answer as well as the time: a disk
+    /// walk stops at the node budget, so cold and warm Compares of one pair can count different
+    /// differences. Its completed line says how much each side held. The roots carry this run's
+    /// token, so no other suite's scan can answer for these.
     @Test func aScanSaysWhereItsTreesCameFrom() async throws {
         let token = Self.token()
         let leftRoot = "/scan-\(token)-left", rightRoot = "/scan-\(token)-right"
@@ -341,13 +342,24 @@ import Testing
 
         // Nothing cached, so the scan walks both folders.
         await m.scanDirectories(left: l, leftPath: leftRoot, right: r, rightPath: rightRoot)
-        let cold = await loggedEntry(containing: "walks “\(leftRoot)” and “\(rightRoot)” from disk")
+        let cold = await loggedEntry(containing: "by walking “\(leftRoot)” and “\(rightRoot)” from disk")
         #expect(cold?.level == .info, "a scan that walked both folders said so at \(cold?.level.rawValue ?? "no") level")
         #expect(cold?.message.hasSuffix("no cached walk of either folder") == true, "\(cold?.message ?? "nothing logged")")
+        // One line, not a start line and a mode line: the start names the sources and the branch.
+        let coldLine = try #require(cold?.message)
+        #expect(coldLine.hasPrefix("[scan] #") && coldLine.contains(" start: comparing L and R by walking “\(leftRoot)”"),
+                "the branch is not on the start line: \(coldLine)")
+        // The completed line of the same scan, by its tag, counts what each side walked.
+        let tag = String(coldLine.dropFirst("[scan] ".count).prefix { $0 != " " })
+        let walked = "; walked 1 file and 0 folders on the left, 0 files and 0 folders on the right"
+        let completed = await log.entries.contains {
+            $0.message.hasPrefix("[scan] \(tag) completed: found 1 differences in ") && $0.message.hasSuffix(walked)
+        }
+        #expect(completed, "no completed line for scan \(tag) counts what each side walked")
 
         // The refresh walks and caches both panes, and its scan compares those walks.
         await m.refreshTreesAndScan(left: l, right: r)
-        let warm = await loggedEntry(containing: "compares the panes' cached walks of “\(leftRoot)” (walked ")
+        let warm = await loggedEntry(containing: "start: comparing L and R from the panes' cached walks of “\(leftRoot)” (walked ")
         #expect(warm?.level == .info, "a scan from the panes' walks said so at \(warm?.level.rawValue ?? "no") level")
         #expect(warm?.message.contains("and “\(rightRoot)” (walked ") == true, "\(warm?.message ?? "nothing logged")")
 
@@ -355,8 +367,26 @@ import Testing
         // that stayed means its walk wasn't kept).
         m.dropPrefetchedTrees(keeping: leftRoot)
         await m.scanDirectories(left: l, leftPath: leftRoot, right: r, rightPath: rightRoot)
-        let half = await loggedEntry(containing: "walks “\(leftRoot)” and “\(rightRoot)” from disk")
+        let half = await loggedEntry(containing: "by walking “\(leftRoot)” and “\(rightRoot)” from disk")
         #expect(half?.message.hasSuffix("no cached walk of the right one") == true, "\(half?.message ?? "nothing logged")")
+    }
+
+    /// The completed line's counts: files and folders per side, in the singular for one, and the
+    /// root's own record (written when the root couldn't be listed) counted as neither.
+    @Test func aScansWalkedCountsNameFilesAndFoldersPerSide() {
+        func info(_ path: String, folder: Bool, unexplored: Bool = false) -> FileDiffEngine.FileInfo {
+            FileDiffEngine.FileInfo(url: URL(fileURLWithPath: "/root/" + path), modificationDate: nil, fileSize: nil,
+                                    isDirectory: folder, isUnexplored: unexplored)
+        }
+        let left = ["a.txt": info("a.txt", folder: false), "b.txt": info("b.txt", folder: false),
+                    "Docs": info("Docs", folder: true), "Docs/c.md": info("Docs/c.md", folder: false),
+                    "Old": info("Old", folder: true)]
+        let right = ["": info("", folder: true, unexplored: true), "Docs": info("Docs", folder: true),
+                     "d.txt": info("d.txt", folder: false)]
+        #expect(FileSyncManager.walkedText(left: left, right: right)
+                == "walked 3 files and 2 folders on the left, 1 file and 1 folder on the right")
+        #expect(FileSyncManager.walkedText(left: [:], right: [:])
+                == "walked 0 files and 0 folders on the left, 0 files and 0 folders on the right")
     }
 
     /// The walks' ages read in the largest whole unit that fits — minutes or hours is the question.

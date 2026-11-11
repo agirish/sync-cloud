@@ -31,7 +31,8 @@ while the app is in use.*
 
 **INFO** — the default. One line per operation or command (start, finish, counts, time); facts once
 per launch; any outcome or decision the user may ask about later that nothing else records; a limit
-or state the UI already explains. *`[scan] #1 completed: found 589 differences in 211.4 ms`;
+or state the UI already explains. *`[scan] #1 completed: found 589 differences in 211.4 ms; walked
+1204 files and 87 folders on the left, 1198 files and 86 folders on the right`;
 `User triggered Redo: …`; a collision skipped by policy, naming the file.*
 
 **DEBUG** — UI mechanics fired per click, keystroke or frame; timing traces; diagnostic anomalies
