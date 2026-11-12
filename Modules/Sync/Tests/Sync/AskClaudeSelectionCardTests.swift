@@ -5,8 +5,18 @@ import Testing
 /// TE342: File with Claude's card for a selection: its rows' states, what carries over when the
 /// card is updated, Claude's folders and Refine's picks on it, and what Claude is told.
 @Suite struct AskClaudeSelectionCardTests {
-    static let downloads = "/Users/me/Downloads"
-    static let docs = "/Users/me/Documents"
+    /// Real folders, so a folder the card makes is the missing leaf alone, never every level up to
+    /// a home folder this Mac doesn't have.
+    static let home: String = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("selection-card-\(UUID().uuidString)").path
+        for sub in ["Downloads", "Documents/Taxes/2025", "Documents/Insurance/Car", "Documents/Insurance/Home",
+                    "Documents/Travel/Trips", "Documents/Medical"] {
+            try? FileManager.default.createDirectory(atPath: dir + "/" + sub, withIntermediateDirectories: true)
+        }
+        return dir
+    }()
+    static let downloads = home + "/Downloads"
+    static let docs = home + "/Documents"
 
     static func choice(_ rel: String, _ confidence: FilingConfidence, fromFile: Bool? = nil, isNew: Bool? = nil) -> AskClaudePlan.Choice {
         AskClaudePlan.Choice(label: "Home › Documents › " + rel.split(separator: "/").joined(separator: " › "), path: docs + "/" + rel,
@@ -74,8 +84,8 @@ import Testing
 
     // MARK: Updating the card
 
-    /// A card made again for the same files keeps a folder they chose, a name they typed, and
-    /// their ticks on rows still going where they went.
+    /// A card made again for the same files keeps a folder they chose, Claude's folder with its
+    /// Undo Refine state, a name they typed, and their ticks on rows still going where they went.
     @Test func aCardMadeAgainKeepsWhatTheyDid() {
         var old = Self.card()
         old.choose(Self.choice("Insurance/Home", .low), forRow: 1)
@@ -86,6 +96,26 @@ import Testing
         #expect(fresh.rows[1].chosen && fresh.rows[1].change == old.rows[1].change && fresh.rows[1].ticked)
         #expect(!fresh.rows[0].ticked && fresh.rows[0].newName == "Tax form.pdf")
         #expect(fresh.rows[2].noFit == true)
+
+        var refined = Self.card()
+        refined.refined([Self.downloads + "/Geico.pdf": .folder(path: Self.docs + "/Insurance/Auto", label: "Auto", reason: nil)])
+        var again = Self.card()
+        again.carryPicks(from: refined)
+        #expect(again.rows[1].claudePick == true && again.rows[1].folderLabel == "Auto" && again.rows[1].beforeRefine != nil)
+        #expect(again.rows.contains { $0.change == .newFolder(in: Self.docs + "/Insurance", name: "Auto") })
+        again.refineUndone()
+        #expect(again.rows[1].folderLabel == "Home › Documents › Insurance › Car", "Undo Refine still works on the new card")
+    }
+
+    /// A file filed elsewhere since is left at Apply, and so is a folder only it needed.
+    @Test func aFileMovedSinceIsLeftAtApply() {
+        var plan = Self.card()
+        _ = plan.claudeFolder(forFile: Self.downloads + "/W-2.pdf", folder: Self.docs + "/Taxes/2026", label: "Home › Documents › Taxes › 2026", reason: "x")
+        plan.setTicked(true, row: 0)
+        #expect(plan.rows.contains { $0.forMoves == true && $0.ticked })
+        plan.untickMoved(exists: { $0 != Self.downloads + "/W-2.pdf" && FileManager.default.fileExists(atPath: $0) })
+        #expect(!plan.rows[0].ticked && !plan.rows.contains { $0.forMoves == true && $0.ticked })
+        #expect(plan.runnable.isEmpty)
     }
 
     // MARK: Claude's folder (decision NR)
@@ -103,7 +133,8 @@ import Testing
         #expect(row.choices.first?.path == japan && row.choices.first?.isNew == true && row.choices.count == 2)
         #expect(row.offer?.picker == .claude && row.offer?.runnerUp == Self.docs + "/Taxes/2025" && row.offer?.offeredNew == [japan])
         let made = try #require(plan.rows.first { $0.change == .newFolder(in: Self.docs + "/Travel/Trips", name: "Japan") })
-        #expect(made.forMoves == true && !made.ticked)
+        #expect(made.forMoves == true && !made.ticked && made.folderLabel == "Home › Documents › Travel › Trips")
+        #expect(plan.rows.filter { if case .newFolder = $0.change { true } else { false } }.count == 1, "only the missing leaf is made")
         plan.setTicked(true, row: 0)
         #expect(plan.rows.first { $0.id == made.id }?.ticked == true, "ticking the row ticks the folder it needs")
         #expect(!plan.rows[0].teaches, "Claude's folder taken is no correction of the Mac's")
@@ -116,8 +147,10 @@ import Testing
 
     // MARK: Refine's picks (decision NS)
 
-    /// Refine's pick moves an untouched row, unticked, and counts as Claude's; a row it kept says
-    /// so; Undo Refine puts back each row they haven't touched since.
+    /// Refine's pick moves an untouched row, unticked, into Claude's folder's group, and counts as
+    /// Claude's; a row it kept says so, and neither is offered to Refine again; a row they ticked
+    /// keeps its folder; Undo Refine puts back each row they haven't touched since, and the folder
+    /// rows Refine's picks needed go.
     @Test func refinesPicksComeBackOntoTheCardAndUndoPutsThemBack() {
         var plan = Self.card()
         plan.rows.append(Self.move(3, "Lab.pdf", [Self.choice("Medical", .medium)], ticked: false))
@@ -127,10 +160,20 @@ import Testing
         #expect(plan.rows[1].claudePick == true && plan.rows[1].folderLabel == "Auto" && !plan.rows[1].ticked)
         #expect(plan.rows[1].choices.map(\.path) == [Self.docs + "/Insurance/Auto", car, Self.docs + "/Insurance/Home"])
         #expect(plan.rows[1].offer?.picker == .claude && plan.rows[1].offer?.runnerUp == car)
+        #expect(plan.rows[1].group == .folder("Auto"))
         #expect(plan.rows[3].claudeAgrees == true && plan.rows[3].claudePick == nil)
+        plan.refineFolder = Self.downloads
+        #expect(plan.refinable.isEmpty, "both were answered")
+        #expect(plan.rows.contains { $0.change == .newFolder(in: Self.docs + "/Insurance", name: "Auto") })
         plan.refineUndone()
         #expect(plan.rows[1].change == .move(from: Self.downloads + "/Geico.pdf", toFolder: car) && plan.rows[1].claudePick == nil)
         #expect(plan.rows[3].claudeAgrees == nil)
+        #expect(!plan.rows.contains { if case .newFolder = $0.change { true } else { false } }, "Auto isn't needed any more")
+        // Ticked before Refine answers, a row keeps the folder they approved.
+        var ticked = Self.card()
+        ticked.setTicked(true, row: 1)
+        ticked.refined([Self.downloads + "/Geico.pdf": .folder(path: Self.docs + "/Insurance/Auto", label: "Auto", reason: nil)])
+        #expect(ticked.rows[1].change == .move(from: Self.downloads + "/Geico.pdf", toFolder: car))
 
         // Ticked since, it stays: they approved Claude's folder.
         plan.refined([Self.downloads + "/Geico.pdf": .folder(path: Self.docs + "/Insurance/Auto", label: "Auto", reason: nil)])
@@ -204,8 +247,9 @@ import Testing
         records.append(Self.record("School", .kept, picker: .claude))
         let text = FilingScorecard.forClaude(records, range: .days30, isHidden: { $0.hasPrefix("/R/Medical") }, now: Self.now)
         #expect(text.contains("Last 30 days: kept the first folder offered 4 of 5, one folder deeper 0, changed 1 (1 to the runner-up)."), "\(text)")
-        #expect(text.contains("Areas with 5 or more: School 4/5."))
-        #expect(text.contains("Claude’s picks (Refine and its new folders): kept 1 of 1."))
+        #expect(text.contains("Kept by top-level area, with 5 or more: School 4 of 5."))
+        #expect(text.contains("Your picks (Refine’s, and new folders you named): kept 1 of 1."))
+        #expect(text.contains("Kept by what picked the folder: Folder survey 4 of 5."))
         #expect(!text.contains("Medical") && !text.contains("secret") && !text.contains(".pdf") && !text.contains("/R"))
         let all = FilingScorecard.forClaude(records, range: FilingScorecard.range(named: "all"), isHidden: { _ in false }, now: Self.now)
         #expect(all.hasPrefix("Since counting began: kept the first folder offered 6 of 7"), "\(all)")

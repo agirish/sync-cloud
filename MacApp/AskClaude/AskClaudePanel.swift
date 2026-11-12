@@ -1739,7 +1739,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Button("Refine \(refinable) with Claude…") { onPlanCard(item.id, .refine) }
                     .controlSize(.small)
                     .disabled(isRunning)
-                    .help("Opens their folder in Organize and puts a plan here, which shows the price before anything is sent. Claude’s picks come back to this card.")
+                    .help("Opens these files’ folder in Organize ▸ To File and puts a plan here, which shows the price before anything is sent. Claude’s picks show there and on this card.")
             }
             if let left = plan.leftHere {
                 Text(left).scaledFont(.callout).foregroundStyle(.secondary)
@@ -1817,7 +1817,7 @@ private struct AskClaudeThreadRow: View, Equatable {
             : row.confidence == nil ? .clear : .orange
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 7) {
-                Toggle("", isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) }))
+                Toggle("", isOn: Binding(get: { row.ticked && !movedSince }, set: { onPlanCard(item.id, .tick(row.id, $0)) }))
                     .toggleStyle(.checkbox)
                     .labelsHidden()
                     .disabled(!editable || row.noFit == true)
@@ -2035,7 +2035,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button(label) { onPlanCard(item.id, .next) }
                         .disabled(isRunning)
-                        .help(plan.selection == true ? "Puts the next files you selected on a card of their own." : "Asks Claude for the next card of loose files.")
+                        .help(plan.selection == true ? "Asks Claude to put the next files you selected on a card of their own." : "Asks Claude for the next card of loose files.")
                 }
             }
         }

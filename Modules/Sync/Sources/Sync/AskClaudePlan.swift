@@ -70,7 +70,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     }
 
     public struct Row: Codable, Equatable, Sendable, Identifiable {
-        public let id: Int
+        public var id: Int
         /// The item's own name, as the card shows it.
         public var name: String
         public var change: Change
@@ -216,7 +216,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             switch change {
             case .trashIfEmptied: return .emptied
             case .trash where alreadyFiled: return .alreadyFiled
-            case .move where confidence == AskClaudeFiling.label(.low) && !chosen: return .needsPick
+            // Claude's folder (Refine's pick, or one it named) stands like a chosen one: it is in that
+            // folder's group, wherever the row's own confidence would have put it (TE342).
+            case .move where confidence == AskClaudeFiling.label(.low) && !chosen && claudePick != true: return .needsPick
             default: return .folder(folderLabel ?? "")
             }
         }

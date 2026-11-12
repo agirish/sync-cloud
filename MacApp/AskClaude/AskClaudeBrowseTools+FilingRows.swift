@@ -77,6 +77,18 @@ extension AskClaudeBrowseTools {
             let fromLabel = Self.breadcrumb((file.path as NSString).deletingLastPathComponent, sources: ctx.sources,
                                             fallback: ((file.path as NSString).deletingLastPathComponent as NSString).lastPathComponent)
             let label = choices[0].label
+            // As where_to_file tells of one file: a folder a word on page 1 picked stays on their
+            // card unless the file's folder shares without asking. Any of the row's folders: a
+            // runner-up is named to Claude too (TE342).
+            let held = selection && choices.contains { $0.fromFile == true } && !ctx.sharesFreely(file.path)
+            // The plain-name folders beside its home, unless a folder page 1 picked is among them,
+            // which their names would point at.
+            let siblings: AskClaudePlan.Siblings? = selection ? answer.namedSiblings.flatMap { named in
+                let pointsAtPage = choices.contains { $0.fromFile == true && ($0.path as NSString).deletingLastPathComponent == named.parent }
+                guard !(pointsAtPage && !ctx.sharesFreely(file.path)) else { return nil }
+                return AskClaudePlan.Siblings(label: Self.breadcrumb(named.parent, sources: ctx.sources, fallback: (named.parent as NSString).lastPathComponent),
+                                              path: named.parent, names: named.names)
+            } : nil
             // The same bytes already in its home is a copy to put in the Trash.
             let isCloudOnly = ctx.isCloudOnly
             if let twin = await Task.detached(priority: .userInitiated, operation: {
@@ -86,6 +98,7 @@ extension AskClaudeBrowseTools {
                                             reason: "The same file is in \(label)", note: (twin as NSString).lastPathComponent == file.name ? nil : "As \((twin as NSString).lastPathComponent)",
                                             folderLabel: label, choices: choices, alreadyFiled: true)
                 (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
+                if held { row.folderHeld = true }
                 out.rows.append(row)
                 continue
             }
@@ -98,15 +111,8 @@ extension AskClaudeBrowseTools {
                                         folderLabel: label, choices: choices)
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
             row.offer = FilingScorecard.Offer(list, root: answer.root)
-            if selection {
-                // As where_to_file tells of one file: a folder a word on page 1 picked stays on
-                // their card unless the file's folder shares without asking.
-                if choices[0].fromFile == true, !ctx.sharesFreely(file.path) { row.folderHeld = true }
-                row.namedSiblings = answer.namedSiblings.map {
-                    AskClaudePlan.Siblings(label: Self.breadcrumb($0.parent, sources: ctx.sources, fallback: ($0.parent as NSString).lastPathComponent),
-                                           path: $0.parent, names: $0.names)
-                }
-            }
+            if held { row.folderHeld = true }
+            row.namedSiblings = siblings
             // TE328: a badly named file is read on this Mac and named for its folder, with the
             // names the ticked rows above land under counted as there.
             if let named = await ctx.nameFile(file.path, choices.map(\.path), taking) {
@@ -153,21 +159,26 @@ extension AskClaudeBrowseTools {
         }
         // Each row checked now, as a proposed card's are, with the folders it makes counted
         // as there: one that can't run says why and has no tick, rather than failing at Apply.
-        let creating = Set(making)
-        for index in out.rows.indices where out.rows[index].noFit != true {
+        Self.check(&out.rows, creating: Set(making), ctx)
+        return out
+    }
+
+    /// Each row checked now, as a proposed card's are, with the folders `creating` counted as
+    /// there: one that can't run says why and has no tick. A No Folder Fits row has nothing to check.
+    static func check(_ rows: inout [AskClaudePlan.Row], creating: Set<String>, _ ctx: Context) {
+        for index in rows.indices where rows[index].noFit != true {
             // A place in a hidden folder is refused before anything is checked on disk, so "already
             // there" can't say what a hidden folder holds.
-            if let hidden = Self.places(out.rows[index].change).first(where: ctx.isHidden) {
-                out.rows[index].refusal = "\((Self.hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
-                out.rows[index].ticked = false
+            if let hidden = places(rows[index].change).first(where: ctx.isHidden) {
+                rows[index].refusal = "\((hiddenEntry(hidden, ctx.hidden) as NSString).lastPathComponent) is hidden from Claude"
+                rows[index].ticked = false
                 continue
             }
-            if let why = ctx.planRefusal(out.rows[index].change, creating) {
-                out.rows[index].refusal = why
-                out.rows[index].ticked = false
+            if let why = ctx.planRefusal(rows[index].change, creating) {
+                rows[index].refusal = why
+                rows[index].ticked = false
             }
         }
-        return out
     }
 
     // MARK: File with Claude's card for a selection (TE342)
@@ -179,13 +190,20 @@ extension AskClaudeBrowseTools {
         if let entries = call.input["new_folders"]?.arrayValue, !entries.isEmpty {
             return claudeFolders(entries, into: call.string("into"), ctx, handles)
         }
+        let asked = call.strings("handles") ?? []
+        let paths = asked.compactMap { handles.path(for: $0) }
+        return await fileSelection(paths, unknown: asked.count - paths.count, into: call.string("into"), ctx, handles)
+    }
+
+    /// The card for `paths`, the files they selected, in order: also where where_to_file's one
+    /// handle goes when the question is File with Claude's (decision OB).
+    func fileSelection(_ paths: [String], unknown: Int, into: String?, _ ctx: Context, _ handles: AskClaudeHandles) async -> AskClaudeToolOutcome {
         // Each file once, in the order given; what can't be filed is counted, never a reason to
         // refuse the rest.
         var files: [AskClaudeLooseFiles.File] = []
-        var unknown = 0, hidden = 0, folders = 0, gone = 0
+        var hidden = 0, folders = 0, gone = 0
         let notesFile = AskClaudeNotes.defaultFileURL().path
-        for handle in call.strings("handles") ?? [] {
-            guard let path = handles.path(for: handle) else { unknown += 1; continue }
+        for path in paths {
             guard !files.contains(where: { $0.path == path }) else { continue }
             if ctx.isHidden(path) || path == notesFile { hidden += 1; continue }
             // A selection is files on disk, as a folder's loose files are: read there when the pane
@@ -209,7 +227,7 @@ extension AskClaudeBrowseTools {
         }
         // A place they named: as where_to_file takes one.
         var place: String?
-        if let into = call.string("into")?.trimmingCharacters(in: .whitespaces).nonEmptyText {
+        if let into = into?.trimmingCharacters(in: .whitespaces).nonEmptyText {
             guard let resolved = Self.place(into, ctx) else {
                 return AskClaudeToolOutcome(result: "There’s no folder called \(into) in their folder survey or their sources. Ask where they mean.",
                                             isError: true, step: "No place called \(into)", logStep: "No place called that (no match, \(into.count) characters)")
@@ -218,10 +236,13 @@ extension AskClaudeBrowseTools {
             place = resolved
             // A place the survey doesn't cover is said once, for the whole card.
             if let survey = ctx.survey(for: resolved), !FileSyncManager.isAtOrUnderSurvey(resolved, root: survey) {
-                let label = Self.breadcrumb(survey, sources: ctx.sources, fallback: (survey as NSString).lastPathComponent)
-                let card = AskClaudeFilingCard(fileName: files[0].name, filePath: files[0].path, kind: .outside(surveyed: label),
-                                               place: Self.breadcrumb(resolved, sources: ctx.sources, fallback: (resolved as NSString).lastPathComponent))
-                return AskClaudeToolOutcome(result: AskClaudeFiling.result(card, sharesFreely: false), step: "\(card.place ?? "") is outside the folder survey", filing: card)
+                let surveyLabel = Self.breadcrumb(survey, sources: ctx.sources, fallback: (survey as NSString).lastPathComponent)
+                let placeLabel = Self.breadcrumb(resolved, sources: ctx.sources, fallback: (resolved as NSString).lastPathComponent)
+                let card = AskClaudeFilingCard(fileName: "\(files.count) file\(files.count == 1 ? "" : "s")", filePath: files[0].path,
+                                               kind: .outside(surveyed: surveyLabel), place: placeLabel)
+                let survey = AskClaudeScreenCard.escape(surveyLabel), place = AskClaudeScreenCard.escape(placeLabel)
+                return AskClaudeToolOutcome(result: "Their folder survey covers \(survey) only, and \(place) isn’t in it, so there are no conventions of theirs to sort by there. Say so, and offer to file them into \(survey) by how they file instead (call where_to_file again with their handles and no into), or to move them all into one folder of \(place) they name, with propose_changes. Don’t guess a folder.",
+                                            step: "\(placeLabel) is outside the folder survey", filing: card)
             }
         }
         guard files.contains(where: { ctx.survey(for: $0.path) != nil }) || place.flatMap(ctx.survey) != nil else {
@@ -249,7 +270,7 @@ extension AskClaudeBrowseTools {
         var left = leftOut
         if built.atHome > 0 { left.insert("\(built.atHome) already in \(built.atHome == 1 ? "its" : "their") folder", at: 0) }
         let count = built.rows.filter(AskClaudePlan.isFile).count
-        var plan = AskClaudePlan(title: "File \(count) File\(count == 1 ? "" : "s")", subtitle: subtitle, rows: built.rows,
+        var plan = AskClaudePlan(title: count == 1 ? "File This File" : "File \(count) Files", subtitle: subtitle, rows: built.rows,
                                  leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "),
                                  more: remaining.isEmpty ? nil : "\(remaining.count) more selected")
         plan.selection = true
@@ -283,9 +304,18 @@ extension AskClaudeBrowseTools {
         if plan.rows.contains(where: { $0.folderHeld == true }) || plan.names?.shared == false { plan.rowsHeld = true }
         // A card still waiting for these same files takes this one's place, with what they did on it.
         var replacing: UUID?
-        let paths = Set(page.map(\.path))
-        if let open = ctx.openSelectionCard(paths), Set(open.plan.rows.filter(AskClaudePlan.isFile).map(\.change.path)) == paths {
+        // By the files on the card: one already in its folder has no row on either.
+        let onCard = Set(plan.rows.filter(AskClaudePlan.isFile).map(\.change.path))
+        if !onCard.isEmpty, let open = ctx.openSelectionCard(onCard), Set(open.plan.rows.filter(AskClaudePlan.isFile).map(\.change.path)) == onCard {
             plan.carryPicks(from: open.plan)
+            // A carried folder was checked for the other card: checked again here.
+            for index in plan.rows.indices { plan.rows[index].refusal = nil }
+            let creating = Set(plan.rows.compactMap { row -> String? in
+                if case .newFolder = row.change { return row.change.path }
+                return nil
+            })
+            Self.check(&plan.rows, creating: creating, ctx)
+            plan.tickNeededFolders()
             replacing = open.id
         }
         let sure = plan.rows.filter { $0.ticked && AskClaudePlan.isFile($0) }.count

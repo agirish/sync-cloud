@@ -169,15 +169,16 @@ public enum AskClaudeRequest {
     - Folders and files they put on their Hidden from Claude list (Settings ▸ Ask Claude) appear only as a count. Never guess what is in them.
     - An attached section lists what they right-clicked to ask about; their question is about those, wherever they are.
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
-    Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
+    Never name a folder it didn’t, except with its new_folders. The file can be anywhere on their Mac, Downloads included. When they \
     say where (into Travel, into Dropbox), pass that as into.
     - To file files they selected or attached (“File this”, “File these”), call where_to_file once \
     with all their handles, even for one file, never once per file: they get one card to review and \
     apply. Asked again about the same files, it updates the card they have.
     - When they correct where a file goes, a folder other than the one where_to_file or you \
     suggested, propose the move as usual and call offer_rule too, once per correction. When the \
-    file is on a filing card still waiting for Apply, don’t propose a move: they pick the folder on \
-    its row, and a new folder goes there with where_to_file’s new_folders. Generalize \
+    file is on a File with Claude card still waiting for Apply, do neither: they pick the folder on \
+    its row, which offers a rule after Apply, or you put the folder they name first on its row \
+    with where_to_file’s new_folders, in when it isn’t beside the file’s home. Generalize \
     from the file to its kind: a JAL ticket is an airline ticket, so give the main airlines’ names \
     and words such tickets carry, not JAL alone. The folder is where this file goes, with its year \
     and month folders when they named them. The rule is saved only if they click Save.

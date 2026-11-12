@@ -611,6 +611,8 @@ extension ContentView {
 
     /// Apply on a plan card: its ticked rows, each checked again now, as one undo step.
     private func askClaudeApplyPlan(_ id: UUID) {
+        // A file filed elsewhere since the card was made is left, and so are folders only it needed (TE342).
+        askClaudeChat.updatePlan(id) { $0.untickMoved() }
         guard !askClaudeChat.isRunning, let plan = askClaudeChat.plan(id), plan.state == .proposed else { return }
         let rows = plan.runnable.map { (id: $0.id, change: $0.change) }
         guard !rows.isEmpty else { return }
@@ -1462,7 +1464,10 @@ extension ContentView {
                 return filingDestinationRoot(forAnchor: providerAnchorExpanded(forProviderId: source.id))
             },
             openSelectionCard: { askClaudeChat.openSelectionCard(holding: $0) },
-            askedAbout: { askClaudeChat.lastAsked.attached.map(\.path) },
+            fileWithAsked: {
+                let asked = askClaudeChat.lastAsked
+                return AskClaudeFileWith.isQuestion(asked.shown) ? asked.attached.map(\.path) : []
+            },
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)
                 guard forward ? syncManager.canGoForward(isLeft: true, drawsColumns: columns)
@@ -2222,6 +2227,13 @@ struct AskClaudeToolbarButton: View {
 /// What File with Claude asks: files are placed by where_to_file; a folder files its
 /// loose files, never itself, by file_loose_files.
 enum AskClaudeFileWith {
+    /// Whether `shown`, a question as the chat shows it ("File these\nAbout …"), is File with
+    /// Claude's own: its files then go on one card, whatever Claude calls (TE342).
+    static func isQuestion(_ shown: String?) -> Bool {
+        guard let first = shown?.components(separatedBy: "\n").first else { return false }
+        return ["File this", "File these", "File these, and the loose files in each folder"].contains(first)
+    }
+
     static func question(files: Int, folders: Int) -> String {
         switch (files, folders) {
         case (1, 0): "File this"

@@ -160,8 +160,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// The newest selection card still waiting for Apply that holds every one of these files,
         /// and its id, for where_to_file to update in place (TE342).
         var openSelectionCard: (_ files: Set<String>) -> (id: UUID, plan: AskClaudePlan)? = { _ in nil }
-        /// The files the question being answered was asked about.
-        var askedAbout: () -> [String] = { [] }
+        /// The files File with Claude asked about, when the question being answered is its own
+        /// (TE342, decision OB); empty otherwise.
+        var fileWithAsked: () -> [String] = { [] }
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
         /// Quick Look on a file.
@@ -1671,11 +1672,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
             return unknownHandle(call.string("handle"))
         }
-        // Files they asked to file together go on one card (TE342), never one card each.
-        let asked = ctx.askedAbout()
-        if asked.count > 1, asked.contains(path) {
-            return AskClaudeToolOutcome(result: "They asked about \(asked.count) files together: call where_to_file once with all their handles, so they get one card.",
-                                        isError: true, step: "Asked about one file of several")
+        // File with Claude's files go on one card (TE342, decision OB), one file too: asked about
+        // one of them alone, the card is still theirs all.
+        let asked = ctx.fileWithAsked()
+        if asked.contains(path) {
+            return await fileSelection(asked, unknown: 0, into: call.string("into"), ctx, handles)
         }
         guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
             return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there; filing help is for files.", isError: true,

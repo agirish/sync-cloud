@@ -24,12 +24,12 @@ public enum AskClaudeSelectionCard {
                 case .noFit:
                     folder = "no folder fits; they choose one"
                 case .alreadyFiled:
-                    folder = row.folderHeld == true ? "already filed in a folder picked by a word read from the file; a Trash row"
+                    folder = row.folderHeld == true ? "already filed, in a folder picked by a word read from the file; a Trash row, on their card"
                         : "already filed in \(row.folderLabel ?? ""); a Trash row"
                 case .needsPick:
                     if row.claudePick == true {
                         folder = "your pick: \(row.folderLabel ?? ""), not decided"
-                    } else if row.choices.contains(where: { $0.fromFile == true }) && row.folderHeld == true {
+                    } else if row.folderHeld == true {
                         folder = "needs their pick between \(row.choices.count) folders, some picked by words read from the file; on their card, not sent to you"
                     } else {
                         folder = "needs their pick: " + row.choices.map(\.label).joined(separator: " or ")
@@ -51,7 +51,10 @@ public enum AskClaudeSelectionCard {
                 }
                 // "Kept as …" spells the name a move lands under, which can be the held one.
                 let nameGoes = row.newName == nil || (namesShared && row.nameHeld != true)
-                notes += (row.note ?? "").components(separatedBy: " · ").filter { !$0.isEmpty && (nameGoes || !$0.hasPrefix("Kept as ")) }
+                // A held Trash row's "As …" names the twin in the held folder.
+                if !(row.alreadyFiled && row.folderHeld == true) {
+                    notes += (row.note ?? "").components(separatedBy: " · ").filter { !$0.isEmpty && (nameGoes || !$0.hasPrefix("Kept as ")) }
+                }
                 if row.claudeAgrees == true { notes.append("Refine kept this folder") }
                 if let refusal = row.refusal { notes.append("can’t: " + refusal) }
                 lines.append([handle(row.change.path), folder, row.confidence ?? "", row.ticked ? "ticked" : "not ticked",
@@ -66,6 +69,9 @@ public enum AskClaudeSelectionCard {
             lines.append("If those are one kind of name (places, people, companies, cars) and the file plainly belongs to a new one of that kind, call where_to_file with new_folders for it: its handle and the name. It goes on this card, first, with the closest folder as the other choice. Otherwise don’t.")
         }
         if let left = plan.leftHere { lines.append(AskClaudeScreenCard.escape(left)) }
+        if let days = plan.staleDays {
+            lines.append("Their survey is \(days) days old, so folders made since aren’t known; Update the Survey is in Organize ▸ Restructure.")
+        }
         if let remaining = plan.remaining, !remaining.isEmpty {
             lines.append("\(remaining.count) more of the files they selected aren’t on this card; its Next button brings them on a new card.")
         }

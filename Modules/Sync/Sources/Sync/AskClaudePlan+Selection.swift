@@ -54,39 +54,57 @@ extension AskClaudePlan {
     public var refinable: [Row] {
         guard state == .proposed, refineFolder != nil else { return [] }
         return rows.filter { row in
-            guard case .move = row.change, row.noFit != true, row.refusal == nil, !row.chosen, row.claudePick != true,
-                  row.applied == nil else { return false }
+            // Not one they ticked (they took its folder), nor one Refine has answered already.
+            guard case .move = row.change, row.noFit != true, row.refusal == nil, !row.chosen, !row.ticked,
+                  row.claudePick != true, row.claudeAgrees != true, row.applied == nil else { return false }
             return row.confidence != AskClaudeFiling.label(.high)
         }
     }
 
-    /// Carries what they did on `old`, an earlier card for the same files, onto this one: a folder
-    /// they chose, a name they typed, and ticks on rows still going where they went. A row whose
-    /// folder changed stays unticked: they approved the other one.
-    public mutating func carryPicks(from old: AskClaudePlan) {
+    /// Carries what was done on `old`, an earlier card for the same files, onto this one: a folder
+    /// they chose, Claude's folder (Refine's or one it named) with its Undo Refine state, a name they
+    /// typed, and ticks on rows still going where they went. A row whose folder changed stays
+    /// unticked: they approved the other one. `exists` says whether a folder is on disk, for the
+    /// folders a carried row needs made. Each carried row's check is the caller's to run again.
+    public mutating func carryPicks(from old: AskClaudePlan, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+        var carried: [(folder: String, label: String?)] = []
         for index in rows.indices {
             let path = rows[index].change.path
             guard let was = old.rows.first(where: { $0.change.path == path && Self.isFile($0) }) else { continue }
-            if was.chosen, case .move = was.change {
-                rows[index].change = was.change
-                rows[index].folderLabel = was.folderLabel
-                rows[index].choices = was.choices
-                rows[index].confidence = was.confidence
-                rows[index].reason = was.reason
-                rows[index].chosen = true
-                rows[index].ticked = was.ticked
-                rows[index].noFit = nil
-                rows[index].claudePick = nil
-                (rows[index].pickedFrom, rows[index].pickedFromLabel) = (was.pickedFrom, was.pickedFromLabel)
-                (rows[index].offeredNew, rows[index].wasUnsure) = (was.offeredNew, was.wasUnsure)
-            } else if was.change == rows[index].change, rows[index].refusal == nil {
+            if (was.chosen || was.claudePick == true), case .move = was.change, case .move = rows[index].change {
+                let id = rows[index].id
+                rows[index] = was
+                rows[index].id = id
+                rows[index].refusal = nil
+                rows[index].note = nil
+                if case .move(_, let to) = was.change { carried.append((to, was.folderLabel)) }
+                continue
+            }
+            if was.change == rows[index].change, rows[index].refusal == nil {
                 rows[index].ticked = was.ticked
                 rows[index].wasUnsure = was.wasUnsure
+                rows[index].claudeAgrees = was.claudeAgrees
             }
             if was.nameTyped == true {
                 (rows[index].newName, rows[index].nameBasis, rows[index].nameTyped) = (was.newName, was.nameBasis, true)
             }
         }
+        for c in carried { addFolderRow(for: c.folder, label: c.label, exists: exists) }
+        // Next was pressed on the card this replaces: it stays pressed.
+        if old.remaining != nil, old.nextAsk == nil { nextAsk = nil }
+        tickNeededFolders()
+        noteLandingNames()
+    }
+
+    /// Rows whose file has gone since the card was made (filed in Organize, or in Finder): unticked,
+    /// so Apply leaves them, and the folders only they needed aren't made.
+    public mutating func untickMoved(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+        var changed = false
+        for index in rows.indices where rows[index].ticked && Self.isFile(rows[index]) && !exists(rows[index].change.path) {
+            rows[index].ticked = false
+            changed = true
+        }
+        guard changed else { return }
         tickNeededFolders()
         noteLandingNames()
     }
@@ -121,8 +139,10 @@ extension AskClaudePlan {
         rows[index].noFit = nil
         rows[index].claudePick = true
         rows[index].claudeAgrees = nil
+        // Claude's own folder now: Undo Refine has nothing of Refine's to put back on this row.
+        rows[index].beforeRefine = nil
         rows[index].offer = Self.claudesOffer(rows[index].offer, folder: folder, isNew: true)
-        addFolderRow(for: folder)
+        addFolderRow(for: folder, label: label)
         tickNeededFolders()
         noteLandingNames()
         return nil
@@ -134,7 +154,8 @@ extension AskClaudePlan {
     public mutating func refined(_ picks: [String: RefinePick]) {
         guard state == .proposed else { return }
         for index in rows.indices {
-            guard case .move(let from, let was) = rows[index].change, !rows[index].chosen,
+            // A row they ticked keeps the folder they approved.
+            guard case .move(let from, let was) = rows[index].change, !rows[index].chosen, !rows[index].ticked,
                   rows[index].applied == nil, let pick = picks[from] else { continue }
             switch pick {
             case .agrees:
@@ -155,7 +176,7 @@ extension AskClaudePlan {
                 rows[index].claudePick = true
                 rows[index].claudeAgrees = nil
                 rows[index].offer = Self.claudesOffer(rows[index].offer, folder: path, isNew: false)
-                addFolderRow(for: path)
+                addFolderRow(for: path, label: label)
             }
         }
         tickNeededFolders()
@@ -179,6 +200,16 @@ extension AskClaudePlan {
             rows[index].claudePick = nil
             rows[index].beforeRefine = nil
         }
+        // The folders Refine's picks needed made go, once no row goes into them.
+        let destinations = rows.compactMap { row -> String? in
+            if case .move(_, let to) = row.change { return to }
+            return nil
+        }
+        rows.removeAll { row in
+            guard row.forMoves == true, row.refusal == nil, case .newFolder = row.change else { return false }
+            let folder = row.change.path
+            return !destinations.contains { $0 == folder || $0.hasPrefix(folder + "/") }
+        }
         tickNeededFolders()
         noteLandingNames()
     }
@@ -191,21 +222,25 @@ extension AskClaudePlan {
     }
 
     /// A row that makes `folder` and the folders above it not there yet, unless one already does.
-    mutating func addFolderRow(for folder: String, fileManager fm: FileManager = .default) {
+    /// `label` is the folder's own label, from which each row's parent label is taken.
+    mutating func addFolderRow(for folder: String, label: String?, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
         var missing: [String] = []
         var path = folder
         let made = Set(rows.compactMap { row -> String? in
             if case .newFolder = row.change { return row.change.path }
             return nil
         })
-        while !path.isEmpty, path != "/", !fm.fileExists(atPath: path), !made.contains(path) {
+        while !path.isEmpty, path != "/", !exists(path), !made.contains(path) {
             missing.insert(path, at: 0)
             path = (path as NSString).deletingLastPathComponent
         }
+        // "Home › Documents › Travel › Japan" for …/Travel/Japan: each level's parent is the label
+        // with as many parts dropped as it is above the folder.
+        let parts = label?.components(separatedBy: " › ") ?? []
         for path in missing {
             let parent = (path as NSString).deletingLastPathComponent, name = (path as NSString).lastPathComponent
-            let parentLabel = rows.compactMap { $0.folderLabel }.first { $0.hasSuffix(" › " + name) }
-                .map { String($0.dropLast(name.count + 3)) } ?? (parent as NSString).lastPathComponent
+            let depth = (folder as NSString).pathComponents.count - (path as NSString).pathComponents.count
+            let parentLabel = parts.count > depth + 1 ? parts.dropLast(depth + 1).joined(separator: " › ") : (parent as NSString).lastPathComponent
             var row = Row(id: (rows.map(\.id).max() ?? -1) + 1, name: "New folder “\(name)”", change: .newFolder(in: parent, name: name),
                           ticked: false, reason: "For the files filed in it", folderLabel: parentLabel)
             row.forMoves = true

@@ -1058,8 +1058,8 @@ For the after-GA-prep sitting. Ask two short questions in one chat first, then N
 Needs an API key, a folder survey from Setup, and a few loose files in Downloads.
 
 - [ ] **One file.** Right-click a PDF in Downloads: File with Claude sits under Ask Claude About
-  This. Click it: the panel opens, "File this · About <name>" is sent, and a one-row card "File 1
-  File · selected in Downloads" comes back (TE342, decision OB); its row's details have Go to Folder.
+  This. Click it: the panel opens, "File this · About <name>" is sent, and a one-row card "File This
+  File · selected in Downloads" comes back (TE342, decision OB); unless its row needs your pick, its details have Go to Folder.
 - [ ] **Several.** Select three files, right-click ▸ File with Claude: one card, "File 3 Files",
   grouped by folder, with one Apply; never three cards. See the TE342 section below.
 - [ ] **A folder.** Right-click a folder ▸ File with Claude: "File the loose files in this folder";
@@ -1309,12 +1309,13 @@ JAL e-ticket, a photo nothing fits (IMG_*.HEIC), and twelve bills or statements.
   Refine plan with its price appears in the chat. Send: rows Claude moved show "Claude's pick",
   unticked; a row it kept says "Claude agrees" in its details; Organize shows the same picks. Undo
   Refine: the untouched rows go back. Apply on the chat card: those files leave To File.
-- [ ] **Moved since.** File one of a waiting card's files in Organize first: its row reads "Moved
-  since", struck through, with no tick.
+- [ ] **Moved since.** Tick a row, then file its file in Organize first: its row reads "Moved since",
+  struck through, unticked, and Apply leaves it (and any new folder only it needed).
 - [ ] **Claude's new folder (NR).** With trips by country (India, Singapore) and a Japan ticket,
   File with Claude: Claude puts a Japan folder first on that row of the same card, unticked, with
   the closest folder as its other choice; ticking the row ticks "New folder “Japan”". Ask "put it in
-  a new Japan folder in Travel" instead: the same card updates, no second card.
+  a new Japan folder in Travel" instead: the same card updates, no second card. Then type "file
+  these again": the card updates and keeps Claude's Japan folder.
 - [ ] **Asking again.** On a waiting card choose another folder for a row, then type "file these
   again": the card updates in place and keeps your folder.
 - [ ] **Hidden.** Hide a folder holding one of three selected files after attaching them, then send:

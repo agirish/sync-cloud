@@ -3930,26 +3930,54 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 
     /// Asked again about the same files while the card waits, the card is updated in place,
-    /// keeping a folder they chose; a single file of several asked about together is refused.
-    @Test func askingAgainUpdatesTheCardAndOneOfSeveralIsRefused() async throws {
+    /// keeping a folder they chose, though one selected file is already in its folder and so on
+    /// neither card. File with Claude's files are one card whatever Claude calls: one handle of
+    /// them brings the card for all (decision OB), and one file is "File This File".
+    @Test func askingAgainUpdatesTheCardAndFileWithIsAlwaysOneCard() async throws {
         let dir = self.dir
+        let home = FilingHelpAnswer.Suggestion(folder: dir + "/Downloads", relativePath: "Downloads", confidence: .high, reason: "Fits", evidenceToken: nil)
         var handles = AskClaudeHandles()
-        let first = try #require(await select(["Ticket.pdf", "W-2 2025.pdf"], [:], runner(), handles: &handles).plan)
+        let names = ["Ticket.pdf", "W-2 2025.pdf", "unknown.bin"]
+        let first = try #require(await select(names, [:], runner(extra: ["unknown.bin": [home]]), handles: &handles).plan)
+        #expect(first.rows.filter(AskClaudePlan.isFile).count == 2 && first.leftHere == "Left here: 1 already in its folder")
         var mine = first
         let w2 = try #require(mine.rows.first { $0.name == "W-2 2025.pdf" })
         mine.choose(w2.choices[1], forRow: w2.id)
         let id = UUID()
-        let second = await select(["Ticket.pdf", "W-2 2025.pdf"], [:], runner(configure: { ctx in
-            ctx.openSelectionCard = { _ in (id, mine) }
+        let held = Set(mine.rows.filter(AskClaudePlan.isFile).map { (row: AskClaudePlan.Row) in row.change.path })
+        let second = await select(names, [:], runner(extra: ["unknown.bin": [home]], configure: { ctx in
+            ctx.openSelectionCard = { files in files.isSubset(of: held) ? (id, mine) : nil }
         }), handles: &handles)
         let plan = try #require(second.plan)
         #expect(plan.replaces == id && plan.rows.first { $0.name == "W-2 2025.pdf" }?.folderLabel == "Home › Documents › Work")
 
-        let one = await runner(configure: { ctx in
-            ctx.askedAbout = { [dir + "/Downloads/Ticket.pdf", dir + "/Downloads/W-2 2025.pdf"] }
-        }).run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handles.handle(for: dir + "/Downloads/Ticket.pdf"))])),
-               handles: &handles)
-        #expect(one.isError && one.result.contains("call where_to_file once with all their handles"))
+        let asked = [dir + "/Downloads/Ticket.pdf", dir + "/Downloads/W-2 2025.pdf"]
+        let one = await runner(configure: { ctx in ctx.fileWithAsked = { asked } })
+            .run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handles.handle(for: asked[0]))])),
+                 handles: &handles)
+        #expect(one.plan?.title == "File 2 Files" && one.filing == nil, "\(one.result)")
+        let single = await runner(configure: { ctx in ctx.fileWithAsked = { [asked[0]] } })
+            .run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handles.handle(for: asked[0]))])),
+                 handles: &handles)
+        #expect(single.plan?.title == "File This File" && single.plan?.selection == true)
+        // A question of their own about one file keeps the one-file card.
+        let typed = await runner().run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handles.handle(for: asked[0]))])),
+                                       handles: &handles)
+        #expect(typed.plan == nil)
+    }
+
+    /// A folder a word on page 1 picked is held from Claude wherever it is on a row: a runner-up
+    /// too, and an Already Filed row's folder and the copy's name.
+    @Test func everyFolderPageOnePickedIsHeld() async throws {
+        var handles = AskClaudeHandles()
+        let out = await select(["W-2 2025.pdf", "Statement.pdf"], [:],
+                               runner(extra: ["W-2 2025.pdf": [s("Taxes/2025", .low), s("Work", .low, token: "Acme")],
+                                              "Statement.pdf": [s("Bank/Chase", .high, token: "Chase")]]), handles: &handles)
+        let plan = try #require(out.plan)
+        #expect(plan.rows.allSatisfy { !AskClaudePlan.isFile($0) || $0.folderHeld == true } && plan.rowsHeld == true)
+        #expect(plan.rows.contains { $0.alreadyFiled }, "Statement.pdf's bytes are already in Bank › Chase")
+        #expect(!out.result.contains("Work") && !out.result.contains("Taxes") && !out.result.contains("Chase") && !out.result.contains("Sep.pdf"),
+                "\(out.result)")
     }
 
     /// Decision NR: Claude's folder for a file goes first on its row of the card waiting for it,
