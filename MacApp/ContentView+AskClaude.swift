@@ -216,7 +216,9 @@ extension ContentView {
                               refineBridge: askClaudeRefineBridge,
                               onAskSpoken: { askClaudeSend($0, spoken: true) },
                               voiceHints: { askClaudeVoiceHints() },
-                              suggestions: suggestions)
+                              suggestions: suggestions,
+                              starterSignals: { askClaudeStarterSignals() },
+                              modelStarter: { await askClaudeModelStarter(beside: $0) })
             // Shown at launch with the column already open, where `onOpenChange` never fires.
             .onAppear { askClaudePrewarmOnDevice() }
             // TE309: the suggestion chip's folders, counted as files come and go.
@@ -919,6 +921,29 @@ extension ContentView {
                               isShared: !isHidden && AskClaudePrivacy.Matcher(AskClaudePrivacy.sharedFolders(in: .standard)).holds(absolute),
                               isOnScreen: !panesHiddenForCurrentTab || selectedWorkspace == .browse || selectedWorkspace == .compare,
                               workspace: selectedWorkspace.title, openFile: open)
+    }
+
+    /// What the Browse pane's rows say, for a new chat's starters (TE347b): the rows the screen
+    /// card would send, without building the card on every redraw.
+    func askClaudeStarterSignals() -> AskClaudeStarters.Signals {
+        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard) + [AskClaudeNotes.defaultFileURL().path])
+        let absolute = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
+        guard !hidden.isHidden(absolute), let items = askClaudeItems(absolute) else { return .init() }
+        let rows = (hidden.isEmpty ? items : items.filter { !hidden.isHidden($0.id) }).map(AskClaudeBrowseTools.row)
+        return AskClaudeStarters.signals(rows: rows, selection: syncManager.selectedLeftPaths, now: Date())
+    }
+
+    /// One more starter from the on-device model, written from exactly what the screen card would
+    /// send Claude, and checked before it shows (decision NN, U4, V6).
+    func askClaudeModelStarter(beside shown: [String]) async -> String? {
+        let screen = askClaudeScreen()
+        guard !screen.folderHidden, !screen.rows.isEmpty else { return nil }
+        var handles = AskClaudeHandles()
+        let card = AskClaudeScreenCard.render(screen, handles: &handles).text
+        guard let raw = await AskClaudeOnDevice.starter(card: card, shown: shown) else { return nil }
+        let names = screen.rows.map(\.name) + screen.folder.split(separator: "/").map(String.init)
+            + (screen.openFile.map { [$0.name] } ?? [])
+        return AskClaudeStarters.modelQuestion(raw, beside: shown, names: names)
     }
 
     func askClaudeScreen(fallbackRows: [FileNode]? = nil) -> AskClaudeScreen {

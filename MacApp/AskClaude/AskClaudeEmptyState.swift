@@ -11,6 +11,10 @@ struct AskClaudeEmptyState: View {
     /// Whether a key is saved, asked without reading it; nil until asked.
     let keySaved: Bool?
     let starters: [String]
+    /// The on-device model's question, shown last once the pointer is off the starters (U3).
+    var extra: String?
+    /// Only a chat with nothing above it opens with the intro (V1).
+    var showsIntro = true
     /// Off while Claude answers or a question is being spoken.
     let startersEnabled: Bool
     let bridge: AskClaudeSettingsBridge
@@ -21,14 +25,20 @@ struct AskClaudeEmptyState: View {
     @AppStorage private var introShown: Bool
     /// Set by the ✕: this chat says once where the intro went. A new chat draws a new empty state.
     @State private var justHidIntro = false
+    /// Over the starters: the model's question waits, so nothing appears under the pointer.
+    @State private var overStarters = false
+    @State private var shownExtra: String?
     @Environment(\.colorScheme) private var colorScheme
     /// The setup's own API key card: it isn't in the chat, so it keeps its refusal here.
     @State private var setupCard = AskClaudeSettingCard(rows: [AskClaudeSettingCard.Row(id: "intelligence.apiKey")])
 
-    init(keySaved: Bool?, starters: [String], startersEnabled: Bool, bridge: AskClaudeSettingsBridge,
-         accent: Color, hue: LiquidGlassHue, defaults: UserDefaults, onStarter: @escaping (String) -> Void) {
+    init(keySaved: Bool?, starters: [String], extra: String? = nil, showsIntro: Bool = true, startersEnabled: Bool,
+         bridge: AskClaudeSettingsBridge, accent: Color, hue: LiquidGlassHue, defaults: UserDefaults,
+         onStarter: @escaping (String) -> Void) {
         self.keySaved = keySaved
         self.starters = starters
+        self.extra = extra
+        self.showsIntro = showsIntro
         self.startersEnabled = startersEnabled
         self.bridge = bridge
         self.accent = accent
@@ -51,7 +61,7 @@ struct AskClaudeEmptyState: View {
             setup
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                if introShown {
+                if introShown && showsIntro {
                     introBubble
                 } else if justHidIntro {
                     Text(Self.introHidden)
@@ -137,7 +147,7 @@ struct AskClaudeEmptyState: View {
 
     private var starterList: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(starters, id: \.self) { question in
+            ForEach(starters + [shownExtra].compactMap { $0 }.filter { !starters.contains($0) }, id: \.self) { question in
                 Button { onStarter(question) } label: {
                     Label(question, systemImage: "arrow.up.circle")
                         .multilineTextAlignment(.leading)
@@ -149,6 +159,13 @@ struct AskClaudeEmptyState: View {
             }
         }
         .disabled(!startersEnabled)
+        .onHover { over in
+            overStarters = over
+            if !over { shownExtra = extra }
+        }
+        .onChange(of: extra, initial: true) { _, now in
+            if !overStarters || now == nil { shownExtra = now }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Questions to start with")
     }

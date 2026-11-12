@@ -15400,3 +15400,14 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s engine=%s starters=%s emptySt
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Ask Claude's starters come from the screen (TE347b) — main only, recorded, not owed
+
+2026-11-11, for v7.2 (decision NN). On `main`: a new chat's starter questions are worked out from
+the rows on screen (`AskClaudeStarters.signals`), plus one from Apple's on-device model, shown under
+an earlier chat too, and TE309's suggestion leads them instead of showing twice. A feature; the
+measure under TE347a applies: no maintenance line has Ask Claude.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

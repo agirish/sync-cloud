@@ -198,6 +198,17 @@ struct AskClaudeSuggestionChip: View {
         AskClaudeSuggestions.suggestion(facts, box: box, memory: memory, now: now)
     }
 
+    /// Whether suggestions are switched on in Settings.
+    var isOn: Bool { enabled }
+
+    /// A click on the suggestion where a new chat's starters show it (TE347b): remembered as the
+    /// chip's own click is, so the same files aren't suggested again.
+    func recordClick(_ chip: AskClaudeSuggestions.Suggestion) {
+        var memory = memory
+        AskClaudeSuggestions.clicked(chip, memory: &memory, now: Date())
+        save(memory)
+    }
+
     private func chipView(_ chip: AskClaudeSuggestions.Suggestion, now: Date) -> some View {
         HStack(spacing: 6) {
             Button {

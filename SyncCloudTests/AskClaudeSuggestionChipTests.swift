@@ -50,6 +50,8 @@ import Testing
     @Test func aFreshScansChipSendsItsQuestionOnlyWhenClickedAndThenStepsAside() async {
         let defaults = ScratchDefaults("AskClaudeSuggestionChipTests")
         let chat = AskClaudeChat(defaults: defaults, readKey: { nil })
+        // A chat under way: an empty one shows the suggestion as its first starter instead.
+        chat.addNote("Earlier in this chat")
         let sent = Sent()
         let rig = rig(chat, sent)
         for _ in 0..<10 { try? await Task.sleep(for: .milliseconds(10)); rig.host.layoutSubtreeIfNeeded() }
@@ -68,9 +70,36 @@ import Testing
         let defaults = ScratchDefaults("AskClaudeSuggestionChipTests")
         defaults.set(false, forKey: AskClaudeSuggestions.enabledKey)
         let chat = AskClaudeChat(defaults: defaults, readKey: { nil })
+        chat.addNote("Earlier in this chat")
         let sent = Sent()
         let rig = rig(chat, sent)
         #expect(rig.field != nil, "the text box the clicks are placed from")
         #expect(await clickAboveTheBox(rig) { !sent.questions.isEmpty } == false)
+    }
+
+    /// In a new chat the chip stays away and its question leads the starters instead, remembered
+    /// on a click as the chip's own is (TE347b, B-R8).
+    @Test func aNewChatLeadsItsStartersWithTheSuggestion() async {
+        let defaults = ScratchDefaults("AskClaudeSuggestionChipTests")
+        let chat = AskClaudeChat(defaults: defaults, readKey: { nil })
+        let sent = Sent()
+        let rig = rig(chat, sent)
+        #expect(await clickAboveTheBox(rig) { !sent.questions.isEmpty } == false, "no chip above the box")
+        rig.window.orderFrontRegardless()
+        defer { rig.window.orderOut(nil) }
+        // Down the thread from under the header: the first thing that sends is the first starter.
+        for y in stride(from: 60.0, through: 320.0, by: 3) where sent.questions.isEmpty {
+            let point = NSPoint(x: 60, y: rig.host.bounds.height - y)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: rig.window.windowNumber, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                rig.window.sendEvent(event)
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(sent.questions == [question])
+        #expect(AskClaudeSuggestions.Memory.load(defaults).seen["compare"]?.putAwayAt == 7)
     }
 }
