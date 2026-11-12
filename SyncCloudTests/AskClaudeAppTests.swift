@@ -3872,6 +3872,157 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(row.size == 3 && row.modified != nil && row.fromLabel == "Home › Downloads")
         #expect(!out.result.contains("Japan Airlines"), "the word went to Claude")
     }
+
+    // MARK: TE342: File with Claude's card for a selection
+
+    /// where_to_file with handles, on handles this chat gave.
+    private func select(_ names: [String], _ extra: [String: JSONFragment] = [:], _ runner: AskClaudeBrowseTools,
+                        handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
+        let list = names.map { JSONFragment.string(handles.handle(for: dir + "/Downloads/" + $0)) }
+        return await runner.run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handles": .array(list)].merging(extra) { a, _ in a })),
+                                handles: &handles)
+    }
+
+    /// Three files are one card: grouped by folder, the sure one ticked, a file no folder fits on
+    /// it in its own group (decision NP), and Claude told each by handle, with no reasons. A hidden
+    /// file and a folder are left out and counted, not a reason to refuse the rest.
+    @Test func aSelectionIsOneCardWithEveryFileOnIt() async throws {
+        let dir = self.dir
+        var handles = AskClaudeHandles()
+        let out = await select(["Ticket.pdf", "W-2 2025.pdf", "unknown.bin", "scan0042.pdf", "JAL Itinerary"], [:],
+                               runner(configure: { ctx in ctx.hidden = [dir + "/Downloads/scan0042.pdf"] }), handles: &handles)
+        let plan = try #require(out.plan, "\(out.result)")
+        #expect(plan.selection == true && plan.title == "File 3 Files" && plan.subtitle == "selected in Downloads")
+        #expect(plan.groups.filter { $0.rows.contains(where: AskClaudePlan.isFile) }.map(\.group)
+                == [.folder("Home › Documents › Travel › Trips"), .folder("Home › Documents › Taxes › 2025"), .noFit])
+        #expect(plan.rows.first { $0.name == "Ticket.pdf" }?.ticked == true && plan.rows.first { $0.name == "W-2 2025.pdf" }?.ticked == false)
+        #expect(plan.leftHere == "Left here: 1 hidden from Claude, 1 folder")
+        #expect(out.result.contains("file_loose_files files a folder’s loose files"))
+        let ticket = handles.existingHandle(for: dir + "/Downloads/Ticket.pdf") ?? "?"
+        #expect(out.result.contains("\(ticket)|Home › Documents › Travel › Trips|High|ticked|"), "\(out.result)")
+        #expect(out.result.contains("|no folder fits; they choose one|") && !out.result.contains("Fits how this folder is used"))
+        #expect(!out.result.contains("scan0042"), "a hidden file is counted, never named")
+    }
+
+    /// As where_to_file tells of one file: a folder a word on page 1 picked is on their card, not
+    /// sent, unless the file's folder shares without asking; then Apply and Undo say counts.
+    @Test func aFolderPageOnePickedStaysOnTheCardUnlessTheFolderShares() async throws {
+        let dir = self.dir
+        var handles = AskClaudeHandles()
+        let held = await select(["JAL Ticket.pdf", "Ticket.pdf"], [:], runner(token: true), handles: &handles)
+        #expect(held.result.contains("a folder picked by a word read from the file") && held.plan?.rowsHeld == true, "\(held.result)")
+        var again = AskClaudeHandles()
+        let shared = await select(["JAL Ticket.pdf", "Ticket.pdf"], [:], runner(token: true, configure: { ctx in ctx.shared = [dir + "/Downloads"] }),
+                                  handles: &again)
+        #expect(!shared.result.contains("picked by a word") && shared.plan?.rowsHeld == nil, "\(shared.result)")
+    }
+
+    /// More than a card holds: the rest wait for Next, which carries only those files.
+    @Test func aBigSelectionKeepsTheRestForNext() async throws {
+        let dir = self.dir
+        for i in 0..<12 { try Data("x\(i)".utf8).write(to: URL(fileURLWithPath: dir + "/Downloads/bill \(i).pdf")) }
+        var handles = AskClaudeHandles()
+        let out = await select((0..<12).map { "bill \($0).pdf" }, [:], runner(fallback: s("Bank/Chase", .high)), handles: &handles)
+        let plan = try #require(out.plan)
+        #expect(plan.rows.filter(AskClaudePlan.isFile).count == 10 && plan.remaining?.count == 2)
+        #expect(plan.nextLabel == "Next 2" && plan.nextAsk == "File these" && plan.more == "2 more selected")
+        #expect(out.result.contains("2 more of the files they selected aren’t on this card"))
+    }
+
+    /// Asked again about the same files while the card waits, the card is updated in place,
+    /// keeping a folder they chose; a single file of several asked about together is refused.
+    @Test func askingAgainUpdatesTheCardAndOneOfSeveralIsRefused() async throws {
+        let dir = self.dir
+        var handles = AskClaudeHandles()
+        let first = try #require(await select(["Ticket.pdf", "W-2 2025.pdf"], [:], runner(), handles: &handles).plan)
+        var mine = first
+        let w2 = try #require(mine.rows.first { $0.name == "W-2 2025.pdf" })
+        mine.choose(w2.choices[1], forRow: w2.id)
+        let id = UUID()
+        let second = await select(["Ticket.pdf", "W-2 2025.pdf"], [:], runner(configure: { ctx in
+            ctx.openSelectionCard = { _ in (id, mine) }
+        }), handles: &handles)
+        let plan = try #require(second.plan)
+        #expect(plan.replaces == id && plan.rows.first { $0.name == "W-2 2025.pdf" }?.folderLabel == "Home › Documents › Work")
+
+        let one = await runner(configure: { ctx in
+            ctx.askedAbout = { [dir + "/Downloads/Ticket.pdf", dir + "/Downloads/W-2 2025.pdf"] }
+        }).run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(["handle": .string(handles.handle(for: dir + "/Downloads/Ticket.pdf"))])),
+               handles: &handles)
+        #expect(one.isError && one.result.contains("call where_to_file once with all their handles"))
+    }
+
+    /// Decision NR: Claude's folder for a file goes first on its row of the card waiting for it,
+    /// beside the siblings its name is like; a hidden parent gets the same words as a bad name,
+    /// and a file on no card is sent to propose_changes.
+    @Test func claudesNewFolderGoesOnTheCardItIsFor() async throws {
+        let dir = self.dir
+        try FileManager.default.createDirectory(atPath: dir + "/Documents/Travel/Trips/India", withIntermediateDirectories: true)
+        var handles = AskClaudeHandles()
+        let siblings = FilingNewHome.NamedSiblings(parent: dir + "/Documents/Travel/Trips", names: ["India", "Singapore", "Thailand"])
+        func tools(hidden: [String] = [], card: (UUID, AskClaudePlan)? = nil) -> AskClaudeBrowseTools {
+            runner(configure: { ctx in
+                ctx.hidden = hidden
+                ctx.whereToFile = { path, _ in
+                    FilingHelpAnswer(outcome: .suggested([self.s("Travel/Trips", .medium)]), surveyedAt: nil,
+                                     namedSiblings: (path as NSString).lastPathComponent == "JAL Ticket.pdf" ? siblings : nil)
+                }
+                if let card { ctx.openSelectionCard = { _ in card } }
+            })
+        }
+        let out = await select(["JAL Ticket.pdf", "Ticket.pdf"], [:], tools(), handles: &handles)
+        let card = try #require(out.plan)
+        let jal = handles.existingHandle(for: dir + "/Downloads/JAL Ticket.pdf") ?? "?"
+        #expect(out.result.contains("For \(jal): the folders in Home › Documents › Travel › Trips are named India, Singapore, Thailand."), "\(out.result)")
+        let id = UUID()
+        let add: [String: JSONFragment] = ["new_folders": .array([.object(["handle": .string(jal), "name": .string("Japan")])])]
+        let added = await tools(card: (id, card)).run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(add)), handles: &handles)
+        let plan = try #require(added.plan, "\(added.result)")
+        let row = try #require(plan.rows.first { $0.name == "JAL Ticket.pdf" })
+        #expect(plan.replaces == id && row.claudePick == true && row.folderLabel == "Home › Documents › Travel › Trips › Japan" && !row.ticked)
+        #expect(plan.rows.contains { $0.change == .newFolder(in: dir + "/Documents/Travel/Trips", name: "Japan") })
+        #expect(!added.step.contains("Japan"), "the step names no folder: the name is Claude's words")
+
+        let hidden = await tools(hidden: [dir + "/Documents/Travel/Trips/Japan"], card: (id, card))
+            .run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(add)), handles: &handles)
+        #expect(hidden.isError && hidden.result.contains("a folder can’t be made there"))
+        let nowhere = await tools().run(AskClaudeToolCall(id: "t", name: "where_to_file", input: .object(add)), handles: &handles)
+        #expect(nowhere.isError && nowhere.result.contains("propose_changes"))
+    }
+
+    /// Decision NJ, through the tool: counts, with a hidden folder's filings left out.
+    @Test func theScorecardToolLeavesHiddenFilingsOut() async {
+        let dir = self.dir
+        let record = { (area: String) in
+            FilingScorecard.Record(picker: .mac, confidence: .high, evidence: .survey, offered: dir + "/Documents/" + area,
+                                   landed: dir + "/Documents/" + area, file: dir + "/Documents/\(area)/a.pdf", root: dir + "/Documents",
+                                   verdict: .kept)
+        }
+        var handles = AskClaudeHandles()
+        let out = await runner(configure: { ctx in
+            ctx.hidden = [dir + "/Documents/Health"]
+            ctx.filingScorecard = { [record("Health"), record("Bank")] }
+        }).run(AskClaudeToolCall(id: "t", name: "filing_scorecard", input: .object([:])), handles: &handles)
+        #expect(out.result.contains("kept the first folder offered 1 of 1") && !out.result.contains("Health"), "\(out.result)")
+    }
+
+    /// A selection card updated by where_to_file takes the waiting card's place, keeping its id;
+    /// once that card was applied, the update is a card of its own.
+    @Test func anUpdatedSelectionCardTakesTheWaitingOnesPlace() throws {
+        let chat = AskClaudeChat(defaults: ScratchDefaults("AskClaudeLooseFilesToolTests.replace"), readKey: { nil })
+        var first = AskClaudePlan(title: "File 2 Files", subtitle: "selected in Downloads", rows: [])
+        first.selection = true
+        chat.showPlan(first)
+        let id = try #require(chat.items.last?.id)
+        var update = AskClaudePlan(title: "File 2 Files, updated", subtitle: "selected in Downloads", rows: [])
+        update.selection = true
+        update.replaces = id
+        chat.showPlan(update)
+        #expect(chat.items.count == 1 && chat.plan(id)?.title == "File 2 Files, updated" && chat.plan(id)?.replaces == nil)
+        chat.updatePlan(id) { $0.state = .applied }
+        chat.showPlan(update)
+        #expect(chat.items.count == 2 && chat.plan(id)?.state == .applied)
+    }
 }
 
 /// Two disks called alike (two cards called Untitled) go by their mount points' names, and a name

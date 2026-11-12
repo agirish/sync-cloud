@@ -40,13 +40,18 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public let reason: String?
         /// A new folder the app offered ahead of the router's best (TE327), not made yet.
         public let isNew: Bool?
+        /// Picked by a word read from the file's first page (TE342): Claude is told it only where
+        /// the file's folder shares without asking. Nil when not.
+        public let fromFile: Bool?
 
-        public init(label: String, path: String, confidence: String? = nil, reason: String? = nil, isNew: Bool? = nil) {
+        public init(label: String, path: String, confidence: String? = nil, reason: String? = nil, isNew: Bool? = nil,
+                    fromFile: Bool? = nil) {
             self.label = label
             self.path = path
             self.confidence = confidence
             self.reason = reason
             self.isNew = isNew
+            self.fromFile = fromFile
         }
     }
 
@@ -60,6 +65,8 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         case alreadyFiled
         /// Folders left empty.
         case emptied
+        /// A file they selected that no folder fits (TE342, decision NP): theirs to place.
+        case noFit
     }
 
     public struct Row: Codable, Equatable, Sendable, Identifiable {
@@ -120,6 +127,21 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         /// What the survey offered first for this file, for the filing scorecard (TE341). Set on
         /// filing rows only: a change Claude proposed has no first pick to keep.
         public var offer: FilingScorecard.Offer?
+        // TE342. All optional, so a card saved before them still opens.
+        /// A file they selected that no folder fits (decision NP): its move goes nowhere yet, so it
+        /// has no tick until they choose a folder.
+        public var noFit: Bool?
+        /// Its folder is Claude's: Refine's pick (decision NS) or a new folder Claude named (NR).
+        public var claudePick: Bool?
+        /// Refine kept the folder this Mac had.
+        public var claudeAgrees: Bool?
+        /// The row before Refine changed it, for Undo Refine.
+        public var beforeRefine: Before?
+        /// Its folder was picked by a word read from page 1 and its file's folder asks first, so
+        /// Claude isn't told it.
+        public var folderHeld: Bool?
+        /// The plain-name folders beside its best folder (TE327), where Claude may name a new one.
+        public var namedSiblings: Siblings?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,
@@ -144,7 +166,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         /// a new folder of the app's (TE327), the one it had is the router's first existing
         /// folder, and neither is a pick.
         public var teaches: Bool {
-            guard chosen, case .move(_, let to) = change else { return false }
+            guard case .move(_, let to) = change, noFit != true, claudePick != true else { return false }
+            // Ticked as the Mac had it, though it needed their pick: taking its unsure folder.
+            guard chosen else { return ticked && wasUnsure == true }
             if wasUnsure == true { return true }
             guard let pickedFrom else { return false }
             let going = (to as NSString).standardizingPath
@@ -156,6 +180,8 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         /// to a new folder the app offered, it was going to the router's first existing folder.
         public mutating func notePick() {
             guard !chosen, case .move(_, let to) = change else { return }
+            // Nothing was offered, so nothing is corrected (decision NP).
+            guard noFit != true else { return }
             pickedFrom = to
             pickedFromLabel = folderLabel
             if let offered = choices.first(where: { $0.isNew == true && $0.path == to }),
@@ -186,6 +212,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
 
         public var group: Group {
+            if noFit == true { return .noFit }
             switch change {
             case .trashIfEmptied: return .emptied
             case .trash where alreadyFiled: return .alreadyFiled
@@ -259,8 +286,20 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         }
     }
 
+    /// File with Claude's card for a selection (TE342). All optional, so older cards still open.
+    public var selection: Bool?
+    /// The files they selected that this card didn't show, for its Next.
+    public var remaining: [String]?
+    /// The folder Refine N with Claude… scans (decision NQ); nil where Refine can't serve the card.
+    public var refineFolder: String?
+    /// How old the folder survey is, when it is old enough to miss folders made since.
+    public var staleDays: Int?
+    /// The card this one updates in the chat, for one tool call: never saved.
+    public var replaces: UUID?
+
     private enum CodingKeys: String, CodingKey {
-        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names, rowsHeld, leftPaths
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names, rowsHeld, leftPaths,
+             selection, remaining, refineFolder, staleDays
     }
 
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
@@ -334,8 +373,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             switch g {
             case .folder: return 0
             case .needsPick: return 1
-            case .alreadyFiled: return 2
-            case .emptied: return 3
+            case .noFit: return 2
+            case .alreadyFiled: return 3
+            case .emptied: return 4
             }
         }
         let offeredSure = Set(byGroup.compactMap { group, rows in
@@ -390,14 +430,19 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         rows[index].note = nil
         rows[index].chosen = true
         rows[index].ticked = true
+        (rows[index].noFit, rows[index].claudePick, rows[index].claudeAgrees) = (nil, nil, nil)
         tickNeededFolders()
         noteLandingNames()
     }
 
     public mutating func setTicked(_ ticked: Bool, row id: Int) {
-        guard let index = rows.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = rows.firstIndex(where: { $0.id == id }), rows[index].noFit != true else { return }
         rows[index].ticked = ticked
         guard case .move = rows[index].change else { return }
+        // Ticking a row that needs their pick takes the Mac's folder for it (decision JC).
+        if !rows[index].chosen, rows[index].claudePick != true, rows[index].group == .needsPick {
+            rows[index].wasUnsure = ticked ? true : nil
+        }
         tickNeededFolders()
         noteLandingNames()
     }
@@ -476,7 +521,7 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         // Paths by the folder each resolves to, so two spellings of one folder share their names.
         var reserved = Set<String>()
         for index in rows.indices {
-            guard case .move(let from, let toFolder) = rows[index].change else { continue }
+            guard case .move(let from, let toFolder) = rows[index].change, rows[index].noFit != true else { continue }
             let name = rows[index].newName ?? (from as NSString).lastPathComponent
             let folder = URL(fileURLWithPath: toFolder).resolvingSymlinksInPath()
             let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: folder)

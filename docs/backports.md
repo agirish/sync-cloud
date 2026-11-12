@@ -15458,3 +15458,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s looseFiles=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## One card for a File with Claude selection, and the scorecard for Claude (TE342, NJ) — main only, recorded, not owed
+
+2026-11-11, for v7.2. On `main`: File with Claude puts every selected file on one Ask Claude filing
+card (files no folder fits included), whose rows take Refine's picks and Claude's new folders, and
+Next no longer takes the chips in the box; Claude can read the filing scorecard. All of it is Ask
+Claude's, which no maintenance line has:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s plan=%s scorecard=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePlan.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingScorecard.swift')"; done
+# measured 2026-11-11, against origin: plan=0 scorecard=0 on every line (main: plan=1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

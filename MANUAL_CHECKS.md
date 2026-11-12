@@ -1058,10 +1058,10 @@ For the after-GA-prep sitting. Ask two short questions in one chat first, then N
 Needs an API key, a folder survey from Setup, and a few loose files in Downloads.
 
 - [ ] **One file.** Right-click a PDF in Downloads: File with Claude sits under Ask Claude About
-  This. Click it: the panel opens, "File this · About <name>" is sent, and the answer names a
-  folder from the survey with Go to Folder.
-- [ ] **Several.** Select three files, right-click ▸ File with Claude: "File these" goes about all
-  three, and any move comes on a card that moves nothing until Apply.
+  This. Click it: the panel opens, "File this · About <name>" is sent, and a one-row card "File 1
+  File · selected in Downloads" comes back (TE342, decision OB); its row's details have Go to Folder.
+- [ ] **Several.** Select three files, right-click ▸ File with Claude: one card, "File 3 Files",
+  grouped by folder, with one Apply; never three cards. See the TE342 section below.
 - [ ] **A folder.** Right-click a folder ▸ File with Claude: "File the loose files in this folder";
   Claude counts them and asks where they go.
 - [ ] **Organize menu.** Select two files and choose Organize ▸ File with Claude: the same as the
@@ -1286,3 +1286,38 @@ Needs an API key and Ask Claude open (⌘J). The guess and the model's starter n
 - [ ] **Starters always send it.** Click a starter that asks a question ("What’s in this folder?"): its
   receipt says "Sent screen", never "no screen". A command starter ("Open my Downloads folder") may
   run on this Mac with no receipt at all.
+
+## One card for a selection (TE342, 2026-11-11)
+
+Needs an API key, a folder survey from Setup, and in Downloads: a scanner-named PDF of a tax form, a
+JAL e-ticket, a photo nothing fits (IMG_*.HEIC), and twelve bills or statements.
+
+- [ ] **One card.** Select the tax form, the ticket and the photo ▸ File with Claude: one card "File
+  3 Files · selected in Downloads". The sure row is ticked; the photo sits under No Folder Fits with
+  no tick and "Choose a folder"; Claude's answer gives counts, not file names. Apply, then the
+  card's Undo: everything goes back in one step.
+- [ ] **No Folder Fits (NP).** Open the photo's row ▸ Choose Folder…: the panel opens in your survey's
+  folder; pick one and the row moves to that folder's group, ticked, with no "Your pick" rule offered
+  after Apply.
+- [ ] **Ticking an unsure row.** Tick a Needs Your Pick row without opening it and Apply: a "Save a
+  rule?" card follows for it (JC), and the row never showed "Your pick".
+- [ ] **Twelve files.** Select the twelve ▸ File with Claude: ten on the card, the sure ones first,
+  "2 more selected" with Next 2. Put a chip of your own in the box, then click Next 2: a new card for
+  just the two, your chip still in the box, and Next 2 is gone from the first card.
+- [ ] **Refine (NQ, NS).** On a card whose unsure rows are all in Downloads, click Refine N with
+  Claude…: Organize ▸ To File opens on Downloads (a line says so if it showed another folder) and a
+  Refine plan with its price appears in the chat. Send: rows Claude moved show "Claude's pick",
+  unticked; a row it kept says "Claude agrees" in its details; Organize shows the same picks. Undo
+  Refine: the untouched rows go back. Apply on the chat card: those files leave To File.
+- [ ] **Moved since.** File one of a waiting card's files in Organize first: its row reads "Moved
+  since", struck through, with no tick.
+- [ ] **Claude's new folder (NR).** With trips by country (India, Singapore) and a Japan ticket,
+  File with Claude: Claude puts a Japan folder first on that row of the same card, unticked, with
+  the closest folder as its other choice; ticking the row ticks "New folder “Japan”". Ask "put it in
+  a new Japan folder in Travel" instead: the same card updates, no second card.
+- [ ] **Asking again.** On a waiting card choose another folder for a row, then type "file these
+  again": the card updates in place and keeps your folder.
+- [ ] **Hidden.** Hide a folder holding one of three selected files after attaching them, then send:
+  the card says "Left here: 1 hidden from Claude" and never names it.
+- [ ] **Scorecard.** Ask "how well does filing work for me?": a "Read the filing scorecard" step,
+  and an answer in counts and areas, naming no file and no hidden folder.

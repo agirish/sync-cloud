@@ -125,6 +125,9 @@ public struct AskClaudeHandles: Equatable, Sendable, Codable {
         return handle
     }
 
+    /// The handle this chat gave `path`, or nil when it gave none, without giving one.
+    public func existingHandle(for path: String) -> String? { byPath[path] }
+
     /// The path a handle names, or nil for one this chat never issued. A guessed handle can’t come
     /// to mean another file.
     public func path(for handle: String) -> String? {

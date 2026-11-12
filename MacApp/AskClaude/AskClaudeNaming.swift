@@ -77,7 +77,9 @@ enum AskClaudeNaming {
     @MainActor static func shareLine(_ plan: AskClaudePlan, isHidden: (String) -> Bool) -> (text: String, count: Int)? {
         let lines = plan.namedRows.compactMap { row -> String? in
             guard case .move(let from, let to) = row.change, let newName = row.newName, !isHidden(to) else { return nil }
-            return "“\(row.name)” \(AskClaudeChat.fileMark(from)) → \(newName), into \(row.folderLabel ?? "its folder")"
+            // A row still waiting for their pick has no folder yet (TE342).
+            let folder = row.group == .needsPick && row.claudePick != true ? "its folder not decided yet" : "into \(row.folderLabel ?? "its folder")"
+            return "“\(row.name)” \(AskClaudeChat.fileMark(from)) → \(newName), \(folder)"
         }
         guard !lines.isEmpty else { return nil }
         return ("They shared the new names and folders from your card “\(plan.title)”, made on their Mac from what each file says: "

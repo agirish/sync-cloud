@@ -171,8 +171,13 @@ public enum AskClaudeRequest {
     - For “where should this go?”, use where_to_file and answer from what it says, including when it has no answer. \
     Never name a folder it didn’t. The file can be anywhere on their Mac, Downloads included. When they \
     say where (into Travel, into Dropbox), pass that as into.
+    - To file files they selected or attached (“File this”, “File these”), call where_to_file once \
+    with all their handles, even for one file, never once per file: they get one card to review and \
+    apply. Asked again about the same files, it updates the card they have.
     - When they correct where a file goes, a folder other than the one where_to_file or you \
-    suggested, propose the move as usual and call offer_rule too, once per correction. Generalize \
+    suggested, propose the move as usual and call offer_rule too, once per correction. When the \
+    file is on a filing card still waiting for Apply, don’t propose a move: they pick the folder on \
+    its row, and a new folder goes there with where_to_file’s new_folders. Generalize \
     from the file to its kind: a JAL ticket is an airline ticket, so give the main airlines’ names \
     and words such tickets carry, not JAL alone. The folder is where this file goes, with its year \
     and month folders when they named them. The rule is saved only if they click Save.
@@ -349,12 +354,25 @@ public enum AskClaudeToolCatalog {
                                  "description": .string("Also show these rows in Compare’s differences list, filtered and selected. Opens Compare.")]),
              ], required: []),
         tool(.whereToFile,
-             "Where a file belongs by how they file: their folder survey, from Setup. The file can be anywhere on their Mac. Gives the best folder and why, and a runner-up when it isn’t sure. Read on their Mac and free; it moves nothing. They get a card with Go to Folder.",
-             properties: ["handle": string("A file’s handle, such as r9."),
-                          "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that.")],
-             required: ["handle"]),
+             "Where files belong by how they file: their folder survey, from Setup. The files can be anywhere on their Mac. Read on their Mac and free; it moves nothing. With handle, one file: the best folder and why, a runner-up when it isn’t sure, and a card with Go to Folder. With handles, the files they selected or attached on one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
+             properties: ["handle": string("For “where should this go?”: one file’s handle, such as r9."),
+                          "handles": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                              "description": .string("To file files they selected or attached: all their handles, even one, in one call.")]),
+                          "into": string("Optional: where they said it should go, as they said it: a folder of their survey (Travel, Taxes/2025) or a source and folder (Dropbox, iCloud/Documents/Travel). Its folders are preferred; one outside the survey is answered as that."),
+                          "new_folders": .object(["type": .string("array"), "items": .object([
+                              "type": .string("object"),
+                              "properties": .object([
+                                  "handle": string("A file on the card they have."),
+                                  "name": string("The new folder’s name, of the same kind as the folders this tool named beside it."),
+                                  "in": string("Optional: where to make it, as they said it, when they asked for a new folder somewhere."),
+                              ]),
+                              "required": .array([.string("handle"), .string("name")]),
+                              "additionalProperties": .bool(false),
+                          ]), "description": .string("Alone, to put a new folder first on a file’s row of the card they have: where the folders beside its home are one kind of name (places, people, companies), or where they asked for one. Their Mac checks the name.")]),
+             ],
+             required: []),
         tool(.fileLooseFiles,
-             "File a folder’s loose files by how they file: every file in it and its subfolders, newest first, up to \(AskClaudeLooseFiles.perCard) per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
+             "File a folder’s loose files by how they file: every file in it and its subfolders, up to \(AskClaudeLooseFiles.perCard) per call, each placed by their folder survey as where_to_file places one. Without into, only counts them and gives them buttons asking where. With into, they get one card grouped by folder, which they review and apply; nothing moves until they click Apply.",
              properties: ["folder": string("Folder relative to the source, e.g. Downloads. Default: the folder on screen."),
                           "into": string("Where they said the files go, as for where_to_file: a folder of their survey (Documents, Travel) or a source and folder (Dropbox)."),
                           "from": integer("Zero-based file to start at, for the next \(AskClaudeLooseFiles.perCard). Default 0.")],

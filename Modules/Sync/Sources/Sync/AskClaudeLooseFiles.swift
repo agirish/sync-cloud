@@ -269,7 +269,7 @@ extension AskClaudeLooseFiles {
                     homed += rows.count
                     sure += rows.filter { $0.confidence == AskClaudeFiling.label(.high) }.count
                     folders.insert(label)
-                case .needsPick: picks += rows.count
+                case .needsPick, .noFit: picks += rows.count
                 case .alreadyFiled, .emptied: trash += rows.count
                 }
             }
@@ -297,6 +297,7 @@ extension AskClaudeLooseFiles {
                 case .needsPick: folder = "needs their pick: " + row.choices.map(\.label).joined(separator: " or ")
                 case .alreadyFiled: folder = "already filed; a Trash row"
                 case .emptied: folder = "emptied folders; a Trash row"
+                case .noFit: folder = "no folder fits; they choose one"
                 }
                 let note = [row.nameHeld == true ? nil : row.newName.map { "renamed to \($0)" }, row.note].compactMap { $0 }.joined(separator: " · ")
                 lines.append([row.name, folder, row.confidence ?? "", row.ticked ? "ticked" : "not ticked", note]

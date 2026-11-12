@@ -395,6 +395,18 @@ extension FileSyncManager {
         return suggestion
     }
 
+    /// The cards for `filePaths` once the Organize scan of their folder has finished, for Refine
+    /// on a selection card (TE342), in no order; files the scan found no card for are left out.
+    public func suggestionsAfterScan(filePaths: [String]) async -> [FilingSuggestion] {
+        await latestFilingScan()
+        let wanted = Set(filePaths)
+        let found = filingSuggestions.filter { wanted.contains($0.filePath) }
+        if found.count < wanted.count {
+            Logger.shared.info("Filing help: Refine found cards for \(found.count) of \(wanted.count) files after the scan")
+        }
+        return found
+    }
+
     /// Returns once the latest Organize scan has finished, not only the one running when this was
     /// called: a scan started meanwhile replaces it, and its cards are the ones on screen.
     func latestFilingScan() async {

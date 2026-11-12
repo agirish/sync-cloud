@@ -154,6 +154,14 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var canRefineFiling = false
         /// The filing scorecard's records (TE341), for filing_scorecard.
         var filingScorecard: () -> [FilingScorecard.Record] = { [] }
+        /// Where Organize's To File files a folder's files: its source's File Into folder, for
+        /// Refine on a selection card, which may run only where it is the card's survey (TE342).
+        var organizeInto: (_ folder: String) -> String? = { _ in nil }
+        /// The newest selection card still waiting for Apply that holds every one of these files,
+        /// and its id, for where_to_file to update in place (TE342).
+        var openSelectionCard: (_ files: Set<String>) -> (id: UUID, plan: AskClaudePlan)? = { _ in nil }
+        /// The files the question being answered was asked about.
+        var askedAbout: () -> [String] = { [] }
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
         /// Quick Look on a file.
@@ -266,7 +274,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     private let context: () -> Context
     private let listDisk: (String) async -> [FileNode]?
     private let searchNames: ([String], String) async -> [String]?
-    private let statDisk: (String) -> FileNode?
+    let statDisk: (String) -> FileNode?
     private let openFile: (URL) -> Bool
     private let extract: (String) async -> [String]?
     private let read: (String) async -> AskClaudeReading.Read?
@@ -651,7 +659,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
 
     private func dispatch(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         // The Never show Claude list: a hidden item can't be named into any tool.
-        let named = ([call.string("handle")].compactMap { $0 } + (call.strings("handles") ?? [])).compactMap { handles.path(for: $0) }
+        // where_to_file leaves out and counts what it can't file, rather than refuse the rest (TE342).
+        let listed = call.name == AskClaudeToolCatalog.Name.whereToFile.rawValue ? [] : (call.strings("handles") ?? [])
+        let named = ([call.string("handle")].compactMap { $0 } + listed).compactMap { handles.path(for: $0) }
         if let notes = Self.notesFile(named) { return notes }
         if named.contains(where: { ctx.isHidden($0) }) {
             return AskClaudeToolOutcome(result: "That item is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
@@ -696,7 +706,11 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .select: return select(call, ctx, handles)
         case .closeTabs: return closeTabs(call, ctx)
         case .differences: return await differences(call, ctx, &handles)
-        case .whereToFile: return await whereToFile(call, ctx, handles)
+        case .whereToFile:
+            if call.strings("handles") != nil || call.input["new_folders"]?.arrayValue != nil {
+                return await fileSelection(call, ctx, handles)
+            }
+            return await whereToFile(call, ctx, handles)
         case .fileLooseFiles: return await fileLooseFiles(call, ctx)
         case .proposeChanges: return proposeChanges(call, ctx, handles)
         case .offerRule: return await offerRule(call, ctx, handles)
@@ -1657,6 +1671,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         guard let handle = call.string("handle"), let path = handles.path(for: handle) else {
             return unknownHandle(call.string("handle"))
         }
+        // Files they asked to file together go on one card (TE342), never one card each.
+        let asked = ctx.askedAbout()
+        if asked.count > 1, asked.contains(path) {
+            return AskClaudeToolOutcome(result: "They asked about \(asked.count) files together: call where_to_file once with all their handles, so they get one card.",
+                                        isError: true, step: "Asked about one file of several")
+        }
         guard let node = ctx.node(path) ?? statDisk(path), !node.isDirectory else {
             return AskClaudeToolOutcome(result: "\(handle) isn’t a file that’s still there; filing help is for files.", isError: true,
                                         step: "Filing help needs a file")
@@ -2404,7 +2424,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                     isError: true, step: "Left alone: Notes for Claude’s file")
     }
 
-    private func hiddenFolder() -> AskClaudeToolOutcome {
+    func hiddenFolder() -> AskClaudeToolOutcome {
         AskClaudeToolOutcome(result: "That folder is on their Hidden from Claude list. Don’t ask about it or guess what it holds.",
                              isError: true, step: "Left alone: hidden from Claude")
     }

@@ -244,6 +244,9 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var notice: String?
     /// The files the card was made for, so Try Again works on a card restored from a saved chat.
     public var scopePaths: [String] = []
+    /// The chat's filing card its rows came from (TE342, decision NS): its answers go back onto
+    /// that card's rows too. Nil for a Refine from Organize.
+    public var forCard: UUID?
     /// A tick, Ask Again or Customize… is being quoted: Send and the tick wait for the new plan.
     /// `quoteToken` is the latest request's, so an older one that lands later is dropped, and
     /// `wantedOptions` holds every choice so far, so two quick changes don't undo each other.
@@ -252,7 +255,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
     public var quoteToken: UUID?
     public var wantedOptions: FileSyncManager.FilingRefineOptions?
 
-    private enum CodingKeys: String, CodingKey { case sourceName, plan, phase, answers, notice, scopePaths }
+    private enum CodingKeys: String, CodingKey { case sourceName, plan, phase, answers, notice, scopePaths, forCard }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -262,6 +265,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         answers = try c.decodeIfPresent(Answers.self, forKey: .answers)
         notice = try c.decodeIfPresent(String.self, forKey: .notice)
         scopePaths = try c.decodeIfPresent([String].self, forKey: .scopePaths) ?? []
+        forCard = try c.decodeIfPresent(UUID.self, forKey: .forCard)
     }
 
     /// Rows the answers show before "Show all".

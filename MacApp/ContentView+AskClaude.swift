@@ -527,7 +527,9 @@ extension ContentView {
             panel.allowsMultipleSelection = false
             panel.prompt = "Choose"
             panel.message = "Where this file goes"
-            if let root = syncManager.filingFolderProfile?.recordedFolderPath {
+            // Opens at the row's own survey: a Dropbox file's folders are Dropbox's (TE342).
+            let file = askClaudeChat.plan(id)?.rows.first { $0.id == row }?.change.path
+            if let root = file.flatMap({ syncManager.filingHelpSurveyRoot(for: $0) }) ?? syncManager.filingFolderProfile?.recordedFolderPath {
                 panel.directoryURL = URL(fileURLWithPath: root)
             }
             guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -569,9 +571,16 @@ extension ContentView {
                 if outcome.isError { askClaudeChat.addNote("Couldn’t go there: \(outcome.step).") }
             }
         case .next:
-            guard let ask = askClaudeChat.plan(id)?.nextAsk, !askClaudeChat.isRunning else { return }
-            // Next answers the card: to Claude, never tried as a command here.
-            askClaudeSend(ask, attached: askClaudeChat.takeAttachments(), spoken: false, typed: false)
+            guard let plan = askClaudeChat.plan(id), let ask = plan.nextAsk, !askClaudeChat.isRunning else { return }
+            // Next works once per card: a second press would ask about the same files again.
+            askClaudeChat.updatePlan(id) { $0.nextAsk = nil }
+            // Next answers the card: to Claude, never tried as a command here. It carries only the
+            // card's own files, never the chips in the box (TE342): a selection's next files, less
+            // any hidden or moved since; the loose-files card's place is in Claude's call.
+            let files = (plan.remaining ?? []).filter { FileManager.default.fileExists(atPath: $0) }
+            askClaudeSend(ask, attached: askClaudeChips(files), spoken: false, typed: false)
+        case .refine:
+            askClaudeRefineSelection(id)
         case .notNow:
             guard askClaudeChat.plan(id)?.state == .proposed else { return }
             askClaudeChat.updatePlan(id) { $0.state = .declined }
@@ -616,6 +625,11 @@ extension ContentView {
             let outcome = await syncManager.applyPlan(rows, names: plan.newNames, actionName: plan.title,
                                                       isHidden: { hidden.isHidden($0) }, protected: protected)
             askClaudeChat.updatePlan(id) { $0.record(outcome) }
+            // The files it moved leave Organize ▸ To File too, which may show them (TE342).
+            let moved = Set(outcome.landed.keys.compactMap { row in askClaudeChat.plan(id)?.rows.first { $0.id == row }?.change.path })
+            for suggestion in syncManager.filingSuggestions where moved.contains(suggestion.filePath) {
+                syncManager.dismissFilingSuggestion(suggestion)
+            }
             if let applied = askClaudeChat.plan(id) {
                 syncManager.filingScorecard.append(FilingScorecard.records(applied, landed: outcome.landed))
                 askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied))
@@ -656,6 +670,72 @@ extension ContentView {
             return card
         }
         askClaudeChat.addRuleCards(cards, after: id, more: more)
+    }
+
+    // MARK: File with Claude's card for a selection (TE342)
+
+    /// Refine N with Claude… on a selection card (decision NQ): Organize ▸ To File opens on the
+    /// rows' folder and scans it, as Refine on one file does, and a plan for those rows is a card
+    /// here. Its answers come back onto this card (decision NS) once it is sent.
+    func askClaudeRefineSelection(_ id: UUID) {
+        guard let plan = askClaudeChat.plan(id), let folder = plan.refineFolder else { return }
+        let paths = plan.refinable.map(\.change.path)
+        guard !paths.isEmpty else { return }
+        if let busy = askClaudeStateBusy {
+            askClaudeChat.addNote("Couldn’t open Organize: \(busy).")
+            return
+        }
+        guard let source = AskClaudeBrowseTools.closestSource(containing: folder, in: askClaudeSources) else {
+            askClaudeChat.addNote("Couldn’t open Organize: \((folder as NSString).lastPathComponent) isn’t in a source SyncCloud shows.")
+            return
+        }
+        // To File's list is replaced by this folder's: said first, when it showed another.
+        let shown = organizeScopePath
+        if !shown.isEmpty, !PathBoundary.resolvesToSameDirectory(shown, folder, caseSensitive: false),
+           !syncManager.filingSuggestions.isEmpty {
+            askClaudeChat.addNote("Organize ▸ To File now shows \((folder as NSString).lastPathComponent) for Refine, in place of \((shown as NSString).lastPathComponent).")
+        }
+        Logger.shared.info("Ask Claude filing card: Refine with Claude for \(paths.count) row\(paths.count == 1 ? "" : "s"), in Organize")
+        organizeFolderAction(FileNode(id: folder, name: (folder as NSString).lastPathComponent, isDirectory: true),
+                             providerRoot: providerRootExpanded(forProviderId: source.id),
+                             providerAnchor: providerAnchorExpanded(forProviderId: source.id))
+        Task { @MainActor in
+            let scope = await syncManager.suggestionsAfterScan(filePaths: paths)
+            guard !scope.isEmpty else {
+                askClaudeChat.addNote("Refine couldn’t find these files in Organize’s results.")
+                return
+            }
+            askClaudeRefine(scope: scope, forCard: id)
+        }
+    }
+
+    /// Refine's answers onto the selection card it came from (decision NS): read once, when the pass
+    /// ends, from Organize's list and the plan's own list of what it sent. `before` is each file's
+    /// first and second folder as the pass found them.
+    func askClaudeRefineToCard(_ cardID: UUID, refine: AskClaudeRefineCard, before: [String: (best: String?, second: String?)]) {
+        guard askClaudeChat.plan(cardID) != nil else {
+            askClaudeChat.addNote("The filing card this Refine came from isn’t in this chat now; Organize ▸ To File has Claude’s picks.")
+            return
+        }
+        let sent = Set(refine.plan.files.filter { $0.status == .namePlusPage || $0.status == .nameOnly }.compactMap(\.path))
+        let reasons = Dictionary(refine.answers?.rows.map { ($0.path, $0.reason) } ?? [], uniquingKeysWith: { a, _ in a })
+        var picks: [String: AskClaudePlan.RefinePick] = [:]
+        for suggestion in syncManager.filingSuggestions where sent.contains(suggestion.filePath) {
+            guard let was = before[suggestion.filePath], let best = suggestion.best else { continue }
+            let pick: FilingDestination?
+            if best.path != was.best { pick = best }
+            else if suggestion.candidates.count > 1, suggestion.candidates[1].path != was.second { pick = suggestion.candidates[1] }
+            else { pick = nil }
+            if let pick, !askClaudeIsHidden(pick.path) {
+                let label = AskClaudeBrowseTools.breadcrumb(pick.path, sources: askClaudeSources, fallback: (pick.path as NSString).lastPathComponent)
+                picks[suggestion.filePath] = .folder(path: pick.path, label: label, reason: reasons[suggestion.filePath] ?? nil)
+            } else if pick == nil {
+                picks[suggestion.filePath] = .agrees
+            }
+        }
+        guard !picks.isEmpty else { return }
+        askClaudeChat.updatePlan(cardID) { $0.refined(picks) }
+        askClaudeRenameForFolders(cardID)
     }
 
     /// Filing help's card buttons.
@@ -739,7 +819,7 @@ extension ContentView {
     }
 
     /// A card's made names, made again for the folders its rows now go to.
-    private func askClaudeRenameForFolders(_ id: UUID) {
+    func askClaudeRenameForFolders(_ id: UUID) {
         askClaudeChat.updatePlan(id) { plan in
             plan.renameForFolders { facts, from, to, taken in
                 askClaudeName(facts, ext: (from as NSString).pathExtension, into: to, taken: taken)
@@ -757,7 +837,13 @@ extension ContentView {
             return
         }
         askClaudeChat.tellClaude(shared.text)
-        askClaudeChat.updatePlan(id) { $0.names?.shared = true }
+        askClaudeChat.updatePlan(id) { plan in
+            plan.names?.shared = true
+            // The folders went with the names: Claude has them now (TE342).
+            for index in plan.rows.indices where plan.rows[index].newName != nil && plan.rows[index].group != .needsPick {
+                plan.rows[index].folderHeld = nil
+            }
+        }
         Logger.shared.info("Ask Claude: shared \(shared.count) new name\(shared.count == 1 ? "" : "s") from a card")
     }
 
@@ -1361,7 +1447,8 @@ extension ContentView {
                                                protected: Set(askClaudeSources.map(\.root)))
             },
             shownOnCards: Set(askClaudeChat.items.flatMap { item -> [String] in
-                guard case .plan(let plan) = item.kind else { return [] }
+                // A selection card's files were never the loose-files card's to skip (TE342).
+                guard case .plan(let plan) = item.kind, plan.selection != true else { return [] }
                 return plan.rows.map(\.change.path)
             }),
             leftOnCards: askClaudeChat.items.reduce(into: [:]) { left, item in
@@ -1370,6 +1457,12 @@ extension ContentView {
             },
             canRefineFiling: syncManager.filingHelpCanRefine,
             filingScorecard: { FilingScorecardStore.shared.records },
+            organizeInto: { folder in
+                guard let source = AskClaudeBrowseTools.closestSource(containing: folder, in: askClaudeSources) else { return nil }
+                return filingDestinationRoot(forAnchor: providerAnchorExpanded(forProviderId: source.id))
+            },
+            openSelectionCard: { askClaudeChat.openSelectionCard(holding: $0) },
+            askedAbout: { askClaudeChat.lastAsked.attached.map(\.path) },
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)
                 guard forward ? syncManager.canGoForward(isLeft: true, drawsColumns: columns)

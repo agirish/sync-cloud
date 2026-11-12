@@ -1657,6 +1657,30 @@ final class AskClaudeChat: ObservableObject {
         if !isRunning { save() }
     }
 
+    /// A card a tool offered. One that updates a selection card (where_to_file asked again about
+    /// its files, or adding Claude's folder to it, TE342) takes that card's place while it still
+    /// waits for Apply; otherwise, and once that card was applied or put away, it is a new card.
+    func showPlan(_ plan: AskClaudePlan) {
+        var plan = plan
+        let replaces = plan.replaces
+        plan.replaces = nil
+        if let replaces, let index = items.firstIndex(where: { $0.id == replaces }),
+           case .plan(let old) = items[index].kind, old.state == .proposed {
+            items[index].kind = .plan(plan)
+        } else {
+            items.append(Item(kind: .plan(plan)))
+        }
+    }
+
+    /// The newest selection card still waiting for Apply that holds every one of `files` (TE342).
+    func openSelectionCard(holding files: Set<String>) -> (id: UUID, plan: AskClaudePlan)? {
+        for item in items.reversed() {
+            guard case .plan(let plan) = item.kind, plan.selection == true, plan.state == .proposed else { continue }
+            if files.isSubset(of: Set(plan.rows.filter(AskClaudePlan.isFile).map(\.change.path))) { return (item.id, plan) }
+        }
+        return nil
+    }
+
     func plan(_ id: UUID) -> AskClaudePlan? {
         guard let item = items.first(where: { $0.id == id }), case .plan(let plan) = item.kind else { return nil }
         return plan
@@ -2257,7 +2281,7 @@ final class AskClaudeChat: ObservableObject {
             items.append(Item(kind: .filing(card)))
         case .plan(let plan):
             streamingItem = nil
-            items.append(Item(kind: .plan(plan)))
+            showPlan(plan)
         case .choices(let choices):
             streamingItem = nil
             items.append(Item(kind: .choices(choices, used: false)))

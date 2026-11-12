@@ -1733,8 +1733,21 @@ private struct AskClaudeThreadRow: View, Equatable {
                     ForEach(entry.rows) { row in planRow(row, plan: plan) }
                 }
             }
+            // TE342 (decision NQ): Claude reads the rows that aren't sure, in Organize, price first.
+            let refinable = plan.refinable.count
+            if refinable > 0 {
+                Button("Refine \(refinable) with Claude…") { onPlanCard(item.id, .refine) }
+                    .controlSize(.small)
+                    .disabled(isRunning)
+                    .help("Opens their folder in Organize and puts a plan here, which shows the price before anything is sent. Claude’s picks come back to this card.")
+            }
             if let left = plan.leftHere {
                 Text(left).scaledFont(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let days = plan.staleDays, plan.state == .proposed {
+                Text("From a survey \(days) days old: folders made since aren’t known. Update the Survey is in Organize ▸ Restructure.")
+                    .scaledFont(.footnote).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let names = plan.names {
@@ -1758,6 +1771,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 let parent = parts.count > 1 ? "in \(parts[parts.count - 2]) · " : ""
                 return (parts.last ?? label, label.isEmpty ? nil : "\(parent)\(count)")
             case .needsPick: return ("Needs Your Pick", "\(count)")
+            case .noFit: return ("No Folder Fits", "\(count)")
             case .alreadyFiled: return ("Already Filed", "\(count)")
             case .emptied: return ("Emptied Folders", nil)
             }
@@ -1791,7 +1805,10 @@ private struct AskClaudeThreadRow: View, Equatable {
     }
 
     private func planRow(_ row: AskClaudePlan.Row, plan: AskClaudePlan) -> some View {
-        let editable = plan.state == .proposed && row.refusal == nil
+        // Filed elsewhere since the card was made (in Organize, or in Finder): worked out as it is
+        // drawn, never saved, so an Undo there can't leave it wrong (TE342).
+        let movedSince = plan.state == .proposed && AskClaudePlan.isFile(row) && !FileManager.default.fileExists(atPath: row.change.path)
+        let editable = plan.state == .proposed && row.refusal == nil && !movedSince
         let isOpen = openRow == row.id
         let dotColor: Color = row.refusal != nil ? .secondary
             : row.isTrash ? .red
@@ -1803,7 +1820,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Toggle("", isOn: Binding(get: { row.ticked }, set: { onPlanCard(item.id, .tick(row.id, $0)) }))
                     .toggleStyle(.checkbox)
                     .labelsHidden()
-                    .disabled(!editable)
+                    .disabled(!editable || row.noFit == true)
                     .accessibilityLabel(row.name)
                 Image(systemName: Self.symbol(for: row.name, change: row.change))
                     .scaledFont(.callout).foregroundStyle(.secondary)
@@ -1811,7 +1828,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Text(row.newName ?? row.name)
                     .scaledFont(.body)
                     .lineLimit(1).truncationMode(.middle)
-                    .strikethrough(row.refusal != nil || row.applied == false)
+                    .strikethrough(row.refusal != nil || row.applied == false || movedSince)
                     .foregroundStyle(row.refusal != nil ? AnyShapeStyle(.secondary) : row.isTrash ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
@@ -1820,16 +1837,24 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
                 // Its own width, never squeezed by the name: shortened here, so the name takes what's left.
                 HStack(spacing: 5) {
-                    // TE331: a folder they set, which teaches a rule at Apply.
-                    if row.teaches {
+                    // TE331: a folder they set, which teaches a rule at Apply. Only one they chose:
+                    // a ticked unsure row teaches too, but its folder is the Mac's.
+                    if row.teaches, row.chosen {
                         // Label-colour words; the accent is the hairline (DS1).
                         Text("Your pick").scaledFont(.footnote).foregroundStyle(.primary)
                             .padding(.horizontal, 4)
                             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(accent.opacity(0.6), lineWidth: 1))
                             .help("You chose this folder. After Apply, the card offers a rule for files like it.")
                     }
+                    // TE342: Refine's pick, or a new folder Claude named.
+                    if row.claudePick == true, !row.chosen {
+                        Text(AskClaudePlan.claudesPick).scaledFont(.footnote).foregroundStyle(.primary)
+                            .padding(.horizontal, 4)
+                            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(accent.opacity(0.6), lineWidth: 1))
+                            .help("Claude picked this folder. Tick the row to take it; open it for this Mac’s folders.")
+                    }
                     Circle().fill(dotColor).frame(width: 7, height: 7)
-                    Text(AskClaudeThreadRowShortening.shortened(AskClaudeThreadRowShortening.destinationWord(row), to: 18))
+                    Text(movedSince ? "Moved since" : AskClaudeThreadRowShortening.shortened(AskClaudeThreadRowShortening.destinationWord(row), to: 18))
                         .scaledFont(.callout)
                         .foregroundStyle(row.group == .needsPick ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
@@ -1876,7 +1901,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         }()
         // Not for an unsure row: its folder isn't decided.
         let folderPath: String? = {
-            guard row.group != .needsPick, case .move(_, let to) = row.change else { return nil }
+            guard row.group != .needsPick, row.noFit != true, case .move(_, let to) = row.change else { return nil }
             return to
         }()
         // The item itself, while it is still where the card found it.
@@ -1889,12 +1914,15 @@ private struct AskClaudeThreadRow: View, Equatable {
         return VStack(alignment: .leading, spacing: 5) {
             if let refusal = row.refusal { line("Can’t", refusal).foregroundStyle(.orange) }
             if let result = row.result { line("Result", result) }
-            if row.group == .needsPick {
+            if row.noFit == true {
+                line("Goes to", "Not decided: choose a folder")
+            } else if row.group == .needsPick, row.claudePick != true {
                 line("Goes to", "Not decided: pick one below")
             } else if let destination {
                 line("Goes to", destination)
             }
             if let reason = row.reason { line("Why", reason) }
+            if row.claudeAgrees == true { line("Refine", "Claude agrees with this folder") }
             AskClaudeNameDetails(row: row, editable: editable) { onPlanCard(item.id, .setName(row.id, $0)) }
             if editable, case .newFolder(_, let name) = row.change {
                 AskClaudeNewFolderNameField(name: name) { onPlanCard(item.id, .renameFolder(row.id, $0)) }
@@ -2007,7 +2035,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button(label) { onPlanCard(item.id, .next) }
                         .disabled(isRunning)
-                        .help("Asks Claude for the next card of loose files.")
+                        .help(plan.selection == true ? "Puts the next files you selected on a card of their own." : "Asks Claude for the next card of loose files.")
                 }
             }
         }
@@ -2176,6 +2204,8 @@ enum AskClaudePlanAction: Equatable {
     case goTo(String)
     /// Next 10: asks for the next card.
     case next
+    /// Refine N with Claude… on a selection card (TE342, decision NQ).
+    case refine
 }
 
 /// What filing help's card asks for.
@@ -2201,7 +2231,8 @@ enum AskClaudeThreadRowShortening {
 
     /// Where a row goes, short, for the end of its line.
     static func destinationWord(_ row: AskClaudePlan.Row) -> String {
-        if row.group == .needsPick { return "Pick a folder" }
+        if row.noFit == true { return "Choose a folder" }
+        if row.group == .needsPick, row.claudePick != true { return "Pick a folder" }
         switch row.change {
         case .trash, .trashIfEmptied: return "Trash"
         case .rename(_, let to): return to

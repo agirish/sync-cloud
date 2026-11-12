@@ -242,7 +242,7 @@ public enum FilingScorecard {
     }
 
     /// A path with its links resolved, standardized and lowercased (APFS's default ignores case).
-    static func canonical(_ path: String) -> String {
+    public static func canonical(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
     }
 

@@ -36,7 +36,8 @@ extension ContentView {
 
     /// Organize's "Refine N with Claude…": makes the plan and puts its card in the chat, opening the
     /// panel if it is closed.
-    func askClaudeRefine(scope: [FilingSuggestion], source named: String? = nil) {
+    /// `forCard`: the chat's selection card it came from, whose rows its answers also update (TE342).
+    func askClaudeRefine(scope: [FilingSuggestion], source named: String? = nil, forCard: UUID? = nil) {
         guard !scope.isEmpty else { return }
         guard AnthropicKeychain.isConfigured else {
             askClaudeRefineSetup()
@@ -55,7 +56,9 @@ extension ContentView {
                              : "Refine has nothing to ask right now.")
                 return
             }
-            chat.addRefineCard(AskClaudeRefineCard(sourceName: source, plan: plan, scopePaths: scope.map(\.filePath)))
+            var card = AskClaudeRefineCard(sourceName: source, plan: plan, scopePaths: scope.map(\.filePath))
+            card.forCard = forCard
+            chat.addRefineCard(card)
             Logger.shared.info("Ask Claude: a Refine plan for \(plan.eligible) file(s) is waiting for Send")
         }
     }
@@ -121,6 +124,11 @@ extension ContentView {
                     return
                 }
                 chat.updateRefine(id) { $0.answers?.undone = true }
+                // The selection card's rows it moved go back too, unless they've touched them.
+                if let card = chat.refineCard(id)?.forCard {
+                    chat.updatePlan(card) { $0.refineUndone() }
+                    askClaudeRenameForFolders(card)
+                }
                 chat.tellClaude("They chose Undo Refine on the card: \(restored) suggestion\(restored == 1 ? "" : "s") went back to the on-device answer.")
             },
             canUndo: { id in
@@ -197,6 +205,9 @@ extension ContentView {
         }
         chat.pressing.insert("refine-\(id)")
         let scope = askClaudeRefineScope(id)
+        // Each file's first and second folder as the pass finds them, to tell what Claude changed.
+        let before = Dictionary(scope.map { ($0.filePath, (best: $0.best?.path, second: $0.candidates.dropFirst().first?.path)) },
+                                uniquingKeysWith: { a, _ in a })
         Task { @MainActor in
             defer { chat.pressing.remove("refine-\(id)") }
             var plan = open
@@ -230,6 +241,9 @@ extension ContentView {
                 // This card's pass holds the manager's one undo now, or none does.
                 chat.refineUndoCard = syncManager.canUndoFilingRefine ? id : nil
                 if let line = chat.refineCard(id)?.toldToClaude { chat.tellClaude(line) }
+                if let refine = chat.refineCard(id), let card = refine.forCard {
+                    askClaudeRefineToCard(card, refine: refine, before: before)
+                }
                 Logger.shared.info("Ask Claude: Refine sent from its card — \(report?.changes.count ?? 0) home(s) changed")
             }
         }
