@@ -1229,24 +1229,34 @@ Needs an API key and Ask Claude open (⌘J). The guess and the model's starter n
   intro goes, "Intro hidden. Settings ▸ Ask Claude ▸ General brings it back." shows in that chat
   only, and the starters move up. New Chat: no intro and no note. Settings ▸ Ask Claude ▸ General ▸
   New chats ▸ Show the intro in new chats brings it back. VoiceOver reads the ✕ as "Hide the intro".
-- [ ] **Starters from the screen.** Open a folder holding two PDFs changed this week: the starters
-  read "Summarize both PDFs", "What changed here this week?", then a table question. Select three
-  files: "Where should these 3 go?" and "Rename these 3 like their neighbors" lead. No starter names
-  a file.
-- [ ] **The model's starter.** With the box empty, a fourth starter fades in last about a second
-  later, and never while the pointer is over the starters. Typing stops it. Back in the same folder,
-  the same one shows at once.
+- [ ] **Starters from the screen.** Open a folder holding exactly two files, both PDFs changed this
+  week: the starters read "Summarize both PDFs", "What changed here this week?", then a table
+  question. Select three pictures: "Where should these 3 go?" and "Rename these 3 like their
+  neighbors" lead (three PDFs put "Summarize the 3 selected files" first). "Taxes (2023)" and
+  "Taxes (2024)" are no copies; "Lease (1)" beside "Lease" is. No starter names a file.
+- [ ] **The model's starter.** With the box empty, one more starter fades in last about a second
+  later (the fifth in Edit with a PDF open), and waits while the pointer is over the starters.
+  Typing stops it. Back in the same folder it fades in again at once. With Reduce Motion on it
+  appears without the fade.
 - [ ] **Under an earlier chat.** After an hour away (or Continue's "Earlier" line), the new chat shows
   starters under "Earlier · Claude doesn’t see this", without the intro.
 - [ ] **Suggestion leads.** With three new files in Downloads and a new chat, "File the new files in
-  iCloud › Downloads" is the first starter and no chip shows above the box. Ask something: the chip
-  takes over in the chat under way.
-- [ ] **No screen for the weather.** Type "How is the weather in San Ramon, CA, USA", pause a second,
-  Send. The receipt reads "Sent no screen · …", and its sheet says the screen wasn't sent and that
-  Retry sends it. Retry: "Sent screen · …".
+  iCloud › Downloads" is the first starter and no chip shows above the box. Right-click it: Not Now,
+  Don't Suggest New Files in Downloads and Suggestion Settings…, as on the chip; Not Now takes it out
+  of the starters. Ask something: the chip takes over in the chat under way.
+- [ ] **No key.** Remove the key with an earlier chat in the column: the setup shows only in an
+  empty chat with nothing above it, never under the old chat.
+- [ ] **No screen for the weather.** Type "How is the weather in San Ramon, CA, USA" and Send at once.
+  The receipt reads "Sent no screen · …", and its sheet says the screen wasn't sent and that Retry
+  sends it. Retry: "Sent screen · …". Say it aloud instead: the same. With Apple Intelligence off,
+  Send isn't slower than before and the screen goes.
+- [ ] **A reply goes with the screen.** When Claude ends its answer with a question ("Which of the
+  two?"), answer "the newer one": its receipt says "Sent screen" or "screen unchanged".
 - [ ] **Claude asks.** In a folder of PDFs, a question the guess misses (say "Show me the 2024 W-2"
   with no "this") either sends the screen or shows a "Looked at your screen" step and a receipt
   "Sent screen when Claude asked · N rows".
 - [ ] **Stale view.** Ask about a folder, move to another, ask "Thanks, that's all" then "Which is
   biggest": Claude answers about the folder on screen now, never the earlier one.
-- [ ] **Starters always send it.** Click any starter: its receipt says "Sent screen", never "no screen".
+- [ ] **Starters always send it.** Click a starter that asks a question ("What’s in this folder?"): its
+  receipt says "Sent screen", never "no screen". A command starter ("Open my Downloads folder") may
+  run on this Mac with no receipt at all.

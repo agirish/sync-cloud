@@ -13,6 +13,8 @@ struct AskClaudeEmptyState: View {
     let starters: [String]
     /// The on-device model's question, shown last once the pointer is off the starters (U3).
     var extra: String?
+    /// TE309's suggestion where it leads the starters, with the chip's Not Now and Don't Suggest.
+    var suggestion: AskClaudeStarterSuggestion?
     /// Only a chat with nothing above it opens with the intro (V1).
     var showsIntro = true
     /// Off while Claude answers or a question is being spoken.
@@ -29,15 +31,18 @@ struct AskClaudeEmptyState: View {
     @State private var overStarters = false
     @State private var shownExtra: String?
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The setup's own API key card: it isn't in the chat, so it keeps its refusal here.
     @State private var setupCard = AskClaudeSettingCard(rows: [AskClaudeSettingCard.Row(id: "intelligence.apiKey")])
 
-    init(keySaved: Bool?, starters: [String], extra: String? = nil, showsIntro: Bool = true, startersEnabled: Bool,
+    init(keySaved: Bool?, starters: [String], extra: String? = nil, suggestion: AskClaudeStarterSuggestion? = nil,
+         showsIntro: Bool = true, startersEnabled: Bool,
          bridge: AskClaudeSettingsBridge, accent: Color, hue: LiquidGlassHue, defaults: UserDefaults,
          onStarter: @escaping (String) -> Void) {
         self.keySaved = keySaved
         self.starters = starters
         self.extra = extra
+        self.suggestion = suggestion
         self.showsIntro = showsIntro
         self.startersEnabled = startersEnabled
         self.bridge = bridge
@@ -63,7 +68,7 @@ struct AskClaudeEmptyState: View {
             VStack(alignment: .leading, spacing: 10) {
                 if introShown && showsIntro {
                     introBubble
-                } else if justHidIntro {
+                } else if justHidIntro, showsIntro {
                     Text(Self.introHidden)
                         .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
@@ -156,15 +161,19 @@ struct AskClaudeEmptyState: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Asks “\(question)”")
+                .modifier(SuggestionMenu(suggestion: question == suggestion?.question ? suggestion : nil))
             }
         }
         .disabled(!startersEnabled)
         .onHover { over in
             overStarters = over
-            if !over { shownExtra = extra }
+            if !over, shownExtra != extra {
+                withDesignAnimation(.easeIn(duration: 0.3), reduceMotion: reduceMotion) { shownExtra = extra }
+            }
         }
         .onChange(of: extra, initial: true) { _, now in
-            if !overStarters || now == nil { shownExtra = now }
+            guard !overStarters || now == nil else { return }
+            withDesignAnimation(.easeIn(duration: 0.3), reduceMotion: reduceMotion) { shownExtra = now }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Questions to start with")
@@ -176,5 +185,36 @@ extension AskClaudePlace {
     var starterScreen: AskClaudeStarters.Screen {
         AskClaudeStarters.Screen(workspace: workspace, source: source, folder: folder, itemCount: itemCount,
                                  folderHidden: isHidden, openFile: openFile)
+    }
+}
+
+/// TE309's suggestion where a new chat's starters lead with it, and what its chip offered beside
+/// it (TE347 review): Not Now, Don't Suggest and its settings, on the right-click menu and to
+/// VoiceOver.
+struct AskClaudeStarterSuggestion {
+    let question: String
+    let kindTitle: String
+    let notNow: () -> Void
+    let dontSuggest: () -> Void
+    let settings: () -> Void
+}
+
+private struct SuggestionMenu: ViewModifier {
+    let suggestion: AskClaudeStarterSuggestion?
+
+    func body(content: Content) -> some View {
+        if let suggestion {
+            content
+                .contextMenu {
+                    Button("Not Now", action: suggestion.notNow)
+                    Button("Don’t Suggest \(suggestion.kindTitle)", action: suggestion.dontSuggest)
+                    Divider()
+                    Button("Suggestion Settings…", action: suggestion.settings)
+                }
+                .accessibilityAction(named: "Not Now", suggestion.notNow)
+                .accessibilityAction(named: "Don’t Suggest \(suggestion.kindTitle)", suggestion.dontSuggest)
+        } else {
+            content
+        }
     }
 }

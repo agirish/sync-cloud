@@ -2225,7 +2225,8 @@ final class AskClaudeChat: ObservableObject {
         case .thinking:
             isThinking = true
         case .screenLooked:
-            receipt?.screenAsked = true
+            // Only a screen held back was asked for; one sent already was only looked at again.
+            if receipt?.screenWithheld == true { receipt?.screenAsked = true }
         case .retractAnswer:
             if let id = streamingItem { items.removeAll { $0.id == id } }
             streamingItem = nil

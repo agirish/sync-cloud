@@ -319,7 +319,9 @@ extension ContentView {
     /// so by default as `onDevice`.
     func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool, onDevice: Bool = false,
                        typed: Bool = true, guessScreen: Bool? = nil) {
-        let guessScreen = guessScreen ?? onDevice
+        // A reply to Claude's own question ("the newer one") reads as unrelated on its own, and
+        // Claude needs what they're looking at to take it: the screen goes (TE347 review).
+        let guessScreen = (guessScreen ?? onDevice) && !askClaudeChat.awaitsAnswer
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
@@ -945,11 +947,17 @@ extension ContentView {
     /// What the Browse pane's rows say, for a new chat's starters (TE347b): the rows the screen
     /// card would send, without building the card on every redraw.
     func askClaudeStarterSignals() -> AskClaudeStarters.Signals {
-        let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard) + [AskClaudeNotes.defaultFileURL().path])
+        let hiddenList = AskClaudePrivacy.hiddenFolders(in: .standard) + [AskClaudeNotes.defaultFileURL().path]
         let absolute = AskClaudeBrowseTools.absolute(askClaudeFolder, root: askClaudeRoot)
-        guard !hidden.isHidden(absolute), let items = askClaudeItems(absolute) else { return .init() }
-        let rows = (hidden.isEmpty ? items : items.filter { !hidden.isHidden($0.id) }).map(AskClaudeBrowseTools.row)
-        return AskClaudeStarters.signals(rows: rows, selection: syncManager.selectedLeftPaths, now: Date())
+        guard let items = askClaudeItems(absolute) else { return .init() }
+        let selection = syncManager.selectedLeftPaths
+        let key = AskClaudeStarterSignalsCache.Key(folder: absolute, count: items.count, selection: selection, hidden: hiddenList)
+        return AskClaudeStarterSignalsCache.shared.signals(for: key) {
+            let hidden = AskClaudePrivacy.Matcher(hiddenList)
+            guard !hidden.isHidden(absolute) else { return .init() }
+            let rows = items.filter { !hidden.isHidden($0.id) }.map(AskClaudeBrowseTools.row)
+            return AskClaudeStarters.signals(rows: rows, selection: selection, now: Date())
+        }
     }
 
     /// One more starter from the on-device model, written from exactly what the screen card would
@@ -960,8 +968,10 @@ extension ContentView {
         var handles = AskClaudeHandles()
         let card = AskClaudeScreenCard.render(screen, handles: &handles).text
         guard let raw = await AskClaudeOnDevice.starter(card: card, shown: shown) else { return nil }
+        // Everything the card names, so none of it can be the starter's word (TE347 review).
         let names = screen.rows.map(\.name) + screen.folder.split(separator: "/").map(String.init)
-            + (screen.openFile.map { [$0.name] } ?? [])
+            + (screen.openFile.map { [$0.name] } ?? []) + screen.columns.flatMap { $0.rows.map(\.name) + [$0.folder] }
+            + screen.tabs + screen.disks + screen.sources + screen.attached.map(\.row.name)
         return AskClaudeStarters.modelQuestion(raw, beside: shown, names: names)
     }
 

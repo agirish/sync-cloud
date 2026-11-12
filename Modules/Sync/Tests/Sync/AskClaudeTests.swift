@@ -691,6 +691,20 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(try screenLine(3) == "<screen unchanged/>")
     }
 
+    /// After Retry or Edit cut the last turn, older screens are still in the chat: a held-back
+    /// screen then says "changed", never "not sent" (TE347 review).
+    @Test func aWithheldScreenAfterARewindSaysChanged() async throws {
+        let transport = ScriptedTransport((0..<3).map { _ in .init(status: 200, lines: textResponse("a")) })
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        await engine.ask("one", card: "<screen>A</screen>", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        await engine.ask("two", card: "<screen>A</screen>", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        #expect(engine.rewind(toTurn: 1))
+        await engine.ask("two again", card: "<screen>B</screen>", key: "k", model: AskClaudeModels.sonnet,
+                         withholdScreen: true, tools: StubTools()) { _ in }
+        let messages = try #require(try transport.body(2)["messages"]?.arrayValue)
+        #expect(messages.last?["content"]?.arrayValue?.dropFirst().first?["text"]?.stringValue == "<screen changed, not sent/>")
+    }
+
     /// Claude asks for the held-back screen with look_at_screen: the engine answers with the card,
     /// and from then on it is Claude's view (U9).
     @Test func lookAtScreenAnswersWithTheCardAndMakesItClaudesView() async throws {

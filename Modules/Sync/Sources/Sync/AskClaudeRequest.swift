@@ -108,7 +108,7 @@ public enum AskClaudeRequest {
     Then comes a <screen> block: a description of what SyncCloud shows. Rows \
     are pipe-separated (handle|name|kind|size|modified|tags). A handle such as r9 names one file or \
     folder for the whole chat; use handles when you call tools. A <screen unchanged/> line means the \
-    screen is as it was in the last message. A question that looked unrelated to their files goes \
+    screen is as you last saw it. A question that looked unrelated to their files goes \
     without it: <screen not sent/> means you haven’t seen it yet, <screen changed, not sent/> that \
     what you saw last is out of date. Then, when answering needs what they’re looking at (this, \
     here, these, a file or folder), call look_at_screen first; never answer from an old screen.
@@ -455,7 +455,7 @@ public enum AskClaudeToolCatalog {
                 "because": string("For add and replace: their words, copied exactly from their message."),
              ], required: ["action"]),
         tool(.lookAtScreen,
-             "What SyncCloud shows now, as the <screen> block a question carries. Call it when a <screen not sent/> or <screen changed, not sent/> line came with the question and answering needs what they’re looking at.",
+             "What SyncCloud showed when they asked this question, as the <screen> block a question carries; after you move their view, go_to and list_folder say what is there. Call it when a <screen not sent/> or <screen changed, not sent/> line came with the question and answering needs what they’re looking at.",
              properties: [:], required: []),
     ]
 

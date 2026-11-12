@@ -46,9 +46,13 @@ public enum AskClaudeStarters {
         public var readable = 0
         public var pdfs = 0
         public var changedThisWeek = 0
-        /// Names ending "(1)" or "copy": what Finder and downloads name a second copy.
+        /// Second copies of a file in the same folder: "Lease (1).pdf" or "Lease copy.pdf" beside
+        /// "Lease.pdf". A name that only looks like one ("Taxes (2024)", "Signed hard copy") isn't.
         public var copies = 0
         public var screenshots = 0
+        /// Which rows are selected, as a number that names nothing: a starter the model wrote for
+        /// one selection isn't shown for another (the panel's cache key).
+        public var selectionKey = 0
         /// TE309's suggestion, while the chat is empty: it leads instead of showing twice (B-R8).
         public var suggested: String?
 
@@ -68,9 +72,15 @@ public enum AskClaudeStarters {
     /// The signals of `rows`, the rows the screen card would send: hidden ones already left out.
     public static func signals(rows: [AskClaudeScreen.Row], selection: Set<String>, now: Date) -> Signals {
         var signals = Signals()
+        // Each file's stem, so a copy counts only beside its original.
+        let stems = Set(rows.filter { !$0.isDirectory }.map { (($0.name as NSString).deletingPathExtension).lowercased() })
+        var selectedPaths: [String] = []
         for row in rows {
             let selected = selection.contains(row.path)
-            if selected { signals.selected += 1 }
+            if selected {
+                signals.selected += 1
+                selectedPaths.append(row.path)
+            }
             guard !row.isDirectory else { continue }
             let name = row.name as NSString
             let ext = name.pathExtension.lowercased()
@@ -79,10 +89,14 @@ public enum AskClaudeStarters {
             if readable { signals.readable += 1 }
             if selected, readable { signals.selectedReadable += 1 }
             if ext == "pdf" { signals.pdfs += 1 }
-            if let modified = row.modified, now.timeIntervalSince(modified) < thisWeek { signals.changedThisWeek += 1 }
-            if isCopy(name.deletingPathExtension) { signals.copies += 1 }
+            // A date in the future (a clock off, a camera) isn't "this week".
+            if let modified = row.modified, (0..<thisWeek).contains(now.timeIntervalSince(modified)) { signals.changedThisWeek += 1 }
+            if let original = originalStem(name.deletingPathExtension), stems.contains(original) { signals.copies += 1 }
             if row.name.hasPrefix("Screenshot ") || row.name.hasPrefix("Screen Shot ") { signals.screenshots += 1 }
         }
+        var hasher = Hasher()
+        for path in selectedPaths.sorted() { hasher.combine(path) }
+        signals.selectionKey = selectedPaths.isEmpty ? 0 : hasher.finalize()
         return signals
     }
 
@@ -90,28 +104,34 @@ public enum AskClaudeStarters {
 
     /// Starters longer than this wrap in the column's narrowest width (V10).
     public static let longest = 48
-    /// How a question Claude's tools can answer begins.
-    static let openings = ["summarize", "which", "what", "where", "when", "who", "how many", "does", "do ", "is ",
-                           "are ", "find", "rename", "move", "file ", "list", "show"]
+    /// How a question about files begins: asked ones end in "?", the rest are requests.
+    static let asking = ["which", "what", "where", "when", "who", "how many", "does", "do ", "is ", "are "]
+    static let requests = ["summarize", "find", "rename", "move", "file ", "list", "show"]
+    /// Words common enough in file and folder names to be the question's own ("Which documents…").
+    static let commonWords: Set<String> = ["documents", "document", "downloads", "download", "desktop", "pictures",
+                                           "screenshot", "screenshots", "photos", "folder", "folders", "invoice",
+                                           "invoices", "receipt", "receipts", "change", "changes", "statement",
+                                           "statements", "report", "reports", "scanned"]
 
-    /// The model's question, tidied, or nil when it can't be offered: too long or short, naming a
-    /// file or folder on screen, a near-copy of a starter already shown, or not something Claude's
-    /// tools do (U4, V10).
+    /// The model's question, tidied, or nil when it can't be offered: too long or short, naming
+    /// something on screen, a near-copy of a starter already shown, or not shaped like a question
+    /// about files (U4, V10). `names`: everything the screen card names, rows, columns, tabs and disks.
     public static func modelQuestion(_ raw: String, beside shown: [String], names: [String]) -> String? {
         var question = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”"))
             .replacingOccurrences(of: "'", with: "’")
-        guard !question.contains("\n"), (12...longest).contains(question.count) else { return nil }
-        if !question.hasSuffix("?") && question.lowercased().hasPrefix("wh") { question += "?" }
         let lower = question.lowercased()
-        guard openings.contains(where: { lower.hasPrefix($0) }) else { return nil }
-        // A name's whole stem of two words or more ("lease 2026"), or a long word from one
-        // ("brokerage"). A short one-word name ("form", "scan") may be the question's own word.
+        let asks = asking.contains { lower.hasPrefix($0) }
+        guard !question.contains("\n"), asks || requests.contains(where: { lower.hasPrefix($0) }) else { return nil }
+        if asks, !question.hasSuffix("?") { question += "?" }
+        guard (12...longest).contains(question.count) else { return nil }
+        // Compared word by word, so "Lease_2026" and "Mom's Taxes" match "lease 2026" and "Mom’s
+        // taxes": a name of two words or more whole, or a long uncommon word from any name.
+        let asked = words(lower)
         for name in names {
-            let stem = ((name as NSString).deletingPathExtension).lowercased()
-            let words = stem.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-            if words.count >= 2, lower.contains(stem) { return nil }
-            if words.contains(where: { $0.count >= 6 && lower.contains($0) }) { return nil }
+            let named = words(((name as NSString).deletingPathExtension).lowercased())
+            if named.count >= 2, contains(asked, run: named) { return nil }
+            if named.contains(where: { $0.count >= 6 && !commonWords.contains($0) && asked.contains($0) }) { return nil }
         }
         let mine = wordSet(lower)
         for other in shown {
@@ -122,15 +142,29 @@ public enum AskClaudeStarters {
         return question
     }
 
-    private static func wordSet(_ text: String) -> Set<String> {
-        Set(text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+    private static func wordSet(_ text: String) -> Set<String> { Set(words(text)) }
+
+    /// Letters and digits only, an apostrophe of either kind dropped: "mom's" and "mom’s" are "moms".
+    private static func words(_ text: String) -> [String] {
+        text.replacingOccurrences(of: "’", with: "").replacingOccurrences(of: "'", with: "")
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }
 
-    /// "Lease (1)", "Lease copy", "Lease copy 2".
-    static func isCopy(_ stem: String) -> Bool {
+    private static func contains(_ words: [String], run: [String]) -> Bool {
+        guard run.count <= words.count else { return false }
+        return (0...(words.count - run.count)).contains { Array(words[$0..<$0 + run.count]) == run }
+    }
+
+    /// The original's stem when `stem` names a second copy: "lease (1)" or "lease copy 2" →
+    /// "lease". A number of three digits or more in brackets is a year or a part, never a copy.
+    static func originalStem(_ stem: String) -> String? {
         let lower = stem.lowercased()
-        if lower.range(of: #" \(\d+\)$"#, options: .regularExpression) != nil { return true }
-        return lower.range(of: #" copy( \d+)?$"#, options: .regularExpression) != nil
+        for pattern in [#" \(\d{1,2}\)$"#, #" copy( \d{1,2})?$"#] {
+            if let range = lower.range(of: pattern, options: .regularExpression) {
+                return String(lower[..<range.lowerBound])
+            }
+        }
+        return nil
     }
 
     /// For a folder Claude can't see into, an empty one, or one still loading.
@@ -157,13 +191,13 @@ public enum AskClaudeStarters {
             if signals.selectedReadable == n, n <= summarizable {
                 asks.append(n == 1 ? "Summarize the selected file" : "Summarize the \(n) selected files")
             }
-            asks.append(n == 1 ? "Where should the selected item go?" : "Where should these \(n) go?")
-            if n >= 2 { asks.append("Rename these \(n) like their neighbors") }
+            asks.append(n == 1 ? "Where should the selected item go?" : "Where should these \(count(n)) go?")
+            if n >= 2 { asks.append("Rename these \(count(n)) like their neighbors") }
             return asks
         }
         var asks: [String] = []
-        if signals.copies >= minimumCopies { asks.append("Which of the \(signals.copies) copies can I trash?") }
-        if signals.screenshots >= minimumScreenshots { asks.append("Move the \(signals.screenshots) screenshots into a folder") }
+        if signals.copies >= minimumCopies { asks.append("Which of the \(count(signals.copies)) copies can I trash?") }
+        if signals.screenshots >= minimumScreenshots { asks.append("Move the \(count(signals.screenshots)) screenshots into a folder") }
         let files = signals.files
         if (1...summarizable).contains(files), signals.readable == files {
             let pdfs = signals.pdfs == files
@@ -176,6 +210,9 @@ public enum AskClaudeStarters {
         if signals.changedThisWeek > 0 { asks.append("What changed here this week?") }
         return asks
     }
+
+    /// "1,234", grouped as the Mac's region groups numbers.
+    private static func count(_ n: Int) -> String { n.formatted(.number) }
 
     /// Today's table: what fits the workspace, with no signal.
     static func tableQuestions(for screen: Screen) -> [String] {

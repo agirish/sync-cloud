@@ -82,7 +82,8 @@ import Testing
                     row("Screenshot 2026-11-01 at 9.41.png"), row("Taxes", folder: true, daysOld: 1)]
         let signals = AskClaudeStarters.signals(rows: rows, selection: ["/x/Lease.pdf", "/x/Taxes"], now: Self.now)
         #expect(signals.files == 5 && signals.readable == 3 && signals.pdfs == 2)
-        #expect(signals.copies == 2 && signals.screenshots == 1)
+        // "Notes copy 2" has no "Notes" beside it, so it isn't counted as a copy.
+        #expect(signals.copies == 1 && signals.screenshots == 1)
         #expect(signals.changedThisWeek == 2, "folders don't count")
         #expect(signals.selected == 2 && signals.selectedReadable == 1)
     }
@@ -104,7 +105,8 @@ import Testing
     }
 
     @Test func copiesAndScreenshotsLeadInABusyFolder() {
-        let rows = (1...6).map { row("Shot \($0) copy.png") } + (1...5).map { row("Screenshot \($0).png") } + [row("Big.mov")]
+        let rows = (1...6).flatMap { [row("Shot \($0).png"), row("Shot \($0) copy.png")] }
+            + (1...5).map { row("Screenshot \($0).png") } + [row("Big.mov")]
         #expect(browse(rows) == ["Which of the 6 copies can I trash?", "Move the 5 screenshots into a folder",
                                  "What’s in this folder?"])
     }
@@ -158,5 +160,60 @@ import Testing
         #expect(AskClaudeStarters.modelQuestion("Which of these files were signed by both parties and dated?", beside: shown,
                                                 names: names) == nil, "too long for one line")
         #expect(AskClaudeStarters.modelQuestion("Which?\nAnd why", beside: shown, names: names) == nil)
+    }
+
+    // MARK: Review fixes (TE347 review, 11-11)
+
+    /// A year or a part number in brackets, or a name ending "copy", isn't a second copy unless its
+    /// original sits beside it.
+    @Test func onlyACopyBesideItsOriginalCounts() {
+        let years = [row("Taxes (2023).pdf"), row("Taxes (2024).pdf"), row("Signed hard copy.pdf"), row("Part (12).pdf")]
+        #expect(AskClaudeStarters.signals(rows: years, selection: [], now: Self.now).copies == 0)
+        let real = [row("Lease.pdf"), row("Lease (1).pdf"), row("Lease copy 2.pdf"), row("Taxes (2024).pdf")]
+        #expect(AskClaudeStarters.signals(rows: real, selection: [], now: Self.now).copies == 2)
+        #expect(AskClaudeStarters.originalStem("Taxes (2024)") == nil)
+        #expect(AskClaudeStarters.originalStem("Lease copy") == "lease")
+    }
+
+    @Test func aFileDatedInTheFutureIsntThisWeek() {
+        let rows = [row("A.pdf", daysOld: -3), row("B.pdf", daysOld: 1)]
+        #expect(AskClaudeStarters.signals(rows: rows, selection: [], now: Self.now).changedThisWeek == 1)
+    }
+
+    @Test func bigCountsAreGrouped() {
+        var signals = AskClaudeStarters.Signals()
+        signals.selected = 12_000
+        #expect(AskClaudeStarters.fromSignals(signals).contains("Where should these \(12_000.formatted(.number)) go?"))
+    }
+
+    /// A different selection, same counts, gives a different key: the model's starter for one
+    /// selection isn't shown for another.
+    @Test func theSelectionKeyFollowsWhichRowsAreSelected() {
+        let rows = [row("A.pdf"), row("B.pdf")]
+        let a = AskClaudeStarters.signals(rows: rows, selection: ["/x/A.pdf"], now: Self.now)
+        let b = AskClaudeStarters.signals(rows: rows, selection: ["/x/B.pdf"], now: Self.now)
+        #expect(a.selected == b.selected && a.selectionKey != b.selectionKey)
+        #expect(AskClaudeStarters.signals(rows: rows, selection: [], now: Self.now).selectionKey == 0)
+    }
+
+    /// Names are compared word by word: separators and either apostrophe don't hide one, and a
+    /// common word from a name ("documents") is still the question's own.
+    @Test func theModelsQuestionCantNameAFileByItsWords() {
+        let shown = ["Summarize both PDFs"]
+        #expect(AskClaudeStarters.modelQuestion("What does the lease 2026 say?", beside: shown, names: ["lease_2026.pdf"]) == nil)
+        #expect(AskClaudeStarters.modelQuestion("Where should Mom’s taxes go?", beside: shown, names: ["Mom's Taxes.pdf"]) == nil)
+        #expect(AskClaudeStarters.modelQuestion("Which files belong in Immigration?", beside: shown, names: ["Immigration"]) == nil,
+                "a parent column's folder is a name on the card too")
+        #expect(AskClaudeStarters.modelQuestion("Which documents need signing?", beside: shown, names: ["Documents"])
+                == "Which documents need signing?")
+    }
+
+    /// The "?" is added before the length check, and only to a question, never to a request.
+    @Test func theQuestionMarkCountsTowardTheLength() {
+        let fortyEight = "How many of these were scanned in the last years"
+        #expect(fortyEight.count == 48)
+        #expect(AskClaudeStarters.modelQuestion(fortyEight, beside: [], names: []) == nil)
+        #expect(AskClaudeStarters.modelQuestion("How many are from 2024", beside: [], names: []) == "How many are from 2024?")
+        #expect(AskClaudeStarters.modelQuestion("Summarize the newest one", beside: [], names: []) == "Summarize the newest one")
     }
 }

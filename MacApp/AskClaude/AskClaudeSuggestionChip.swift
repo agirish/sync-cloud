@@ -201,6 +201,20 @@ struct AskClaudeSuggestionChip: View {
     /// Whether suggestions are switched on in Settings.
     var isOn: Bool { enabled }
 
+    /// Not Now and Don't Suggest on the suggestion where a new chat's starters lead with it
+    /// (TE347 review): remembered as the chip's own are.
+    func recordPutAway(_ chip: AskClaudeSuggestions.Suggestion) {
+        var memory = memory
+        AskClaudeSuggestions.putAway(chip, memory: &memory)
+        save(memory)
+    }
+
+    func recordTurnOff(_ kind: AskClaudeSuggestions.Kind) {
+        var memory = memory
+        memory.off.insert(kind)
+        save(memory)
+    }
+
     /// A click on the suggestion where a new chat's starters show it (TE347b): remembered as the
     /// chip's own click is, so the same files aren't suggested again.
     func recordClick(_ chip: AskClaudeSuggestions.Suggestion) {

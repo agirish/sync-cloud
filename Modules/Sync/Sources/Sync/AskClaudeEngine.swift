@@ -405,8 +405,10 @@ public final class AskClaudeEngine {
     public func screenBlock(for card: String, withheld: Bool = false) -> String {
         if card == lastCard { return Self.screenUnchanged }
         guard withheld else { return card }
-        // Names nothing, and says whether what Claude saw last is out of date (V2).
-        return lastCard == nil ? Self.screenNotSent : Self.screenChangedNotSent
+        // Names nothing, and says whether what Claude saw last is out of date (V2). After Retry or
+        // Edit `lastCard` is nil while older screens stay in the chat, so any chat at all says
+        // "changed": "not sent" only for a chat's first question.
+        return lastCard == nil && transcript.isEmpty ? Self.screenNotSent : Self.screenChangedNotSent
     }
 
     public static let screenUnchanged = "<screen unchanged/>"

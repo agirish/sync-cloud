@@ -141,11 +141,11 @@ struct AskClaudePanel: View {
         }
         // Kept as it's typed: a window torn down needn't say goodbye to its views.
         .onChange(of: draft) { _, typed in chat.draft = typed }
-        // A pause in typing starts the screen guess, so it's usually in by Send (U1).
+        // A pause in typing starts the screen guess, so it's often in by Send (U1).
         .task(id: draft) {
             let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let onDraftPause, words.split(separator: " ").count >= 2 else { return }
-            try? await Task.sleep(for: .milliseconds(400))
+            try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
             onDraftPause(words)
         }
@@ -335,7 +335,8 @@ struct AskClaudePanel: View {
                                                     onContinue: { chat.continuePast(earlier.id) })
                     }
                     // Under an earlier chat too, without the intro: the next question starts a new chat (V1).
-                    if chat.items.isEmpty { starters(intro: chat.earlier == nil) }
+                    // With no key, the setup shows in an empty chat only, never under an old one.
+                    if chat.items.isEmpty, chat.earlier == nil || keySaved == true { starters(intro: chat.earlier == nil) }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
                     let turns = AskClaudeTurns(chat.items)
                     // Retry is for the last answer only, and only once nothing runs.
@@ -362,7 +363,7 @@ struct AskClaudePanel: View {
                         AskClaudeEarlierLine.priced(title: "Your next question starts a new chat · Claude won’t see what’s above",
                                                     defaults: chat.settingsDefaults, resume: { _ in chat.currentResume },
                                                     onContinue: { chat.continueThisChat() })
-                        if !chat.items.isEmpty { starters(intro: false) }
+                        if !chat.items.isEmpty, keySaved == true { starters(intro: false) }
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
@@ -736,10 +737,19 @@ struct AskClaudePanel: View {
     @ViewBuilder private func starters(intro: Bool) -> some View {
         let chip = suggestionChip
         let suggestion = chip?.isOn == true ? chip?.suggestion(now: suggestionFeed.now) : nil
-        let rules = ruleStarters(suggested: suggestion?.question)
-        let key = place.fullPath + "|" + rules.joined(separator: "|")
-        let extra = extraStarter?.key == key ? extraStarter?.question : nil
-        AskClaudeEmptyState(keySaved: keySaved, starters: rules, extra: extra, showsIntro: intro,
+        let (rules, signals) = ruleStarters(suggested: suggestion?.question)
+        // What the model's starter was written for: the folder, the file open in Edit, the
+        // selection and the rows' counts, and the starters beside it (TE347 review).
+        let key = [place.fullPath, place.openFile ?? "", String(signals.hashValue)] + rules
+        let keyText = key.joined(separator: "|")
+        let extra = extraStarter?.key == keyText ? extraStarter?.question : nil
+        let menu = suggestion.flatMap { suggestion in chip.map { chip in
+            AskClaudeStarterSuggestion(question: suggestion.question, kindTitle: suggestion.kind.title,
+                                       notNow: { chip.recordPutAway(suggestion) },
+                                       dontSuggest: { chip.recordTurnOff(suggestion.kind) },
+                                       settings: { onOpenSettings(.claudeGeneral) })
+        } }
+        AskClaudeEmptyState(keySaved: keySaved, starters: rules, extra: extra, suggestion: menu, showsIntro: intro,
                             startersEnabled: !chat.isRunning && !voice.isActive, bridge: settingsBridge,
                             accent: accent, hue: hue, defaults: chat.settingsDefaults,
                             onStarter: { question in
@@ -747,26 +757,32 @@ struct AskClaudePanel: View {
                                 send(question, spoken: false, written: true)
                             })
             // The model writes only while the box is empty; the first key stops it (U4).
-            .task(id: draft.isEmpty && keySaved == true ? key : nil) {
-                guard draft.isEmpty, keySaved == true, let modelStarter, extraStarter?.key != key else { return }
-                if let kept = AskClaudeStarterCache.shared.question(for: key) {
-                    extraStarter = (key, kept)
+            .task(id: draft.isEmpty && keySaved == true ? keyText : nil) {
+                guard draft.isEmpty, keySaved == true, let modelStarter, extraStarter?.key != keyText else { return }
+                // Kept from an earlier visit, a question or "none": the model isn't asked again,
+                // and greedy sampling would give the same answer anyway.
+                if let kept = AskClaudeStarterCache.shared.answer(for: keyText) {
+                    guard let kept else { return }
+                    withDesignAnimation(.easeIn(duration: 0.3), reduceMotion: reduceMotion) { extraStarter = (keyText, kept) }
                     return
                 }
                 // Passing through folders writes nothing.
                 try? await Task.sleep(for: .milliseconds(500))
-                guard !Task.isCancelled, let question = await modelStarter(rules), !Task.isCancelled else { return }
-                AskClaudeStarterCache.shared.keep(question, for: key)
-                withDesignAnimation(.easeIn(duration: 0.3), reduceMotion: reduceMotion) { extraStarter = (key, question) }
+                guard !Task.isCancelled else { return }
+                let question = await modelStarter(rules)
+                guard !Task.isCancelled else { return }
+                AskClaudeStarterCache.shared.keep(question, for: keyText)
+                guard let question else { return }
+                withDesignAnimation(.easeIn(duration: 0.3), reduceMotion: reduceMotion) { extraStarter = (keyText, question) }
             }
     }
 
-    /// The rules' starters for the screen, led by TE309's suggestion.
-    private func ruleStarters(suggested: String?) -> [String] {
+    /// The rules' starters for the screen, led by TE309's suggestion, and the signals they came from.
+    private func ruleStarters(suggested: String?) -> ([String], AskClaudeStarters.Signals) {
         var screen = place.starterScreen
         if !place.isHidden { screen.signals = starterSignals() }
         screen.signals.suggested = suggested
-        return AskClaudeStarters.questions(for: screen)
+        return (AskClaudeStarters.questions(for: screen), screen.signals)
     }
 
     /// The box's text, or a starter's, which goes exactly as if typed and leaves the box as it was.

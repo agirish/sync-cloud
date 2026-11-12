@@ -2031,6 +2031,35 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(asked.summary.hasPrefix("Sent screen when Claude asked · "), "\(asked.summary)")
     }
 
+    /// Claude calls look_at_screen, then answers; a new pair for every question.
+    private final class LookingTransport: AskClaudeTransport, @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
+            let n = lock.withLock { count += 1; return count }
+            if n % 2 == 1 {
+                return SSE.response([SSE.start()] + SSE.toolBlock(id: "toolu_s\(n)", name: "look_at_screen", input: "{}")
+                                    + SSE.end("tool_use", outputTokens: 10))
+            }
+            return SSE.response(SSE.text("Done.", outputTokens: 5))
+        }
+    }
+
+    /// "Screen when Claude asked" only for a screen held back; one that went up front and was
+    /// looked at again says "Sent screen" (TE347 review).
+    @Test func onlyAHeldBackScreenReadsAsAskedFor() async {
+        let d = defaults()
+        let chat = makeChat(LookingTransport(), defaults: d)
+        chat.ask("Is it signed yet", screen: screen, withholdScreen: { true }, tools: NoTools()); await waitUntilIdle(chat)
+        chat.ask("What’s in this folder?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Taxes",
+                                                                   sort: "Name", rows: [], selection: [], toolsAvailable: true),
+                 tools: NoTools()); await waitUntilIdle(chat)
+        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        #expect(receipts.count == 2)
+        #expect(receipts.first?.summary.hasPrefix("Sent screen when Claude asked · ") == true, "\(receipts.first?.summary ?? "")")
+        #expect(receipts.last?.summary.hasPrefix("Sent screen · ") == true, "\(receipts.last?.summary ?? "")")
+    }
+
     @Test func aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback() async {
         let d = defaults()
         let chat = makeChat(ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)
