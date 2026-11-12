@@ -135,6 +135,7 @@ import Testing
             AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "Home/Utilities")
         ])
         m.undoManager = UndoManager()
+        m.filingScorecard = FilingScorecardStore(fileURL: nil)
         await m.runAutomationDryRun(root: scanned, destinationRoot: providerRoot, providerName: nil, now: now)
 
         let report = try #require(m.automationDryRun)
@@ -146,6 +147,9 @@ import Testing
 
         let outcome = await m.applyAutomationFiling(rows: report.rows)
         #expect(outcome.filed == 1)
+        // The filing scorecard counts it apart, as the rules' (TE341).
+        #expect(m.filingScorecard.records.map(\.picker) == [.rules])
+        #expect(m.filingScorecard.records.first?.fileName == "bill.pdf")
         // Filed into the provider-root tree; nothing created under the scanned subfolder.
         #expect(FileManager.default.fileExists(
             atPath: providerRoot.appendingPathComponent("Home/Utilities/bill.pdf").path))

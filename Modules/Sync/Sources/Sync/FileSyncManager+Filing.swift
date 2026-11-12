@@ -1486,9 +1486,24 @@ extension FileSyncManager {
     /// staleness guard that reads it.
     public func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
         filingTryAnotherNotes = [:]
-        // A card first shown now is offered now (TE341); one carried over keeps its first pick.
         let now = Date()
-        filingSuggestions = suggestions.map { $0.firstOffer == nil ? $0.offeredAnew(at: now) : $0 }
+        // A scan's fresh cards: the first pick each file was ever shown stands, so a rescan that
+        // leaves out a rejected folder can't make its new lead the first pick. One save for all.
+        var fresh: [String: FilingScorecard.Offer] = [:]
+        for s in suggestions where s.firstOffer == nil {
+            fresh[s.filePath] = FilingScorecard.Offer(s.candidates, root: s.providerRoot, at: now)
+        }
+        let first = filingScorecard.firstOffers(fresh)
+        filingSuggestions = suggestions.map { s in
+            // Carried over (Refine's re-publish): its first pick, possibly Refine's new one.
+            if let carried = s.firstOffer {
+                filingScorecard.reoffer(carried, for: s.filePath)
+                return s
+            }
+            var card = s
+            card.firstOffer = first[s.filePath]
+            return card
+        }
         filingSuggestionsGeneration &+= 1
     }
 
@@ -1518,6 +1533,7 @@ extension FileSyncManager {
         }
         let replaced = s.replacingCandidates(named)
         filingSuggestions[i] = reoffer ? replaced.offeredAnew() : replaced
+        if reoffer, let offer = filingSuggestions[i].firstOffer { filingScorecard.reoffer(offer, for: s.filePath) }
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
@@ -1629,7 +1645,9 @@ extension FileSyncManager {
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
             if let offer = suggestion.firstOffer {
-                filingScorecard.append([FilingScorecard.record(offer, landedFile: move.to.path)])
+                filingScorecard.append([FilingScorecard.record(offer, landedFile: move.to.path,
+                                                               renamedOffer: Self.isRenamedOffer(destination, of: suggestion))])
+                filingScorecard.settle([suggestion.filePath])
             }
             // Remember only on an actual move: a rule keyed on where the file already lived is
             // noise. The log reports what happened, since derivation can decline (a token-less
@@ -1664,6 +1682,17 @@ extension FileSyncManager {
         case .failed:
             return .failed
         }
+    }
+
+    /// File Here on the new folder the card offered first, with its name edited: the button files
+    /// `best.renamingNewFolder(to:)`, which keeps its reasons and parent and changes only the
+    /// last segment. Choose a Folder builds its own destination ("You chose this folder").
+    nonisolated static func isRenamedOffer(_ destination: FilingDestination, of suggestion: FilingSuggestion) -> Bool {
+        guard let best = suggestion.best, best.isNew, !destination.newSegments.isEmpty,
+              let first = suggestion.firstOffer, first.path == best.path, destination.path != best.path
+        else { return false }
+        let parent = { (p: String) in (p as NSString).deletingLastPathComponent }
+        return parent(destination.path) == parent(best.path) && destination.reasons == best.reasons
     }
 
     /// Every suggestion eligible for the blind batch (a confident home derived from the filename),
@@ -1729,6 +1758,7 @@ extension FileSyncManager {
             case .moved(let move):
                 moves.append(move)
                 if let offer = s.firstOffer { scored.append(FilingScorecard.record(offer, landedFile: move.to.path)) }
+                filingScorecard.settle([s.filePath])
                 filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
                                                   folder: move.to.deletingLastPathComponent().path,
                                                   source: FilingBatchLog.source(of: dest)))

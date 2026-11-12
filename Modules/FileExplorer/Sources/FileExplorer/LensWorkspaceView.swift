@@ -4368,25 +4368,10 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private var filingScorecard: some View {
         if !showsFilingSetupCard {
-            Group {
-                if showsFilingScorecard {
-                    FilingScorecardLine(store: syncManager.filingScorecard, accent: glassHue.accentColor,
-                                        onDetails: { showsFilingScorecardDetails = true },
-                                        onHide: {
-                                            showsFilingScorecard = false
-                                            filingScorecardJustHidden = true
-                                            Logger.shared.info("Filing scorecard: hidden from To File")
-                                        })
-                } else if filingScorecardJustHidden {
-                    FilingScorecardHiddenNotice {
-                        showsFilingScorecard = true
-                        filingScorecardJustHidden = false
-                    }
-                }
-            }
-            .padding(.horizontal, densityMetrics.cardListPadding)
-            .padding(.top, 8)
-            .onDisappear { filingScorecardJustHidden = false }
+            FilingScorecardSlot(store: syncManager.filingScorecard, accent: glassHue.accentColor,
+                                inset: densityMetrics.cardListPadding,
+                                shown: $showsFilingScorecard, justHidden: $filingScorecardJustHidden,
+                                onDetails: { showsFilingScorecardDetails = true })
             .sheet(isPresented: $showsFilingScorecardDetails) {
                 FilingScorecardSheet(store: syncManager.filingScorecard, session: session,
                                      syncManager: syncManager, accent: glassHue.accentColor)

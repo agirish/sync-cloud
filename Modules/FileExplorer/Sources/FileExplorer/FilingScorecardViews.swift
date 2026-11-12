@@ -1,4 +1,5 @@
 import AppKit
+import Events
 import Design
 import SwiftUI
 import Sync
@@ -37,6 +38,40 @@ struct FilingScorecardLine: View {
     static func text(_ s: FilingScorecard.Summary, hasAny: Bool) -> Text {
         guard s.all.total > 0 else { return Text(FilingScorecard.line(s, hasAny: hasAny)) }
         return Text("First pick kept ") + Text("\(s.all.kept) of \(s.all.total)").bold() + Text(" · last 30 days")
+    }
+}
+
+/// The line, or after Hide the notice in its place, above To File's cards. The notice goes when
+/// To File does (`onDisappear`), not when the line is swapped for it.
+struct FilingScorecardSlot: View {
+    @ObservedObject var store: FilingScorecardStore
+    let accent: Color
+    let inset: CGFloat
+    @Binding var shown: Bool
+    /// Hide was clicked here: the notice holds the line's place until To File is left.
+    @Binding var justHidden: Bool
+    let onDetails: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if shown {
+                FilingScorecardLine(store: store, accent: accent, onDetails: onDetails, onHide: {
+                    shown = false
+                    justHidden = true
+                    Logger.shared.info("Filing scorecard: hidden from To File")
+                })
+                .padding(.horizontal, inset)
+                .padding(.top, 8)
+            } else if justHidden {
+                FilingScorecardHiddenNotice {
+                    shown = true
+                    justHidden = false
+                }
+                .padding(.horizontal, inset)
+                .padding(.top, 8)
+            }
+        }
+        .onDisappear { justHidden = false }
     }
 }
 

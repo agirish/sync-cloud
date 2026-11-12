@@ -69,6 +69,20 @@ import SwiftUI
         #expect(out.folders.map(\.newName) == [nil, "2025 Ally Bank 1099-INT.pdf"])
     }
 
+    /// A card rebuilt with its names keeps what the survey offered first, so Move Here on a
+    /// badly named file still counts on the filing scorecard (TE341).
+    @Test func namingACardKeepsItsFirstOffer() {
+        var card = AskClaudeFilingCard(fileName: "Scan 0042.pdf", filePath: "/d/Downloads/Scan 0042.pdf", kind: .suggestions, folders: [
+            .init(label: "Bank", path: "/d/Bank", confidence: "Medium", reason: "Fits", fromFile: false)])
+        card.offer = FilingScorecard.Offer(path: "/d/Bank", confidence: .medium, evidence: .survey, picker: .mac, root: "/d")
+        let facts = ContentName.Facts(year: 2025, from: "Ally", what: "1099-INT")
+        let named = AskClaudeNaming.Named(outcome: .named(facts), facts: facts, names: [
+            "/d/Bank": .init(name: "2025 Ally 1099-INT.pdf", basis: .plain)])
+        let out = AskClaudeBrowseTools.named(card, named, sharedBy: nil)
+        #expect(out.folders.first?.newName == "2025 Ally 1099-INT.pdf", "premise: it was rebuilt with a name")
+        #expect(out.offer == card.offer)
+    }
+
     /// Share Names and Folders sends what its foot says, and nothing about a folder hidden since.
     @Test func sharingLeavesOutAFolderHiddenSince() throws {
         func row(_ id: Int, _ name: String, to folder: String, label: String) -> AskClaudePlan.Row {

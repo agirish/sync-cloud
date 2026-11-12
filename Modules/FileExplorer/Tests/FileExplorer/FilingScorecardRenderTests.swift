@@ -79,3 +79,56 @@ import Testing
         try full.representation(using: .png, properties: [:])?.write(to: png)
     }
 }
+
+/// Hide swaps the line for the notice, and the notice stays until To File is left: the slot's
+/// `onDisappear` fires when the slot goes, not when only its content changes.
+@Suite(.serialized) @MainActor struct FilingScorecardHideTests {
+    final class State: ObservableObject {
+        @Published var shown = true
+        @Published var justHidden = false
+        @Published var mounted = true
+    }
+
+    struct Host: View {
+        @ObservedObject var state: State
+        let store: FilingScorecardStore
+        var body: some View {
+            VStack {
+                if state.mounted {
+                    FilingScorecardSlot(store: store, accent: .blue, inset: 8,
+                                        shown: $state.shown, justHidden: $state.justHidden, onDetails: {})
+                }
+            }
+            .frame(width: 520, height: 60)
+        }
+    }
+
+    static func settle(_ host: NSView) {
+        for _ in 0..<5 {
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    @Test func theNoticeOutlivesTheSwapAndGoesWithToFile() {
+        let state = State()
+        let host = NSHostingView(rootView: Host(state: state, store: FilingScorecardStore(fileURL: nil)))
+        host.frame = CGRect(x: 0, y: 0, width: 520, height: 60)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        Self.settle(host)
+
+        // What the line's Hide does.
+        state.shown = false
+        state.justHidden = true
+        Self.settle(host)
+        #expect(state.justHidden, "the notice was cleared the moment it replaced the line")
+
+        // Leaving To File takes the slot away, and the notice with it.
+        state.mounted = false
+        Self.settle(host)
+        #expect(!state.justHidden)
+        window.contentView = nil
+    }
+}

@@ -1201,7 +1201,10 @@ Needs a folder survey from Setup and loose files in Organize ▸ To File.
   days”, and the cards don't move as it changes.
 - [ ] **A change counts.** On another card click Try Another, then File Here: the line reads “1 of 2”.
   Details: Changed 1, “runner-up 1”, and the file under Changed with the first folder struck through.
-- [ ] **Undo takes it back.** ⌘Z the last filing: the line goes back to “1 of 1”.
+- [ ] **Undo takes it back, Redo counts it again.** ⌘Z the last filing: the line goes back to “1 of
+  1”. ⇧⌘Z: “1 of 2” again.
+- [ ] **A rescan keeps the first pick.** Try Another on a card, then Rescan (or quit and reopen):
+  the card leads with the runner-up. File Here: Details counts it as Changed, not Kept.
 - [ ] **Deeper.** Choose a Folder… into a folder inside the card's folder: Details counts it under
   Deeper, not Changed.
 - [ ] **Hide and show.** Click Hide: “Scorecard hidden. Show it from View ▸ Filing Scorecard.” with
@@ -1214,7 +1217,8 @@ Needs a folder survey from Setup and loose files in Organize ▸ To File.
   Double-click a row: Finder shows the file. Change the same folder to the same other folder twice:
   a row offers Make a Rule…, which opens the Save as Rule offer.
 - [ ] **Kept on the Mac.** `~/Library/Application Support/SyncCloud/filing-scorecard.jsonl` holds a
-  line per filing and nothing else is sent anywhere.
+  line per filing, and `filing-scorecard.offers.json` beside it the first pick of each file not yet
+  filed. Nothing is sent anywhere.
 
 
 ## Smarter Start: intro ✕, starters from the screen, screen only when needed (TE347, 2026-11-11)

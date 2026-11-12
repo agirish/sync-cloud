@@ -49,13 +49,46 @@ import Testing
         #expect(r2.change == .other)
     }
 
-    @Test func theNewFolderItOfferedRenamedBeforeFilingIsKept() {
+    @Test func onlyFileHereOnTheRenamedOfferIsKept() {
         let o = Self.offer("Travel/Japan 2026", offeredNew: ["Travel/Japan 2026"])
-        let renamed = Self.judge(o, landedIn: "Travel/Tokyo 2026", made: Self.offeredAt.addingTimeInterval(5))
+        let renamed = FilingScorecard.record(o, landedFile: "/R/Travel/Tokyo 2026/f.pdf", renamedOffer: true,
+                                             folderCreated: { _ in Self.offeredAt.addingTimeInterval(5) })
         #expect(renamed.verdict == .kept)
-        // Elsewhere under the same parent, but a folder that already existed: a change.
-        let existing = Self.judge(o, landedIn: "Travel/Tokyo 2026", made: Self.offeredAt.addingTimeInterval(-5))
-        #expect(existing.verdict == .changed)
+        // A sibling he made himself in the picker is his new folder, not the offer renamed.
+        let made = Self.judge(o, landedIn: "Travel/Receipts", made: Self.offeredAt.addingTimeInterval(5))
+        #expect((made.verdict, made.change) == (.changed, .newFolder))
+    }
+
+    @Test func fileHereKnowsTheRenamedOfferFromChooseAFolder() {
+        let offered = FilingDestination(path: "/R/Travel/Japan 2026", confidence: .medium, reasons: ["Named like its siblings"],
+                                        newSegments: ["Japan 2026"])
+        let card = FilingSuggestion(filePath: "/R/TODO/t.pdf", fileName: "t.pdf", size: 1, modificationDate: nil,
+                                    candidates: [offered], providerRoot: "/R").offeredAnew(at: Self.offeredAt)
+        #expect(FileSyncManager.isRenamedOffer(offered.renamingNewFolder(to: "Tokyo 2026"), of: card))
+        #expect(!FileSyncManager.isRenamedOffer(offered, of: card), "the offer as offered is judged as kept anyway")
+        let chosen = FilingDestination(path: "/R/Travel/Receipts", confidence: .high, reasons: ["You chose this folder"],
+                                       newSegments: [])
+        #expect(!FileSyncManager.isRenamedOffer(chosen, of: card))
+    }
+
+    /// The card spells iCloud Drive's Documents one way and the folder picker the other.
+    @Test func theSameFolderThroughALinkOrInOtherCaseIsTheSameFolder() throws {
+        let dir = try makeCanonicalTempRoot(prefix: "ScorecardLink")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let documents = dir.appendingPathComponent("Documents")
+        try FileManager.default.createDirectory(at: documents.appendingPathComponent("Taxes/2025"), withIntermediateDirectories: true)
+        let cloud = dir.appendingPathComponent("CloudDocs")
+        try FileManager.default.createDirectory(at: cloud, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: cloud.appendingPathComponent("Documents"), withDestinationURL: documents)
+        let offer = FilingScorecard.Offer(path: cloud.path + "/Documents/Taxes", confidence: .high, evidence: .survey,
+                                          picker: .mac, root: cloud.path, at: Self.offeredAt)
+        func verdict(_ folder: String) -> FilingScorecard.Verdict {
+            FilingScorecard.record(offer, landedFile: folder + "/f.pdf", folderCreated: { _ in nil }).verdict
+        }
+        #expect(verdict(documents.path + "/Taxes") == .kept)
+        #expect(verdict(documents.path + "/Taxes/2025") == .deeper)
+        #expect(verdict(cloud.path + "/Documents/TAXES") == .kept)
+        #expect(verdict(documents.path) == .changed)
     }
 
     @Test func theAreaIsTheTopFolderItLandedIn() {
@@ -188,28 +221,70 @@ import Testing
         #expect(reloaded.records.first == recent, "every field round-trips")
     }
 
-    @Test func undoForgetsTheFilingsItTookBack() {
+    @Test func undoForgetsTheNewestFilingOfAFileAndRedoBringsItBack() {
         let store = FilingScorecardStore(fileURL: nil)
-        let a = FilingScorecardSummaryTests.r(.kept, landed: "A", name: "a.pdf")
+        let earlier = FilingScorecardSummaryTests.r(.kept, daysAgo: 3, landed: "A", name: "a.pdf")
+        let later = FilingScorecardSummaryTests.r(.changed, daysAgo: 1, landed: "A", name: "a.pdf")
         let b = FilingScorecardSummaryTests.r(.changed, landed: "B", name: "b.pdf")
-        store.append([a, b])
-        store.forget(landedAt: [a.file, "/R/elsewhere.pdf"])
-        #expect(store.records == [b])
+        store.append([earlier, later, b])
+        store.forget(landedAt: [later.file, "/R/elsewhere.pdf"])
+        #expect(store.records == [earlier, b], "one Undo takes back one filing: the newest")
+        store.restore(landedAt: [later.file])
+        #expect(store.records.contains(later))
+        #expect(store.records.count == 3)
+        store.restore(landedAt: [later.file])
+        #expect(store.records.count == 3, "nothing more to bring back")
+    }
+
+    @Test func aLineThisBuildCantReadIsKeptAndRulesAloneAreNotAnyFilings() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FilingScorecardForeign")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("filing-scorecard.jsonl")
+        let foreign = #"{"evidence":"somethingNew","picker":"mac","verdict":"kept"}"#
+        try (foreign + "\n").write(to: url, atomically: true, encoding: .utf8)
+        let store = FilingScorecardStore(fileURL: url)
+        #expect(store.records.isEmpty)
+        store.append([FilingScorecard.ruleRecord(landedFile: "/R/Bills/x.pdf", root: "/R")])
+        #expect(!store.hasAny, "a rule's filing isn't one of this Mac's picks")
+        await waitUntil("the write lands") {
+            ((try? String(contentsOf: url, encoding: .utf8))?.split(separator: "\n").count ?? 0) >= 2
+        }
+        #expect((try? String(contentsOf: url, encoding: .utf8))?.contains(foreign) == true,
+                "a newer build's line survives an older build's save")
+    }
+
+    @Test func aFilesFirstOfferOutlivesTheStore() async throws {
+        let dir = try makeCanonicalTempRoot(prefix: "FilingScorecardOffers")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("filing-scorecard.jsonl")
+        let first = FilingScorecardVerdictTests.offer("Health/Medical/India")
+        let later = FilingScorecardVerdictTests.offer("Finance/Shipments")
+        let store = FilingScorecardStore(fileURL: url, now: first.at)
+        #expect(store.firstOffer(for: "/R/TODO/f.pdf", fresh: first) == first)
+        #expect(store.firstOffer(for: "/R/TODO/f.pdf", fresh: later) == first)
+        await waitUntil("the offers are written") {
+            FileManager.default.fileExists(atPath: FilingScorecardStore.offersURL(url).path)
+        }
+        let relaunched = FilingScorecardStore(fileURL: url, now: first.at.addingTimeInterval(3600))
+        #expect(relaunched.firstOffer(for: "/R/TODO/f.pdf", fresh: later) == first, "a relaunch keeps it")
+        relaunched.settle(["/R/TODO/f.pdf"])
+        #expect(relaunched.firstOffer(for: "/R/TODO/f.pdf", fresh: later) == later, "filed: the next card is a new offer")
     }
 }
 
 /// On disk, through the manager: the first pick survives Try Another, a filing is judged against
 /// it, and Undo takes the record back. One manager and one defaults suite for the suite.
 @Suite(.serialized) @MainActor struct FilingScorecardFilingTests {
-    let m: FileSyncManager
-
-    init() {
+    /// One manager and one defaults suite for every test here: a defaults suite per test costs a
+    /// cfprefsd wipe on the main actor, which the parking suites feel.
+    static let shared: FileSyncManager = {
         let m = FileSyncManager()
         m.filingRuleDefaults = ScratchDefaults("scorecard-\(UUID().uuidString)")
         m.undoManager = UndoManager()
         m.filingScorecard = FilingScorecardStore(fileURL: nil)
-        self.m = m
-    }
+        return m
+    }()
+    var m: FileSyncManager { Self.shared }
 
     static func card(_ root: URL, _ name: String, _ folders: [String], confidence: FilingConfidence = .high) -> FilingSuggestion {
         FilingSuggestion(filePath: root.appendingPathComponent("TODO/\(name)").path, fileName: name, size: 5000,
@@ -231,13 +306,15 @@ import Testing
         #expect(card.firstOffer?.path == root.appendingPathComponent("School/Divit").path)
         #expect(card.firstOffer?.evidence == .survey)
 
+        let before = m.filingScorecard.records.count
         #expect(await m.applyFilingSuggestion(card, to: try #require(card.best)) == .moved)
-        #expect(m.filingScorecard.records.map(\.verdict) == [.kept])
-        #expect(m.filingScorecard.records.first?.area == "School")
+        #expect(m.filingScorecard.records.count == before + 1)
+        #expect(m.filingScorecard.records.last?.verdict == .kept)
+        #expect(m.filingScorecard.records.last?.area == "School")
 
         m.undoManager?.undo()
-        await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 && m.filingScorecard.records.isEmpty }
-        #expect(m.filingScorecard.records.isEmpty, "an undone filing doesn't count")
+        await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 && m.filingScorecard.records.count == before }
+        #expect(m.filingScorecard.records.count == before, "an undone filing doesn't count")
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("TODO/Divit enrollment.pdf").path))
     }
 
@@ -261,6 +338,50 @@ import Testing
         #expect((record.verdict, record.change) == (.changed, .runnerUp))
         #expect(record.confidence == .medium)
         m.clearFilingRejections()
+    }
+
+    @Test func aRescanAfterTryAnotherKeepsTheFirstPick() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "ScorecardRescan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let name = "courier receipt.pdf"
+        try writeFilingFile(root.appendingPathComponent("TODO/\(name)"))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Finance/Shipments"), withIntermediateDirectories: true)
+        m.publishFilingSuggestions([Self.card(root, name, ["Health/Medical/India", "Finance/Shipments"])])
+        await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
+        // A rescan leaves the rejected folder out: its card leads with the runner-up.
+        m.publishFilingSuggestions([Self.card(root, name, ["Finance/Shipments"])])
+        let card = try #require(m.filingSuggestions.first)
+        #expect(card.firstOffer?.path == root.appendingPathComponent("Health/Medical/India").path)
+        #expect(await m.applyFilingSuggestion(card, to: try #require(card.best)) == .moved)
+        #expect(m.filingScorecard.records.last?.verdict == .changed)
+        m.clearFilingRejections()
+    }
+
+    @Test func fileAllConfidentCountsEachAndRedoCountsItAgain() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "ScorecardBatch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let before = m.filingScorecard.records.count
+        var cards: [FilingSuggestion] = []
+        for name in ["a 2025.pdf", "b 2025.pdf"] {
+            try writeFilingFile(root.appendingPathComponent("TODO/\(name)"))
+            cards.append(FilingSuggestion(filePath: root.appendingPathComponent("TODO/\(name)").path, fileName: name, size: 5000,
+                                          modificationDate: nil,
+                                          candidates: [FilingDestination(path: root.appendingPathComponent("Bills").path,
+                                                                         confidence: .high, reasons: [], newSegments: ["Bills"])],
+                                          providerRoot: root.path))
+        }
+        m.publishFilingSuggestions(cards)
+        await m.applyRecommendedFiling(m.filingSuggestions)
+        #expect(m.filingScorecard.records.count == before + 2)
+        #expect(m.filingScorecard.records.suffix(2).map(\.verdict) == [.kept, .kept])
+
+        m.undoManager?.undo()
+        await waitUntil("the undo drains") { m.activeFileOperationsCount == 0 && m.filingScorecard.records.count == before }
+        #expect(m.filingScorecard.records.count == before)
+        m.undoManager?.redo()
+        await waitUntil("the redo drains") { m.activeFileOperationsCount == 0 && m.filingScorecard.records.count == before + 2 }
+        #expect(m.filingScorecard.records.count == before + 2, "filed again, counted again: \(m.filingScorecard.records.count) vs \(before) + 2, ops \(m.activeFileOperationsCount)")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Bills/a 2025.pdf").path), "premise: the redo moved it")
     }
 
     @Test func aCardTheAppAnswersAnewIsJudgedOnItsNewAnswer() throws {
@@ -310,10 +431,14 @@ import Testing
         proposed.applied = true
         var unticked = AskClaudePlan.Row(id: 3, name: "b.pdf", change: .move(from: "/R/TODO/b.pdf", toFolder: "/R/Work"), ticked: false)
         unticked.offer = offer
-        let plan = AskClaudePlan(title: "File 4", subtitle: "", rows: [moved, asOffered, proposed, unticked])
+        var refused = AskClaudePlan.Row(id: 4, name: "c.pdf", change: .move(from: "/R/TODO/c.pdf", toFolder: "/R/Work"), ticked: true)
+        refused.offer = offer
+        refused.applied = false
+        let plan = AskClaudePlan(title: "File 5", subtitle: "", rows: [moved, asOffered, proposed, unticked, refused])
+        // Every row has a landing here, so only `applied` can keep the last two out.
         let records = FilingScorecard.records(plan, landed: [0: "/R/Finance/Shipments/fedex.pdf",
                                                             1: "/R/Health/Medical/India/rx.pdf",
-                                                            2: "/R/Work/a.pdf"],
+                                                            2: "/R/Work/a.pdf", 3: "/R/Work/b.pdf", 4: "/R/Work/c.pdf"],
                                               folderCreated: { _ in nil })
         #expect(records.map(\.fileName) == ["fedex.pdf", "rx.pdf"])
         #expect(records.map(\.verdict) == [.changed, .kept])

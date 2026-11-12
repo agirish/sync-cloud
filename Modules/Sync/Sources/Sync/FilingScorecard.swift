@@ -181,17 +181,24 @@ public enum FilingScorecard {
 
         /// The top folder under the root it landed in, or nil outside it.
         public var area: String? {
-            guard let root, let rel = PathBoundary.relativize(landed, under: root), !rel.isEmpty else { return nil }
+            guard let root else { return nil }
+            // Through links too, keeping the folder's own spelling for the name shown.
+            let resolved = { (p: String) in URL(fileURLWithPath: p).resolvingSymlinksInPath().standardizedFileURL.path }
+            guard let rel = PathBoundary.relativize(landed, under: root)
+                    ?? PathBoundary.lexicalRelativize(resolved(landed), under: resolved(root)),
+                  !rel.isEmpty else { return nil }
             return rel.split(separator: "/").first.map(String.init)
         }
     }
 
     /// The record for a file that went into `landedFile` after `offer`.
+    /// - `renamedOffer`: File Here on the new folder the card offered, renamed first: the same
+    ///   place under his name, so kept. Only the caller knows it was that button.
     /// - `folderCreated`: when the landed folder was made, read only for a change.
-    public static func record(_ offer: Offer, landedFile: String, at now: Date = Date(),
+    public static func record(_ offer: Offer, landedFile: String, renamedOffer: Bool = false, at now: Date = Date(),
                               folderCreated: (String) -> Date? = Self.creationDate) -> Record {
         let landed = (landedFile as NSString).deletingLastPathComponent
-        let (verdict, change) = judge(offer, landed: landed, folderCreated: folderCreated)
+        let (verdict, change) = renamedOffer ? (.kept, nil) : judge(offer, landed: landed, folderCreated: folderCreated)
         return Record(at: now, picker: offer.picker, confidence: offer.confidence, evidence: offer.evidence,
                       offered: offer.path, landed: landed, file: landedFile, root: offer.root,
                       verdict: verdict, change: change)
@@ -215,25 +222,28 @@ public enum FilingScorecard {
                verdict: .kept)
     }
 
+    /// Compared as the disk sees them: through links (iCloud Drive's `Documents` is
+    /// `~/Documents`, and the folder picker answers with either spelling) and ignoring case.
     static func judge(_ offer: Offer, landed: String,
                       folderCreated: (String) -> Date?) -> (Verdict, Change?) {
-        if let rel = PathBoundary.relativize(landed, under: offer.path) {
+        let here = canonical(landed)
+        if let rel = PathBoundary.lexicalRelativize(here, under: canonical(offer.path)) {
             return (rel.isEmpty ? .kept : .deeper, nil)
         }
-        // The new folder it offered, renamed before filing: the same place under his name.
-        let parent = { (path: String) in (path as NSString).deletingLastPathComponent }
-        if offer.offeredNew.contains(offer.path), PathBoundary.relativize(parent(landed), under: parent(offer.path)) == "",
-           let made = folderCreated(landed), made >= offer.at {
-            return (.kept, nil)
-        }
-        if let runnerUp = offer.runnerUp, PathBoundary.relativize(landed, under: runnerUp) == "" {
+        let same = { (folder: String) in here == canonical(folder) }
+        if let runnerUp = offer.runnerUp, same(runnerUp) {
             return (.changed, .runnerUp)
         }
-        let offeredNew = offer.offeredNew.contains { PathBoundary.relativize(landed, under: $0) == "" }
+        let offeredNew = offer.offeredNew.contains(where: same)
         if !offeredNew, let made = folderCreated(landed), made > offer.at {
             return (.changed, .newFolder)
         }
         return (.changed, .other)
+    }
+
+    /// A path with its links resolved, standardized and lowercased (APFS's default ignores case).
+    static func canonical(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
     }
 
     public static func creationDate(_ folder: String) -> Date? {
@@ -417,15 +427,24 @@ extension FilingScorecard {
 // MARK: - Store
 
 /// The records, in `~/Library/Application Support/SyncCloud/filing-scorecard.jsonl`, one JSON line
-/// each. Small (a year of filings), so each change rewrites the file, off the main actor.
+/// each, and the first pick each loose file was offered, in `filing-scorecard-offers.json` beside
+/// it. Small (a year of filings), so each change rewrites its file, off the main actor, in order.
 @MainActor
 public final class FilingScorecardStore: ObservableObject {
     public static let shared = FilingScorecardStore()
 
     @Published public private(set) var records: [FilingScorecard.Record] = []
-    /// Whether anything was ever recorded, for the line's "none yet".
-    public var hasAny: Bool { !records.isEmpty }
+    /// Whether this Mac's picks were ever counted, for the line's "none yet". Rules' and Refine's
+    /// filings aren't the line's.
+    public var hasAny: Bool { records.contains { $0.picker == .mac } }
     public let fileURL: URL?
+    /// Lines this build can't read (a newer build's): kept as they are, never dropped.
+    private var unread: [Data] = []
+    /// The first pick each loose file was offered, by its path: a rescan after Try Another leaves
+    /// the rejected folder out, and its new lead must not pass for the first pick.
+    private var offers: [String: FilingScorecard.Offer] = [:]
+    /// What Undo took back, newest last per file, so Redo can count it again.
+    private var undone: [String: [FilingScorecard.Record]] = [:]
     private let queue = DispatchQueue(label: "SyncCloud.FilingScorecard.write")
     /// Dates as numbers, as Sync History writes them: they round-trip exactly.
     private static let encoder: JSONEncoder = {
@@ -434,15 +453,28 @@ public final class FilingScorecardStore: ObservableObject {
         return e
     }()
     private static let decoder = JSONDecoder()
+    /// How long a first offer stands for a file still not filed.
+    static let offerKeptFor: TimeInterval = 30 * 24 * 60 * 60
 
-    /// nil keeps the records in memory only.
+    /// nil keeps everything in memory only.
     public init(fileURL: URL? = FilingScorecardStore.defaultFileURL(), now: Date = Date()) {
         self.fileURL = fileURL
-        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return }
-        let lines = data.split(separator: UInt8(ascii: "\n"))
-        let decoded = lines.compactMap { try? Self.decoder.decode(FilingScorecard.Record.self, from: Data($0)) }
-        records = decoded.filter { now.timeIntervalSince($0.at) < FilingScorecard.keptFor }
-        if records.count != lines.count { save() }
+        guard let fileURL else { return }
+        if let data = try? Data(contentsOf: fileURL) {
+            var aged = false
+            for line in data.split(separator: UInt8(ascii: "\n")) {
+                guard let r = try? Self.decoder.decode(FilingScorecard.Record.self, from: Data(line)) else {
+                    unread.append(Data(line))
+                    continue
+                }
+                if now.timeIntervalSince(r.at) < FilingScorecard.keptFor { records.append(r) } else { aged = true }
+            }
+            if aged { save() }
+        }
+        if let data = try? Data(contentsOf: Self.offersURL(fileURL)),
+           let saved = try? Self.decoder.decode([String: FilingScorecard.Offer].self, from: data) {
+            offers = saved.filter { now.timeIntervalSince($0.value.at) < Self.offerKeptFor }
+        }
     }
 
     /// The real file, or under a test runner a per-process temp file, as Sync History does.
@@ -457,38 +489,117 @@ public final class FilingScorecardStore: ObservableObject {
         return support.appendingPathComponent("SyncCloud/filing-scorecard.jsonl")
     }
 
+    static func offersURL(_ records: URL) -> URL {
+        records.deletingPathExtension().appendingPathExtension("offers.json")
+    }
+
     public func append(_ new: [FilingScorecard.Record]) {
         guard !new.isEmpty else { return }
         records.append(contentsOf: new)
         save()
     }
 
-    /// Undo moved these files back: their filings no longer count. A redo doesn't count them again.
+    // MARK: First offers
+
+    /// The first pick `path` was offered: the one it was first shown with, while it stands, else
+    /// `fresh`, which then becomes it.
+    public func firstOffer(for path: String, fresh: FilingScorecard.Offer) -> FilingScorecard.Offer {
+        firstOffers([path: fresh])[path] ?? fresh
+    }
+
+    /// ``firstOffer(for:fresh:)`` for a whole scan's cards, saved once.
+    public func firstOffers(_ fresh: [String: FilingScorecard.Offer]) -> [String: FilingScorecard.Offer] {
+        var out: [String: FilingScorecard.Offer] = [:]
+        var changed = false
+        for (path, offer) in fresh {
+            if let known = offers[path], offer.at.timeIntervalSince(known.at) < Self.offerKeptFor {
+                out[path] = known
+            } else {
+                offers[path] = offer
+                out[path] = offer
+                changed = true
+            }
+        }
+        if changed { saveOffers() }
+        return out
+    }
+
+    /// The app answered anew (Refine, Download and Read, Undo Refine): this is the first pick now.
+    public func reoffer(_ offer: FilingScorecard.Offer, for path: String) {
+        guard offers[path] != offer else { return }
+        offers[path] = offer
+        saveOffers()
+    }
+
+    /// The file was filed: its next card, wherever it lands, is a new offer.
+    public func settle(_ paths: [String]) {
+        let before = offers.count
+        for p in paths { offers[p] = nil }
+        if offers.count != before { saveOffers() }
+    }
+
+    // MARK: Undo and Redo
+
+    /// Undo moved these files back: their filings no longer count. The newest record per file
+    /// only, since one Undo takes back one filing; Redo counts it again (``restore(landedAt:)``).
     public func forget(landedAt files: [String]) {
-        let gone = Set(files.map { ($0 as NSString).standardizingPath })
-        let kept = records.filter { !gone.contains(($0.file as NSString).standardizingPath) }
-        guard kept.count != records.count else { return }
-        let n = records.count - kept.count
-        records = kept
+        var n = 0
+        for file in Set(files.map(Self.key)) {
+            guard let i = records.lastIndex(where: { Self.key($0.file) == file }) else { continue }
+            undone[file, default: []].append(records.remove(at: i))
+            n += 1
+        }
+        guard n > 0 else { return }
         save()
         Logger.shared.info("Filing scorecard: Undo took back \(n) filing\(n == 1 ? "" : "s")")
+    }
+
+    /// Redo filed these files again: what Undo took back counts again.
+    public func restore(landedAt files: [String]) {
+        var back: [FilingScorecard.Record] = []
+        for file in Set(files.map(Self.key)) {
+            guard let r = undone[file]?.popLast() else { continue }
+            back.append(r)
+        }
+        guard !back.isEmpty else { return }
+        records.append(contentsOf: back)
+        records.sort { $0.at < $1.at }
+        save()
     }
 
     public func summary(_ range: FilingScorecard.Range, now: Date = Date()) -> FilingScorecard.Summary {
         FilingScorecard.summary(records, range: range, now: now)
     }
 
+    /// A file's path as a key, by its text alone. Not `standardizingPath`, which drops a leading
+    /// `/private` only while the file exists: Undo forgets after the file has left and Redo
+    /// restores once it is back, so the two would key one file differently.
+    nonisolated static func key(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardized.path
+    }
+
     private func save() {
         guard let fileURL else { return }
-        let lines = records.compactMap { try? Self.encoder.encode($0) }
         var data = Data()
-        for line in lines { data.append(line); data.append(UInt8(ascii: "\n")) }
+        for line in unread + records.compactMap({ try? Self.encoder.encode($0) }) {
+            data.append(line)
+            data.append(UInt8(ascii: "\n"))
+        }
+        write(data, to: fileURL)
+    }
+
+    private func saveOffers() {
+        guard let fileURL, let data = try? Self.encoder.encode(offers) else { return }
+        write(data, to: Self.offersURL(fileURL))
+    }
+
+    private func write(_ data: Data, to url: URL) {
         queue.async {
             do {
-                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try data.write(to: fileURL, options: .atomic)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: url, options: .atomic)
             } catch {
-                _ = Logger.shared.warning("Filing scorecard: couldn’t write \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                _ = Logger.shared.warning("Filing scorecard: couldn’t write \(url.lastPathComponent): \(error.localizedDescription)")
             }
         }
     }

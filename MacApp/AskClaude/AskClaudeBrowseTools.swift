@@ -1706,6 +1706,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                       namedSiblings: card.namedSiblings)
         out.nameKept = named.outcome.keptReason
         out.nameFacts = named.facts
+        out.offer = card.offer
         if folders.contains(where: { $0.newName != nil }) || named.unavailable != nil {
             out.names = AskClaudeHeldNames(shared: sharedBy != nil, sharedBy: sharedBy, unavailable: named.unavailable)
         }

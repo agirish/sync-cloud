@@ -1139,6 +1139,8 @@ extension FileSyncManager {
                         // nothing went wrong. Mirrors the copy path's `leftInPlace`.
                         var leftInPlace = 0
                         var movedBackPairs: [(from: URL, to: URL, emptiedByMerge: Bool, redirectedIntoTrash: Bool)] = []
+                        // Back at their source but left out of the redo: the scorecard still forgets them.
+                        var backButNotRedoable: [String] = []
                         // Items the user removed between the move and the ⌘Z: nothing to act on, so
                         // not a refusal.
                         var vanished = 0
@@ -1241,6 +1243,7 @@ extension FileSyncManager {
                                     // Back whole at `from`, with remains at `to`. Not redoable, and
                                     // the original stays in the Trash rather than land on the remains.
                                     movedBack += 1
+                                    backButNotRedoable.append(item.to.path)
                                     await FileSyncManager.reportMovedWithLeftoverRemains(
                                         restored: item.from, leftover: item.to, isRedo: false,
                                         actionName: actionName, run: run, on: target)
@@ -1285,7 +1288,7 @@ extension FileSyncManager {
                         }
                         await redoParamResolver.resolve(reversedParams)
                         // A filing taken back no longer counts on the filing scorecard (TE341).
-                        let undone = movedBackPairs.map(\.to.path)
+                        let undone = movedBackPairs.map(\.to.path) + backButNotRedoable
                         if !undone.isEmpty { await MainActor.run { target.filingScorecard.forget(landedAt: undone) } }
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
                                     + (vanished > 0 ? ", \(vanished) no longer on disk" : "")
@@ -1314,6 +1317,7 @@ extension FileSyncManager {
                         defer { run.close(logger) }
                         let params = await paramResolver.get()
                         var nextState: [MoveUndoItemState] = []
+                        var redoneNotUndoable: [String] = []
                         var redoFailures = 0
                         var leftInPlace = 0
 
@@ -1416,6 +1420,7 @@ extension FileSyncManager {
                             } catch FileOperationError.originalPartlyRemoved {
                                 // Whole at `to`, with remains at `from`. Left out of the next undo,
                                 // whose move back would meet them.
+                                redoneNotUndoable.append(param.to.path)
                                 await FileSyncManager.reportMovedWithLeftoverRemains(
                                     restored: param.to, leftover: param.from, isRedo: true,
                                     actionName: actionName, run: run, on: target)
@@ -1430,6 +1435,9 @@ extension FileSyncManager {
                         // Handed back in undo order, the reverse of the replay: every move state in
                         // this chain is stored in the order its undo processes it.
                         await nextUndoStateResolver.resolve(Array(nextState.reversed()))
+                        // Filed again: the filings Undo took back count again (TE341).
+                        let redone = nextState.map(\.to.path) + redoneNotUndoable
+                        if !redone.isEmpty { await MainActor.run { target.filingScorecard.restore(landedAt: redone) } }
                         logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s), \(leftInPlace) left in place (changed or unverifiable)" + run.summaryNote)
                 }
             }
