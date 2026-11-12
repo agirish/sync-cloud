@@ -341,6 +341,11 @@ public struct LensWorkspaceView: View {
     /// (Cancel keeps it as created). Also backs the header card's "New rule", so a blank rule and
     /// a taught one share one editor.
     @State private var reviewingAutomationRule: AutomationRule?
+    /// The filing scorecard's line (TE341, decisions NH and NK) and its Details sheet.
+    @AppStorage(FilingScorecard.shownDefaultsKey) private var showsFilingScorecard = true
+    /// Hide was clicked here: the notice holds the line's place until To File is left.
+    @State private var filingScorecardJustHidden = false
+    @State private var showsFilingScorecardDetails = false
     /// The Automations lens's host-owned view state. Lives here because "Preview all" rides the
     /// shared header card this view renders, and has to flip the lens into its results view.
     private var automationsState: AutomationsLensState { session.automationsState }
@@ -4334,6 +4339,7 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private func filingContent(filing: [FilingSuggestion], counts: RailCounts) -> some View {
         VStack(spacing: 0) {
+            filingScorecard
             // No teach prompt here: inserted above the cards after a move, it would slide the next
             // card's "File here" out from under the pointer. The offer rides in the move's "Filed …"
             // result message as "Save as rule…" (`FilingRuleOfferPanel`), so these cards never move.
@@ -4354,6 +4360,38 @@ public struct LensWorkspaceView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The line above the cards, or the notice Hide leaves. Not over Setup's introduction, where
+    /// nothing has been filed yet. Same height either way, so the cards never jump.
+    @ViewBuilder
+    private var filingScorecard: some View {
+        if !showsFilingSetupCard {
+            Group {
+                if showsFilingScorecard {
+                    FilingScorecardLine(store: syncManager.filingScorecard, accent: glassHue.accentColor,
+                                        onDetails: { showsFilingScorecardDetails = true },
+                                        onHide: {
+                                            showsFilingScorecard = false
+                                            filingScorecardJustHidden = true
+                                            Logger.shared.info("Filing scorecard: hidden from To File")
+                                        })
+                } else if filingScorecardJustHidden {
+                    FilingScorecardHiddenNotice {
+                        showsFilingScorecard = true
+                        filingScorecardJustHidden = false
+                    }
+                }
+            }
+            .padding(.horizontal, densityMetrics.cardListPadding)
+            .padding(.top, 8)
+            .onDisappear { filingScorecardJustHidden = false }
+            .sheet(isPresented: $showsFilingScorecardDetails) {
+                FilingScorecardSheet(store: syncManager.filingScorecard, session: session,
+                                     syncManager: syncManager, accent: glassHue.accentColor)
+                    .presentedNativeControlAccent()
+            }
         }
     }
 

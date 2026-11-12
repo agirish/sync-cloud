@@ -47,6 +47,9 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// True when an intelligent backend (on-device LLM or cloud) chose this destination by
     /// reasoning about the taxonomy and the file's contents, rather than keyword overlap.
     public let fromAI: Bool
+    /// True when the folder survey's router chose it (`readRoute`): the filing scorecard's
+    /// "Folder survey" (TE341).
+    public let fromSurvey: Bool
     /// For a content match, the evidence word read from the file that decided this home
     /// (display-ready, e.g. "Invoice"); nil for a filename match. Lets the card show content
     /// evidence as a highlight chip, distinct from a plain name match.
@@ -64,7 +67,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil, fromSurvey: Bool = false) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
@@ -72,6 +75,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.fromContent = fromContent
         self.remembered = remembered
         self.fromAI = fromAI
+        self.fromSurvey = fromSurvey
         self.evidenceToken = evidenceToken
         self.neighborMatches = neighborMatches
         self.proposedName = proposedName
@@ -105,13 +109,13 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// batch.
     public init(path: String, base: FilingConfidence, evidence: Evidence, reasons: [String],
                 newSegments: [String], remembered: Bool = false, evidenceToken: String? = nil,
-                neighborMatches: Int = 0, proposedName: String? = nil) {
+                neighborMatches: Int = 0, proposedName: String? = nil, fromSurvey: Bool = false) {
         self.init(path: path,
                   confidence: evidence == .content ? min(base, .medium) : base,
                   reasons: reasons, newSegments: newSegments,
                   fromContent: evidence != .name, remembered: remembered, fromAI: false,
                   evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                  proposedName: proposedName)
+                  proposedName: proposedName, fromSurvey: fromSurvey)
     }
 
     /// This folder named twice: one candidate carrying both claims. The higher-confidence candidate
@@ -121,7 +125,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// Provenance merges two ways, on purpose:
     /// - `remembered` and `fromAI` merge by OR: "the user taught this" and "a model chose this" stay
     ///   true of the merged candidate.
-    /// - `fromContent` follows the winner, not OR. It names the deciding signal, and the confidence
+    /// - `fromContent` and `fromSurvey` follow the winner, not OR. It names the deciding signal, and the confidence
     ///   kept is the winner's; OR would pair the winner's `.high` with the loser's flag (a state the
     ///   capped construction path refuses to build) and let a weak content match on the same folder
     ///   push a legitimate filename home out of the blind batch. Pinned by
@@ -136,7 +140,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  fromAI: fromAI || other.fromAI,
                                  evidenceToken: winner.evidenceToken,
                                  neighborMatches: winner.neighborMatches,
-                                 proposedName: winner.proposedName)
+                                 proposedName: winner.proposedName, fromSurvey: winner.fromSurvey)
     }
 
     /// A copy of this destination with its final folder renamed, for a new folder the user edits
@@ -156,7 +160,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],
                                  fromContent: fromContent, remembered: remembered, fromAI: fromAI,
                                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                                 proposedName: proposedName)
+                                 proposedName: proposedName, fromSurvey: fromSurvey)
     }
 
     /// A copy of this destination at a different confidence, for capping a claim its evidence can't
@@ -166,7 +170,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
                           fromContent: fromContent, remembered: remembered, fromAI: fromAI,
                           evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                          proposedName: proposedName)
+                          proposedName: proposedName, fromSurvey: fromSurvey)
     }
 
     /// A copy of this destination carrying `name` as the rename it would apply.
@@ -174,7 +178,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         FilingDestination(path: path, confidence: confidence, reasons: reasons,
                           newSegments: newSegments, fromContent: fromContent,
                           remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
-                          neighborMatches: neighborMatches, proposedName: name)
+                          neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey)
     }
 }
 
@@ -202,6 +206,10 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// whose identity has drifted rather than move a stranger into a folder chosen for the
     /// original. nil means no check, for a suggestion built by hand.
     public let sourceIdentity: ItemIdentity?
+    /// What the card led with when first shown (TE341): Try Another and a rename keep it, so the
+    /// filing scorecard can tell a kept first pick from a changed one. Set at publish, and again
+    /// when the app itself answers anew (Refine, Download and Read, Undo Refine).
+    public internal(set) var firstOffer: FilingScorecard.Offer?
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
@@ -241,18 +249,22 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
 
     /// A copy of this suggestion carrying the folders that already hold the same document.
     public func alreadyFiled(at folders: [String]) -> FilingSuggestion {
-        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
-                         modificationDate: modificationDate, candidates: candidates,
-                         providerRoot: providerRoot, alreadyFiledAt: folders,
-                         sourceIdentity: sourceIdentity)
+        var s = FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                                 modificationDate: modificationDate, candidates: candidates,
+                                 providerRoot: providerRoot, alreadyFiledAt: folders,
+                                 sourceIdentity: sourceIdentity)
+        s.firstOffer = firstOffer
+        return s
     }
 
     /// A copy of this suggestion recording what the scan found at its path.
     public func recordingSource(_ identity: ItemIdentity?) -> FilingSuggestion {
-        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
-                         modificationDate: modificationDate, candidates: candidates,
-                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
-                         sourceIdentity: identity)
+        var s = FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                                 modificationDate: modificationDate, candidates: candidates,
+                                 providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
+                                 sourceIdentity: identity)
+        s.firstOffer = firstOffer
+        return s
     }
 
     /// The same document with a **new list of homes**, and everything else intact. The one way to
@@ -263,10 +275,20 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// being filed, which moving the file back can't undo. A rebuild that wants to drop the marker
     /// must say so.
     public func replacingCandidates(_ candidates: [FilingDestination]) -> FilingSuggestion {
-        FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
-                         modificationDate: modificationDate, candidates: candidates,
-                         providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
-                         sourceIdentity: sourceIdentity)
+        var s = FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
+                                 modificationDate: modificationDate, candidates: candidates,
+                                 providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
+                                 sourceIdentity: sourceIdentity)
+        s.firstOffer = firstOffer
+        return s
+    }
+
+    /// This card as offered now: its leading folder becomes the first pick the scorecard judges.
+    /// `picker`: `.claude` when Refine's answer moved the card.
+    public func offeredAnew(by picker: FilingScorecard.Picker = .mac, at now: Date = Date()) -> FilingSuggestion {
+        var s = self
+        s.firstOffer = FilingScorecard.Offer(candidates, root: providerRoot, picker: picker, at: now)
+        return s
     }
 }
 

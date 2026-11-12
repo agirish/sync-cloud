@@ -526,6 +526,8 @@ extension FileSyncManager {
         registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "File")) by Automation",
                          fileManager: fm)
         let recordedRun = recordSyncHistory(records)
+        // Counted apart on the filing scorecard: a rule offers one folder, so nothing to keep or change.
+        filingScorecard.append(moves.map { FilingScorecard.ruleRecord(landedFile: $0.to.path, root: nil) })
 
         // Drop the filed rows from the current preview: their files have moved.
         if let report = automationDryRun {

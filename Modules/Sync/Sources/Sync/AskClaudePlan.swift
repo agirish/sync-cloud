@@ -117,6 +117,9 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         public var nameKept: String?
         /// What its first page said, so a folder change can name it in that folder's style.
         public var nameFacts: ContentName.Facts?
+        /// What the survey offered first for this file, for the filing scorecard (TE341). Set on
+        /// filing rows only: a change Claude proposed has no first pick to keep.
+        public var offer: FilingScorecard.Offer?
 
         public init(id: Int, name: String, change: Change, ticked: Bool, confidence: String? = nil, reason: String? = nil,
                     note: String? = nil, folderLabel: String? = nil, choices: [Choice] = [], chosen: Bool = false,

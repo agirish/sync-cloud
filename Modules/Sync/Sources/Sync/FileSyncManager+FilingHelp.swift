@@ -41,9 +41,13 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         public let isNew: Bool
         /// For a new folder, the siblings it is named like.
         public let siblings: [String]
+        /// What chose it, for the filing scorecard (TE341): a saved rule, or the survey by name
+        /// or by page 1.
+        public var evidence: FilingScorecard.Evidence
 
         public init(folder: String, relativePath: String, confidence: FilingConfidence, reason: String,
                     evidenceToken: String?, outsidePlace: Bool = false, isNew: Bool = false, siblings: [String] = []) {
+            self.evidence = evidenceToken == nil ? .survey : .page
             self.folder = folder
             self.relativePath = relativePath
             self.confidence = confidence
@@ -61,8 +65,12 @@ public struct FilingHelpAnswer: Sendable, Equatable {
     /// The best folder's siblings, when they are plain names and no dated folder was offered:
     /// Claude may name a new one like them (decision JG).
     public let namedSiblings: FilingNewHome.NamedSiblings?
+    /// The survey's root the answer came from, for the scorecard's area.
+    public let root: String?
 
-    public init(outcome: Outcome, surveyedAt: Date?, namedSiblings: FilingNewHome.NamedSiblings? = nil) {
+    public init(outcome: Outcome, surveyedAt: Date?, namedSiblings: FilingNewHome.NamedSiblings? = nil,
+                root: String? = nil) {
+        self.root = root
         self.outcome = outcome
         self.surveyedAt = surveyedAt
         self.namedSiblings = namedSiblings
@@ -112,7 +120,7 @@ extension FileSyncManager {
         if let ruled = ruleAnswer(path, snippet: snippet, root: root, profile: profile, isHidden: isHidden),
            placeRelative.map({ Self.isAtOrUnder(ruled.relativePath, $0) }) ?? true {
             Logger.shared.info("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
-            return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt)
+            return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt, root: root)
         }
         let registry = filingPersonRegistry
         let index = await filingHelpIndex(survey, isHidden: isHidden)
@@ -175,13 +183,14 @@ extension FileSyncManager {
             let made = FilingHelpAnswer.Suggestion(folder: newHome.path, relativePath: relative, confidence: .medium,
                                                    reason: newHome.reason, evidenceToken: besideFolder?.evidenceToken, isNew: true,
                                                    siblings: newHome.siblings)
-            return FilingHelpAnswer(outcome: .suggested([made, best]), surveyedAt: surveyedAt)
+            return FilingHelpAnswer(outcome: .suggested([made, best]), surveyedAt: surveyedAt, root: root)
         }
         let named = shown.first.flatMap { best in
             FilingNewHome.named(parent: (best.folder as NSString).deletingLastPathComponent, within: base,
                                 childFolders: children, isHidden: isHidden)
         }
-        return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt, namedSiblings: named)
+        return FilingHelpAnswer(outcome: .suggested(Array(shown)), surveyedAt: surveyedAt, namedSiblings: named,
+                                root: root)
     }
 
     /// The folders in `folder`: the survey's, and those on disk now (made since, or never surveyed).

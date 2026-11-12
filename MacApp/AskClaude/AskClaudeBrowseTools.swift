@@ -1738,10 +1738,12 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                 AskClaudeFilingCard.NamedSiblings(label: breadcrumb($0.parent, sources: ctx.sources, fallback: ($0.parent as NSString).lastPathComponent),
                                                   path: $0.parent, names: $0.names)
             }
-            return AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
-                                       staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
-                                       canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel,
-                                       namedSiblings: named)
+            var card = AskClaudeFilingCard(fileName: node.name, filePath: node.id, kind: .suggestions, folders: folders,
+                                           staleDays: answer.isStale(now: ctx.now()) ? answer.surveyAgeDays(now: ctx.now()) : nil,
+                                           canRefine: ctx.canRefineFiling && list.first?.confidence != .high, place: placeLabel,
+                                           namedSiblings: named)
+            card.offer = FilingScorecard.Offer(list, root: answer.root)
+            return card
         }
     }
 
@@ -2115,6 +2117,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                         note: best.outsidePlace ? "Outside \((place as NSString).lastPathComponent)" : nil,
                                         folderLabel: label, choices: choices)
             (row.size, row.modified, row.fromLabel) = (file.size, file.modified, fromLabel)
+            row.offer = FilingScorecard.Offer(list, root: answer.root)
             // TE328: a badly named file is read on this Mac and named for its folder, with the
             // names the ticked rows above land under counted as there.
             if let named = await ctx.nameFile(file.path, choices.map(\.path), taking) {

@@ -164,6 +164,8 @@ public class FileSyncManager: ObservableObject {
     /// (defaults to the shared store) so tests get their own. Recording never fails or blocks the
     /// operation: `SyncHistoryStore.appendBatch` doesn't throw and writes on a background queue.
     public var syncHistoryStore: SyncHistoryStore = .shared
+    /// Where each filing's first-pick verdict is kept (TE341). Injected so tests get their own.
+    public var filingScorecard: FilingScorecardStore = .shared
 
     /// The `UndoManager` action name captured when the last history-recorded run registered its
     /// undo group, plus that run's records. They let `undoLastSyncRunAskingFirst` check that the

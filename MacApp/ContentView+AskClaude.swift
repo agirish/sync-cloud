@@ -590,7 +590,10 @@ extension ContentView {
             let outcome = await syncManager.applyPlan(rows, names: plan.newNames, actionName: plan.title,
                                                       isHidden: { hidden.isHidden($0) }, protected: protected)
             askClaudeChat.updatePlan(id) { $0.record(outcome) }
-            if let applied = askClaudeChat.plan(id) { askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied)) }
+            if let applied = askClaudeChat.plan(id) {
+                syncManager.filingScorecard.append(FilingScorecard.records(applied, landed: outcome.landed))
+                askClaudeChat.tellClaude(AskClaudeChat.applyReport(applied))
+            }
             await askClaudeOfferCardRules(id, landed: outcome.landed)
         }
     }
@@ -665,6 +668,7 @@ extension ContentView {
             // answer, is their pick, and teaches a rule at Apply.
             if case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {
                 row.noteMoveHere(card)
+                row.offer = card.offer
             }
             var rows = [row]
             if let making, case .filing(let card)? = askClaudeChat.items.first(where: { $0.id == item })?.kind {

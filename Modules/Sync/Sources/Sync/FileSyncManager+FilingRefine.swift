@@ -547,7 +547,7 @@ extension FileSyncManager {
                           let live = filingSuggestions.first(where: { $0.filePath == path }),
                           let best = routeWithPage(live, text: text, providerRoot: root, index: index).best
                     else { continue }
-                    replaceFilingSuggestion(live.id, candidates: [best])
+                    replaceFilingSuggestion(live.id, candidates: [best], reoffer: true)
                 }
             }
             Logger.shared.info("Filing: refine downloaded \(landed.count) of \(cloudOnly.count) cloud-only file(s) to read page 1"
@@ -702,7 +702,8 @@ extension FileSyncManager {
                 after: Self.relativePath(now, under: root) ?? now,
                 reason: verdicts[s.filePath]?.reason)
         }
-        publishFilingSuggestions(refined)
+        // A card Claude moved is Claude's offer now (TE341): its answer is the first pick judged.
+        publishFilingSuggestions(refined.map { before[$0.id] != $0.best?.path ? $0.offeredAnew(by: .claude) : $0 })
         filingRefineUndo = changes.isEmpty ? nil
             : FilingRefineUndo(generation: filingSuggestionsGeneration,
                                before: Dictionary(uniqueKeysWithValues: changes.compactMap { c in candidatesBefore[c.filePath].map { (c.filePath, $0) } }),
@@ -974,7 +975,7 @@ extension FileSyncManager {
         var restored = 0
         for card in filingSuggestions {
             guard let candidates = undo.before[card.filePath], card.best?.path == undo.after[card.filePath] else { continue }
-            replaceFilingSuggestion(card.id, candidates: candidates)
+            replaceFilingSuggestion(card.id, candidates: candidates, reoffer: true)
             restored += 1
         }
         filingRefineUndo = nil

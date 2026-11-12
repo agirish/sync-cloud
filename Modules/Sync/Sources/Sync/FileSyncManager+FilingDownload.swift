@@ -63,12 +63,12 @@ extension FileSyncManager {
             // from it ("read the file for its month"), says where it goes — not the router's best.
             if let ruled = savedRuleHome(live, text: text, providerRoot: root) {
                 filingPageSamples[live.filePath] = String(text.prefix(FilingRouter.contentSampleChars))
-                replaceFilingSuggestion(live.id, candidates: [ruled])
+                replaceFilingSuggestion(live.id, candidates: [ruled], reoffer: true)
                 homed += 1
                 continue
             }
             if let best = routeWithPage(live, text: text, providerRoot: root, index: index).best {
-                replaceFilingSuggestion(live.id, candidates: [best])
+                replaceFilingSuggestion(live.id, candidates: [best], reoffer: true)
                 homed += 1
             }
         }

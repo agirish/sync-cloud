@@ -15364,3 +15364,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s perItemWarn=%s grouped=%s\n' 
 |---|---|---|
 | `v6.x` / `v5.x` | A WARN per refused item, with its codes | CLOSED — not owed: there it is the only per-item record |
 | `v4.x` / `v3.x` / `v2.x` | No such WARN | CLOSED — does not apply |
+
+## The filing scorecard (TE341) — main only, recorded, not owed
+
+2026-11-11, for v7.2 (decisions NH–NL). On `main`: each filing records whether it kept the folder
+offered first (`FilingScorecard`, `FilingScorecardStore`), shown as a line above To File's cards
+with a Details sheet, View ▸ Filing Scorecard and a Settings switch. A new feature, not a fix:
+every line has To File, none has the scorecard, and none is owed it.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s toFile=%s scorecard=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingEngine.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingScorecard.swift')"; done
+# measured 2026-11-11, against origin: toFile=1 scorecard=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | To File, no scorecard | RECORDED — not owed: a feature |

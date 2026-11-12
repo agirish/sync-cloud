@@ -1190,3 +1190,28 @@ Preview and exported as PDF), and a password-protected PDF named "Scan 0002.pdf"
   Intelligence is off, and no name is offered.
 - [ ] **A folder that shares.** Set Downloads to Share Without Asking from the shield, and file Scan
   0001.pdf: the strip says Downloads shares without asking, with no button. Set it back.
+
+## The filing scorecard (TE341, 2026-11-11)
+
+Needs a folder survey from Setup and loose files in Organize ▸ To File.
+
+- [ ] **The line.** Open Organize ▸ To File: above the cards, “First pick kept: none yet”, with
+  Details and Hide. File a card with File Here: the line reads “First pick kept 1 of 1 · last 30
+  days”, and the cards don't move as it changes.
+- [ ] **A change counts.** On another card click Try Another, then File Here: the line reads “1 of 2”.
+  Details: Changed 1, “runner-up 1”, and the file under Changed with the first folder struck through.
+- [ ] **Undo takes it back.** ⌘Z the last filing: the line goes back to “1 of 1”.
+- [ ] **Deeper.** Choose a Folder… into a folder inside the card's folder: Details counts it under
+  Deeper, not Changed.
+- [ ] **Hide and show.** Click Hide: “Scorecard hidden. Show it from View ▸ Filing Scorecard.” with
+  Undo, and the cards stay put. Leave To File and come back: nothing there. View ▸ Filing Scorecard
+  brings the line back; Settings ▸ Organize ▸ Filing scorecard turns it off and on too.
+- [ ] **Ask Claude's cards count.** In Ask Claude, file a folder's loose files and Apply with one
+  row moved to its runner-up: Details counts the rows that moved, the changed one as runner-up.
+  Undo on the card takes them back out.
+- [ ] **Details.** Show All turns the Changed list into a scrolling box and Show Fewer folds it.
+  Double-click a row: Finder shows the file. Change the same folder to the same other folder twice:
+  a row offers Make a Rule…, which opens the Save as Rule offer.
+- [ ] **Kept on the Mac.** `~/Library/Application Support/SyncCloud/filing-scorecard.jsonl` holds a
+  line per filing and nothing else is sent anywhere.
+

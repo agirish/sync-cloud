@@ -38,9 +38,11 @@ extension FileSyncManager {
                                          : "; page 1 names no date, so the year and month aren’t known"
             }
             if missing { reason += " (a new folder)" }
-            return FilingHelpAnswer.Suggestion(folder: placed.path, relativePath: relative,
-                                               confidence: placed.needsPage ? .medium : .high,
-                                               reason: reason, evidenceToken: nil)
+            var ruled = FilingHelpAnswer.Suggestion(folder: placed.path, relativePath: relative,
+                                                    confidence: placed.needsPage ? .medium : .high,
+                                                    reason: reason, evidenceToken: nil)
+            ruled.evidence = .rule
+            return ruled
         }
         return nil
     }

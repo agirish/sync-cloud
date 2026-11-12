@@ -704,6 +704,8 @@ enum SettingsSearchIndex {
                          "organize", "tidy", "filing"]),
         .init(at: .toFile, title: "Rules you taught by correcting",
               keywords: ["filing rules", "rules", "remembered rules", "open rules", "corrections", "manage rules", "automation", "automations"]),
+        .init(at: .toFile, title: "Filing scorecard",
+              keywords: ["scorecard", "first pick", "kept", "how filing is doing", "filing accuracy", "hide scorecard"]),
         .init(at: .toFile, title: "Folder surveys",
               keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
                          "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
@@ -2589,6 +2591,7 @@ struct FilingSettingsTab: View {
     /// See `SettingsView.onOpenRules`. nil hides the button.
     var onOpenRules: (() -> Void)? = nil
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
+    @AppStorage(FilingScorecard.shownDefaultsKey) private var showsScorecard = true
     /// The inbox when its field took focus: the field writes every keystroke, so the change is
     /// logged once, at Return or when focus leaves.
     @State private var inboxAtFocus: String?
@@ -2620,6 +2623,8 @@ struct FilingSettingsTab: View {
                     }
                     .help("A rule you teach by correcting a suggestion is saved. Review, edit or delete it under Rules in the Organize workspace.")
                 }
+                Toggle("Filing scorecard", isOn: $showsScorecard.loggingSettingsChange("organize.filingScorecard"))
+                    .help("Shows how often you kept To File’s first pick, above its cards. Counting continues while hidden.")
             }
 
             if let syncManager, !surveySources.isEmpty {

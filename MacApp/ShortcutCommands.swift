@@ -3164,6 +3164,16 @@ struct ToggleDifferencesListCommand: View {
     }
 }
 
+/// View ▸ Filing Scorecard: the line above To File's cards (TE341, decision NK). The same switch
+/// as its Hide button and Settings ▸ Organize; counting goes on while it is off.
+struct ToggleFilingScorecardCommand: View {
+    @AppStorage(FilingScorecard.shownDefaultsKey) private var shown = true
+
+    var body: some View {
+        Toggle("Filing Scorecard", isOn: $shown)
+    }
+}
+
 struct FoldAllDifferencesCommand: View {
     @FocusedValue(\.foldAllDifferences) private var fold
 

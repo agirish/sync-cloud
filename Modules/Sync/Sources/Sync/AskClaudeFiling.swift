@@ -84,6 +84,8 @@ public struct AskClaudeFilingCard: Codable, Equatable, Sendable {
     public var nameFacts: ContentName.Facts?
     /// Whether Claude has the new names; nil when no folder gives one.
     public var names: AskClaudeHeldNames?
+    /// What it offered first, for the filing scorecard when Move Here files it (TE341).
+    public var offer: FilingScorecard.Offer?
 
     public init(fileName: String, filePath: String, kind: Kind, folders: [Folder] = [], staleDays: Int? = nil,
                 canRefine: Bool = false, place: String? = nil, namedSiblings: NamedSiblings? = nil) {

@@ -1284,6 +1284,9 @@ extension FileSyncManager {
                              emptiedByMerge: pair.emptiedByMerge, redirectedIntoTrash: pair.redirectedIntoTrash)
                         }
                         await redoParamResolver.resolve(reversedParams)
+                        // A filing taken back no longer counts on the filing scorecard (TE341).
+                        let undone = movedBackPairs.map(\.to.path)
+                        if !undone.isEmpty { await MainActor.run { target.filingScorecard.forget(landedAt: undone) } }
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or unverifiable)"
                                     + (vanished > 0 ? ", \(vanished) no longer on disk" : "")
                                     // Separate from `leftInPlace`, whose parenthetical wouldn't fit it.

@@ -226,7 +226,7 @@ extension FileSyncManager {
             // The router only names folders from the taxonomy, so nothing here is a folder to
             // create: an empty `newSegments` is a fact, not a default.
             newSegments: [],
-            evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0)
+            evidenceToken: best.evidenceToken?.capitalized, neighborMatches: 0, fromSurvey: true)
         let others = s.candidates.filter { $0.path != dest.path }
         return (s.replacingCandidates([dest] + others), true, shortlist)
     }
@@ -412,7 +412,7 @@ extension FileSyncManager {
                                           : "no home matched it"))
             return false
         }
-        replaceFilingSuggestion(live.id, candidates: [best])
+        replaceFilingSuggestion(live.id, candidates: [best], reoffer: true)
         Logger.shared.info("Filing: read “\(live.fileName)” (\(text.count) chars) — "
                            + "\((best.path as NSString).lastPathComponent)")
         return true

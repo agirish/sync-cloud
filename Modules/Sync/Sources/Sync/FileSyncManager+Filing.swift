@@ -1486,7 +1486,9 @@ extension FileSyncManager {
     /// staleness guard that reads it.
     public func publishFilingSuggestions(_ suggestions: [FilingSuggestion]) {
         filingTryAnotherNotes = [:]
-        filingSuggestions = suggestions
+        // A card first shown now is offered now (TE341); one carried over keeps its first pick.
+        let now = Date()
+        filingSuggestions = suggestions.map { $0.firstOffer == nil ? $0.offeredAnew(at: now) : $0 }
         filingSuggestionsGeneration &+= 1
     }
 
@@ -1494,7 +1496,11 @@ extension FileSyncManager {
     // `internal`, not `private`: `readScan(for:)`, in the router extension, updates one card this
     // way too. Not `public`: the generation bump above is what every staleness guard reads, so
     // wholesale replacement stays the only outside door.
-    func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
+    ///
+    /// `reoffer`: the app answered anew (Refine, Download and Read, Undo Refine), so the new
+    /// leading folder is the first pick the scorecard judges. Try Another keeps the old one: a
+    /// file filed after it was not filed where first offered.
+    func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination], reoffer: Bool = false) {
         guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
         let s = filingSuggestions[i]
         // Named here too, or "Try another" answers differently from the scan. The scan gives every
@@ -1510,7 +1516,8 @@ extension FileSyncManager {
                 for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
                 profile: filingRoutingProfile, fileManager: fileManager))
         }
-        filingSuggestions[i] = s.replacingCandidates(named)
+        let replaced = s.replacingCandidates(named)
+        filingSuggestions[i] = reoffer ? replaced.offeredAnew() : replaced
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
@@ -1621,6 +1628,9 @@ extension FileSyncManager {
         }
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
+            if let offer = suggestion.firstOffer {
+                filingScorecard.append([FilingScorecard.record(offer, landedFile: move.to.path)])
+            }
             // Remember only on an actual move: a rule keyed on where the file already lived is
             // noise. The log reports what happened, since derivation can decline (a token-less
             // name) and claiming "remembered" then would be false.
@@ -1712,11 +1722,13 @@ extension FileSyncManager {
         // Counted, not dropped: its card leaves the list like a filed one, so a banner leaving it
         // out would count fewer files than went.
         var alreadyHome = 0
+        var scored: [FilingScorecard.Record] = []
         for s in batch {
             guard let dest = s.best else { continue }
             switch await performFiling(s, to: dest) {
             case .moved(let move):
                 moves.append(move)
+                if let offer = s.firstOffer { scored.append(FilingScorecard.record(offer, landedFile: move.to.path)) }
                 filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
                                                   folder: move.to.deletingLastPathComponent().path,
                                                   source: FilingBatchLog.source(of: dest)))
@@ -1740,6 +1752,7 @@ extension FileSyncManager {
             }
             return
         }
+        filingScorecard.append(scored)
         // One undo action reverts the whole batch, so ⌘Z is honest.
         registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
         let n = moves.count

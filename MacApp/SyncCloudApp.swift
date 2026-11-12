@@ -691,6 +691,7 @@ struct SyncCloudApp: App {
                 InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
+                ToggleFilingScorecardCommand()  // no chord
                 // The whole app's type, on the slider's own stops: a divider and a Text Size
                 // submenu, as one child.
                 TextSizeMenuCommand()           // ⌘+ ⌘− ⌘0
