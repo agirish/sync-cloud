@@ -5,6 +5,140 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v7.1 — DRAFT, not released
+
+> What is on `main` since v7.0. It may still change before v7.1 is cut, and nothing here is
+> installable from a release yet.
+
+**Ask Claude remembers: past chats, notes about you, and Refine in the chat.** v7.1 keeps your
+past chats on this Mac and lets Claude keep notes on how you work. Simple commands run on this Mac
+without a request to Claude, and Organize's Refine is now a card in the chat. Ask Claude is a
+column at the window's right edge, each file pane has its own Info, Activity's Now and History
+become one Events tab, and Settings is regrouped into nine tabs.
+
+Requires **macOS 26**, unchanged from v7.0.
+
+### Before you update
+
+- **Update from v6.0 or later.** v7.1 no longer converts settings saved by v5.5 and earlier. On
+  an older version, install and open v7.0 or any v6.x once first. With Desktop & Documents
+  syncing off, a fresh install's iCloud source now starts at the iCloud Drive folder, not
+  `~/Documents`.
+- **Let Claude read files is gone; each folder decides.** Each folder is Ask Each Time, Share
+  Without Asking or Hide from Claude. If the switch was on, your home folder becomes Share Without
+  Asking, once, at the first launch.
+- **Refine's own switch, model and limits are gone.** Refine, Try Another and Refine Names use the
+  model in Ask Claude's menu and count against Ask Claude's one monthly limit; a saved API key is
+  the opt-in. This month's Refine spend is carried into that limit, and a notice in Settings ▸ Ask
+  Claude ▸ Key & Spending names the old limits and what Refine had cost.
+- **Try Another now asks Claude in folders shared without asking**, sending the file's first page,
+  and billed. In a folder that asks each time it still answers on this Mac. The same notice says
+  so, and how to keep it on this Mac.
+- **An open chat starts over once** after the update.
+
+### Ask Claude
+
+- **A column at the window's right edge.** Ask Claude is the window's last column; the floating
+  panel and its places are gone. The toolbar's far-right button and ⌘J open and close it, and the
+  window remembers which. When there isn't room beside your work, Organize folds its folder pane
+  and Edit its file list; in a window too narrow even for that, the column draws over the right
+  edge, and a click in your work tucks it away.
+- **Past chats are kept on this Mac.** A chat that ends, by New Chat, an hour away or a folder
+  hidden since, is kept for 30 days, listed by day behind the clock button, searchable and opened
+  read-only. After an hour away the earlier chat stays on screen above "Earlier · Claude doesn't
+  see this". Continue reads a past chat back in, once, at the price shown. Delete has Undo.
+  Settings ▸ Ask Claude ▸ Privacy sets how long chats are kept and has Clear All.
+- **Notes for Claude.** Claude keeps `~/Notes for Claude.md`: who your people are, how your folders
+  are laid out, how you like answers. It adds, changes or removes a line only from words you typed
+  or said in the chat, never from a file or a shared passage, and refuses details such as account
+  numbers and keys. Each change shows as a Noted line with Undo. The notes go with a chat's first
+  question and again when they change. Settings ▸ Ask Claude ▸ General lists each line with who
+  wrote it, with Edit…, Clear Notes… and "Let Claude add to its notes".
+- **Simple commands run on this Mac.** Go to a folder or source, open Settings, Activity's Events
+  or Log, or Help, switch workspace or view, sort, show hidden files: said in so many words, these
+  run here with no model, nothing sent and nothing billed, once an API key is saved. With Apple Intelligence on, a short
+  command in other words is worked out on this Mac first, and anything else goes to Claude as
+  before.
+- **Eject a disk.** Ask Claude to eject a disk the sidebar can eject, and it asks first in the
+  sidebar's own words.
+- **Suggestions above the text box.** When three or more files arrive in Downloads or your
+  loose-files inbox, or a Compare scan finds a different number of differences, a quiet chip offers
+  the question, worked out on this Mac. A click asks it; right-click offers Don't Suggest. Turn it
+  off with "Show suggestions above the text box" in Settings ▸ Ask Claude ▸ General.
+- **File with Claude**, under Ask Claude About This on a row's right-click menu and in Organize's
+  menu, opens the chat with the selection attached and asks where it goes.
+- **Filing cards name scans and make the folder they need.** A file whose name says nothing, such
+  as "Scan 0042.pdf", gets a name from its first page, read on this Mac by Apple Intelligence, in
+  the style of the folder it goes to; it can be edited or kept, and one Undo puts the old name
+  back. When a file's best home sits among year folders and its year has none, the card offers
+  that new folder first, with Make and Move Here: one Apply makes the folder and moves the file.
+  Claude gets counts, not the new names, until you click Share Names and Folders.
+- **Send a row somewhere else, and the card offers a rule.** A row you move to a folder of your own
+  choosing is marked Your pick, and after Apply the card offers a rule for files like it.
+- **A long chat scrolls smoothly**, and a question's Copy and Edit sit beside its bubble rather
+  than over its words.
+
+### Refine with Claude
+
+- **Refine is a card in the chat.** Organize's Refine with Claude opens a plan card that says what
+  goes to Claude, what needs your OK and what isn't sent, with the model and the price against your
+  monthly limit. Only a click on Send sends it. The same card shows progress with Stop, then the
+  answers, with Undo Refine.
+- **A file's first page goes only when you tick it** on the card, or from a folder shared without
+  asking.
+- **Refine and Try Another respect Hidden from Claude.** v7.0 sent a hidden file's name and first
+  page, and hidden folders as places to file into, to Claude from Refine; Try Another and Refine
+  Names did the same. Hidden files and folders are now left out, and the card counts them.
+- **Refine that fails says so.** v7.0 fell back to the on-device model and saved its answers as
+  Claude's. A failed or stopped pass now keeps the answers that arrived, says how many, and says a
+  request that started may have been billed; it is counted in your spend.
+- **Saved answers survive a model change.** Claude's answers are reused whichever Claude model gave
+  them, and one given with the first page isn't replayed for a name-only pass.
+- **Claude's pick outside the shortlist is kept.** When Claude read the first page and names a
+  folder the scan hadn't shortlisted, over a weak home, it now leads; otherwise Try Another Folder
+  offers it second.
+- **To File fits a narrow window.** A card's less-used buttons fold into a ⋯ menu when the
+  workspace is narrow.
+
+### Around the app
+
+- **Info is in each file pane.** Each pane has its own Info, from the Info button on its pane bar
+  or ⌘I, replacing the window's Info inspector and its toolbar button. It reads as one more column:
+  after the deepest column in Columns, at the list's edge in Tree, and as a drawer over a narrow
+  pane. Drag its edge to resize it; double-click for the standard width.
+- **Activity's Events.** Now and History are one Events tab: what is running or needs you on a band
+  at the top, then one timeline by day, where each run opens in place to its files. Undo… on this
+  session's newest run asks first, as Undo Last Run… did. Window ▸ Sync History is gone.
+- **Activity's messages are kept across quits**, the newest 500 for 90 days. A "wait for …"
+  refusal stays for the session only. Clear Messages asks first.
+- **Settings in nine tabs.** General, Appearance, Sources, Browse, Compare, Organize, Edit, Ask
+  Claude and Advanced, most with a strip of pages. Readability, People and Duplicates fold in, and
+  ⌘K and Ask Claude open the page that holds a setting. New rows: Notify when One-Way Sync needs
+  attention; Compare's Group by folder; Duplicates' groups kept separate, with Show Again…; the
+  folders shared without asking, with Add…; Edit's saved signatures, with Delete…; and Customize
+  Pane Bar….
+- **Copy Log for Sharing**, in the Activity Log's bar and Settings ▸ Advanced, copies the log with
+  email addresses, your home folder and the names in your People lists masked. The log now keeps
+  Info and above by default, and a change made in the Settings window is logged.
+- **The chosen choice is a flat fill.** At Frosted and Clear the selection drew an accent rim, so
+  with accent None the workspace bar, a pane's tab and the view capsule wore outlines. It is now a
+  flat wash of the accent; Increase Contrast still draws a rim.
+- **Filter by Type stays when you switch tabs** and back, or reopen a closed tab.
+- **Backspace reaches the PDF in Fill & Sign** when nothing is selected.
+- **A stopped PDF tool says when its copy is still there**, when the copy couldn't be removed.
+- **A record that can't be read is set aside, never written over.** Settings changed from the chat,
+  and a saved chat, now keep the unreadable file beside the new one.
+
+### Known limitations
+
+- Ask Claude can't yet read or change Browse and Edit settings, Customize Pane Bar or saved
+  signatures; Settings and the menus can.
+- A command in other words runs on this Mac only with Apple Intelligence on; otherwise it goes to
+  Claude.
+- Refine Names has no Customize… to leave folder names out.
+
+---
+
 ## v7.0
 
 **Ask Claude about your files, copy iCloud to Dropbox one way, and know when a cloud folder is out of
