@@ -801,6 +801,8 @@ enum SettingsSearchIndex {
         .init(at: .claudeGeneral, title: "Notes for Claude",
               keywords: ["notes", "memory", "remember", "about me", "instructions", "custom instructions", "preferences",
                          "what claude knows", "claude.md"]),
+        .init(at: .claudeGeneral, title: "Show the intro in new chats",
+              keywords: ["intro", "introduction", "welcome", "opening note", "new chat", "hide the intro"]),
         .init(at: .claudeGeneral, title: "Show suggestions above the text box",
               keywords: ["suggestions", "suggest", "chip", "nudge", "new files", "downloads", "differences", "Suggest Again"]),
         .init(at: .claudeGeneral, title: "Let Claude add to its notes",
@@ -2898,6 +2900,7 @@ struct IntelligenceSettingsTab: View {
         Group {
             modelAndAnswers
             NotesForClaudeSection()
+            AskClaudeIntroSection()
             AskClaudeSuggestionsSection()
         }
     }

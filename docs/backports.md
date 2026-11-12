@@ -15382,3 +15382,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s toFile=%s scorecard=%s\n' $l 
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | To File, no scorecard | RECORDED — not owed: a feature |
+
+## Ask Claude's intro closes for good (TE347a) — main only, recorded, not owed
+
+2026-11-11, for v7.2 (decision NM). On `main`: a ✕ on the intro at the top of a new Ask Claude chat
+hides it from every new chat until Settings ▸ Ask Claude ▸ General ▸ New chats turns it back on
+(`AskClaudeIntro`). A feature; no maintenance line has Ask Claude at all:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s engine=%s starters=%s emptyState=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeEngine.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeStarters.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeEmptyState.swift')"; done
+# measured 2026-11-11, against origin: 0 0 0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

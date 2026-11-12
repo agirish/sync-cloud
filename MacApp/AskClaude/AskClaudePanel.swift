@@ -316,7 +316,8 @@ struct AskClaudePanel: View {
                     if chat.items.isEmpty && chat.earlier == nil {
                         AskClaudeEmptyState(keySaved: keySaved, starters: AskClaudeStarters.questions(for: place.starterScreen),
                                             startersEnabled: !chat.isRunning && !voice.isActive, bridge: settingsBridge,
-                                            accent: accent, hue: hue, onStarter: { send($0, spoken: false) })
+                                            accent: accent, hue: hue, defaults: chat.settingsDefaults,
+                                            onStarter: { send($0, spoken: false) })
                     }
                     let latestReceipt = chat.items.last { if case .receipt = $0.kind { true } else { false } }?.id
                     let turns = AskClaudeTurns(chat.items)

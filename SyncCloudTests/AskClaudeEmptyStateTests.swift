@@ -69,6 +69,59 @@ import Testing
         }
     }
 
+    /// Clicks down the panel at `x` from just under the header until `done`, or past `limit`;
+    /// the distance from the top where it happened.
+    private func clickDown(_ window: NSWindow, _ host: NSView, x: CGFloat, limit: CGFloat = 320,
+                           done: () -> Bool) async -> CGFloat? {
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        for y in stride(from: 60.0, through: limit, by: 3) {
+            let point = NSPoint(x: x, y: host.bounds.height - y)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                window.sendEvent(event)
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+            if done() { return y }
+        }
+        return nil
+    }
+
+    /// How far down the first starter sits in a new chat on `defaults`.
+    private func firstStarterDepth(_ defaults: UserDefaults) async throws -> CGFloat {
+        let chat = AskClaudeChat(defaults: defaults, readKey: { nil })
+        var asked: [String] = []
+        let (window, host) = host(KeyState(true), chat: chat, onAsk: { asked.append($0) })
+        await settle(host)
+        return try #require(await clickDown(window, host, x: 60) { !asked.isEmpty }, "no starter took a click")
+    }
+
+    /// The intro's ✕ (TE347a, decision NM) turns the intro off for every new chat, in the chat's
+    /// own defaults, so the next chat opens with its starters at the top.
+    @Test func theIntrosCloseHidesItFromNewChats() async throws {
+        let defaults = ScratchDefaults("AskClaudeIntroTests")
+        let shownDepth = try await firstStarterDepth(defaults)
+        #expect(AskClaudeIntro.isShown(in: defaults))
+        let chat = AskClaudeChat(defaults: defaults, readKey: { nil })
+        var asked: [String] = []
+        let (window, host) = host(KeyState(true), chat: chat, onAsk: { asked.append($0) })
+        await settle(host)
+        // The ✕ sits at the bubble's top right; nothing else on that edge above the starters acts.
+        var hidden = false
+        for inset in stride(from: 16.0, through: 70.0, by: 4) where !hidden {
+            hidden = await clickDown(window, host, x: host.bounds.width - inset, limit: shownDepth) {
+                !AskClaudeIntro.isShown(in: defaults)
+            } != nil
+        }
+        #expect(hidden, "no click on the intro's right edge hid it")
+        #expect(asked.isEmpty, "a click meant for the ✕ sent a question")
+        let hiddenDepth = try await firstStarterDepth(defaults)
+        #expect(hiddenDepth + 40 < shownDepth, "the starters didn't move up: \(hiddenDepth) vs \(shownDepth)")
+    }
+
     @Test func withNoKeyTheEmptyPanelSetsUpWithTheKeyCard() async throws {
         let (window, host) = host(KeyState(false))
         await settle(host)
