@@ -5407,3 +5407,59 @@ local full run at `6f93e0a37` failed with 48 issues. 46 were `ParkThreadBudget` 
 
 **Tell.** Main-actor tests that wait, not work: pool hops are fast, main-queue hops take tens of
 seconds, and `sample` puts main in an XPC send to `cfprefsd`, most of it under `wipeDefaultsSuite`.
+
+### 57. A spoken clip another test was rewriting in place was missing or half-written when a turn read it — FIXED
+
+**Symptom.** In a local app run, a voice test fails at one of its 60 s waits ("the turn ends by
+itself", "words come in", "the turn ends and sends", "the clip plays into it") and takes 65–129 s.
+`voice.notice == nil` or `voice.phase == .listening` usually fails beside it. The wait's poll count
+is in the thousands, so the wait was not starved; the turn had ended on its own. Alone, the same
+test passes in 6–10 s. Seen in `AskClaudeVoiceEngineTests` and `AskClaudePanelVoiceTests` from
+2026-11-04, and in three sessions' gates on 2026-11-11 (`silenceEndsTheTurnWithWhatWasSaid`,
+`optionSpaceListensAndTheTurnSendsAsASpokenQuestion`, `escKeepsNothing`). Hosted CI never sees it:
+both suites are `.machinePinned(.speechRecognition)`.
+
+**Mechanism.** `AskClaudeVoiceClips.clip` removed `$TMPDIR/AskClaudeVoiceTests/receipts.aiff` and
+wrote it again with `say -o`, which takes about 2 s. `$TMPDIR` belongs to the user, not the
+process, so every app test host on this Mac reads and rewrites that one file. A turn reads its clip
+once, in `AskClaudeClipSource.start`. If another host is rewriting it then, `AVAudioFile(forReading:)`
+throws, `AskClaudeVoice.begin` ends the turn with "Couldn't listen", and the test waits out its 60 s
+for words that never come. The two voice suites are each `.serialized`, which orders their own tests
+only, so the two suites in one host race each other the same way.
+
+**Why it looked like load.** A red needs another host in its voice suites at the same moment, and
+that comes with gate traffic. On 2026-11-11, dreamy-dirac's red came while two other sessions' app
+runs held slots; its voice-only rerun was red too while they still ran, and green once they ended.
+At load 3–11 it needs only one other gate.
+
+**Measured, 2026-11-11.**
+- **Reads while another writer rewrote the clip** (a standalone probe): 662 of 675 threw,
+  `com.apple.coreaudio.avfaudio` 2003334207 (`'wht?'`, missing) or `-39` (end of file, half
+  written).
+- **Old code, two hosts each running both suites, the second started 2 s or 5 s later:** 3 of 4
+  hosts red, 4 tests, 64.8–121.0 s. Every failed turn logged `Ask Claude: couldn’t listen: … error
+  2003334207`. `escKeepsNothing` failed on its wait and `voice.notice == nil`, as on 2026-11-11.
+- **Fixed code, two hosts 2 s and 15 s apart:** 2 of 2 pairs green, 44 of 44 tests, no `couldn’t
+  listen`. A third pair, 5 s apart, gave no verdict: one host hung on `say` (below).
+- **Not it:** the two suites side by side in one host (2 runs green, load 50–58); the main thread
+  held in 9 s blocks beside the engine suite (green); every cooperative-pool thread held in 9 s
+  blocks (green, turns 2–3 times slower); two hosts on the fixed code (green). Two speech
+  transcribers at once, in one process or two, did not slow a turn.
+
+**Fix.** Each clip is written under a name of its own and moved into place with `rename(2)`, which
+is one step: whoever opens the path gets a whole clip, the old one or the new. A file already open
+keeps reading its own copy.
+
+**A `say` that never exits, 2026-11-11.** One `say` wrote its whole clip, the same 93,400 bytes as
+every good one, and then sat idle in its run loop. The test waited on it with `waitUntilExit()`,
+unbounded and on the main thread, so the host gave no verdict for 52 minutes and held a build slot
+throughout. That is once in about 120 `say` runs that day, and the old code waited the same way.
+Now `clip` gives `say` 30 s, stops it, and tries once more; two hangs fail the test, saying so.
+
+**The general rule** is "A named NSPasteboard is machine-global, so two test processes share it",
+one ring out: a fixed path in the temp folder is shared by every test process on this Mac. Give it
+a unique name, or replace it atomically. No other test here writes a fixed name in the temp folder.
+
+**Tell.** `Ask Claude: couldn’t listen:` with an `avfaudio` error in the host's log,
+`$TMPDIR/sync-cloud-tests-<pid>.log`. It is swept an hour after the process ends. A voice red with a
+poll count of about 50, as once on 2026-11-04, is a starved wait instead: mechanism 2.

@@ -10,39 +10,76 @@ import Sync
 // send it, then silence for as long as the turn lasts: the test host is SyncCloud.app, so a test
 // must never open the real microphone.
 
-/// A spoken clip, made once per run.
+/// A spoken clip, made afresh by each test that needs it.
+///
+/// Each is written under a name of its own and renamed into place. The folder is the user's temp
+/// folder, shared by every test process on this Mac, and the two voice suites run side by side in
+/// one. A clip removed and rewritten in place was missing or half-written for the two seconds `say`
+/// takes, and a test that read it then heard nothing until its wait ran out (flaky-tests.md, "A
+/// spoken clip another test was rewriting in place was missing or half-written when a turn read it").
 enum AskClaudeVoiceClips {
     static let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeVoiceTests", isDirectory: true)
 
+    /// How long one `say` may take. It takes about 2 s, but once in about 120 runs it wrote its
+    /// clip and never exited, and an unbounded wait held a test host's main thread for 52 minutes.
+    static let sayLimit: TimeInterval = 30
+
     static func clip(_ text: String, named name: String) throws -> URL {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent(name + ".aiff")
-        try? FileManager.default.removeItem(at: url)
+        let (url, fresh) = try paths(name, extension: "aiff")
+        defer { try? FileManager.default.removeItem(at: fresh) }
+        // Once more if it hangs.
+        let said = try say(text, to: fresh) || say(text, to: fresh)
+        try #require(said, "say didn't finish \(name) in \(Int(sayLimit)) s, twice")
+        try putInPlace(fresh, at: url)
+        return url
+    }
+
+    /// Runs `say` into `file`. False if it hasn't exited within `sayLimit`; it is stopped then.
+    private static func say(_ text: String, to file: URL) throws -> Bool {
         let say = Process()
         say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
         // A named voice, the one these clips were measured with; the default is a Mac setting.
-        say.arguments = ["-v", "Samantha", "-o", url.path, text]
+        say.arguments = ["-v", "Samantha", "-o", file.path, text]
+        let exited = DispatchSemaphore(value: 0)
+        say.terminationHandler = { _ in exited.signal() }
         try say.run()
-        say.waitUntilExit()
-        try #require(say.terminationStatus == 0, "say couldn't make \(name)")
-        return url
+        guard exited.wait(timeout: .now() + sayLimit) == .success else {
+            say.terminate()
+            return false
+        }
+        try #require(say.terminationStatus == 0, "say couldn't make \(file.lastPathComponent)")
+        return true
+    }
+
+    /// Where the clip goes, and a name of its own to write it under first.
+    private static func paths(_ name: String, extension ext: String) throws -> (url: URL, fresh: URL) {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return (folder.appendingPathComponent("\(name).\(ext)"), folder.appendingPathComponent("\(name)-\(UUID().uuidString).\(ext)"))
+    }
+
+    /// `rename(2)`, one step: whoever opens `url` gets a whole clip, the old one or the new.
+    private static func putInPlace(_ fresh: URL, at url: URL) throws {
+        let result = rename(fresh.path, url.path)
+        try #require(result == 0, "couldn't put \(url.lastPathComponent) in place: \(String(cString: strerror(errno)))")
     }
 
     static var receipts: URL { get throws { try clip("Open the folder called Receipts", named: "receipts") } }
 
     /// Steady noise at about −20 dBFS: loud, with no words in it.
     static func noise(seconds: Double) throws -> URL {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent("noise.caf")
-        try? FileManager.default.removeItem(at: url)
+        let (url, fresh) = try paths("noise", extension: "caf")
+        defer { try? FileManager.default.removeItem(at: fresh) }
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
         let frames = AVAudioFrameCount(16_000 * seconds)
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
         buffer.frameLength = frames
         var generator = SystemRandomNumberGenerator()
         for index in 0..<Int(frames) { buffer.floatChannelData![0][index] = Float.random(in: -0.17...0.17, using: &generator) }
-        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        let file = try AVAudioFile(forWriting: fresh, settings: format.settings)
         try file.write(from: buffer)
+        // Its header is finished when it closes, so it closes before it moves.
+        file.close()
+        try putInPlace(fresh, at: url)
         return url
     }
 }
