@@ -291,7 +291,11 @@ public final class PeopleStore: ObservableObject {
         guard let i = people.firstIndex(where: { $0.id == id }) else { return }
         let removed = people.remove(at: i)
         sortAndSave()
-        Logger.shared.info("People: removed '\(removed.displayName)' — documents naming them are "
+        // Every name and the id, so Copy Log for Sharing can still mask them once they are off the
+        // list (`LogSharing.peopleNamed(inLog:)` reads this line).
+        let named = ([removed.id] + [(removed.fullNames + removed.aliases).joined(separator: ", ")])
+            .filter { !$0.isEmpty }.joined(separator: "; ")
+        Logger.shared.info("People: removed '\(removed.displayName)' (\(named)) — documents naming them are "
                            + "no longer attributed to anyone")
     }
 

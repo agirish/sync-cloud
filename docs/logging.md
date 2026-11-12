@@ -91,7 +91,8 @@ The file keeps paths, emails and names: they are what make it useful, and it nev
 on its own. **Copy Log for Sharing** (the Activity Log's bar, Settings ▸ Advanced) copies the whole
 file masked (`LogSharing`): emails (keeping a `GoogleDrive-` or `OneDrive-` prefix), the home
 folder and account name, and every name form of everyone in every profile's `people.json`, as
-`<person N>`. The copy's header says what it doesn't mask. A new kind of identifying text in a log
+`<person N>`, then everyone the log's own `People:` added, updated and removed lines name, so
+someone since removed from a list goes too. The copy's header says what it doesn't mask. A new kind of identifying text in a log
 line needs a masking step there, or a word in that header.
 
 ## Stalls

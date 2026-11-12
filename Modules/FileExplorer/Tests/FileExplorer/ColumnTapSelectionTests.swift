@@ -140,14 +140,19 @@ import Sync
     }
 
     /// A click replaces the whole selection rather than adding to it: the selection is a flat
-    /// `Set<String>` shared across columns, and a plain click means "just this row".
-    @Test func testTheTapsWriteReplacesRatherThanExtends() {
+    /// `Set<String>` shared across columns, and a plain click means "just this row". Driven through
+    /// the column's own table, where a click's selection commits.
+    @Test func testAClickReplacesTheSelectionRatherThanExtendingIt() throws {
         let box = Box()
         box.selection = ["\(Self.root)/folder0", "\(Self.root)/folder1"]
-        // The assignment the tap handler makes.
-        let clicked = "\(Self.root)/folder4"
-        if box.selection != [clicked] { box.selection = [clicked] }
-        #expect(box.selection == [clicked],
-                "a plain click must replace the selection, not extend it")
+        let window = mount(box)
+        pump(window, seconds: 0.5)
+        let column = try #require(tables(window.contentView!).first)
+        #expect(column.selectedRowIndexes == IndexSet([0, 1]), "the two-row selection never reached the column")
+
+        column.selectRowIndexes(IndexSet(integer: 4), byExtendingSelection: false)
+        pump(window, seconds: 0.5)
+        #expect(box.selection == ["\(Self.root)/folder4"],
+                "a click must replace the selection, not extend it: \(box.selection.sorted())")
     }
 }

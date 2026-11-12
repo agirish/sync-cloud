@@ -1419,7 +1419,7 @@ import Design
             Self.contentZone))
         let (intro, blank) = (counts(toFile).ink, counts(scanned).ink)
         #expect(intro > blank + 500, """
-                To File's pre-scan content inked \\(intro) against \\(blank) once scanned — the \\
+                To File's pre-scan content inked \(intro) against \(blank) once scanned — the \
                 setup card the header stands down for is not on screen.
                 """)
     }

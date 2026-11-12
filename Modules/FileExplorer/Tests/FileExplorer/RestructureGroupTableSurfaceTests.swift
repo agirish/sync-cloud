@@ -155,4 +155,58 @@ import Testing
         #expect(cleared.remembered["Approval"] == nil)
         #expect(cleared.rows.allSatisfy { $0.target == nil })
     }
+
+    // MARK: A retry after a refused group landing
+
+    private static let families = ["Immigration/H-1B", "Immigration/H-4", "Immigration/H-4 EAD"]
+
+    private static func plans(_ rows: [RestructureMapping.Row]) -> [RestructurePlanSheet.GroupPlan] {
+        RestructurePlanner.groupManifests(
+            families: families, mapping: RestructureMapping(rows: rows), kind: .shape, in: trio(),
+            profileId: "p", manifestIdPrefix: "plan", createdAt: "2026-11-11")
+    }
+
+    /// A refused group landing unlocks the mapping, so a retry after an edit must land the edited
+    /// plans, not the ones frozen when the first attempt ran. A family that landed before the
+    /// refusal keeps the plan it landed with.
+    @Test func aRetryAfterARefusalLandsTheEditedMapping() throws {
+        let before = [RestructureMapping.Row(source: "Correspondence", target: "Letters")]
+        let after = [RestructureMapping.Row(source: "Correspondence", target: "Mail")]
+        let ran = Self.plans(before)
+        let edited = Self.plans(after)
+        // H-1B landed, then H-4 was refused.
+        let landed = try ran[0].result.get()
+        let freeze = RestructurePlanSheet.GroupFreeze(plans: ran, rows: before, together: true)
+        #expect(try ran[1].result.get() != edited[1].result.get(), "fixture: the edit changes H-4's plan")
+
+        let unedited = RestructurePlanSheet.shownGroup(
+            landed: freeze, applying: nil, rows: before, together: true,
+            alreadyLanded: [landed.manifestId], live: { edited })
+        #expect(try unedited.map { try $0.result.get() } == ran.map { try $0.result.get() },
+                "with the mapping untouched, the review stays on what ran")
+
+        let retried = RestructurePlanSheet.shownGroup(
+            landed: freeze, applying: nil, rows: after, together: true,
+            alreadyLanded: [landed.manifestId], live: { edited })
+        #expect(retried.map(\.family) == Self.families)
+        #expect(try retried[0].result.get() == landed, "the family that landed keeps the plan it landed with")
+        #expect(try retried[1].result.get() == edited[1].result.get(),
+                "the retry would land H-4's plan from before the edit")
+        #expect(try retried[2].result.get() == edited[2].result.get())
+
+        let alone = RestructurePlanSheet.shownGroup(
+            landed: freeze, applying: nil, rows: after, together: false,
+            alreadyLanded: [landed.manifestId], live: { edited })
+        #expect(alone.isEmpty, "turning the group off after a refusal still showed the group")
+    }
+
+    /// While a landing runs, the plans it started with, whatever the mapping says.
+    @Test func aRunningLandingShowsThePlansItStartedWith() throws {
+        let rows = [RestructureMapping.Row(source: "Correspondence", target: "Letters")]
+        let running = Self.plans(rows)
+        let shown = RestructurePlanSheet.shownGroup(
+            landed: nil, applying: running, rows: [], together: true, alreadyLanded: [],
+            live: { Self.plans([]) })
+        #expect(try shown.map { try $0.result.get() } == running.map { try $0.result.get() })
+    }
 }

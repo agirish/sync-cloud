@@ -15422,3 +15422,21 @@ the measure under TE347a applies: no maintenance line has Ask Claude.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## A retry after a refused group Apply lands the edited mapping — recorded, not owed
+
+2026-11-11, for v7.2. In the Restructure plan sheet, a group Apply that a family refuses unlocks the
+mapping, but the review and the retry stayed frozen on the plans the first attempt ran, so a retry
+after an edit landed the manifests from before it. On `main` the group re-plans once the mapping or
+the group toggle changes, keeping the plan of each family that already landed
+(`RestructurePlanSheet.shownGroup`).
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructurePlanSheet.swift 2>/dev/null | grep -c 'landedGroup = plans')"; done
+# measured 2026-11-11, against origin: v6.x 1, v5.x 1, v4.x/v3.x/v2.x 0 (no group Apply)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | The frozen group: a retry after an edit lands the old plans | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No group Apply | CLOSED — does not apply |

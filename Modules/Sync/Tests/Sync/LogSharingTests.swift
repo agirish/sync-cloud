@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import EventsTestSupport
 @testable import Sync
 
 /// "Copy Log for Sharing" masks what identifies the owner, and nothing a reader needs.
@@ -119,6 +120,52 @@ import Testing
     @Test func anEmailWithAccentsGoesWhole() {
         #expect(mask("anna@müller.de wrote") == "<account> wrote")
         #expect(mask("zoé.x@exemple.fr") == "<account>")
+    }
+
+    /// Someone removed from every People list is still named in the lines logged while they were
+    /// on one. The log's own People lines name them, so the copy masks them, numbered after the
+    /// roster: every form the removed line gives, and the id's words.
+    @Test func someoneRemovedFromTheListIsMaskedFromTheLogsOwnLines() {
+        let log = """
+            [INFO] People: added 'Cleo' (cleo-park)
+            [INFO] Filed Cleo_passport.pdf into Cleo Park/IDs
+            [INFO] People: removed 'Cleo' (cleo-park; Cleo Park, Coco) — documents naming them are no longer attributed to anyone
+            [INFO] Coco's school forms, and Park family photos, for anna
+            """
+        let masked = mask(log)
+        for name in ["Cleo", "Park", "Coco", "cleo-park"] {
+            #expect(!masked.contains(name), "\(name) survived: \(masked)")
+        }
+        #expect(masked.contains("Filed <person 3>_passport.pdf into <person 3>/IDs"), "\(masked)")
+        #expect(masked.contains("for <person 1>"), "the roster's numbering moved: \(masked)")
+    }
+
+    /// A removed line written before the id was added to it, and a rename: the old display name
+    /// goes with the person it belonged to.
+    @Test func anOldRemovedLineAndANameBeforeARenameAreMaskedToo() {
+        let masked = mask("""
+            [INFO] People: added 'Dee' (dee)
+            [INFO] People: updated 'Deirdre' (dee)
+            [INFO] People: removed 'Deirdre' — documents naming them are no longer attributed to anyone
+            [INFO] Dee and Deirdre
+            """)
+        #expect(masked.hasSuffix("[INFO] <person 3> and <person 3>"), "\(masked)")
+        // A removed line from before 7.2, with no other line about the person.
+        #expect(mask("People: removed 'Eli' — documents naming them\nEli's taxes")
+                == "People: removed '<person 3>' — documents naming them\n<person 3>'s taxes")
+    }
+
+    /// The line `PeopleStore.remove` writes is one the copy reads back.
+    @MainActor
+    @Test func theRemovedLineThePeopleStoreWritesIsReadBack() async throws {
+        let store = PeopleStore(people: [])
+        let log = LogCapture()
+        let added = try #require(store.add(displayName: "Fen", fullNames: ["Fenella Ross"], aliases: ["Nell"]))
+        store.remove(id: added.id)
+        let removed = try #require(await log.line(containing: "People: removed 'Fen'"))
+        let people = LogSharing.peopleNamed(inLog: removed)
+        #expect(people.map(\.id) == [added.id])
+        #expect(Set(people.flatMap(\.nameForms)) == ["Fen", "Fenella Ross", "Nell"])
     }
 
     @Test func theCopyOpensWithItsHeaderAndHoldsTheMaskedFile() throws {

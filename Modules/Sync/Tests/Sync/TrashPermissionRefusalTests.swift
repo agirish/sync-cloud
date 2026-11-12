@@ -534,7 +534,8 @@ import Testing
         #expect(body.contains("trashAfterReregistering("),
                 "the scan is reading the wrong function — it does not park at all")
         #expect(!body.contains("midCloudTransfer"), """
-                the move's source cleanup consults the mid-transfer probe, so an uploading file                 that would have reached the Trash is sent to removeItem and destroyed instead
+                the move's source cleanup consults the mid-transfer probe, so an uploading file \
+                that would have reached the Trash is sent to removeItem and destroyed instead
                 """)
     }
 

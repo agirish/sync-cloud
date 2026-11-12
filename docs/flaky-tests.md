@@ -5463,3 +5463,35 @@ a unique name, or replace it atomically. No other test here writes a fixed name 
 **Tell.** `Ask Claude: couldn’t listen:` with an `avfaudio` error in the host's log,
 `$TMPDIR/sync-cloud-tests-<pid>.log`. It is swept an hour after the process ends. A voice red with a
 poll count of about 50, as once on 2026-11-04, is a starved wait instead: mechanism 2.
+
+### 58. A recalled question that never reached the box, so the next Down walked past it — cause not found
+
+**Symptom.** Hosted CI, app target, attempt 1 for `211ff3ad3` (a comments-only commit), 2026-11-06:
+
+```
+✘ … AskClaudePromptHistoryTests.swift:265: Expectation failed: shown == [… "alpha\nbeta@10", "@0"]
+  ↳ shown → ["alpha\nbeta@0", "one\ntwo\nthree@0", "one\ntwo\nthree@4", "one\ntwo\nthree@8", "@0", "@0"]
+```
+
+in `throughQuestionsOfSeveralLinesTheSameKeyGoesOn`, which presses Up, Up, then Down four times in
+Ask Claude's box. Attempt 2 was green; so were 3 of 3 runs here that day.
+
+**What the result says.** The fifth press, Down from the last line of `one/two/three`, showed the
+unsent draft (empty) instead of `alpha\nbeta`. `AskClaudePromptHistory.newer` returns the draft
+only from the newest entry, so the walk already stood on `alpha\nbeta`: an earlier Down had
+reached the recall without the box showing it, while the caret still moved through the lines. The
+panel's own fallback for that is `draft = shown`, taken when `AskClaudeComposerCaret` sees no field
+editor in front; it would not have moved the caret. Which path did both is not known.
+
+**Measured, 2026-11-11.**
+- 8 runs of the suite beside `AskClaudePanelWindowFitTests` and `AskClaudeBrowseToolsTests`, the
+  two Ask Claude suites that ended inside the red test on CI: 8 green.
+- The focus taken from the box before press 2, 3 or 4, four ways (`makeFirstResponder(nil)`, with
+  and without a settle; another panel's box made first responder, closed or kept): 12 of 12 green.
+  `Box.editor()` puts the focus back, so a steal between presses is not it.
+
+**What was done.** The test's failure message now traces each press: what had the keyboard before
+it, the box's text and caret after it, and `chat.draft` then. The next red says whether the draft
+ran ahead of the box, and at which press.
+
+**Tell.** The last two presses both `@0`. Rerun the suite; record the trace here.

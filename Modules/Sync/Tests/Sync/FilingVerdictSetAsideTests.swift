@@ -259,7 +259,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: b.kept.deletingLastPathComponent()) }
         #expect(a.kept.lastPathComponent != b.kept.lastPathComponent,
                 """
-                two episodes share a set-aside name, so `loggedLine` cannot tell their lines                 apart and a concurrent sibling's line satisfies this one's assertions
+                two episodes share a set-aside name, so `loggedLine` cannot tell their lines \
+                apart and a concurrent sibling's line satisfies this one's assertions
                 """)
     }
 

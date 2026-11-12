@@ -26,6 +26,8 @@ enum ReplaceFixtures {
         case stripes(CGRect)
         /// Light grey dots on white: white is most of it, but a third is a shade between.
         case dots(CGRect)
+        /// One flat colour over `outer`, but for white in `hole`.
+        case frame(outer: CGRect, hole: CGRect, CGColor)
     }
 
     static func write(_ path: String, lines: [Line], ground: Ground = .none, invisible: Bool = false, coverWith: CGRect? = nil) {
@@ -42,6 +44,11 @@ enum ReplaceFixtures {
             for x in stride(from: rect.minX, to: rect.maxX, by: 2.5) {
                 for y in stride(from: rect.minY, to: rect.maxY, by: 2.5) { context.fill(CGRect(x: x, y: y, width: 1.5, height: 1.5)) }
             }
+        case .frame(let outer, let hole, let color):
+            context.setFillColor(color)
+            context.fill(outer)
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(hole)
         case .stripes(let rect):
             for (i, x) in stride(from: rect.minX, to: rect.maxX, by: 4).enumerated() {
                 context.setFillColor(i % 2 == 0 ? CGColor(srgbRed: 0.75, green: 0.85, blue: 0.95, alpha: 1)
@@ -265,6 +272,37 @@ enum ReplaceFixtures {
         let dotted = invoice("Dotted.pdf", ground: .dots(CGRect(x: 200, y: 560, width: 300, height: 80)))
         guard case .success(let dots) = try pick(dotted, at: CGPoint(x: 300, y: 604)) else { Issue.record("refused"); return }
         #expect(!dots.plainBackground, "a dotted ground passed for a plain one")
+    }
+
+    /// Light ink, under twice `inkDistance` from the ground, has faint shades of the ground that
+    /// are also near the ink. In the ring past the cover such a shade is still a pattern: a
+    /// texture that colour can't be told from the ink by colour, and glyphs stay inside the cover,
+    /// so the exception for the ink's own colour covers only what is off the blend. Light words on
+    /// a plain page still read as plain.
+    @Test func aFaintShadeNearLightInkIsStillAPatternInTheRing() throws {
+        let ink = EditorPDFRGB(red: 0.62, green: 0.62, blue: 0.62)
+        let shade = EditorPDFRGB(red: 0.8, green: 0.8, blue: 0.8)
+        #expect(shade.distance(to: .white) <= EditorPDFReplace.inkDistance && shade.distance(to: ink) <= EditorPDFReplace.inkDistance,
+                "fixture: the shade is not faint and near the ink")
+        // On whole points, so the hole's edges and the ring fall on whole pixels.
+        let cover = CGRect(x: 250, y: 590, width: 120, height: 30)
+        func ground(_ name: String, _ ground: ReplaceFixtures.Ground) throws -> (color: EditorPDFRGB, isPlain: Bool, inkShare: CGFloat) {
+            let file = path(name)
+            ReplaceFixtures.write(file, lines: [.init(text: "14 March 2026", at: CGPoint(x: 260, y: 600),
+                                                      color: CGColor(srgbRed: 0.62, green: 0.62, blue: 0.62, alpha: 1))],
+                                  ground: ground)
+            let (page, box) = try page(file)
+            return EditorPDFReplace.background(around: cover, page: page, box: box, ink: ink)
+        }
+        let plain = try ground("Light.pdf", .none)
+        #expect(plain.isPlain, "light words on a white page were taken for a pattern")
+        #expect(plain.inkShare >= EditorPDFReplace.minimumInk, "fixture: the words are not inside the cover")
+        let framed = try ground("LightFramed.pdf", .frame(outer: cover.insetBy(dx: -10, dy: -10), hole: cover,
+                                                          CGColor(srgbRed: 0.8, green: 0.8, blue: 0.8, alpha: 1)))
+        #expect(framed.color.distance(to: .white) < 0.02, "fixture: the ground under the words is not the hole's white")
+        #expect(!framed.isPlain, "a shade near the colour of light ink, all round the words, passed for a plain ground")
+        // So `pick` reaches this rule: words this light are not refused as missing.
+        guard case .success = try pick(path("Light.pdf"), at: CGPoint(x: 300, y: 604)) else { Issue.record("refused"); return }
     }
 
     // MARK: Refusals (TE87)

@@ -182,7 +182,8 @@ import Sync
         sendKeypadEnter(window, modifiers: .control)
         sendKeypadEnter(window, modifiers: .shift)
         #expect(recorder.decisions == [true], """
-                a MODIFIED keypad Enter filed a file: \(recorder.decisions). ⌘/⌥/⌃/⇧ + Enter are                 chords, not the plain keystroke the keycap advertises.
+                a MODIFIED keypad Enter filed a file: \(recorder.decisions). ⌘/⌥/⌃/⇧ + Enter are \
+                chords, not the plain keystroke the keycap advertises.
                 """)
 
         // And Caps Lock, which is a lock and not a chord, must still file.

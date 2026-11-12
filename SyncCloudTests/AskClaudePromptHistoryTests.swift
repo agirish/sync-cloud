@@ -173,6 +173,7 @@ import Testing
         let composer: NSTextField
 
         init(_ chat: AskClaudeChat) throws {
+            self.chat = chat
             let rig = AskClaudePanelRig(chat: chat)
             (window, host) = (rig.window, rig.host)
             composer = try #require(rig.field)
@@ -203,17 +204,24 @@ import Testing
             return try #require(window.firstResponder as? NSTextView)
         }
         private var caret: Int?
+        /// Per press: what had the keyboard before it, the box's text and caret after it, and the
+        /// chat's draft then. For the failure message: a red seen once on CI (`docs/flaky-tests.md`,
+        /// "A recalled question that never reached the box") left only the texts.
+        private(set) var trace: [String] = []
+        let chat: AskClaudeChat
 
         /// What the box holds after the press, and where its caret is, read before any await: the
         /// handler writes both at once, and the focus could go at the next await.
         func press(_ up: Bool) async throws -> String {
             let editor = try await editor()
+            let before = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             let characters = up ? "\u{F700}" : "\u{F701}"
             window.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function], timestamp: 0,
                                               windowNumber: window.windowNumber, context: nil, characters: characters,
                                               charactersIgnoringModifiers: characters, isARepeat: false, keyCode: up ? 126 : 125)!)
             caret = editor.selectedRange().location
             let shown = "\(editor.string)@\(editor.selectedRange().location)"
+            trace.append("\(up ? "↑" : "↓") had \(before), shows \(shown.debugDescription), draft \(chat.draft.debugDescription)")
             await settle()
             return shown
         }
@@ -253,6 +261,7 @@ import Testing
         for up in [true, true, false, false, false, false] { shown.append(try await box.press(up)) }
         #expect(shown == ["alpha\nbeta@0", "one\ntwo\nthree@0",
                           "one\ntwo\nthree@4", "one\ntwo\nthree@8",   // down its lines
-                          "alpha\nbeta@10", "@0"])
+                          "alpha\nbeta@10", "@0"],
+                "\(box.trace.joined(separator: "; "))")
     }
 }

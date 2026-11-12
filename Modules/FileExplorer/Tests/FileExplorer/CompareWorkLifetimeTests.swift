@@ -82,14 +82,16 @@ import Testing
                 "the de-skew and the difference raster are no longer gated on the mode")
         let refresh = try SourceText.body(of: "private func refreshRasters(", in: source)
         #expect(refresh.contains("guard wantsAligned else { return (nil, BitmapDiff.compare("), """
-                the visible page is de-skewed whatever the mode, which is ~565 ms per page of an                 estimate that swipe and onion read nothing of
+                the visible page is de-skewed whatever the mode, which is ~565 ms per page of an \
+                estimate that swipe and onion read nothing of
                 """)
         #expect(refresh.contains("BitmapDiff.compareAligning("),
                 "the difference mode no longer aligns at all — re-aim this scan")
         // The premise of the above, pinned where it can rot: the page walk is unaligned.
         let walk = try SourceText.body(of: "private func comparedState(", in: source)
         #expect(walk.contains("BitmapDiff.compare(") && !walk.contains("compareAligning"), """
-                `comparedState` now aligns too — the strip is no longer uniformly unaligned                 outside the difference mode, and the gate's justification needs re-reading
+                `comparedState` now aligns too — the strip is no longer uniformly unaligned \
+                outside the difference mode, and the gate's justification needs re-reading
                 """)
     }
 

@@ -202,7 +202,7 @@ import Design
         ]
         for (name, row) in panes {
             #expect(row != nil, """
-                    \\(name) drew no trigger band — either the button is missing or this harness \\
+                    \(name) drew no trigger band — either the button is missing or this harness \
                     stopped recognising it, and neither is an aligned card.
                     """)
         }
@@ -210,8 +210,8 @@ import Design
         guard let first = rows.first else { return }
         for ((name, _), row) in zip(panes, rows) {
             #expect(abs(row - first) <= 2, """
-                    \\(name)'s trigger starts at \\(row)pt against To File's \\(first)pt — its \\
-                    header is a line taller or shorter than the rest. Keep the message to two \\
+                    \(name)'s trigger starts at \(row)pt against To File's \(first)pt — its \
+                    header is a line taller or shorter than the rest. Keep the message to two \
                     lines and the safety contract to one.
                     """)
         }

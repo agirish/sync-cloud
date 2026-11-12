@@ -12,7 +12,8 @@ import Foundation
     @Test func theAppWiresTheOutOfProcessTrash() throws {
         let source = try macAppFile("SyncCloudApp.swift")
         #expect(source.contains("manager.trashViaWorkspace = "), """
-                the app no longer wires `trashViaWorkspace`, so its default — do nothing — stands,                 and a Trash refused in-process gets no second attempt
+                the app no longer wires `trashViaWorkspace`, so its default — do nothing — stands, \
+                and a Trash refused in-process gets no second attempt
                 """)
         #expect(source.contains("NSWorkspace.shared.recycle("),
                 "`trashViaWorkspace` is wired to something that is not the system Trash service")

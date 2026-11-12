@@ -261,7 +261,6 @@ import Events
         await manager.applyRecommendedDuplicates([here, gone])
 
         let said = try #require(manager.banner?.message)
-        print("PROBE banner=\(said) err=\(String(describing: manager.currentError))")
         #expect(said.contains(FileSyncManager.formatBytes(1_000)),
                 "the banner does not name what this run actually freed: “\(said)”")
         #expect(!said.contains(FileSyncManager.formatBytes(5_000)),

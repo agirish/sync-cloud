@@ -518,7 +518,8 @@ import Testing
             probed.paths.isSuperset(of: [second.left, second.right])
         }
         #expect(secondDone, """
-                the swapped-in pair's sides were never classified (\(pumps) pumps) — the raster                 refresh can never start for it
+                the swapped-in pair's sides were never classified (\(pumps) pumps) — the raster \
+                refresh can never start for it
                 """)
     }
 

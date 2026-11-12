@@ -135,8 +135,8 @@ import Testing
         let sheet = try source("RestructurePlanSheet.swift")
         #expect(sheet.contains("let plan = landedPlan ?? applyingPlan ?? derived"),
                 "the single plan must consult the in-flight freeze before re-deriving")
-        #expect(sheet.contains("let group = landedGroup ?? applyingGroup ?? "),
-                "and so must the group's, which runs the planner once per family")
+        #expect(sheet.contains("let group = Self.shownGroup(landed: landedGroup, applying: applyingGroup,"),
+                "and so must the group's, which runs the planner once per family (`RestructureGroupTableSurfaceTests` pins `shownGroup`)")
         // Armed with the flag it belongs to, and cleared on the path where nothing landed.
         #expect(sheet.contains("applyingPlan = .success(manifest)"))
         #expect(sheet.contains("applyingGroup = plans"))

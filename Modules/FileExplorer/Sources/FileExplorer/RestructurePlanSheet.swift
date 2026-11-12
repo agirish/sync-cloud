@@ -103,9 +103,7 @@ struct RestructurePlanSheet: View {
     /// and after a landing every row's source is renamed away, so re-deriving would show "nothing
     /// would change" above a footer reporting the landing.
     @State private var landedPlan: Result<RestructureManifest, RestructurePlanner.PlanRefusal>?
-    @State private var landedGroup: [(family: String,
-                                      result: Result<RestructureManifest,
-                                                     RestructurePlanner.PlanRefusal>)]?
+    @State private var landedGroup: GroupFreeze?
     /// The plan as it stood when Apply was pressed, held for the whole landing. A landing
     /// publishes up to ~101 progress ticks, each re-rendering the sheet; without this each would
     /// re-run the planner on the main actor against a half-moved tree. Cleared on a refusal;
@@ -174,7 +172,9 @@ struct RestructurePlanSheet: View {
         let plan = landedPlan ?? applyingPlan ?? derived
         // Likewise the group's plans: `groupPlans` runs the planner once per family, and both
         // the review and the footer read it.
-        let group = landedGroup ?? applyingGroup ?? (planTogether ? groupPlans : [])
+        let group = Self.shownGroup(landed: landedGroup, applying: applyingGroup, rows: rows,
+                                    together: planTogether, alreadyLanded: alreadyLanded,
+                                    live: { groupPlans })
         return VStack(alignment: .leading, spacing: 14) {
             header
             // The editing surface locks as one piece while an apply runs and once it lands. The
@@ -1507,7 +1507,7 @@ extension RestructurePlanSheet {
             applying = false
             // The review freezes on these plans whatever ran, so after a partial apply the
             // remaining families keep their reviewed operations on screen for the retry.
-            landedGroup = plans
+            landedGroup = GroupFreeze(plans: plans, rows: rows, together: planTogether)
             applyingGroup = nil
             if let refusal {
                 outcome = .failed(landed.isEmpty
@@ -1517,6 +1517,38 @@ extension RestructurePlanSheet {
             } else {
                 outcome = .applied(landed.joined(separator: "; "))
             }
+        }
+    }
+
+    typealias GroupPlan = (family: String,
+                           result: Result<RestructureManifest, RestructurePlanner.PlanRefusal>)
+
+    /// A group landing's plans, with the mapping they were planned from.
+    struct GroupFreeze {
+        let plans: [GroupPlan]
+        let rows: [RestructureMapping.Row]
+        let together: Bool
+    }
+
+    /// The group the review shows and Apply runs.
+    ///
+    /// While a landing runs, the plans it started with. Once it has run, the plans it ran, so after
+    /// a partial apply the rest of the group keeps its reviewed operations on screen for the retry,
+    /// but only while the mapping is the one they came from. A refusal unlocks the mapping, and a
+    /// retry after an edit has to land the edited plans: the frozen ones would apply the manifests
+    /// from before it. A family that already landed keeps the plan it landed with.
+    static func shownGroup(landed: GroupFreeze?, applying: [GroupPlan]?,
+                           rows: [RestructureMapping.Row], together: Bool,
+                           alreadyLanded: Set<String>, live: () -> [GroupPlan]) -> [GroupPlan] {
+        if let applying { return applying }
+        guard let landed else { return together ? live() : [] }
+        if landed.rows == rows, landed.together == together { return landed.plans }
+        guard together else { return [] }
+        return live().map { plan in
+            guard let frozen = landed.plans.first(where: { $0.family == plan.family }),
+                  let manifest = try? frozen.result.get(),
+                  alreadyLanded.contains(manifest.manifestId) else { return plan }
+            return frozen
         }
     }
 

@@ -396,10 +396,13 @@ enum EditorPDFReplace {
         // Inside, glyph edges blend ground into ink, so only what is off that blend is a pattern. In
         // the ring, past the glyphs, a faint shade of the ground is one too: a texture, a gradient.
         let offInside = inside.filter { offBlend($0, ground, ink) > plainTolerance }.count
+        // A faint shade counts even near the ink: light ink and a texture its colour can't be told
+        // apart, and glyphs stay inside the cover. Only what is off the blend is let off for being
+        // the ink's own colour.
         let offRing = outside.filter { c in
             let d = c.distance(to: ground)
-            return (d > plainTolerance && d <= inkDistance) || (d > inkDistance && offBlend(c, ground, ink) > plainTolerance)
-                && c.distance(to: ink) > inkDistance
+            return (d > plainTolerance && d <= inkDistance)
+                || (d > inkDistance && offBlend(c, ground, ink) > plainTolerance && c.distance(to: ink) > inkDistance)
         }.count
         let plain = CGFloat(offInside) <= shadeShare * CGFloat(inside.count)
             && CGFloat(offRing) <= shadeShare * CGFloat(max(outside.count, 1))

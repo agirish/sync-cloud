@@ -282,9 +282,13 @@ import Foundation
         reset()
         CloudOnlyBadgeCache.record("/memo-root/x.bin", isCloudOnly: true)
 
-        CloudOnlyBadgeCache.clear(underRoot: "/Root")
+        CloudOnlyBadgeCache.clear(underRoot: "/Memo-Root")
+        #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == true,
+                "a clear under a root spelled in another case dropped the entry")
 
-        #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == true)
+        // The control: the same root in the keys' own case does clear it.
+        CloudOnlyBadgeCache.clear(underRoot: "/memo-root")
+        #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == nil)
     }
 
     /// The capacity wipe is a bulk invalidation and must bump the generation like any other.
