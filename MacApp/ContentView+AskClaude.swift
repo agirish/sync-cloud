@@ -514,6 +514,9 @@ extension ContentView {
             askClaudeChat.updatePlan(id) { $0.setTicked(ticked, row: row) }
             // Names are made in card order, counting the ticked rows above as landed.
             askClaudeRenameForFolders(id)
+        case .tickSure(let folder, let ticked):
+            askClaudeChat.updatePlan(id) { $0.setSureTicked(ticked, inFolder: folder) }
+            askClaudeRenameForFolders(id)
         case .choose(let row, let choice):
             askClaudeChat.updatePlan(id) { $0.choose(choice, forRow: row) }
             askClaudeRenameForFolders(id)
@@ -1222,6 +1225,13 @@ extension ContentView {
         AskClaudeBrowseTools.spokenSources(settings.enabledProviders, isHidden: askClaudeIsHidden)
     }
 
+    /// Page 1 for filing help, kept for the chat (TE343): read once, and used only while Organize
+    /// may read contents, asked again each time.
+    func askClaudePage(_ path: String, light: Bool) async -> String? {
+        guard syncManager.filingHelpReadsPages else { return nil }
+        return await askClaudeChat.pages.page(path, light: light) { await syncManager.filingHelpPage($0, light: light) }
+    }
+
     func askClaudeToolsContext() -> AskClaudeBrowseTools.Context {
         AskClaudeBrowseTools.Context(
             inBrowse: askClaudeInBrowse,
@@ -1320,9 +1330,19 @@ extension ContentView {
                 let size = AskClaudeDisk.node(atPath: path)?.fileSize
                 let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true
                     && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
-                let page = fetches ? nil : await syncManager.filingHelpPage(path)
+                let page = fetches ? nil : await askClaudePage(path, light: false)
                 let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
                 return await syncManager.whereToFile(path, snippet: page, preferring: place, isHidden: { hidden.isHidden($0) })
+            },
+            rankAhead: { path, place in
+                // TE343: the look-ahead's light read, OCR left out, and no line in the log per file.
+                let size = AskClaudeDisk.node(atPath: path)?.fileSize
+                let fetches = MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true
+                    && (size ?? .max) > AskClaudeBrowseTools.autoDownloadBytes
+                let page = fetches ? nil : await askClaudePage(path, light: true)
+                let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
+                return await syncManager.whereToFile(path, snippet: page, preferring: place, quiet: true,
+                                                     isHidden: { hidden.isHidden($0) })
             },
             nameFile: { path, folders, taken in
                 await AskClaudeNaming.named(path, into: folders) { facts, ext, folder in
@@ -1344,6 +1364,10 @@ extension ContentView {
                 guard case .plan(let plan) = item.kind else { return [] }
                 return plan.rows.map(\.change.path)
             }),
+            leftOnCards: askClaudeChat.items.reduce(into: [:]) { left, item in
+                guard case .plan(let plan) = item.kind, let files = plan.leftPaths else { return }
+                left[files.place, default: []].formUnion(files.paths)
+            },
             canRefineFiling: syncManager.filingHelpCanRefine,
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)

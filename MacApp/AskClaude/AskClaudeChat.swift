@@ -48,6 +48,9 @@ final class AskClaudeVisibility: ObservableObject {
 @MainActor
 final class AskClaudeChat: ObservableObject {
 
+    /// Page 1 of the files filing help read in this chat (TE343); New Chat clears it.
+    let pages = AskClaudePageCache()
+
     struct Item: Identifiable, Equatable, Codable {
         enum Kind: Equatable, Codable {
             case user(String)
@@ -2184,6 +2187,7 @@ final class AskClaudeChat: ObservableObject {
         warnedNearLimit = false
         engine = makeEngine()
         cachedKey = nil
+        pages.removeAll()
         items = []
         pdfThumbnails = [:]
         for step in pdfUndoSteps.values { step.manager.removeAllActions(withTarget: step.target) }

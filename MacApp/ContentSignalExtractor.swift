@@ -125,12 +125,14 @@ enum ContentSignalExtractor {
     /// The seam the manager injects for the AI classifier: a bounded plain-text excerpt of the file
     /// (PDF text / OCR / plain), or nil when there's nothing readable. Same cloud-only guard and
     /// bounds as the token path — nothing leaves the device.
-    static func snippet(forFileAt path: String) async -> String? {
+    /// `ocr` false leaves a picture unread (an empty answer): Ask Claude's look-ahead over a
+    /// folder's loose files reads 50 at a time and ranks pictures by their names (TE343).
+    static func snippet(forFileAt path: String, ocr: Bool = true) async -> String? {
         await withCheckedContinuation { continuation in
             // Read here, in the task: a task-local isn't visible inside the queue's block.
             let budget = FilingWarningBudget.current
             workQueue.async {
-                let text = withBudget(budget) { extractTextSync(URL(fileURLWithPath: path)) }
+                let text = withBudget(budget) { extractTextSync(URL(fileURLWithPath: path), ocr: ocr) }
                 continuation.resume(returning: text.isEmpty ? nil : text)
             }
         }
@@ -153,13 +155,13 @@ enum ContentSignalExtractor {
     ///
     /// Internal so a test can drive the read failures with a real unreadable file: every branch
     /// answers `""`, and only the log line separates "nothing to say" from "could not look".
-    static func extractTextSync(_ url: URL) -> String {
+    static func extractTextSync(_ url: URL, ocr: Bool = true) -> String {
         // Never force-download a cloud-only placeholder just to peek at its contents.
         guard FilingSurvey.isAvailable(url.path) else { return "" }
 
         let ext = url.pathExtension.lowercased()
         if ext == "pdf" { return pdfText(url) }
-        if imageExtensions.contains(ext) { return ocrText(url) }
+        if imageExtensions.contains(ext) { return ocr ? ocrText(url) : "" }
         if textExtensions.contains(ext) { return plainText(url) }
         return ""
     }

@@ -160,13 +160,72 @@ public enum AskClaudeLooseFiles {
     /// so files moved since don't shift the rest past it. `shown` holds what
     /// earlier cards showed from this folder; with none, `from` counts from the start. `total` is
     /// `from` plus what is left, the count the card numbers against.
-    public static func page(_ files: [File], from: Int, shown: Set<String>, count: Int = perCard) -> (files: [File], total: Int) {
-        let rest = from > 0 && !shown.isEmpty ? files.filter { !shown.contains($0.path) } : Array(files.dropFirst(from))
-        return (Array(rest.prefix(count)), from + rest.count)
+    /// `ahead` puts the sure ones first (``sureFirst(_:path:ahead:)``).
+    public static func page(_ files: [File], from: Int, shown: Set<String>, count: Int = perCard,
+                            ahead: [String: Ahead] = [:]) -> (files: [File], total: Int) {
+        let rest = unshown(files, from: from, shown: shown)
+        return (Array(sureFirst(rest, path: \.path, ahead: ahead).prefix(count)), from + rest.count)
+    }
+
+    /// The files no card has shown yet, newest first: after the first card, those no card before
+    /// it showed or left; with none, `from` counts from the start. `from` 0 is a fresh ask, which
+    /// looks at every file again.
+    public static func unshown(_ files: [File], from: Int, shown: Set<String>) -> [File] {
+        from > 0 && !shown.isEmpty ? files.filter { !shown.contains($0.path) } : Array(files.dropFirst(from))
     }
 
     /// Files on one filing card: few enough to read.
     public static let perCard = 10
+
+    /// How many of the files not yet shown a card reads lightly to bring the sure ones forward
+    /// (TE343): page 1's text without OCR, so a card costs little more than its own 10 full reads.
+    public static let lookAhead = 50
+
+    /// What the light read made of a file (TE343).
+    public enum Ahead: Sendable, Equatable {
+        /// Its first folder is High: it leads the card.
+        case sure
+        /// It has a folder, not sure: it goes on a card for them to check.
+        case check
+        /// No folder by the light read. Not "left here": a picture read by its name alone may
+        /// still find one once the card reads it fully.
+        case noFolder
+    }
+
+    /// `items` in the order a card takes them (TE343): those the light read found sure, then those
+    /// with a folder to check, then the rest, each in the order given (newest first). An item with
+    /// no entry in `ahead` (past the look-ahead) comes last. Generic so a selection pages the same
+    /// way.
+    public static func sureFirst<T>(_ items: [T], path: (T) -> String, ahead: [String: Ahead]) -> [T] {
+        guard !ahead.isEmpty else { return items }
+        func rank(_ item: T) -> Int {
+            switch ahead[path(item)] {
+            case .sure: return 0
+            case .check: return 1
+            case .noFolder?: return 2
+            case nil: return 3
+            }
+        }
+        // Stable: enumerated so equal ranks keep the order given.
+        return items.enumerated().sorted { a, b in
+            let (ra, rb) = (rank(a.element), rank(b.element))
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// What Claude is told about the order (TE343): how many of the files read ahead looked sure,
+    /// and how many sure rows the card holds once every check has run, so the line stays true when
+    /// a sure file turns out to be a copy or can't move. Nil when nothing was read ahead.
+    public static func sureFirstLine(lookedSure: Int, lookedAt: Int, sureOnCard: Int, perCard: Int = perCard) -> String? {
+        guard lookedAt > 0 else { return nil }
+        let rows = "\(sureOnCard) sure row\(sureOnCard == 1 ? " is" : "s are") ticked"
+        guard lookedSure > 0 else {
+            return "None of the next \(lookedAt) loose file\(lookedAt == 1 ? "" : "s") looked sure on a first read, so the card holds the newest; \(rows)."
+        }
+        let later = lookedSure - min(lookedSure, perCard)
+        let place = later > 0 ? "the first \(perCard) are on this card and the other \(later) lead the next" : "they lead this card"
+        return "Sure ones first: \(lookedSure) of the next \(lookedAt) loose file\(lookedAt == 1 ? "" : "s") looked sure on a first read; \(place). \(rows.prefix(1).uppercased() + rows.dropFirst())."
+    }
 
     /// The two files hold the same bytes, read a megabyte at a time.
     public static func sameBytes(_ a: String, _ b: String) -> Bool {
@@ -196,8 +255,11 @@ extension AskClaudeLooseFiles {
     /// outside the labels the card shows.
     /// - `rows`: whether each file's name and home go (a folder that shares freely); otherwise
     ///   only how many have a home, need a pick, or are Trash rows.
-    public static func result(_ plan: AskClaudePlan, leftHereCount: Int, nextFrom: Int?, rows sendsRows: Bool = true) -> String {
+    /// - `sureFirst`: ``sureFirstLine(lookedSure:lookedAt:sureOnCard:perCard:)``, said either way.
+    public static func result(_ plan: AskClaudePlan, leftHereCount: Int, nextFrom: Int?, rows sendsRows: Bool = true,
+                              sureFirst: String? = nil) -> String {
         var lines = ["They have a card: \(AskClaudeScreenCard.escape(plan.title)), \(AskClaudeScreenCard.escape(plan.subtitle)). Nothing moves until they click Apply."]
+        if let sureFirst { lines.append(sureFirst) }
         if !sendsRows {
             var homed = 0, sure = 0, picks = 0, trash = 0
             var folders = Set<String>()

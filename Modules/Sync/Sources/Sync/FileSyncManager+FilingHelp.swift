@@ -100,8 +100,10 @@ extension FileSyncManager {
     /// The survey follows the source: a file in a source with its own survey (Google Drive) is
     /// answered and placed from that survey, anything else from the primary one. A named place
     /// decides first, so "into Finance in iCloud" about a Google Drive file is answered from iCloud's.
-    public func whereToFile(_ path: String, snippet: String?, preferring place: String? = nil,
+    /// `quiet` logs nothing per file: Ask Claude's look-ahead asks about 50 at a time (TE343).
+    public func whereToFile(_ path: String, snippet: String?, preferring place: String? = nil, quiet: Bool = false,
                             isHidden: (String) -> Bool) async -> FilingHelpAnswer {
+        func log(_ line: @autoclosure () -> String) { if !quiet { Logger.shared.info(line()) } }
         guard let survey = filingHelpSurvey(for: place ?? path) else {
             return FilingHelpAnswer(outcome: .noProfile, surveyedAt: filingSurveyedAt)
         }
@@ -119,7 +121,7 @@ extension FileSyncManager {
         // like it.
         if let ruled = ruleAnswer(path, snippet: snippet, root: root, profile: profile, isHidden: isHidden),
            placeRelative.map({ Self.isAtOrUnder(ruled.relativePath, $0) }) ?? true {
-            Logger.shared.info("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
+            log("Filing help: “\((path as NSString).lastPathComponent)” → \(ruled.relativePath) by a saved rule")
             return FilingHelpAnswer(outcome: .suggested([ruled]), surveyedAt: surveyedAt, root: root)
         }
         let registry = filingPersonRegistry
@@ -155,7 +157,7 @@ extension FileSyncManager {
             [suggestion], providerRoot: root, profile: profile, registry: registry,
             identity: filingPersonIdentity, pageSamples: pageSamples).first?.candidates ?? []
         guard !kept.isEmpty else {
-            Logger.shared.info("Filing help: every home for “\(fileName)” was someone else’s folder")
+            log("Filing help: every home for “\(fileName)” was someone else’s folder")
             return FilingHelpAnswer(outcome: .noMatch, surveyedAt: surveyedAt)
         }
         let shown = kept.prefix(confidence == .high ? 1 : 2).map { dest in
@@ -165,7 +167,7 @@ extension FileSyncManager {
                                                evidenceToken: dest.evidenceToken,
                                                outsidePlace: placeRelative.map { !Self.isAtOrUnder(relative, $0) } ?? false)
         }
-        Logger.shared.info("Filing help: “\(fileName)” → \(shown.map(\.relativePath).joined(separator: ", ")) (\(confidence.rawValue)\(snippet == nil ? ", by name" : ""))")
+        log("Filing help: “\(fileName)” → \(shown.map(\.relativePath).joined(separator: ", ")) (\(confidence.rawValue)\(snippet == nil ? ", by name" : ""))")
         // TE327: a new folder named like its siblings leads, the closest folder second, whatever
         // its confidence (decision JH). Inside a named place when there is one.
         let base = placeRelative.map { root + "/" + $0 } ?? root
@@ -176,7 +178,7 @@ extension FileSyncManager {
                                           isHidden: isHidden)
         if let newHome, let best = shown.first {
             let relative = String(newHome.path.dropFirst(root.count + 1))
-            Logger.shared.info("Filing help: a new folder \(relative) for “\(fileName)”, named like its siblings")
+            log("Filing help: a new folder \(relative) for “\(fileName)”, named like its siblings")
             // It is made in or beside the folder it was found by, so a folder picked by a word
             // read from the file passes that word on: its path says what the file holds.
             let besideFolder = kept.prefix(2).first { [$0.path, ($0.path as NSString).deletingLastPathComponent].contains(newHome.parent) }
@@ -361,10 +363,14 @@ extension FileSyncManager {
 
     /// Page 1 of a file for filing help, read on this Mac the way To File reads it: nil when
     /// Organize's "read contents" is off or no reader is set.
-    public func filingHelpPage(_ path: String) async -> String? {
-        guard filingReadsContents, let extract = filingSnippetExtractor else { return nil }
+    public func filingHelpPage(_ path: String, light: Bool = false) async -> String? {
+        guard filingReadsContents, let extract = light ? filingLightSnippetExtractor : filingSnippetExtractor else { return nil }
         return await extract(path)
     }
+
+    /// Whether filing help may read page 1 at all (Organize's "read contents"), asked again on
+    /// every use of a page already read, so turning it off stops a kept page counting.
+    public var filingHelpReadsPages: Bool { filingReadsContents }
 
     /// Whether filing help's card may offer Refine with Claude: Organize's own rule for showing its
     /// Refine button.

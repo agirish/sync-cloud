@@ -1221,6 +1221,32 @@ Needs a folder survey from Setup and loose files in Organize ▸ To File.
   filed. Nothing is sent anywhere.
 
 
+## Sure files first on the loose-files card (TE343, 2026-11-11)
+
+Needs an API key, a folder survey from Setup, and a Downloads with 15 or more loose files, some of
+them sure (a High row) and older than ten others.
+
+- [ ] **Sure ones lead.** Ask Claude “file the loose files in Downloads”, into Documents: the card's
+  first groups are the High rows, though newer files have no High home. Claude says how many of the
+  next files looked sure.
+- [ ] **A folder's tick box.** A folder with two or more High rows has a tick box on its heading.
+  Untick it: those rows untick together, a Medium row in the same folder stays as it was, and a new
+  folder made for them unticks too. Untick one row by hand: the heading box shows a dash. Click it:
+  all its High rows tick again. A folder with one High row has no box.
+- [ ] **Groups stay put.** Tick and untick rows, and send a High row to another folder from its
+  details: no group jumps up or down.
+- [ ] **Next skips what was left.** With files no folder fits on the card (“Left here: N files no
+  folder fits”), click Next 10: none of those files is on the next card, and the numbers add up
+  (“11–20 of 27 · 7 more”). Ask “file the loose files” again: they are looked at afresh.
+- [ ] **Pictures are still read.** A screenshot whose words name its folder (a receipt, say) gets that
+  folder once it reaches a card, as before.
+- [ ] **Stop.** Ask about a folder of 50 or more loose files and click Stop at once: no card comes.
+- [ ] **Time.** In a folder of 50 or more loose files, the first card takes about as long as before
+  (a couple of seconds more at most). `~/sync-cloud.log` has one “Ask Claude filing card: … read 50
+  ahead, N sure” line and no “Filing help:” line per file read ahead.
+- [ ] **One Apply, one Undo.** Apply: the High rows from the whole look-ahead move together; the
+  card's Undo takes them all back.
+
 ## Smarter Start: intro ✕, starters from the screen, screen only when needed (TE347, 2026-11-11)
 
 Needs an API key and Ask Claude open (⌘J). The guess and the model's starter need Apple Intelligence on.

@@ -119,6 +119,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// Where a file belongs by the Filing profile, preferring a place they named, absolute;
         /// nil when filing help can't run.
         var whereToFile: (_ path: String, _ place: String?) async -> FilingHelpAnswer? = { _, _ in nil }
+        /// The same answer from a light read (no OCR) that logs nothing, for a loose-files card's
+        /// look-ahead (TE343); nil asks ``whereToFile``.
+        var rankAhead: ((_ path: String, _ place: String?) async -> FilingHelpAnswer?)?
         /// TE328: a badly named file read on this Mac, named for each of these folders; nil when its
         /// name is fine. `taken`, by folder: the names files above it on the same card land under
         /// there, so two scans into a numbered folder take two numbers.
@@ -142,6 +145,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         /// The items on this chat's cards so far, absolute: a filing card's Next shows the files
         /// none of them showed.
         var shownOnCards: Set<String> = []
+        /// The files this chat's loose-files cards read and left where they are, by the place
+        /// they filed into, absolute: Next skips them for that place (TE343).
+        var leftOnCards: [String: Set<String>] = [:]
         /// Whether a file is only in the cloud, for the already-filed check, which never reads one.
         var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
         /// Organize's Refine with Claude is set up, so the card may offer it.
@@ -2059,12 +2065,26 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
                                                   AskClaudeChoice("Name a \(placeLabel.components(separatedBy: " › ").last ?? placeLabel) folder…", sends: nil)])
         }
         let from = max(0, call.int("from") ?? 0)
-        // Next pages by what no card showed: files the last card moved are gone from the list,
-        // and counting from `from` again would skip as many as it moved.
-        let paged = AskClaudeLooseFiles.page(found.files, from: from, shown: ctx.shownOnCards.filter {
+        // Next pages by what no card showed, or left for this place: files the last card moved
+        // are gone from the list, and counting from `from` again would skip as many as it moved.
+        // Files a card left (no folder fits, already in it) would otherwise come back at the
+        // front of every next card and push the folder's last files off the end (TE343).
+        let skipped = ctx.shownOnCards.union(ctx.leftOnCards[place] ?? []).filter {
             AskClaudeBrowseTools.relativeIfInside($0, root: folder.absolute) != nil
-        }, count: Self.looseFilesPerCard)
-        let page = paged.files
+        }
+        let rest = AskClaudeLooseFiles.unshown(found.files, from: from, shown: skipped)
+        // TE343: the next files are read lightly, so the sure ones lead this card. Only an order:
+        // each file on the card is still read in full below, and only that read leaves one here.
+        var ahead: [String: AskClaudeLooseFiles.Ahead] = [:]
+        if rest.count > Self.looseFilesPerCard {
+            let rank = ctx.rankAhead ?? ctx.whereToFile
+            for file in rest.prefix(AskClaudeLooseFiles.lookAhead) {
+                if Task.isCancelled { return Self.stoppedFiling(folder.label) }
+                ahead[file.path] = Self.ahead(await rank(file.path, place), of: file.path)
+            }
+        }
+        let page = Array(AskClaudeLooseFiles.sureFirst(rest, path: \.path, ahead: ahead).prefix(Self.looseFilesPerCard))
+        let paged = (files: page, total: from + rest.count)
         guard !page.isEmpty else {
             return AskClaudeToolOutcome(result: "There are only \(total) loose files; none from \(from).", isError: true,
                                         step: "No loose files past \(total)")
@@ -2074,21 +2094,27 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let preferring: String? = place
         var rows: [AskClaudePlan.Row] = []
         var noHome = 0, atHome = 0
+        // The files read in full and left where they are, for Next to skip.
+        var leftPaths: [String] = []
         var namesOff: String?
         // TE327: new folders named like their siblings, by path, with what they are named like.
         var newHomes: [String: String] = [:]
         // The names the ticked moves above land under, by folder, in card order.
         var taking: [String: [String]] = [:]
         for file in page {
+            // Stopped, or replaced by New Chat: no card.
+            if Task.isCancelled { return Self.stoppedFiling(folder.label) }
             guard let answer = await ctx.whereToFile(file.path, preferring), case .suggested(let list) = answer.outcome,
                   let best = list.first else {
                 noHome += 1
+                leftPaths.append(file.path)
                 continue
             }
             // Already in its home, under this spelling or another (iCloud's Documents is a link
             // to ~/Documents): nothing to do, and no copy of it to trash.
             if PathBoundary.resolvesToSameDirectory((file.path as NSString).deletingLastPathComponent, best.folder, caseSensitive: false) {
                 atHome += 1
+                leftPaths.append(file.path)
                 continue
             }
             // The card is on their Mac, so it says which word decided it; what Claude is told
@@ -2136,6 +2162,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             if row.ticked { taking[best.folder, default: []].append(row.newName ?? file.name) }
             rows.append(row)
         }
+        // The last file's read may have been the one stopped.
+        if Task.isCancelled { return Self.stoppedFiling(folder.label) }
         // Subfolders these files would leave empty, as one unticked Trash row.
         let emptied = AskClaudeLooseFiles.emptiedFolders(found, onCard: Set(rows.map(\.change.path)))
         // A home not made yet (a saved rule's new month folder, "2026 › Oct"): the card makes it,
@@ -2197,6 +2225,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         }.count
         var plan = AskClaudePlan(title: "File \(files) Loose File\(files == 1 ? "" : "s")", subtitle: "into \(placeLabel)", rows: rows,
                                  leftHere: left.isEmpty ? nil : "Left here: " + left.joined(separator: ", "), more: more)
+        if !leftPaths.isEmpty { plan.leftPaths = AskClaudePlan.LeftFiles(place: place, paths: leftPaths) }
         plan.tickNeededFolders()
         plan.noteLandingNames()
         if !plan.namedRows.isEmpty || namesOff != nil {
@@ -2209,11 +2238,20 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             plan.nextAsk = "Show me the next \(next) loose file\(next == 1 ? "" : "s")."
             plan.nextLabel = "Next \(next)"
         }
-        Logger.shared.info("Ask Claude filing card: \(rows.count) rows from \(page.count) of \(total) loose files in \(folder.label), \(noHome) with no home")
+        let lookedSure = ahead.values.filter { $0 == .sure }.count
+        Logger.shared.info("Ask Claude filing card: \(rows.count) rows from \(page.count) of \(total) loose files in \(folder.label), \(noHome) with no home"
+                           + (ahead.isEmpty ? "" : "; read \(ahead.count) ahead, \(lookedSure) sure"))
         let sure = plan.rows.filter { row in
             if case .newFolder = row.change { return false }
             return row.ticked
         }.count
+        // Counted once every check has run: a sure file can turn out to be a copy, or refused.
+        let sureOnCard = plan.rows.filter { row in
+            guard row.ticked, case .move = row.change else { return false }
+            return row.confidence == AskClaudeFiling.label(.high)
+        }.count
+        let sureFirst = AskClaudeLooseFiles.sureFirstLine(lookedSure: lookedSure, lookedAt: ahead.count, sureOnCard: sureOnCard,
+                                                          perCard: Self.looseFilesPerCard)
         // Names and homes go only from a folder that shares freely: a home
         // can be picked from a file's first page, and the names of a folder off screen are held
         // like a lookup's. The card shows them all; Claude gets the counts.
@@ -2221,8 +2259,22 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         // So Apply and Undo tell Claude counts, not the rows it never had.
         if !sendsRows { plan.rowsHeld = true }
         return AskClaudeToolOutcome(result: AskClaudeLooseFiles.result(plan, leftHereCount: left.count, nextFrom: more == nil ? nil : end,
-                                                                       rows: sendsRows),
+                                                                       rows: sendsRows, sureFirst: sureFirst),
                                     step: "Found homes for \(files - rows.filter(\.alreadyFiled).count) of \(page.count) files · \(sure) sure", plan: plan)
+    }
+
+    /// What the look-ahead's light read made of a file (TE343): sure, a folder to check, or none;
+    /// a file already in its first folder has nothing to do, so it doesn't lead.
+    static func ahead(_ answer: FilingHelpAnswer?, of path: String) -> AskClaudeLooseFiles.Ahead {
+        guard let answer, case .suggested(let list) = answer.outcome, let best = list.first else { return .noFolder }
+        if PathBoundary.resolvesToSameDirectory((path as NSString).deletingLastPathComponent, best.folder, caseSensitive: false) {
+            return .noFolder
+        }
+        return best.confidence == .high ? .sure : .check
+    }
+
+    private static func stoppedFiling(_ folder: String) -> AskClaudeToolOutcome {
+        AskClaudeToolOutcome(result: "No card: they stopped the question.", isError: true, step: "Stopped filing \(folder)")
     }
 
     /// "132 loose files: 74 at the top level and 58 in 9 subfolders; 3 unfinished downloads skipped".

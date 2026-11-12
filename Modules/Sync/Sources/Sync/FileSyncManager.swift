@@ -800,6 +800,9 @@ public class FileSyncManager: ObservableObject {
     /// Extracts a bounded text excerpt for the classifier (PDF text, OCR, plain), injected by the
     /// app. Gated by the same read-contents setting as `filingContentExtractor`.
     public var filingSnippetExtractor: (@Sendable (String) async -> String?)?
+    /// The same excerpt without OCR, for Ask Claude's look-ahead over a folder's loose files
+    /// (TE343): a picture is ranked by its name until a card reads it in full. Same gate.
+    public var filingLightSnippetExtractor: (@Sendable (String) async -> String?)?
     /// Warms up the classifier backend (e.g. loads the on-device model), injected by the app. Called
     /// when a Filing scan starts so the ~cold-start latency overlaps the keyword + content phases.
     public var filingClassifierPrewarm: (@Sendable () -> Void)?

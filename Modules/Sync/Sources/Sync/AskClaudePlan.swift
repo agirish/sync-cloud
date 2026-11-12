@@ -242,9 +242,25 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     /// Claude wasn't given its rows (a loose-files card from a folder that doesn't share freely,
     /// a move into a folder picked from page 1): what Apply and Undo tell it is counts.
     public var rowsHeld: Bool?
+    /// The files a loose-files card read and left where they are (no folder fits, or already in
+    /// it), with the place they were filed into: Next skips them for that place, so they never
+    /// come back to the front of the next card (TE343). Saved with the chat on this Mac; Claude
+    /// is told only how many.
+    public var leftPaths: LeftFiles?
+
+    /// Files a card left, and the place it filed into, absolute.
+    public struct LeftFiles: Codable, Equatable, Sendable {
+        public var place: String
+        public var paths: [String]
+
+        public init(place: String, paths: [String]) {
+            self.place = place
+            self.paths = paths
+        }
+    }
 
     private enum CodingKeys: String, CodingKey {
-        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names, rowsHeld
+        case title, subtitle, rows, leftHere, more, savedState = "state", summary, nextAsk, nextLabel, names, rowsHeld, leftPaths
     }
 
     public init(title: String, subtitle: String, rows: [Row], leftHere: String? = nil, more: String? = nil) {
@@ -302,8 +318,11 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
         return text
     }
 
-    /// The rows by group, in card order: folders with the most rows first (then by label), then
-    /// Needs Your Pick, Already Filed and the emptied folders.
+    /// The rows by group, in card order: folders the card offered a sure file first (TE343), then
+    /// folders with the most rows (then by label), then Needs Your Pick, Already Filed and the
+    /// emptied folders. Sure is what was offered when the card was made, so a group never moves
+    /// as rows are ticked or sent elsewhere; a card Claude proposed offers nothing and keeps the
+    /// plain order.
     public var groups: [(group: Group, rows: [Row])] {
         var order: [Group] = []
         var byGroup: [Group: [Row]] = [:]
@@ -319,8 +338,12 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
             case .emptied: return 3
             }
         }
+        let offeredSure = Set(byGroup.compactMap { group, rows in
+            rows.contains { $0.offer?.confidence == .high } ? group : nil
+        })
         let sorted = order.sorted { a, b in
             if rank(a) != rank(b) { return rank(a) < rank(b) }
+            if offeredSure.contains(a) != offeredSure.contains(b) { return offeredSure.contains(a) }
             if case .folder(let la) = a, case .folder(let lb) = b {
                 let (ca, cb) = (byGroup[a]?.count ?? 0, byGroup[b]?.count ?? 0)
                 return ca != cb ? ca > cb : la.localizedStandardCompare(lb) == .orderedAscending
@@ -331,6 +354,26 @@ public struct AskClaudePlan: Codable, Equatable, Sendable {
     }
 
     public var tickedCount: Int { rows.filter(\.ticked).count }
+
+    /// The sure rows going into the folder `label` that a tick can change (TE343): a move, High
+    /// now, not refused. A heading's tick box covers these alone, so a Medium row stays unticked
+    /// until they tick it (decision GC).
+    public func sureRows(inFolder label: String) -> [Row] {
+        rows.filter { row in
+            guard row.group == .folder(label), row.refusal == nil, case .move = row.change else { return false }
+            return row.confidence == AskClaudeFiling.label(.high)
+        }
+    }
+
+    /// Ticks or unticks every sure row going into `label` at once: one change to the card, then
+    /// its new folders and landing names are set once.
+    public mutating func setSureTicked(_ ticked: Bool, inFolder label: String) {
+        let ids = Set(sureRows(inFolder: label).map(\.id))
+        guard !ids.isEmpty else { return }
+        for index in rows.indices where ids.contains(rows[index].id) { rows[index].ticked = ticked }
+        tickNeededFolders()
+        noteLandingNames()
+    }
 
     /// A row sent to another folder from its menu: it moves to that folder's group
     /// and is ticked.

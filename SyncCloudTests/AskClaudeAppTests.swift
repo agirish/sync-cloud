@@ -3717,6 +3717,69 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(last.plan?.more == nil && last.plan?.nextAsk == nil)
     }
 
+    /// 20 files with no home, newer than the fixture's. Returns their paths.
+    private func newerFilesWithNoHome() throws -> Set<String> {
+        let fm = FileManager.default
+        let older = Date().addingTimeInterval(-86_400)
+        for name in try fm.contentsOfDirectory(atPath: dir + "/Downloads") {
+            try fm.setAttributes([.modificationDate: older], ofItemAtPath: dir + "/Downloads/" + name)
+        }
+        var made = Set<String>()
+        for i in 0..<20 {
+            let path = dir + "/Downloads/n\(i).txt"
+            try Data("\(i)".utf8).write(to: URL(fileURLWithPath: path))
+            made.insert(path)
+        }
+        return made
+    }
+
+    /// TE343: the sure files lead the card, though 20 newer files come before them; the card
+    /// remembers the files it left, and Next skips them, so they can't push the folder's last
+    /// files off the end. Claude hears how many looked sure.
+    @Test func sureFilesLeadAndNextSkipsTheFilesACardLeft() async throws {
+        let noHome = try newerFilesWithNoHome()
+        let first = await call(["into": .string("Documents")], runner())
+        let plan = try #require(first.plan)
+        let sure = plan.rows.filter { $0.confidence == "High" }.map(\.name)
+        // Statement.pdf looked sure, and is a copy of one already filed: an unticked Trash row.
+        #expect(Set(sure) == ["JAL Ticket.pdf", "Ticket.pdf", "plan.pdf"], "\(plan.rows.map(\.name))")
+        #expect(plan.rows.contains { $0.name == "Statement.pdf" && $0.alreadyFiled })
+        #expect(first.result.contains("Sure ones first: 4 of the next 27 loose files looked sure on a first read; they lead this card. 3 sure rows are ticked."),
+                "\(first.result)")
+        let left = try #require(plan.leftPaths)
+        #expect(left.place == dir + "/Documents" && left.paths.count == 4 && Set(left.paths).isSubset(of: noHome))
+        #expect(plan.more == "1–10 of 27 · 17 more")
+
+        let shown = Set(plan.rows.map(\.change.path))
+        let next = await call(["into": .string("Documents"), "from": .integer(10)],
+                              runner(shown: shown) { $0.leftOnCards = [left.place: Set(left.paths)] })
+        let second = try #require(next.plan)
+        let secondLeft: Set<String> = Set(second.leftPaths?.paths ?? [])
+        #expect(secondLeft.isDisjoint(with: left.paths), "a file the first card left came back")
+        #expect(second.more == "11–20 of 27 · 7 more")
+        // Left for Documents, not for another place: there they are looked at again.
+        let elsewhere = await call(["into": .string("Documents"), "from": .integer(10)],
+                                   runner(shown: shown) { $0.leftOnCards = ["/elsewhere": Set(left.paths)] })
+        let elsewhereLeft: Set<String> = Set(elsewhere.plan?.leftPaths?.paths ?? [])
+        #expect(!elsewhereLeft.isDisjoint(with: left.paths))
+    }
+
+    /// Stop while the card reads ahead: no card comes.
+    @Test func stopWhileReadingAheadMakesNoCard() async throws {
+        _ = try newerFilesWithNoHome()
+        let tools = runner { ctx in
+            let answer = ctx.whereToFile
+            let asked = Asked()
+            ctx.rankAhead = { path, place in
+                asked.note(place)
+                if asked.places.count == 5 { withUnsafeCurrentTask { $0?.cancel() } }
+                return await answer(path, place)
+            }
+        }
+        let out = await Task { await self.call(["into": .string("Documents")], tools) }.value
+        #expect(out.plan == nil && out.isError && out.result == "No card: they stopped the question.")
+    }
+
     /// What the tool asked filing help, per file.
     final class Asked: @unchecked Sendable {
         private let lock = NSLock()

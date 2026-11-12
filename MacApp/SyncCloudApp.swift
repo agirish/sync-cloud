@@ -462,6 +462,9 @@ struct SyncCloudApp: App {
         manager.filingSnippetExtractor = { path in
             await ContentSignalExtractor.snippet(forFileAt: path)
         }
+        manager.filingLightSnippetExtractor = { path in
+            await ContentSignalExtractor.snippet(forFileAt: path, ocr: false)
+        }
         // Offered per file, never spent by a scan — see `FileSyncManager.readScan(for:)`.
         manager.filingOCRExtractor = { path in
             await ContentSignalExtractor.ocrPDFFirstPage(atPath: path)

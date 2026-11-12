@@ -15440,3 +15440,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s %s\n' $l "$(git show origin/$
 |---|---|---|
 | `v6.x` / `v5.x` | The frozen group: a retry after an edit lands the old plans | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No group Apply | CLOSED — does not apply |
+
+## Sure files first on Ask Claude's loose-files card (TE343) — main only, recorded, not owed
+
+2026-11-11, for v7.2. On `main`: a loose-files card reads the next 50 files lightly and puts the
+sure (High) ones first, a folder heading ticks its sure rows, and the card remembers the files it
+left so Next no longer brings them back to the front (which pushed the folder's last files off the
+end). The Next fix mends a bug, but only in Ask Claude's loose-files card, which no maintenance
+line has:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s looseFiles=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudeLooseFiles.swift')"; done
+# measured 2026-11-11, against origin: looseFiles=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

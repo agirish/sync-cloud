@@ -1729,7 +1729,7 @@ private struct AskClaudeThreadRow: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(Array(plan.groups.enumerated()), id: \.offset) { _, entry in
                 VStack(alignment: .leading, spacing: 1) {
-                    planGroupHeading(entry.group, count: entry.rows.count)
+                    planGroupHeading(entry.group, count: entry.rows.count, plan: plan)
                     ForEach(entry.rows) { row in planRow(row, plan: plan) }
                 }
             }
@@ -1748,8 +1748,9 @@ private struct AskClaudeThreadRow: View, Equatable {
         .accessibilityElement(children: .contain)
     }
 
-    /// "Girish - 2025" with "in Travel · 3" beside it; the full path is in each row's details.
-    private func planGroupHeading(_ group: AskClaudePlan.Group, count: Int) -> some View {
+    /// "Girish - 2025" with "in Travel · 3" beside it; the full path is in each row's details. A
+    /// folder with two or more sure rows has a tick box for those alone (TE343).
+    private func planGroupHeading(_ group: AskClaudePlan.Group, count: Int, plan: AskClaudePlan) -> some View {
         let (title, detail): (String, String?) = {
             switch group {
             case .folder(let label):
@@ -1762,6 +1763,9 @@ private struct AskClaudeThreadRow: View, Equatable {
             }
         }()
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if case .folder(let label) = group, plan.state == .proposed {
+                AskClaudeSureTick(rows: plan.sureRows(inFolder: label), folder: title) { onPlanCard(item.id, .tickSure(label, $0)) }
+            }
             Text(title).scaledFont(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
             if let detail { Text(detail).scaledFont(.footnote).foregroundStyle(.secondary).lineLimit(1) }
         }
@@ -2153,6 +2157,8 @@ enum AskClaudeDownloadAction: Equatable {
 /// What a card of changes asks for.
 enum AskClaudePlanAction: Equatable {
     case tick(Int, Bool)
+    /// A folder heading's tick box: every sure row going into that folder, by its label (TE343).
+    case tickSure(String, Bool)
     /// A row sent to one of its menu's folders.
     case choose(Int, AskClaudePlan.Choice)
     /// Choose Folder… in a row's details.
@@ -2411,6 +2417,28 @@ extension AskClaudeChat {
         switch kind {
         case .user, .assistant, .step, .moved, .receipt, .problem, .note, .refine, .tryAnother: false
         default: true
+        }
+    }
+}
+
+/// A folder heading's tick box for its sure rows (TE343): shown for two or more, mixed when only
+/// some are ticked. A click is one change to the card, sent once: the toggle sets each source in
+/// turn, and only the first sends.
+struct AskClaudeSureTick: View {
+    let rows: [AskClaudePlan.Row]
+    let folder: String
+    let set: (Bool) -> Void
+
+    var body: some View {
+        if rows.count >= 2 {
+            let sources = rows.enumerated().map { index, row in
+                Binding(get: { row.ticked }, set: { value in if index == 0 { set(value) } })
+            }
+            Toggle(sources: sources, isOn: \.self) { Text("Sure files to \(folder)") }
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .accessibilityLabel("The \(rows.count) sure files to \(folder)")
+                .help("Ticks or unticks the \(rows.count) sure files going here. Files to check stay as they are.")
         }
     }
 }
