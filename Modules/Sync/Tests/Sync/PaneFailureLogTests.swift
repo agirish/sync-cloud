@@ -88,6 +88,68 @@ import Testing
         #expect(!head.contains("couldn’t be completed"))
     }
 
+    /// A wrapped failure's cause keys its group: two permission refusals with different codes
+    /// beneath the same `SyncError` are two groups, each head line naming its codes.
+    @Test func aCauseSplitsTheGroupAndNamesItsCodes() throws {
+        let cocoa = { (posix: Int32) in
+            NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError,
+                    userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(posix))])
+        }
+        let refused = { (path: String, posix: Int32) in
+            ItemError(URL(fileURLWithPath: path), SyncError.trashNotPermitted(path: path, reason: "denied"),
+                      cause: cocoa(posix))
+        }
+        let lines = GroupedFailureLog.lines("Delete", [refused("/d/a.txt", EPERM), refused("/d/b.txt", EACCES),
+                                                       refused("/d/c.txt", EPERM)])
+        let heads = lines.filter { $0.hasPrefix("Delete: ") && $0.contains(" item(s) failed — ") }
+        try #require(heads.count == 2, "\(lines)")
+        #expect(heads.contains { $0.hasPrefix("Delete: 2 item(s) failed — ")
+                    && $0.contains("Not Allowed to Move to the Trash ← NSCocoaErrorDomain 513 ← NSPOSIXErrorDomain 1]; first: /d/a.txt: ") },
+                "\(heads)")
+        #expect(heads.contains { $0.hasPrefix("Delete: 1 item(s) failed — ")
+                    && $0.contains("← NSCocoaErrorDomain 513 ← NSPOSIXErrorDomain 13]; first: /d/b.txt: ") },
+                "\(heads)")
+        // Without a cause the key is the error's own, as before.
+        let plain = GroupedFailureLog.lines("Delete", [ItemError(name: "/d/a.txt", SyncError.trashNotPermitted(path: "/d/a.txt", reason: "denied"))])
+        #expect(plain.first?.contains("Not Allowed to Move to the Trash]; first: ") == true, "\(plain)")
+    }
+
+    /// 500 busy items the Trash refuses are the run's count line and one group: a head line naming
+    /// the code and three name lines, with no line per item beside them.
+    @MainActor
+    @Test func fiveHundredBusyDeletesAreOneGroupWithNoLinePerItem() async throws {
+        let tag = "busy500-\(UUID().uuidString.prefix(8))"
+        let manager = makeManager()
+        var askedToDestroy = false
+        manager.permanentDeleteConfirmer = { _ in askedToDestroy = true; return false }
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        let paths = Self.names(tag, 500).map { "/src/\($0)" }
+        for path in paths {
+            mockFM.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+        mockFM.trashErrorAlways = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+
+        let log = LogCapture()
+        let outcome = await manager.deleteItems(at: paths.reversed(), fileManager: mockFM)
+
+        #expect(outcome.removed == 0)
+        #expect(!askedToDestroy, "a busy item was offered the permanent delete")
+        #expect(paths.allSatisfy { mockFM.virtualDisk[$0] != nil }, "a busy item was removed")
+        #expect(await log.holds(.error, containing: "Delete: 500 of 500 item(s) couldn’t be moved to the Trash"))
+        let lines = await mine(log, tag)
+        #expect(lines.allSatisfy { $0.level == .error }, "\(lines.map { $0.message.prefix(120) })")
+        let heads = lines.filter { $0.message.hasPrefix("Delete: 500 item(s) failed — ") }
+        #expect(heads.count == 1, "\(lines.map { $0.message.prefix(120) })")
+        #expect(heads.first?.message.contains("[NSPOSIXErrorDomain 16]; first: /src/\(tag)-001.txt: ") == true,
+                "\(heads.map(\.message))")
+        let nameLines = lines.filter { $0.message.hasPrefix("Delete: failed (") }
+        #expect(nameLines.count == 3)
+        let named = nameLines.map(\.message).joined(separator: ", ")
+        #expect(paths.allSatisfy { named.contains($0) }, "a busy item went unnamed")
+        #expect(lines.count == 4, "a line per item: \(lines.count) lines name these items")
+    }
+
     /// A copy whose destination root is gone fails as a whole, named by the root it couldn't find.
     @MainActor
     @Test func aMissingDestinationRootIsNamedByTheRoot() async throws {

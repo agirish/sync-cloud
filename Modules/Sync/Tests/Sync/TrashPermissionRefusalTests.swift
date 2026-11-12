@@ -578,8 +578,10 @@ import Testing
                 "the refusal was flattened back to the generic sentence: \(error.title)")
         #expect(error.path == "/docs/Lease Agreement.pdf")
         #expect(!error.isRetryable)
-        #expect(await loggedLineOnDisk(containing: "refused to move /docs/Lease Agreement.pdf") != nil,
-                "the refusal left nothing in the log he audits")
+        // The refusal's codes, which its `SyncError` doesn't keep, key the grouped line.
+        #expect(await loggedLineOnDisk(containing: "Not Allowed to Move to the Trash ← NSCocoaErrorDomain 513 "
+                    + "← NSPOSIXErrorDomain 1]; first: /docs/Lease Agreement.pdf: ") != nil,
+                "the refusal left nothing in the log he audits, or its codes were lost")
         #expect(await loggedLineOnDisk(containing:
                     "/docs/Lease Agreement.pdf was re-registered by a move in place and the Trash STILL refused it") != nil,
                 "the third attempt ran and left no trace of having run")

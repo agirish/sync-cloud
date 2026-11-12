@@ -15343,3 +15343,24 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s view=%s writer=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | A Settings window change leaves no line unless its owner writes one | RECORDED — not owed |
+
+## A delete's Trash refusals logged in their group, not a line per item — recorded, not owed
+
+2026-11-11, for v7.1. On `main`, a delete no longer writes "Delete: the system refused to move
+<path> to the Trash — <codes>" for each busy or refused item; the run's `GroupedFailureLog` lines
+name every one. A permission refusal's codes, which `SyncError.trashNotPermitted` doesn't keep,
+ride along as the `ItemError`'s `cause` and join its group key, so refusals with different codes
+are separate groups. Logging only. `v6.x` and `v5.x` keep the per-item WARN and have no grouped
+lines, so the WARN is their only record of each item; `v4.x` and older have neither:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s perItemWarn=%s grouped=%s\n' $l \
+  "$(git grep -h 'system refused to move' origin/$l -- Modules | wc -l | tr -d ' ')" \
+  "$(git grep -l 'enum GroupedFailureLog' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-11, against origin: perItemWarn=1 on v6.x and v5.x, 0 on v4.x–v2.x; grouped=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | A WARN per refused item, with its codes | CLOSED — not owed: there it is the only per-item record |
+| `v4.x` / `v3.x` / `v2.x` | No such WARN | CLOSED — does not apply |

@@ -1208,20 +1208,10 @@ extension FileSyncManager {
         }
     }
 
-    /// The domain and code of an error and everything under it, for the log.
-    ///
-    /// The codes, not the sentence: "you don't have permission" is the same for a TCC denial, a
-    /// deny-delete ACL and a read-only mount, and the codes tell them apart. Bounded, so a cyclic
-    /// chain can't spin.
+    /// The domain and code of an error and everything under it (``LogError/codeChain(_:)``), then
+    /// its sentence, for the log.
     nonisolated static func trashFailureDiagnosis(_ error: Error) -> String {
-        var parts: [String] = []
-        var current = error as NSError
-        for _ in 0...4 {
-            parts.append("\(current.domain) \(current.code)")
-            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
-            current = underlying
-        }
-        return parts.joined(separator: " ← ") + ": \(error.localizedDescription)"
+        LogError.codeChain(error) + ": \(error.localizedDescription)"
     }
 
     /// Whether a `trashItem` failure is transient (busy, locked or briefly permission-blocked)
@@ -1467,15 +1457,15 @@ extension FileSyncManager {
                             // mid-write, an evicted placeholder): a retryable failure, never the
                             // permanent-delete prompt, since a retry may trash it recoverably. A
                             // Trash-less volume throws an unknown error and still reaches
-                            // `trashFailures` below. Logged with the path and underlying codes.
-                            Logger.shared.warning(
-                                "Delete: the system refused to move \(path) to the Trash — "
-                                + "\(Self.trashFailureDiagnosis(error))")
-                            taskErrors.append(ItemError(url,
-                                Self.isPermissionRefusal(error)
-                                    ? SyncError.trashNotPermitted(
-                                        path: path, reason: error.localizedDescription)
-                                    : error))
+                            // `trashFailures` below. No line here: the run's grouped failure
+                            // lines name it, and a permission refusal's codes, which its
+                            // `SyncError` doesn't keep, ride along as the cause and key its group.
+                            if Self.isPermissionRefusal(error) {
+                                taskErrors.append(ItemError(url, SyncError.trashNotPermitted(
+                                    path: path, reason: error.localizedDescription), cause: error))
+                            } else {
+                                taskErrors.append(ItemError(url, error))
+                            }
                         } else if !resolved {
                             trashFailures.append(url)
                         }

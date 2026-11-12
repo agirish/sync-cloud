@@ -61,6 +61,9 @@ Apply in this order; the first rule that applies wins.
   kind of failure, keyed by `LogError.groupKey`, never by the description, which names the file.
   Pane copy, move and delete collect an `ItemError` per failure for it, and their alert writes no
   line of its own (`present(_:logged: false)`), since the group lines already name its failure.
+  An `ItemError` that wraps a system error in the app's own words (a Trash refusal as
+  `SyncError.trashNotPermitted`) carries it as its `cause`, whose code chain joins the group key, so
+  the codes reach the log with no line per item.
 - **Per-item lines in a loop are capped, not dropped.** An undo or redo (`UndoRunLog`) writes its
   first 20 items' lines, then one line per kind naming every item past them; its banners are
   `.notMirrored`, and its summary line names the last one shown. Each ⌘Z is a run of its own.

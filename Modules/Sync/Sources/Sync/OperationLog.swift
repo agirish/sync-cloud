@@ -128,6 +128,20 @@ extension LogError {
         return key
     }
 
+    /// The domain and code of an error and of each error beneath it, outermost first: the codes,
+    /// not the sentence, so a TCC denial, a deny-delete ACL and a read-only mount, which all say
+    /// "you don't have permission", tell apart. Bounded, so a cyclic chain can't spin.
+    public static func codeChain(_ error: Error) -> String {
+        var parts: [String] = []
+        var current = error as NSError
+        for _ in 0...4 {
+            parts.append("\(current.domain) \(current.code)")
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
+            current = underlying
+        }
+        return parts.joined(separator: " ← ")
+    }
+
     /// The group's reason, from the code, never the description: a POSIX code's own words where
     /// there is one, else the error's failure reason, else its key.
     public static func groupReason(_ error: Error) -> String {
@@ -144,13 +158,17 @@ extension LogError {
 /// A run's failed items as grouped lines: one ERROR line per kind of failure with its count, its
 /// reason and the first item's full description (a provider's own words can't be rebuilt from a
 /// code), then every name in the group (``LogNames``). Groups and names sorted, so runs compare.
+/// A failure that carries the system error it wraps (``ItemError/cause``) is keyed by that error's
+/// codes too, so refusals with different codes beneath one app error are separate groups.
 public enum GroupedFailureLog {
-    public static func lines(_ operation: String, _ failures: [ItemError]) -> [String] {
-        lines(operation, failures.map { (name: $0.name, error: $0.error) })
+    public static func lines(_ operation: String, _ failures: [(name: String, error: Error)]) -> [String] {
+        lines(operation, failures.map { ItemError(name: $0.name, $0.error) })
     }
 
-    public static func lines(_ operation: String, _ failures: [(name: String, error: Error)]) -> [String] {
-        let groups = Dictionary(grouping: failures, by: { LogError.groupKey($0.error) })
+    public static func lines(_ operation: String, _ failures: [ItemError]) -> [String] {
+        let groups = Dictionary(grouping: failures, by: { failure in
+            LogError.groupKey(failure.error) + (failure.cause.map { " ← " + LogError.codeChain($0) } ?? "")
+        })
         var out: [String] = []
         for key in groups.keys.sorted() {
             // Sorted by name, so the first item is the same whatever order the workers finished in.
@@ -175,15 +193,21 @@ public enum GroupedFailureLog {
 public struct ItemError: Sendable {
     public let name: String
     public let error: Error
+    /// The system error `error` replaced, when it wraps one in the app's own words (a Trash
+    /// refusal as `SyncError.trashNotPermitted`): its codes are the cause, and the wrapper keeps
+    /// none of them.
+    public let cause: Error?
 
-    public init(_ url: URL, _ error: Error) {
+    public init(_ url: URL, _ error: Error, cause: Error? = nil) {
         self.name = url.path
         self.error = error
+        self.cause = cause
     }
 
-    public init(name: String, _ error: Error) {
+    public init(name: String, _ error: Error, cause: Error? = nil) {
         self.name = name
         self.error = error
+        self.cause = cause
     }
 }
 
