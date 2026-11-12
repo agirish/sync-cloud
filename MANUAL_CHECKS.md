@@ -1134,6 +1134,7 @@ year folders, say Travel/Trips/Test Trip/2024, 2025 and 2026, and put a PDF name
 ## Ask Claude's suggestion chip (TE309, 2026-11-09)
 
 Needs an API key, Ask Claude open, and Suggestions on in Settings ▸ Ask Claude ▸ General (on by default).
+Since TE347b the chip shows only in a chat under way; in a new chat its question leads the starters.
 
 - [ ] **New downloads.** Copy three files into iCloud › Downloads. Within a few seconds a chip reads
   "3 new files in Downloads · File them?" above the text box, and nothing was sent.
@@ -1215,3 +1216,33 @@ Needs a folder survey from Setup and loose files in Organize ▸ To File.
 - [ ] **Kept on the Mac.** `~/Library/Application Support/SyncCloud/filing-scorecard.jsonl` holds a
   line per filing and nothing else is sent anywhere.
 
+
+## Smarter Start: intro ✕, starters from the screen, screen only when needed (TE347, 2026-11-11)
+
+Needs an API key and Ask Claude open (⌘J). The guess and the model's starter need Apple Intelligence on.
+
+- [ ] **Intro ✕.** In a new chat the intro bubble shows a quiet ✕ at its top right. Click it: the
+  intro goes, "Intro hidden. Settings ▸ Ask Claude ▸ General brings it back." shows in that chat
+  only, and the starters move up. New Chat: no intro and no note. Settings ▸ Ask Claude ▸ General ▸
+  New chats ▸ Show the intro in new chats brings it back. VoiceOver reads the ✕ as "Hide the intro".
+- [ ] **Starters from the screen.** Open a folder holding two PDFs changed this week: the starters
+  read "Summarize both PDFs", "What changed here this week?", then a table question. Select three
+  files: "Where should these 3 go?" and "Rename these 3 like their neighbors" lead. No starter names
+  a file.
+- [ ] **The model's starter.** With the box empty, a fourth starter fades in last about a second
+  later, and never while the pointer is over the starters. Typing stops it. Back in the same folder,
+  the same one shows at once.
+- [ ] **Under an earlier chat.** After an hour away (or Continue's "Earlier" line), the new chat shows
+  starters under "Earlier · Claude doesn’t see this", without the intro.
+- [ ] **Suggestion leads.** With three new files in Downloads and a new chat, "File the new files in
+  iCloud › Downloads" is the first starter and no chip shows above the box. Ask something: the chip
+  takes over in the chat under way.
+- [ ] **No screen for the weather.** Type "How is the weather in San Ramon, CA, USA", pause a second,
+  Send. The receipt reads "Sent no screen · …", and its sheet says the screen wasn't sent and that
+  Retry sends it. Retry: "Sent screen · …".
+- [ ] **Claude asks.** In a folder of PDFs, a question the guess misses (say "Show me the 2024 W-2"
+  with no "this") either sends the screen or shows a "Looked at your screen" step and a receipt
+  "Sent screen when Claude asked · N rows".
+- [ ] **Stale view.** Ask about a folder, move to another, ask "Thanks, that's all" then "Which is
+  biggest": Claude answers about the folder on screen now, never the earlier one.
+- [ ] **Starters always send it.** Click any starter: its receipt says "Sent screen", never "no screen".
