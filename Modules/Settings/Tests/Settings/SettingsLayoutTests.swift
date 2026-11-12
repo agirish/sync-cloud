@@ -100,7 +100,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
     /// `CFBundleShortVersionString`; `RELEASE.md` makes updating it part of cutting a release. A
     /// literal because under `swift test` `Bundle.main` is the test host and has no version, which
     /// would leave `theVersionLineFitsTheRailOnOneLine` nothing real to measure.
-    private static let versionMarker = "7.1-dev"
+    private static let versionMarker = "7.1"
 
     /// The margin Appearance has left at one text size with a chosen accent hue, set through the
     /// tab's `@AppStorage` via `.defaultAppStorage`, so nothing is inherited from

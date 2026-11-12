@@ -5,10 +5,7 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
-## v7.1 — DRAFT, not released
-
-> What is on `main` since v7.0. It may still change before v7.1 is cut, and nothing here is
-> installable from a release yet.
+## v7.1
 
 **Ask Claude remembers: past chats, notes about you, and Refine in the chat.** v7.1 keeps your
 past chats on this Mac and lets Claude keep notes on how you work. Simple commands run on this Mac
