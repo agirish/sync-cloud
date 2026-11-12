@@ -1369,6 +1369,7 @@ extension ContentView {
                 left[files.place, default: []].formUnion(files.paths)
             },
             canRefineFiling: syncManager.filingHelpCanRefine,
+            filingScorecard: { FilingScorecardStore.shared.records },
             history: { forward in
                 let columns = paneDrawsColumns(isLeft: true)
                 guard forward ? syncManager.canGoForward(isLeft: true, drawsColumns: columns)

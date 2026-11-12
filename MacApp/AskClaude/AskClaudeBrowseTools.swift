@@ -152,6 +152,8 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var isCloudOnly: (_ path: String) -> Bool = { MaterializationStatus.isCloudOnlyIfKnown(atPath: $0) == true }
         /// Organize's Refine with Claude is set up, so the card may offer it.
         var canRefineFiling = false
+        /// The filing scorecard's records (TE341), for filing_scorecard.
+        var filingScorecard: () -> [FilingScorecard.Record] = { [] }
         /// The pane's Back (false) and Forward (true); false when there was nowhere to go.
         var history: (_ forward: Bool) -> Bool = { _ in false }
         /// Quick Look on a file.
@@ -698,6 +700,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .fileLooseFiles: return await fileLooseFiles(call, ctx)
         case .proposeChanges: return proposeChanges(call, ctx, handles)
         case .offerRule: return await offerRule(call, ctx, handles)
+        case .filingScorecard: return filingScorecard(call, ctx)
         case .pdf: return await pdf(call, ctx, handles)
         case .eject: return await eject(call, ctx)
         case .notes: return notes(call, ctx)
@@ -1756,6 +1759,16 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             card.offer = FilingScorecard.Offer(list, root: answer.root)
             return card
         }
+    }
+
+    // MARK: Filing scorecard (decision NJ)
+
+    /// How often they kept the first folder offered: counts and top-level area names only, with
+    /// every filing that touches a folder hidden from Claude left out first.
+    private func filingScorecard(_ call: AskClaudeToolCall, _ ctx: Context) -> AskClaudeToolOutcome {
+        let range = FilingScorecard.range(named: call.string("range") ?? call.int("range").map(String.init))
+        let text = FilingScorecard.forClaude(ctx.filingScorecard(), range: range, isHidden: ctx.isHidden, now: ctx.now())
+        return AskClaudeToolOutcome(result: text, step: "Read the filing scorecard · \(range.title)")
     }
 
     // MARK: Rules from corrections (TE286)

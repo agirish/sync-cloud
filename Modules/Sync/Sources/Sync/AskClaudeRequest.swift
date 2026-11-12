@@ -269,6 +269,7 @@ public enum AskClaudeToolCatalog {
         case fileLooseFiles = "file_loose_files"
         case proposeChanges = "propose_changes"
         case offerRule = "offer_rule"
+        case filingScorecard = "filing_scorecard"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -386,6 +387,10 @@ public enum AskClaudeToolCatalog {
                 "also": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
                                  "description": .string("Optional words this file must also have, to tell it from files their other rule sends elsewhere: a destination, an airport code.")]),
              ], required: ["handle", "folder", "name", "words"]),
+        tool(.filingScorecard,
+             "How often they kept the folder filing offered them first, from the filings they applied: kept, one folder deeper or changed, by confidence, by what picked the folder, and by top-level area. Counts only, read on their Mac and free. Use it when they ask how well filing works for them, or why to trust a suggestion.",
+             properties: ["range": string("30 (the default), 90, or all: the days counted.")],
+             required: []),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",
              properties: ["sort": string("name, kind, date, size or tags."),
