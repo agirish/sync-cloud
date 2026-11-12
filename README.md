@@ -11,11 +11,11 @@ keep across iCloud Drive, OneDrive, Dropbox and Google Drive.**
   <img src="docs/assets/screenshots/hero-compare.png" alt="SyncCloud comparing two folders side by side" width="900">
 </p>
 
-> **✨ New in v7.0 — Ask Claude.** Press **⌘J** and ask about what's on
-> screen: *"which files are only on Dropbox?"*, *"where should this go?"*, *"combine these PDFs"*.
-> Claude answers, takes you there, or proposes the change on a card, and nothing changes until you
-> click Apply. It sees a description of the screen, not your files, and what's inside a file is read
-> on this Mac. [More below](#-ask-claude-new-in-v70).
+> **✨ New in v7.1 — Ask Claude remembers.** Past chats are kept on this Mac, Claude keeps notes on
+> how you work, simple commands run here without a request to Claude, and Organize's Refine is a
+> card in the chat. Press **⌘J** and ask about what's on screen: *"which files are only on
+> Dropbox?"*, *"where should this go?"*, *"combine these PDFs"*. Nothing changes until you click
+> Apply. [More below](#-ask-claude).
 
 SyncCloud has four workspaces:
 
@@ -26,8 +26,8 @@ SyncCloud has four workspaces:
   folder tree, and see where the space goes.
 - **Edit** — write Markdown and plain text; read, rework, fill in and sign PDFs.
 
-Across all four sits **Ask Claude** (⌘J). Also new in v7.0, **one-way sync** copies chosen iCloud
-Drive folders to Dropbox when you click Sync Now.
+Beside all four sits **Ask Claude** (⌘J). **One-way sync** copies chosen iCloud Drive folders to
+Dropbox when you click Sync Now.
 
 Deletes go to the Trash, overwrites are staged and swapped in atomically, and each run is a single
 ⌘Z.
@@ -36,7 +36,7 @@ Deletes go to the Trash, overwrites are staged and swapped in atomically, and ea
 
 ## Features
 
-### 💬 Ask Claude (new in v7.0)
+### 💬 Ask Claude
 A chat in a column at the window's right edge (⌘J, or the button at the top right) that answers questions about what you're
 looking at and moves you around the app, using your own Anthropic API key. Nothing is sent until
 you ask.
@@ -54,11 +54,20 @@ you ask.
   take out, delete or reorder pages, split or combine — on a card that says what the new file loses. The original
   never changes, and a password never reaches Claude.
 - **Where should this go?** answers from your own folder layout, files a folder's loose files on
-  one card, and offers a rule when you correct it.
+  one card, and offers a rule when you correct it or pick another folder. A scan named
+  `Scan 0042.pdf` gets a name from its first page, read on this Mac, and a missing year folder is
+  made on the same card. **File with Claude** on a row's right-click menu asks it for you.
+- **Remembers**: past chats are kept on this Mac for 30 days, searchable behind the clock button,
+  and Claude keeps `~/Notes for Claude.md` on your people, folders and how you like answers, written
+  only from your own words in the chat.
+- **Simple commands run on this Mac**: *"open Settings"*, *"go to Downloads"*, *"show hidden
+  files"* run here, with nothing sent and nothing billed. A quiet chip above the text box offers
+  to file new downloads or ask about a fresh Compare scan.
 - **Right-click ▸ Ask Claude About This** on files, folders and Compare's rows attaches them to
   your question.
 - **Changes settings on a card** you click; it changes how the app looks itself, and can lower its
-  own spending or access but never raise it. Every change is listed in History, most with Revert.
+  own spending or access but never raise it. Every change is listed in Activity's Events, most with
+  Revert.
 - **Type or talk**: click the mic or press ⌥Space; speech becomes text on this Mac. Up brings back
   your last 10 questions.
 - **Always at hand**: it is the window's right-hand column, with the content making room, open by
@@ -91,7 +100,7 @@ you ask.
 - **Guided Review** steps through each difference — Copy, Move or Skip.
 - **Content verification** checksums same-size pairs to tell you whether they *actually* differ.
 - **Keyboard transfers**: ⌘→ / ⌘← copy, add ⇧ to move.
-- **One-way sync, iCloud Drive to Dropbox** (v7.0): set up from Compare, run with **Sync Now**.
+- **One-way sync, iCloud Drive to Dropbox**: set up from Compare, run with **Sync Now**.
   It copies new files, edits, renames, moves and deletions; anything it removes or replaces in
   Dropbox goes to a `SyncCloud Removed` folder, and a file changed directly in Dropbox waits for
   you to choose, unless you set it to use iCloud's version.
@@ -164,7 +173,7 @@ that refuses an ambiguous path rather than guessing.
 
 ### 🎨 Native macOS
 **Liquid Glass** (Clear, Frosted or Solid), light and dark themes, 10 accent hues, and
-**Settings ▸ Readability** for text size (90–135%) and row spacing.
+**Settings ▸ Appearance ▸ Text & Spacing** for text size (90–135%) and row spacing.
 
 ---
 

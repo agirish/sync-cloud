@@ -248,7 +248,7 @@
 <a id="top"></a>
 <div class="hero wrap">
   <div class="eyebrow"><span class="dot"></span> Native macOS · iCloud · OneDrive · Dropbox · Google Drive</div>
-  <a class="newtag" href="#ask-claude"><span class="k">New in v7.0</span> Ask Claude, a chat that knows what's on screen ›</a>
+  <a class="newtag" href="#ask-claude"><span class="k">New in v7.1</span> Ask Claude remembers: past chats, notes, and commands on this Mac ›</a>
   <h1>Keep your cloud folders<br><span class="g">in sync, and in order.</span></h1>
   <p class="sub">Compare two folders and see exactly what differs. Organize one: file loose documents, find duplicates, fix broken names, see where the space goes. Write Markdown, and read, fill and sign PDFs. Every change can be undone.</p>
   <div class="cta">
@@ -275,14 +275,16 @@
     <div class="spotlight">
       <div class="spotlight-inner">
         <div class="pane">
-          <div class="kicker">New in v7.0</div>
+          <div class="kicker">New in v7.1: past chats, notes, commands on this Mac</div>
           <h2>Ask Claude about your files</h2>
           <p>Press <code>⌘J</code> and ask about what you're looking at. Claude answers, takes you there, or proposes the change on a card. Nothing changes until you click Apply.</p>
           <ul class="flist">
             <li><span class="ic">🔒</span> <span><b>Sees a description of the screen, not your files</b> — names, kinds, sizes, dates and tags, sent only when you ask. What's inside a file is read on this Mac, and nothing from it goes until you share it on the card, unless you let it; names from folders you aren't looking at wait too. Anything can be hidden from Claude.</span></li>
             <li><span class="ic">🧭</span> <span><b>Looks things up and moves your view</b> — finds files in any source, goes to folders, tabs and either side of Compare, and answers "which files are only on Dropbox?" from Compare's list.</span></li>
             <li><span class="ic">✓</span> <span><b>Proposes; you apply</b> — moves, renames, new folders and moves to the Trash, and PDF jobs: combine, split, compress, reorder, add or remove a password.</span></li>
-            <li><span class="ic">🗂️</span> <span><b>Where should this go?</b> — answers from how you file, files a folder's loose files on one card, and offers a rule when you correct it.</span></li>
+            <li><span class="ic">🗂️</span> <span><b>Where should this go?</b> — answers from how you file, files a folder's loose files on one card, names a scan from its first page, and offers a rule when you correct it.</span></li>
+            <li><span class="ic">🧠</span> <span><b>Remembers</b> — past chats are kept on this Mac, and Claude keeps notes on your people, folders and how you like answers, written only from your own words.</span></li>
+            <li><span class="ic">⚡</span> <span><b>Simple commands run here</b> — "open Settings", "go to Downloads", "show hidden files": nothing sent, nothing billed.</span></li>
             <li><span class="ic">🎙️</span> <span><b>Type or talk</b> — click the mic or press <code>⌥Space</code>; speech is turned into text on this Mac.</span></li>
           </ul>
           <div class="pill-row">
@@ -336,9 +338,9 @@
         <ul class="flist">
           <li><span class="ic">✓</span> <span><b>Guided Review</b> — Copy, Move or Skip each item, with a running tally.</span></li>
           <li><span class="ic">#</span> <span><b>SHA-256 verification</b> — reconcile the identical pairs in one click.</span></li>
-          <li><span class="ic">ℹ</span> <span><b>Details inspector</b> — kind, size, dates, permissions, Quick Look.</span></li>
+          <li><span class="ic">ℹ</span> <span><b>Info in each pane</b> — kind, size, dates, permissions, Quick Look.</span></li>
           <li><span class="ic">⌘</span> <span><b>Keyboard transfers</b> — <code>⌘→</code> to copy, add <code>⇧</code> to move.</span></li>
-          <li><span class="ic">→</span> <span><b>One-way sync, iCloud to Dropbox</b> (new in v7.0) — pick the folders once; the pill says when something changed, and Sync Now copies it across, keeping anything it replaces or removes.</span></li>
+          <li><span class="ic">→</span> <span><b>One-way sync, iCloud to Dropbox</b> — pick the folders once; the pill says when something changed, and Sync Now copies it across, keeping anything it replaces or removes.</span></li>
         </ul>
       </div>
       <div class="media"><img src="assets/screenshots/compare-review.png" alt="Guided Review stepping through differences one at a time" loading="lazy"></div>
@@ -363,7 +365,7 @@
       <div class="safe">
         <div class="ico">▥</div>
         <h4>Columns and preview</h4>
-        <p>Each level stays on screen, so you see the route you took. Select a file and the Info inspector previews it.</p>
+        <p>Each level stays on screen, so you see the route you took. Select a file and its pane's Info previews it, as one more column.</p>
       </div>
       <div class="safe">
         <div class="ico">⧉</div>
@@ -378,7 +380,7 @@
       <div class="safe">
         <div class="ico">☁</div>
         <h4>Your cloud apps, in one line</h4>
-        <p>New in v7.0: a pane says when Dropbox, OneDrive or Google Drive isn't running, a cloud folder doesn't answer, iCloud is signed out, or a file SyncCloud changed still hasn't uploaded. And Filter by Type shows only the kinds of file you pick.</p>
+        <p>A pane says when Dropbox, OneDrive or Google Drive isn't running, a cloud folder doesn't answer, iCloud is signed out, or a file SyncCloud changed still hasn't uploaded. And Filter by Type shows only the kinds of file you pick.</p>
       </div>
     </div>
   </div>
@@ -533,11 +535,11 @@
             <span class="pill"><span class="k">On-device:</span> Apple Intelligence</span>
             <span class="pill"><span class="k">Cloud:</span> Claude Haiku / Sonnet / Opus</span>
             <span class="pill"><span class="k">Key in:</span> macOS Keychain</span>
-            <span class="pill"><span class="k">Guardrail:</span> budget caps</span>
+            <span class="pill"><span class="k">Guardrail:</span> one monthly limit</span>
           </div>
           <ul class="flist" style="margin-top:24px">
-            <li><span class="ic">🔒</span> <span>On-device AI keeps everything on your Mac. Cloud AI is <b>off by default</b>.</span></li>
-            <li><span class="ic">💵</span> <span>Scans are free and on-device. Each <b>Refine with Claude</b> shows its cost first and stops at your monthly or lifetime cap.</span></li>
+            <li><span class="ic">🔒</span> <span>On-device AI keeps everything on your Mac. Cloud AI runs only when you click <b>Send</b>.</span></li>
+            <li><span class="ic">💵</span> <span>Scans are free and on-device. Each <b>Refine with Claude</b> is a plan card in the Ask Claude chat that shows what goes and its price first, under Ask Claude's one monthly limit.</span></li>
             <li><span class="ic">↩︎</span> <span>Nothing is filed without your say-so, and every move is one undo.</span></li>
           </ul>
         </div>

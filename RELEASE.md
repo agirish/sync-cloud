@@ -87,6 +87,12 @@ Work in a worktree ([`COMMIT.md`](COMMIT.md)). The examples cut `v2.9` from `v2.
    - Before committing, work through [`docs/release-notes-audit.md`](docs/release-notes-audit.md):
      convert "Still to come", run the draft-word grep (the markup list is not the whole set), and
      audit every claim.
+   - **The front pages move with the notes.** `README.md` and `docs/index.html` headline the new
+     version ("New in <version>"), drop every "new in <previous>" tag, and say nothing the release
+     changed. Grep both for each feature the notes retire or rename. Then look at each screenshot
+     in `docs/assets/screenshots/` they show: a shot of a layout the release changed is reshot
+     before the cut, or named in the ask as out of date. v7.1 was cut with both stale; nothing here
+     said to check.
 
 2. **Regenerate and update the marker.** Run `xcodegen`; set `versionMarker` in
    `SettingsLayoutTests.swift` to the same string; run the table check (§2).
