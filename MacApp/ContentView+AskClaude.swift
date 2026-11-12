@@ -218,7 +218,10 @@ extension ContentView {
                               voiceHints: { askClaudeVoiceHints() },
                               suggestions: suggestions,
                               starterSignals: { askClaudeStarterSignals() },
-                              modelStarter: { await askClaudeModelStarter(beside: $0) })
+                              modelStarter: { await askClaudeModelStarter(beside: $0) },
+                              onDraftPause: { AskClaudeScreenGuess.shared.start($0, context: askClaudeGuessContext) },
+                              onAskWritten: { askClaudeSend($0, attached: askClaudeChat.takeAttachments(), spoken: false, onDevice: true,
+                                                            guessScreen: false) })
             // Shown at launch with the column already open, where `onOpenChange` never fires.
             .onAppear { askClaudePrewarmOnDevice() }
             // TE309: the suggestion chip's folders, counted as files come and go.
@@ -271,10 +274,16 @@ extension ContentView {
         AskClaudeBrowseTools(context: { askClaudeToolsContext() })
     }
 
+    /// `guessScreen`: typed or said in the box, so the screen may stay here when the question
+    /// looks unrelated to their files (TE347c). Words the app wrote, attached files and Retry
+    /// always send it (V3).
     func askClaudeAsk(_ question: String, shown: String? = nil, attached: [AskClaudeChat.Attachment] = [], spoken: Bool = false,
-                      editable: Bool = false, typed: Bool = true) {
+                      editable: Bool = false, typed: Bool = true, guessScreen: Bool = false) {
         // Kept for the at-limit card's Ask Again, which asks this same question again.
         askClaudeChat.lastAsked = (shown, attached)
+        let context = askClaudeGuessContext
+        let withholdScreen: @MainActor () async -> Bool = guessScreen && attached.isEmpty
+            ? { await AskClaudeScreenGuess.shared.withholds(question, context: context) } : { false }
         let tools = askClaudeTools()
         let attachedRows = askClaudeAttachedRows(attached)
         // A folder the pane hasn't loaded is read from disk first, so the screen is never sent
@@ -283,7 +292,8 @@ extension ContentView {
         guard askClaudeItems(folder) == nil else {
             var screen = askClaudeScreen()
             screen.attached = attachedRows
-            askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, screen: screen, tools: tools)
+            askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, screen: screen,
+                              withholdScreen: withholdScreen, tools: tools)
             return
         }
         askClaudeChat.ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, preparing: {
@@ -291,7 +301,7 @@ extension ContentView {
             var screen = askClaudeScreen(fallbackRows: fromDisk)
             screen.attached = attachedRows
             return screen
-        }, tools: tools)
+        }, withholdScreen: withholdScreen, tools: tools)
     }
 
     /// The text box's Send: the question, about the chips above it. A chip hidden from Claude
@@ -305,8 +315,11 @@ extension ContentView {
     /// `onDevice`: typed or said in the box, so a simple command may run on this Mac first
     /// (TE338). A button's words, Retry and a card's Next go to Claude: they answer it.
     /// `typed`: false for words the app built and they clicked, which no note may quote.
+    /// `guessScreen`: whether the screen may stay here (TE347c); typed and spoken words only,
+    /// so by default as `onDevice`.
     func askClaudeSend(_ question: String, attached chips: [AskClaudeChat.Attachment], spoken: Bool, onDevice: Bool = false,
-                       typed: Bool = true) {
+                       typed: Bool = true, guessScreen: Bool? = nil) {
+        let guessScreen = guessScreen ?? onDevice
         guard !askClaudeChat.isRunning else { return }
         let hidden = AskClaudePrivacy.Matcher(AskClaudePrivacy.hiddenFolders(in: .standard))
         let attached = chips.filter { !hidden.isHidden($0.path) }
@@ -329,11 +342,17 @@ extension ContentView {
                 guard let route = await AskClaudeOnDevice.route(question, lists: lists) else { return nil }
                 return AskClaudeQuickCommand.call(for: route, lists: lists)
             }, tools: askClaudeTools(), otherwise: {
-                askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed)
+                askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed,
+                             guessScreen: guessScreen)
             })
             return
         }
-        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed)
+        askClaudeAsk(question, shown: shown, attached: attached, spoken: spoken, editable: true, typed: typed, guessScreen: guessScreen)
+    }
+
+    /// What the screen guess sees besides the question: no names (V7).
+    var askClaudeGuessContext: AskClaudeScreenGuess.Context {
+        .init(workspace: selectedWorkspace.title, fileOpen: selectedWorkspace == .editor && editorOpenPath != nil)
     }
 
     /// The words a spoken question is listened for: from what the screen card would show Claude,

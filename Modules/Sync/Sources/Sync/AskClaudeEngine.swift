@@ -231,6 +231,8 @@ public struct AskClaudeKeptSetting: Codable, Equatable, Sendable {
 /// What the panel hears while a question runs.
 public enum AskClaudeEvent: Equatable, Sendable {
     case text(String)
+    /// Claude asked for the screen the question went without (TE347c).
+    case screenLooked
     case thinking
     case step(String, isError: Bool)
     case movedView(String)
@@ -400,9 +402,16 @@ public final class AskClaudeEngine {
 
     /// The text of the screen block for this question: the full card, or one line when nothing
     /// changed since the last question.
-    public func screenBlock(for card: String) -> String {
-        card == lastCard ? "<screen unchanged/>" : card
+    public func screenBlock(for card: String, withheld: Bool = false) -> String {
+        if card == lastCard { return Self.screenUnchanged }
+        guard withheld else { return card }
+        // Names nothing, and says whether what Claude saw last is out of date (V2).
+        return lastCard == nil ? Self.screenNotSent : Self.screenChangedNotSent
     }
+
+    public static let screenUnchanged = "<screen unchanged/>"
+    public static let screenNotSent = "<screen not sent/>"
+    public static let screenChangedNotSent = "<screen changed, not sent/>"
 
     /// Their notes for this question (TE307): the block to send and what Claude has once it joins,
     /// or nil when Claude already has them as they are.
@@ -429,10 +438,12 @@ public final class AskClaudeEngine {
     /// Runs one question. `card` is the rendered screen; `onEvent` hears progress on the main actor.
     /// Returns whether the question joined the transcript, which is whether Claude has it. Not read
     /// from how it ended: a stop or an empty first turn ends quietly with nothing kept, and a
-    /// problem after the first round comes once the question is in.
+    /// problem after the first round comes once the question is in. `withholdScreen`: the question
+    /// looked unrelated to their files (TE347c), so the screen goes only when Claude asks for it
+    /// with look_at_screen.
     @discardableResult
     public func ask(_ question: String, card: String, key: String?, model: AskClaudeModels.Option,
-                    detail chosenDetail: AskClaudeDetail? = nil,
+                    detail chosenDetail: AskClaudeDetail? = nil, withholdScreen: Bool = false,
                     tools: AskClaudeToolRunning, onEvent: (AskClaudeEvent) -> Void) async -> Bool {
         // Every problem and the way the question ended go in the log as well as the panel, so a
         // failed question's summary line never reads like a success.
@@ -469,7 +480,7 @@ public final class AskClaudeEngine {
             return false
         }
 
-        let screen = screenBlock(for: card)
+        let screen = screenBlock(for: card, withheld: withholdScreen)
         // Read once per question, so its rounds all go out with one style.
         let detail = chosenDetail ?? AskClaudeDetail.stored(in: defaults)
         let kept = AskClaudeKeptSetting(model: model.id, detail: detail.rawValue)
@@ -499,7 +510,10 @@ public final class AskClaudeEngine {
         defer {
             Logger.shared.info("Ask Claude question done: \(model.id) \(detail.rawValue) · \(round) round(s) · \(Self.describe(used)) · \(AskClaudeSpend.format(spent)) · "
                 + "tools: \(toolNames.isEmpty ? "none" : toolNames.joined(separator: ", ")) · \(Self.seconds(since: askedAt))"
-                + (screen == card ? " · screen \(card.count) chars" : " · screen unchanged") + " · ended \(ended)")
+                + (screen == card ? " · screen \(card.count) chars"
+                   : screen == Self.screenUnchanged ? " · screen unchanged"
+                   : lastCard == card ? " · screen when Claude asked" : " · screen not sent")
+                + " · ended \(ended)")
         }
         while true {
             round += 1
@@ -580,7 +594,8 @@ public final class AskClaudeEngine {
                 return joined
             }
             if round == 1 {
-                lastCard = card
+                // A screen held back leaves Claude's last view as it was (C-R3).
+                if screen == card { lastCard = card }
                 owedResults = []
                 turns.append(Turn(start: transcript.count, lastKept: lastKept, contextTokens: contextTokens,
                                   notesKnown: notesKnown))
@@ -639,6 +654,11 @@ public final class AskClaudeEngine {
                     emit(.step(outcome.step, isError: true))
                     results.append(Self.result(for: call, text: outcome.result, isError: true))
                     continue
+                } else if call.name == AskClaudeToolCatalog.Name.lookAtScreen.rawValue {
+                    // The screen as it was when they asked; from here it is Claude's view (U9).
+                    lastCard = card
+                    outcome = AskClaudeToolOutcome(result: card, isError: false, step: "Looked at your screen")
+                    emit(.screenLooked)
                 } else if round > Self.maxToolRounds {
                     outcome = AskClaudeToolOutcome(result: "The tool budget for this question is used up. Answer with what you have.",
                                                    isError: true, step: "Stopped looking: tool limit reached")

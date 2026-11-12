@@ -2013,6 +2013,24 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(kept.map { kinds[$0 - 1] } == .note("Now on Claude Opus 5.5. Answers now Detailed."))
     }
 
+    /// TE347c: a question guessed unrelated to their files goes without the screen, and its
+    /// receipt says so; the sheet then shows no screen text, since none went.
+    @Test func aReceiptSaysWhenTheScreenStayedHere() async {
+        let d = defaults()
+        let chat = makeChat(ModelTransport([.init(), .init()]), defaults: d)
+        chat.ask("How is the weather in San Ramon", screen: screen, withholdScreen: { true }, tools: NoTools())
+        await waitUntilIdle(chat)
+        chat.ask("What’s in this folder?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        #expect(receipts.count == 2)
+        #expect(receipts.first?.screenWithheld == true)
+        #expect(receipts.first?.summary.hasPrefix("Sent no screen · ") == true, "\(receipts.first?.summary ?? "")")
+        #expect(receipts.last?.summary.hasPrefix("Sent screen · ") == true, "\(receipts.last?.summary ?? "")")
+        var asked = receipts[0]
+        asked.screenAsked = true
+        #expect(asked.summary.hasPrefix("Sent screen when Claude asked · "), "\(asked.summary)")
+    }
+
     @Test func aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback() async {
         let d = defaults()
         let chat = makeChat(ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)

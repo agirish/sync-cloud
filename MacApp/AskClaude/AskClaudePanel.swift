@@ -74,6 +74,11 @@ struct AskClaudePanel: View {
     var starterSignals: () -> AskClaudeStarters.Signals = { .init() }
     /// One more starter from the on-device model, given those shown; nil for none (decision NN).
     var modelStarter: (([String]) async -> String?)?
+    /// The box's words after a pause in typing, for the screen guess to start on (TE347c).
+    var onDraftPause: ((String) -> Void)?
+    /// Words the app wrote (a starter, the suggestion chip): sent with the screen, never guessed
+    /// about (V3). Nil sends them as typed.
+    var onAskWritten: ((String) -> Void)?
 
     /// The model's starter and the rule starters it was written beside.
     @State private var extraStarter: (key: String, question: String)?
@@ -136,6 +141,14 @@ struct AskClaudePanel: View {
         }
         // Kept as it's typed: a window torn down needn't say goodbye to its views.
         .onChange(of: draft) { _, typed in chat.draft = typed }
+        // A pause in typing starts the screen guess, so it's usually in by Send (U1).
+        .task(id: draft) {
+            let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let onDraftPause, words.split(separator: " ").count >= 2 else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            onDraftPause(words)
+        }
         // Something attached from a row's menu: the caret goes to the box for the question.
         .onChange(of: chat.attachments) { _, now in if !now.isEmpty { composerFocused = true } }
         // Edit Message on a caught-key card: the message comes back to the box.
@@ -400,7 +413,7 @@ struct AskClaudePanel: View {
             }
             if chat.editing != nil { editingLine }
             if let waiting = chat.queued { queuedLine(waiting) }
-            if let suggestions, !startersShow { AskClaudeSuggestionChip(sources: suggestions, chat: chat, listening: voice.isActive, draft: draft, keySaved: keySaved == true, accent: accent, onSend: { send($0, spoken: false) }, onOpenSettings: { onOpenSettings(.claudeGeneral) }) }
+            if let suggestions, !startersShow { AskClaudeSuggestionChip(sources: suggestions, chat: chat, listening: voice.isActive, draft: draft, keySaved: keySaved == true, accent: accent, onSend: { send($0, spoken: false, written: true) }, onOpenSettings: { onOpenSettings(.claudeGeneral) }) }
             if !chat.attachments.isEmpty { attachmentChips }
             if voice.isActive { listeningStrip }
             if let notice = voice.notice, !voice.isActive {
@@ -731,7 +744,7 @@ struct AskClaudePanel: View {
                             accent: accent, hue: hue, defaults: chat.settingsDefaults,
                             onStarter: { question in
                                 if let suggestion, question == suggestion.question { chip?.recordClick(suggestion) }
-                                send(question, spoken: false)
+                                send(question, spoken: false, written: true)
                             })
             // The model writes only while the box is empty; the first key stops it (U4).
             .task(id: draft.isEmpty && keySaved == true ? key : nil) {
@@ -757,12 +770,12 @@ struct AskClaudePanel: View {
     }
 
     /// The box's text, or a starter's, which goes exactly as if typed and leaves the box as it was.
-    private func send(_ text: String, spoken: Bool) {
+    private func send(_ text: String, spoken: Bool, written: Bool = false) {
         guard !text.isEmpty, !chat.isRunning else { return }
         // A key never leaves the Mac in a message, nor joins the remembered questions.
         if chat.catchKey(text) { return }
         chat.rememberSent(text)
-        if spoken, let onAskSpoken { onAskSpoken(text) } else { onAsk(text) }
+        if spoken, let onAskSpoken { onAskSpoken(text) } else if written, let onAskWritten { onAskWritten(text) } else { onAsk(text) }
     }
 
     /// ⌥Space or the mic, tap to toggle: starts listening, or sends what was said. While Claude
@@ -1167,6 +1180,11 @@ private struct AskClaudeThreadRow: View, Equatable {
                 Text("\(receipt.modelName.map { $0 + " · " } ?? "")\(receipt.rounds) round\(receipt.rounds == 1 ? "" : "s")")
                     .scaledFont(.callout)
                     .foregroundStyle(.secondary)
+                if receipt.screenWithheld == true, receipt.screenAsked != true {
+                    Text(AskClaudeChat.Receipt.notSent)
+                        .scaledFont(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
                 ScrollView([.horizontal, .vertical]) {
                     Text(receipt.screenText)
                         .scaledFont(ScaledFont.system(.caption2, design: .monospaced))
@@ -1175,6 +1193,7 @@ private struct AskClaudeThreadRow: View, Equatable {
                 }
                 .frame(maxHeight: 260)
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.control))
+                }
             }
             .padding(12)
             .frame(width: 360)
@@ -2170,10 +2189,15 @@ enum AskClaudeThreadRowShortening {
 }
 
 extension AskClaudeChat.Receipt {
+    /// The sheet's words for a screen that stayed on this Mac (TE347c).
+    static let notSent = "Your screen wasn’t sent: this question looked unrelated to your files. Claude can ask for it, and Retry sends it."
+
     /// The line under an answer: what it sent and cost, led by the model's name when it changed.
     var summary: String {
-        let screen = screenUnchanged ? "screen unchanged"
-            : (rowsSent == rowsTotal ? "screen · \(rowsSent) rows" : "screen · \(rowsSent) of \(rowsTotal) rows")
+        let rows = rowsSent == rowsTotal ? "\(rowsSent) rows" : "\(rowsSent) of \(rowsTotal) rows"
+        let screen = screenAsked == true ? "screen when Claude asked · \(rows)"
+            : screenWithheld == true ? "no screen"
+            : screenUnchanged ? "screen unchanged" : "screen · \(rows)"
         let tokens = (promptTokens + outputTokens).formatted(.number.notation(.compactName))
         let named = showsModel == true ? modelName.map { $0 + " · " } ?? "" : ""
         let notes = self.notes.map { $0.receiptWords + " · " } ?? ""

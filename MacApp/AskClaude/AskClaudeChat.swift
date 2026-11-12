@@ -158,6 +158,10 @@ final class AskClaudeChat: ObservableObject {
         var kept: Bool?
         /// Their notes went with the question (TE307).
         var notes: AskClaudeNotesSent?
+        /// The question looked unrelated to their files, so the screen stayed here (TE347c).
+        var screenWithheld: Bool?
+        /// Claude asked for the screen the question went without.
+        var screenAsked: Bool?
     }
 
     /// An hour away starts a new chat; the cache would be cold by then anyway.
@@ -1693,15 +1697,18 @@ final class AskClaudeChat: ObservableObject {
 
     /// Starts a question about `screen`, run with `tools`.
     func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
-             typed: Bool = true, screen: AskClaudeScreen, tools: AskClaudeToolRunning) {
-        ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, preparing: { screen }, tools: tools)
+             typed: Bool = true, screen: AskClaudeScreen, withholdScreen: @escaping @MainActor () async -> Bool = { false },
+             tools: AskClaudeToolRunning) {
+        ask(question, shown: shown, spoken: spoken, attached: attached, editable: editable, typed: typed, preparing: { screen },
+            withholdScreen: withholdScreen, tools: tools)
     }
 
     /// Starts a question whose screen takes a moment to read (a folder the pane hasn't loaded is
     /// read from disk first). The question shows, and the chat counts as running, at once: a
     /// second Send in that moment would otherwise pass and then be dropped with its draft cleared.
     func ask(_ question: String, shown: String? = nil, spoken: Bool = false, attached: [Attachment] = [], editable: Bool = false,
-             typed: Bool = true, preparing screen: @escaping @MainActor () async -> AskClaudeScreen, tools: AskClaudeToolRunning) {
+             typed: Bool = true, preparing screen: @escaping @MainActor () async -> AskClaudeScreen,
+             withholdScreen: @escaping @MainActor () async -> Bool = { false }, tools: AskClaudeToolRunning) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !isRunning else { return }
         // Before any restart below empties the thread this is looked for in.
@@ -1803,9 +1810,14 @@ final class AskClaudeChat: ObservableObject {
             var handles = engine.handles
             let rendered = AskClaudeScreenCard.render(screen, handles: &handles)
             engine.handles = handles
-            let block = engine.screenBlock(for: rendered.text)
-            self.receipt = Receipt(screenText: rendered.text, screenUnchanged: block != rendered.text,
-                                   rowsSent: rendered.rowsSent, rowsTotal: rendered.rowsTotal, requested: model.id)
+            // Whether the question is about their files, guessed on this Mac (TE347c): at most a
+            // moment's wait, and the screen goes when there's no answer in time.
+            let withhold = await withholdScreen()
+            guard self.run == thisRun else { return }
+            let block = engine.screenBlock(for: rendered.text, withheld: withhold)
+            self.receipt = Receipt(screenText: rendered.text, screenUnchanged: block == AskClaudeEngine.screenUnchanged,
+                                   rowsSent: rendered.rowsSent, rowsTotal: rendered.rowsTotal, requested: model.id,
+                                   screenWithheld: block == rendered.text || block == AskClaudeEngine.screenUnchanged ? nil : true)
             let key: String?
             let keyChangesBefore = self.keyChanges
             if let known { key = known } else { key = await Task.detached(priority: .userInitiated) { readKey() }.value }
@@ -1813,7 +1825,7 @@ final class AskClaudeChat: ObservableObject {
             if self.run == thisRun, self.keyChanges == keyChangesBefore { self.cachedKey = key }
             // The model and style read above, not again: they can change while the screen is read.
             let joined = await engine.ask(sent, card: rendered.text, key: key, model: model, detail: detail,
-                                          tools: tools) { [weak self] event in
+                                          withholdScreen: withhold, tools: tools) { [weak self] event in
                 // A run New Chat replaced keeps unwinding; nothing it says reaches the new chat.
                 guard let self, self.run == thisRun else { return }
                 self.apply(event)
@@ -2212,6 +2224,8 @@ final class AskClaudeChat: ObservableObject {
             }
         case .thinking:
             isThinking = true
+        case .screenLooked:
+            receipt?.screenAsked = true
         case .retractAnswer:
             if let id = streamingItem { items.removeAll { $0.id == id } }
             streamingItem = nil

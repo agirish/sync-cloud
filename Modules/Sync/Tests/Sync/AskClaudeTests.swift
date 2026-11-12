@@ -667,6 +667,57 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(messages.last?["content"]?.arrayValue?.dropFirst().first?["text"]?.stringValue == "<screen unchanged/>")
     }
 
+    /// TE347c: a question that looked unrelated to their files goes with one line, naming nothing,
+    /// that says whether Claude's last view is out of date (V2); that view stays as it was (C-R3).
+    @Test func aWithheldScreenSaysWhetherClaudesViewIsStale() async throws {
+        let transport = ScriptedTransport((0..<4).map { _ in .init(status: 200, lines: textResponse("a")) })
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        func ask(_ card: String, withheld: Bool) async {
+            await engine.ask("q", card: card, key: "k", model: AskClaudeModels.sonnet, withholdScreen: withheld,
+                             tools: StubTools()) { _ in }
+        }
+        func screenLine(_ request: Int) throws -> String? {
+            let messages = try #require(try transport.body(request)["messages"]?.arrayValue)
+            return messages.last?["content"]?.arrayValue?.dropFirst().first?["text"]?.stringValue
+        }
+        await ask("<screen>Approval</screen>", withheld: true)
+        #expect(try screenLine(0) == "<screen not sent/>")
+        await ask("<screen>Approval</screen>", withheld: false)
+        #expect(try screenLine(1) == "<screen>Approval</screen>", "the held-back screen was never Claude's view")
+        await ask("<screen>Taxes</screen>", withheld: true)
+        #expect(try screenLine(2) == "<screen changed, not sent/>")
+        // Unchanged since Claude's view costs nothing, so it goes as the one line it always did.
+        await ask("<screen>Approval</screen>", withheld: true)
+        #expect(try screenLine(3) == "<screen unchanged/>")
+    }
+
+    /// Claude asks for the held-back screen with look_at_screen: the engine answers with the card,
+    /// and from then on it is Claude's view (U9).
+    @Test func lookAtScreenAnswersWithTheCardAndMakesItClaudesView() async throws {
+        let transport = ScriptedTransport([
+            .init(status: 200, lines: toolResponse(id: "toolu_1", name: "look_at_screen", inputJSON: "{}")),
+            .init(status: 200, lines: textResponse("The second needs signing.")),
+            .init(status: 200, lines: textResponse("b")),
+        ])
+        let tools = StubTools()
+        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
+        var events: [AskClaudeEvent] = []
+        await engine.ask("Is it signed yet?", card: "<screen>two PDFs</screen>", key: "k", model: AskClaudeModels.sonnet,
+                         withholdScreen: true, tools: tools) { events.append($0) }
+        #expect(tools.calls.isEmpty, "the engine answers it, never the app's tools")
+        #expect(events.contains(.screenLooked))
+        #expect(events.contains(.step("Looked at your screen", isError: false)))
+        let messages = try #require(try transport.body(1)["messages"]?.arrayValue)
+        let result = try #require(messages[2]["content"]?.arrayValue?.first)
+        #expect(result["tool_use_id"]?.stringValue == "toolu_1")
+        #expect(result["content"]?.stringValue == "<screen>two PDFs</screen>"
+                || result["content"]?.arrayValue?.first?["text"]?.stringValue == "<screen>two PDFs</screen>")
+        await engine.ask("And the first?", card: "<screen>two PDFs</screen>", key: "k", model: AskClaudeModels.sonnet,
+                         withholdScreen: true, tools: tools) { _ in }
+        let next = try #require(try transport.body(2)["messages"]?.arrayValue)
+        #expect(next.last?["content"]?.arrayValue?.dropFirst().first?["text"]?.stringValue == "<screen unchanged/>")
+    }
+
     @Test func aRejectedKeyIsSaidPlainlyAndLeavesNoHalfSentTurn() async {
         let transport = ScriptedTransport([.init(status: 401, lines: [#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#])])
         let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })

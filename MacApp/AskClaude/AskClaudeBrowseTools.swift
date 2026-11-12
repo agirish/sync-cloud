@@ -695,6 +695,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .pdf: return await pdf(call, ctx, handles)
         case .eject: return await eject(call, ctx)
         case .notes: return notes(call, ctx)
+        // The engine answers it with the screen card it holds (TE347c); one never reaches here.
+        case .lookAtScreen:
+            return AskClaudeToolOutcome(result: "The screen is answered by Ask Claude itself.", isError: true,
+                                        step: "Couldn’t look at your screen")
         case nil:
             return AskClaudeToolOutcome(result: "There is no tool called \(call.name).", isError: true,
                                         step: "Asked for an unknown tool")

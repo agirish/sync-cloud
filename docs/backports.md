@@ -15411,3 +15411,14 @@ measure under TE347a applies: no maintenance line has Ask Claude.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Ask Claude sends the screen only when a question needs it (TE347c) — main only, recorded, not owed
+
+2026-11-11, for v7.2 (decision NO). On `main`: a typed or spoken question that Apple's on-device
+model guesses unrelated to the files goes with `<screen not sent/>` or `<screen changed, not
+sent/>`, and Claude asks for the screen with `look_at_screen` (`AskClaudeScreenGuess`). A feature;
+the measure under TE347a applies: no maintenance line has Ask Claude.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
