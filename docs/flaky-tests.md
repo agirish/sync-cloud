@@ -5463,7 +5463,8 @@ a unique name, or replace it atomically. No other test here writes a fixed name 
 
 **Tell.** `Ask Claude: couldn’t listen:` with an `avfaudio` error in the host's log,
 `$TMPDIR/sync-cloud-tests-<pid>.log`. It is swept an hour after the process ends. A voice red with a
-poll count of about 50, as once on 2026-11-04, is a starved wait instead: mechanism 2.
+poll count of about 50, as once on 2026-11-04, is a starved wait instead: mechanism 2, or a Mac that
+slept mid-run: mechanism 59. Hundreds of polls, the Mac awake and no `couldn’t listen`: mechanism 60.
 
 ### 58. A recalled question that never reached the box, so the next Down walked past it — cause not found
 
@@ -5496,3 +5497,111 @@ it, the box's text and caret after it, and `chat.draft` then. The next red says 
 ran ahead of the box, and at which press.
 
 **Tell.** The last two presses both `@0`. Rerun the suite; record the trace here.
+
+### 59. A run left going while the Mac slept: `ContinuousClock` limits ran out in sleep that Swift Testing's durations leave out
+
+**Symptom.** Many reds at once, each failing in seconds by its own reported duration. A
+`waitUntil` gives up at exactly its 50-poll floor ("still false after 50 polls"), and a
+60-second bound reports "waited out 60.0 seconds" in a test that "failed after 35.522 seconds". The
+`SyncCloud[...]` lines in the same log jump by many minutes between neighbouring tests. Narrow or
+full, the same tree passes once the Mac is awake.
+
+**Mechanism.** The Mac was asleep in the middle of the run. With the lid closed on battery, macOS
+sleeps whatever is running and wakes it for a few seconds now and then (DarkWake). A run left going
+then makes progress only in those wakes. `ContinuousClock` and `Date` count the time asleep;
+Swift Testing's durations and the `SuspendingClock` do not. So every limit measured in seconds
+expires across one sleep: the test helpers' `waitUntil` deadlines, park reservations,
+and the app's own timers. In the voice suites, `AskClaudeVoice`'s watcher measures the quiet since
+the last loud input on `ContinuousClock`. The first wake after a sleep therefore finds more than
+`firstWordLimit` (8 s) of quiet and no words, and ends the turn as `.heardNothing` before the clip
+has played. That fits the `voice.notice == nil` and `source.audioEnded` pair that fails beside
+each voice wait; the tests do not print the notice, so the path is read from the code. Load has
+nothing to do with it.
+
+**Measured, 2026-11-14.** `pmset -g log` shows the Mac in clamshell sleep on battery from 22:58 on
+11-13 until 06:49 on 11-14, with 2-second DarkWakes about every 15 minutes. A narrow run of both
+voice suites, started at 00:26, began its tests in the 01:30:46 wake. Its tests then ran in the
+wakes at 01:48:23 and 02:36:45. Swift Testing put the whole run at 44.5 s; by the log's own
+timestamps it took 66 minutes. Seven of its 11 tests passed and four failed:
+- `silenceEndsTheTurnWithWhatWasSaid`: 4.989 s, 50 polls, `source.audioEnded` false, a notice set.
+- `optionSpaceListensAndTheTurnSendsAsASpokenQuestion`: 7.631 s, 50 polls.
+- `theNamesOnScreenAreListenedFor`: 13.687 s, 361 polls.
+- `whatIsSaidWhileClaudeAnswersWaitsForTheAnswer`: 9.853 s, 352 polls.
+
+The host log had "Ask Claude: listening" for each turn and no `couldn’t listen`, so it was not
+mechanism 57. A full `Modules/Sync` run that went on through the night (finished 06:50) failed 155
+tests. Among them, `ElapsedSpanTests.aLiveSpanReportsWorkAndNoSleep` reported "an awake machine was
+reported as sleeping: “4.58 s + 7.72 s asleep”", and the dataless-folder suites failed together
+after 35.522 s with "a park reservation … waited out 60.0 seconds". After the wake, the same voice
+run passed 11/11 at load ~28 (07:01), and the same Sync run passed 4,529 tests (07:00).
+
+**Tell.** Wall-clock stamps in the log far apart while the reported durations are short; 50-poll
+waits; in a Sync run, `aLiveSpanReportsWorkAndNoSleep` red with "asleep" in its text. Confirm with
+`pmset -g log | grep -E ' (Sleep|DarkWake|Wake) '` over the run's span. The run gives no verdict:
+run it again awake, on power or with the lid open. Nothing about the commit is in question.
+
+**Not fixed.** Every seconds-bound wait in the repo counts sleep, by design: a wait for an
+answer is meant to be bounded in real time. Run gates awake.
+
+**Seen.** `AskClaudeVoiceEngineTests` and `AskClaudePanelVoiceTests` (the four above), and 155 Sync
+tests, 2026-11-14, in one session's landing gate for the second test trim.
+
+### 60. A voice turn in a loaded full app run ends with nothing heard, or shows no words by the clip's end — cause not found
+
+**Symptom.** In a full local app run, with other sessions' gates going on the same Mac, one or
+two voice tests go red. The Mac was awake (`pmset -g log`), so it is not mechanism 59. The same
+tree then passes both voice suites alone, and the full app run as well. Two shapes:
+
+- **The turn ends with nothing.** `silenceEndsTheTurnWithWhatWasSaid` failed at "the turn ends by
+  itself" after 66.7 s, 792 polls, and `optionSpaceListensAndTheTurnSendsAsASpokenQuestion` at "the
+  turn ends and sends" after 98.1 s, 2,781 polls. With them failed `heard`/`panel.spoken` empty and
+  `voice.notice == nil` (`voice.phase == .idle` green). Hundreds of polls rule out a starved wait.
+  The turn had ended by itself, with a notice and no words.
+- **No words on the strip when the clip ends.** `aSecondTapSendsWhatWasSaidSoFar` failed after
+  10.5 s with one issue, "nothing on the strip as it was said". The tap after it still heard
+  "receipts", so the transcriber did hear the clip, only late.
+
+**What the code allows.** Not mechanism 57: its fix (`dcd09136c`, 2026-11-11) predates every run
+here. A turn can end with a notice and no words three ways:
+
+1. The watcher's `.heardNothing`: no words, settled or tentative, by `firstWordLimit` (8 s) after
+   the last loud input that `hear` recorded. It logs nothing.
+2. The transcriber's results end on their own, so `resultsEnded` finishes with nothing. It logs
+   "the transcriber stopped".
+3. An analyzer that fails to start. It logs "couldn’t listen".
+
+The host logs were swept, so which way these turns ended is not known. For the second shape, the
+test reads the strip as soon as `source.audioEnded`, the moment the 2.5 s clip's last slice has gone
+out. Words reach the strip through the results loop in `begin`, a task that runs on the main actor,
+as the test's wait does. Nothing guarantees a first result before the clip ends. On a quiet Mac it
+comes in time; a run that slows the transcriber or the main actor can deliver it after.
+
+**Measured, 2026-11-14.**
+- **Both suites alone, under `build-slot --exclusive` with 40 `yes` spinners** (load 29 to 167):
+  11/11 green, each test 2.1–12.2 s, the run 48.9 s against 39.9 s at load ~28. Every turn
+  logged "Ask Claude: listening", and each turn meant to end in silence logged "the question ended
+  in silence".
+  CPU load from other processes alone does not do it.
+- **What a full app run adds** is contention inside the test host: 273 suites run in parallel in one
+  process, sharing its main actor and its cooperative pool. In the full run where
+  `aSecondTapSendsWhatWasSaidSoFar` failed, `silenceEndsTheTurnWithWhatWasSaid` and
+  `optionSpaceListensAndTheTurnSendsAsASpokenQuestion` passed but took 74.0 s and 77.6 s,
+  against 9.8 s and 11.9 s alone under the spinners. Not reproduced in a full run.
+
+**Tell.** A full app run, the Mac awake, other gates going, and a narrow rerun of the two voice
+suites green. Before the host log is swept (an hour after the run), copy its `Ask Claude:` lines
+into this entry: "couldn’t listen" or "the transcriber stopped" names the way the turn ended, and
+neither line means the watcher's `firstWordLimit`.
+
+**Not fixed.** Both shapes would say more with one test change each, neither made here. The
+first-shape tests should print `voice.notice` in their failure message.
+`aSecondTapSendsWhatWasSaidSoFar` should wait, bounded, for words on the strip instead of reading
+it at `audioEnded`; its claim is about the tap, not about how fast the transcriber keeps up.
+
+**Seen.**
+- `AskClaudeVoiceEngineTests.silenceEndsTheTurnWithWhatWasSaid` and
+  `AskClaudePanelVoiceTests.optionSpaceListensAndTheTurnSendsAsASpokenQuestion`: 2026-11-13, ~20:54,
+  full app run at load ~46. A narrow rerun at 20:57 passed 11/11; the full rerun at 20:58 passed.
+- `AskClaudeVoiceEngineTests.aSecondTapSendsWhatWasSaidSoFar`: 2026-11-13, ~22:50, full app run.
+  Two other sessions report it red twice more in loaded full app runs on 2026-11-13/14, green
+  narrow (relayed, not checked).
