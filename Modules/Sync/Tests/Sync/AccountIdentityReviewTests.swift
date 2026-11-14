@@ -68,8 +68,10 @@ import Foundation
     @Test func aProposalNeverGoesIntoAnInbox() {
         let tree = [dir("Inbox", [dir("Inbox/Chase", [])]),
                     dir("Money", [dir("Money/Chase", []), dir("Money/Citi", [account("Money/Citi/Checking 1111")])])]
-        let p = AccountProposal.propose(institution: "chase", type: "Checking", ending: "0779",
+        // A type no account has, so the parent is the bank's own folder: the inbox one sorts first.
+        let p = AccountProposal.propose(institution: "chase", type: "Auto Lease", ending: "0779",
                                         index: AccountIndex.build(tree: tree), tree: tree, period: nil)
         #expect(p?.accountRoot.hasPrefix("Inbox") != true, "\(p?.accountRoot ?? "nil")")
+        #expect(p?.accountRoot == "Money/Chase/Auto Lease 0779", "\(p?.accountRoot ?? "nil")")
     }
 }

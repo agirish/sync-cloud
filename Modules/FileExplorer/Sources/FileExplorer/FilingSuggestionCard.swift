@@ -45,6 +45,8 @@ struct FilingSuggestionCard: View {
     /// File Once Here, when the statement names other accounts too.
     /// Gets the home as shown, a typed folder name included.
     var onFileOnce: ((FilingPreference.Scope?, FilingDestination) -> Void)? = nil
+    /// What filing copies into now, under the preferences as they stand.
+    var copies: [FilingCopy] = []
 
     /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
     /// proposed name is the model's, not the user's, so they can change it before filing.
@@ -116,8 +118,8 @@ struct FilingSuggestionCard: View {
             .padding(.horizontal, 14).padding(.top, densityMetrics.cardHeaderVerticalPadding)
             VStack(alignment: .leading, spacing: 6) {
                 actions
-                if let onFileOnce, let best, !best.alsoCopiesTo.isEmpty {
-                    FilingCopiesRow(copies: best.alsoCopiesTo) { onFileOnce($0, best.renamingNewFolder(to: editedFolderName)) }
+                if let onFileOnce, let best, !copies.isEmpty {
+                    FilingCopiesRow(copies: copies) { onFileOnce($0, best.renamingNewFolder(to: editedFolderName)) }
                 }
                 if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
             }
@@ -319,9 +321,10 @@ struct FilingSuggestionCard: View {
                             .scaledFont(.system(size: 12))
                             .frame(maxWidth: 220)
                             .help("The name of the folder that will be created. Leave it to accept “\(leaf)”.")
+                            .accessibilityLabel("Create the folder as")
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Create as \(editedFolderName.isEmpty ? leaf : editedFolderName)")
+                    // The field stays its own element, so VoiceOver can edit it.
+                    .accessibilityElement(children: .contain)
                 } else {
                     // Several: renaming the last alone would leave the others unseen.
                     HStack(spacing: 6) {
@@ -531,7 +534,7 @@ struct FilingSuggestionCard: View {
         if let best, suggestion.hasConfidentHome {
             // The typed name, when the user typed one — see `newFolderNameField`.
             Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
-                Label("File Here", systemImage: "arrow.right.circle")
+                Label(best.createsAccountFolder ? "Create and File" : "File Here", systemImage: "arrow.right.circle")
             }
                 .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                 .chromeHover()

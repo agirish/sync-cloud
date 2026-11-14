@@ -9,10 +9,6 @@ import Foundation
 @MainActor
 @Suite struct FilingReviewApplyTests {
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(10)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-    }
 
     @Test func undoTakesAwayTheFoldersAFilingMade() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingReviewMade")
@@ -23,6 +19,8 @@ import Foundation
         try writeBytes(file, Data(repeating: 1, count: 40))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingReviewApplyTests.made"))
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         m.undoManager = undo
         let account = docs.path + "/Bank Accounts/Chase/Checking 0779"
         let dest = FilingDestination(path: account + "/2026", confidence: .medium, reasons: ["No folder holds Chase ••0779"],
@@ -33,7 +31,7 @@ import Foundation
         #expect(await m.applyFilingSuggestion(card, to: dest) == .moved)
         #expect(FileManager.default.fileExists(atPath: account + "/2026/03. Mar 2026.pdf"))
         undo.undo()
-        try await waitUntil { FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: account) }
+        await waitUntil("the undo or redo settles", timeout: 10) { FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: account) }
         #expect(FileManager.default.fileExists(atPath: file.path))
         #expect(!FileManager.default.fileExists(atPath: account), "no empty account folder for the next scan to read as real")
         #expect(FileManager.default.fileExists(atPath: docs.path + "/Bank Accounts/Chase"), "what was there stays")

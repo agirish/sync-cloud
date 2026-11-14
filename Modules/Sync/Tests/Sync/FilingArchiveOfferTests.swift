@@ -34,6 +34,8 @@ import Foundation
         }
         let m = FileSyncManager(defaults: ScratchDefaults("FilingArchiveOfferTests.1"))
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         m.undoManager = undo
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
@@ -83,15 +85,13 @@ import Foundation
         // He files something else into it before undoing.
         try writeBytes(URL(fileURLWithPath: offer.target + "/2027/other.pdf"), Data(repeating: 1, count: 9))
         f.undo.undo()
-        // The statements back in the inbox, then every queued step of the same ⌘Z done.
-        let deadline = Date().addingTimeInterval(10)
-        while !f.group.toFile.allSatisfy({ FileManager.default.fileExists(atPath: $0.filePath) }), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
+        // The statements back in the inbox, then every queued step of the same ⌘Z done: the
+        // re-point claims its slot from a task, so drain after letting it.
+        await waitUntil("the statements are back", timeout: 10) {
+            f.group.toFile.allSatisfy { FileManager.default.fileExists(atPath: $0.filePath) }
         }
         #expect(f.group.toFile.allSatisfy { FileManager.default.fileExists(atPath: $0.filePath) })
-        await f.m.enqueueFileOperation {}
-        try await Task.sleep(for: .milliseconds(100))
-        await f.m.enqueueFileOperation {}
+        for _ in 0..<3 { await Task.yield(); await f.m.enqueueFileOperation {} }
         #expect(FileManager.default.fileExists(atPath: offer.target), "the folder stayed out of the archive")
         #expect(f.m.filingLearnedAccounts.first?.folder == live, "and what points at it still does")
     }
@@ -114,6 +114,8 @@ import Foundation
         try writeBytes(apr, Data(repeating: 0x62, count: 71))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingArchiveOfferTests.2"))
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         m.undoManager = undo
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
@@ -143,11 +145,11 @@ import Foundation
         #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336", "re-pointed")
 
         undo.undo()
-        let deadline = Date().addingTimeInterval(10)
         // The re-point waits in the file-operation queue behind the moves back: wait for it too.
-        while !(FileManager.default.fileExists(atPath: archived) && FileManager.default.fileExists(atPath: mar.path)
-                && m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336"),
-              Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await waitUntil("the account and statements are back, pointed back", timeout: 10) {
+            FileManager.default.fileExists(atPath: archived) && FileManager.default.fileExists(atPath: mar.path)
+                && m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336"
+        }
         #expect(FileManager.default.fileExists(atPath: mar.path) && FileManager.default.fileExists(atPath: apr.path),
                 "one ⌘Z puts the statements back")
         #expect(FileManager.default.fileExists(atPath: archived + "/2025/01. Jan 2025.pdf"), "and the account back in the archive")
@@ -155,10 +157,6 @@ import Foundation
         #expect(m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336")
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(10)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-    }
 
     /// The bank folder exists only inside the archive: the move makes it beside, and ⌘Z removes it.
     @Test func theMoveMakesTheBankFolderAndUndoTakesItAway() async throws {
@@ -168,7 +166,7 @@ import Foundation
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
         #expect(FileManager.default.fileExists(atPath: offer.target + "/2026"))
         f.undo.undo()
-        try await waitUntil { FileManager.default.fileExists(atPath: offer.accountFolder)
+        await waitUntil("the undo or redo settles", timeout: 10) { FileManager.default.fileExists(atPath: offer.accountFolder)
             && !FileManager.default.fileExists(atPath: (offer.target as NSString).deletingLastPathComponent) }
         #expect(FileManager.default.fileExists(atPath: offer.accountFolder + "/2025/01. Jan 2025.pdf"))
         #expect(!FileManager.default.fileExists(atPath: (offer.target as NSString).deletingLastPathComponent),
@@ -183,7 +181,7 @@ import Foundation
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
         f.undo.undo()
-        try await waitUntil { FileManager.default.fileExists(atPath: offer.accountFolder) }
+        await waitUntil("the undo or redo settles", timeout: 10) { FileManager.default.fileExists(atPath: offer.accountFolder) }
         #expect(FileManager.default.fileExists(atPath: offer.accountFolder + "/Statement_2025-01-28.pdf"), "back in the archive")
         #expect(!FileManager.default.fileExists(atPath: offer.target))
     }
@@ -199,10 +197,10 @@ import Foundation
         let offer = try #require(f.m.archiveOffer(for: f.group))
         #expect(await f.m.moveOutOfArchiveThenFile(f.group, offer: offer) == 2)
         f.undo.undo()
-        try await waitUntil { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336" }
+        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Archive/Roth IRA 2336" }
         #expect(f.undo.canRedo)
         f.undo.redo()
-        try await waitUntil { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336" }
+        await waitUntil("the undo or redo settles", timeout: 10) { f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336" }
         #expect(FileManager.default.fileExists(atPath: offer.target + "/2025/01. Jan 2025.pdf"), "out again")
         #expect(f.m.filingLearnedAccounts.first?.folder == "Investments/Charles Schwab/Roth IRA 2336", "and pointed there")
     }

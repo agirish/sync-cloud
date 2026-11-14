@@ -39,6 +39,8 @@ import Foundation
         let f = try fixture("Copy")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         f.m.undoManager = undo
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == f.file.path })
@@ -52,9 +54,9 @@ import Foundation
         #expect(FileManager.default.fileExists(atPath: main) && FileManager.default.fileExists(atPath: copy))
         #expect(f.m.ignoredDuplicateKeys.contains([main, copy].sorted().joined(separator: "\n")), "copies on purpose")
         undo.undo()
-        let deadline = Date().addingTimeInterval(10)
-        while (!FileManager.default.fileExists(atPath: f.file.path) || FileManager.default.fileExists(atPath: copy)),
-              Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await waitUntil("the file is back and the copy gone", timeout: 10) {
+            FileManager.default.fileExists(atPath: f.file.path) && !FileManager.default.fileExists(atPath: copy)
+        }
         #expect(FileManager.default.fileExists(atPath: f.file.path), "one ⌘Z moves it back")
         #expect(!FileManager.default.fileExists(atPath: copy), "and takes the copy away")
     }
@@ -65,14 +67,17 @@ import Foundation
         f.m.setFilingPreference(FilingPreference(scope: .institution("fidelity"), copies: false, label: "Fidelity"))
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         var best = try #require(f.m.filingSuggestions.first { $0.filePath == f.file.path }?.best)
-        #expect(best.alsoCopiesTo.isEmpty)
-        #expect(best.reasons.contains { $0.contains("filed once") }, "\(best.reasons)")
+        #expect(best.alsoCopiesTo.count == 1, "the card knows every account the page names")
+        #expect(f.m.copiesToMake(best).isEmpty, "a bank-level file once makes none")
         // An account-level "copy" beats the bank-level "file once".
         f.m.setFilingPreference(FilingPreference(scope: .account(institution: "fidelity", ending: "4657"), copies: true,
                                                  label: "Fidelity ••4657"))
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         best = try #require(f.m.filingSuggestions.first { $0.filePath == f.file.path }?.best)
-        #expect(best.alsoCopiesTo.count == 1)
+        #expect(f.m.copiesToMake(best).count == 1)
+        // Removing it applies to the card already open, no rescan.
+        f.m.removeFilingPreference(id: try #require(f.m.filingPreferences.first { $0.copies }).id)
+        #expect(f.m.copiesToMake(best).isEmpty, "the bank-level file once applies again")
         // File Once Here, just this time.
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == f.file.path })
         #expect(await f.m.applyFilingSuggestion(card, to: best, fileOnce: true) == .moved)
@@ -90,6 +95,8 @@ import Foundation
         if case .ambiguous = index.match(facts) {} else { Issue.record("\(index.match(facts))") }
         let preferences = [FilingPreference(scope: .statements, copies: false, label: "statements"),
                            FilingPreference(scope: .all, copies: true, label: "everything")]
+        #expect(!FilingPreference.copies(into: FilingAccount(root: "/y", ending: "1", institution: "x", archived: false, kind: .other),
+                                         kind: .other, preferences: [FilingPreference(scope: .all, copies: false, label: "everything")]))
         let a = FilingAccount(root: "/x", ending: "1750", institution: "fidelity", archived: false, kind: .statement)
         #expect(!FilingPreference.copies(into: a, kind: .statement, preferences: preferences), "statements is narrower than everything")
         #expect(FilingPreference.copies(into: a, kind: .other, preferences: preferences))

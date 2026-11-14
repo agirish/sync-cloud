@@ -25,6 +25,8 @@ struct FilingGroupCard: View {
     var archiveName: String = "Archive"
     /// File Once Here, when the statements name other accounts too.
     var onFileOnce: ((FilingPreference.Scope?) -> Void)? = nil
+    /// What File N copies into now, under the preferences as they stand.
+    var copies: [FilingCopy] = []
 
     @State private var expanded: Bool? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -44,18 +46,16 @@ struct FilingGroupCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(FilingGroupText.title(group))
                         .scaledFont(.system(size: 14, weight: .semibold))
-                    HStack(spacing: 8) {
-                        breadcrumb
-                        if let pathEditor {
-                            Button("Edit Path…") { editingPath = true }
-                                .buttonStyle(.hoverAffordance(.inline))
-                                .scaledFont(.system(size: 11))
-                                .help("Type where these go, anywhere in your folders; missing folders are made when you file")
-                                .popover(isPresented: $editingPath, arrowEdge: .bottom) {
-                                    FilingPathEditor(hooks: pathEditor) { editingPath = false }
-                                        .presentedNativeControlAccent()
-                                }
-                        }
+                    breadcrumb
+                    if let pathEditor {
+                        Button("Edit Path…") { editingPath = true }
+                            .buttonStyle(.hoverAffordance(.inline))
+                            .scaledFont(.system(size: 11))
+                            .help("Type where these go, anywhere in your folders; missing folders are made when you file")
+                            .popover(isPresented: $editingPath, arrowEdge: .bottom) {
+                                FilingPathEditor(hooks: pathEditor) { editingPath = false }
+                                    .presentedNativeControlAccent()
+                            }
                     }
                     Text(FilingGroupText.why(group))
                         .scaledFont(.system(size: 11))
@@ -77,33 +77,19 @@ struct FilingGroupCard: View {
                          text: group.destination.confidence == .high ? "High" : "Medium")
                 }
             }
-            HStack(spacing: 9) {
-                Button(action: onFile) {
-                    Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
-                          systemImage: "arrow.right.circle")
+            if group.toFile.isEmpty {
+                // Every member is already filed or a copy: nothing for File N to move.
+                nothingToFileRow
+            } else {
+                // Every button while it fits; below that, File N and Choose a Folder… with the rest
+                // in ⋯, so the row never outgrows the narrow column beside Ask Claude.
+                ViewThatFits(in: .horizontal) {
+                    actionRow(compact: false)
+                    actionRow(compact: true)
                 }
-                .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
-                .chromeHover().lockedDuringRun()
-                .disabled(group.toFile.isEmpty)
-                if let onMoveOutOfArchive {
-                    Button(action: onMoveOutOfArchive) { Label("Move Out of \(archiveName), Then File", systemImage: "archivebox") }
-                        .controlSize(.small).lockedDuringRun()
-                        .help("These are newer than anything in the account, so it looks live again: move its folder beside the archive, then file them. ⌘Z undoes both.")
-                }
-                Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
-                    .controlSize(.small).lockedDuringRun()
-                    .disabled(group.toFile.isEmpty)
-                Button {
-                    withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { expanded = !isExpanded }
-                } label: {
-                    Label(isExpanded ? "Hide Files" : "Show Files",
-                          systemImage: isExpanded ? "chevron.down" : "chevron.right")
-                }
-                .buttonStyle(.borderless).controlSize(.small)
-                .accessibilityLabel(isExpanded ? "Hide the \(group.members.count) files" : "Show the \(group.members.count) files")
             }
-            if let onFileOnce, !group.allCopies.isEmpty {
-                FilingCopiesRow(copies: group.allCopies, onFileOnce: onFileOnce)
+            if let onFileOnce, !copies.isEmpty {
+                FilingCopiesRow(copies: copies, onFileOnce: onFileOnce)
             }
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
             if isExpanded { memberList }
@@ -116,25 +102,76 @@ struct FilingGroupCard: View {
     private var breadcrumb: some View {
         let comps = FilingGroupText.breadcrumb(group)
         let newStart = comps.count - group.destination.newSegments.count
-        return HStack(spacing: 4) {
-            ForEach(Array(comps.enumerated()), id: \.offset) { i, comp in
-                if i > 0 { Text("›").scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary) }
-                let isNew = i >= newStart
-                HStack(spacing: 3) {
-                    Text(comp)
-                        .scaledFont(.system(size: 12, weight: i == comps.count - 1 ? .semibold : .regular, design: .monospaced))
-                        .foregroundStyle(isNew ? hueAccent : (i == comps.count - 1 ? Color.primary : Color.secondary))
-                    if isNew {
-                        Text("NEW")
-                            .scaledFont(.system(size: 8, weight: .bold))
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Capsule().fill(hueAccent.opacity(PillVariant.fillOpacity)))
+        // One line, cut from the front: the account and its year are what matter.
+        var text = Text("")
+        for (i, comp) in comps.enumerated() {
+            if i > 0 { text = text + Text(" › ").foregroundStyle(.tertiary) }
+            let isNew = i >= newStart
+            var part = Text(comp).fontWeight(i == comps.count - 1 ? .semibold : .regular)
+                .foregroundStyle(isNew ? hueAccent : (i == comps.count - 1 ? Color.primary : Color.secondary))
+            if isNew { part = part + Text(" NEW").font(.system(size: 8, weight: .bold)).foregroundStyle(hueAccent) }
+            text = text + part
+        }
+        return text
+            .scaledFont(.system(size: 12, design: .monospaced))
+            .lineLimit(1).truncationMode(.head)
+            .accessibilityLabel(FilingGroupText.breadcrumbLabel(group))
+    }
+
+    /// File N, Choose a Folder…, the archive offer and Show Files; compact puts the last two in ⋯.
+    private func actionRow(compact: Bool) -> some View {
+        HStack(spacing: 9) {
+            Button(action: onFile) {
+                Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
+                      systemImage: "arrow.right.circle")
+            }
+            .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
+            .chromeHover().lockedDuringRun()
+            Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
+                .controlSize(.small).lockedDuringRun()
+            if compact {
+                Menu {
+                    if let onMoveOutOfArchive {
+                        Button("Move Out of \(archiveName), Then File", action: onMoveOutOfArchive)
                     }
+                    Button(isExpanded ? "Hide Files" : "Show Files") { toggleExpanded() }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).fixedSize()
+                .accessibilityLabel("More actions")
+                .help("More actions")
+            } else {
+                if let onMoveOutOfArchive {
+                    Button(action: onMoveOutOfArchive) { Label("Move Out of \(archiveName), Then File", systemImage: "archivebox") }
+                        .controlSize(.small).lockedDuringRun()
+                        .help("These are newer than anything in the account, so it looks live again: move its folder beside the archive, then file them. ⌘Z undoes both.")
                 }
+                showFilesButton
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Into " + comps.joined(separator: ", "))
+    }
+
+    private var showFilesButton: some View {
+        Button { toggleExpanded() } label: {
+            Label(isExpanded ? "Hide Files" : "Show Files", systemImage: isExpanded ? "chevron.down" : "chevron.right")
+        }
+        .buttonStyle(.borderless).controlSize(.small)
+        .accessibilityLabel(isExpanded ? "Hide the \(group.members.count) files" : "Show the \(group.members.count) files")
+    }
+
+    private func toggleExpanded() {
+        withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { expanded = !isExpanded }
+    }
+
+    /// Nothing left to move: what is in the folders already, and the copies to the Trash.
+    private var nothingToFileRow: some View {
+        HStack(spacing: 9) {
+            let copies = group.alreadyFiled + group.copies
+            Button("Move \(copies.count) to Trash") { onTrashCopies(copies) }
+                .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
+                .lockedDuringRun()
+                .help(FilingGroupText.trashHelp(group))
+            showFilesButton
+        }
     }
 
     private var leftBehindRow: some View {
@@ -145,11 +182,13 @@ struct FilingGroupCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
             let copies = group.alreadyFiled + group.copies
+            if !group.toFile.isEmpty {
             Button("Move \(copies.count) to Trash") { onTrashCopies(copies) }
                 .buttonStyle(.hoverAffordance(.inline))
                 .scaledFont(.system(size: 11))
                 .lockedDuringRun()
                 .help(FilingGroupText.trashHelp(group))
+            }
         }
     }
 
@@ -224,7 +263,8 @@ enum FilingGroupText {
     /// "Named like its neighbours: Brokerage Statement_2026-01-31_863.PDF", when the files take one.
     static func naming(_ g: FilingCardGroup) -> String? {
         guard let sample = g.toFile.first?.best?.proposedName ?? g.members.first?.best?.proposedName else { return nil }
-        return "Named like the files already there: \(sample)"
+        return g.destination.isNew ? "Named like this account’s statements: \(sample)"
+                                   : "Named like the files already there: \(sample)"
     }
 
     static func breadcrumb(_ g: FilingCardGroup) -> [String] {
@@ -234,6 +274,15 @@ enum FilingGroupText {
             return [(root as NSString).lastPathComponent] + path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
         }
         return (path as NSString).abbreviatingWithTildeInPath.split(separator: "/").map(String.init)
+    }
+
+    /// "Into Documents, Finance, Chase, new: Checking 0779, 2026", for VoiceOver.
+    static func breadcrumbLabel(_ g: FilingCardGroup) -> String {
+        let comps = breadcrumb(g)
+        let newCount = min(g.destination.newSegments.count, comps.count)
+        let existing = comps.dropLast(newCount)
+        let made = comps.suffix(newCount)
+        return "Into " + existing.joined(separator: ", ") + (made.isEmpty ? "" : ", new: " + made.joined(separator: ", "))
     }
 
     static func fileButton(_ g: FilingCardGroup) -> String {
@@ -248,6 +297,11 @@ enum FilingGroupText {
     }
 
     static func leftBehind(_ g: FilingCardGroup) -> String {
+        if g.toFile.isEmpty {
+            let n = g.members.count
+            return n == 1 ? "It is already in your folders, or a copy of a file that is."
+                          : "All \(n) are already in your folders, or copies of files that are."
+        }
         var parts: [String] = []
         let filed = g.alreadyFiled.count
         if filed > 0 { parts.append("\(filed) \(filed == 1 ? "is" : "are") already in your folders") }

@@ -25,7 +25,8 @@ struct FilingCopiesRow: View {
                     }
                 }
                 if let bank = copies.first?.account {
-                    Button("Always for \(bank.institutionName.isEmpty ? bank.institution : bank.institutionName)") {
+                    let bankName = FilingCopiesText.label(.institution(bank.institution), copies: copies)
+                    Button("Always for \(bankName)") {
                         onFileOnce(.institution(bank.institution))
                     }
                 }
@@ -58,14 +59,16 @@ enum FilingCopiesText {
 
     /// "Fidelity ••4657", "Fidelity", "statements", "everything", for a preference's row.
     static func label(_ scope: FilingPreference.Scope, copies: [FilingCopy]) -> String {
+        // The bank as its folder spells it, else its name in title case: never the lower-case key.
+        func bank(_ institution: String) -> String {
+            copies.first { $0.account.institution == institution && !$0.account.institutionName.isEmpty }?.account.institutionName
+                ?? institution.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+        }
         switch scope {
         case .account(let institution, let ending):
-            let c = copies.first { $0.account.institution == institution && $0.account.ending == ending }
-            return (c.map { $0.account.institutionName.isEmpty ? institution : $0.account.institutionName } ?? institution) + " ••" + ending
+            return bank(institution) + " ••" + ending
         case .institution(let institution):
-            return copies.first { $0.account.institution == institution }.map {
-                $0.account.institutionName.isEmpty ? institution : $0.account.institutionName
-            } ?? institution
+            return bank(institution)
         case .statements: return "statements"
         case .all: return "everything"
         }
@@ -90,6 +93,7 @@ struct FilingPreferencesSection: View {
                         Spacer(minLength: 8)
                         Button("Remove") { syncManager.removeFilingPreference(id: p.id) }
                             .controlSize(.small)
+                            .accessibilityLabel("Remove the preference for \(p.label)")
                             .help("Forget this preference")
                     }
                 }

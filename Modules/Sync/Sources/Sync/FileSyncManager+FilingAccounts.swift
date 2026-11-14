@@ -13,7 +13,8 @@ extension FileSyncManager {
         taxonomy: [FileNode], root: String, scannedFolder: String?,
         sharedStatementFolders shared: Set<String>? = nil,
         isArchived: @escaping (String) -> Bool = { _ in false },
-        preferences: [FilingPreference] = []
+        preferences: [FilingPreference] = [],
+        rejected: [String: Set<String>] = [:]
     ) -> (suggestions: [FilingSuggestion], facts: [String: DocumentFacts]) {
         var facts: [String: DocumentFacts] = [:]
         let nodes = accountNodes(index, in: taxonomy)
@@ -21,6 +22,13 @@ extension FileSyncManager {
         // (`Fidelity/Statements`): a bank that has one gets no new account folders proposed.
         let sharedStatementFolders = shared ?? Set(index.unnamedSamples(tree: taxonomy).map(\.candidate))
         let out = suggestions.map { s -> FilingSuggestion in
+            let placed = placingByAccount(s)
+            // Try Another said "not there": an account home is never re-suggested either.
+            guard let refused = rejected[s.filePath], let best = placed.best, best.account != nil || best.isNew,
+                  refused.contains(where: { best.path == $0 || PathBoundary.contains(best.path, under: $0) }) else { return placed }
+            return s
+        }
+        func placingByAccount(_ s: FilingSuggestion) -> FilingSuggestion {
             guard let page = snippets[s.filePath] else { return s }
             let f = DocumentFacts(page: page)
             facts[s.filePath] = f
@@ -71,16 +79,15 @@ extension FileSyncManager {
                     return FilingCopy(path: p.folder.isEmpty ? accountPath : accountPath + "/" + p.folder,
                                       proposedName: p.name, account: fa)
                 }
-                let kept = copies.filter { FilingPreference.copies(into: $0.account, kind: f.kind, preferences: preferences) }
-                let named = copies.map { "••" + $0.account.ending }.joined(separator: ", ")
+                // Every account it names; which get a copy is decided at filing and on screen by the
+                // preferences then (``FileSyncManager/copiesToMake(_:)``), so one set or removed
+                // later applies to the cards already open.
                 var reasons = dest.reasons
-                reasons.append(kept.isEmpty
-                    ? "Also names \(named) · filed once, as you asked"
-                    : "Also names " + kept.map { "••\($0.account.ending)" }.joined(separator: ", ") + " · a copy goes to each")
+                reasons.append("Also names " + copies.map { "••" + $0.account.ending }.joined(separator: ", "))
                 dest = FilingDestination(path: dest.path, confidence: dest.confidence, reasons: reasons,
                                          newSegments: dest.newSegments, fromContent: true, evidenceToken: dest.evidenceToken,
                                          proposedName: dest.proposedName, account: dest.account, nameOrigin: dest.nameOrigin)
-                dest.alsoCopiesTo = kept
+                dest.alsoCopiesTo = copies
                 return s.replacingCandidates(inserting(dest, into: s.candidates))
             case .ambiguous(let accounts):
                 // Which of them can't be told from the page: each is offered, none leads a surer home.
@@ -98,6 +105,7 @@ extension FileSyncManager {
                                         isArchived: isArchived)
             }
         }
+        _ = isArchived
         return (out, facts)
     }
 
@@ -287,7 +295,10 @@ extension FileSyncManager {
                                                     scannedFolder: filingScanFolder,
                                                     sharedStatementFolders: filingSharedStatementFolders,
                                                     isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
-                                                    preferences: filingPreferences)
+                                                    preferences: filingPreferences,
+                                                    rejected: [suggestion.filePath: Self.rejectedPaths(forFileNamed: suggestion.fileName,
+                                                                                                        in: filingRejections(under: URL(fileURLWithPath: root)))
+                                                        .union(filingSessionRejections[suggestion.filePath] ?? [])])
         if let f = facts[suggestion.filePath] { filingDocumentFacts[suggestion.filePath] = f }
         return placed.first ?? suggestion
     }

@@ -54,7 +54,7 @@ import Foundation
         try FileManager.default.createSymbolicLink(atPath: root.path + "/Docs/Away",
                                                    withDestinationPath: root.path + "/Elsewhere")
         #expect(refusal("Away/New") == .outsideTree(root.path + "/Docs"))
-        #expect(refusal("TODO/Finance/Chase") != nil, "the folder being filed from (also an inbox by name)")
+        #expect(refusal("TODO/Finance/Chase") == .intoInbox("TODO"), "the folder being filed from, an inbox by name")
         // A source folder not named like an inbox is refused as the source.
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Docs/Scans/Batch"), withIntermediateDirectories: true)
         m.filingScanFolder = root.path + "/Docs/Scans"
@@ -146,8 +146,8 @@ import Foundation
         let best = try #require(m.filingSuggestions.first { $0.filePath == lease.path }?.best)
         #expect(best.path == docs.path + "/Credit Accounts/Chase/Auto Lease 2388", "\(best.path)")
         #expect(best.confidence == .medium && best.createsAccountFolder)
-        let unproposed = m.filingSuggestions.first { $0.filePath == other.path }
-        #expect(unproposed?.best?.createsAccountFolder != true, "its number isn't the folder's")
+        let unproposed = try #require(m.filingSuggestions.first { $0.filePath == other.path })
+        #expect(unproposed.best?.createsAccountFolder != true, "its number isn't the folder's")
     }
 
     /// A numberless statement whose inbox folder names an account the bank already has goes to that

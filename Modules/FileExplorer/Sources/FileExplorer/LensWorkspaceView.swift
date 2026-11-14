@@ -4460,7 +4460,10 @@ public struct LensWorkspaceView: View {
             densityMetrics: densityMetrics,
             onFile: {
                 filedThisSession = true
-                Task { await syncManager.applyFilingGroup(group) }
+                // A new account it makes is taught when the Remember box says so (on by default).
+                let teach = group.destination.createsAccountFolder && offersRemember(group)
+                    && (rememberAccountChoice[group.id] ?? true)
+                Task { await syncManager.applyFilingGroup(group, teach: teach) }
             },
             onChooseFolder: { chooseFolder(forGroup: group) },
             onPullOut: { s in withDesignAnimation(listSettle, reduceMotion: reduceMotion) { _ = pulledOutOfGroups.insert(s.id) } },
@@ -4484,7 +4487,8 @@ public struct LensWorkspaceView: View {
             rememberAccount: offersRemember(group)
                 ? FilingRememberAccount(ending: syncManager.rememberableEnding(for: group.toFile),
                                         isOn: rememberAccountChoice[group.id] ?? true,
-                                        onToggle: { rememberAccountChoice[group.id] = $0 })
+                                        onToggle: { rememberAccountChoice[group.id] = $0 },
+                                        noNumberReason: syncManager.rememberNote(for: group.toFile))
                 : nil,
             onMoveOutOfArchive: syncManager.archiveOffer(for: group).map { offer in
                 {
@@ -4498,8 +4502,16 @@ public struct LensWorkspaceView: View {
                 rememberFileOnce(scope, copies: group.allCopies)
                 let skip = Self.copiesSkipped(by: scope, copies: group.allCopies)
                 Task { await syncManager.applyFilingGroup(group, exceptCopiesTo: skip) }
-            }
+            },
+            // What File N copies now, under the preferences as they stand.
+            copies: groupCopies(group)
         )
+    }
+
+    /// Every account a group's File N copies into, under the preferences now, one per account.
+    private func groupCopies(_ group: FilingCardGroup) -> [FilingCopy] {
+        var seen = Set<String>()
+        return group.toFile.flatMap { syncManager.copiesToMake($0.best) }.filter { seen.insert($0.account.root).inserted }
     }
 
     /// The copies File Once Here leaves out: all of them this time or for the bank's or every
@@ -4588,7 +4600,9 @@ public struct LensWorkspaceView: View {
                 Task {
                     // Offer a rule only when the file actually moved: filing into the folder it
                     // already lives in (`.notNeeded`) is a no-op, and a rule from it is noise.
-                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
+                    // A new account it makes is taught when the Remember box says so (on by default).
+                    let teach = dest.createsAccountFolder && (rememberAccountChoice[suggestion.id] ?? true)
+                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: teach) == .moved else { return }
                     offerRule(fileName: suggestion.fileName, filePath: suggestion.filePath,
                               destinationPath: dest.path,
                               providerRoot: suggestion.providerRoot ?? providerAnchor,
@@ -4624,8 +4638,9 @@ public struct LensWorkspaceView: View {
             rememberAccount: syncManager.filingDocumentFacts[suggestion.filePath]?.kind == .statement
                 && (suggestion.best?.account?.isNamedByFolder != true || suggestion.best?.createsAccountFolder == true)
                 ? FilingRememberAccount(ending: syncManager.rememberableEnding(for: [suggestion]),
-                                        isOn: rememberAccountChoice[suggestion.id] ?? false,
-                                        onToggle: { rememberAccountChoice[suggestion.id] = $0 })
+                                        isOn: rememberAccountChoice[suggestion.id] ?? (suggestion.best?.createsAccountFolder == true),
+                                        onToggle: { rememberAccountChoice[suggestion.id] = $0 },
+                                        noNumberReason: syncManager.rememberNote(for: [suggestion]))
                 : nil,
             onFileOnce: { scope, dest in
                 filedThisSession = true
@@ -4633,7 +4648,8 @@ public struct LensWorkspaceView: View {
                 rememberFileOnce(scope, copies: copies)
                 let skip = Self.copiesSkipped(by: scope, copies: copies)
                 Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, exceptCopiesTo: skip) }
-            }
+            },
+            copies: syncManager.copiesToMake(suggestion.best)
         )
     }
 

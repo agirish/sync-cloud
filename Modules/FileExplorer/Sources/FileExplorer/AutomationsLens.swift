@@ -295,32 +295,35 @@ public struct AutomationsLens: View {
             //
             // Its trigger writes a rule rather than starting a scan, and its words say so: Rules is
             // the one lens in Organize with no scan of its own.
-            VStack(spacing: densityMetrics.cardListSpacing) {
-                LensSetupCard(
-                    intro: LensIntros.rules(providerName: providerName),
-                    accent: accent,
-                    triggerTitle: "New Rule",
-                    triggerSymbol: AutomationsGlyph.newRule,
-                    triggerHelp: "Write a rule — a condition and where matching files belong. Nothing "
-                        + "runs until you preview it.",
-                    samplesTitle: "What a rule looks like",
-                    samplesAccessibility: "Example of the rule format: one or more conditions, then "
-                        + "the folder matching files belong in, which can contain a date token. These "
-                        + "are samples, not rules you have written.",
-                    onStart: newRule
-                ) {
-                    // The first sample is the rule the intro quotes, drawn as the editor will show it;
-                    // two different examples would read as two ideas.
-                    ruleSample(conditions: [("textformat", "name mentions “invoice”")],
-                               destination: "Documents/Invoices/{year}")
-                    ruleSample(conditions: [("doc.text", "PDFs"), ("folder", "in Scans")],
-                               destination: "Documents/Scans")
-                    ruleSample(conditions: [("textformat", "name mentions “payslip”")],
-                               destination: "Work/Payslips")
+            ScrollView {
+                VStack(spacing: densityMetrics.cardListSpacing) {
+                    LensSetupCard(
+                        intro: LensIntros.rules(providerName: providerName),
+                        accent: accent,
+                        triggerTitle: "New Rule",
+                        triggerSymbol: AutomationsGlyph.newRule,
+                        triggerHelp: "Write a rule — a condition and where matching files belong. Nothing "
+                            + "runs until you preview it.",
+                        samplesTitle: "What a rule looks like",
+                        samplesAccessibility: "Example of the rule format: one or more conditions, then "
+                            + "the folder matching files belong in, which can contain a date token. These "
+                            + "are samples, not rules you have written.",
+                        onStart: newRule
+                    ) {
+                        // The first sample is the rule the intro quotes, drawn as the editor will show it;
+                        // two different examples would read as two ideas.
+                        ruleSample(conditions: [("textformat", "name mentions “invoice”")],
+                                   destination: "Documents/Invoices/{year}")
+                        ruleSample(conditions: [("doc.text", "PDFs"), ("folder", "in Scans")],
+                                   destination: "Documents/Scans")
+                        ruleSample(conditions: [("textformat", "name mentions “payslip”")],
+                                   destination: "Work/Payslips")
+                    }
+                    LearnedAccountsSection(syncManager: syncManager, densityMetrics: densityMetrics)
+                            FilingPreferencesSection(syncManager: syncManager, densityMetrics: densityMetrics)
                 }
-                LearnedAccountsSection(syncManager: syncManager, densityMetrics: densityMetrics)
-                        FilingPreferencesSection(syncManager: syncManager, densityMetrics: densityMetrics)
             }
+            .scrollContentBackground(.hidden)
         } else {
             // No header row: the shared LensHeaderCard above carries this lens's count, its New
             // rule / Preview all controls and its search. This card renders the list only, which

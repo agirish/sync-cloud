@@ -197,10 +197,18 @@ extension FileSyncManager {
                 }
                 filingAccountIndex = AccountIndex(accounts: accounts, institutionTokens: index.institutionTokens,
                                                   genericWords: index.genericWords)
+                // And the walked tree, which a re-ask places by (Read Scan, Download and Read).
+                filingAccountTaxonomy = Self.relocatingNode(in: filingAccountTaxonomy, from: oldRel, to: newRel)
             }
         }
         filingSuggestions = filingSuggestions.map { s in
-            s.replacingCandidates(s.candidates.map { $0.repointed(from: old, to: new, intoArchive: intoArchive) })
+            var r = s.replacingCandidates(s.candidates.map { $0.repointed(from: old, to: new, intoArchive: intoArchive) })
+            // The first pick follows too, or the scorecard reads filing there as a correction.
+            if var offer = r.firstOffer, offer.path == old || offer.path.hasPrefix(old + "/") {
+                offer.path = new + offer.path.dropFirst(old.count)
+                r.firstOffer = offer
+            }
+            return r
         }
         filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
         if registersUndo { registerRepointUndo(from: new, to: old, root: root, intoArchive: !intoArchive) }
@@ -222,5 +230,34 @@ extension FileSyncManager {
                 if back { target.repointFiling(from: new, to: old, root: root, intoArchive: intoArchive, registersUndo: false) }
             }
         }
+    }
+
+    /// `tree` with the folder at `oldRel` moved to `newRel`, by name, making the levels above it
+    /// that aren't there. Placement reads names, not ids, so the node moves as it is.
+    nonisolated static func relocatingNode(in tree: [FileNode], from oldRel: String, to newRel: String) -> [FileNode] {
+        guard let node = AccountProposal.node(at: oldRel, in: tree) else { return tree }
+        func removing(_ parts: ArraySlice<String>, from nodes: [FileNode]) -> [FileNode] {
+            guard let first = parts.first else { return nodes }
+            return nodes.compactMap { n in
+                guard n.isDirectory, n.name == first else { return n }
+                if parts.count == 1 { return nil }
+                var m = n
+                m.children = removing(parts.dropFirst(), from: n.children ?? [])
+                return m
+            }
+        }
+        func inserting(_ parts: ArraySlice<String>, into nodes: [FileNode]) -> [FileNode] {
+            guard let first = parts.first else { return nodes + [node] }
+            var out = nodes
+            if let i = out.firstIndex(where: { $0.isDirectory && $0.name == first }) {
+                out[i].children = inserting(parts.dropFirst(), into: out[i].children ?? [])
+            } else {
+                out.append(FileNode(id: first, name: first, isDirectory: true,
+                                    children: inserting(parts.dropFirst(), into: [])))
+            }
+            return out
+        }
+        let removed = removing(ArraySlice(oldRel.split(separator: "/").map(String.init)), from: tree)
+        return inserting(ArraySlice((newRel as NSString).deletingLastPathComponent.split(separator: "/").map(String.init)), into: removed)
     }
 }

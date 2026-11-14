@@ -120,9 +120,9 @@ import CoreText
         #expect(FileManager.default.fileExists(atPath: account.path + "/Statement_02.pdf"))
         #expect(undo.canUndo)
         undo.undo()
-        let deadline = Date().addingTimeInterval(10)
-        while !(FileManager.default.fileExists(atPath: root.path + "/In/01.pdf") && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf")),
-              Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        await waitUntil("both files are back", timeout: 10) {
+            FileManager.default.fileExists(atPath: root.path + "/In/01.pdf") && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf")
+        }
         #expect(FileManager.default.fileExists(atPath: root.path + "/In/01.pdf")
                 && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf"), "one ⌘Z puts both back")
     }

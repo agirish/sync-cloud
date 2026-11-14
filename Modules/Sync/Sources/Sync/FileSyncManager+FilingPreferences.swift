@@ -68,6 +68,13 @@ extension FileSyncManager {
         }
     }
 
+    /// The copies filing `dest` makes now: the accounts it names that no preference files once.
+    public func copiesToMake(_ dest: FilingDestination?) -> [FilingCopy] {
+        guard let dest, !dest.alsoCopiesTo.isEmpty else { return [] }
+        let prefs = filingPreferences
+        return dest.alsoCopiesTo.filter { FilingPreference.copies(into: $0.account, kind: dest.account?.kind ?? .statement, preferences: prefs) }
+    }
+
     /// Records a preference, replacing one at the same scope.
     public func setFilingPreference(_ preference: FilingPreference) {
         var all = filingPreferences.filter { $0.scope != preference.scope }

@@ -14,7 +14,7 @@ struct LearnedAccountsSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Learned Accounts")
                     .scaledFont(.system(size: 13, weight: .semibold))
-                Text("Statements printing these numbers file into these folders. Learned when you chose a folder for them; the last four digits are stored as they are printed.")
+                Text("Statements printing these numbers file into these folders. Learned when you chose or made a folder for them; the last four digits are stored as they are printed.")
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,6 +58,7 @@ private struct LearnedAccountRow: View {
             Spacer(minLength: 8)
             Button("Remove", action: onRemove)
                 .controlSize(.small)
+                .accessibilityLabel("Remove \(account.institutionName) ••\(account.ending)")
                 .help("Forget this account; its statements are filed as they were before you chose this folder")
         }
     }

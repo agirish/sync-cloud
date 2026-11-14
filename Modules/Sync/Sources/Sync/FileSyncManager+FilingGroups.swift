@@ -54,31 +54,29 @@ extension FileSyncManager {
         let factsAtStart = filingDocumentFacts
         var moves: [MoveItemState] = []
         var copied: [CopyItemState] = []
-        // The folders filing these makes, copies' included: ⌘Z removes them again.
-        let homes = group.toFile.compactMap { s -> FilingDestination? in
+        // Each member's home: the typed or chosen folder, else its own. The copies into the other
+        // accounts it names stay with a chosen or typed home too, except one into where it now goes.
+        let homes: [(FilingSuggestion, FilingDestination)] = group.toFile.compactMap { s in
             guard let own = s.best else { return nil }
-            return typed ?? folder.map { FilingDestination(path: $0, confidence: .high, reasons: [], newSegments: []) } ?? own
-        }
-        let wouldCreate = missingFolders(for: homes.map(\.path) + (fileOnce ? [] : homes.flatMap { $0.alsoCopiesTo.map(\.path) }))
-        var filed: [FilingBatchLog.Filed] = []
-        var scored: [FilingScorecard.Record] = []
-        var failures = 0, alreadyHome = 0
-        for s in group.toFile {
-            guard let own = s.best else { continue }
-            // A typed path keeps the levels it creates; the first member makes them.
             var dest = typed ?? folder.map {
                 FilingDestination(path: $0, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
             } ?? own
-            // A folder he chose for the main home: the copies into the other accounts it names stay,
-            // except one into where it now goes.
-            if dest.path != own.path {
+            if dest.path != own.path || typed != nil {
                 dest.alsoCopiesTo = own.alsoCopiesTo.filter { !PathBoundary.contains(dest.path, under: $0.account.root) }
             }
+            return (s, dest)
+        }
+        // The folders filing these makes, the copies' included: ⌘Z removes them again.
+        let wouldCreate = missingFolders(for: homes.map(\.1.path) + (fileOnce ? [] : homes.flatMap { copiesToMake($0.1).map(\.path) }))
+        var filed: [FilingBatchLog.Filed] = []
+        var scored: [FilingScorecard.Record] = []
+        var failures = 0, alreadyHome = 0
+        for (s, dest) in homes {
             switch await performFiling(s, to: dest) {
             case .moved(let move):
                 moves.append(move)
                 if !fileOnce {
-                    copied += await performFilingCopies(of: move.to, copies: dest.alsoCopiesTo.filter { !exceptCopiesTo.contains($0.account.root) })
+                    copied += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) })
                 }
                 if let offer = s.firstOffer {
                     scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
@@ -108,16 +106,18 @@ extension FileSyncManager {
         let chosen = typed?.path ?? folder
         // Filed into the new account it proposed (not a folder he chose instead).
         let makesAccount = (typed ?? (folder == nil ? group.destination : nil))?.createsAccountFolder ?? false
-        noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
         var lesson: LessonUndo?
-        if teach || makesAccount, let into = chosen ?? (makesAccount ? group.destination.account?.root : nil) {
+        // Only what the Remember box says (ticked by default on a group).
+        if teach, let into = chosen ?? (makesAccount ? group.destination.account?.root : nil) {
             let batch: [LearnedAccount.Teaching] = moves.map { .init(source: $0.from.path, landed: $0.to.path) }
             if let t = teachingAccount(from: group.toFile, landed: batch, into: into,
-                                       by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect,
+                                       by: chosen == nil ? .newAccount : .groupRedirect,
                                        facts: factsAtStart) {
                 lesson = LessonUndo(taught: t.taught, previous: t.previous, batch: batch)
             }
         }
+        // Counted after the lesson is taught, so ⌘Z's "as it was" is before this filing.
+        noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
         registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
                            createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
                            priorFolderMove: priorFolderMove, lesson: lesson)

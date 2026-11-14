@@ -63,6 +63,14 @@ extension FileSyncManager {
         rememberableEnding(for: members, facts: filingDocumentFacts)
     }
 
+    /// Why nothing can be remembered, when page 1 prints numbers but none leads (a tie); nil
+    /// otherwise.
+    public func rememberNote(for members: [FilingSuggestion]) -> String? {
+        guard rememberableEnding(for: members) == nil,
+              members.contains(where: { (filingDocumentFacts[$0.filePath]?.matchingNumbers.count ?? 0) > 1 }) else { return nil }
+        return "Nothing to remember: page 1 prints more than one account number"
+    }
+
     func rememberableEnding(for members: [FilingSuggestion], facts: [String: DocumentFacts]) -> String? {
         var counts: [String: Int] = [:]
         for m in members {
@@ -143,7 +151,7 @@ extension FileSyncManager {
             // ending, and the cards then say so rather than pick one.
             entry = LearnedAccount(id: UUID(), institution: institution, institutionName: displayName,
                                    ending: ending, folder: relative, surveyRoot: root, taughtAt: now,
-                                   taughtBy: taughtBy, filedCount: landed.count, teaching: landed)
+                                   taughtBy: taughtBy, filedCount: 0, teaching: landed)
             all.append(entry)
         }
         filingLearnedAccounts = all

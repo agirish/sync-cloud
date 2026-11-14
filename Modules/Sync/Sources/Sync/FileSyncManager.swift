@@ -1066,6 +1066,9 @@ public class FileSyncManager: ObservableObject {
     var filingArchivedFolders: Set<String> = []
     /// Page 1 facts of the last scan's loose files, by path: what a redirect teaches from.
     public internal(set) var filingDocumentFacts: [String: DocumentFacts] = [:]
+    /// The last scan read the scanned folder's subtree (or it is an inbox), so nothing below it is a
+    /// home; else only the folder itself isn't.
+    var filingScanExcludesSubtree = true
     /// Whether a folder holds a file only in the cloud; a test substitutes.
     var filingHoldsCloudOnlyFile: @Sendable (String) -> Bool = { FileSyncManager.holdsCloudOnlyFile($0) }
     /// Archive offers by group, for the cards on screen (``archiveOffer(for:)``).

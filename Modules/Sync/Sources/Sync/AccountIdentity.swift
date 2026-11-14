@@ -55,7 +55,7 @@ public struct DocumentFacts: Sendable, Equatable {
     // MARK: Own numbers
 
     private static let label = try! NSRegularExpression(pattern:
-        #"\b(?:(?:account|acct|loan|card|policy|member|contract)\b(?:[^|\n]{0,12}?|\s*\n\s*)(?:\bnumber|\bno\b\.?|#)(?:\s*ending\s*in)?|account\s*(?:ending(?:\s*in)?|#)|ending\s+in|(?:account|acct)\s*(?=:))[\s:#.()]*"#,
+        #"\b(?:(?:account|acct|loan|card|policy|member|contract)\b(?:[^|\n]{0,12}?|[ \t]*\n[ \t]*)(?:\bnumber|\bno\b\.?|#)(?:\s*ending\s*in)?|account\s*(?:ending(?:\s*in)?|#)|ending\s+in|(?:account|acct)\s*(?=:))[\s:#.()]*"#,
         options: [.caseInsensitive])
     private static let numberAfterLabel = try! NSRegularExpression(pattern: #"^[Xx\*•]{0,24}[\dXx\*•][\dXx\*• \-]{1,24}\d"#)
     /// A masked run (`XXXX XXXX XXXX 1768`, `******4121`, `XXXX-XXXXX6-22002`), bounded so a page of
@@ -120,7 +120,8 @@ public struct DocumentFacts: Sendable, Equatable {
                     let digits = last.filter(\.isNumber)
                     let intoDate = nextChar == "/" || last.range(of: #"^\d{4}-\d{2}"#, options: .regularExpression) != nil
                         || (DocumentFacts.isYear(digits) && nextChar == "-")
-                    let intoAmount = (nextChar == "," || nextChar == ".") && digits.count <= 3
+                    let following = next + 1 < a.length ? a.substring(with: NSRange(location: next + 1, length: 1)) : ""
+                    let intoAmount = (nextChar == "," || nextChar == ".") && following.first?.isNumber == true && digits.count <= 3
                     if intoDate || intoAmount || digits.count < 3 { groups.removeLast() }
                 }
                 // Then any stray short run left at the end (`3841-7863 2`).
@@ -128,11 +129,16 @@ public struct DocumentFacts: Sendable, Equatable {
                 let raw = groups.joined(separator: " ")
                 // A value on the next line must be the line's own (`Account Number\n3841-7863`),
                 // not the start of an address (`73210 VIA VICENZA`).
-                if crossedLine {
+                // A short number with words after it on its own line is a street address; an account
+                // number is longer (`000012345678 DRE …` is still the account's).
+                if crossedLine, raw.filter(\.isNumber).count <= 6 {
                     let rest = a.substring(from: n.range.location + n.range.length)
                     let restOfLine = rest.prefix { $0 != "\n" }
-                    if restOfLine.contains(where: { $0.isLetter }) { continue }
+                    if restOfLine.trimmingCharacters(in: .whitespaces).first?.isLetter == true { continue }
                 }
+                // `Account: 401(k) Plan`: a plan's name, not a number.
+                if let c = (a.length > next ? a.substring(with: NSRange(location: next, length: 1)) : "").first,
+                   c == "(" || c.isLetter { continue }
                 add(raw.trimmingCharacters(in: .whitespaces), at: m.range.location, labelled: true)
             }
         }
@@ -207,8 +213,8 @@ public struct DocumentFacts: Sendable, Equatable {
         for m in taxRE.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             let after = ns.substring(with: NSRange(location: m.range.location, length: min(60, ns.length - m.range.location)))
             let before = ns.substring(with: NSRange(location: max(0, m.range.location - 20), length: min(20, m.range.location)))
-            if after.range(of: #"\b(?:is|are)\s+(?:now\s+)?(?:available|ready|online)\b"#, options: .regularExpression) != nil
-                || before.range(of: #"\byour\b"#, options: .regularExpression) != nil { continue }
+            _ = before
+            if after.range(of: #"\b(?:is|are)\s+(?:now\s+)?(?:available|ready|online)\b"#, options: .regularExpression) != nil { continue }
             return true
         }
         return false
@@ -233,11 +239,18 @@ public struct DocumentFacts: Sendable, Equatable {
     /// Dates the page labels as something other than the period, matched as words ("vest" is not
     /// in "investment").
     private static let nonPeriodLabel = try! NSRegularExpression(pattern:
-        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|beginning\s+balance|opening\s+balance)\b"#, options: [.caseInsensitive])
+        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|(?:beginning|opening)(?:\s+\w+)?\s+(?:balance|value))\b"#, options: [.caseInsensitive])
     private static let periodLabel = try! NSRegularExpression(pattern:
         #"\b(?:statement|billing|period|cycle)\b"#, options: [.caseInsensitive])
+    /// A date the page names as its statement's (`Closing Date`, `Statement Date`, `Period Ending`).
     private static let labelledDateRE = try! NSRegularExpression(pattern:
-        #"(?:closing date|statement date|statement closing date|period ending|period end|ending|through|thru|as of)[\s:|]*("# + dateRE + ")")
+        #"(?:closing date|statement date|statement closing date|period ending|period end|ending)[\s:|]*("# + dateRE + ")")
+    /// A date after a weaker word (`through October 31, 2026`, `as of 01/31/2026`): tried after
+    /// every range, since a balance's date is printed "as of" too.
+    private static let weakDateRE = try! NSRegularExpression(pattern:
+        #"(?:through|thru|as of)[\s:|]*("# + dateRE + ")")
+    /// What joins a range's two dates.
+    private static let rangeJoiner = try! NSRegularExpression(pattern: #"^[\s|]*(?:to|through|thru|-|–)[\s|:]*"#)
     private static let numericDateRE = try! NSRegularExpression(pattern: #"^(\d{1,2})/(\d{1,2})/(\d{2,4})"#)
 
     /// The period end: the end of a labelled range, else a date after a period label. Every
@@ -263,6 +276,13 @@ public struct DocumentFacts: Sendable, Equatable {
         // A date the page labels (`Closing Date 01/27/2026`, `Statement Date: 10/15/2026`) next:
         // ahead of any range it merely prints (`0% APR 01/15/2025 through 01/15/2027`).
         for m in labelledDateRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
+            // A labelled range (`Opening/Closing Date 12/29/25 - 01/28/26`): its end.
+            let end = m.range(at: 1).location + m.range(at: 1).length
+            let rest = ns.substring(from: end)
+            if let j = rangeJoiner.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) {
+                let afterJoiner = (rest as NSString).substring(from: j.range.length)
+                if let second = matchesOf("^" + dateRE, in: afterJoiner).first, let p = parseDate(second, endOfRange: true) { return p }
+            }
             if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
         }
         // `March 1-31, 2026`: a month with a day range.
@@ -274,6 +294,10 @@ public struct DocumentFacts: Sendable, Equatable {
             // The range's second date, whatever joins them (`to`, `through`, a dash).
             let s = ns.substring(with: m.range)
             if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
+        }
+        // `through October 31, 2026`, `as of 01/31/2026`: last, behind any range.
+        for m in weakDateRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
+            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
         }
         return nil
     }
@@ -428,6 +452,7 @@ public struct AccountIndex: Sendable {
         let generic = Set(df.filter { $0.value >= 8 }.keys)
         var accounts: [Account] = []
         var categoryWords: [String: Set<String>] = [:]
+        var flatWords: [String: Set<String>] = [:]
         for (path, digits) in named {
             // A flat tree names the bank in the account folder itself (`Chase Checking 1234`):
             // its own words, less the generic ones (`checking`), when no bank folder is above it
@@ -435,14 +460,25 @@ public struct AccountIndex: Sendable {
             let leaf = (path as NSString).lastPathComponent
             let ownWords = words(leaf).filter { !$0.contains(where: \.isNumber) && !generic.contains($0) && !stopWords.contains($0) && $0.count >= 3 }
             let found = institutionFolder(of: path, isArchived: isArchived)
-            let leafWords = words(leaf).filter { !$0.contains(where: \.isNumber) }
-            if !ownWords.isEmpty, found == nil || (!found!.0.contains("/") && leafWords.count >= 2) {
+            // No bank folder above it at all (`Documents/Chase Checking 1234`): its own words.
+            if !ownWords.isEmpty, found == nil {
                 let name = ownWords.joined(separator: " ")
-                let archived = found?.1 ?? false
-                var account = Account(root: path, identities: digits, institution: name, archived: archived)
+                var account = Account(root: path, identities: digits, institution: name, archived: false)
                 account.institutionName = leaf.split(separator: " ").filter { w in ownWords.contains(w.lowercased()) }.joined(separator: " ")
                 accounts.append(account)
                 categoryWords[name, default: []].formUnion(path.split(separator: "/").dropLast().flatMap { words(String($0)) })
+                continue
+            }
+            // Only a top-level folder above it (`Finance/Chase Checking 1234`, or a bank at the top,
+            // `Chase/Sapphire Reserve 1234`): which is the bank, the page decides. The folder stays
+            // the account's bank, and the account folder's own words name it too.
+            let leafWords = words(leaf).filter { !$0.contains(where: \.isNumber) }
+            if !ownWords.isEmpty, let (top, archived) = found, !top.contains("/"), leafWords.count >= 2 {
+                let name = top.lowercased()
+                flatWords[name, default: []].formUnion(ownWords)
+                var account = Account(root: path, identities: digits, institution: name, archived: archived)
+                account.institutionName = top
+                accounts.append(account)
                 continue
             }
             guard let (institutionFolder, archived) = found else { continue }
@@ -456,6 +492,10 @@ public struct AccountIndex: Sendable {
         var tokens: [String: [String]] = [:]
         for (name, cats) in categoryWords {
             tokens[name] = words(name).filter { !cats.contains($0) && !stopWords.contains($0) && !generic.contains($0) && $0.count >= 3 }
+        }
+        for (name, extra) in flatWords {
+            let own = words(name).filter { !stopWords.contains($0) && !generic.contains($0) && $0.count >= 3 }
+            tokens[name] = Array(Set((tokens[name] ?? own) + extra)).sorted()
         }
         return AccountIndex(accounts: accounts, institutionTokens: tokens, genericWords: generic)
     }
@@ -632,15 +672,16 @@ public enum StatementFamily {
     static func period(ofName name: String, folder: String) -> DocumentFacts.Period? {
         let s = (name as NSString).deletingPathExtension.lowercased()
         func ints(_ m: [String]) -> [Int] { m.compactMap { Int($0) } }
-        if let r = s.range(of: #"(20\d\d)[-_]?(\d\d)[-_]?(\d\d)"#, options: .regularExpression) {
-            let d = String(s[r]).filter(\.isNumber)
-            let y = Int(d.prefix(4))!, m = Int(d.dropFirst(4).prefix(2))!, day = Int(d.suffix(2))!
-            if (1...12).contains(m), (1...31).contains(day) { return .init(year: y, month: m, day: day) }
+        // ASCII digits only: `\d` also matches other scripts' digits, which `Int` won't read.
+        if let r = s.range(of: #"(20[0-9][0-9])[-_]?([0-9][0-9])[-_]?([0-9][0-9])"#, options: .regularExpression) {
+            let d = String(s[r]).filter { $0.isASCII && $0.isNumber }
+            if let y = Int(d.prefix(4)), let m = Int(d.dropFirst(4).prefix(2)), let day = Int(d.suffix(2)),
+               (1...12).contains(m), (1...31).contains(day) { return .init(year: y, month: m, day: day) }
         }
-        if let r = s.range(of: #"(?<!\d)(\d\d)(\d\d)(20\d\d)(?!\d)"#, options: .regularExpression) {
+        if let r = s.range(of: #"(?<![0-9])([0-9][0-9])([0-9][0-9])(20[0-9][0-9])(?![0-9])"#, options: .regularExpression) {
             let d = String(s[r])
-            let m = Int(d.prefix(2))!, day = Int(d.dropFirst(2).prefix(2))!, y = Int(d.suffix(4))!
-            if (1...12).contains(m), (1...31).contains(day) { return .init(year: y, month: m, day: day) }
+            if let m = Int(d.prefix(2)), let day = Int(d.dropFirst(2).prefix(2)), let y = Int(d.suffix(4)),
+               (1...12).contains(m), (1...31).contains(day) { return .init(year: y, month: m, day: day) }
         }
         // `Statement 2026-11`: a year and a month, no day.
         if let r = s.range(of: #"(?<!\d)(20\d\d|19\d\d)[-_.](\d\d)(?!\d)"#, options: .regularExpression) {
@@ -765,16 +806,20 @@ extension AccountIndex {
             // The bank its own statements name, when it is one the tree already knows (a
             // `Home/Mortgage/Statements` of Chase statements is Chase's)...
             var institution: String?
+            // A bank the tree knows, named by these pages: by most of them, or by any when it is
+            // the only one any of them names (a mortgage page names its servicer once, low down).
+            let named = institutionTokens.keys.filter { name in hits.contains { mentions(name, in: $0.1.header) > 0 } }
             let known = institutionTokens.keys.filter { name in
                 hits.filter { mentions(name, in: $0.1.header) > 0 }.count * 2 > hits.count
             }
-            if known.count == 1 { institution = known[0] }
+            if known.count == 1 { institution = known[0] } else if known.isEmpty, named.count == 1 { institution = named[0] }
             // ...else the deepest segment of its path the headers name, skipping words common to
             // many folder names (`Statements`, a household name): `Citi`, `ScholarShare`.
             if institution == nil {
                 for (i, seg) in segments.enumerated().reversed() {
-                    // Never the top level: that is a category (`Investments`), not a bank.
-                    guard i > 0, !AccountIndex.isArchiveName(seg), !seg.contains(where: { $0.isNumber }) else { continue }
+                    // Not the top level of a deep path: that is a category (`Investments`). In a
+                    // shallow one (`Citi/Statements`) it is the bank.
+                    guard i > 0 || segments.count <= 2, !AccountIndex.isArchiveName(seg), !seg.contains(where: { $0.isNumber }) else { continue }
                     let words = AccountIndex.words(seg).filter {
                         $0.count >= 4 && !AccountIndex.stopWords.contains($0) && !genericWords.contains($0)
                     }

@@ -22,7 +22,7 @@ extension FileSyncManager {
             case .invalidName(let name): return "“\(name)” can’t be a folder name."
             case .hiddenName(let name): return "“\(name)” would be a hidden folder."
             case .fileInTheWay(let name): return "“\(name)” is a file, not a folder."
-            case .intoSource: return "That’s the folder these files are being filed from."
+            case .intoSource: return "That’s the folder being filed from."
             case .intoInbox(let name): return "“\(name)” is an inbox; files wait there to be filed."
             }
         }
@@ -76,9 +76,12 @@ extension FileSyncManager {
         let path = ([existing] + newSegments).joined(separator: "/")
         if let source = filingScanFolder {
             let realSource = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
-            if PathBoundary.contains(path, under: source) || PathBoundary.contains(real, under: realSource) {
-                return .failure(.intoSource)
-            }
+            // The folder itself never; below it only when the scan read below it (or it's an inbox),
+            // as the scan's own homes do.
+            let inside = filingScanExcludesSubtree
+                ? PathBoundary.contains(path, under: source) || PathBoundary.contains(real, under: realSource)
+                : path == source || real == realSource
+            if inside { return .failure(.intoSource) }
         }
         return .success(FilingDestination(path: path, confidence: .high, reasons: ["You typed this path"],
                                           newSegments: newSegments,

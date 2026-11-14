@@ -428,8 +428,11 @@ extension FileSyncManager {
         // statement's own number is matched against (``AccountIndex``).
         let archivedFolders = Self.archivedFolders(in: filingRoutingProfile)
         let isArchived: @Sendable (String) -> Bool = { archivedFolders.contains($0) }
+        // Inboxes by name, and the ones the survey marks as such: never an account.
+        let inboxFolders = Set((filingRoutingProfile?.folders ?? [:]).filter { $0.value.role == .inbox }.keys)
+        let isInbox: @Sendable (String) -> Bool = { FolderProfile.isInboxPath($0) || inboxFolders.contains($0) }
         let namedAccounts = await Task.detached(priority: .userInitiated) {
-            AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived)
+            AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived, isInbox: isInbox)
         }.value
         let withUnnamed = filingReadsContents && !looseFiles.isEmpty
             ? await addingUnnamedAccounts(to: namedAccounts, taxonomy: walkedTaxonomy,
@@ -643,10 +646,11 @@ extension FileSyncManager {
             let scannedFolder = folder.path
             let shared = sharedFolders
             let preferences = filingPreferences
+            let refused = rejectedByFile
             let (placed, facts) = await Task.detached(priority: .userInitiated) {
                 Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
                                       root: root, scannedFolder: scannedFolder, sharedStatementFolders: shared,
-                                      isArchived: isArchived, preferences: preferences)
+                                      isArchived: isArchived, preferences: preferences, rejected: refused)
             }.value
             if Task.isCancelled { return }
             suggestions = placed
@@ -681,7 +685,9 @@ extension FileSyncManager {
             // Statements and tax forms whether or not they print a number (a checking statement
             // with no account number on page 1 drew a confident "Apple Card" from it).
             let readOnly = Set(readFacts.filter { $0.value.kind != .other }.keys)
-                .union(suggestions.filter { $0.best?.account != nil && $0.best?.confidence == .high }.map(\.filePath))
+                // Any page matched to an account, at any confidence: its account says where it goes
+                // (a year-end summary for ••6397 is not the model's to send to another year).
+                .union(suggestions.filter { $0.candidates.contains { $0.account != nil } }.map(\.filePath))
             let toClassify = looseFiles.filter {
                 !readOnly.contains($0.id) && !remembered.contains($0.id)
                     && !options.ignoredNames.contains($0.name)
@@ -883,6 +889,7 @@ extension FileSyncManager {
         // Page 1 facts, for what a redirect teaches, and what re-asks place by: with the cards
         // they describe.
         filingDocumentFacts = readFacts
+        filingScanExcludesSubtree = excludesScannedSubtree
         filingAccountIndex = accountIndex
         filingAccountTaxonomy = taxonomy
         filingArchivedFolders = archivedFolders
@@ -1695,6 +1702,22 @@ extension FileSyncManager {
         let replaced = s.replacingCandidates(named)
         filingSuggestions[i] = reoffer ? replaced.offeredAnew() : replaced
         if reoffer, let offer = filingSuggestions[i].firstOffer { filingScorecard.reoffer(offer, for: s.filePath) }
+        // Placed by account after the scan (Read Scan, Download and Read): the scan's checks too,
+        // "already filed" and the " 2" a clashing name takes, or File N files a second copy.
+        if filingSuggestions[i].best?.account != nil { checkAccountCard(id) }
+    }
+
+    /// The scan's account checks for one card placed after it: already filed by page text, and the
+    /// landing names reserved across the list.
+    func checkAccountCard(_ id: String) {
+        Task { @MainActor in
+            guard let card = filingSuggestions.first(where: { $0.id == id }) else { return }
+            let marked = await markingFiledInAccounts([card], scannedFolder: filingScanFolder)
+            guard let j = filingSuggestions.firstIndex(where: { $0.id == id }), let m = marked.first else { return }
+            var all = filingSuggestions
+            all[j] = m
+            filingSuggestions = Self.reservingLandingNames(all)
+        }
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
@@ -1835,21 +1858,23 @@ extension FileSyncManager {
                                         providerRoot: suggestion.providerRoot,
                                         evidenceWord: suggested.evidenceToken)
             }
-            let copied = fileOnce ? [] : await performFilingCopies(of: move.to, copies: destination.alsoCopiesTo.filter {
+            let copied = fileOnce ? [] : await performFilingCopies(of: move.to, copies: copiesToMake(destination).filter {
                 !exceptCopiesTo.contains($0.account.root)
             })
-            noteFiledIntoLearnedAccounts(folders: [move.to.deletingLastPathComponent().path])
             // What it teaches (decision 8): a statement he sent somewhere with "Remember" ticked,
             // or the first statement of an account it made.
             var lesson: LessonUndo?
-            if teach || destination.createsAccountFolder {
-                let into = destination.createsAccountFolder && !teach ? (destination.account?.root ?? destination.path)
-                                                                      : destination.path
+            // Only what the Remember box says: ticked (the default for a new account), the account
+            // it made or the folder he chose.
+            if teach {
+                let makes = destination.createsAccountFolder
+                let into = makes ? (destination.account?.root ?? destination.path) : destination.path
                 let batch: [LearnedAccount.Teaching] = [.init(source: move.from.path, landed: move.to.path)]
-                if let t = teachingAccount(from: [suggestion], landed: batch, into: into, by: teach ? .singleRedirect : .newAccount) {
+                if let t = teachingAccount(from: [suggestion], landed: batch, into: into, by: makes ? .newAccount : .singleRedirect) {
                     lesson = LessonUndo(taught: t.taught, previous: t.previous, batch: batch)
                 }
             }
+            noteFiledIntoLearnedAccounts(folders: [move.to.deletingLastPathComponent().path])
             registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)",
                                createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
                                lesson: lesson)

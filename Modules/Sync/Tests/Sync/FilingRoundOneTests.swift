@@ -49,8 +49,11 @@ import Foundation
         func dir(_ p: String, _ c: [FileNode]) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: true, children: c) }
         let acct = "Finance/Chase Checking 1234"
         let tree = [dir("Finance", [dir(acct, (1...6).map { file(acct + String(format: "/eStmt_2025-%02d-28.pdf", $0)) })])]
-        let a = AccountIndex.build(tree: tree).accounts.first
-        #expect(a?.institution.contains("chase") == true, "\(String(describing: a))")
+        let index = AccountIndex.build(tree: tree)
+        // The page names the bank; the folder's own words carry it.
+        let page = DocumentFacts(page: "JPMorgan Chase Bank\nStatement Period: March 1, 2026 to March 31, 2026\nAccount Number 000012341234")
+        guard case .high(let a, _) = index.match(page) else { Issue.record("\(index.match(page))"); return }
+        #expect(a.root == acct)
     }
 
     @Test func noPeriodMeansNoYearFolderFromAName() {
@@ -87,10 +90,6 @@ import Foundation
 
 @MainActor
 @Suite struct FilingRoundOneUndoTests {
-    private func waitUntil(_ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(10)
-        while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-    }
 
     /// ⌘Z of the filing that taught a lesson forgets it; ⇧⌘Z teaches it again.
     @Test func redoTeachesTheLessonAgain() async throws {
@@ -107,6 +106,8 @@ import Foundation
         try writeBytes(file, Data(repeating: 9, count: 41))
         let m = FileSyncManager(defaults: ScratchDefaults("FilingRoundOneUndoTests.redo"))
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         m.undoManager = undo
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
@@ -118,10 +119,10 @@ import Foundation
                                                                           reasons: ["r"], newSegments: []), teachAccount: true) == .moved)
         #expect(m.filingLearnedAccounts.count == 1)
         undo.undo()
-        try await waitUntil { m.filingLearnedAccounts.isEmpty }
+        await waitUntil("the undo or redo settles", timeout: 10) { m.filingLearnedAccounts.isEmpty }
         #expect(m.filingLearnedAccounts.isEmpty, "⌘Z forgets it")
         undo.redo()
-        try await waitUntil { m.filingLearnedAccounts.count == 1 }
+        await waitUntil("the undo or redo settles", timeout: 10) { m.filingLearnedAccounts.count == 1 }
         #expect(m.filingLearnedAccounts.first?.folder == "Bank/Chase/Joint", "⇧⌘Z teaches it again")
     }
 }

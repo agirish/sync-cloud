@@ -6,7 +6,10 @@ import Foundation
 /// its own, and so does a file that is the only one for its folder.
 public struct FilingCardGroup: Identifiable, Sendable, Equatable {
     /// The account root and the folder the members go to.
-    public var id: String { account.root + "\u{0}" + destination.path + "\u{0}" + destination.confidence.rawValue + "\u{0}" + account.ending }
+    public var id: String {
+        account.root + "\u{0}" + destination.path + "\u{0}" + destination.confidence.rawValue + "\u{0}" + account.ending
+            + "\u{0}" + account.kind.rawValue
+    }
     public let account: FilingAccount
     /// The shared home: the first member's best, which every member's best equals.
     public let destination: FilingDestination

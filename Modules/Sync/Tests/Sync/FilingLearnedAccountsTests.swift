@@ -113,6 +113,8 @@ import Foundation
         let f = try fixture("Undo")
         defer { try? FileManager.default.removeItem(at: f.root) }
         let undo = UndoManager()
+        // Only the explicit group makes one step of it.
+        undo.groupsByEvent = false
         f.m.undoManager = undo
         let file = try write(f, "Chase/03. Mar 2026.pdf")
         f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("4139", month: "March") : nil }
@@ -127,14 +129,10 @@ import Foundation
         #expect(f.m.filingLearnedAccounts.count == 1, "still filed: still taught")
         #expect(f.m.filingLearnedAccounts.first?.filedCount == 1, "counted once")
         undo.undo()
-        let deadline = Date().addingTimeInterval(10)
-        while !FileManager.default.fileExists(atPath: file.path), Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        await waitUntil("Undo puts the file back", timeout: 10) { FileManager.default.fileExists(atPath: file.path) }
         #expect(FileManager.default.fileExists(atPath: file.path), "Undo put it back")
         // The same ⌘Z forgets it, once the file is back: no rescan needed.
-        let forgetDeadline = Date().addingTimeInterval(10)
-        while !f.m.filingLearnedAccounts.isEmpty, Date() < forgetDeadline { try await Task.sleep(for: .milliseconds(20)) }
+        await waitUntil("the lesson is forgotten", timeout: 10) { f.m.filingLearnedAccounts.isEmpty }
         #expect(f.m.filingLearnedAccounts.isEmpty, "forgotten by the undo itself")
         // And the next scan doesn't offer it: the statement isn't offered the undone lesson.
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)

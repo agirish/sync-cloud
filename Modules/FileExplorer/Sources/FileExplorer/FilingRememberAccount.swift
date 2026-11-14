@@ -9,6 +9,8 @@ struct FilingRememberAccount {
     let ending: String?
     let isOn: Bool
     let onToggle: (Bool) -> Void
+    /// Why there is no ending, when page 1 prints numbers but no one of them leads.
+    var noNumberReason: String? = nil
 }
 
 struct FilingRememberAccountRow: View {
@@ -25,7 +27,7 @@ struct FilingRememberAccountRow: View {
             .controlSize(.small)
             .help("Choose a Folder… files statements printing ••\(ending) there from now on. Listed in Automations, where you can remove it.")
         } else {
-            Text("Nothing to remember: page 1 names no single account number")
+            Text(remember.noNumberReason ?? "Nothing to remember: no account number on page 1")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
