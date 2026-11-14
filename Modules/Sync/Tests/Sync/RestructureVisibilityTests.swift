@@ -500,24 +500,37 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     }
 
     /// The off-actor warm-up must never install a report for a profile that has since been
-    /// replaced. Set two profiles back to back, let every warm-up land, and the cache must hold
-    /// the second one's report.
+    /// replaced. A's warm-up is held past its cancellation check (`structureWarmUpGate`), B is
+    /// installed and its own warm-up lands, then A is let go: only the generation token stands
+    /// between A's report and the cache. Fails with that token check removed.
     @Test func aSupersededWarmUpNeverOverwritesTheCache() async throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let initial = try #require(warmUp(of: manager))
-        manager.filingFolderProfile = Self.profile()          // warm-up 1, immediately superseded
-        let superseded = try #require(warmUp(of: manager))
-        manager.filingFolderProfile = FolderProfile(profileId: "t2", root: Self.root,
-                                                    folders: [:], personTokens: [])
-        let current = try #require(warmUp(of: manager))
-        #expect(cachedReport(of: manager) == nil, "premise: nothing computed a report yet")
+        await warmUp(of: manager)?.value   // the setup's own warm-up, out of the way
+        #expect(!StructureDetectors.run(in: Self.profile()).findings.isEmpty,
+                "premise: A's report, if installed, would show")
 
-        await initial.value
-        await superseded.value
+        let entered = Flag(), released = Flag(), timedOut = Flag()
+        manager.structureWarmUpGate = {
+            entered.value = true
+            await parkUntilReleased(released, timedOut: timedOut)
+        }
+        manager.filingFolderProfile = Self.profile()   // A
+        let superseded = try #require(warmUp(of: manager))
+        await awaitArrival("A's warm-up never reached the gate") { entered.value }
+
+        manager.structureWarmUpGate = nil
+        manager.filingFolderProfile = FolderProfile(profileId: "t2", root: Self.root,
+                                                    folders: [:], personTokens: [])   // B
+        let current = try #require(warmUp(of: manager))
         await current.value
-        let cached = try #require(cachedReport(of: manager), "the current warm-up installed nothing")
-        #expect(cached.findings.isEmpty,
+        let installed = try #require(cachedReport(of: manager), "B's warm-up installed nothing")
+        #expect(installed.findings.isEmpty, "premise: the cache holds B's report")
+
+        released.value = true
+        await superseded.value
+        #expect(!timedOut.value, "A's warm-up was let go by its bound, not by the test")
+        #expect(cachedReport(of: manager)?.findings.isEmpty == true,
                 "the superseded warm-up installed a report for the previous profile")
         #expect(manager.structureReport.findings.isEmpty)
     }

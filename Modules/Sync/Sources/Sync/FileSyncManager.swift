@@ -908,6 +908,12 @@ public class FileSyncManager: ObservableObject {
     /// Cancelled and replaced when the profile changes again.
     private var structureWarmUpTask: Task<Void, Never>?
 
+    /// Awaited by the warm-up after its cancellation check and before its hop to the main actor:
+    /// the seam a test holds a superseded warm-up at, past the check that would otherwise stop it,
+    /// so the generation token alone decides whether it installs. Read when the warm-up starts.
+    /// nil in the app.
+    var structureWarmUpGate: (@Sendable () async -> Void)?
+
     /// Computes the detector sweep off the main actor and caches it, so the first Organize render
     /// after a survey finds it there. The synchronous path in ``structureReport`` stays correct: a
     /// render that arrives first computes and caches the report itself, and this then installs an
@@ -926,9 +932,11 @@ public class FileSyncManager: ObservableObject {
             return
         }
         let generation = filingFolderProfileGeneration
+        let gate = structureWarmUpGate
         structureWarmUpTask = Task.detached(priority: .utility) { [weak self] in
             let report = StructureDetectors.run(in: profile)
             guard !Task.isCancelled else { return }
+            await gate?()
             await MainActor.run { [weak self] in
                 guard let self, self.filingFolderProfileGeneration == generation else { return }
                 self.cachedStructureReport = report
