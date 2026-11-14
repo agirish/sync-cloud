@@ -3,12 +3,11 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// The rules behind the sidebar's Revisited and Frequent lists.
-///
-/// A stay is a visit the pane stayed in for a few seconds; a return inside five minutes continues
-/// the stay before it. Revisited is stays on 2+ different calendar days, Frequent is 2+ stays, and
-/// both need a faded weight of 1 inside 90 days. Revisited is newest first; Frequent is by weight.
-/// Favorites and landing folders are subtracted as Recents subtracts them, at most eight rows.
+/// The rules behind the sidebar's Revisited and Frequent lists. A stay is a visit the pane stayed
+/// in for a few seconds; a return inside five minutes continues the stay before it. Revisited is
+/// stays on 2+ different calendar days, Frequent is 2+ stays, and both need a faded weight of 1
+/// inside 90 days. Revisited is newest first; Frequent is by weight. Favorites and landing folders
+/// are subtracted as Recents subtracts them, at most eight rows.
 @MainActor
 @Suite struct RevisitedFoldersTests {
 

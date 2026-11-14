@@ -16,11 +16,9 @@ import Testing
 
     @Test func testTheDefaultIsTodaysBar() {
         // The shipped bar, restated literally rather than read off `PaneBarArrangement.default`,
-        // so changing it is a decision someone has to write down. Search sits at the trailing end,
-        // the first thing the ladder sheds, since it has a keyboard equivalent on every surface;
-        // Filter by Type and Delete sit just before it. A header draws Delete only when the host
-        // passes a delete handler. No leading `flexibleSpace`: the bar starts where the breadcrumb
-        // below it starts. No Preview: the preview lives in the Info inspector.
+        // so changing it is a decision someone writes down. Search is last, the first thing the
+        // ladder sheds, since it has a keyboard equivalent everywhere. No leading `flexibleSpace`:
+        // the bar starts where the breadcrumb does. No Preview: it lives in the Info inspector.
         #expect(PaneBarArrangement.default.items == [
             .viewMode, .collapse, .backForward, .scan, .info, .newFolder, .sort, .hiddenFiles,
             .delete, .typeFilter, .search
@@ -47,8 +45,8 @@ import Testing
     }
 
     @Test func testEmptyStringIsAnEmptyBarNotTheDefault() {
-        // Removing everything is a legitimate arrangement and must not spring back to the default.
-        // Only `scan` returns, because it can't be removed.
+        // Removing everything must not spring back to the default; only `scan`, which can't be
+        // removed, returns.
         #expect(PaneBarArrangement(encoded: "").items == [.scan])
     }
 

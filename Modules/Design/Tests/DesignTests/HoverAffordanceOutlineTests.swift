@@ -3,21 +3,14 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `HoverAffordanceOutline`, rendered against the plain SwiftUI shapes it stands for.
+/// `HoverAffordanceOutline`, rendered against the plain SwiftUI shapes it stands for, so a
+/// control's ground, hit shape and hover style share one outline.
 ///
-/// One shared value lets a call site hand its ground, its hit shape and the hover style the same
-/// outline, so a control can't draw a 6pt rounded rect under a capsule wash.
+/// Asserted in pixels, filled and stroked: `strokeBorder` also tightens a rounded corner by half
+/// the line width, which nothing documents. Dropping that tightening must fail the rounded cases.
 ///
-/// The equivalence is asserted in pixels, filled and stroked, for every case the app uses:
-/// `strokeBorder` insets by half the line width and also tightens a rounded corner by the same
-/// amount, which nothing documents and a hand-written `inset(by:)` gets wrong. Dropping that
-/// corner tightening must make the rounded-rect cases fail.
-///
-/// The last test measures how much of a `Radius.chip` row a capsule wash misses, so the mismatch
-/// is a number, not a claim. Pinned to `.pixelSampling`: it reads pixels from a live renderer.
-///
-/// The cases live at file scope because `@Test(arguments:)` evaluates its list outside the actor,
-/// so a `static let` on this `@MainActor` suite would not compile.
+/// File scope because `@Test(arguments:)` evaluates its list outside the actor, so a `static let`
+/// on this `@MainActor` suite would not compile.
 let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
     ("capsule", .capsule),
     ("circle", .circle),
@@ -29,11 +22,8 @@ let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
 @MainActor
 @Suite(.serialized) struct HoverAffordanceOutlineTests {
 
-    /// Renders `view` at `size` and hands back its pixels.
-    ///
-    /// `controlActiveState` is pinned as in `PaneTabStripRenderTests`: without it SwiftUI renders
-    /// the desaturated inactive-window variant, which the user never sees. Nothing here is
-    /// translucent or glass, so a flat opaque backdrop is enough and the specimens render offscreen.
+    /// Renders `view` at `size` and hands back its pixels. `controlActiveState` is pinned: without
+    /// it SwiftUI renders the desaturated inactive-window variant, which the user never sees.
     func render(_ view: some View, size: CGSize) -> NSBitmapImageRep {
         let subject = view
             .frame(width: size.width, height: size.height)
@@ -46,11 +36,8 @@ let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
         return rep
     }
 
-    /// Pixels where the two bitmaps differ by more than a rounding wobble on any channel.
-    ///
-    /// A tolerance, not exact equality: the same path filled through two `Shape` types can land a
-    /// hair differently in the antialiased fringe. 0.02 is far below what a real shape change makes,
-    /// which the last test here measures at hundreds of pixels.
+    /// Pixels where the two bitmaps differ by more than a rounding wobble on any channel: the same
+    /// path filled through two `Shape` types can land a hair differently in the antialiased fringe.
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         Pixel.differing(a, b, sRGB: true)
     }
@@ -99,13 +86,9 @@ let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
 
     // MARK: - The defect, in pixels
 
-    /// A capsule wash doesn't cover a `Radius.chip` row, measured. On a 220×28 row a capsule's
-    /// radius is the full 14pt half-height against the row's 6pt, so the wash pulls its ends in
-    /// inside the accent fill and the row shows a pill floating in a rounded rectangle. It takes a
-    /// hover to paint, so no static screenshot shows it; comparing the outlines makes it checkable.
-    ///
-    /// A floor, not an exact count, so it states that the shapes disagree rather than pinning a
-    /// golden number; the message prints the measurement.
+    /// A capsule wash doesn't cover a `Radius.chip` row: its 14pt radius against the row's 6pt
+    /// shows a pill floating in a rounded rectangle, and only on hover. A floor, not a golden count,
+    /// and the positive control for the equality tests above.
     @Test(.machinePinned(.pixelSampling)) func aCapsuleWashMissesTheCornersOfAChipRow() {
         let size = CGSize(width: 220, height: 28)
         let ground = render(HoverAffordanceShape.roundedRect(Radius.chip).outline.fill(ink), size: size)

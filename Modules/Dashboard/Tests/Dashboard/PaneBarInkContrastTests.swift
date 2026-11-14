@@ -6,15 +6,11 @@ import Design
 @testable import Dashboard
 import FileExplorerTestSupport
 
-/// Whether a rung that supplies its own `ink:` stays legible in both appearances. `PaneNavChrome`
-/// normally routes its glyph through `ChromeInk.label`, which flattens to full white in dark for
-/// contrast. A supplied `ink` bypasses that on purpose, so a destructive control stays red in dark,
-/// and the bypass gives up that contrast rule, so it is measured here instead.
-///
-/// Measured against the pill's own fill, which the glyph sits on. Machine-pinned: it holds a WCAG
-/// ratio from the darkest sampled glyph pixel against the modal fill to absolute numbers (3.0, and
-/// 4.0 for the control), and anti-aliasing decides how dark that pixel gets, so another renderer
-/// moves the measurement itself.
+/// Whether a rung that supplies its own `ink:` stays legible in both appearances. A supplied `ink`
+/// bypasses `ChromeInk.label`'s flattening to full white in dark on purpose, so a destructive
+/// control stays red, and gives up that contrast rule, so it is measured here against the pill's
+/// own fill. Machine-pinned: it holds a WCAG ratio from the darkest sampled glyph pixel to absolute
+/// numbers, and anti-aliasing decides how dark that pixel gets, so another renderer moves it.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarInkContrastTests {
 
@@ -30,9 +26,8 @@ import FileExplorerTestSupport
     }
 
     /// The control on the measurement itself. Anti-aliasing can starve a glyph's core and make any
-    /// method pessimistic, so the same method measures an untinted rung in the same render (about
-    /// 4.8:1 here, over `windowBackgroundColor` with no hue wash). If the tinted rung fails beside
-    /// a passing control, the gap is the tint's, not the method's.
+    /// method pessimistic, so the same method measures an untinted rung in the same render: a tinted
+    /// rung failing beside a passing control is the tint's gap, not the method's.
     @Test func testTheMethodIsNotThePessimist() throws {
         let measured = try Self.standardGlyphContrast()
         #expect(measured > Self.floor + 1.0,
@@ -61,11 +56,10 @@ import FileExplorerTestSupport
 
     // MARK: - Measurement
 
-    /// A rendered header plus the rows its bar's controls occupy, from one layout pass so they
-    /// can't describe different renders. The rows are taken from the drawn pills, not a fraction of
-    /// the header: both searches pick an extreme pixel, so a window that caught a rung's title,
-    /// which hangs below its pill, could measure a title stroke as a glyph. Each pill gets a
-    /// `_FocusRingView` at exactly its frame, so the band is the pills and nothing else.
+    /// A rendered header plus the rows its bar's controls occupy, from one layout pass. The rows are
+    /// the drawn pills' `_FocusRingView` frames, not a fraction of the header: both searches pick an
+    /// extreme pixel, so a window catching a rung's title, which hangs below its pill, could measure
+    /// a title stroke as a glyph.
     struct RenderedHeader {
         let rep: NSBitmapImageRep
         let barRows: Range<Int>

@@ -87,12 +87,9 @@ import Foundation
 
     // MARK: - The whole loop, with the service modelled
 
-    /// A driver for the whole loop (`Toggle`'s `onChange`, the round-trip, `settle`, `perform`
-    /// and the activation status read) with the login item modelled, so a trace is judged on what
-    /// the user ends up with, not only on the guard's return values.
-    ///
-    /// It holds any number of calls in flight and lets the test complete them in any order with
-    /// any outcome, so two concurrent round-trips are representable and can fail a test.
+    /// The whole loop (`onChange`, the round-trip, `settle`, `perform`, the activation read) with the
+    /// login item modelled, so a trace is judged on what the user ends up with. Calls complete in any
+    /// order with any outcome, so two concurrent round-trips are representable and can fail a test.
     private final class Driver {
         /// A started round-trip. `value` is what it is pushing at the service.
         struct Call: Equatable {
@@ -215,11 +212,9 @@ import Foundation
 
     // MARK: - A wedged round-trip must not latch the guard shut forever
 
-    /// The guard's claim is bounded, so an `smd` that never answers can't kill the toggle.
-    ///
-    /// Only `settle` clears the claim, and the call site reaches it only after its XPC `await`
-    /// returns. Unbounded, a wedged `smd` would shut the guard for the life of the view: every
-    /// flip swallowed (the switch moves and nothing happens) and every activation read dropped.
+    /// The guard's claim is bounded, so an `smd` that never answers can't kill the toggle. Only
+    /// `settle` clears the claim, after the XPC `await` returns; unbounded, a wedged `smd` would
+    /// swallow every flip and drop every activation read for the life of the view.
     @MainActor
     @Test func aWedgedRoundTripStopsBlockingOnceItsClaimGoesStale() {
         let driver = Driver(startingRegistered: false)
@@ -262,13 +257,9 @@ import Foundation
         #expect(!driver.toggle, "a stale claim must not keep the toggle out of step forever")
     }
 
-    /// The other end of that allowance: once a read has published, the expired round-trip no
-    /// longer speaks for the toggle, so its late settle must not drive the service.
-    ///
-    /// Expiry must be symmetric. If the read publishes but the round-trip isn't superseded, its
-    /// settle still matches by token, sees the moved toggle as a mid-flight flip, and reapplies
-    /// it: `smd` wedges, the user cmd-tabs back past the window, the read snaps the switch off,
-    /// the register succeeds, and the settle unregisters the item it just registered.
+    /// Once a read has published past the claim window, the expired round-trip no longer speaks for
+    /// the toggle. Otherwise its settle still matches by token, sees the moved toggle as a mid-flight
+    /// flip and reapplies it: the register succeeds and the settle unregisters what it just registered.
     @MainActor
     @Test func aReadPublishedPastTheClaimWindowSupersedesTheWedgedRoundTrip() {
         let driver = Driver(startingRegistered: false)

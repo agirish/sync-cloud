@@ -151,11 +151,9 @@ import Testing
                 "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
     }
 
-    /// A `nil` symbol paints nothing, reveal or no reveal: the state of a control that only
-    /// sometimes has a chord, like the pane bar's scan rung once it has become Stop. Measured by
-    /// pixels, since the modifier is still applied and has to decide to draw nothing.
-    /// `theKeycapPaintsWhenTheRevealIsActive` is the positive control: the same subjects with a
-    /// symbol do paint, so "nothing changed" can't pass on a harness that renders nothing.
+    /// A `nil` symbol paints nothing, reveal or no reveal (the scan rung once it has become Stop).
+    /// `theKeycapPaintsWhenTheRevealIsActive` is the positive control, so "nothing changed" can't
+    /// pass on a harness that renders nothing.
     @Test(.machinePinned(.pixelSampling)) func aControlWithNoChordWearsNoBadge() {
         for subject in Self.subjects() {
             let unbadged = subject.view.shortcutKeycap(nil)
@@ -212,10 +210,9 @@ import Testing
         return n == 0 ? 0 : total / CGFloat(n)
     }
 
-    /// ...and the control behind it steps back, rather than staying at full strength under a key
-    /// that covers only part of it. Sampled at the leading edge, clear of the centred key, so this
-    /// measures the fade and not the badge; without it the label reads straight through beside the
-    /// key and looks like a rendering fault.
+    /// ...and the control behind it steps back; at full strength its label reads straight through
+    /// beside the key like a rendering fault. Sampled at the leading edge, clear of the centred
+    /// key, so this measures the fade and not the badge.
     @Test(.machinePinned(.pixelSampling)) func theControlFadesBehindTheKey() {
         let button = Button("Copy 560 to Dropbox") {}
             .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white))
@@ -239,10 +236,9 @@ import Testing
 
     // MARK: Modifier ordering
 
-    /// Applying `.disabled(…)` outside the style, as badged call sites must so the modifier can read
-    /// `isEnabled`, must not change the control. Not obviously free: `ActionBarButtonStyle` reads
-    /// `isEnabled` itself and dims by `ActionBarMetrics.disabledOpacity`, so this checks the
-    /// rendered result rather than trusting SwiftUI's environment propagation.
+    /// Applying `.disabled(…)` outside the style, as badged call sites must, doesn't change the
+    /// control. Checked on the render: `ActionBarButtonStyle` reads `isEnabled` itself and dims by
+    /// `ActionBarMetrics.disabledOpacity`.
     @Test(.machinePinned(.pixelSampling), arguments: ActionBarWeight.allCases)
     func disablingOutsideTheStyleLooksTheSameAsDisablingInside(weight: ActionBarWeight) {
         let style = ActionBarButtonStyle(weight: weight, tint: Self.tint, onTint: .white, isIconOnly: false)
@@ -293,10 +289,9 @@ import Testing
         }
     }
 
-    /// ...and the key actually uses those colours, read off the rendered key: its fill against its
-    /// darkest glyph pixel. The test above never touches `ShortcutKeycap`, so a switch to
-    /// `.secondary` would pass it; a hierarchical style resolves against the enclosing foreground
-    /// and draws a white glyph on the light key over the primary transfer button.
+    /// ...and the rendered key uses those colours: its fill against its darkest glyph pixel. A
+    /// switch to `.secondary` would pass the test above, yet resolves against the enclosing
+    /// foreground and draws a white glyph on the light key over the primary transfer button.
     @Test(.machinePinned(.pixelSampling)) func theRenderedKeyIsLegibleAgainstItsOwnFill() {
         let key = ShortcutKeycap("W")
         let size = hosted(key, revealed: true).fittingSize

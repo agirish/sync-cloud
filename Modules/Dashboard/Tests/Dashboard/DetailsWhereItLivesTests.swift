@@ -4,30 +4,20 @@ import SwiftUI
 import Sync
 @testable import Dashboard
 
-/// The Info inspector's *Where it lives* rows: the supporting "On this Mac" fact and the verdict
-/// beneath it.
-///
-/// Two layers, because they fail differently. The wording is a pure function, pinned exhaustively,
-/// including states a real filesystem can't produce. What the card lays out is pinned by mounting
-/// it over real files, so the plumbing from stat to state to row has to work.
-/// `.serialized` because the layout cases order a real window in (off every display, but really
-/// rendering) so SwiftUI commits their async-loaded state; see `mount`. Two suites rendering
-/// windows at once repaint each other, which no settling can wait out.
+/// The Info inspector's *Where it lives* rows: the "On this Mac" fact and the verdict beneath it.
+/// The wording is a pure function, pinned exhaustively; the layout is pinned by mounting the card
+/// over real files, so the plumbing from stat to state to row has to work. `.serialized` because
+/// the layout cases order a real window in (see `mount`): two suites rendering windows at once
+/// repaint each other, which no settling can wait out.
 @MainActor
 @Suite(.serialized) struct DetailsWhereItLivesTests {
 
     // MARK: The supporting fact — every state, including the unproducible ones
 
-    /// A file's row, by what the stat answered (`isCloudOnly`, `hasAnswer`):
-    /// - downloaded says so;
-    /// - a dataless placeholder says so, as a fact about the content, not a warning;
-    /// - until the `lstat` lands the row is a placeholder, not an answer. The stat runs off the
-    ///   main actor because it can block for seconds on a wedged provider, and a guessed "Yes —
-    ///   downloaded" would be wrong exactly when the answer mattered;
-    /// - a stat that couldn't answer draws no row. `isCloudOnlyIfKnown` is nil when the path can't
-    ///   be statted (deleted mid-download, or never there), and "Unknown" would suggest SyncCloud
-    ///   looked and found nothing. Unlike the case before, `hasAnswer` is true: the stat ran and
-    ///   came back empty.
+    /// A file's row, by what the stat answered (`isCloudOnly`, `hasAnswer`). Until the `lstat` lands
+    /// (off the main actor: it can block for seconds) the row is a placeholder, never a guessed
+    /// "downloaded"; a stat that ran but couldn't answer draws no row, since "Unknown" would suggest
+    /// SyncCloud looked and found nothing.
     @Test(arguments: [
         (false, true, "Yes — downloaded"),
         (true, true, "No — placeholder only"),
@@ -54,9 +44,8 @@ import Sync
 
     // MARK: What the card lays out
 
-    /// Tall on purpose. The inspector is a `ScrollView`, so nothing past the frame's bottom is
-    /// painted, and the *Where it lives* rows sit below the Path row, which wraps over several
-    /// lines at this width. A shorter canvas would cut them off and every comparison would read
+    /// Tall on purpose: the inspector is a `ScrollView`, so nothing past the frame paints, and the
+    /// *Where it lives* rows sit below a Path row that wraps. Shorter, every comparison would read
     /// zero difference.
     private static let canvas = CGSize(width: 320, height: 1400)
 
@@ -67,13 +56,9 @@ import Sync
         return root
     }
 
-    /// One mounted inspector, kept alive with the window it paints into.
-    ///
-    /// The coverage is swapped on this one host rather than compared across two. Two mounts load
-    /// on their own clocks, so comparing them measures how far each got as much as the rows, and
-    /// can both pass with the rows deleted and differ when they should match. One host loaded once,
-    /// with only `cloudCoverage` changing, leaves the rows as the only possible delta. Assigning
-    /// `rootView` keeps the structural identity, so `@State` and the landed answers survive.
+    /// One mounted inspector, kept alive with its window. The coverage is swapped on this one host
+    /// rather than compared across two: two mounts load on their own clocks, so their delta measures
+    /// load progress too. Assigning `rootView` keeps structural identity, so `@State` survives.
     private final class Inspector {
         let host: NSHostingView<AnyView>
         let window: NSWindow
@@ -117,13 +102,10 @@ import Sync
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
-        // Ordered in, but parked past the edge of every display. The card fills itself from two
-        // `.task`s that land after the first render; `settled`'s pump, which yields to the runloop
-        // each pass, is what commits them, and being on a display makes no measurable difference.
-        // Off screen the card doesn't cover the user's desktop for the whole suite, and the suite
-        // runs about 3× faster. `theCardFillsItselfWithTheWindowOffScreen` guards both halves.
-        // Buried below the wallpaper as well: nothing orders it out, so it outlives the test, and
-        // this card has been seen on the user's screen mid-run; buried, it draws nowhere even then.
+        // Ordered in but parked past every display, so it doesn't cover the user's desktop: the
+        // card's `.task`s are committed by `settled`'s runloop pump, not by being on a display
+        // (`theCardFillsItselfWithTheWindowOffScreen` guards both halves). Buried below the
+        // wallpaper too: nothing orders it out, so it outlives the test and must draw nowhere.
         window.setFrameOrigin(Self.offscreenOrigin())
         window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         window.orderBack(nil)
@@ -150,8 +132,7 @@ import Sync
         else { return Int.max }   // shapes disagree: not comparable, never silently "identical"
         let samples = lhs.samplesPerPixel
         let rowBytes = lhs.bytesPerRow
-        // 5/255, about a 0.02 float threshold: enough to ignore compositing noise, far below any
-        // glyph.
+        // 5/255 (~0.02): ignores compositing noise, far below any glyph.
         let tolerance = 5
         var differing = 0
         for y in stride(from: 0, to: lhs.pixelsHigh, by: 2) {
@@ -169,13 +150,10 @@ import Sync
     }
 
     /// Waits for the card to stop changing, then returns what it paints. Bounded by
-    /// `LayoutPumpWait`, which floors on passes, not seconds, and reports the pass count on failure:
-    /// the card's `.task`s land on main-actor turns, which a wall-clock deadline starves under load
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
-    ///
-    /// Quiet means `stableFrames` consecutive identical frames, not one matching pair: the card
-    /// lands in stages (metadata and icon, the materialization stat, a folder's size walk), and two
-    /// matching frames easily fall in a gap between stages.
+    /// `LayoutPumpWait`, which floors on passes, not seconds: a wall-clock deadline starves the
+    /// card's main-actor `.task`s under load (`docs/flaky-tests.md`, "Fixed pumps and fixed
+    /// sleeps"). Quiet means `stableFrames` identical frames in a row: the card lands in stages, and
+    /// one matching pair can fall between them.
     @discardableResult
     private func settled(_ inspector: Inspector, stableFrames: Int = 4,
                          within timeout: TimeInterval = 15,
@@ -206,14 +184,10 @@ import Sync
     }
 
     /// The card still fills itself with its window off every display, and the window stays off
-    /// them: the premise the other layout cases rest on.
-    ///
-    /// The first frame is the empty, still-loading card, so any difference from the settled one
-    /// came through the `.task`s. `LayoutPumpWait.pump` returning without pumping must fail it.
-    ///
-    /// The second half stops "ordered in" being read as "visible": a frame that intersects any
-    /// display, parked wrongly or pulled back by AppKit, fails here instead of painting over the
-    /// user's screen. A plain `orderBack` without parking must fail it.
+    /// them: the premise the other layout cases rest on. The first frame is the still-loading card,
+    /// so any difference came through the `.task`s; a frame on any display (parked wrongly or pulled
+    /// back by AppKit) would paint over the user's screen.
+    /// Mutations that must fail it: `LayoutPumpWait.pump` not pumping; `orderBack` without parking.
     @Test(.machinePinned(.pixelSampling)) func theCardFillsItselfWithTheWindowOffScreen() async throws {
         let root = try fixture("WhereItLivesOffScreen")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -257,10 +231,8 @@ import Sync
                 "the same file laid out identically inside and outside a cloud folder — the verdict is not being drawn")
     }
 
-    /// An unknown coverage draws no verdict rather than falling back to "This Mac only". That is
-    /// why the parameter is Optional: `.empty` claims no cloud folder contains anything, so
-    /// defaulting to it would place every iCloud file on this Mac only.
-    ///
+    /// An unknown coverage draws no verdict rather than "This Mac only": `.empty` claims no cloud
+    /// folder contains anything, so defaulting to it would place every iCloud file on this Mac only.
     /// `.empty`, not `.none`: `Coverage.none` at an Optional call site resolves to `Optional.none`
     /// and silently becomes `nil`, the very confusion under test.
     @Test(.machinePinned(.pixelSampling)) func anUnknownCoverageDrawsNoVerdictRatherThanTheWrongOne() async throws {
@@ -277,10 +249,9 @@ import Sync
                 "an unknown coverage laid out the same as a proven-empty one — one of them is claiming something it cannot")
     }
 
-    /// A folder's card says where it is, and nothing about its content. Moved inside a cloud
-    /// folder, the card changes: *Where it lives* answers for a folder by containment alone ("In
-    /// iCloud", "This Mac only"). *On this Mac* never appears for a folder;
-    /// `aFolderIsNeverToldItsContentIsOrIsNotHere` pins that.
+    /// A folder's card says where it is by containment alone, so moving it inside a cloud folder
+    /// changes the card; *On this Mac* never appears for a folder
+    /// (`aFolderIsNeverToldItsContentIsOrIsNotHere`).
     @Test(.machinePinned(.pixelSampling)) func aFoldersCardSaysWhereItIsFromCoverageAlone() async throws {
         let root = try fixture("WhereItLivesFolder")
         defer { try? FileManager.default.removeItem(at: root) }

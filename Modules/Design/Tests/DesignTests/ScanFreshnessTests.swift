@@ -52,10 +52,8 @@ import Foundation
         }
     }
 
-    /// Every bucket edge in one table, so a seam change (a new bucket, rounding, an off-by-one)
-    /// fails one test with the whole table in view, mid-bucket cells included: 5400s (1.5h) must read
-    /// "1h ago", which rounding would make "2h". Labels floor, so they never contradict the next
-    /// coarser unit.
+    /// Every bucket edge in one table, mid-bucket cells included. Labels floor, never round:
+    /// 5400s (1.5h) reads "1h ago", not "2h".
     @Test func fullBoundaryTable() {
         let table: [(seconds: TimeInterval, label: String)] = [
             (0, "just now"),
@@ -100,10 +98,8 @@ import Foundation
         #expect(ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1)).isStale == false)
     }
 
-    /// Pins the threshold's value, which the test above can't: it spells `staleAfter` symbolically.
-    /// The 45-minute case fails if the threshold drops to ten minutes. An hour because the app is
-    /// left open for hours, and a shorter threshold keeps the pill stale so often the warning
-    /// reads as furniture.
+    /// Pins the threshold's value, which the test above spells symbolically. An hour, because a
+    /// shorter threshold keeps the pill stale so often the warning reads as furniture.
     @Test func theThresholdIsAnHourAndNotTheOldTenMinutes() {
         #expect(ScanFreshness.staleAfter == 3600)
         #expect(ScanFreshness.describe(scanDate: base, now: at(45 * 60)).isStale == false)

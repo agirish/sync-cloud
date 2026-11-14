@@ -32,8 +32,7 @@ import Events
     @Test func aSecondLoadCannotStartWhileOneIsInFlight() {
         var state = LogHistoryState.notLoaded
         _ = state.beginLoading()
-        // Stops the button double-firing: the claim itself fails, so a caller can't forget to
-        // check.
+        // Stops the button double-firing: the claim itself fails, so a caller can't forget.
         let second = state.beginLoading()
         #expect(second == nil)
     }
@@ -83,7 +82,6 @@ import Events
         #expect(applied == false)
         #expect(state.entries == nil)
         #expect(!state.isLoaded)
-        // And the reload button is available again.
         let retry = state.beginLoading()
         #expect(retry != nil)
     }
@@ -125,7 +123,6 @@ import Events
 
         state.resetRevealed(to: pageSize)
         #expect(state.revealed == pageSize)
-        // …without disturbing what was parsed.
         #expect(state.entries?.count == 1)
     }
 

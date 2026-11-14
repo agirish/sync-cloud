@@ -6,11 +6,9 @@ import Design
 @testable import Dashboard
 
 /// Chrome glass on the pane bar: in Frosted and Clear every pill sits in a glass capsule, like
-/// Finder's toolbar; Back and Forward share one; Solid draws none.
-///
-/// Rendered through the real `PaneHeader`. Glass draws nothing offscreen, so the probe paints a bar
-/// button's glass cyan and the selection lens magenta, and the pill row is read as runs of either.
-/// The View switch's lens sits inside its own glass track, so the two read as one run, as on screen.
+/// Finder's toolbar; Back and Forward share one; Solid draws none. Glass draws nothing offscreen,
+/// so the probe paints a bar button's glass cyan and the selection lens magenta; the View switch's
+/// lens sits inside its own glass track, so the two read as one run, as on screen.
 @MainActor
 @Suite(.serialized) struct ChromeGlassPaneBarTests {
 
@@ -46,18 +44,16 @@ import Design
         func width(_ run: ClosedRange<CGFloat>) -> CGFloat { run.upperBound - run.lowerBound }
         // A single pill's glass: the narrowest run (the View switch's track and the pair are wider).
         let pill = try #require(runs.map(width).min())
-        // Back and Forward as one capsule: a run two pills and their gap wide. Apart they read as
-        // two pill-wide runs, and nothing else on the bar is the pair's width (the View switch's
-        // track, the nearest, is a few points narrower).
+        // Back and Forward as one capsule: a run two pills and their gap wide. Nothing else on the
+        // bar is that wide (the View switch's track is a few points narrower).
         let pair = 2 * pill + PaneNavMetrics.pairSpacing
         #expect(runs.contains { abs(width($0) - pair) <= 1.5 },
                 "no \(pair)pt run for Back and Forward together — two capsules, not one: \(runs)")
     }
 
-    /// Hover is painted on the glass. A glass pill has no resting grey, but hover and press still
-    /// wash it in the accent, or the pointer gets no answer. The wash is `PaneNavChrome`'s, drawn
-    /// inside the button over the glass it wears outside, so it reads as cyan tinted toward the
-    /// accent.
+    /// Hover is painted on the glass: a glass pill has no resting grey, but hover and press still
+    /// wash it in the accent, or the pointer gets no answer. `PaneNavChrome`'s wash is drawn inside
+    /// the button over its glass, so it reads as cyan tinted toward the accent.
     @Test(.machinePinned(.pixelSampling))
     func hoverWashesTheGlass() throws {
         func pill(_ phase: HoverAffordancePhase) -> ProbeRig<AnyView> {

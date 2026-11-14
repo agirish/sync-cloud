@@ -3,13 +3,10 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// The landing folder a source opens panes at: choosing one, refusing one, clearing one, and
-/// degrading when the chosen folder stops existing. `SettingsDiscoveryTests` covers what
-/// `landingPath` composes to; this covers what happens when a user picks a folder.
-///
-/// Real directories throughout, because two branches are about the filesystem: the symlink
-/// fallback is for what `NSOpenPanel` hands back on a firmlinked home directory, and the degrade is
-/// for a folder renamed out from under a stored preference.
+/// The landing folder a source opens panes at: choosing, refusing, clearing, and degrading when the
+/// chosen folder stops existing. `SettingsDiscoveryTests` covers what `landingPath` composes to.
+/// Real directories throughout: the symlink fallback is for what `NSOpenPanel` hands back on a
+/// firmlinked home directory, and the degrade is for a folder renamed out from under a preference.
 @MainActor
 struct OpenAtTests {
 
@@ -200,14 +197,10 @@ struct OpenAtTests {
         #expect(!manager.hasRootOverride(for: "Acct"))
     }
 
-    /// The "Choose…" panel opens at the folder panes actually open at, not at the stored one. A
-    /// source scan, because `NSOpenPanel` can't be started from a test and the claim is about which
-    /// expression seeds `panel.directoryURL`.
-    ///
-    /// `provider.landingPath` joins root and `openAt` unconditionally; `settings.landingPath(for:)`
-    /// degrades to the root when that folder is gone. Seeded from the first, the panel opens on a
-    /// missing path, macOS drops the user wherever it last was, likely outside this root, and their
-    /// first pick is refused by the containment rule. `SetupSheet.seedWalkRoot` has the same rule.
+    /// The "Choose…" panel opens at the folder panes actually open at. A source scan, because
+    /// `NSOpenPanel` can't be started from a test. Seeded from `provider.landingPath`, which ignores a
+    /// missing folder, macOS would drop the user wherever it last was, and their first pick outside
+    /// this root would be refused. `SetupSheet.seedWalkRoot` has the same rule.
     @Test("The landing-folder picker is seeded through the manager, not through the value type")
     func theOpenAtPanelIsSeededFromTheReachableLanding() throws {
         let source = try settingsSource("SettingsView.swift")

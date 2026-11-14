@@ -2,11 +2,9 @@ import AppKit
 import Testing
 @testable import Design
 
-/// Pins the AppKit contract of `TableDensityApplierView` (the worker beneath `listDensity(_:)`)
-/// on bare `NSTableView`s through the internal `apply(to:)` seam: compact pins auto-heights off,
-/// rowHeight and spacing 0 and captures the originals; re-applying is idempotent; nil
-/// (comfortable) restores the originals and clears the capture; single-column tables (SwiftUI
-/// `List`s, the file panes) are refused; a new table resets the stale capture.
+/// Pins the AppKit contract of `TableDensityApplierView` (beneath `listDensity(_:)`) through the
+/// `apply(to:)` seam: compact pins auto-heights off, rowHeight and spacing 0 and captures the
+/// originals; nil restores them; single-column tables are refused; a new table resets the capture.
 ///
 /// The mounted tests host the applier beside an `NSScrollView`-wrapped table in an offscreen
 /// window, the shape SwiftUI mounts, and drive the find path (`layout()` → resolve → apply).

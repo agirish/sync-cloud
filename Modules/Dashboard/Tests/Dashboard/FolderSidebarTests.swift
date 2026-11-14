@@ -56,9 +56,8 @@ import Design
         #expect(one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]).map(\.detail) == ["Clients", nil])
     }
 
-    /// A recent never carries a second line, whatever would qualify it. Asserted over every shape
-    /// that could qualify one: a collision with a parent, a top-level collision that would borrow
-    /// the source's name, and two colliding recents. Its whole path is in the tooltip.
+    /// A recent never carries a second line, over every shape that could qualify one; its whole path
+    /// is in the tooltip.
     @Test func aRecentNeverShowsASecondLine() {
         let cases: [[FolderSidebarRow]] = [
             one(recents: ["Archive/Legal"], favorites: ["Clients/Legal"]),
@@ -135,10 +134,9 @@ import Design
         #expect(rows.map(\.root) == ["/iCloud", "/Dropbox"])
     }
 
-    /// Two sources on one root must not crash the sidebar. `SettingsManager.existingSource` keeps
-    /// enabled providers off a shared root, but a hand-edited plist could still produce one, and
-    /// `uniqueKeysWithValues:` traps on the duplicate on every refresh. First wins instead; the two
-    /// sources here disagree on availability and name, so crediting the second would show.
+    /// Two sources on one root (a hand-edited plist, past `SettingsManager.existingSource`) must not
+    /// trap `uniqueKeysWithValues:` on every refresh. First wins; the two here disagree on
+    /// availability and name, so crediting the second would show.
     @Test func twoSourcesOnOneRootDrawWithoutTrappingAndTheFirstWins() {
         let rows = FolderSidebarModel.rows(
             sources: [Self.source("/iCloud", "Personal", ["Legal"]),
@@ -399,10 +397,9 @@ import Design
                 "the unavailable row paints as strongly as the live one — \(inked(asleep)) vs \(inked(live))")
     }
 
-    /// The current row fills the column, which is a claim about the hit area: a `hoverAffordance`
-    /// row is clickable only where it paints. A test can't hover a SwiftUI button, but the
-    /// current-folder highlight is drawn by the same modifier chain as the hit shape, so its width
-    /// measures the row.
+    /// The current row fills the column: a `hoverAffordance` row is clickable only where it paints.
+    /// A test can't hover a SwiftUI button, but the current-folder highlight is drawn by the same
+    /// modifier chain as the hit shape, so its width measures the row.
     @Test func theCurrentRowFillsTheColumn() throws {
         let listed = rows(RememberedFolders(recents: [], pinned: ["Work"], rootIsAvailable: true))
         let rep = try #require(render(rows: listed, current: "Work"))
@@ -439,12 +436,9 @@ import Design
 
 /// Where the sidebar exists, and where it is showing: two different questions. A menu item asking
 /// the second could never switch the column on; a refresh asking the first would `stat` a provider
-/// root in every workspace.
-///
-/// Every case passes `enabled:` explicitly, since the defaulted `true && x` asserts nothing about
-/// the rule; `TheSidebarIsOn` checks the switch through the defaulted calls. Which workspaces
-/// support it is `Workspace.supportsFolderSidebar`, which this module can't see, so the caller
-/// supplies the verdict; `WorkspaceSidebarSupportTests` in the app target pins that mapping.
+/// root in every workspace. Every case passes `enabled:` explicitly (`TheSidebarIsOn` checks the
+/// defaulted calls); `WorkspaceSidebarSupportTests` in the app target pins
+/// `Workspace.supportsFolderSidebar`, which this module can't see.
 @Suite struct FolderSidebarVisibilityTests {
 
     /// Collapsed panes get no sidebar: collapsing asks for maximum room, and a 180pt column beside a
@@ -491,11 +485,9 @@ import Design
                 "the sidebar is v4.4's item #13 — turning this off takes the column, the ⌃⌘S chord, the View item and the toolbar button with it, and leaves four surfaces advertising a column that cannot appear")
     }
 
-    /// Every question the app asks, in the combinations that decide the column. Through the
-    /// defaulted spellings, the calls `ContentView`, `shortcutFolderSidebar` and the toolbar button
+    /// Through the defaulted calls `ContentView`, `shortcutFolderSidebar` and the toolbar button
     /// make, so this fails if the switch is turned off. `appliesTo` ignores the preference by design
-    /// (it answers "can this workspace have a column", which enables the menu item and button);
-    /// `isShowing` consults both.
+    /// (it enables the menu item and button); `isShowing` consults both.
     @Test(arguments: [true, false], [true, false])
     func theColumnIsReachableExactlyWhereSupportedAndOnlyWhenAskedFor(supported: Bool, preference: Bool) {
         #expect(FolderSidebarModel.appliesTo(workspaceSupportsSidebar: supported) == supported)
@@ -558,10 +550,9 @@ import Design
 /// where a click lands. A wrong guess resets that pane's column stack, and navigation has no undo.
 @Suite struct SidebarTargetTests {
 
-    /// The header names the side, not a source: comparing a source against itself is ordinary, so a
-    /// provider name can't separate the panes. The rows come from every enabled source
-    /// (`refreshFolderSidebarRows`), so naming one would falsely scope them to it; the side is the
-    /// only thing true of every row.
+    /// The header names the side, not a source: comparing a source against itself is ordinary, and
+    /// the rows come from every enabled source (`refreshFolderSidebarRows`), so a provider name
+    /// would falsely scope them.
     @Test func theHeaderNamesTheSide() {
         #expect(SidebarTarget(targetsRight: false).openingDescription == "Opens on Left")
         #expect(SidebarTarget(targetsRight: true).openingDescription == "Opens on Right")
@@ -604,10 +595,8 @@ import Design
         try DashboardSource.read("FolderSidebar.swift", codeOnly: true, atLeast: 3000)
     }
 
-    /// Remove from Recents is offered only on a recent. A favorite has its own removal verb just
-    /// above, and "Remove from Recents" on it would name a list the row isn't in. Enabled on an
-    /// unavailable row, unlike the items above it: a stale recent (source asleep, folder renamed
-    /// away) is exactly the one worth removing.
+    /// Remove from Recents is offered only on a recent (a favorite has its own removal verb), and
+    /// stays enabled on an unavailable row: a stale recent is exactly the one worth removing.
     @Test func removeFromRecentsIsGatedOnTheRecentsGroupAndNotDisabled() throws {
         let code = try Self.source()
         let gate = try #require(code.range(of: "if row.group == .recents {"),
@@ -626,13 +615,9 @@ import Design
         #expect(FolderSidebarView.forgetItemTitle(.frequent) == "Remove from Frequent")
     }
 
-    /// Only where there are two panes: `target` is nil outside Compare, and offering a left and a
-    /// right pane where there is one would offer a choice that doesn't exist.
-    ///
-    /// And the menu doesn't move the target. Picking a side for one folder says nothing about the
-    /// next, and silently re-aiming would be an unseen mode change that also moves the action bar,
-    /// lens scans and pane-scoped chords. Checks for any way to move the focused pane, with a
-    /// premise guard so a renamed member can't make it pass over an empty window.
+    /// Only where there are two panes (`target` is nil outside Compare), and the menu doesn't move
+    /// the target: silently re-aiming would be an unseen mode change that also moves the action bar,
+    /// lens scans and pane-scoped chords.
     @Test func theSideItemsAppearOnlyWithATargetAndDoNotRepointTheSidebar() throws {
         let code = try Self.source()
         let items = try #require(code.range(of: "private func sideItems("))
@@ -672,11 +657,9 @@ import Design
     }
 }
 
-/// The recents-drag arming rule, read off the view's source. A recents drag becomes a favorite, a
-/// persisted change, so it arms only once the pointer reaches the Favorites band; otherwise any
-/// ≥5pt slip on a recent would favorite it. The rule lives in the gesture's `onChanged`, which no
-/// test can drive (a `DragGesture` needs a real event stream), so this scans the file as
-/// `SidebarRowSideMenuTests` does, with premise anchors so a renamed member fails loudly.
+/// The recents-drag arming rule, read off the view's source. A recents drag persists a favorite, so
+/// it arms only once the pointer reaches the Favorites band, or any ≥5pt slip would favorite it. No
+/// test can drive a `DragGesture` (it needs a real event stream), so this scans the file.
 /// `SidebarInsertionIndicatorTests` proves an unarmed drag paints no line; these prove the release
 /// and the overlay consult the same bit.
 @Suite struct SidebarRecentsDragArmingScanTests {

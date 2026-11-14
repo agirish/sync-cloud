@@ -93,13 +93,9 @@ import Design
     nonisolated static let isGap: Pixel.Match = { r, g, b in r > 200 && b > 230 && g < 60 }
     nonisolated static let isHalo: Pixel.Match = { r, g, b in isRing(r, g, b) || isGap(r, g, b) }
 
-    /// The halo: a disc `outset` past the chosen swatch on every side, centred on it, with today's
-    /// ring gone from the swatch. The probe is drawn behind the swatch, so its box is the halo's.
-    ///
-    /// The swatch is found by its rendered colour, sampled 10pt above the halo's centre clear of
-    /// the checkmark, and matched tightly within the halo's rows (the preview strip below paints the
-    /// accent too). A nominal colour with a loose tolerance would count today's ring, the accent
-    /// under 40% black, as swatch for some hues.
+    /// The halo: a disc `outset` past the chosen swatch on every side, with today's ring gone. The
+    /// swatch is found by its rendered colour within the halo's rows (the preview strip below paints
+    /// the accent too), matched tightly: a loose tolerance would count today's ring as swatch.
     @Test(.machinePinned(.pixelSampling), arguments: [LiquidGlassHue.blue, .green, .rose])
     func theHaloRingsTheChosenSwatch(hue: LiquidGlassHue) throws {
         let row = Self.accentRow(hue)

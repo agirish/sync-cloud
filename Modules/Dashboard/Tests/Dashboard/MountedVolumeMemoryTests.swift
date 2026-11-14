@@ -74,9 +74,8 @@ import Sync
     }
 
     /// The sidebar's `Volume` feeds this, so it must carry locality through. `isLocal` defaults to
-    /// `true`, the safe direction since removability must still agree, so a fixture that says
-    /// nothing looks like a card instead of silently exempting itself. Its own rule, which the
-    /// unmount dialog asks (`EjectWiringTests`), agrees.
+    /// `true`, the safe direction, so a silent fixture looks like a card rather than exempting
+    /// itself; its own rule, which the unmount dialog asks (`EjectWiringTests`), agrees.
     @Test func theSidebarVolumeCarriesLocality() {
         let card = SidebarSourceModel.Volume(name: "CARD", path: "/Volumes/CARD",
                                              isRemovable: true, isInternal: false)

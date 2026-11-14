@@ -4,12 +4,10 @@ import Design
 import SwiftUI
 @testable import Dashboard
 
-/// A space typed into the pane search field must reach the query.
-///
-/// SwiftUI gives an ancestor's `.onKeyPress(.space)` the key before the focused `TextField`, so a
-/// Space → Quick Look handler on a subtree holding the field swallows every space typed into it
-/// (`PaneQuickLookScopeTests` keeps the handler off that subtree). Escape routes the other way
-/// (`PaneSearchEscapeTests`), so each key needs its own test. Sent as a real `keyDown` through
+/// A space typed into the pane search field must reach the query. SwiftUI gives an ancestor's
+/// `.onKeyPress(.space)` the key before the focused `TextField`, so a Space → Quick Look handler
+/// above the field swallows every space typed into it (`PaneQuickLookScopeTests` keeps it off that
+/// subtree; Escape routes the other way, `PaneSearchEscapeTests`). Sent as a real `keyDown` through
 /// `NSWindow.sendEvent`, not `insertText`, which would skip the routing under test.
 @MainActor
 @Suite struct PaneSearchSpaceTests {
@@ -50,11 +48,10 @@ import SwiftUI
         }
     }
 
-    /// The fixture window: key, and never ordered in, so no test window stands on the user's desktop
-    /// during a run. Nothing here reads the backing store: the key goes in through `sendEvent` and
-    /// the responder chain routes it, not the window server. `makeKey()` stays because focus is the
-    /// subject; `ExpandingSearchFieldTests` mounts its field the same way. `windowIsUnseen` fails if
-    /// the window is ever ordered in again.
+    /// The fixture window: key, and never ordered in, so no test window stands on the user's
+    /// desktop. The key goes in through `sendEvent` and the responder chain, not the window server,
+    /// so nothing reads the backing store; `makeKey()` stays because focus is the subject (as in
+    /// `ExpandingSearchFieldTests`).
     private static func unseenWindow(hosting host: NSView) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -64,10 +61,9 @@ import SwiftUI
         return window
     }
 
-    /// Fails when the fixture window stands on a display the user can see. An ordered-in window
-    /// parked past every display (as `DetailsWhereItLivesTests` does) also passes. Restoring
-    /// `makeKeyAndOrderFront` must make it fail. The screen half is vacuous with no displays
-    /// attached; the visibility half is not.
+    /// Fails when the fixture window stands on a display the user can see; one parked past every
+    /// display (as `DetailsWhereItLivesTests` does) passes. Restoring `makeKeyAndOrderFront` must
+    /// fail it. The screen half is vacuous with no displays attached; the visibility half is not.
     private static func windowIsUnseen(_ window: NSWindow,
                                        sourceLocation: SourceLocation = #_sourceLocation) {
         let frame = window.frame
@@ -87,9 +83,8 @@ import SwiftUI
     }
 
     /// With a Space handler around the header, a space typed into the focused field is swallowed:
-    /// the ancestor fires instead, which in the app would open Quick Look and take key focus. The
-    /// ancestor half is the one that matters; a query that fails to grow could also mean the key
-    /// was never delivered.
+    /// the ancestor fires instead. The ancestor half is the one that matters; a query that fails to
+    /// grow could also mean the key was never delivered.
     @Test("An ancestor Space handler swallows the space the field was typed")
     func anAncestorHandlerStealsTheSpace() async {
         let box = Box()

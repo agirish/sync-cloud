@@ -1,26 +1,18 @@
 import Foundation
 import Testing
 
-/// No word drawn in a colour on a wash of that same colour.
+/// No word drawn in a colour on a wash of that same colour. `Pill`, `StatusBadge` and the like take
+/// their ink from `PillVariant.labelInk(for:)` (`PillLabelInkTests`); this scan keeps a hand-built
+/// pill from arriving.
 ///
-/// `Pill`, `StatusBadge`, `TokenChipsRow` and the size tiles take their words' ink from
-/// `PillVariant.labelInk(for:)`, which `PillLabelInkTests` measures. A hand-built pill that writes
-/// `.foregroundStyle(tint)` and `.background(Capsule().fill(tint.opacity(…)))` itself does not;
-/// this scan keeps one from arriving.
-///
-/// The rule, per view: a `Text`, `Label`, `HStack`, `VStack`, `ZStack` or `Group` whose modifier
-/// chain washes it with a colour — `.background`/`.fill` of that colour turned down with
-/// `.opacity(…)` (either arm of a ternary), `.pillSurface(…, tint:)`, or a `.modifier(…Surface(…,
-/// tint:))` — and which is inked with that same colour (`.foregroundStyle`, `.foregroundColor`), by
-/// its own chain or on a `Text` or `Label` inside it, is a coloured word on its own wash. So is an
-/// `AttributedString` run given the same colour as its `foregroundColor` and, washed, as its
-/// `backgroundColor`. Label colours (`.primary`, `.secondary`, `.tertiary`) and
-/// `PillVariant.labelInk` are the fix and never match. An `Image` root is not scanned: a glyph tile
-/// (Person's group headers, the strip buttons) carries no words.
-///
-/// Reading only one modifier chain is not enough: ink on a child `Text`, a `VStack` root, a wash
-/// inside a `…Surface` modifier, a surface on the parent, and an `AttributedString` run all hide a
-/// coloured word from it.
+/// The rule: a `Text`, `Label`, `HStack`, `VStack`, `ZStack` or `Group` washed with a colour (a
+/// `.background`/`.fill` of it turned down with `.opacity(…)`, either arm of a ternary, a
+/// `.pillSurface(…, tint:)`, or a `.modifier(…Surface(…, tint:))`) and inked with that same colour
+/// (`.foregroundStyle`, `.foregroundColor`), by its own chain or on a `Text` or `Label` inside it.
+/// So is an `AttributedString` run whose `foregroundColor` is its washed `backgroundColor`. Label
+/// colours and `PillVariant.labelInk` never match; an `Image` root carries no words and is skipped.
+/// One modifier chain is not enough: ink on a child, a wash inside a `…Surface` modifier, or a
+/// surface on the parent would hide a coloured word from it.
 @Suite struct PillLabelInkScanTests {
 
     typealias Scan = AccentFillScanTests

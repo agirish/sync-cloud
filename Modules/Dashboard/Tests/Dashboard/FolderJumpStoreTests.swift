@@ -332,9 +332,8 @@ import Sync
 
     // MARK: A root that is merely asleep
 
-    /// An asleep root keeps its rows; a live root drops what has gone. If this regresses, every
-    /// recent and pin goes at once (the root is checked first), and ⌘K's empty-query landing is
-    /// that list, so the palette opens blank and "no recents" looks like "drive asleep".
+    /// An asleep root keeps its rows; a live root drops what has gone. Otherwise every recent and
+    /// pin goes at once, and ⌘K's empty-query landing opens blank.
     @Test func anAsleepRootKeepsEverythingRememberedAndSaysSo() {
         var asked: [String] = []
         let resolved = FolderJumpStore.reachable(recents: ["Legal", "Tax"], pinned: ["Clients"],
@@ -385,10 +384,9 @@ import Sync
 
     // MARK: Bytes this build cannot read
 
-    /// An unreadable pins blob is not destroyed by the next pin. If a failed decode started the
-    /// store at `[:]`, the first `togglePin` would write that empty map over every curated pin. The
-    /// loss is on the write, not the read, so this asserts what the store writes back and that the
-    /// original bytes survive it.
+    /// An unreadable pins blob is not destroyed by the next pin: if a failed decode started the
+    /// store at `[:]`, the first `togglePin` would write that over every curated pin. The loss is on
+    /// the write, so this asserts what is written back and that the original bytes survive it.
     @Test func unreadablePinsSurviveTheNextWrite() throws {
         let defaults = freshDefaults()
         let corrupt = Data("{ this is not the shape it was ".utf8)
@@ -460,4 +458,3 @@ import Sync
                 "a perfectly readable list was treated as unreadable")
     }
 }
-

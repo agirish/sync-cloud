@@ -3,15 +3,12 @@ import Testing
 import Events
 import EventsTestSupport
 
-/// What `LogCapture` promises every test that reads a log line through it.
+/// A `LogCapture` opened before a line still holds it after the shared 1,000-line buffer rolls
+/// past it ("A log assertion reading a window that has already rolled" in `docs/flaky-tests.md`).
+/// A quiet run never rolls, so these roll it on purpose.
 ///
-/// A capture opened before a line still holds it after the shared 1,000-line buffer has rolled
-/// past it, which is why the capture exists ("A log assertion reading a window that has already
-/// rolled" in `docs/flaky-tests.md`). In a quiet run nothing rolls, so these roll it on purpose.
-///
-/// Members of `EventsTests`, not a suite of their own: that suite clears `Logger.shared` and
-/// counts what it holds, so run in parallel the two would clear and count each other's lines. Its
-/// `.serialized` keeps them apart.
+/// Members of `EventsTests`, not their own suite: that suite clears and counts `Logger.shared`,
+/// so in parallel the two would clear and count each other's lines. `.serialized` keeps them apart.
 extension EventsTests {
 
     @MainActor

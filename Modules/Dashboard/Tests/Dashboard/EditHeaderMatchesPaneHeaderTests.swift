@@ -7,14 +7,12 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// Edit's document header against the pane's toolbar card, both real, side by side. The header
+/// Edit's document header against the pane's toolbar card, both real, side by side: the header
 /// card must be the toolbar card's height, and the text card must start where the list card does,
-/// at every text size. Each view's own suite can only compare itself to the constant
-/// `LiquidGlass.headerHeight`; this one lays both out in one window and compares the results.
+/// at every text size. Each view's own suite can only compare itself to `LiquidGlass.headerHeight`.
 ///
-/// The pane half is `PaneHeader` over a `List`, carded as `ContentView.paneColumn` cards them:
-/// `.paneCardIfNeeded` on each in `.cards`, one `.panesRegionFrame` round the pair in `.unified`.
-/// `paneColumn` itself can't be built outside the app target; its pieces can.
+/// The pane half is `PaneHeader` over a `List`, carded as `ContentView.paneColumn` cards them;
+/// `paneColumn` itself can't be built outside the app target, but its pieces can.
 @MainActor
 @Suite(.serialized) struct EditHeaderMatchesPaneHeaderTests {
 
@@ -142,11 +140,9 @@ import FileExplorerTestSupport
     }
 
     /// The text card starts where the list card does, in both surface styles, at every text size,
-    /// for Markdown and plain text, and under the pane's tab strip. The strip pushes the pane's
-    /// toolbar card and list down by its slot (34pt, plus the gutter under its card in `.cards`);
-    /// the document column has no strip, so it must be told about the pane's. Dropping the header
-    /// card's pinned height must fail every case; giving `.unified` two cards must fail its half by
-    /// a gutter; leaving out the strip's gutter must fail `.cards`, and not passing its presence both.
+    /// for Markdown and plain text, and under the pane's tab strip, which the document column has
+    /// none of and must be told about.
+    /// Mutation that must fail this: dropping the header's pinned height, or the strip's gutter.
     @Test func theTextStartsWhereTheListDoesAtEveryTextSize() throws {
         let markdown = try Self.document("Budget.md")
         let plain = try Self.document("Budget.txt")
@@ -165,11 +161,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The header card is the toolbar card's height, each measured as drawn, at every text size.
-    /// Also on the empty page, where the header card is still drawn, so the two cards keep sharing
-    /// an edge after a close. Also with Expand lit: its button at the end of the row wears a word
-    /// ("Expand", then "Files"), and on the empty page is drawn only lit; neither may grow the card.
-    /// Giving the worded pill vertical padding must fail the lit cases.
+    /// The header card is the toolbar card's height, each measured as drawn, at every text size,
+    /// also on the empty page and with Expand lit, whose worded button may not grow the card.
+    /// Mutation that must fail this: giving the worded pill vertical padding.
     @Test func theHeaderCardIsTheToolbarCardsHeightAtEveryTextSize() throws {
         let doc = try Self.document("Budget.md")
         let plain = try Self.document("Budget.txt")
@@ -203,10 +197,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// With the format bar on, the bar is the text card's first content: it starts where the pane's
-    /// list does, less its inset, and the text starts under it. The bar lives in the text card so
-    /// the header stays pinned. Drawing the bar in the header must fail the header test above (its
-    /// rows are measured with the bar on); padding the bar from below must fail this one.
+    /// With the format bar on, the bar is the text card's first content, so the header stays pinned:
+    /// it starts where the pane's list does, less its inset, and the text starts under it.
+    /// Mutation that must fail this: padding the bar from below.
     @Test func theFormatBarIsTheTextCardsFirstContent() throws {
         let markdown = try Self.document("Budget.md")
         for style in [SurfaceStyle.cards, .unified] {

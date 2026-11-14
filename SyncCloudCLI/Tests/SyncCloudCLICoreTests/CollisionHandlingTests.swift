@@ -123,10 +123,8 @@ import Testing
         #expect(!s.stdoutLines.joined().contains(" - "))
     }
 
-    /// Exit 0 only when every planned file was copied: a skip of any kind is a file the user asked
-    /// for that did not land, and a script that deletes its sources after a 0 exit would delete the
-    /// only copy. Each cause names itself on stderr. The control is a copies-only run, which stays
-    /// at 0.
+    /// Exit 0 only when every planned file was copied: a script that deletes its sources after a
+    /// 0 exit would delete the only copy of a skipped file. Each cause names itself on stderr.
     @Test func testEverySkipExitsNonzeroAndNamesItsReasonOnStderr() {
         let clean = syncSummary(tally: tally(copied: 2), strategy: .skip)
         #expect(!clean.exitNonzero, "the control: a run that copied everything exits 0")

@@ -72,14 +72,9 @@ import Testing
         #expect(placed(rowWidth: 600, boxes: []).run == 0)
     }
 
-    /// The cache re-measures when the content changes, in the same host, the only place a
-    /// `Layout` cache can be wrong. `ShrinkableRun` caches the subviews' natural sizes so a pass
-    /// measures each subtree once; that is sound because they are taken at `.unspecified`, so only
-    /// the subviews can change them, and SwiftUI calls `updateCache` exactly then.
-    ///
+    /// The cached natural sizes are re-measured when the content changes in the same host.
     /// A fresh host builds a fresh cache and would pass with `updateCache` gutted, so the root view
-    /// is replaced on the laid-out host. The run's width and the second item's origin both move,
-    /// so a stale cache is caught in size and placement.
+    /// is replaced on the laid-out host; the run's width and the second item's origin both move.
     @Test func theCachedSizesAreRefreshedWhenAnItemChangesWidth() {
         final class Report { var run: CGFloat = -1; var secondX: CGFloat = -1 }
         let report = Report()

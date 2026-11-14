@@ -83,7 +83,7 @@ import Testing
     }
 
     /// Every word on a paged tab names a page of that tab, and the word reaching it is one of that
-    /// page's own entries: ⌘K opens the page a word was found on (TE332).
+    /// page's own entries: ⌘K opens the page a word was found on.
     @Test func everyPagedTabsWordsNameTheirPage() {
         for tab in Tab.allCases {
             let digest = tab.digest

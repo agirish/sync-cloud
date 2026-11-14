@@ -176,11 +176,9 @@ import Testing
     }
 }
 
-/// Two components a single-chain source scan can't see, rendered on their own: StatusBadge inks
-/// its child `Text`, and the size tiles a `VStack` inside a button's label. Each is read back for
-/// its words (the darkest pixel in light, the brightest in dark), which in label colour is a
-/// near-neutral black or white. The dot and the tile's border are lighter in light and darker in
-/// dark than the words, so they never win.
+/// Two components a single-chain source scan can't see (StatusBadge, the size tiles), rendered and
+/// read back for their words: the darkest pixel in light, the brightest in dark, which in label
+/// colour is near-neutral. The dot and border never win that extreme.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ComponentWordInkRenderTests {
 
@@ -228,10 +226,8 @@ import Testing
         var body: some View { SizePresetRow(fontSize: $fontSize, density: $density, style: .named) }
     }
 
-    /// The first tile is the chosen one. Its two words are read inside its wash and border: no
-    /// pixel of them is in a colour. The extreme pixel alone can't say so (the tile's second word is
-    /// label colour either way, and wins it), so this counts coloured ink in rows that aren't the
-    /// border's: a border row is coloured across the tile, a word's row only in places.
+    /// The chosen first tile's words carry no colour. The extreme pixel can't say so (the second
+    /// word wins it either way), so this counts coloured ink in rows that aren't the border's.
     @Test(arguments: [false, true]) func theChosenSizeTilesWordsAreLabelColour(dark: Bool) throws {
         let rep = try Self.render(Row().appFontSize(.medium).padding(8), size: CGSize(width: 440, height: 70), dark: dark)
         // The first of five tiles, its border's columns left out.

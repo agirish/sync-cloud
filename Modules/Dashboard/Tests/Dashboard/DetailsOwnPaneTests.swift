@@ -27,8 +27,7 @@ import Sync
         #expect(sidebar(manager, followsRight: true).activePath == "/right/b.txt")
     }
 
-    /// A pane with nothing selected shows its own folder, never the other pane's file. This is the
-    /// case the focus-following panel got wrong for the unfocused pane.
+    /// A pane with nothing selected shows its own folder, never the other pane's file.
     @Test func aPaneWithNothingSelectedShowsItsOwnFolder() {
         let manager = FileSyncManager()
         manager.selectedLeftPaths = ["/left/a.txt"]

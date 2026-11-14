@@ -6,15 +6,11 @@ import Sync
 import Testing
 @testable import Settings
 
-/// `PeopleOverviewRow`: what the roster governs, and the people it doesn't reach.
-/// `PeopleOverview.make` is pinned in `Sync` and the store in `PeopleSectionTests`; this pins the
-/// row. It is display-only and its sentences are built by `private` members, so pixels are the
-/// instrument, and the claims are ones pixels can carry.
-///
-/// The tests cover the row's branches, not its wording: a complete tree says so rather than leave a
-/// blank, an unsurveyed one draws nothing rather than claim "0 folders", and a person the roster
-/// can't reach appears in the caution colour with an offer beside them. Ink, not geometry, because
-/// a height comparison passes against a branch that reserves space and draws nothing.
+/// `PeopleOverviewRow`: what the roster governs, and the people it doesn't reach. The row is
+/// display-only and its sentences are built by `private` members, so pixels are the instrument.
+/// The tests cover branches, not wording: a complete tree says so, an unsurveyed one draws nothing,
+/// and an unreachable person appears in the caution colour with an offer. Ink, not geometry,
+/// because a height comparison passes against a branch that reserves space and draws nothing.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct PeopleOverviewRowTests {
 
@@ -99,10 +95,9 @@ import Testing
 
     // MARK: An unsurveyed tree draws nothing
 
-    /// With nothing surveyed the row draws nothing: not "0 folders…", and not the reassurance.
-    /// Both sentences are gated on `claimedFolders > 0`, the state of a fresh install until a
-    /// survey runs; dropping either guard states a fact about a tree nobody has looked at. The
-    /// populated case is measured first, so a harness that renders nothing can't pass.
+    /// With nothing surveyed (`claimedFolders == 0`, a fresh install) the row draws nothing: not
+    /// "0 folders…", and not the reassurance. The populated case is measured first, so a harness
+    /// that renders nothing can't pass.
     @Test func anUnsurveyedTreeDrawsNoRowAtAll() {
         let surveyed = ink(Self.row(PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                                    unclaimed: [], peopleWithNoFolders: [])))
@@ -114,9 +109,8 @@ import Testing
                 "an empty overview still painted \(unsurveyed) pixels — the row is asserting something about a tree nobody has surveyed")
     }
 
-    /// A complete roster says so plainly instead of leaving a blank. "Everyone your tree files for
-    /// is on this list" is the section's usual state, and worth reading once rather than being
-    /// empty space.
+    /// A complete roster says so plainly instead of leaving a blank: it is the section's usual
+    /// state, and worth reading once rather than being empty space.
     @Test func aCompleteRosterDrawsItsReassurance() {
         let complete = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                       unclaimed: [], peopleWithNoFolders: [])
@@ -131,12 +125,9 @@ import Testing
         #expect(cautionInk(Self.row(withGap)) > 20,
                 "a person the roster cannot reach is not drawn in the caution colour")
 
-        // None of the three above sees the reassurance: the coverage sentence alone clears the
-        // ink floor, and a `.secondary` line carries no caution hue. So it is checked by height.
-        // No input switches it off alone (its condition is `unclaimed.isEmpty`), but a complete row
-        // holds only the coverage sentence and the reassurance, so two lines tall means it is
-        // drawn. One line is measured from the only other single-line state: no survey, one inert
-        // person on the roster.
+        // None of the three above sees the reassurance, and no input switches it off alone, so it
+        // is checked by height: a complete row is two lines, against the only other single-line
+        // state (no survey, one inert person on the roster).
         let oneLine = height(Self.row(PeopleOverview(claimedFolders: 0, claimedDocuments: 0,
                                                      unclaimed: [], peopleWithNoFolders: ["daughter"])))
         let bothLines = height(Self.row(complete))
@@ -147,10 +138,9 @@ import Testing
 
     // MARK: The gap is the actionable half
 
-    /// An unreachable person brings an Add offer, not just a sentence. The button is the row's only
-    /// action and `cautionInk` can't see it, so it is found by position: a `Spacer(minLength: 8)`
-    /// pushes it to the trailing edge, where no leading-aligned prose reaches. Comparing that band
-    /// with and without a gap cancels the coverage line's share.
+    /// An unreachable person brings an Add offer, not just a sentence. `cautionInk` can't see the
+    /// button, so it is found by position: a `Spacer` pushes it to the trailing edge, where no
+    /// leading-aligned prose reaches.
     @Test func anUnreachablePersonBringsAnOfferAndNotJustASentence() {
         let gap = PeopleOverview(claimedFolders: 12, claimedDocuments: 140,
                                  unclaimed: [Self.ravi], peopleWithNoFolders: [])

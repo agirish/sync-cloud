@@ -2,13 +2,9 @@ import Foundation
 import Testing
 @testable import Settings
 
-/// Removing the API key asks first.
-///
-/// Remove deletes the Keychain item, which nothing in SyncCloud can read back. (The spend Clears
-/// that stood beside it went with Refine's own record, TE335: nothing is left to clear.)
-///
-/// The decisions are pinned on the static gates, since a button's closure can't be reached from a
-/// test, and the last test holds each button to its gate so the gates can't be tested but unused.
+/// Removing the API key asks first: Remove deletes the Keychain item, which nothing in SyncCloud
+/// can read back. Pinned on the static gate, since a button's closure can't be reached from a
+/// test; the last test holds the button to its gate.
 @MainActor
 @Suite struct IrreversibleClearsAskFirstTests {
 

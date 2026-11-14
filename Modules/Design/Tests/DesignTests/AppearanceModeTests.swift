@@ -37,10 +37,9 @@ struct AppearanceModeTests {
 
     // MARK: - The AppKit mapping
 
-    /// The load-bearing case. `.system` must map to nil — not to `.aqua`, and not to "skip the
-    /// write" — because nil is how AppKit spells *inherit the system setting*. Mapping it to
-    /// `.aqua` would pin every System user to light; skipping the write would strand a user who
-    /// switches Dark → System on the old override.
+    /// `.system` maps to nil, AppKit's spelling of *inherit the system setting*. `.aqua` would pin
+    /// every System user to light; skipping the write would strand a user who switches
+    /// Dark → System on the old override.
     @Test func systemMapsToNilSoAppKitInheritsTheSystemSetting() {
         #expect(AppearanceMode.system.nsAppearance == nil)
     }
@@ -89,14 +88,10 @@ struct AppearanceModeTests {
 
     // MARK: - The per-window pass
 
-    /// The per-window pass: the macOS 26 glass title-bar band keeps the old appearance on a
-    /// Dark → Light switch until relaunch unless `apply` re-asserts the value on every open window.
-    /// Driven through the `pin` seam with this test's own windows, never `NSApp.windows`, which
-    /// would clobber the appearance a parallel render suite pinned on its window; the scan below
-    /// pins `apply` feeding `pin` the real app and window list.
-    ///
-    /// The un-pin half matters as much: `.system` must write nil onto every window, or a
-    /// once-pinned window stays stuck in its old appearance after the user returns to the system.
+    /// The macOS 26 glass title-bar band keeps the old appearance on a Dark → Light switch until
+    /// relaunch unless `apply` re-asserts it on every open window, and `.system` must write nil
+    /// onto each or a once-pinned window stays stuck. Driven through the `pin` seam with this
+    /// test's own windows, never `NSApp.windows`, which would clobber a parallel render suite's.
     @MainActor
     @Test func pinWritesEveryWindowAndSystemUnpins() {
         let app = NSApplication.shared

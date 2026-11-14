@@ -30,7 +30,6 @@ import Events
     }
 
     @Test func testSearchIsCaseInsensitiveSubstring() {
-        // "full" matches "Disk FULL" regardless of case.
         let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "full")
         #expect(result.map(\.message) == ["Disk FULL"])
     }
@@ -61,9 +60,8 @@ import Events
         [(false, false, false, false, .noActivity)],
         // History loaded and the log holds nothing older: the honest end state, not "load it".
         [(false, false, true, false, .noEarlierActivity)],
-        // A failed read is not `.noActivity`, whose message offers "Show older history" to load
-        // earlier sessions; above the footer's "Couldn't read the log file" that would make two
-        // opposite claims about the same file.
+        // A failed read is not `.noActivity`, whose "Show older history" offer would contradict the
+        // footer's "Couldn't read the log file".
         [(false, false, false, true, .historyUnavailable)],
         // A retry that succeeded leaves the state loaded; the earlier failure must not still decide
         // the wording. (`LogHistoryState` can't be both, but classify takes two Bools.)
@@ -83,13 +81,11 @@ import Events
 
     /// The "No earlier activity" note, by (history is empty, empty state → the footer notes it).
     @Test(arguments: [
-        // An empty session over an empty loaded history: the empty state's "…the log holds nothing
-        // from earlier sessions" and the footer's "No earlier activity in the log" say the same
-        // thing, so only one may speak.
+        // An empty session over an empty loaded history: the empty state and the footer would say
+        // the same thing, so only one may speak.
         [(true, LogEmptyState.noEarlierActivity, false)],
-        // A session that logged something renders no empty state (.none), so the footer note is
-        // the only word on the subject and must survive. Same for a filtered-out session
-        // (.noMatches), whose empty state talks about filters, not earlier sessions.
+        // No empty state (.none), or one about filters (.noMatches): the footer note is the only
+        // word on earlier sessions and must survive.
         [(true, .none, true), (true, .noMatches, true)],
         // Loaded history with rows in it is never "no earlier activity", whatever the empty state
         // says (it can be .noMatches when the filter hides every one of those rows).
@@ -107,9 +103,8 @@ import Events
         // Same yield rule as the "No earlier activity" note, for the failed read: the empty state
         // states it more fully and higher up, so the footer keeps only its retry button.
         [(LogEmptyState.historyUnavailable, false)],
-        // A session that logged something renders no empty state, so this note is the only word on
-        // why earlier history is missing; a filtered-out session's empty state talks about
-        // filters, not the file.
+        // No empty state, or one that isn't about the file: this note is the only word on why
+        // earlier history is missing.
         [(.none, true), (.noMatches, true), (.noActivity, true)],
     ] as [[(LogEmptyState, Bool)]])
     func testTheFooterNotesAnUnreadableLogOnlyWhereTheEmptyStateDoesNot(_ rows: [(LogEmptyState, Bool)]) {
@@ -137,7 +132,6 @@ import Events
             (150, .info,    "this session"), // newer → excluded
         ], base: base)
         let history = LogHistoryLoader.parseOlderThan(sessionStart, text: text)
-        // Only the two pre-session entries, newest-first.
         #expect(history.map(\.message) == ["old two", "old one"])
     }
 
@@ -158,10 +152,9 @@ import Events
             .appendingPathComponent("log-read-outcome-\(UUID().uuidString).log")
     }
 
-    /// A torn byte costs that byte, not the history around it. A second process appends to the log
-    /// too, so a crash mid-write can leave invalid UTF-8 (0xFF is never a legal lead byte), which
-    /// `String(contentsOf:)` would throw on, losing every good line. The lines either side must
-    /// survive.
+    /// A torn byte costs that byte, not the history around it: a crash mid-append can leave invalid
+    /// UTF-8 (0xFF is never a legal lead byte), on which `String(contentsOf:)` would throw and lose
+    /// every good line.
     @Test func testATornByteDoesNotCostTheHistoryAroundIt() throws {
         let url = scratchLogURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -295,9 +288,8 @@ import Events
         }
 
         @Test func aFailedReadIsNotAnEmptyHistory() {
-            // `.failed` reads neither as "nothing older" nor as `.noActivity`, whose message offers
-            // "Show older history" right above a footer saying the file couldn't be read. The
-            // empty state names the failure, and the footer's duplicate note yields to it.
+            // `.failed` is neither "nothing older" nor `.noActivity`, whose "Show older history"
+            // would sit above a footer saying the file couldn't be read; the empty state names it.
             #expect(contents(history: .failed).emptyState == .historyUnavailable)
             #expect(contents(history: .failed).visibleHistory.isEmpty)
         }
@@ -346,11 +338,10 @@ import Events
 
     // MARK: Isolation
 
-    /// `LogViewerContents` is a pure value with a nonisolated `init`, constructible off the main
-    /// actor. **Trap:** a `View`'s statics are main-actor isolated, and reaching one off-actor
-    /// compiles with only a warning and SIGTRAPs at runtime, so a regression crashes the test host
-    /// rather than failing. Not `@MainActor` on purpose: a main-actor test would hop the detached
-    /// work back to the main actor and hide it.
+    /// `LogViewerContents` is a pure value with a nonisolated `init`, buildable off the main actor.
+    /// A `View`'s statics are main-actor isolated, and reaching one off-actor compiles with only a
+    /// warning and SIGTRAPs at runtime, crashing the test host rather than failing. Not `@MainActor`
+    /// on purpose: that would hop the detached work back to the main actor and hide it.
     @Test func theDerivedContentsCanBeBuiltOffTheMainActor() async {
         let session = [LogEntry(level: .error, message: "boom")]
         let history = LogHistoryState.loaded(

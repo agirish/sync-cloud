@@ -3,31 +3,30 @@ import Foundation
 @testable import Events
 
 @Suite(.serialized) struct EventsTests {
-    
+
     @MainActor
     @Test func testLoggerMemoryLimit() async throws {
         let logger = Logger.shared
         logger.clearLogs()
-        
+
         // Log 1100 entries (limit is 1000)
         for i in 0..<1100 {
             await logger.info("Message \(i)").value
         }
-        
+
         #expect(logger.entries.count == 1000)
         #expect(logger.entries.first?.message == "Message 100") // 1100 - 1000 = 100 offset
     }
-    
+
     @MainActor
     @Test func testConcurrentLoggingThreadSafety() async throws {
         let logger = Logger.shared
         logger.clearLogs()
-        
+
         let taskCount = 10
         let logsPerTask = 50
-        
+
         let prefix = "CONCURRENCY_TEST_"
-        // Use a TaskGroup for high parallelism
         await withTaskGroup(of: Void.self) { group in
             for t in 0..<taskCount {
                 group.addTask {
@@ -37,7 +36,7 @@ import Foundation
                 }
             }
         }
-        
+
         let filteredCount = logger.entries.filter { $0.message.hasPrefix(prefix) }.count
         #expect(filteredCount == taskCount * logsPerTask)
     }

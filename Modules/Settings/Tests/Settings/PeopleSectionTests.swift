@@ -7,10 +7,7 @@ import Testing
 
 /// The People section: the store's editing rules, and the layout claims the rows make. The store
 /// tests matter most: a roster is persisted state, and "it worked in the window" says nothing about
-/// what a relaunch reads back.
-///
-/// `theUnreadableRosterNotePaintsItsMessage` is `.machinePinned(.pixelSampling)` because `ink`
-/// reads painted pixels back with `colorAt`; nothing else here samples, so the rest run unpinned.
+/// what a relaunch reads back. Only the test that samples pixels is `.machinePinned`.
 @MainActor
 @Suite struct PeopleSectionTests {
 
@@ -170,10 +167,9 @@ import Testing
         #expect(facts.folders == ["Family/Mom"])
     }
 
-    /// A full name attributes a person with no distinctive word of their own. Father shares both
-    /// his words (`father` is Daughter's surname, `elder` is Granny's), but "Father Elder" matches
-    /// as a phrase, so his row must not ask for a full name he has. Judging on unique words alone
-    /// would put most of a real household in amber, and the caution would mean nothing.
+    /// A full name attributes a person with no distinctive word of their own: Father shares both
+    /// his words, but "Father Elder" matches as a phrase. Judging on unique words alone would put
+    /// most of a real household in amber, and the caution would mean nothing.
     @Test func aFullNameMakesSomeoneAttributableWithoutAUniqueWord() throws {
         let registry = PersonRegistry(people: Self.household())
         let father = try #require(registry.people.first { $0.id == "father" })
@@ -251,11 +247,9 @@ import Testing
         return painted
     }
 
-    /// The unreadable-roster note paints its message; `theUnreadableRosterNoteIsWiredIntoTheList`
-    /// checks it is reached. A whole-list render can't carry the claim: an unreadable roster is
-    /// always seeded, so `sourceNote` swaps in a longer sentence and that alone clears a threshold.
-    /// The control is the same Label with no message, because the warning triangle alone paints
-    /// hundreds of pixels.
+    /// The unreadable-roster note paints its message. A whole-list render can't carry the claim (an
+    /// unreadable roster is seeded, so a longer `sourceNote` alone clears a threshold), and the
+    /// control is a message-less Label because the warning triangle alone paints hundreds of pixels.
     @Test(.machinePinned(.pixelSampling)) func theUnreadableRosterNotePaintsItsMessage() {
         let width = SettingsSheetMetrics.contentWidth(textScale: 1)
         let note = ink(PeopleList.unreadableRosterNote, width: width)

@@ -51,13 +51,10 @@ import Events
         #expect(chips[0].raw == "level:error" && chips[0].isActive == false)
         #expect(chips[1].raw == "level:warn" && chips[1].isActive == true)
         #expect(chips[2].raw == "since:1h" && chips[2].isActive == true)
-        // The effective query really is the last one.
         #expect(LogSearch.parse("level:error level:warn").level == .warning)
 
-        // Different families never supersede each other.
         #expect(LogSearch.chips("level:error since:1h").map(\.isActive) == [true, true])
 
-        // Three of a kind: only the last stays active.
         let triple = LogSearch.chips("since:1h since:2h since:3h")
         #expect(triple.map(\.isActive) == [false, false, true])
     }
@@ -84,11 +81,8 @@ import Events
         #expect(LogSearch.parse(LogSearch.removing("level:warn level:error level:warn", word: "level:warn")).level == .error)
     }
 
-    /// Full-grammar characterization: one composite query with every token family (an abbreviated
-    /// `level:`, a `since:`), multi-word free text and a superseded duplicate-family token, pinning
-    /// the parsed fields and the chips() output (raw, label, isActive) together. Parse and chips
-    /// must agree on last-wins; any change to tokenization, canonicalization, last-wins or chip
-    /// labels flips this block.
+    /// Full-grammar characterization: one query with every token family, multi-word free text and a
+    /// superseded duplicate, pinning `parse` and `chips()` together so they agree on last-wins.
     @Test func fullGrammarSnapshotPinsParseAndChipsTogether() {
         let raw = "level:err since:30m level:WARN disk full"
 

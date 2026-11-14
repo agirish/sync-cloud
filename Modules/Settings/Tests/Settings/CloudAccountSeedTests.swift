@@ -3,12 +3,9 @@ import Foundation
 @testable import Settings
 
 /// The seed offers the cloud accounts the last discovery found, so a restored pane can find its
-/// source before discovery has run.
-///
-/// `SettingsManager.init` seeds `availableProviders` synchronously, before the first off-main
-/// discovery publishes. Without the recorded accounts, a pane restored onto Google Drive, Dropbox
-/// or OneDrive would name a provider `enabledProviders` lacks and skip its launch refresh on every
-/// launch. iCloud is always seeded, so it can't show the problem.
+/// source before discovery has run. `SettingsManager.init` seeds `availableProviders`
+/// synchronously; without the record, a pane restored onto Google Drive, Dropbox or OneDrive would
+/// skip its launch refresh on every launch. iCloud is always seeded, so it can't show the problem.
 @Suite struct CloudAccountSeedTests {
 
     private let key = "lastKnownAccountFolders"

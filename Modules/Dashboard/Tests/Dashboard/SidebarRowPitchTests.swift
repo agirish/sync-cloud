@@ -4,11 +4,9 @@ import Testing
 @testable import Dashboard
 import Design
 
-/// The column's vertical rhythm, measured rather than asserted.
-///
-/// `rowHeight` is a floor; what a reader sees is the pitch, the floor plus the 2pt between rows.
-/// Those are two numbers in two places, so the pitch is written down nowhere and drifts when either
-/// moves. 32pt matches Finder's sidebar pitch, measured side by side against a screenshot.
+/// The column's vertical rhythm, measured rather than asserted. `rowHeight` is a floor; what a
+/// reader sees is the pitch, the floor plus the 2pt between rows, which is written down nowhere and
+/// drifts when either moves. 32pt matches Finder's sidebar pitch.
 @MainActor @Suite struct SidebarRowPitchTests {
 
     /// Renders the column with `favorites` rows in it and returns its laid-out height.
@@ -28,9 +26,8 @@ import Design
     }
 
     /// A differential: padding, section header and scroll chrome are in the total but not per row,
-    /// so only the difference between two row counts isolates what one row costs. The pitch is the
-    /// floor plus the gap, so it is the floor setting the height, not something else padding the
-    /// row, which would leave `rowHeight` describing nothing.
+    /// so only the difference between two row counts isolates one row. Pitch equal to floor plus gap
+    /// proves the floor sets the height, not something else padding the row.
     @Test func aRowOccupiesThirtyTwoPointsTheFloorPlusTheGap() {
         let pitch = (height(favorites: 8) - height(favorites: 3)) / 5
         #expect(pitch == 32,

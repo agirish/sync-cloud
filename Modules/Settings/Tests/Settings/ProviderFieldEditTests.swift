@@ -22,15 +22,12 @@ import Testing
 
     // MARK: - Unified commit model (item 5.3)
     //
-    // Both provider fields commit on Return and on focus loss, through `shouldCommit`, the gate
-    // `commitName` and `commitPath` share. Pinning it pins that a blur behaves like a Return: it
-    // writes a real edit and skips an unchanged value, with the same rule for name and path.
+    // Both fields commit on Return and on focus loss through `shouldCommit`, so a blur writes a
+    // real edit and skips an unchanged value, as a Return does.
 
-    /// A changed value commits, on Return and on focus loss alike; leaving a field you never
-    /// edited doesn't write, which is what makes commit-on-blur safe. An edit that only adds
-    /// trailing whitespace normalizes back to the stored value, so it doesn't write either. The
-    /// same rule holds for the name field. Clearing a name differs from the current display name,
-    /// so it commits: that is how "empty clears the override" works, on blur as on Return.
+    /// A changed value commits; leaving a field you never edited doesn't write, which makes
+    /// commit-on-blur safe. A whitespace-only edit normalizes back and doesn't write. Clearing a
+    /// name commits: that is how "empty clears the override" works.
     @Test(arguments: [
         ("/Users/me/NewRoot", "/Users/me/OldRoot", true),   // a changed path
         ("/Users/me/Root", "/Users/me/Root", false),        // an unchanged path

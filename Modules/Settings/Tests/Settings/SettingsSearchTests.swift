@@ -138,11 +138,8 @@ import Testing
 
     // MARK: The pages that own each control
 
-    /// Each entry that moved in TE332 must point at the page that holds its control.
-    /// `everyEntryOnAPagedTabNamesItsPage` can't tell: every page is real, so pointing every entry
-    /// at any one of them passes it. Landing on the wrong page is worse than no result, because the
-    /// setting isn't there and the strip says it should be. Spelled out per title, so a failure
-    /// names the misfiled control.
+    /// Each regrouped entry points at the page that holds its control. `everyEntryOnAPagedTabNamesItsPage`
+    /// passes with every entry on any one page, and the wrong page is worse than no result.
     @Test func theRegroupedEntriesLandOnThePageThatOwnsTheirControl() {
         let expected: [SettingsSubTab?: [String]] = [
             nil: ["When a file already exists", "Confirm before copying or moving",
@@ -187,13 +184,9 @@ import Testing
         }
     }
 
-    /// The offer that says "set up cloud refine" has to open the page that can actually set it up.
-    ///
-    /// The link lives in `MacApp/ContentView.swift`, which no package test compiles, so this pins
-    /// the `cloudRefineSetup` place it opens. Asserted against the index, not a spelled-out page:
-    /// the right destination is wherever the key is, so if it moves this fails instead of agreeing
-    /// with itself. Refine has no switch of its own since TE335: a saved key is the opt-in, and the
-    /// model and limit are Ask Claude's, all on Ask Claude ▸ Key & Spending.
+    /// The "set up cloud refine" offer (in `MacApp/ContentView.swift`, which no package test
+    /// compiles) opens the page holding the key and the limit. Asserted against the index, so if the
+    /// key moves this fails instead of agreeing with itself.
     @Test func theCloudRefineOfferLandsOnThePageThatHoldsTheKey() throws {
         let key = try #require(SettingsSearchIndex.all.first { $0.title == "Claude API key" })
         let limit = try #require(SettingsSearchIndex.all.first { $0.title == "Monthly limit" })
@@ -208,9 +201,8 @@ import Testing
         #expect(!SettingsSearchIndex.all.contains { $0.title == "Use Claude (cloud) to refine suggestions" || $0.title == "Cloud model" })
     }
 
-    /// Refine has no switch to search for any more (TE335), but someone who remembers one still types
-    /// "refine", "cloud" or "cloud model", and an empty result reads as "that setting is gone". They
-    /// land on the page that holds what replaced it: the key, and the one limit.
+    /// Someone who remembers a Refine switch still types "refine", "cloud" or "cloud model", and an
+    /// empty result reads as "that setting is gone". They land on the key and the one limit.
     @Test func theWordsForTheRetiredCloudSwitchReachTheKeyPage() {
         for query in ["refine", "cloud", "cloud refine", "use claude", "cloud model", "monthly cap", "try another"] {
             let results = filterSettings(SettingsSearchIndex.all, query: query)
@@ -230,8 +222,8 @@ import Testing
         }
     }
 
-    /// "Tidy" is no longer a tab, but someone who remembers it has nothing else to type, and an
-    /// empty result reads as "that setting is gone". The word must reach both pages it became.
+    /// Someone who remembers the old Tidy tab has nothing else to type, and an empty result reads as
+    /// "that setting is gone". The word must reach both pages it became.
     @Test func searchingTidyStillReachesBothPagesItBecame() {
         let results = filterSettings(SettingsSearchIndex.all, query: "tidy")
 
@@ -271,30 +263,23 @@ import Testing
         }
     }
 
-    /// On-screen labels that are deliberately not settings, so they have no entry of their own.
-    /// Two kinds, and nothing else belongs here:
+    /// On-screen labels that are deliberately not settings. Two kinds, and nothing else belongs here:
     ///
-    /// - Group headers: a `SettingsSection` title over controls indexed under their own row
-    ///   titles. "Copying and moving" heads the conflict-policy picker; "Inbox" heads To File's
-    ///   inbox path and rules pointer. A header that is its section's only control is indexed.
-    /// - Readouts in section clothing, on People: "Across your tree" heads `PeopleOverviewRow`,
-    ///   and "Names found in your documents" heads the queue "Look for Names" fills, offers to
-    ///   accept or refuse rather than settings. And Ask Claude ▸ Privacy's "Every folder", which
-    ///   says what a folder neither shared nor hidden does, and sets nothing.
+    /// - Group headers over controls indexed under their own row titles. A header that is its
+    ///   section's only control is indexed; one `indexCovers` already matches stays out.
+    /// - Readouts in section clothing: People's "Across your tree" and "Names found in your
+    ///   documents", and Ask Claude ▸ Privacy's "Every folder", which sets nothing.
     ///
-    /// Every entry is load-bearing: drop one and the scan fails on it. Headers covered by a control
-    /// entry under `indexCovers`'s containment rule ("On-device", "Claude (cloud)") stay out. An
-    /// exemption added to silence a real control is the failure this test exists to catch.
+    /// Every entry is load-bearing: drop one and the scan fails on it. An exemption added to silence
+    /// a real control is the failure this test exists to catch.
     static let unindexedByDesign: Set<String> = [
         "Startup", "Copying and moving", "Notifications", "Logging", "Maintenance", "Setup",
         "Inbox", "Saved scan data", "Markdown", "Reading", "Organize",
         "On-device", "What Claude may see",
         "Across your tree", "Names found in your documents", "Every folder",
-        // Organize ▸ Suggestions' "Refine": a group header over one jump row to Key & Spending,
-        // where "refine" is a keyword of the key and the limit (TE335).
+        // Organize ▸ Suggestions' header over one jump row; "refine" is a keyword of the key.
         "Refine",
-        // A notice that shows once, after Refine's own limits were retired (TE335, E5), under one
-        // heading or the other.
+        // A one-time notice about Refine's retired limits, under one heading or the other.
         "Refine’s own limits are gone", "Try Another asks Claude now",
     ]
 
@@ -310,14 +295,10 @@ import Testing
         }
     }
 
-    /// Every control label written into the Settings sources, keyed by vehicle:
-    /// `SettingsRow("…")`, `SettingsSection("…")`, `Toggle`'s label in its string and
-    /// trailing-closure forms, and `LabeledContent("…")`. Whitespace is collapsed first, because
-    /// many `SettingsSection` titles sit on their own line and a line scan would miss them.
-    ///
-    /// Not scanned: `TextField`/`SecureField` first arguments (placeholders such as "TODO"),
-    /// `Button` titles (actions within a row), and `Picker` titles (they restate their row). A
-    /// `Toggle("")` is labelled by its row, so it is indexed under a written title.
+    /// Every control label written into the Settings sources, keyed by vehicle (`SettingsRow`,
+    /// `SettingsSection`, both `Toggle` forms, `LabeledContent`). Whitespace is collapsed first, since
+    /// many section titles sit on their own line. Not scanned: `TextField`/`SecureField` placeholders,
+    /// `Button` titles (actions within a row) and `Picker` titles (they restate their row).
     private func controlLabelsInTabSources() throws -> [String: Set<String>] {
         let sources = URL(fileURLWithPath: #filePath)   // …/Tests/Settings/SettingsSearchTests.swift
             .deletingLastPathComponent()                // …/Tests/Settings

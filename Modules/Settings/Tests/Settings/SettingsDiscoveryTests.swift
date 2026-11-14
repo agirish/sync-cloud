@@ -6,12 +6,9 @@ import Sync
 // MARK: - Shared test helpers
 
 /// A fresh UserDefaults suite isolated from .standard, wiped when the last thing holding it lets
-/// go rather than when the test returns (see `ScratchDefaults`).
-///
-/// There is deliberately no `wipe()`. A `SettingsManager` starts a discovery task from `init`
-/// (unless `autoDiscover` is false) and from the methods that change a source, and the pass writes
-/// `lastKnownAccountFolders` when it lands, often after the test returns. A `defer { wipe() }`
-/// would run first and the late write would put the plist back. The task holds the manager and the
+/// go (see `ScratchDefaults`). There is deliberately no `wipe()`: a discovery pass writes
+/// `lastKnownAccountFolders` when it lands, often after the test returns, so a `defer { wipe() }`
+/// would run first and the late write would put the plist back. The pass holds the manager and the
 /// manager holds this suite, so riding the lifetime puts the wipe after the last write.
 struct TestDefaults {
     let defaults: ScratchDefaults
@@ -454,10 +451,8 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
         let providersAfterFirst = settings.availableProviders.map(\.id)
         let validationsAfterFirst = counter.count
-        // One stat per source, plus one for each that lands somewhere other than its root (for
-        // `landingValidity`), plus one for whether iCloud Drive has a `Documents` to land in
-        // (`SettingsManager.iCloudDefaultOpenAt`). Derived, not a literal, so the pin is about
-        // every pass re-checking the disk, not the fixture's size.
+        // One stat per source, one per landing folder off its root (`landingValidity`), and one for
+        // iCloud Drive's `Documents`. Derived, so the pin is about re-checking the disk, not fixture size.
         let statsPerPass = settings.availableProviders.reduce(0) { $0 + ($1.openAt.isEmpty ? 1 : 2) } + 1
         #expect(validationsAfterFirst >= providersAfterFirst.count)
 

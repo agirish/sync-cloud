@@ -93,10 +93,9 @@ import Sync
         #expect(g.level == .error)
     }
 
-    /// A batch's real lines never fold with the cards filed by hand around it. Its summary once
-    /// read "Filing: filed 40 file(s)", the per-card prefix, so it joined the neighbouring cards'
-    /// run and the header said "Filed 2 files" for 40 plus one. Fed `FilingBatchLog`'s own output,
-    /// not a typed copy, so a reworded summary that takes the prefix again fails here.
+    /// A batch's real lines never fold with the cards filed by hand around it, or the run's header
+    /// would count lines, not files. Fed `FilingBatchLog`'s own output, not a typed copy, so a
+    /// summary reworded to take the per-card "Filing: filed" prefix fails here.
     @Test func aFilingBatchsLinesNeverFoldWithTheCardsAroundIt() {
         let filed = (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
                                                         folder: "/r/Bills", source: "its name") }
@@ -145,15 +144,10 @@ import Sync
         #expect(shape(sections[1].items) == ["group:synced:2"])
     }
 
-    /// A dated header names its bucket's day in the bucket's own zone. `byDay` takes the boundary
-    /// from the calendar it is handed; a header formatter on the system zone would draw sections
-    /// two or more days old under a date a day out (`Today`/`Yesterday` would still be right).
-    ///
-    /// The test pins the rendered date, not merely that two zones differ, which any two instants
-    /// would. The zones are the offset extremes, +14 and −12: rendering midnight-in-Z under system
-    /// zone C names the wrong day whenever `offset(C) < offset(Z)`, so one of the two always fails
-    /// under a system-zone formatter, wherever this runs. Putting the formatter back on the system
-    /// zone must fail it.
+    /// A dated header names its bucket's day in the bucket's own zone; a formatter on the system
+    /// zone would draw older sections under a date a day out. The zones are the offset extremes,
+    /// +14 and −12, so one of them fails a system-zone formatter wherever this runs.
+    /// Mutation that must fail this: putting the header formatter back on the system zone.
     @Test func testADatedHeaderIsRenderedInItsBucketsOwnZone() throws {
         let instant = at(2026, 7, 1, 20)
         let now = at(2026, 7, 14, 12)

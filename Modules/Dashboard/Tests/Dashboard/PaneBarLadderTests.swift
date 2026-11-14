@@ -6,10 +6,9 @@ import Sync
 import Design
 import FileExplorerTestSupport
 
-/// The pane bar's narrow-pane ladder, where the rung is computed rather than searched.
-/// `PaneBarLadder` picks it by arithmetic over `PaneNavMetrics`, so the claim is that those numbers
-/// describe the bar actually drawn. Every geometry assertion here reads the laid-out result from a
-/// real hosting view, never a constant against another constant.
+/// The pane bar's narrow-pane ladder: `PaneBarLadder` picks the rung by arithmetic over
+/// `PaneNavMetrics`, so every geometry test reads a real hosting view's layout, never a constant
+/// against another constant.
 ///
 /// Controls are located by `_FocusRingView`, as in `PaneHeaderHeightTests.buttonCount`: a
 /// custom-styled SwiftUI `Button` puts no `NSControl` in the AppKit tree, and an offscreen
@@ -35,12 +34,9 @@ import FileExplorerTestSupport
         return all.filter { $0.minY < top + 5 }
     }
 
-    /// The laid-out width of one rung's bar, measured from the view that draws it. Ring spans miss
-    /// titles: an item is as wide as the wider of its pill and its word, so an outermost word can
-    /// overhang the rings and the span comes out nearly right. `barVariant` is an `HStack` of
-    /// fixed-width boxes with a `Spacer(minLength: 0)` for the flexible space, so its fitting width
-    /// is the rung's minimum, the quantity `PaneBarLayout.width` computes.
-    /// `theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled` guards that this measures the bar.
+    /// The laid-out width of one rung's bar. Ring spans miss titles, since an outermost word can
+    /// overhang its pill; `barVariant`'s fitting width is the rung's minimum, the quantity
+    /// `PaneBarLayout.width` computes. `theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled` guards it.
     private func barWidth(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat {
         let host = NSHostingView(rootView: AnyView(view.barVariant(rung, ladder)))
         host.layoutSubtreeIfNeeded()
@@ -56,15 +52,11 @@ import FileExplorerTestSupport
         return host.fittingSize.height
     }
 
-    /// The card is balanced top to bottom at every rung and text size. Two rules hold it, pinned by
-    /// different tests, which matters before editing either. The bar's row reserves the tallest
-    /// rung it can draw, so nothing overflows its box (`theBarAndTheTrailKeepTheirGap` catches
-    /// that, since words hanging into the gap can leave the outer edges even). And the bar is
-    /// `.topLeading` in that reservation, so a short rung sits at the top instead of floating and
-    /// pushing the trail to the card's floor: this test's half.
-    ///
-    /// Asserted as balance, not just a floor: a bar pinned to the narrowest rung's height still
-    /// clears the top padding, but its imbalance is what a person sees.
+    /// The card is balanced top to bottom at every rung and text size. The bar's row reserves the
+    /// tallest rung (`theBarAndTheTrailKeepTheirGap` catches overflow, which can leave the outer
+    /// edges even), and the bar is `.topLeading` in it, so a short rung doesn't float and push the
+    /// trail to the card's floor: this test's half. Asserted as balance, not just a floor: a bar
+    /// pinned to the narrowest rung still clears the top padding, but its imbalance is what shows.
     @Test(.machinePinned(.pixelSampling)) func theHeaderIsBalancedTopToBottom() {
         for (name, scale, width) in [("iCloud Drive", 1.0, CGFloat(250)), ("iCloud Drive", 1.0, 330),
                                      ("iCloud Drive", 1.0, 660), ("iCloud Drive", 1.35, 660),
@@ -163,11 +155,9 @@ import FileExplorerTestSupport
 
     // MARK: - The arithmetic against the drawn bar
 
-    /// That `barWidth` measures the bar and not something next to it: a greedy child makes
-    /// `fittingSize` report the offer, not the content. Checked against ring spans on the untitled
-    /// rungs, where every item's box is its pill and the two must agree to the point. Swept across
-    /// widths to find the untitled part of the ladder, and `matched` stops it passing by finding
-    /// nowhere to look.
+    /// That `barWidth` measures the bar: a greedy child makes `fittingSize` report the offer, not the
+    /// content. Checked against ring spans on untitled rungs, where box and pill agree to the point;
+    /// `matched` stops it passing by finding nowhere to look.
     @Test(.machinePinned(.pixelSampling)) func theMeasuredBarAgreesWithRingSpansWhenNothingIsTitled() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
@@ -189,14 +179,10 @@ import FileExplorerTestSupport
                 "only \(matched) of the swept widths drew a bar whose ring span matched an untitled rung's measured width")
     }
 
-    /// The failure the ladder exists to prevent, with no loud symptom: a bar running past the
-    /// pane's trailing edge. Swept rather than spot-checked, because `PaneBarLadder` documents its
-    /// widths as non-monotonic, which is why it is walked in order rather than sorted.
-    ///
-    /// The header with no provider (`nil`) obeys the same rule. It draws a plain title instead of
-    /// the breadcrumb chip, and is reachable in the app: `ContentView` passes
-    /// `availableProviders.first(where:)`, nil whenever a pane's provider is disabled or not yet
-    /// loaded.
+    /// The bar never runs past the pane's trailing edge, a failure with no loud symptom. Swept,
+    /// because `PaneBarLadder` widths are non-monotonic. The no-provider header (`nil`) is real:
+    /// `ContentView` passes `availableProviders.first(where:)`, nil whenever a pane's provider is
+    /// disabled or not yet loaded.
     @Test(.machinePinned(.pixelSampling)) func theBarNeverOverflowsThePane() {
         let names: [String?] = ["Box", "Dropbox", "iCloud Drive", "Marketing Team Shared Archive Drive", nil]
         for name in names {
@@ -209,10 +195,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The core claim: the width `PaneBarLadder` computes for a rung is the width the bar drawn at
-    /// that rung occupies, for every rung, so a middle one can't be mispriced unnoticed.
-    /// `theDrawnBarIsAlwaysSomeRungOfTheLadder` can't see mispricing: both its sides are drawn
-    /// measurements.
+    /// The core claim: the width `PaneBarLadder` computes for every rung is the width its drawn bar
+    /// occupies. `theDrawnBarIsAlwaysSomeRungOfTheLadder` can't see mispricing: both its sides are
+    /// drawn measurements.
     @Test(.machinePinned(.pixelSampling)) func everyRungIsPricedAsTheBarItDraws() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
@@ -248,11 +233,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// Whatever rung is chosen, the bar drawn is one of the ladder's rungs, not some width between.
-    /// It doesn't catch mispricing: both sides are drawn from `barVariant`, so a constant added to
-    /// `PaneBarLayout.width` passes (`everyRungIsPricedAsTheBarItDraws` holds that). It is the only
-    /// check that the selection lands on a real rung at every width, not on a bar built from
-    /// another rung's parts.
+    /// Whatever rung is chosen, the bar drawn is one of the ladder's rungs, not some width between
+    /// or a bar built from another rung's parts. Both sides come from `barVariant`, so mispricing
+    /// passes here; `everyRungIsPricedAsTheBarItDraws` holds that.
     @Test(.machinePinned(.pixelSampling)) func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
         let view = Self.header("iCloud Drive")
         let ladder = view.barLadder
@@ -282,7 +265,6 @@ import FileExplorerTestSupport
     /// rung (all of Icon Only) wider, so the ladder would step down at a wider pane. The drawn half
     /// is held by `everyRungIsPricedAsTheBarItDraws`.
     @Test func theUntitledLadderIsPricedAsItWasBeforeTitles() {
-        // The values, pinned.
         #expect(PaneNavMetrics.itemGap(titled: false) == 6,
                 "an untitled bar is paying for space between words it does not draw")
         #expect(PaneNavMetrics.itemGap(titled: true) == 8,
@@ -429,24 +411,14 @@ import FileExplorerTestSupport
                 "the bar's controls are not all a pill tall: \(ringHeights.sorted())")
     }
 
-    /// Where the text-size gate's line belongs, measured. `PaneBarTitleMetrics.rowBudget` decides
-    /// which text sizes wear words. It gates on the row's box, while the rule here is about where
-    /// the ink lands (6pt clear of both card edges, as `theHeaderIsBalancedTopToBottom` holds), so
-    /// no sum of constants reconstructs it and it is calibrated against this test.
+    /// Where the text-size gate's line belongs. `PaneBarTitleMetrics.rowBudget` decides which text
+    /// sizes wear words; it gates on the row's box while the rule is where the ink lands (6pt clear
+    /// of both card edges), so no sum of constants reconstructs it: it is calibrated against this test.
     ///
-    /// The calibration run with the gate lifted, `top / bottom` in points: words fit through 115%
-    /// and crowd the card from 120% up, so the budget sits between those row heights.
-    ///
-    /// | 90% | 95% | 100% | 105% | 110% | 115% | 120% | 125% | 130% | 135% |
-    /// |---|---|---|---|---|---|---|---|---|---|
-    /// | 9.0 / 9.5 | 8.0 / 8.5 | 7.0 / 7.5 | 7.0 / 7.5 | 6.5 / 7.0 | 6.5 / 7.0 | 5.5 / 6.0 | 5.0 / 5.5 | 4.0 / 4.5 | 4.0 / 4.5 |
-    ///
-    /// This catches a budget set too high, since newly admitted sizes fail the floor. A budget set
-    /// too low renders untitled and clears the edges easily;
-    /// `PaneBarTitleTests.theTextSizesThatGetWords` holds that direction. The titled/untitled check
-    /// keeps the floor honest: titled ink starts 9.0pt or less from the top, untitled 13.0pt or
-    /// more. It reads the gate's verdict through the row's reservation, not the words themselves;
-    /// ignoring `appFontScale` in `PaneHeader.barLadder` must fail here.
+    /// This catches a budget set too high, since newly admitted sizes fail the floor; a budget too
+    /// low clears the edges easily (`PaneBarTitleTests.theTextSizesThatGetWords` holds that). The
+    /// titled/untitled check keeps the floor honest, reading the gate's verdict through the row.
+    /// Ignoring `appFontScale` in `PaneHeader.barLadder` must fail this.
     @Test(.machinePinned(.pixelSampling), arguments: FontSize.selectablePercents)
     func theTitledHeaderClearsBothEdges(percent: Int) {
         let scale = FontSize(percent: percent).scale
@@ -523,12 +495,9 @@ import FileExplorerTestSupport
     }
 
     /// End to end in the real header: a spacer-heavy no-provider header steps through every deep
-    /// rung at widths it can be given, rather than jumping from a mid rung to full compaction. The
-    /// one test that goes through `@AppStorage` and the whole header, so it also shows the stored
-    /// arrangement is the one the ladder is built from.
-    ///
-    /// A rung whose band of widths is narrower than the sweep's stride would fall between samples,
-    /// so the gap between consecutive reachable rungs is checked against the stride first.
+    /// rung rather than jumping from a mid rung to full compaction. The one test through
+    /// `@AppStorage`, so it also shows the stored arrangement builds the ladder. A rung whose band is
+    /// narrower than the sweep's stride would fall between samples, so that is checked first.
     @Test(.machinePinned(.pixelSampling)) func theNoProviderHeaderReachesTheDeepRungs() {
         let defaults = ScratchDefaults("PaneBarLadderTests-spacerHeavy")
         defaults.set(Self.spacerHeavy.encoded, forKey: PaneBar.arrangementKey)
@@ -586,5 +555,4 @@ import FileExplorerTestSupport
                     "\(name) @\(scale) \(width)pt: rings \(drawn.map(\.height)) are not \(size)'s \(pill)pt pills")
         }
     }
-
 }

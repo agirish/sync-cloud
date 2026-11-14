@@ -4,13 +4,11 @@ import Testing
 import Sync
 @testable import Dashboard
 
-/// What follows a card renamed in Finder, on the two surfaces outside `SettingsManager`.
-///
-/// `FolderSource.following(volumeRenameFrom:to:in:)` moves the source itself (`VolumeRenameTests` in
-/// Sync). The pins, recents and Favorites order are keyed by provider root, which is what a rename
-/// changes, so left alone they would sit on disk under a key nothing asks for. `reachable` can't
-/// catch it: it filters what a root holds, not the root moving. The pane-collapse glyph tests are
-/// here because the constant they pin lives in this module.
+/// What follows a card renamed in Finder, on the two surfaces outside `SettingsManager`
+/// (`FolderSource.following(volumeRenameFrom:to:in:)` moves the source; `VolumeRenameTests` in Sync).
+/// The pins, recents and Favorites order are keyed by provider root, so left alone they would sit
+/// on disk under a key nothing asks for. The pane-collapse glyph tests are here because the
+/// constant they pin lives in this module.
 @Suite struct VolumeRenameFollowingTests {
 
     private static let old = "/Volumes/OLD CARD"
@@ -82,12 +80,9 @@ import Sync
 
     // MARK: The pane-collapse glyph
 
-    /// The pane's collapse button must not wear the window sidebar toggle's glyph: the two sit about
-    /// forty points apart on the same edge for unrelated acts (show the folder column, fold this
-    /// pane into the spine). Compared with literals, because the constant is what's under test.
-    /// Nor the Back button's, the pill right beside it: a bare `<` would trade a clash at forty
-    /// points for one at eight. And the mark must exist, or the button draws nothing and
-    /// `PaneNavMetricsTests` still passes over an empty frame.
+    /// The pane's collapse glyph must differ from the window sidebar toggle's, forty points away for
+    /// an unrelated act, and Back's right beside it, and must exist, or the button draws nothing.
+    /// Compared with literals, because the constant is what's under test.
     @Test func theCollapseGlyphIsARealSymbolUnlikeItsNeighbours() {
         #expect(PaneBarItem.collapseSymbol != "sidebar.left")
         #expect(PaneBarItem.collapseSymbol != "sidebar.leading")
@@ -111,9 +106,8 @@ import Sync
 
     // MARK: The observer
 
-    /// A rule with no caller is not a fix. The two followers above and
-    /// `SettingsManager.followVolumeRename` are reached only from `ContentView`'s subscription to
-    /// `didRenameVolumeNotification`, and nothing would notice it dropped. `MacApp/` is in no SPM
+    /// The followers above and `SettingsManager.followVolumeRename` are reached only from
+    /// `ContentView`'s subscription to `didRenameVolumeNotification`. `MacApp/` is in no SPM
     /// package, so a source scan is the only way a test can read it.
     @Test func contentViewFollowsTheVolumeRenameNotification() throws {
         let content = try DashboardSource.app("ContentView.swift")

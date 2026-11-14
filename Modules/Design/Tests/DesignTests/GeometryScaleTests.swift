@@ -68,12 +68,8 @@ import Testing
 
     // MARK: - No new strays
 
-    /// The scale only holds if nothing writes past it: a hand-written radius in the 5…11 band
-    /// fails here instead of being noticed by eye releases later.
-    ///
-    /// Scoped to the band the scale covers. Radii of 1–4 are bar caps and hairline rules (a 2pt
-    /// progress bar's cap is half its height, not a corner) and 12 is a deliberate one-off; `Radius`
-    /// documents both as out of scope.
+    /// No hand-written radius in the 5…11 band the scale covers. Radii of 1–4 are bar caps and
+    /// hairline rules, and 12 is a deliberate one-off; `Radius` documents both as out of scope.
     @Test func noSourceHandWritesARadiusInsideTheScalesBand() throws {
         let sources = try AccentFillScanTests.appSources()
         // `cornerRadius: <digits>`, the literal form. A named constant is what this wants.
@@ -114,14 +110,10 @@ import Testing
 
     // MARK: - The first-run sheet answers the pointer
 
-    /// With `.buttonStyle(.plain)` the control draws its own chrome and AppKit gives it no hover
-    /// state, which `HoverAffordanceStyle` exists to supply. The setup sheet is the app's first
-    /// impression, so none of its buttons may sit inert under the pointer.
-    ///
-    /// Scoped to the setup sheet, not the whole app, because two sites elsewhere are plain on
-    /// purpose (`TidyGroupCard`'s keeper radio pushes an `NSCursor`; `DifferencesView`'s count pill
-    /// gates hover on `hasScanned`). An app-wide check would need an allow-list, and an allow-list
-    /// stops covering the whole set as soon as a file is added.
+    /// A `.buttonStyle(.plain)` control gets no hover state from AppKit, so every one in the setup
+    /// sheet must carry `HoverAffordanceStyle`. Scoped to the sheet because two sites elsewhere are
+    /// plain on purpose (`TidyGroupCard`'s keeper radio, `DifferencesView`'s count pill), and an
+    /// app-wide allow-list would stop covering new files.
     @Test func theSetupSheetHasNoChromelessButtonWithoutAHoverAffordance() throws {
         // The sheet is a directory. Scanning only `SetupSheet.swift` would read the host, which
         // draws no button of its own, and report a clean sweep of nothing.
@@ -137,9 +129,8 @@ import Testing
         #expect(text.contains("struct SetupSheet"), "that is not the setup sheet")
         #expect(text.contains("struct SetupScreenCard"), "the sheet's chrome was not read")
         let affordances = text.components(separatedBy: ".buttonStyle(.hoverAffordance(").count - 1
-        // Where the affordances live: the accent swatch, the two chip rows (people and countries),
-        // the name forms, the outline rows in the tree, More options, the found-name chips and the
-        // Start-with buttons.
+        // Where the affordances live: the swatch, chip rows, name forms, outline rows, More
+        // options, found-name chips and Start-with buttons.
         #expect(affordances >= 8,
                 "only \(affordances) hover affordances in the setup sheet — the conversion regressed")
 

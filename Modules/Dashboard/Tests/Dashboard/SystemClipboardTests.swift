@@ -18,7 +18,7 @@ import Settings
         // ⌘C here, then ⌘C in Finder, then ⌘V here. The count moved, so Finder's files win, as a
         // single-clipboard platform promises.
         (9, 7, true, true, .system),
-        // ⌘C in Finder with nothing ever copied here. Nothing to compare against, and files are
+        // ⌘C in Finder with nothing ever copied here: nothing to compare against, and files are
         // there.
         (3, nil, false, true, .system),
         // Copy files here, copy some text elsewhere, press ⌘V here. The count moved and the
@@ -164,10 +164,9 @@ import Settings
                                            defaults: ScratchDefaults("FileActionHandler"), pasteboard: board))
     }
 
-    /// Waits for the operation bookkeeping to drain, then one settle; the same contract as
-    /// `FileActionHandlerOperationTests.waitForOperationsToFinish`. Safe only because every caller
-    /// waits for the operation's own outcome first. A fixed iteration count would give up silently
-    /// under load.
+    /// Waits for the operation bookkeeping to drain, then one settle, as
+    /// `FileActionHandlerOperationTests.waitForOperationsToFinish` does. Safe only because every
+    /// caller waits for the operation's own outcome first.
     private func settle(_ manager: FileSyncManager,
                         sourceLocation: SourceLocation = #_sourceLocation) async {
         await waitUntil("the file operations to drain", sourceLocation: sourceLocation) {
@@ -288,10 +287,9 @@ import Settings
         #expect(SystemClipboard.fileURLs(from: pasteboard).map(\.path) == [file.path])
     }
 
-    /// A second ⌘V after a cut has nothing to offer, and says so by being unavailable. After the
-    /// move the cut's paths on the pasteboard name missing files, and `hasFiles` reads the board,
-    /// not the disk (a `stat` per URL per render is too costly), so without clearing it ⌘V and
-    /// "Paste here" would stay enabled over a paste that finds nothing.
+    /// A second ⌘V after a cut has nothing to offer, and says so by being unavailable: `hasFiles`
+    /// reads the board, not the disk (a `stat` per URL per render is too costly), so an uncleared
+    /// board would keep ⌘V and "Paste here" enabled over files the cut moved away.
     @Test func aCutThatCompletesLeavesNothingPastable() async throws {
         let source = try tempDir("stale-src")
         let destination = try tempDir("stale-dst")

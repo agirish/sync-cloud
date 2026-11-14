@@ -4,12 +4,9 @@ import Foundation
 import Sync
 
 /// Provider discovery must not report "no cloud accounts" when it could not read the folder they
-/// live in.
-///
-/// `discoverProviders` publishes over `availableProviders`, so an empty answer from a failed
-/// listing would remove every Dropbox, Google Drive and OneDrive account, leaving iCloud behind
-/// to look plausible. `FileManager.enumerator(at:)` is non-nil even for a directory it can't list,
-/// so a nil check can't catch this.
+/// live in: `discoverProviders` publishes over `availableProviders`, so a failed listing would
+/// remove every account and leave iCloud to look plausible. `FileManager.enumerator(at:)` is
+/// non-nil even for a directory it can't list, so a nil check can't catch this.
 @Suite struct CloudStorageRootReadabilityTests {
 
     // MARK: The lister, against a real directory

@@ -24,10 +24,9 @@ import Testing
         return host.fittingSize.height
     }
 
-    /// Too narrow for both columns, each label goes above its value. At the inspector's 200pt
-    /// minimum the card leaves this table 140pt, and at the largest text side by side would leave
-    /// the values a few letters a line. The card must lay out as the stacked branch there and as
-    /// the side-by-side one at the default width and size.
+    /// Too narrow for both columns, each label goes above its value: at the inspector's 200pt
+    /// minimum and the largest text, side by side would leave the values a few letters a line.
+    /// Stacked there, side by side at the default width and size.
     @Test func aNarrowLargeCardStacksAndADefaultOneDoesNot() {
         let lines: [DetailsMetadataLine] = [.fact("Where it lives:", "In iCloud Drive, downloaded"),
                                             .divider, .fact("Kind:", "PDF document")]

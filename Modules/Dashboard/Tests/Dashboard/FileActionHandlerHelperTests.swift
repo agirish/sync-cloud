@@ -8,15 +8,11 @@ import Settings
 /// provider root matching (incl. the "/" prefix boundary), and AppleScript escaping.
 @Suite struct FileActionHandlerHelperTests {
 
-    /// Which panes a drill into a left-pane folder moves.
-    ///
-    /// Unlinked, the default: a fresh scratch suite has no value for the key, and the right pane
-    /// stays put. Linked but suppressed: the single-source rail reuses the left pane's plumbing but
-    /// has no visible sibling, so with 🔗 on, drilling the rail must not drag the hidden right pane
-    /// along, growing its history, overwriting its saved focus and recording Recents the user never
-    /// visited (the rail's delegate passes `suppressLinkedNavigation`). Linked: drilling into a
-    /// folder from the file list moves the sibling to the same relative path, not only breadcrumb
-    /// clicks.
+    /// Which panes a drill into a left-pane folder moves. Unlinked (a fresh scratch suite's default),
+    /// the right pane stays put. Linked but suppressed (`suppressLinkedNavigation`, the single-source
+    /// rail, which has no visible sibling), the hidden right pane must not be dragged along, growing
+    /// its history, overwriting its saved focus and recording Recents never visited. Linked, drilling
+    /// from the file list moves the sibling to the same relative path, not only breadcrumb clicks.
     @MainActor
     @Test(arguments: [(false, false, ""), (true, true, ""), (true, false, "Projects/Sync")])
     func testFocusFolderMovesTheSiblingOnlyWhenLinkedAndNotSuppressed(linked: Bool, suppress: Bool,

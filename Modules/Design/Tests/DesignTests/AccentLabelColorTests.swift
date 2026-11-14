@@ -55,12 +55,9 @@ import SwiftUI
         }
     }
 
-    /// The same invariant routed through the pair every accent-FILLED chip, pill and button uses
-    /// (the workspace bar pill, the pane action buttons, the differences count pill, the Log
-    /// window's selected chip): `accentFillColor` under `onAccentLabelColor`.
-    ///
-    /// Held to 4.5:1: with the fill deepened the label is a flat white, so the fill has to earn it
-    /// outright, and body-text AA is what it earns.
+    /// The same invariant through the pair every accent-filled chip, pill and button uses:
+    /// `accentFillColor` under `onAccentLabelColor`. Held to body-text 4.5:1, since with the fill
+    /// deepened the label is a flat white.
     @Test func everyHueOnAccentFillCarriesItsLabelAtBodyTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let fill = srgb(hue.accentFillColor)
@@ -87,12 +84,9 @@ import SwiftUI
                 "flat white cleared 3:1 on most hues — the palette changed, revisit the pairing rule")
     }
 
-    /// The dimmed twin of the invariant above, for secondary runs on an accent fill (the Log
-    /// window's selected-chip count, the count pill's chevron): the label dimmed to
-    /// `AccentLabel.dimmedOnFillOpacity` must STILL clear 3:1 on every hue.
-    ///
-    /// Deepening put every fill at or below the ceiling, so the whole palette dims to about 4:1.
-    /// The 0.9 constant keeps that slack as margin rather than buying a fainter secondary.
+    /// The dimmed twin, for secondary runs on an accent fill: the label at
+    /// `AccentLabel.dimmedOnFillOpacity` still clears 3:1 on every hue. The palette dims to about
+    /// 4:1, and the 0.9 constant keeps that slack as margin.
     @Test func everyGlassHueDimmedLabelClearsLargeTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let fill = srgb(hue.accentFillColor)

@@ -5,17 +5,12 @@ import Events
 import Design
 @testable import Dashboard
 
-/// The Activity Log's time column and the zone it reads in.
-///
-/// `LogEntryRow` shares one process-wide `DateFormatter`. People leave this window open, so a
-/// formatter that kept its first zone would stamp every row in the old zone after a flight or a
-/// Date & Time change. The zone is also injectable, so snapshot references don't bake in the
-/// recording machine's.
-///
-/// Driven through the accessor, not by moving `NSTimeZone.default`, which is process-wide and would
-/// race every other suite (the rule `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`
-/// follows too). The rule itself is tested on `Design.ZoneRefreshedFormatter`; these assert the row
-/// routes through it.
+/// The Activity Log's time column and the zone it reads in. `LogEntryRow` shares one process-wide
+/// `DateFormatter`, so one that kept its first zone would stamp every row of a window left open in
+/// the old zone after a flight or a Date & Time change. Driven through the accessor, never by moving
+/// `NSTimeZone.default`, which is process-wide and would race every other suite (as in
+/// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`). The rule is tested on
+/// `Design.ZoneRefreshedFormatter`; these assert the row routes through it.
 @MainActor
 @Suite(.serialized) struct LogRowTimeZoneTests {
 

@@ -2,16 +2,12 @@ import Foundation
 import Testing
 @testable import Events
 
-/// The zone `~/sync-cloud.log`'s timestamps are written and read in.
+/// The zone `~/sync-cloud.log`'s timestamps are written and read in. A shared `DateFormatter`
+/// with no `timeZone` keeps the zone it first formatted in, so after a zone change both writing
+/// and reading back for the Activity Log must refresh, or every line shifts.
 ///
-/// A shared `DateFormatter` with no `timeZone` keeps the zone it first formatted in, so after a
-/// zone change every later line would carry the wrong wall clock, permanently. The same formatter
-/// parses history back for the Activity Log, so writing and reading must both refresh, or every
-/// older-history row would shift. Both halves are covered.
-///
-/// Driven through `stageZoneForTesting`, not by moving the process-wide `NSTimeZone.default`,
-/// which would race other suites (as `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`
-/// does for `RestructureLens`). See `LogTimestampFormatter`.
+/// Driven through `stageZoneForTesting`: moving the process-wide `NSTimeZone.default` would race
+/// other suites. See `LogTimestampFormatter`.
 @Suite(.serialized) struct LogTimestampZoneTests {
 
     /// 2026-06-01 12:00:00.000 UTC — whole seconds, so a round-tripped timestamp compares exactly

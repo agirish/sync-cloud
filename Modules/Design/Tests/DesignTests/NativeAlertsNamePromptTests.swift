@@ -3,11 +3,9 @@ import Testing
 
 /// Pins the rename / new-folder prompt's re-prompt contract.
 ///
-/// nil is this API's Cancel signal, so `FileActionHandler` and every other caller read it as "the
-/// user backed out". A blank (or whitespace-only) name must therefore get a reason and a second
-/// try like any other invalid name, never nil. From outside, a blank entry ending the loop looks
-/// just like a cancel, so `NativeAlerts.runNamePrompt` takes its two modal presentations injected:
-/// here a cancel presents once and explains nothing, a rejection presents again and explains why.
+/// nil is this API's Cancel signal, so a blank or whitespace-only name gets a reason and a second
+/// try like any other invalid name, never nil. From outside the two look alike, so
+/// `NativeAlerts.runNamePrompt` takes its two modal presentations injected.
 @Suite struct NativeAlertsNamePromptTests {
 
     /// Drives `runNamePrompt` with a scripted sequence of what the user "types", recording what

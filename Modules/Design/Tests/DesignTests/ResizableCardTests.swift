@@ -60,11 +60,9 @@ import Testing
         }
     }
 
-    /// The alignment and the direction describe the same edge. A `.leading` grip drawn at
-    /// `.trailing` would resize the card from the side the pointer is not on.
-    /// Compared against the real `HorizontalAlignment`/`VerticalAlignment` values, not a
-    /// description: `Alignment`'s `debugDescription` is opaque key bits, so a string match fails on
-    /// every case.
+    /// The alignment and the direction describe the same edge. Compared against the real
+    /// `HorizontalAlignment`/`VerticalAlignment` values: `Alignment`'s `debugDescription` is opaque
+    /// key bits, so a string match fails on every case.
     @Test func everyGripsAlignmentAgreesWithItsDirection() {
         for grip in ResizableCardGrip.allCases {
             let expectedH: HorizontalAlignment = grip.horizontal == 1 ? .trailing

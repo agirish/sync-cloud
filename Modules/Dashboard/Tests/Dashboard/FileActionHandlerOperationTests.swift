@@ -39,18 +39,11 @@ import Settings
         return url
     }
 
-    /// Waits for the manager's file-operation bookkeeping to drain.
-    ///
-    /// **Not a wait on its own:** `activeFileOperationsCount == 0` also holds before the operation
-    /// starts (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). Every caller must first wait
-    /// for the operation's outcome with `waitUntil` on the file appearing or disappearing; outcome,
-    /// then drain. The drain goes through `waitUntil`, which has a poll floor and reports at the
-    /// caller when the condition never holds.
-    ///
-    /// The trailing sleep is a known fixed pump: the banner publishes on a later turn than the
-    /// count's decrement, so without it banner assertions can see `nil`. The proper fix is for
-    /// banner assertions to wait on `manager.banner` instead (the ones asserting it absent need the
-    /// wait the other way round).
+    /// Waits for the manager's file-operation bookkeeping to drain. **Not a wait on its own:**
+    /// `activeFileOperationsCount == 0` also holds before the operation starts (`docs/flaky-tests.md`,
+    /// "Fixed pumps and fixed sleeps"), so every caller first waits for the outcome on disk.
+    /// The trailing sleep is a fixed pump: the banner publishes a turn after the count drops, so
+    /// without it a banner assertion can see `nil`.
     @MainActor
     private func waitForOperationsToFinish(_ manager: FileSyncManager,
                                            sourceLocation: SourceLocation = #_sourceLocation) async {
@@ -320,10 +313,9 @@ import Settings
 
     // MARK: - Delete
 
-    /// A cancelled prompt leaves the item, whether the setting asked (unset, so on) or the pane
-    /// bar's Delete did (`alwaysConfirm`) with the setting off. The second case is paired with
-    /// `anUnconfirmedDeleteSaysWhatTheFilterHidInTheResult`, which differs only in the flag; without
-    /// it, confirmation turning unconditional for everyone would pass here.
+    /// A cancelled prompt leaves the item, whether the setting asked or the pane bar's Delete did
+    /// (`alwaysConfirm`) with the setting off. Paired with
+    /// `anUnconfirmedDeleteSaysWhatTheFilterHidInTheResult`, so confirmation turning unconditional fails.
     @MainActor
     @Test(arguments: [false, true])
     func aCancelledDeleteLeavesTheItem(alwaysConfirmWithTheSettingOff: Bool) async throws {
@@ -561,10 +553,8 @@ import Settings
 
     // MARK: - Every operation runs on the manager's own file manager
 
-    /// A real `FileManager` that notes the destination of every move and every new folder. Each
-    /// operation below ends in one of those calls (a copy moves its staged file into place, a move
-    /// or rename moves the item, a new folder is `createDirectory`), so a note proves it ran on this
-    /// file manager. A call site that dropped `fileManager:` would land the same on disk via
+    /// A real `FileManager` that notes the destination of every move and new folder, the call each
+    /// operation ends in. A call site that dropped `fileManager:` would land the same on disk via
     /// `FileManager.default` but leave no note.
     private final class RecordingFileManager: FileManager, @unchecked Sendable {
         private let notes = OSAllocatedUnfairLock(initialState: [String]())

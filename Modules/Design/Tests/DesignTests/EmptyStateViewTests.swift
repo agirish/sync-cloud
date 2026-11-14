@@ -23,10 +23,9 @@ import SwiftUI
         #expect(action.systemImage == nil)
     }
 
-    /// Both action buttons carry `chromeHover`, the codebase's one hover choke point. Without it
-    /// on the secondary, the primary lights under the pointer and its companion stays inert. Hover
-    /// is `.none` at rest and driven by the modifier's own `onHover` state, so a test can't render
-    /// it; instead it counts the modifier in the body's static type, once per application site.
+    /// Both action buttons carry `chromeHover`. Hover is `.none` at rest and driven by the
+    /// modifier's own `onHover`, so a test can't render it; this counts the modifier in the body's
+    /// static type instead.
     @MainActor
     @Test func bothActionButtonsCarryTheHoverChokePoint() {
         let view = EmptyStateView(

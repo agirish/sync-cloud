@@ -6,11 +6,9 @@ import Testing
 /// `SegmentedAccent`: what a `.segmented` picker's selection is tinted with, and that every
 /// segmented picker in the app asks for it.
 ///
-/// These tests don't read the selected segment's pixels. On macOS 26 the selection is a
-/// `LiftPortalView` in a `WindowPortal` that the window server composites, so it adds nothing to
-/// any offscreen bitmap and renders only on screen in the frontmost app. The paint is checked by
-/// screen capture (see `SegmentedAccent`); this pins the colour choice, metric neutrality and
-/// call-site coverage, the three things that can go wrong silently.
+/// These tests can't read the selected segment's pixels: on macOS 26 the selection is a
+/// `LiftPortalView` the window server composites, so it renders only on screen in the frontmost
+/// app, never offscreen. This pins the colour choice, metric neutrality and call-site coverage.
 @Suite struct SegmentedAccentTests {
 
     private func srgb(_ color: Color) -> NSColor {
@@ -46,12 +44,9 @@ import Testing
                 "at None a prominent button is the stock accent, a second blue beside the deepened lit tools")
     }
 
-    /// Why the tint is the deepened fill, not the raw accent: AppKit draws the selected segment's
-    /// label white on every fill, so the fill must carry white, which `accentFillColor` guarantees.
-    /// Fails if `SegmentedAccent.tint(for:)` becomes `hue.accentColor`, which leaves raw Amber and
-    /// Cyan near 2:1. `.none` is excluded on purpose: it keeps the system accent untouched (see
-    /// `noneIsTheSystemAccentUntouched`), so if the loop is ever widened, narrow it again rather
-    /// than change the tint.
+    /// AppKit draws the selected segment's label white on every fill, so the tint is the deepened
+    /// fill. Must fail if `SegmentedAccent.tint(for:)` becomes `hue.accentColor`. `.none` is excluded
+    /// on purpose: it keeps the system accent untouched (`noneIsTheSystemAccentUntouched`).
     @Test func theTintCarriesTheWhiteLabelAppKitImposes() {
         for hue in LiquidGlassHue.allCases where hue != .none {
             let ratio = whiteContrast(srgb(SegmentedAccent.tint(for: hue)))
@@ -60,13 +55,9 @@ import Testing
         }
     }
 
-    /// `.none` means "the stock macOS look", so it takes the system accent verbatim: not deepened
-    /// like the named hues (that would make "no accent" darker than a stock control), and not a
-    /// hardcoded blue. The cost is Apple's own white-label contrast, 4.02:1 on the default blue.
-    ///
-    /// Not written as "`.none` differs from the deepened accent": `AccentFill` only darkens what is
-    /// too light, so on a Mac with a dark accent (Purple, Graphite) the two are the same colour and
-    /// that check would fail there. The check that named hues do move uses Amber, a literal.
+    /// `.none` means "the stock macOS look", so it takes the system accent verbatim: not deepened,
+    /// and not a hardcoded blue. Not written as "differs from the deepened accent": on a Mac with a
+    /// dark accent (Purple, Graphite) `AccentFill` leaves it alone and the two are the same colour.
     @Test func noneIsTheSystemAccentUntouched() {
         // Compared by component, to float precision: `.none` reads AppKit's accent (so a window
         // root's accent can't recolour it), and SwiftUI's copy of that colour carries HDR headroom
@@ -83,10 +74,9 @@ import Testing
                 "Amber is light enough to need deepening — only `.none` is exempt")
     }
 
-    /// The tint must be colour and nothing else. Changed metrics would reflow the Settings sheet,
-    /// whose Appearance tab fits with single digits of slack, and the pane bar sheet's picker sits
-    /// in a `.fixedSize()` footer row. The specimen has a segment selected, since the selection is
-    /// what the tint colours; with nothing selected the test couldn't see a change to it.
+    /// The tint must be colour and nothing else: changed metrics would reflow the Settings sheet,
+    /// which fits with single digits of slack. The specimen has a segment selected, since the
+    /// selection is what the tint colours.
     @MainActor
     @Test func tintingChangesNoMetrics() {
         struct Specimen: View {
@@ -126,11 +116,9 @@ import Testing
         }
     }
 
-    /// Every `.segmented` picker in the app asks for the app's accent. It guards against a new
-    /// picker added without the tint, sitting in system blue beside the rest; the offscreen
-    /// renderer can't see any selection, so nothing else would catch it. Scans sources because a
-    /// SwiftUI tree can't be asked its tint (`SettingsSearchTests.controlLabelsInTabSources` reads
-    /// sources for the same reason).
+    /// Every `.segmented` picker in the app asks for the app's accent, so a new one can't sit in
+    /// system blue. A source scan, because the offscreen renderer can't see a selection and a
+    /// SwiftUI tree can't be asked its tint.
     @Test func everySegmentedPickerInTheAppTakesTheAppAccent() throws {
         var sites = 0
         for file in try AccentFillScanTests.appSources() {
@@ -140,10 +128,8 @@ import Testing
                 .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             guard collapsed.contains(".pickerStyle(.segmented)") else { continue }
 
-            // A picker's modifier chain runs from its `Picker(` to the next, so splitting there
-            // bounds each chain exactly. A character window could reach a neighbour's tint and
-            // report a missing one as present. `DatePicker(`/`ColorPicker(` only add harmless
-            // boundaries.
+            // Split at each `Picker(` to bound each chain exactly: a character window could reach
+            // a neighbour's tint and report a missing one as present.
             for chunk in collapsed.components(separatedBy: "Picker(")
             where chunk.contains(".pickerStyle(.segmented)") {
                 sites += 1

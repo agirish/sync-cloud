@@ -19,13 +19,10 @@ import Testing
         let line: Int
     }
 
-    /// The chain belonging to the control declared at `start`. Extent is decided by indentation,
-    /// not a fixed number of lines (which can miss a label one line past the window), and comment
-    /// lines continue the chain, since the codebase explains a modifier directly above it.
-    ///
-    /// A comment extends the chain but is not part of it: the text returned is code only, so a
-    /// comment that mentions `accessibilityLabel` can't satisfy the check. Whole-line comments are
-    /// dropped and a trailing `//` is cut where it stands outside a string literal.
+    /// The chain belonging to the control declared at `start`, its extent decided by indentation,
+    /// not a fixed line count (which can miss a label one line past the window). Comment lines
+    /// continue the chain but are not returned, so a comment that mentions `accessibilityLabel`
+    /// can't satisfy the check; a trailing `//` is cut where it stands outside a string literal.
     private static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
         var code = [SourceComments.codeOnly(lines[start])]
@@ -161,11 +158,9 @@ import Testing
 
     // MARK: - What the scan cannot see
 
-    /// The scan above only recognises a literal `Button` or `Menu`, so a glyph control built as its
-    /// own `View` is invisible to it. `CloseButton`, a bare `xmark`, never appears as a `Button` at
-    /// a call site, and naming it inside the component would put a generic "Close" under its
-    /// callers' specific names. So the known components are listed: each must carry a label itself
-    /// or be named at every call site.
+    /// The scan above only sees a literal `Button` or `Menu`, so a glyph control built as its own
+    /// `View` (`CloseButton`, a bare `xmark`) is invisible to it. The known components are listed:
+    /// each must carry a label itself or be named at every call site.
     @Test func theGlyphOnlyComponentsAreNamedSomewhere() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -194,8 +189,7 @@ import Testing
                     "\(component) renders a glyph control and no longer names it")
         }
 
-        // `CloseButton` is named by every caller. A call site that forgets is announced as
-        // "button", through the one door the scan above can't watch. Every source and both
+        // `CloseButton` is named by every caller, or announced as "button". Every source and both
         // spellings (`CloseButton(` and a trailing closure), since a list of call sites goes stale.
         var seen = 0
         for file in try AccentFillScanTests.appSources() {
@@ -211,8 +205,7 @@ import Testing
                         "\(file.lastPathComponent):\(i + 1) uses CloseButton without naming it — the component deliberately does not name itself")
             }
         }
-        // Six today (Help, the banner, Settings, the destination picker, setup's ✕, the Info
-        // inspector). At least that many, so a scan that stopped matching can't pass on none.
+        // At least six call sites, so a scan that stopped matching can't pass on none.
         #expect(seen >= 6, "found \(seen) CloseButton call sites, expected at least 6 — the scan has stopped matching")
 
         // And the component still declines to name itself; if it did, the call-site names would

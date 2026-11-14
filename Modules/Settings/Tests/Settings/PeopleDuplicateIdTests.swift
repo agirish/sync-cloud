@@ -5,17 +5,11 @@ import Sync
 import Testing
 @testable import Settings
 
-/// What a `people.json` with a repeated person id does to the Settings pane. The file is
-/// hand-edited and nothing rejects a repeated `id`. `PersonRegistry.init(people:)` collapses the
-/// roster to one record per id, so these tests pin the collapse and what the pane draws: one row,
-/// from the record that won. The no-crash guarantee is `PersonRegistryDuplicateIdTests`, in Sync,
-/// where the dedup is.
-///
-/// `allFacts` still keys with `uniquingKeysWith:`, as a backstop: `uniqueKeysWithValues:` would
-/// trap on the main actor if the dedup ever regressed, and a trap can't be caught in-process.
-///
-/// The two render tests are `.machinePinned(.pixelSampling)` because `renderedInk` reads painted
-/// pixels back with `colorAt`; the two that sample nothing run unpinned.
+/// What a hand-edited `people.json` with a repeated person id does to the Settings pane.
+/// `PersonRegistry.init(people:)` collapses the roster to one record per id; these tests pin the
+/// collapse and what the pane draws. The no-crash guarantee is `PersonRegistryDuplicateIdTests`, in
+/// Sync. The render tests are `.machinePinned(.pixelSampling)` because `renderedInk` reads pixels
+/// back with `colorAt`.
 @MainActor
 @Suite struct PeopleDuplicateIdTests {
 
@@ -79,9 +73,9 @@ import Testing
         PersonVetoLog(userDefaults: ScratchDefaults("PeopleDuplicateIdTests"))
     }
 
-    /// Pins the backstop: `allFacts` keeps `uniquingKeysWith:`. No input can reach it with a
-    /// repeated key, so reverting to `uniqueKeysWithValues:` would leave every other test green
-    /// until the dedup broke too. A source scan, because a duplicate can no longer be driven there.
+    /// Pins the backstop: `allFacts` keeps `uniquingKeysWith:`, since `uniqueKeysWithValues:` would
+    /// trap on the main actor if the dedup regressed, and a trap can't be caught in-process. A source
+    /// scan, because no input can reach it with a repeated key.
     @Test func theFactsMapStaysTolerantOfARepeatedKey() throws {
         let source = try settingsSource("SettingsView.swift")
         let facts = try #require(source.range(of: "private var allFacts:"),

@@ -6,10 +6,8 @@ import Design
 @testable import Dashboard
 
 /// Tree · Columns in the pane bar hosts a selection lens: in Frosted and Clear the lens lands
-/// exactly where Solid draws today's fill.
-///
-/// Rendered with the lens probe (glass draws nothing offscreen — see `SelectionLensTests` in
-/// Design) and compared, pixel box for pixel box, with the Solid render's accent fill.
+/// exactly where Solid draws today's fill. Rendered with the lens probe (glass draws nothing
+/// offscreen; see `SelectionLensTests` in Design) and compared box for box with Solid's fill.
 @MainActor
 @Suite(.serialized) struct SelectionLensViewModeTests {
 

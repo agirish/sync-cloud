@@ -199,9 +199,8 @@ import Foundation
         #expect(size <= 2 * (maxFileSize + maxFileSize / 2) + 64)
     }
 
-    /// Pins an accepted side effect: `clear()` runs `reopenHandleIfStale()` first (see the test
-    /// below), which recreates a missing file, so clearing a deleted log leaves an empty file.
-    /// Harmless; see `LogFileWriter.clear()`. `SyncHistoryStore.clear()` shares it.
+    /// An accepted side effect: `clear()` runs `reopenHandleIfStale()` first, so clearing a deleted
+    /// log leaves an empty file. `SyncHistoryStore.clear()` shares it.
     @Test func testClearRecreatesADeletedLogAsAnEmptyFile() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }

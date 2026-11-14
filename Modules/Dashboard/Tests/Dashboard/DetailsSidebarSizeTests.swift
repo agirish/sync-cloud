@@ -95,9 +95,7 @@ import Testing
     }
 
     /// A folder whose only content is an unreadable subtree must not read "Zero KB+". It walks as
-    /// `.listedWithUnreadableDescendants` with zero bytes, and "+" on zero states nothing: every
-    /// folder holds at least zero bytes. The review card's `classify` can't answer partial on zero
-    /// entries, but bytes aren't entries, so this is guarded in the wording the sidebar shows.
+    /// `.listedWithUnreadableDescendants` with zero bytes, and "+" on zero states nothing.
     @Test func aFolderWhoseOnlyContentIsUnreadableDoesNotReportZeroKilobytesPlus() async throws {
         guard !skippedBecauseRoot("aFolderWhoseOnlyContentIsUnreadableDoesNotReportZeroKilobytesPlus") else { return }
         let scratch = try makeScratch()
@@ -113,13 +111,11 @@ import Testing
 
         let size = await DetailsSidebar.computeDirectorySizeString(path: folder.path)
 
-        // The partial verdict with a total of zero: not “Zero KB+”, a floor of nothing.
         #expect(size == nil, "no honest number here; the caller renders nil as “--”")
     }
 
-    /// The other half of that guard: a partial walk that measured something still reports it, with
-    /// the "+". Otherwise nil for every partial folder would satisfy the test above. The folder
-    /// opened but a subfolder didn't, so the total is a floor, and the "+" says so.
+    /// The other half: a partial walk that measured something still reports it as a floor, with the
+    /// "+", or nil for every partial folder would satisfy the test above.
     @Test func aPartialWalkThatMeasuredSomethingStillReportsItAsAFloor() async throws {
         guard !skippedBecauseRoot("aPartialWalkThatMeasuredSomethingStillReportsItAsAFloor") else { return }
         let scratch = try makeScratch()
@@ -144,8 +140,7 @@ import Testing
 
     /// `enumerator(at:)` doesn't traverse a symlinked directory: it comes back non-nil, yields zero
     /// entries and fires the error handler with the link's URL, the same signature that means
-    /// `.unreadable`. Without handling, a folder Finder sizes fine would show "--". The premise is
-    /// checked inline, since the handling rests on it.
+    /// `.unreadable`. Without handling, a folder Finder sizes fine would show "--".
     @Test func aSymlinkedFolderIsSizedRatherThanCalledUnreadable() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -179,9 +174,8 @@ import Testing
         #expect(!throughLink.hasSuffix("+"), "nothing was withheld — this is a complete total")
     }
 
-    /// The other direction: a link to a locked folder is still `.unreadable`. Checking only the
-    /// readable case would pass against a retry that fires unconditionally and reports zero for
-    /// locked folders behind links. The readable link gets a number; the locked one gets nil.
+    /// The other direction: a link to a locked folder is still `.unreadable`, or a retry that fires
+    /// unconditionally and reports zero for locked folders behind links would pass.
     @Test func aLinkToALockedFolderIsStillUnreadable() async throws {
         guard !skippedBecauseRoot("aLinkToALockedFolderIsStillUnreadable") else { return }
         let scratch = try makeScratch()
@@ -215,10 +209,8 @@ import Testing
         #expect(throughOpen != throughLocked)
     }
 
-    /// A broken link resolves to a missing path and a self-referential one to itself;
-    /// `traversableTarget` refuses both, so neither gets a size. nil is also the fallback for
-    /// anything unmeasurable, so a third link to a real folder is the control: it must come back
-    /// with the bytes, or a function that stopped measuring altogether would pass.
+    /// A broken or self-referential link gets no size: `traversableTarget` refuses both. A third
+    /// link to a real folder is the control, or a function that stopped measuring would pass.
     @Test func aBrokenOrSelfReferentialLinkHasNoSize() async throws {
         let scratch = try makeScratch()
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -244,5 +236,4 @@ import Testing
         let measured = try #require(soundSize, "a link to a readable folder must be sized")
         #expect(measured.contains("4"), "the control link's real total: \(measured)")
     }
-
 }

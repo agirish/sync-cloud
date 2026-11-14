@@ -6,12 +6,9 @@ import Sync
 import Design
 import FileExplorerTestSupport
 
-/// The bar as a canvas: a control can sit anywhere along the pane's row, from its leading inset to
-/// its trailing one, not only at the trailing edge.
-///
-/// These measure where the controls end up in the window, not the arrangement string meant to
-/// produce it: an arrangement that parses correctly and still renders right-aligned is visible
-/// only in the geometry.
+/// The bar as a canvas: a control can sit anywhere along the pane's row, not only at the trailing
+/// edge. These measure where controls end up in the window, not the arrangement string: one that
+/// parses correctly and still renders right-aligned is visible only in the geometry.
 @MainActor
 @Suite(.serialized) struct PaneBarCanvasTests {
 
@@ -53,11 +50,9 @@ import FileExplorerTestSupport
         .defaultAppStorage(defaults)
     }
 
-    /// The bar's own controls, picked by row, not position. The header has two focusable rows, the
-    /// bar and the breadcrumb's crumbs below it, and the crumbs also start at the leading padding,
-    /// so a filter on x would swallow them. The bar is the higher row: its rings share the smallest
-    /// `minY`. The first crumb never appears here: it is the source chip, an AppKit-hosted `Menu`,
-    /// and only buttons carry a focus ring.
+    /// The bar's own controls, picked by row, not position: the breadcrumb's crumbs below also start
+    /// at the leading padding. The bar is the higher row, its rings sharing the smallest `minY`; the
+    /// source chip is an AppKit-hosted `Menu` with no focus ring, so it never appears.
     private static func barFrames(_ arrangement: PaneBarArrangement,
                                   iconSize: PaneBarIconSize = .regular,
                                   width: CGFloat = width) -> [CGRect] {

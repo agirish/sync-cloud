@@ -3,13 +3,9 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// `SettingsManager.cloudCoverage`: the call site of the rule that a disabled provider still
-/// counts as coverage.
-///
-/// `FileLocationTests` proves `FileLocation.coverage` honours the rule given the full list; this
-/// checks which list the property hands it. `enabledProviders` sits next to `availableProviders`
-/// and reads as right, and swapping them would report every file in a switched-off provider as
-/// having only one copy.
+/// `SettingsManager.cloudCoverage` hands `FileLocation.coverage` every provider, disabled ones too
+/// (`FileLocationTests` proves the rule given the full list). `enabledProviders` reads as right,
+/// and swapping it in would report every file in a switched-off provider as having only one copy.
 @MainActor
 @Suite struct CloudCoverageTests {
 

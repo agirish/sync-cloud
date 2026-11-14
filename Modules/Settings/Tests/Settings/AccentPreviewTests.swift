@@ -4,14 +4,10 @@ import SwiftUI
 import Testing
 @testable import Settings
 
-/// Guards that the Appearance tab's accent preview shows the pairing the app actually ships.
-///
-/// `LiquidGlassHue` has two accents: the raw `accentColor` looks livelier but strands a white
-/// label below AA on Green and Amber, so every filled surface takes the deepened `accentFillColor`
-/// (see `AccentFill`). A preview using the raw one would show a pairing the app can't render.
-///
-/// The fill is measured in painted pixels, not read back, so an `.opacity()`, a dimming or a fill
-/// drawn on top is caught too. `AccentFill.deepened` is dynamic, so two calls aren't `==` anyway.
+/// Guards that the Appearance tab's accent preview shows the pairing the app actually ships: the
+/// raw `accentColor` strands a white label below AA on Green and Amber, so every filled surface
+/// takes the deepened `accentFillColor` (see `AccentFill`). Measured in painted pixels, so an
+/// `.opacity()`, a dimming or a fill drawn on top is caught too.
 @MainActor
 @Suite(.serialized) struct AccentPreviewTests {
 
@@ -169,8 +165,8 @@ import Testing
 
     // MARK: None's tooltip
 
-    /// None's tooltip explains the coloured button (TE332 moved it there from the caption): a
-    /// coloured button under "None" reads as a bug without it.
+    /// None's tooltip explains the coloured button: a coloured button under "None" reads as a bug
+    /// without it.
     @Test func noneExplainsTheColouredButton() throws {
         let none = AccentColorSection.noneHelp
         #expect(none.hasPrefix("None. "))

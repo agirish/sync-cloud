@@ -3,13 +3,9 @@ import Testing
 @testable import Design
 
 /// Every raw `.animation(_:value:)` in the app is either converted to `designAnimation` or named
-/// here with the reason it is exempt.
-///
-/// `designAnimation`'s doc names three families deliberately left alone: hover/press ladders,
-/// numeric content transitions, and opacity cross-fades on overlays. An audit that lives only in
-/// prose can't tell a site that was considered and exempted from one that was missed, so the list
-/// is the test: a new raw `.animation` fails here until its author converts it or names its
-/// family.
+/// here with the reason it is exempt: hover/press ladders, numeric content transitions and overlay
+/// cross-fades, as `designAnimation`'s doc lists. A new raw `.animation` fails here until its
+/// author converts it or names its family.
 @Suite struct ReduceMotionCoverageScanTests {
 
     /// Why a raw `.animation` is allowed to stay raw. The cases are the three families in
@@ -53,7 +49,7 @@ import Testing
         "appeared": .gatedByHand,                     // SetupArtwork ×3, `reduceMotion ? nil : …`
 
         "bottomPaneIsCollapsed": .suppression,        // .animation(nil, …)
-        "selectedWorkspace": .suppression,            // .animation(nil, …) — a switch snaps (speed audit 11)
+        "selectedWorkspace": .suppression,            // .animation(nil, …) — a switch snaps
         "panesHiddenForCurrentTab": .suppression,     // .animation(nil, …) — a pane toggle snaps
     ]
 
@@ -145,15 +141,10 @@ import Testing
 
 /// The same audit for `withAnimation`, which the scan above cannot see at all.
 ///
-/// `.animation(_:value:)` and `withAnimation` are two independent ways to animate. A change inside
-/// `withAnimation` carries its own animation into the transaction, and an `.animation(_:value:)`
-/// naming the same value overrides it (measured with a probe reading `Transaction.animation`), which
-/// is why the inspector is gated though it is toggled inside a `withAnimation`. A mover driven only
-/// by `withAnimation` has nothing to override it, so the setting never reaches it and the scan
-/// above, with no `.animation(` to read, stays green.
-///
-/// Keyed by the first thing the closure touches rather than by line number, which would need
-/// editing on every unrelated edit.
+/// A change inside `withAnimation` carries its own animation into the transaction, and an
+/// `.animation(_:value:)` naming the same value overrides it (measured by probe). A mover driven
+/// only by `withAnimation` has nothing to override it, so Reduce Motion never reaches it and the
+/// scan above stays green. Keyed by the first thing the closure touches, not by line number.
 @Suite struct WithAnimationCoverageScanTests {
 
     /// Why a raw `withAnimation` is allowed to stay raw.
@@ -214,10 +205,9 @@ import Testing
                 guard let call = trimmed.range(of: "withAnimation") else { continue }
                 guard !trimmed.contains("withDesignAnimation") else { continue }
 
-                // The first identifier of its own closure, found by scanning forward from the call,
-                // not from the start of the line. A site written inline behind another closure
-                // (`? { withAnimation(…) { … } }`) has an earlier `{` on the same line, which would
-                // name every such site "withAnimation".
+                // The first identifier of its own closure, scanning forward from the call: a site
+                // inline behind another closure (`? { withAnimation(…) { … } }`) has an earlier `{`
+                // on the line, which would name every such site "withAnimation".
                 let afterCall = String(trimmed[call.upperBound...])
                 var body = ""
                 if let brace = afterCall.range(of: "{") { body = String(afterCall[brace.upperBound...]) }

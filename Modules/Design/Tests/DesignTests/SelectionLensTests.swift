@@ -70,8 +70,8 @@ import SwiftUI
     }
 
     @Test func noneStaysAtTheFloorAtEveryTint() {
-        // No hue for the slider to strengthen — and never 0, which would leave the choice unmarked
-        // now that the rim is gone (TE325).
+        // No hue for the slider to strengthen, and never 0: with no rim at standard contrast, that
+        // would leave the choice unmarked.
         for tint in [0.0, 0.34, 1.0] {
             #expect(SelectionLensRule.fillStrength(hue: .none, tint: tint) == SelectionLensRule.chosenFillFloor)
             #expect(SelectionLensRule.tintOpacity(markerOpacity: 1, hue: .none, tint: tint)
@@ -123,8 +123,8 @@ import SwiftUI
     }
 
     @Test func aColouredLensIsAFlatFillAndOnlyAColourlessOneIsGlass() {
-        // Tinted glass left white bands along its edges (TE325), so colour is drawn flat, edge to
-        // edge; the halo, which carries none, keeps its glass.
+        // Tinted glass leaves white bands along its edges, so colour is drawn flat, edge to edge;
+        // the halo, which carries none, keeps its glass.
         #expect(SelectionLensRule.lensFill(material: .clear, tintOpacity: 0.18) == .flat(0.18))
         #expect(SelectionLensRule.lensFill(material: .frosted, tintOpacity: 0.25) == .flat(0.25))
         #expect(SelectionLensRule.lensFill(material: .clear, tintOpacity: 0) == .glass(.clear))
@@ -522,9 +522,8 @@ import SwiftUI
 
     @Test(.machinePinned(.pixelSampling), arguments: [ColorSchemeContrast.standard, .increased])
     func clearGlassDrawsARimOnlyUnderIncreaseContrast(contrast: ColorSchemeContrast) {
-        // At real Clear the glass draws nothing offscreen, but a rim — a stroke outside the glass
-        // container — does: in the marker's colour, around the stop. At standard contrast there is
-        // none; the glass's fill marks the choice (TE325).
+        // At real Clear the glass draws nothing offscreen, but a rim (a stroke outside the glass
+        // container) does, in the marker's colour. At standard contrast the fill marks the choice.
         let rig = ProbeRig(Harness(selected: 1, appearance: SelectionLensAppearance(level: .clear, hue: .blue, tint: 0),
                                    style: .fill(.capsule, color: Self.ringBlue), contrast: contrast),
                            size: Self.size)
@@ -570,9 +569,8 @@ import SwiftUI
 
     @Test(.machinePinned(.pixelSampling))
     func aMoveToAStopOffScreenArrivesAtOnce() {
-        // Segment 2 lies outside the visible region, so the move switches instead of travelling.
-        // In the host's coordinates (inside the padding) it starts at x = 100, so the region ends
-        // 10pt short of it rather than on its edge, where `intersects` would decide the test.
+        // Segment 2 (x = 100 inside the padding) lies outside the region, so the move switches.
+        // The region ends 10pt short of it, not on its edge, where `intersects` would decide.
         let region = SelectionLensVisibleRegion()
         region.rect = CGRect(x: 0, y: 0, width: 90, height: 40)
         let rig = ProbeRig(Harness(selected: 0, appearance: Self.probe, region: region), size: Self.size)
@@ -580,10 +578,9 @@ import SwiftUI
         expectNear(rig.box(Pixel.lensProbe), segment(2))
     }
 
-    /// A scroll view reports what it shows, and a move off it switches. Here a real scroll view
-    /// writes the region (`selectionLensTracksVisibleRegion`), 100pt wide over stops that run to
-    /// 150, with the host on its padded content as at every call site. A move to the stop past its
-    /// edge lands at once; a move to one on screen travels, its first frame still at the old stop.
+    /// A real scroll view writes the region (`selectionLensTracksVisibleRegion`), 100pt wide over
+    /// stops that run to 150: a move to the stop past its edge lands at once, a move to one on
+    /// screen travels.
     struct ScrollHarness: View {
         var selected: Int
         let region: SelectionLensVisibleRegion
@@ -661,9 +658,8 @@ import SwiftUI
 
     @Test(.machinePinned(.pixelSampling))
     func aLensWhoseOnlyStopChangesHandsStaysPut() {
-        // The chip rung: choosing another tab re-labels the one stop. The lens is wanted where it
-        // was; treating the missing old id as a growth would blink it out to regrow on the same
-        // chip.
+        // The chip rung: choosing another tab re-labels the one stop. Treating the missing old id
+        // as a growth would blink the lens out to regrow on the same chip.
         let rig = ProbeRig(ShiftingHarness(selected: 0, onlyChosen: true), size: Self.size)
         expectNear(rig.box(Pixel.lensProbe), segment(0))
         rig.host.rootView = ShiftingHarness(selected: 7, onlyChosen: true)
@@ -821,9 +817,8 @@ import SwiftUI
         #expect(Self.isRed(ink(view, 0)) && Self.isRed(ink(view, 2)), "the rest are not their own ink")
     }
 
-    /// In dark mode the chosen label keeps the fill's white, by design: dark glass carries white
-    /// well. `.primary` is white at 85%, which over the probe reads `(255, 217, 255)`, so this asks
-    /// for the fill's ink exactly.
+    /// In dark mode the chosen label keeps the fill's white: dark glass carries white well. Asks
+    /// for the fill's ink exactly, since `.primary` (white at 85%) reads `(255, 217, 255)` here.
     @Test(.machinePinned(.pixelSampling))
     func inDarkTheChosenLabelOnGlassKeepsTheFillsWhite() {
         let chosen = ink(LabelHarness(selected: 0, appearance: Self.probe, scheme: .dark), 0)

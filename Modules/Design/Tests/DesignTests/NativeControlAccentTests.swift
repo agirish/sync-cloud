@@ -143,10 +143,9 @@ import Testing
         return rep
     }
 
-    /// A control in a sheet takes the presenting window's hue. The accent colour a root sets stops
-    /// at a presentation, so `presentedNativeControlAccent` carries the root's hue across. The hue
-    /// is the presenter's, not the stored one (Settings and Setup set their own), so the test picks
-    /// one that isn't stored.
+    /// A control in a sheet takes the presenting window's hue, which `presentedNativeControlAccent`
+    /// carries across the presentation. The test picks a hue that isn't stored, since Settings and
+    /// Setup set their own.
     @Test func aControlInASheetTakesThePresentersHue() throws {
         let hue: LiquidGlassHue = LiquidGlassHue.stored() == .coral ? .green : .coral
         let fill = hue.accentFillColor

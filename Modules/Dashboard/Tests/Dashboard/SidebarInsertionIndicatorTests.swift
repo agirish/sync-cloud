@@ -4,15 +4,11 @@ import AppKit
 import Design
 @testable import Dashboard
 
-/// Where the drag's insertion line lands, measured off the render.
-///
-/// Row midpoints are in the `sidebarDrag` coordinate space, so a line drawn in the wrong space (on
-/// the section, whose origin is partway down the column) lands rows below its gap even though
-/// `SidebarReorder.insertionIndex` and `insertionY` are right and `SidebarReorderTests` passes.
-///
-/// So the line is compared against the rows, not another line: an origin error is invisible to
-/// anything relative (the ladder stays monotonic, gaps stay one pitch apart). Both anchors come
-/// from one bitmap: the line by its accent ink, each row by the wash it gets when current.
+/// Where the drag's insertion line lands, measured off the render. Row midpoints are in the
+/// `sidebarDrag` coordinate space, so a line drawn in the section's space (whose origin is partway
+/// down the column) lands rows below its gap while `SidebarReorderTests` still passes. An origin
+/// error is invisible to anything relative, so the line is compared against the rows, both read off
+/// one bitmap: the line by its accent ink, each row by the wash it gets when current.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct SidebarInsertionIndicatorTests {
 
@@ -144,12 +140,9 @@ import Design
         #expect(first - line < pitch, "the line for a top drop is more than a row above it")
     }
 
-    /// An unarmed recents drag paints no line. The line promises that releasing commits, and a
-    /// recents drag that hasn't reached the Favorites band is a cancel (`DragInFlight.willDrop`
-    /// false), so a small slip on a recent must not look like an insertion offer.
-    ///
-    /// The armed render of the same drag is the premise, so "no line" can't come from a fixture
-    /// that paints nothing.
+    /// An unarmed recents drag paints no line: one that hasn't reached the Favorites band is a
+    /// cancel (`DragInFlight.willDrop` false), so a slip must not look like an insertion offer. The
+    /// armed render is the premise, so "no line" can't come from a fixture that paints nothing.
     @Test func anUnarmedRecentsDragDrawsNoLine() throws {
         let recents = [FolderSidebarRow(group: .recents, root: "/loc0", sourceName: nil,
                                         relativePath: "Notes", name: "Notes", detail: nil,
@@ -198,8 +191,6 @@ import Design
                 "the leading end is no taller than the bar — the caret is not being drawn")
     }
 }
-
-
 
 private extension Color {
     var nsColor: NSColor { NSColor(self) }

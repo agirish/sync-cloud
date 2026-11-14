@@ -3,10 +3,9 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `designAnimation` is one decision — drop the motion when Reduce Motion is on — so the decision
-/// is tested rather than the modifier that carries it. `DesignAnimationModifier` calls
-/// `DesignAnimationRule.resolve` itself, so these are testing the code that actually runs and not a
-/// restatement of it sitting beside it.
+/// `designAnimation` is one decision, drop the motion when Reduce Motion is on, so the decision is
+/// tested: `DesignAnimationModifier` calls `DesignAnimationRule.resolve` itself, so this is the code
+/// that actually runs.
 @Suite struct DesignAnimationTests {
 
     @Test func reduceMotionDropsTheAnimationEntirely() {
@@ -40,11 +39,9 @@ import Testing
 
     // MARK: - The families deliberately left alone
 
-    /// The three exempt families must stay exempt. A hover ladder, a numeric roll and an overlay
-    /// cross-fade are animation Reduce Motion should not remove: colour and content transitions
-    /// are what the setting asks motion to be replaced with. Converting every `.animation(` in the
-    /// app would look tidy and make a hovered control snap between two fills. A source scan,
-    /// because the claim is about call sites.
+    /// The three exempt families stay exempt: a hover ladder, a numeric roll and an overlay
+    /// cross-fade are what Reduce Motion asks motion to be replaced with. Converting them would make
+    /// a hovered control snap between two fills.
     @Test func theExemptFamiliesStillUseThePlainAnimationModifier() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -61,10 +58,9 @@ import Testing
         ]
         for (path, marker) in exempt {
             let text = try String(contentsOf: repo.appendingPathComponent(path), encoding: .utf8)
-            // `nimation(` matches BOTH spellings on purpose. Searching for `.animation(` would not
-            // match `.designAnimation(` at all, so a converted site would fail the `#require`
-            // below as "no longer animates" — a true statement about the wrong thing, and the
-            // assertion carrying the actual explanation would never be reached.
+            // `nimation(` matches BOTH spellings on purpose: `.animation(` would miss a converted
+            // `.designAnimation(` site, failing the `#require` as "no longer animates" before the
+            // assertion that explains the real problem is reached.
             let line = text.split(separator: "\n").first { $0.contains(marker) && $0.contains("nimation(") }
             let found = try #require(line.map(String.init),
                                      "\(path) no longer animates \(marker) — the exemption may be stale")
@@ -74,16 +70,11 @@ import Testing
     }
 }
 
-/// What the two wrappers actually put in the transaction, read out of a live render.
-///
-/// The rule is a pure function, which can't show that its nil reaches the transaction, and
-/// SwiftUI has two animation doors that can disagree. This mounts a real view and reads
-/// `Transaction.animation` beneath each wrapper while an ambient `withAnimation` runs.
+/// What the two wrappers actually put in the transaction, read as `Transaction.animation` beneath
+/// each in a live render while an ambient `withAnimation` runs.
 ///
 /// It pins a fact a design rests on: `.animation(_:value:)` overrides an enclosing
-/// `withAnimation`, so a gated value stays gated however its mutation is wrapped. That is why the
-/// panes, the inspector and the workspace switch are covered although each is toggled inside a
-/// `withAnimation`.
+/// `withAnimation`, so a gated value stays gated however its mutation is wrapped.
 @MainActor
 @Suite(.serialized) struct AnimationTransactionTests {
 
@@ -139,12 +130,9 @@ import Testing
             """)
     }
 
-    /// The imperative half, measured the same way: a change driven by `withDesignAnimation` under
-    /// the setting reaches an UNGATED subtree with no animation at all.
-    ///
-    /// The ungated sibling is the probe on purpose: with nothing of its own to suppress, it sees
-    /// only what the driver put in the transaction. Reading `Transaction().animation` inside the
-    /// closure would build a fresh transaction and answer nil whatever the flag said.
+    /// The imperative half: a change driven by `withDesignAnimation` under the setting reaches an
+    /// UNGATED subtree with no animation. The ungated sibling is the probe on purpose: reading
+    /// `Transaction().animation` inside the closure would build a fresh one and answer nil regardless.
     @Test func withDesignAnimationUnderReduceMotionDrivesNoAnimation() async throws {
         func ambientSeenByAnUngatedSubtree(reduceMotion: Bool) async throws -> Animation? {
             let flag = Flag()

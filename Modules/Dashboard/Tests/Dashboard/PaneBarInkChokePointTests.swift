@@ -4,12 +4,9 @@ import Testing
 
 /// Every rung on the pane bar colours its glyph through `paneNavChrome`, and nothing else.
 /// `PaneNavChrome` applies its own `.foregroundStyle` to the glyph, so a colour set further out (on
-/// the `Button`, the label, an enclosing stack) is outranked and silently never arrives: no build
-/// error, no layout change. Pixel counts catch it one control at a time; this catches the shape
-/// where it is written.
-///
-/// A narrow source scan: it finds one function by brace balancing, fails if it can't, and checks
-/// the extracted body looks like the real function before trusting a token's absence from it.
+/// the `Button`, the label, an enclosing stack) is outranked and silently never arrives. A narrow
+/// source scan: it finds one function by brace balancing, fails if it can't, and checks the
+/// extracted body looks like the real function before trusting a token's absence from it.
 @Suite struct PaneBarInkChokePointTests {
 
     /// `barItem` is the one place a rung is drawn. Colour belongs in `paneNavChrome(…, ink:)`.

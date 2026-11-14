@@ -1,52 +1,27 @@
 import Foundation
 import Testing
 
-/// The app fills its lit controls with the deepened accent, never the raw one.
+/// The app fills its lit controls with the deepened accent, never the raw one: a white label on
+/// the raw accent is about 2.7:1 on Green, against 4.5:1 on `LiquidGlassHue.accentFillColor` (see
+/// `AccentFill`). A render can't see a fill written with the wrong colour (a test hands the view
+/// whatever colour it likes), so this scans the app's sources, comments stripped. The rules:
 ///
-/// A white label on the raw accent is about 2.7:1 on Green, against the 4.5:1 every filled surface
-/// keeps by filling with `LiquidGlassHue.accentFillColor` (see `AccentFill`). Edit gets two colours
-/// from its host: `accentFill` for fills, and the raw accent for washes, hairlines, accent-coloured
-/// words and hover tints.
-///
-/// The failure guarded is a new fill written with the colour right next to it. A render can't see
-/// that (a test hands the view whatever colour it likes), so this is a source scan, like
-/// `SegmentedAccentTests.everySegmentedPickerInTheAppTakesTheAppAccent`. Seven rules, over the
-/// app's sources with comments stripped:
-///
-/// 1. No raw accent as a fill. The argument of every `.fill(…)` and `.background(…)`, the
-///    selection lens's `.fill(.capsule, color:)` included, may not name `accent`, `accentColor` or
-///    `controlAccentColor` unless turned down to a wash (`.opacity(…)`, `.withAlphaComponent(…)`).
-///    Nor may a view's `accentFill:` be handed the raw accent, which no scan of the view can see.
-/// 2. Every `.borderedProminent` takes `.accentedProminent(…)` and no `.tint` of its own.
-///    Untinted it paints the system accent; tinted with the raw accent, its white label sits at
-///    2.7:1. The seam picks the deepened fill, and the stock blue at None (`ProminentAccent.swift`).
-///    A `.keyboardShortcut(.defaultAction)` button fills with the tint too, so a file with one
-///    must tint it with `.accentedProminent` or draw it as `.actionBar`.
-/// 3. No `controlAccentColor` outside `systemAccentExemptions` (the None hue, which is the Mac's
-///    accent). Anything else drawn in it ignores the hue the user picked.
-/// 4. No SwiftUI `Color.accentColor` either, drawn or as a default argument, outside
-///    `systemAccentExemptions`: it is the same system accent. A colour parameter defaults to
-///    `LiquidGlassHue.stored()`, or to nil resolved through `StoredHueReader`.
-/// 5. No ShapeStyle `.tint`. With no `.tint(…)` above it, it is the system accent, and whether one
-///    is above it is a fact about another file, or about whether a `List` or `Table` row host
-///    passes it down. Name the hue's `accentColor` instead.
-/// 6. Every window root sets the native controls' accent. Switches, sliders, checkboxes and
-///    progress bars fill with whatever accent the environment carries, the Mac's if none. So each
-///    scene's root, each panel the owner named (Settings, Help, Setup) and each
-///    `NSHostingView`/`NSHostingController` the app builds takes `.nativeControlAccent(…)`, or is
-///    named in ``unaccentedHosts`` with why. A rule about roots, because the accent inherits and a
-///    new window or hosted panel is how an untinted control would come back. The accent stops at
-///    a `.sheet`, `.popover`, `.fullScreenCover` or `.inspector`, so each one's content takes
-///    `.presentedNativeControlAccent()`, or is named in ``unaccentedPresentations`` with why.
-/// 7. No raw-accent `.tint` at all, outside ``rawTintExemptions``. A container's `.tint` beats the
-///    root's accent for every control under it, so a checkbox or switch fills with the raw shade
-///    (white on raw Amber is 2.2:1). On a `Button` it colours the words, at 2.3:1 on the light
-///    bezel at Green (`ButtonWordInkTests`), so a button's words take `.buttonWordsTint(…)`, which
-///    deepens them in light and whitens them in dark. A `ViewModifier` tinting its `content` with
-///    a colour handed in is caught too, since that colour is named only at the call site. Nor may
-///    `.accentedProminent(…)` hang off anything but a `Button`: over a subtree it draws every
-///    untinted button's words in the deepened fill (2.9:1 on the dark bezel at Green). Which
-///    buttons a root covers is a fact about other files, so the rule is about the root.
+/// 1. No raw accent (`accent`, `accentColor`, `controlAccentColor`) as the argument of a `.fill(…)`
+///    or `.background(…)`, or handed as a view's `accentFill:`, unless turned down to a wash.
+/// 2. Every `.borderedProminent` takes `.accentedProminent(…)` and no `.tint` of its own; a file
+///    with a `.keyboardShortcut(.defaultAction)` button tints it so, or draws it as `.actionBar`.
+/// 3. No `controlAccentColor` outside ``systemAccentExemptions``: it ignores the user's hue.
+/// 4. No SwiftUI `Color.accentColor`, drawn or as a default argument, outside
+///    ``systemAccentExemptions``: it is the same system accent.
+/// 5. No ShapeStyle `.tint`: with no `.tint(…)` above it, it is the system accent, and whether one
+///    is above it is a fact about another file. Name the hue's `accentColor` instead.
+/// 6. Every scene root, hosting view and named panel (Settings, Help, Setup) takes
+///    `.nativeControlAccent(…)`; the accent stops at a `.sheet`, `.popover`, `.fullScreenCover` or
+///    `.inspector`, so each one's content takes `.presentedNativeControlAccent()`. Exceptions are
+///    named in ``unaccentedHosts`` and ``unaccentedPresentations``.
+/// 7. No raw-accent `.tint` outside ``rawTintExemptions``: over a subtree it fills checkboxes and
+///    switches with the raw shade, and on a `Button` its words sit at 2.3:1 (use
+///    `.buttonWordsTint(…)`). `.accentedProminent(…)` hangs off a `Button` only.
 @Suite struct AccentFillScanTests {
 
     // MARK: The rules, on any source text
@@ -460,8 +435,7 @@ import Testing
         #expect(rules("Table(of: D.self) { TableColumn(\"N\") { Text($0.n) } } rows: { ForEach(d) { TableRow($0) } } .onChange(of: x) { _, y in go(y) } .tint(lit ? accent : nil)") == [subtree])
         #expect(rules("Form { Slider(value: $v) }.tint((LiquidGlassHue(rawValue: raw) ?? .blue).accentColor)") == [subtree])
         #expect(rules("func body(content: Content) -> some View { content.tint(tint).controlSize(.large) }") == ["tint handed through a modifier"])
-        // A button's words, every way one is written: the raw hue as words is 2.3:1 on the light
-        // bezel.
+        // A button's words, every way one is written: the raw hue as words is 2.3:1 on the light bezel.
         let words = "raw accent tint on a button's words"
         #expect(rules("Button(\"Cancel\") { if a { b() } else { c = false } }\n .keyboardShortcut(.cancelAction)\n .tint(glassHue.accentColor)") == [words])
         #expect(rules("Button { onFix([r]) } label: { Text(\"Fix\").fontWeight(.semibold) } .buttonStyle(.borderless) .tint(accent)") == [words])
@@ -541,8 +515,7 @@ import Testing
     ]
 
     /// A raw-accent `.tint` over a subtree (rule 7) that is right, named with why: it colours glyphs
-    /// or a selection on purpose, and nothing under it reads the tint as a fill. A spinner takes no
-    /// tint, and a `Toggle` in a context menu is an AppKit menu item. Matched by the call the tint
+    /// or a selection, and nothing under it reads the tint as a fill. Matched by the call the tint
     /// hangs off and the start of its arguments; each must match exactly one site.
     static let rawTintExemptions: [(file: String, site: String, why: String)] = [
         ("FileTreeView.swift", "List(selection: $selection)",
@@ -555,10 +528,8 @@ import Testing
          "the differences table's sort chevrons — its cells and section headers are words and glyphs"),
     ]
 
-    /// Every filled control in the app carries its label at AA, in the app's accent: rules 1–5 and
-    /// 7 over every shipping source. Exempt from rule 1: the marks above and nothing else, since a
+    /// Rules 1–5 and 7 over every shipping source. Only the marks above are exempt from rule 1: a
     /// fill whose label flips to dark ink on light hues is a second button family, not a fix.
-    /// Exempt from rules 3 and 4: `systemAccentExemptions`.
     @Test func theAppFillsWithTheDeepenedAccent() throws {
         var findings: [String] = []
         var exempted: [String: Int] = [:]

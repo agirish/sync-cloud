@@ -3,14 +3,12 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `ProviderLogo` is the one place a provider mark is drawn, so the property worth pinning is that
-/// it adds nothing to the mark's box: the provider capsule picks its `ViewThatFits` rung by ideal
-/// width, so a presentation that grew the logo would silently drop it from the header. Measured,
-/// not read from source, so any change to the presentation has to clear it.
+/// `ProviderLogo` adds nothing to the mark's box: the provider capsule picks its `ViewThatFits`
+/// rung by ideal width, so a presentation that grew the logo would silently drop it from the
+/// header.
 ///
-/// The asset is absent here (the catalog belongs to the app target), so these renders carry an
-/// empty frame. That is why the size is what's asserted: it holds whether or not the mark
-/// resolves, while the mark's own pixels are only checkable in the app.
+/// The asset catalog belongs to the app target, so these renders carry an empty frame; size is
+/// what's asserted because it holds whether or not the mark resolves.
 @MainActor
 @Suite(.serialized) struct ProviderLogoTests {
 

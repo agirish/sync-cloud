@@ -7,9 +7,8 @@ import SwiftUI
 /// column shrink past the point where a row stops carrying its difference badge.
 @Suite struct PaneViewModeTests {
 
-    /// A throwaway defaults domain, so these never touch the user's real preferences while the app
-    /// is running. `ScratchDefaults` rather than a bare `UserDefaults(suiteName:)`: it wipes domain
-    /// and plist on deinit, so the suites don't pile up files in `~/Library/Preferences`.
+    /// A throwaway defaults domain, so these never touch the user's real preferences;
+    /// `ScratchDefaults` wipes domain and plist on deinit.
     private func defaults() -> ScratchDefaults {
         ScratchDefaults("PaneViewModeTests")
     }
@@ -106,10 +105,9 @@ import SwiftUI
         #expect(PaneViewMode.clickNavigates(modifiers: [.command, .shift]) == false)
     }
 
-    /// ⌃ is the secondary click, and it reaches a primary-button recognizer because macOS delivers
-    /// it as a button-1 event carrying `.control`. Admitted here, a control-click in a column's
-    /// empty space would open the context menu and, in the same gesture, clear both panes'
-    /// selections and close every column to the right.
+    /// ⌃-click is the secondary click, yet macOS delivers it as a button-1 event carrying
+    /// `.control`. Admitted here, a control-click in a column's empty space would open the context
+    /// menu and also clear both panes' selections and close every column to the right.
     @Test func testControlClickIsTheSecondaryClickAndNeverNavigates() {
         #expect(PaneViewMode.clickNavigates(modifiers: [.control]) == false)
         #expect(PaneViewMode.clickNavigates(modifiers: [.control, .option]) == false)
@@ -117,11 +115,9 @@ import SwiftUI
 
     // MARK: - Trailing deselect filler
 
-    /// The filler is the viewport minus the columns' real widths, and never negative. An
-    /// overflowing stack gets exactly zero: the column stack's scroll behaviour, and its mounted
-    /// test, depend on a stack that really overflows. Exactly full is the boundary, where an
-    /// off-by-one would land. Under-filled, and a resting pane's one column, the filler takes the
-    /// slack that already existed and nothing more.
+    /// The filler is the viewport minus the columns' real widths, and never negative: an
+    /// overflowing stack gets exactly zero, since its scroll behaviour depends on really
+    /// overflowing. Exactly full is the boundary, where an off-by-one would land.
     @Test(arguments: [
         (500, [210, 210, 210], 0),                                    // overflowing
         (630, [210, 210, 210], 0),                                    // exactly full
@@ -149,10 +145,8 @@ import SwiftUI
         #expect(PaneViewMode.columns.rawValue == "columns")
         #expect(PaneViewMode.allCases == [.tree, .columns])
 
-        // The documented fallback in `stored(isLeft:in:)`. Absent and foreign words are pinned by
-        // `testColumnsIsTheDefault` and `testUnrecognisedValueFallsBackToTheDefault`; this adds the
-        // case near-miss, "Tree" for "tree", which a hand-edited plist or a case-renamed enum
-        // produces.
+        // The case near-miss, "Tree" for "tree", from a hand-edited plist or a case-renamed enum,
+        // falls back as `stored(isLeft:in:)` documents.
         let defaults = ScratchDefaults("PaneViewModeRawValues")
         defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
         #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default,

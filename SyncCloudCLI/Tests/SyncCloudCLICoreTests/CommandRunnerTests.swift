@@ -197,12 +197,9 @@ import Sync
         #expect(plain["heldBack"] == nil)
     }
 
-    /// Every name prints exactly as it is; only the words around it are ASCII. Every root, file
-    /// name, provider id and display name below carries `Q’Q` and `R–R`, and every surface that
-    /// prints one is run: scan's listing, a sync that fails a copy, skips a stale row and a refused
-    /// name and holds a row, `providers`, and `restructure`'s text and its failure. Each output
-    /// must carry the tokens as written, never `Q'Q` or `R-R`, and nothing else curly, so a missed
-    /// fold of a shared sentence and a fold over a name both turn it red.
+    /// Every name prints exactly as it is; only the words around it are ASCII. Every root, file,
+    /// provider id and display name carries `Q’Q` and `R–R`, and every surface that prints one runs:
+    /// each output must carry the tokens as written and nothing else curly.
     @Test func namesPrintVerbatimWhileTheToolsWordsAreASCII() async throws {
         let base = try makeTempRoot()
         defer { try? FileManager.default.removeItem(at: base) }
@@ -720,11 +717,9 @@ import Sync
 
     // MARK: sync — the plan is re-checked between the prompt and the write
 
-    /// The case a re-scan alone cannot see. Left is newer than right, so the row is
-    /// "left is newer → copy right"; the destination is then rewritten with DIFFERENT bytes at a
-    /// timestamp that is still older than left's, so a fresh scan produces a row of exactly the
-    /// same shape — same type, same action, same two sizes — and the stale left copy would go
-    /// straight over the new bytes.
+    /// The case a re-scan alone cannot see: the destination is rewritten with different bytes of
+    /// the same size, still older than left, so a fresh scan gives a row of exactly the same shape
+    /// and the stale left copy would go straight over the new bytes.
     @Test func syncSkipsARowWhoseDestinationWasRewrittenUnderTheSamePlanShape() async throws {
         let (left, right, cleanup) = try roots(); defer { cleanup() }
         let base = Date(timeIntervalSince1970: 1_700_000_000)
@@ -748,9 +743,9 @@ import Sync
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
     }
 
-    /// The re-check is per row, not a whole-run abort, and it names the file. On an actively
-    /// synced cloud folder one moving file must not cost the rest: that would be a livelock, since
-    /// the next run meets the next daemon write.
+    /// The re-check is per row, not a whole-run abort, and names each file and which side moved.
+    /// On an actively synced cloud folder one moving file must not cost the rest: that would be a
+    /// livelock, since the next run meets the next daemon write.
     @Test func syncCopiesTheUntouchedRowsAndNamesTheOneItSkipped() async throws {
         let (left, right, cleanup) = try roots(); defer { cleanup() }
         // The stale row sorts FIRST on purpose. With it last, a run that abandoned the whole
@@ -770,7 +765,6 @@ import Sync
             try? Data("rewritten-while-you-read".utf8).write(to: source)
             return "y"
         })
-        // A row skipped as changed since the plan exits non-zero.
         await #expect(throws: CLISyncFailuresError()) {
             try await sync(runner, left.path, right.path, yes: false)
         }
@@ -796,11 +790,9 @@ import Sync
 
     // MARK: sync — rows whose direction is a guess (FileDifference.heldBack)
 
-    /// A pair whose sizes differ at the same time is left out of the plan, not copied left-wins:
-    /// one y/N (or none under `--yes`) copies every planned row in its suggested direction, so a
+    /// A pair whose sizes differ at the same time is left out of the plan, not copied left-wins: a
     /// guess would overwrite the right file. The held row sorts first, so a run that stopped at it
-    /// would leave `b-missing.txt` uncopied too. Asserted on the sections, not the whole stream,
-    /// because the plan and the summary both name the file.
+    /// would leave `b-missing.txt` uncopied too.
     @Test func syncLeavesASameTimeDifferentSizePairOutAndCopiesTheRest() async throws {
         let (left, right, cleanup) = try roots(); defer { cleanup() }
         let t = Date(timeIntervalSince1970: 1_700_000_000)

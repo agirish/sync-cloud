@@ -21,13 +21,12 @@ private final class RevealBox: ObservableObject {
 
     // MARK: The deferred focus
 
-    /// Click the magnifier, start typing: the real component, revealed by the toggle's animated
-    /// transaction, comes up holding the caret with no second click. Deleting the `.onAppear`
-    /// focus claim from `ExpandingSearchField` must make this fail.
+    /// Click the magnifier, start typing: the revealed field holds the caret with no second click.
+    /// Deleting the `.onAppear` focus claim from `ExpandingSearchField` must make this fail.
     ///
     /// It does not pin the component's `Task` hop, which guards against a `FocusState` write in
-    /// the inserting transaction being dropped. No harness here reproduces that drop, so this test
-    /// can't show the hop is needed. **Don't drop the hop on the strength of this test.**
+    /// the inserting transaction being dropped; no harness here reproduces that drop.
+    /// **Don't drop the hop on the strength of this test.**
     @Test func revealedFieldClaimsFocusWithoutAClick() async throws {
         let box = RevealBox()
         let window = Self.host(RealFieldHarness(box: box))
@@ -61,12 +60,10 @@ private final class RevealBox: ObservableObject {
 
     // MARK: The field's layout
 
-    /// The field's own layout, which Compare's header is laid out against: 6pt above and below,
-    /// and each accessory row 7pt below the one above it. The rows are fixed-height blocks and the
-    /// trailing slot is the tallest thing in the field's row, so every height is known exactly.
-    /// The risk is the accessories slot: two rows arrive through a ViewBuilder as a nested
-    /// `TupleView`, and unless SwiftUI flattens it into the field's `VStack(spacing: 7)` they lose
-    /// the gap between them.
+    /// The field's layout, which Compare's header is laid out against: 6pt above and below, each
+    /// accessory row 7pt below the one above. The risk is two accessory rows arriving as a nested
+    /// `TupleView`: unless SwiftUI flattens it into the field's `VStack(spacing: 7)`, they lose the
+    /// gap between them.
     @Test(arguments: [(false, false, CGFloat(52)), (true, false, 69), (false, true, 79), (true, true, 96)])
     func theFieldPadsItsRowAndSpacesItsAccessories(chips: Bool, suggestions: Bool, height: CGFloat) {
         let field = ExpandingSearchField(

@@ -4,13 +4,10 @@ import Design
 import SwiftUI
 @testable import Dashboard
 
-/// Escape closes the search field and nothing else, keeping the selection.
-///
-/// That rests on how SwiftUI routes Escape, not on code here. The pane column has its own
-/// `.onKeyPress(.escape)` that clears the selection (`ContentView.paneColumn`), so if both ran,
-/// dismissing the field would drop the hit the walk just selected. With the field focused, its
-/// `onExitCommand` consumes the key and the ancestor's handler never runs, so `paneColumn` needs
-/// no guard. This test says so if SwiftUI's routing ever changes.
+/// Escape closes the search field and nothing else, keeping the selection. That rests on SwiftUI's
+/// routing, not on code here: the pane column's own `.onKeyPress(.escape)` clears the selection
+/// (`ContentView.paneColumn`), but with the field focused its `onExitCommand` consumes the key
+/// first, so `paneColumn` needs no guard. This test says so if SwiftUI's routing ever changes.
 @MainActor
 @Suite struct PaneSearchEscapeTests {
 

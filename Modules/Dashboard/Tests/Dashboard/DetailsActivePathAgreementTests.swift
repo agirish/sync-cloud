@@ -124,10 +124,9 @@ import Sync
         #expect(view.isShowingFocusedFolderFallback == false)
     }
 
-    /// The caption and `activePath` agree in every combination. The expectation ties the caption to
-    /// the outcome, not to its own condition (which would always match itself): it claims a
-    /// fallback exactly when `activePath` returned the navigated folder. No fixture equals
-    /// `/left/root`, so that can only be true by falling back.
+    /// The caption and `activePath` agree in every combination: tied to the outcome, not to its own
+    /// condition, it claims a fallback exactly when `activePath` returned the navigated folder. No
+    /// fixture equals `/left/root`, so that can only be true by falling back.
     @Test func theCaptionAgreesWithActivePathAcrossEveryBranch() {
         for override in [nil, "", "/diff/target.txt"] {
             for left in [Set<String>(), ["/left/a.txt"]] {

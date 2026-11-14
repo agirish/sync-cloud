@@ -42,8 +42,8 @@ import Foundation
         }
     }
 
-    /// The tabs TE332 folded into others leave their raw values in `settingsSelectedTab` on every
-    /// Mac that last showed them. Each opens the page that took it in, not the fallback.
+    /// Tabs folded into others leave their raw values in `settingsSelectedTab` on every Mac that
+    /// last showed them. Each opens the page that took it in, not the fallback.
     @Test func aFoldedTabOpensItsNewHome() {
         #expect(SettingsPlace.resolvingStored("readability") == SettingsPlace(.textAndSpacing))
         #expect(SettingsPlace.resolvingStored("people") == SettingsPlace(.people))

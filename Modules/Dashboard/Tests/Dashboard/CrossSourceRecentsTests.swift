@@ -38,10 +38,9 @@ import Foundation
         #expect(out.map(\.root) == ["/iCloud", "/Drive-emp", "/Dropbox", "/Local"])
     }
 
-    /// Why `visitedAt` is optional, not defaulted: older builds, and the maintenance lines that
-    /// share this defaults domain, write entries with no date. `.distantPast` would claim the
-    /// folder was visited longest ago when nobody recorded it. An undated entry sorts after every
-    /// dated one and is still listed.
+    /// `visitedAt` is optional, not defaulted: the maintenance lines sharing this defaults domain
+    /// write entries with no date, and `.distantPast` would claim a visit nobody recorded. An
+    /// undated entry sorts after every dated one and is still listed.
     @Test func anUndatedEntrySortsAfterEveryDatedOneAndIsStillListed() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/iCloud": [visit("Dental", 100), visit("Statements", nil)],
@@ -100,10 +99,9 @@ import Foundation
         #expect(out.map(\.root) == ["/Dropbox"])
     }
 
-    /// The landing folder is subtracted. Switching to a source lands the pane on its `openAt` and
-    /// records a visit, so without this Recents fills with the folders the Locations rows already
-    /// reach. `/iCloud` lands at its root (the empty path) and its recent survives, since
-    /// `recordVisit` never writes a recent for a root itself.
+    /// The landing folder is subtracted: switching to a source lands on its `openAt` and records a
+    /// visit, so Recents would fill with folders the Locations rows already reach. `/iCloud` lands
+    /// at its root and its recent survives, since `recordVisit` never writes a recent for a root.
     @Test func aSourcesLandingFolderIsNotAlsoARecent() {
         let out = FolderJumpStore.mostRecentAcrossRoots(
             recents: ["/Dropbox": [visit("Documents", 100)],

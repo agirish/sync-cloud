@@ -5,14 +5,10 @@ import Foundation
 /// Which places sit in Favorites, a stored list the user can change.
 @Suite struct SidebarFavoritePlacesTests {
 
-    /// The arrangement a first run gets, in order: home first, where a path starts, then the three
-    /// folders you file into. Pinned as a whole list, because `contains` checks would pass on any
-    /// shuffle, and a shuffle is what a later edit to `favoriteShortcuts` would produce.
-    ///
-    /// The startup disk is not among them: a place's section is membership of this list, so
-    /// leaving the disk out is what draws it in Locations' device band. Every entry is absolute,
-    /// since the list is matched against a row's `absolutePath` through `resolved`, and a relative
-    /// one would resolve against the working directory and match nothing.
+    /// The arrangement a first run gets, in order: home, then the three folders you file into.
+    /// Pinned as a whole list, since `contains` checks would pass the shuffle a later edit to
+    /// `favoriteShortcuts` would produce. Leaving the startup disk out draws it in Locations' device
+    /// band; every entry is absolute, or `resolved` would match it against the working directory.
     @Test func theDefaultFavoritesAreHomeAndTheThreeFolders() {
         #expect(SidebarFavoritePlaces.standard == [
             NSHomeDirectory(),

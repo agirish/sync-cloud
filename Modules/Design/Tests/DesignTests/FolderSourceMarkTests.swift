@@ -61,12 +61,9 @@ import Testing
 
     // MARK: The mark
 
-    /// `ProviderLogo` takes one string and renders it as whichever it is, a bundled brand asset or
-    /// an SF Symbol, so `CloudProvider.imageName` stays one field instead of two exclusive ones.
-    ///
-    /// Measured in painted pixels, not laid-out size: `Image(_:)` on a missing asset renders an
-    /// empty placeholder, and the explicit frame reports the requested size either way, so a size
-    /// check would pass with the fallback deleted. Only counting ink tells the difference.
+    /// `ProviderLogo` renders one string as a bundled brand asset or an SF Symbol, whichever it is.
+    /// Measured in painted pixels, not size: `Image(_:)` on a missing asset renders an empty
+    /// placeholder at the requested frame, so a size check would pass with the fallback deleted.
     @MainActor
     @Test(.machinePinned(.pixelSampling)) func aSymbolNameActuallyPaints() throws {
         let painted = try paintedFraction(ProviderLogo("folder.fill", size: 40))

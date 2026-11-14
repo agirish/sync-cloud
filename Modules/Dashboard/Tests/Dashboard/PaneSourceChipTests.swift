@@ -5,31 +5,24 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// The breadcrumb's first crumb, which is the pane's source picker.
-///
-/// `ProviderMenuTests` checks what is in the menu and `SyncCloudTests.MenuLabelMarkTests` that its
-/// brand mark doesn't blow up the row; this file checks that the first crumb is a menu at all.
-///
-/// A `Menu` in the `borderlessButton` style is an `NSPopUpButton` in the AppKit tree, while a plain
-/// crumb is a SwiftUI `Button` that leaves no `NSControl`, so the two are told apart by presence.
-/// Reading a label wouldn't work: an offscreen `NSHostingView` has an empty accessibility tree
-/// unless an assistive client is attached.
+/// The breadcrumb's first crumb, the pane's source picker, is a menu at all (`ProviderMenuTests`
+/// and `SyncCloudTests.MenuLabelMarkTests` check what is in it). A `borderlessButton` `Menu` is an
+/// `NSPopUpButton` in the AppKit tree while a plain crumb leaves no `NSControl`, so the two are told
+/// apart by presence: an offscreen `NSHostingView` has an empty accessibility tree unless an
+/// assistive client is attached.
 @MainActor
 @Suite(.serialized) struct PaneSourceChipTests {
 
-    /// Every `NSPopUpButton` on the header's second row, the breadcrumb trail. Scoped to that row
-    /// because the bar above has menus of its own (Sort, ⋯) that move with its arrangement. The
-    /// trail also has the quick-jump chevron at its trailing end, so the tests ask where the
-    /// leading menu is, not how many there are.
+    /// Every `NSPopUpButton` on the breadcrumb row; the bar above has menus of its own (Sort, ⋯)
+    /// that move with its arrangement. The trail ends with the quick-jump chevron, so the tests ask
+    /// where the leading menu is, not how many there are.
     private func trailMenus(_ view: some View, width: CGFloat) -> [CGRect] {
         trailPopUps(view, width: width).map(\.frame)
     }
 
-    /// The same walk, keeping the button so its disclosure state can be read. A `Menu`'s indicator
-    /// is drawn by the `NSPopUpButtonCell`, and `.menuIndicator(.hidden)` sets its `arrowPosition`
-    /// to `.noArrow`, so the mark is a property of the cell, not something a frame shows. A glyph
-    /// added in SwiftUI (`Text(Image(...))`, `Image(nsImage:)`) renders nothing in an AppKit-drawn
-    /// label, so it can't stand in.
+    /// The same walk, keeping the button: `.menuIndicator(.hidden)` sets the `NSPopUpButtonCell`'s
+    /// `arrowPosition` to `.noArrow`, so the mark is a cell property, not something a frame shows. A
+    /// glyph added in SwiftUI renders nothing in an AppKit-drawn label, so it can't stand in.
     private func trailPopUps(_ view: some View, width: CGFloat) -> [(frame: CGRect, button: NSPopUpButton)] {
         let rig = ProbeRig(AnyView(view.frame(width: width, height: LiquidGlass.headerHeight)),
                            size: CGSize(width: width, height: LiquidGlass.headerHeight))
@@ -61,11 +54,9 @@ import Design
             viewMode: .constant(.columns), onNewFolder: {})
     }
 
-    /// A pane with a source opens its trail with a menu; a pane without one does not. The first
-    /// crumb is the only place to switch a pane's source, so a plain first crumb leaves no way to.
-    ///
-    /// Measured by position: the source chip sits at the trail's leading edge, and with no source
-    /// the leading menu is the quick-jump chevron far to the right.
+    /// A pane with a source opens its trail with a menu, the only place to switch a pane's source;
+    /// a pane without one does not. Measured by position: with no source the leading menu is the
+    /// quick-jump chevron far to the right.
     @Test(.machinePinned(.pixelSampling)) func theFirstCrumbIsAMenuWhenThePaneHasASourceAndNotWhenItDoesNot() throws {
         let width: CGFloat = 560
 
@@ -96,10 +87,9 @@ import Design
         let quickJump = try #require(menus.last, "the trail drew no quick-jump menu to compare against")
         #expect(chip.height >= quickJump.height,
                 "the chip is \(chip.height)pt tall against the quick-jump menu's \(quickJump.height)pt on the same row")
-        // The chip, the pane's identity element, is no smaller than the bar's controls above it,
-        // pinned against `PaneNavMetrics.pill`. The padding is added, not measured: the wash and
-        // hairline are drawn outside the `Menu` (a `.background` inside an AppKit-drawn label never
-        // paints), so the `NSPopUpButton`'s frame is the label alone.
+        // No smaller than the bar's controls (`PaneNavMetrics.pill`). The padding is added, not
+        // measured: a `.background` inside an AppKit-drawn label never paints, so the wash is drawn
+        // outside the `Menu` and the `NSPopUpButton`'s frame is the label alone.
         let drawn = chip.height + 2 * SourceChip.vertical
         let barControl = PaneNavMetrics.pill(.regular).height
         #expect(drawn >= barControl,

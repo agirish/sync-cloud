@@ -10,10 +10,9 @@ import FileExplorerTestSupport
 /// An Organize lens's header card against the pane's toolbar card, both real, side by side: the
 /// lens half of what ``EditHeaderMatchesPaneHeaderTests`` does for Edit's document column.
 ///
-/// The lens header card is pinned to the toolbar card's height so the two share a bottom edge. The
-/// pane's tab strip (two tabs, or View ▸ Tab Bar) pushes the toolbar card down by
-/// ``PaneTabStripLadder/slotHeight(_:)``, so the lens must be told about it or its header sits one
-/// slot high. The pane half is ``EditHeaderMatchesPaneHeaderTests/pane(_:tabStrip:)``.
+/// The lens header card is pinned to the toolbar card's height. The pane's tab strip pushes the
+/// toolbar card down by ``PaneTabStripLadder/slotHeight(_:)``, so the lens must be told about it or
+/// its header sits one slot high. The pane half is ``EditHeaderMatchesPaneHeaderTests/pane(_:tabStrip:)``.
 @MainActor
 @Suite(.serialized) struct LensHeaderMatchesPaneHeaderTests {
 
@@ -53,11 +52,9 @@ import FileExplorerTestSupport
     }
 
     /// The two header edges, in the window's (flipped) coordinates, by one rule for both columns.
-    /// Each column's content is its tallest scroll view (the lens header's rail is a one-row scroll
-    /// view). In `.cards` each card is a layer-backed view directly under the host, so the header's
-    /// edge is the bottom of the card just above the content. In `.unified` the content sits flush
-    /// under the header (as `columnRegionFrame` and `panesRegionFrame` draw), so the edge is where
-    /// the content starts.
+    /// Each column's content is its tallest scroll view (the lens header's rail is a one-row one).
+    /// In `.cards` the edge is the bottom of the layer-backed card just above the content; in
+    /// `.unified` the content sits flush under the header, so the edge is where it starts.
     static func edges(in host: NSView, style: SurfaceStyle) -> (pane: CGFloat?, lens: CGFloat?) {
         let cards = host.subviews.map { $0.convert($0.bounds, to: host) }
         var scrolls: [CGRect] = []
@@ -80,8 +77,8 @@ import FileExplorerTestSupport
     }
 
     /// The lens header ends where the pane's toolbar card does, with one tab and with two, in both
-    /// surface styles at every text size. Dropping the slot must fail every strip case (by 34pt in
-    /// `.unified`, 39pt in `.cards`); leaving the gutter out must fail `.cards` alone.
+    /// surface styles at every text size.
+    /// Mutation that must fail this: dropping the slot, or leaving the gutter out in `.cards`.
     @Test func theLensHeaderEndsWhereThePanesToolbarCardDoes() throws {
         for style in [SurfaceStyle.cards, .unified] {
             for tabStrip in [false, true] {

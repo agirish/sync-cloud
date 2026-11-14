@@ -3,13 +3,9 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `actionBarButtonSurface` promises the same paint `.actionBar(_:tint:onTint:)` puts on a real
-/// button at rest; that promise is what lets a caller render a picture of a control instead of
-/// hand-drawing one, so it is asserted here.
-///
-/// Rendered, not reasoned about: both paths run through `ActionBarButtonSurface`, so what can
-/// drift is what the two wrappers add around it (a modifier in `ButtonStyle.makeBody`, or the
-/// `Button`'s own label style or padding), which only shows in pixels.
+/// `actionBarButtonSurface` paints what `.actionBar(_:tint:onTint:)` puts on a real button at
+/// rest. Rendered: both run through `ActionBarButtonSurface`, so what can drift is what the
+/// wrappers add (a `makeBody` modifier, label style, padding), which only shows in pixels.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarButtonSurfaceTests {
 
@@ -64,10 +60,8 @@ import Testing
             Issue.record("no bitmap rep")
             return
         }
-        // Not exact equality: text anti-aliasing isn't bit-stable between two hosting views even
-        // for identical glyphs, while a drifted fill, hairline or capsule moves far more of the
-        // grid. Pinning the public modifier at `.hover` instead of `.rest` must fail all three
-        // weights.
+        // Not exact equality: text anti-aliasing isn't bit-stable between two hosting views.
+        // Pinning the public modifier at `.hover` instead of `.rest` must fail all three weights.
         let differing = fractionDiffering(button, surface)
         #expect(differing < 0.02,
                 "\(weight): surface and button style disagree on \(differing * 100)% of pixels")

@@ -47,13 +47,9 @@ import SyncCloudCLICore
                 "providers says nothing about an unmigrated install, so its listing reads as the whole truth")
     }
 
-    /// Every command routes its exit through `flushingLogToDisk`, as a rule.
-    ///
-    /// The wrapper is the only thing that turns a `CLIValidationError` into ArgumentParser's
-    /// `ValidationError` (via `CLIExitMapping`), so skipping it fails silently three ways: the
-    /// message a `Failure` composed is replaced by ArgumentParser's dump of the struct, the exit
-    /// falls from 64 to 1 so a script reads a usage error as a run failure, and the log never
-    /// reaches disk. Written over the call-site table, not one verb, so a new verb is covered too.
+    /// Every command adopts the app's log level and exits through `flushingLogToDisk`, the only
+    /// thing that turns a `CLIValidationError` into ArgumentParser's `ValidationError`. Skipping it
+    /// prints a struct dump, exits 1 instead of 64, and never flushes the log.
     @Test func everyCommandExitsThroughTheLogFlushAndErrorLadder() throws {
         let source = try Self.commandsSource()
         for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {

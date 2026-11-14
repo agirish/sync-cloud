@@ -4,15 +4,12 @@ import Events
 import EventsTestSupport
 @testable import Dashboard
 
-/// What a pane-bar edit leaves in `~/sync-cloud.log`. A control taken off the bar is gone, not
-/// moved to ⋯, so "my Delete button disappeared" needs a line to read.
-///
-/// `.serialized` orders only this suite, while `Logger.shared.entries` is a process-wide buffer
-/// every suite writes into at once. Two things keep these assertions safe. Every read, presence and
-/// absence alike, comes from a `LogCapture` opened before the edit, since the buffer is capped at
-/// 1000 entries and siblings can roll past this test's lines ("A log assertion reading a window that
-/// has already rolled" in `docs/flaky-tests.md`). And the predicate `[panebar] User …` is written
-/// by nothing outside this file, so no other suite can land a line in these captures.
+/// What a pane-bar edit leaves in `~/sync-cloud.log`: a control taken off the bar is gone, not
+/// moved to ⋯, so "my Delete button disappeared" needs a line to read. `.serialized` orders only
+/// this suite, while `Logger.shared.entries` is a process-wide buffer capped at 1000 entries, so
+/// every read, presence and absence alike, comes from a `LogCapture` opened before the edit ("A log
+/// assertion reading a window that has already rolled" in `docs/flaky-tests.md`), and nothing
+/// outside this file writes the `[panebar] User …` predicate.
 @MainActor
 @Suite(.serialized) struct PaneBarEditLogTests {
 

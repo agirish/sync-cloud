@@ -9,10 +9,9 @@ import Testing
 /// silently doing nothing on most launches.
 struct PeopleLookRootTests {
 
-    /// The recorded root, tilde-expanded as every other reader of the profile does it, so the
-    /// folders the scanner appends are the ones the survey walked. Fails if the root ignores the
-    /// profile. `URL(fileURLWithPath:)` expands `~` itself, so dropping `expandingTildeInPath`
-    /// passes too.
+    /// The recorded root, tilde-expanded as every other reader of the profile does. Fails if the
+    /// root ignores the profile; dropping `expandingTildeInPath` passes too, since
+    /// `URL(fileURLWithPath:)` expands `~` itself.
     @Test func theLookRootIsTheProfilesOwnTree() {
         let profile = FolderProfile(profileId: "t", root: "~/Documents", folders: [:],
                                     personTokens: [])
@@ -25,9 +24,8 @@ struct PeopleLookRootTests {
     }
 
     /// Pinned at the source: `PeopleList` takes no provider root from the engine and `look()`
-    /// derives its root from the profile. A test can't press the button (`look()` is private and
-    /// `@State` has no storage off-screen), so this scans the one declaration, failing loudly if it
-    /// moves.
+    /// derives its root from the profile. A source scan, because `look()` is private and `@State`
+    /// has no storage off-screen.
     @Test func lookForNamesNoLongerWaitsOnAFilingScan() throws {
         let source = try settingsSource("SettingsView.swift")
         let start = try #require(source.range(of: "struct PeopleList: View {"), "PeopleList is gone")

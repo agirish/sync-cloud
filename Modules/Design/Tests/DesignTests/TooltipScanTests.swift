@@ -9,13 +9,11 @@ import Testing
 @Suite struct TooltipScanTests {
 
     /// The chain belonging to the control declared at `start`: lines indented past it, plus lines at
-    /// its own indentation that continue it (`.modifier`, `} label: {`, `}`). Comment lines continue
-    /// it too, because the codebase explains a modifier directly above it.
+    /// its own indentation that continue it (`.modifier`, `} label: {`, `}`, comments).
     ///
-    /// Stops at the first line indented less than the control. The walker in
-    /// `UnnamedControlScanTests` continues through any `}` or `.`-line at or below the control's
-    /// indentation, so it can run on into the parent, where the parent's `.help` would hide a
-    /// button that has none (`aParentsTooltipDoesNotCoverTheButton`).
+    /// Stops at the first line indented less than the control. `UnnamedControlScanTests`' walker
+    /// can run on into the parent, whose `.help` would hide a button that has none
+    /// (`aParentsTooltipDoesNotCoverTheButton`).
     static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
         var end = start + 1

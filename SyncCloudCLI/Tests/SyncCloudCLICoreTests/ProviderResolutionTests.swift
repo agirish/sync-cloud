@@ -43,12 +43,9 @@ private let providers = [
         #expect(resolved.landingPath == "/od/docs")
     }
 
-    /// `-L <source>` scans that source's LANDING folder, not the account above it.
-    ///
-    /// Every other fixture here has an empty `openAt`, so `rootPath` and `landingPath` are the same
-    /// string; this is the one case that tells them apart. Reading `rootPath` in
-    /// `CommandRunner.scanForDifferences` would silently point every provider-addressed run at the
-    /// entire account, with nothing on screen to say the subject had changed.
+    /// `-L <source>` scans that source's LANDING folder, not the account above it. The one fixture
+    /// with an `openAt`, so the only case that tells `rootPath` and `landingPath` apart: reading
+    /// `rootPath` would silently point every provider-addressed run at the entire account.
     @Test func testAProviderAddressedRootResolvesToItsLandingFolderNotItsRoot() throws {
         let withOpenAt = [
             CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
@@ -62,10 +59,9 @@ private let providers = [
         #expect(resolved.rootPath == "/od", "the root is still the whole account")
     }
 
-    /// The pre-flight check is about the folder that gets scanned. A mounted account whose landing
-    /// folder was renamed or deleted must be refused here, naming that folder, rather than pass a
-    /// check on the root and fail deeper. The account being mounted and its documents tree being
-    /// there are two different facts, and only the second is the subject.
+    /// The check is about the folder that gets scanned: a mounted account whose landing folder was
+    /// renamed or deleted is refused here, naming that folder, rather than passing a check on the
+    /// root and failing deeper.
     @Test func testAMissingLandingFolderIsRefusedEvenWhenTheAccountIsMounted() throws {
         let withOpenAt = [
             CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
@@ -140,11 +136,9 @@ private let providers = [
     }
 
     // MARK: Provider type of a path-addressed root
-    // A `-R <path>` provider takes its type from whichever discovered provider contains the path.
-    // Two guards key off the type: the destination name check (`ProviderNameRules.violation`,
-    // applied in CommandRunner before every write) and the Google Drive date-noise filter. With a
-    // fixed type the same OneDrive folder would skip `CON.txt` when named by id and copy it when
-    // named by path.
+    // A `-R <path>` takes its type from the discovered provider that contains it. The destination
+    // name check and the Google Drive date-noise filter key off it, so with a fixed type the same
+    // OneDrive folder would skip `CON.txt` when named by id and copy it when named by path.
 
     private static let cloudProviders = [
         CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
@@ -212,7 +206,7 @@ private let providers = [
         #expect(resolved.landingPath == "./iCloud", "the escape hatch the refusal offers does not work")
     }
 
-    // MARK: Which provider a value names (FR42)
+    // MARK: Which provider a value names
 
     /// An exact id outranks another provider's display name. The first provider here carries the
     /// display name "Dropbox"; the second's id IS "Dropbox". The name-matching provider is listed

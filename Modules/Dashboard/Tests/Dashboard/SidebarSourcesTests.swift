@@ -71,8 +71,7 @@ import Foundation
 
     /// Two same-named sources resolve by id, and the id survives into
     /// `.inside(sourceId:sourceName:)`. Resolving by display name would pick whichever "Drive" came
-    /// first and strip the path against the wrong root, so a path inside the second of two
-    /// same-named roots must identify the second.
+    /// first and strip the path against the wrong root.
     @Test func aPathInsideTheSecondOfTwoSameNamedSourcesResolvesToTheSecond() throws {
         let roots = [(id: "drive-personal", name: "Drive", path: "/Users/u/Drive"),
                      (id: "drive-work", name: "Drive", path: "/Volumes/Work/Drive")]
@@ -120,10 +119,9 @@ import Foundation
         #expect(SidebarSourceModel.favoriteShortcuts.allSatisfy { !$0.symbol.isEmpty })
     }
 
-    /// Home is favorited by default and still built as a Locations row. `favoriteShortcuts` holds
-    /// places that exist only in Favorites; `homeEntry` has a Locations row the default list lifts
-    /// into Favorites by path. A `favoriteShortcuts` entry for it would build two rows, since the
-    /// builder walks both lists. The startup disk is checked for the same hazard.
+    /// Home is favorited by default and still built as a Locations row (`homeEntry`, lifted into
+    /// Favorites by path). A `favoriteShortcuts` entry for it would build two rows, since the builder
+    /// walks both lists; the startup disk is checked for the same hazard.
     @Test func homeIsAFavoriteByDefaultAndStillHasItsLocationsRow() {
         #expect(SidebarSourceModel.homeEntry.path == NSHomeDirectory())
         #expect(SidebarFavoritePlaces.standard.contains(NSHomeDirectory()),

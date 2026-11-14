@@ -5,12 +5,10 @@ import Testing
 import Design
 import Sync
 
-/// That the pane header's rung behaves the way `ScanRungMode` says.
-///
-/// `ScanRungModeTests` holds the rule but can't see whether `PaneHeader` consults it; a rule
-/// tested but never wired up stays green there. This renders the real header and asserts the
-/// pixels differ where the mode says they should, so only the behaviour is pinned, not the code
-/// shape. Pixels, because there is no accessibility tree without an assistive client.
+/// That the pane header's rung behaves the way `ScanRungMode` says. `ScanRungModeTests` holds the
+/// rule but can't see whether `PaneHeader` consults it, so this renders the real header and asserts
+/// the pixels differ where the mode says they should. Pixels, because there is no accessibility
+/// tree without an assistive client.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ScanRungCallSiteTests {
 
@@ -74,11 +72,9 @@ import Sync
     }
 
     /// Guards callers outside the app, from the rendered side: mid-scan with no cancel handler the
-    /// rung goes disabled, while one with a handler stays live and only swaps its glyph.
-    ///
-    /// A comparison, not an absolute: disabling dims the whole pill, while a glyph swap touches only
-    /// the glyph (about 6× fewer pixels here). Fails if `.busy` stops being disabled or `.stop`
-    /// starts being.
+    /// rung goes disabled, while one with a handler stays live and only swaps its glyph. A
+    /// comparison, not an absolute: disabling dims the whole pill, a glyph swap only the glyph.
+    /// Fails if `.busy` stops being disabled or `.stop` starts being.
     @Test func onlyTheRungWithNoCancelHandlerGoesDisabledMidScan() throws {
         let idle = try #require(bitmap(Self.header(isRefreshing: false, canCancel: false)))
         let busy = try #require(bitmap(Self.header(isRefreshing: true, canCancel: false)))

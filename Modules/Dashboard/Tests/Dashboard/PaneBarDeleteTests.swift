@@ -70,10 +70,9 @@ import Design
     /// pixels, and the empty-selection case would pass for the wrong reason. Wrapping Delete in
     /// `if selectionCount > 0` instead of `.disabled(…)` must fail it.
     @Test(.machinePinned(.pixelSampling)) func testTheRungIsDrawnInBothStates() throws {
-        // An ink count can't answer this: the neighbours alone supply plenty of ink, and removing a
-        // rung lets the others reflow into the crop. Differing pixels can. Dimming recolours the
-        // trash in place, so the two states differ in a small patch; vanishing reflows the rungs
-        // beside it, so they differ almost everywhere. The bound separates the two.
+        // An ink count can't answer this: removing a rung lets the others reflow into the crop.
+        // Dimming recolours the trash in place, so the states differ in a small patch; vanishing
+        // reflows the rungs beside it, so they differ almost everywhere.
         let dimmed = try Self.rendered(Self.header(onDelete: {}, selectionCount: 0))
         let enabled = try Self.rendered(Self.header(onDelete: {}, selectionCount: 3))
         let differing = Self.differingPixels(dimmed, enabled)
@@ -86,10 +85,9 @@ import Design
 
     // MARK: - Fixtures
 
-    /// The bitmap rows the bar occupies: the upper of the header's two rows. The header renders at
-    /// exactly `LiquidGlass.headerHeight` here and its pills end well above the midpoint, so the top
-    /// half is the bar's band and the breadcrumb's is below. The bar packs left, so a crop by x
-    /// would miss it.
+    /// The bitmap rows the bar occupies: the top half, since the header renders at exactly
+    /// `LiquidGlass.headerHeight` and its pills end well above the midpoint. The bar packs left, so
+    /// a crop by x would miss it.
     static func barRows(_ rep: NSBitmapImageRep) -> Range<Int> {
         0..<(rep.pixelsHigh / 2)
     }

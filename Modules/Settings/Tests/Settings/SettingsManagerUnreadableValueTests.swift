@@ -3,13 +3,10 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// The five sibling properties of `folderSources` read tolerantly and write unconditionally: a
-/// stored value this build can't read is treated as the default, and the user's next edit writes
-/// the default-derived value over the original (five disabled providers become one; a newer
-/// build's sort choice vanishes after a downgrade). `readSetting` carries
-/// `SettingsManager.readFolderSources`' salvage to them: an unreadable value is preserved under
-/// `<key>.unreadable` and reported before any write can destroy it. The in-memory fallback to
-/// the default is asserted too.
+/// The five sibling properties of `folderSources` read tolerantly and write unconditionally, so an
+/// unreadable stored value would be overwritten by the user's next edit (five disabled providers
+/// become one; a newer build's sort choice vanishes after a downgrade). `readSetting` preserves it
+/// under `<key>.unreadable` and reports it before any write can destroy it.
 @Suite struct SettingsManagerUnreadableValueTests {
 
     /// disabledProviderIds is the sharpest case: a foreign-typed value silently re-enables every

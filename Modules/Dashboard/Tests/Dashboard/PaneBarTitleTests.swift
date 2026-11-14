@@ -3,16 +3,11 @@ import Testing
 import Design
 @testable import Dashboard
 
-/// The pane bar's words: when they are drawn, when they are declined, and what they say.
-///
-/// Not machine-pinned: `PaneBarLadderTests` reads painted pixels and so never runs on CI, while
-/// these decisions, above all the text-size gate that keeps a title out of a header that can't
-/// hold it, are arithmetic over published constants and run everywhere. Where the gate's line
-/// belongs is a question about drawn ink, settled by
-/// `PaneBarLadderTests.theTitledHeaderClearsBothEdges`; this suite holds the resulting table.
-///
-/// The claims are behavioural, not point sizes, so a font whose metrics moved fails these for the
-/// same reason a code change would: the bar would be wrong.
+/// The pane bar's words: when they are drawn, when they are declined, and what they say. Not
+/// machine-pinned: the text-size gate that keeps a title out of a header that can't hold it is
+/// arithmetic over published constants, so it runs everywhere; where its line belongs is settled in
+/// drawn ink by `PaneBarLadderTests.theTitledHeaderClearsBothEdges`. The claims are behavioural,
+/// not point sizes, so a font whose metrics moved fails these as a code change would.
 @MainActor
 @Suite struct PaneBarTitleTests {
 
@@ -28,10 +23,9 @@ import Design
 
     // MARK: - The text-size gate
 
-    /// Which of the slider's text sizes get words, as a table. A row the header can't hold falls
-    /// back to `iconOnly`. Every selectable percentage is listed, written out rather than derived
-    /// from `rowBudget`, since a table that recomputes the budget agrees with any budget, wrong ones
-    /// included. `theTableCoversEverySelectableSize` fails if the slider gains a size.
+    /// Which text sizes get words; a row the header can't hold falls back to `iconOnly`. Written
+    /// out, not derived from `rowBudget`: a table that recomputes the budget agrees with any budget,
+    /// wrong ones included.
     @Test(arguments: [(90, true), (95, true), (100, true), (105, true), (110, true), (115, true),
                       (120, false), (125, false), (130, false), (135, false)])
     func theTextSizesThatGetWords(percent: Int, expected: Bool) {
@@ -50,10 +44,9 @@ import Design
 
     private static let gatedPercents = [90, 95, 100, 105, 110, 115, 120, 125, 130, 135]
 
-    /// Both sides of the gate are real, and the budget sits clear of the rows on each side.
-    /// `rowBudget` falls between two producible row heights (36 and 37); a budget nudged onto
-    /// either still passes the table above but fails here. The producible rows are consecutive
-    /// integers, so half a point is the widest margin there is.
+    /// Both sides of the gate are real, and the budget sits clear of the rows on each side: a
+    /// `rowBudget` nudged onto a producible row height (36 or 37) still passes the table above but
+    /// fails here.
     @Test func theGateHasBothDirectionsWithMarginOnEach() {
         let pill = PaneNavMetrics.pill(.small).height
         let rows = FontSize.selectablePercents.map {

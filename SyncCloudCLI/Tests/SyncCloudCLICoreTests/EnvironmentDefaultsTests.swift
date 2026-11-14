@@ -2,16 +2,12 @@ import Foundation
 import Testing
 @testable import SyncCloudCLICore
 
-/// Pins the one production default in `CommandRunner.Environment` with a semantic mapping, which
-/// every other CommandRunner test overrides: `performFileSync` infers "an existing destination
-/// was replaced" from "a previous version reached the Trash" (`performFileSyncIO(...).trashed !=
-/// nil`). That feeds `recordCopied(replacedExisting:)` and the summary's "previous versions are
-/// recoverable from the Trash" line.
+/// The one production default in `CommandRunner.Environment` every other CommandRunner test
+/// overrides: `performFileSync` reads "an existing destination was replaced" from "a previous
+/// version reached the Trash", which feeds the summary's "recoverable from the Trash" line.
 ///
-/// Known and deliberately open (docs/backports.md): on a Trash-less volume (exFAT, most SMB) the
-/// replace still happens but `trashed` is nil, so the CLI under-reports replacements exactly where
-/// recovery matters. This pins the mapping's two answers on an ordinary volume, so a change to it
-/// fails here instead of passing silently.
+/// Known and open (docs/backports.md): on a Trash-less volume (exFAT, most SMB) the replace still
+/// happens but `trashed` is nil, so the CLI under-reports replacements where recovery matters.
 @Suite struct EnvironmentDefaultsTests {
 
     private func makeDefaultEnvironment() -> CommandRunner.Environment {

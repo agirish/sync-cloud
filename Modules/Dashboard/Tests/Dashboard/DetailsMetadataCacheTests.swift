@@ -61,12 +61,10 @@ import Sync
 
         _ = await cache.load(for: "/vault/report.pdf")
 
-        // Scan starting: the memoized metadata must survive.
         cache.scanningChanged(true)
         _ = await cache.load(for: "/vault/report.pdf")
         #expect(loader.statCount == 1)
 
-        // Scan completing: the next lookup must re-stat.
         cache.scanningChanged(false)
         _ = await cache.load(for: "/vault/report.pdf")
         #expect(loader.statCount == 2)
@@ -98,7 +96,6 @@ import Sync
         // The file changed on disk (e.g. a copy overwrote it); the loader now sees new attributes.
         loader.fileChangedOnDisk(size: "2 MB", modificationDate: "Jul 6, 2026 at 3:00:00 PM")
 
-        // Without invalidation the memoized values keep being served.
         let memoized = await cache.load(for: "/vault/report.pdf")
         #expect(memoized.metadata?.size == "1 KB")
 
@@ -240,12 +237,10 @@ import Sync
 }
 
 /// Guards against a launch hang: a `getxattr` in `DetailsSidebar`'s stat against a wedged file
-/// provider parks the main thread, leaving the app alive with no windows.
-///
-/// Moving the stat into a `.task` is not enough: a `View`'s `.task` inherits the view's
-/// `@MainActor` isolation, so the syscall leaves the render pass but not the main thread. The
-/// property pinned is "the main thread never waits on the loader". Each test holds the loader
-/// hostage on a semaphore, as a wedged provider does, and asserts the main actor keeps working.
+/// provider parks the main thread, leaving the app alive with no windows. Moving the stat into a
+/// `.task` is not enough: a `View`'s `.task` inherits the view's `@MainActor` isolation, so the
+/// syscall leaves the render pass but not the main thread. Each test holds the loader hostage on a
+/// semaphore, as a wedged provider does, and asserts the main actor keeps working.
 @MainActor
 @Suite struct TheLoadNeverBlocksTheMainThread {
 
@@ -314,13 +309,10 @@ import Sync
         func release(_ path: String) { gate(path).signal() }
     }
 
-    /// The memo must track the last path requested, not the last load to come back.
-    ///
-    /// A superseded load can't be cancelled: `.task(id:)` cancels its Task, but the queue block
-    /// behind its continuation runs to completion and then writes the memo, and with a
-    /// `.concurrent` `ioQueue` the stale one can land last. Unguarded, the cache memoizes `/a`
-    /// while the inspector shows `/b`, and a later re-selection of `/a` is served a superseded
-    /// entry.
+    /// The memo must track the last path requested, not the last load to come back. A superseded
+    /// load can't be cancelled: `.task(id:)` cancels its Task, but the queue block behind its
+    /// continuation still writes the memo, and with a `.concurrent` `ioQueue` the stale one can land
+    /// last, so a later re-selection of `/a` would be served a superseded entry.
     @Test func aSupersededLoadMustNotOverwriteTheMemoWithItsStalePath() async {
         let loader = OrderedLoader()
         let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
@@ -383,7 +375,7 @@ import Sync
     /// thread could only get there once the hostage timed out, so the stat would have returned.
     @Test func aStatThatNeverReturnsStillLetsTheFirstFramePaint() async throws {
         // Longer than the default: the verdict is lost only if something else holds the main thread
-        // for the whole hostage, and on hosted CI something has held it for 9 s.
+        // for the whole hostage, and hosted CI can hold it for seconds.
         let loader = HostageLoader(timeout: 60)
         defer { loader.release() }
 

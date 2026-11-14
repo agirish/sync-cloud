@@ -5,11 +5,9 @@ import Testing
 
 /// A button whose words wear a colour reads at 4.5:1 on its bezel, in both appearances.
 ///
-/// A `.bordered` or `.borderless` button draws its `.tint` as the label's text; the raw hue as
-/// words is 2.3:1 on the light bezel at Green. `ChromeInk.buttonWords` deepens the colour to
-/// body-text depth in light and takes label colour in dark. Rendered and read back: the bezel's
-/// grey is sampled, not assumed, and one button's words are read off the render so the
-/// arithmetic is tied to what AppKit paints.
+/// A `.bordered` or `.borderless` button draws its `.tint` as the label's text; the raw hue is
+/// 2.3:1 on the light bezel at Green. `ChromeInk.buttonWords` deepens it in light and takes label
+/// colour in dark. The bezel's grey is sampled from a render, not assumed.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ButtonWordInkTests {
 
@@ -88,10 +86,8 @@ import Testing
         return best
     }
 
-    /// Read off the render: under a sheet's deepened root tint, a Cancel tinted with
-    /// `buttonWordsTint` paints its words at the floor. The same Cancel with no tint of its own
-    /// takes the root's deepened fill as its words and misses it (about 2.9:1 dark, 3.8:1 light),
-    /// so the probe can see the failing case.
+    /// Under a sheet's deepened root tint, a Cancel tinted with `buttonWordsTint` paints its words
+    /// at the floor; untinted, it takes the root's fill and misses it, so the probe sees a failure.
     @Test(arguments: [false, true]) func aTintedButtonsWordsPaintAtTheFloor(dark: Bool) throws {
         let hue = LiquidGlassHue.green
         let bezel = try Self.bezel(dark: dark)

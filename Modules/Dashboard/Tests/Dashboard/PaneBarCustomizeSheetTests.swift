@@ -71,10 +71,9 @@ import Testing
 
     // MARK: Can you actually aim at it
 
-    /// Right-clicks the centre of one track pill and returns the menu, if any. The one interaction
-    /// here a test can drive: SwiftUI answers `NSView.menu(for:)` by hit-testing the point, so the
-    /// menu shows whether the pill is aimable. A pill drawn as an unfilled outline is hit-testable
-    /// only along the outline.
+    /// Right-clicks the centre of one track pill and returns the menu, if any: SwiftUI answers
+    /// `NSView.menu(for:)` by hit-testing the point, so the menu shows whether the pill is aimable.
+    /// A pill drawn as an unfilled outline is hit-testable only along the outline.
     private func menuAtCentre(of item: PaneBarItem) -> NSMenu? {
         let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-aim")
         defaults.set(PaneBarArrangement([.space, .scan, .flexibleSpace, .sort]).encoded,
@@ -107,10 +106,9 @@ import Testing
         return host.menu(for: event)
     }
 
-    /// The head of the track is a blank drop zone, not a provider capsule, which the real bar
-    /// doesn't have. "First" must stay aimable, so the zone keeps a width and paints nothing. It
-    /// lies over the track's leading padding, so its width indents nothing. The control is a fixed
-    /// space's pill, the faintest thing on the track: a probe that sees it would see a capsule.
+    /// The head of the track is a blank drop zone: wide enough to aim "first" at, painting nothing,
+    /// and lying over the leading padding so it indents nothing. The control is a fixed space's
+    /// pill, the faintest thing on the track: a probe that sees it would see a capsule.
     @Test func theHeadOfTheTrackIsABlankDropZone() throws {
         let sheet = PaneBarCustomizeSheet()
         let zone = NSHostingView(rootView: AnyView(sheet.leadingEdgeZone))
@@ -125,10 +123,9 @@ import Testing
         #expect(blank == 0, "the leading drop zone painted \(blank) pixels; it should draw nothing")
     }
 
-    /// The head's zone scrolls with the row. Laid over the `ScrollView` it would stay pinned at the
-    /// visible left edge, and on a scrolled long bar a drop there would land at index 0, off screen.
-    /// A drop can't be driven from a test, so this reads `track`: the zone must be inside the scroll
-    /// view's content closure, and nowhere after it.
+    /// The head's zone scrolls with the row: laid over the `ScrollView` it would stay pinned at the
+    /// visible edge, and on a scrolled bar a drop there would land at index 0, off screen. A source
+    /// read, since a drop can't be driven from a test.
     @Test func theHeadZoneIsScrolledContent() throws {
         let code = try DashboardSource.read("PaneBarCustomizeSheet.swift", codeOnly: true)
         let start = try #require(code.range(of: "private var track: some View {"))
@@ -167,10 +164,9 @@ import Testing
     }
 
     @Test func theSpaceOnTheTrackCanBeAimedAt() {
-        // A spacer's pill is a dashed outline; with an empty fill its drag, drop and context menu
-        // sit on a 1pt ring and a click in the middle falls through to the track. Nothing else
-        // removes a space (no palette check, and Restore is all-or-nothing), so it would be stuck on
-        // the bar. Both spacers, since their fills differ.
+        // A spacer's pill is a dashed outline; with an empty fill a click in the middle falls
+        // through to the track, and since nothing else removes a space it would be stuck on the
+        // bar. Both spacers, since their fills differ.
         for spacer in [PaneBarItem.space, .flexibleSpace] {
             let titles = menuAtCentre(of: spacer)?.items.map(\.title) ?? []
             #expect(titles.contains("Remove"),
@@ -185,15 +181,10 @@ import Testing
         #expect(titles.contains("Remove"), "a control pill offered \(titles)")
     }
 
-    /// Every edit this sheet makes goes through `commit`, which logs it. A source scan, because the
-    /// five gestures that change the bar (a `Button` action, three drop handlers and an
-    /// accessibility action) can't be driven by a unit test. What can be checked is that the whole
-    /// product writes the stored arrangement in one place, inside `commit`, so a new gesture that
-    /// writes it directly fails here instead of going unlogged.
-    ///
-    /// Scanned by the key across every source file, not by a variable name in one file: a write can
-    /// be spelled `set(…, forKey: PaneBar.arrangementKey)` or `$binding.wrappedValue =`, and
-    /// `DashboardViews.swift` binds the same `@AppStorage` key.
+    /// Every edit this sheet makes goes through `commit`, which logs it. A source scan, since the
+    /// gestures can't be driven by a unit test: the product writes the stored arrangement in one
+    /// place, so a new gesture writing it directly fails here instead of going unlogged. Scanned by
+    /// key across every file, since `DashboardViews.swift` binds the same `@AppStorage` key.
     @Test func testTheSheetWritesTheArrangementInExactlyOnePlace() throws {
         let writers = try Self.arrangementWrites()
         // Roots first: a scan with an empty file list or anchor would report "no stray writes" for
@@ -227,25 +218,16 @@ import Testing
         let body = tail[..<bodyEnd]
         #expect(body.contains("arrangementRaw = next.encoded"),
                 "the single arrangement write is not inside commit(_:)")
-        // And that write is logged: deleting the `PaneBarEditLog.record` call from `commit` must
-        // fail here, since nothing else would notice.
+        // Mutation that must fail this: deleting the `PaneBarEditLog.record` call from `commit`.
         let unlogged = "commit(_:) writes the arrangement without logging it, so every gesture in "
             + "this sheet is silent and PaneBarEditLog has no caller at all"
         #expect(body.contains("PaneBarEditLog.record(from: before, to: next)"), "\(unlogged)")
     }
 
-    /// Every write of the stored pane-bar arrangement in the product, as `file: line` strings. Two
-    /// spellings:
-    ///
-    /// * an assignment to a property bound with `@AppStorage(PaneBar.arrangementKey)`, in whichever
-    ///   file declares it, including through `$binding.wrappedValue`;
-    /// * a `set(…, forKey:)` naming the key or its literal, anywhere.
-    ///
-    /// `PaneBarMigration.apply`'s write in `PaneBarArrangement.swift` is exempt: it runs before any
-    /// `@AppStorage` wrapper reads the bar, isn't a user edit, and logs its own launch line.
-    ///
-    /// Blind spots: a key passed through a local (`let k = PaneBar.arrangementKey`), or
-    /// `setPersistentDomain`. Nothing in the repo writes the key either way.
+    /// Every write of the stored pane-bar arrangement, as `file: line` strings: an assignment to an
+    /// `@AppStorage(PaneBar.arrangementKey)` property (or its `$binding.wrappedValue`), or a
+    /// `set(…, forKey:)` naming the key. `PaneBarMigration.apply`'s write is exempt: it isn't a user
+    /// edit and logs its own line. Blind to a key passed through a local, or `setPersistentDomain`.
     private static func arrangementWrites() throws -> [String] {
         /// The migration's own write, quoted exactly. Exempt by its whole text and its file, so a
         /// second write added to `PaneBarArrangement.swift` is still reported.

@@ -2,13 +2,10 @@ import Testing
 import Foundation
 @testable import Events
 
-/// Pins the signal the logging stack emits when the disk log stops accepting writes. On a full
-/// or unmounted volume the Activity Log keeps scrolling from memory while `~/sync-cloud.log`
-/// stops growing, and only this says so. It can't be logged the ordinary way, which would hand
-/// it back to the failed writer, so it is one in-memory report per failure run.
-///
-/// Both halves are pinned: the writer reports (once per run, never on success), and `Logger`
-/// turns the report into an in-memory warning entry.
+/// The signal when the disk log stops accepting writes: on a full or unmounted volume the
+/// Activity Log keeps scrolling from memory while `~/sync-cloud.log` stops growing. Logging it the
+/// ordinary way would hand it back to the failed writer, so the writer reports once per failure
+/// run and `Logger` turns that into an in-memory warning entry.
 @Suite struct LogDiskWriteFailureTests {
 
     /// A path in a directory that doesn't exist, so both write paths fail: no handle can open, and

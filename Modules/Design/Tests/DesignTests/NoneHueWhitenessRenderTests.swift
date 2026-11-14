@@ -7,9 +7,7 @@ import Testing
 /// `liquidGlassAppBackground` and reading the pixels.
 ///
 /// Without `noneLightVeil`, at low Tint None (bare material) and Graphite (a faint neutral wash
-/// floored at `tintFloor`) render within a few points of the same grey, told apart only by their
-/// swatches. These tests keep the separation a measured fact rather than a constant trusted in
-/// prose.
+/// floored at `tintFloor`) render within a few points of the same grey.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct NoneHueWhitenessRenderTests {
 
@@ -40,12 +38,9 @@ import Testing
         return counted == 0 ? 0 : total / Double(counted)
     }
 
-    /// At the Tint floor, None must sit clearly on the white side of Graphite. Margins are
-    /// calibrated to this pipeline, which renders far lighter than the screen: offscreen there is no
-    /// desktop behind the material, so bare material lands near 0.97 and Graphite's floor wash only
-    /// pulls it to ~0.956. An absolute margin like 0.10 is unreachable here, so the scale-free check
-    /// is the next test; this one pins the ordering with a margin near the veil's measured effect
-    /// (+0.024 over bare material's 0.968).
+    /// At the Tint floor, None sits clearly on the white side of Graphite. Offscreen there is no
+    /// desktop behind the material, so bare material lands near 0.97 and Graphite ~0.956; an
+    /// absolute margin like 0.10 is unreachable, so the margin is near the veil's measured +0.024.
     @Test func noneIsWhiterThanGraphiteInLightAtMinTint() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: false))
         let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false))
@@ -53,10 +48,9 @@ import Testing
                 "None does not separate from Graphite — none \(none), graphite \(graphite)")
     }
 
-    /// "Whiter" alone could be met by a barely lighter grey; white means near white. Scale-free so
-    /// it survives this pipeline's compressed greys: whatever distance Graphite sits from white,
-    /// None must close at least 60% of it. White is a rendered `Color.white` through the same
-    /// pipeline, so the bar tracks the pipeline's real ceiling rather than an assumed 1.0.
+    /// None closes at least 60% of Graphite's distance to white: scale-free, so it survives this
+    /// pipeline's compressed greys. White is a rendered `Color.white`, the pipeline's real ceiling,
+    /// not an assumed 1.0.
     @Test func noneClosesMostOfTheGapToWhite() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: false))
         let graphite = try brightness(render(hue: .graphite, tint: 0, dark: false))
@@ -66,13 +60,10 @@ import Testing
                 "None reads gray, not white — none \(none), graphite \(graphite), white \(white)")
     }
 
-    /// Clear is not exempt: a Clear/None/light window must get the white film too.
-    ///
-    /// None against Graphite can't be measured at Clear offscreen: they sit on different
-    /// behind-window materials (None on `clearNoneLightMaterial`), and with no desktop behind an
-    /// offscreen window each renders a fallback that inverts what the screen shows. So this pins
-    /// what renders faithfully: over None's own backdrop and Clear's veil, the white film is drawn
-    /// and lifts the window clearly toward white.
+    /// A Clear/None/light window gets the white film too. None against Graphite can't be compared
+    /// at Clear offscreen: they sit on different behind-window materials, and with no desktop each
+    /// renders a fallback that inverts the screen. So this pins that the film lifts None's own
+    /// backdrop clearly toward white.
     @Test func clearNoneDrawsItsWhiteFilmInLight() throws {
         let none = try brightness(render(hue: .none, tint: 0, dark: false, level: .clear))
         let backdrop = try brightness(renderView(AnyView(Color.clear.background {

@@ -33,11 +33,9 @@ import FileExplorerTestSupport
         #expect(!Self.header(expanded: false, query: "", canSearch: false).availableItems.contains(.search))
     }
 
-    /// The magnifier and the field are alternatives, never both; a magnifier beside an open field
-    /// would break "collapsed implies empty". A field that joined the bar would carry more controls
-    /// and more ink on the row than the bar alone, and one that replaced it carries less, so both
-    /// are compared. The control count is exact: each pill hosts a `_FocusRingView`, and the row
-    /// loses most of them when the field opens. The collapsed readings are loose vacuity guards.
+    /// The magnifier and the field are alternatives, never both, or "collapsed implies empty"
+    /// breaks. A field that joined the bar would add controls and ink to the row, so both are
+    /// compared; each pill hosts a `_FocusRingView`, so the control count is exact.
     @Test(.machinePinned(.pixelSampling)) func testTheFieldReplacesTheBarRatherThanJoiningIt() throws {
         let collapsed = try Self.rendered(expanded: false, query: "")
         let expanded = try Self.rendered(expanded: true, query: "invoice")

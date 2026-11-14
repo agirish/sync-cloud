@@ -4,22 +4,14 @@ import Events
 import EventsTestSupport
 @testable import Dashboard
 
-/// Bringing a bar arranged on an earlier build forward when a new control ships. Tests that start
-/// from `PaneBarArrangement.default` can't see this, since the default carries every control; only
-/// a stored arrangement written before the control existed lacks it, which is every real install on
-/// release day.
+/// Bringing a bar arranged on an earlier build forward when a new control ships. Only a stored
+/// arrangement written before the control existed lacks it, so tests starting from
+/// `PaneBarArrangement.default` can't see this.
 ///
-/// `.serialized` orders only this suite, while the `Logger.shared` buffer is process-wide and every
-/// suite writes into it at once. What keeps the log assertions safe:
-///
-/// * A capture, not the buffer. Every read, presence or absence, comes from a `LogCapture` opened
-///   before the call, since the buffer is capped at 1000 entries and siblings can roll past this
-///   test's lines ("A log assertion reading a window that has already rolled" in
-///   `docs/flaky-tests.md`). Each absence also finds a line of the test's own, so a capture that
-///   heard nothing can't pass it.
-/// * Disjoint predicates. The absences look for `[panebar] The stored pane-bar arrangement`, which
-///   nothing outside this file writes.
-/// * `.serialized` on top, which keeps the captures short.
+/// The `Logger.shared` buffer is process-wide and capped at 1000 entries, so every log read comes
+/// from a `LogCapture` opened before the call ("A log assertion reading a window that has already
+/// rolled" in `docs/flaky-tests.md`). Each absence also finds a line of its own, and looks for
+/// `[panebar] The stored pane-bar arrangement`, which nothing outside this file writes.
 @MainActor
 @Suite(.serialized) struct PaneBarMigrationTests {
 
@@ -28,19 +20,16 @@ import EventsTestSupport
     /// customization would migrate it and undo what they did with Filter by Type.
     @Test func testAnUncustomizedBarIsStampedWithoutBeingWritten() {
         let defaults = ScratchDefaults("PaneBarMigrationTests-fresh")
-        // `.unchanged`, as in `testAFullBarIsLeftAloneAndSaysSo`: the result is what this run put
-        // onto a stored arrangement, and there is none. Anything else would log a migration on
-        // every uncustomized install.
+        // `.unchanged`: there is no stored arrangement to rewrite, and anything else would log a
+        // migration on every uncustomized install.
         #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == nil, "nothing to migrate, nothing written")
         #expect(defaults.integer(forKey: PaneBar.migrationKey) == PaneBarMigration.currentVersion)
     }
 
-    /// A full bar can't take a migrated control, and the migration must say so.
-    /// `PaneBarArrangement.insert` refuses silently at `maxItems`, and spacers repeat, so a user can
-    /// build a full bar. The migration must compare the result, not assume its insert landed. Runs
-    /// over `migratedControls`, so the next step joins by construction; nothing else here reaches
-    /// the cap.
+    /// A full bar can't take a migrated control, and the migration must say so: `insert` refuses
+    /// silently at `maxItems`, so it must compare the result, not assume its insert landed. Runs over
+    /// `migratedControls`, so the next step joins by construction.
     @Test func testAFullBarIsLeftAloneAndSaysSo() {
         #expect(!PaneBarMigration.migratedControls.isEmpty, "no step to refuse — this would be vacuous")
         for control in PaneBarMigration.migratedControls {
@@ -163,14 +152,12 @@ import EventsTestSupport
                 "Restore dropped the carried token")
     }
 
-    /// Changing the shipped default doesn't rewrite a bar someone is using. The default has no
-    /// leading `flexibleSpace`, but older stored bars do, and that stored list is the user's answer
-    /// to where their controls go. So the space survives the migration, and a control it adds lands
-    /// after the space, at the trailing edge with the rest of the bar, not packed left before it.
+    /// Changing the shipped default doesn't rewrite a bar someone is using: an older stored bar's
+    /// leading `flexibleSpace` survives the migration, and a control it adds lands after the space,
+    /// at the trailing edge with the rest of the bar.
     @Test func theMigrationKeepsAStoredFlexibleSpaceAndPlacesAroundIt() throws {
         let defaults = ScratchDefaults("PaneBarMigrationTests-storedSpace")
-        // A bar as older builds wrote it: a leading space, and no Filter by Type for the migration
-        // to place.
+        // A bar as older builds wrote it: a leading space, and no Filter by Type to place.
         let stored = PaneBarArrangement([.flexibleSpace] + PaneBarArrangement.default.items.filter { $0 != .typeFilter })
         #expect(stored.items.first == .flexibleSpace, "the fixture is not the shape this test is about")
         defaults.set(stored.encoded, forKey: PaneBar.arrangementKey)
@@ -193,15 +180,9 @@ import EventsTestSupport
     // customized bar, not even in ⋯, and the user just never sees it. These bind every default
     // control to a route.
 
-    /// Runs the migration on a stored bar missing `control` and answers whether it puts the control
-    /// back where the shipped default puts it. The fixture is checked for omitting the control
-    /// first, or this would answer true for everything.
-    ///
-    /// Position matters, not just `contains`: for every other item on the bar, the migrated control
-    /// must fall on the same side of it as in `PaneBarArrangement.default`. Not checked: surviving
-    /// the first layout rung, since an appended control is shed first and for Search that is the
-    /// design. A step gated above `currentVersion` is caught by
-    /// `testNoMigrationStepIsGatedAboveTheCurrentVersion`, not here.
+    /// Runs the migration on a stored bar missing `control` and answers whether it lands on the same
+    /// side of every other item as in `PaneBarArrangement.default`. A step gated above
+    /// `currentVersion` is caught by `testNoMigrationStepIsGatedAboveTheCurrentVersion`, not here.
     private func migrationPlaces(_ control: PaneBarItem) throws -> Bool {
         let defaults = ScratchDefaults("PaneBarMigrationTests-route-\(control.rawValue)")
         let stored = PaneBarArrangement(PaneBarArrangement.default.items.filter { $0 != control })
@@ -243,10 +224,9 @@ import EventsTestSupport
         return true
     }
 
-    /// Every control on the shipped bar can reach a customized bar, and this names one that can't.
-    /// Each control is on exactly one route: it predates the mechanism, a migration step places it
-    /// (checked by running the migration), or it declines a step on purpose. The declines are named
-    /// here as well as in the source, so a new control can't join them with a one-line edit.
+    /// Every control on the shipped bar is on exactly one route onto a customized bar: it predates
+    /// the mechanism, a migration step places it, or it declines a step on purpose. The declines are
+    /// named here as well as in the source, so a new control can't join them with a one-line edit.
     @Test func testEveryControlOnTheDefaultBarHasARouteOntoACustomizedBar() throws {
         let deliberatelyDeclined: Set<PaneBarItem> = [.delete]
         #expect(PaneBarMigration.declinedControls == deliberatelyDeclined,
@@ -315,13 +295,9 @@ import EventsTestSupport
         #expect(PaneBarMigration.baselineControls.isDisjoint(with: PaneBarMigration.declinedControls))
     }
 
-    /// A step gated above `currentVersion` never runs for installs already stamped, the very ones a
-    /// new step is for, and every behavioural test here is blind to it: their fixtures start
-    /// unstamped, where any gate passes. That is "add a step, forget to bump `currentVersion`".
-    /// The same equality catches the reverse, a bump without a step.
-    ///
-    /// A source scan of the literals: the highest step gate must equal `currentVersion`. Comment
-    /// lines are stripped first, since prose quotes the gates.
+    /// A step gated above `currentVersion` never runs for installs already stamped, the very ones it
+    /// is for, and the behavioural tests start unstamped, so can't see it. A source scan: the highest
+    /// step gate must equal `currentVersion`, which also catches a bump without a step.
     @Test func testNoMigrationStepIsGatedAboveTheCurrentVersion() throws {
         let source = try DashboardSource.read("PaneBarArrangement.swift", codeOnly: true)
         var gates: [Int] = []
@@ -346,10 +322,9 @@ import EventsTestSupport
         #expect(gates.max() == PaneBarMigration.currentVersion, "\(outOfStep)")
     }
 
-    /// The derivation behind the runtime warning, proven to derive something. In a correct build
-    /// `controlsWithoutARoute` is empty, so a version hard-wired to `[]` would pass every check of
-    /// it. Handed inputs, it must name the whole shipped bar with no routes, and exactly one
-    /// route's members with that route removed.
+    /// The derivation behind the runtime warning, proven to derive something: a correct build's
+    /// `controlsWithoutARoute` is empty, so one hard-wired to `[]` would pass. With no routes it must
+    /// name the whole shipped bar, and with one route removed exactly its members.
     @Test func testTheRouteDerivationNamesWhatTheRoutesDoNotCover() {
         // Written out, not recomputed from `default.items`: that is the derivation under test.
         let shipped: [PaneBarItem] = [.viewMode, .collapse, .backForward, .scan, .info, .newFolder, .sort,
@@ -367,17 +342,14 @@ import EventsTestSupport
         #expect(withSpacer.items.contains(.flexibleSpace), "the fixture lost its spacer on the way in")
         #expect(PaneBarMigration.controlsWithoutARoute(shipping: withSpacer, routed: []) == shipped,
                 "the spacer was named as a stranded control — spacers are layout, not ability")
-        // And dropping one route strands exactly its members.
         #expect(PaneBarMigration.controlsWithoutARoute(
                     shipping: .default,
                     routed: PaneBarMigration.routedControls.subtracting([.search])) == [.search])
     }
 
-    /// The two wirings behind the stranded warning that only source can show. `unreachableMessage`
-    /// takes an injected list, so a caller could pass `[]` and kill the warning with every test
-    /// green; and `controlsWithoutARoute` could stop consulting the routes. Neither shows in
-    /// behaviour while the honest answer is empty. The declaration is required first, so a rename
-    /// fails loudly.
+    /// The two wirings behind the stranded warning that only source can show: the report defaults
+    /// to the real stranded list, and `controlsWithoutARoute` derives from the routes. Neither shows
+    /// in behaviour while the honest answer is empty.
     @Test func testTheStrandedWarningIsWiredToTheRealRouteList() throws {
         let source = try DashboardSource.read("PaneBarArrangement.swift", codeOnly: true)
         _ = try #require(source.range(of: "public static func reportStoredArrangementReach"),
@@ -392,10 +364,9 @@ import EventsTestSupport
                 "\(notDerived)")
     }
 
-    /// The launch line names what this run added, and a new step joins by construction. `apply` is
-    /// run, not read off `migratedControls`, so a step claiming a control it doesn't place fails
-    /// here, and `migrationMessage` gets exactly what `apply` answered. Every control in
-    /// `migratedControls` must appear in the line, so nobody has to remember the call site.
+    /// The launch line names every control this run added, and a new step joins by construction.
+    /// `apply` is run, not read off `migratedControls`, so a step claiming a control it doesn't
+    /// place fails here.
     @Test func theLaunchLineNamesEveryControlTheMigrationActuallyAdded() {
         #expect(!PaneBarMigration.migratedControls.isEmpty,
                 "no control is migrated at all — the loop below would be vacuous")
@@ -427,17 +398,10 @@ import EventsTestSupport
                 "a launch that migrated nothing still writes a line claiming it did")
     }
 
-    /// Every rewrite logs something, even one it can't name. A removal, a reorder or a repeatable
-    /// insertion adds no nameable control, yet writes the bar back, and `~/sync-cloud.log` must
-    /// still say the bar was rewritten under its owner.
-    ///
-    /// Fixtures are built by hand, not from `PaneBarArrangement.default`: the subject is the shape
-    /// of a change, so no control list is enumerated. Fed to `PaneBarMigration.outcome` directly,
-    /// because the shipped steps are pure additions and `apply` can't produce these shapes; `apply`
-    /// routes its write through `outcome` (`theMigrationRoutesItsOwnAnswerThroughOutcome`), so this
-    /// covers every future step.
+    /// Every rewrite logs something, even a removal, reorder or repeatable insertion it can't name,
+    /// so `~/sync-cloud.log` always says the bar was rewritten. Fed to `outcome` directly, since the
+    /// shipped steps only add; `apply` routes through it (`theMigrationRoutesItsOwnAnswerThroughOutcome`).
     @Test func everyRewriteLogsSomethingEvenWhenItCannotNameWhatChanged() {
-        // The three shapes, each as its own before/after so a reader can check the premise.
         let shapes: [(String, [PaneBarItem], [PaneBarItem])] = [
             ("removal", [.scan, .sort, .hiddenFiles], [.scan, .hiddenFiles]),
             ("reorder", [.scan, .sort, .hiddenFiles], [.hiddenFiles, .sort, .scan]),
@@ -465,7 +429,6 @@ import EventsTestSupport
                 == "[panebar] rewrote a stored pane-bar arrangement: removed Sort")
         #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [.search], removed: [.sort]))
                 == "[panebar] rewrote a stored pane-bar arrangement: added Search, removed Sort")
-        // The unnameable rewrite's whole sentence, as a literal.
         #expect(PaneBarMigration.migrationMessage(for: .rewritten(added: [], removed: []))
                 == "[panebar] rewrote a stored pane-bar arrangement")
 
@@ -517,10 +480,9 @@ import EventsTestSupport
         }, "a launch on a bar missing eight shipped controls wrote nothing about it")
     }
 
-    /// `apply` writes no report of its own. Its caller is `App.init`, which SwiftUI may re-run, so a
-    /// report there would repeat on every rebuild of the scene. The report belongs to the delegate:
-    /// `applicationDidFinishLaunching` fires once per process. A
-    /// `defer { reportStoredArrangementReach(…) }` in `apply` must fail here.
+    /// `apply` writes no report: its caller, `App.init`, may be re-run by SwiftUI, so the report
+    /// belongs to `applicationDidFinishLaunching`, once per process.
+    /// Mutation that must fail this: a `defer { reportStoredArrangementReach(…) }` in `apply`.
     @Test func testTheMigrationItselfWritesNoReachReport() async {
         let log = LogCapture()
 
@@ -589,7 +551,6 @@ import EventsTestSupport
         Logger.shared.info(marker)
 
         let entries = await log.entries
-        // Without this the absence below would pass if the capture heard nothing at all.
         #expect(entries.contains { $0.message == marker },
                 "the capture never saw this test's own line — this absence proves nothing")
         #expect(!entries.contains { $0.message.hasPrefix("[panebar] The stored pane-bar arrangement") },
@@ -604,7 +565,6 @@ import EventsTestSupport
         #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: [.delete, .newFolder])
                 == "[panebar] New Folder, Delete ship on the default pane bar with no migration step,"
                 + " so this stored arrangement can never show them — see PaneBarMigration")
-        // Nothing stranded, nothing said: a correct build.
         #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: []) == nil)
         // Stranded in the code but on this bar: this user can see it, so there's nothing to say.
         let carriesIt = PaneBarArrangement(encoded: "flexibleSpace,scan,delete")

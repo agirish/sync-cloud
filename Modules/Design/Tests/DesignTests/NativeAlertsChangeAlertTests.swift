@@ -6,8 +6,7 @@ import Testing
 /// destroys (⌘K offering to swap the panes so Organize can open on the source you named).
 ///
 /// Asked of the alert `changeAlert` builds, never of `confirmChange`, whose `runModal()` would park
-/// the test's main thread on a modal session nothing here can dismiss. The assembly is what sets
-/// this dialog apart from the destructive one, so the assembly is what is pinned.
+/// the test's main thread on a modal session nothing here can dismiss.
 @Suite @MainActor struct NativeAlertsChangeAlertTests {
 
     private func alert() -> NSAlert {
@@ -17,13 +16,9 @@ import Testing
             confirmTitle: "Swap Panes")
     }
 
-    /// Informational, and not marked destructive. `hasDestructiveAction` and `.warning` are macOS's
-    /// "this cannot be undone" pair (the caution icon and the red default button), and
-    /// `confirmDelete` needs them to mean that. Spent on a reversible view change, they stop meaning
+    /// Informational, and not marked destructive: `hasDestructiveAction` and `.warning` are macOS's
+    /// "this cannot be undone" pair, and spent on a reversible view change they stop meaning
     /// anything on the alert that really moves files to the Trash.
-    ///
-    /// Only this alert can be asked: `confirmDestructive` builds its alert inside a `runModal()`
-    /// this suite can't enter, which is why this one has a factory of its own.
     @Test func theChangeAlertIsNotDressedAsADestruction() throws {
         let change = alert()
         #expect(change.alertStyle == .informational,
@@ -34,10 +29,9 @@ import Testing
                 "the confirm button is marked destructive — macOS will render it as a deletion")
     }
 
-    /// Confirm, then Cancel, with Return on the confirm. NSAlert lays buttons out right to left from
-    /// the first added, and the first takes Return, so an inverted pair would put Return on Cancel
-    /// and Escape on the change. The confirm carries the caller's verb; `changeAlert` must not
-    /// substitute an "OK" of its own.
+    /// Confirm, then Cancel, with Return on the confirm: NSAlert gives Return to the first button
+    /// added, so an inverted pair would put Return on Cancel. The confirm carries the caller's
+    /// verb, never an "OK" of its own.
     @Test func theConfirmComesFirstAndAnswersReturn() {
         let change = alert()
         #expect(change.buttons.count == 2,

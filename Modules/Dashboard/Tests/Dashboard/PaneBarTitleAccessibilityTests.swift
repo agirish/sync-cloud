@@ -3,11 +3,9 @@ import Foundation
 @testable import Dashboard
 
 /// The word under a bar pill is hidden from VoiceOver, because the pill already carries the same
-/// label. `accessibilityElement(children: .contain)` alone doesn't do that: it keeps children as
-/// separate elements, so every titled item would be read twice ("Scan, button. Scan.").
-///
-/// A source scan, because without an assistive client AppKit builds no accessibility tree and any
-/// assertion over it passes vacuously. It pins a spelling, not a behaviour: it can't tell that
+/// label; `accessibilityElement(children: .contain)` alone keeps children as separate elements, so
+/// every titled item would be read twice. A source scan, because without an assistive client
+/// AppKit builds no accessibility tree. It pins a spelling: it can't tell that
 /// `accessibilityHidden(true)` is on the word rather than elsewhere in the function.
 @Suite struct PaneBarTitleAccessibilityTests {
 

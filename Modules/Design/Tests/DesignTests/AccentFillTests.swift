@@ -38,10 +38,8 @@ import Testing
                 < luminance(srgb(LiquidGlassHue.amber.accentColor)) - 0.1)
     }
 
-    /// Deepening must read as the SAME colour turned down, not as a different colour — which is why
-    /// the scaling happens in linear light. Scaling all three linear components by one factor leaves
-    /// their ratios, i.e. the chromaticity, exactly intact. This is the test that would fail if
-    /// someone "simplified" it to multiplying the sRGB components, which shifts hue.
+    /// Deepening reads as the same colour turned down: scaled in linear light, which keeps the
+    /// chromaticity intact. Multiplying the sRGB components instead shifts hue and must fail this.
     @Test func deepeningPreservesChromaticity() {
         func linear(_ c: CGFloat) -> CGFloat {
             c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)

@@ -3,16 +3,12 @@ import Testing
 @testable import Dashboard
 import Events
 
-/// Sync History's time column and the zone it reads in.
-///
-/// `SyncHistoryRow` stamps every row through one shared `DateFormatter`, and one whose `timeZone`
-/// is never set keeps the zone it first formatted in. Sync History is a window left open, so after
-/// a flight or a Date & Time change its rows would read in the old zone for the rest of the session.
-///
-/// Driven through the accessor, not by moving `NSTimeZone.default`, which is process-wide and would
-/// race every other suite (as in `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`).
-/// The rule itself is tested on `Design.ZoneRefreshedFormatter`; these assert the column routes
-/// through it.
+/// Sync History's time column and the zone it reads in: one shared `DateFormatter` whose
+/// `timeZone` is never set keeps the zone it first formatted in, and the window stays open across a
+/// flight or a Date & Time change. Driven through the accessor, not by moving `NSTimeZone.default`,
+/// which is process-wide and would race every other suite (as in
+/// `OrganizeRenderMemoTests.theStampFormattersFollowTheSystemZone`). The rule itself is tested on
+/// `Design.ZoneRefreshedFormatter`; these assert the column routes through it.
 @MainActor
 @Suite(.serialized) struct SyncHistoryRowTimeZoneTests {
 

@@ -4,20 +4,14 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The rule for sizing a box drawn around a scaled glyph, and the property that tells a
-/// reservation from a pin.
+/// The rule for sizing a box drawn around a scaled glyph. A `.scaledFont` glyph grows with
+/// Settings ▸ Text size; a hard `.frame` around it doesn't, and since `.frame` doesn't clip, the
+/// surplus draws straight out of the box.
 ///
-/// A `.scaledFont` glyph grows with Settings ▸ Text size; a hard `.frame` around it doesn't, and
-/// since `.frame` doesn't clip, the surplus draws straight out of the box.
-///
-/// - `fittingSize` is not the overflow test. `Image(systemName:)` reports its symbol's layout box,
-///   side bearings included, which overstates the drawn ink by 3–5pt at these sizes.
-///   ``GlyphInk/outside(symbol:point:weight:box:shape:scale:)`` renders the ink and decides.
-/// - A hit target is not a pinned box. Some sites frame a glyph to give a pointer something to hit
-///   (`CloseButton`, both `DifferencesView` toggles, the Editor rail's `plus`, the destination
-///   grip, Settings' disclosure chevron). A pointer doesn't grow with the text, so those frames
-///   are right to be constants, as long as they still hold their glyph's ink at Largest:
-///   ``theCloseButtonsReservationStillHoldsItsGlyph`` asserts that.
+/// - `fittingSize` is not the overflow test: it includes side bearings, overstating the ink by
+///   3–5pt. ``GlyphInk/outside(symbol:point:weight:box:shape:scale:)`` renders the ink and decides.
+/// - A hit target (`CloseButton` and the like) is rightly a constant, as long as it still holds its
+///   glyph's ink at Largest: ``theCloseButtonsReservationStillHoldsItsGlyph``.
 @Suite @MainActor struct ScaledBoxTests {
 
     /// The four named presets, the axis the arithmetic assertions move along.
@@ -55,11 +49,9 @@ import Testing
         }
     }
 
-    /// The box and its glyph move together. This rules out the obvious wrong rule, `box * scale`:
-    /// above ``FontSize/knee`` the ramp damps and then clamps, so a bare multiply grows a box around
-    /// a glyph that has stopped growing (at 22pt and Largest, a 40.5pt disc around a 22pt symbol,
-    /// the `SetupSheet` mark's geometry). Asserting the ratio keeps this independent of both
-    /// constants.
+    /// The box and its glyph move together, ruling out `box * scale`: above ``FontSize/knee`` the
+    /// ramp damps and clamps, so a bare multiply grows a box around a glyph that has stopped
+    /// growing. Asserting the ratio keeps this independent of both constants.
     @Test func theBoxHoldsItsGlyphsProportionAtEverySize() {
         for box in [CGFloat(13), 14, 21, 34] {
             for point in [CGFloat(9), 10, 11, 12, 22] {
@@ -90,13 +82,9 @@ import Testing
 
     // MARK: The rule, laid out rather than computed
 
-    /// The number is applied, not merely returned. Everything above is arithmetic on a static
-    /// function; this lays a frame out through `NSHostingView` and reads the width back, so a
-    /// `scaledBox` that computes correctly but never reaches a `.frame` fails here.
-    ///
-    /// Bounded above by a whole point, not half of one, because `fittingSize` rounds a fractional
-    /// frame up to the next point: 26.25 comes back as 27 and 28.35 as 29. A symmetric `± 0.51`
-    /// would fail on the renderer's rounding, not the rule, so the bound is asymmetric.
+    /// The number is applied, not merely returned: a frame laid out through `NSHostingView` reads
+    /// back the rule's width. The bound is asymmetric because `fittingSize` rounds a fractional frame
+    /// up to the next point (26.25 comes back as 27), so a symmetric `± 0.51` would fail on rounding.
     @Test func aFrameBuiltFromTheRuleReallyMeasuresIt() {
         for scale in scales {
             let want = FontSize.scaledBox(21, basePoint: 11, scale: scale)
@@ -136,10 +124,9 @@ import Testing
         }
     }
 
-    /// The positive control for every "clean" verdict here. A detector that silently stopped
-    /// seeing ink (a threshold that stopped matching, a blank render) would return 0 everywhere
-    /// and read as clean, so it is shown a box that is definitely too small and must say so. That
-    /// box draws about 15pt² outside, so the control asks for well over ``GlyphInk/tolerance``.
+    /// The positive control for every "clean" verdict here: a detector that stopped seeing ink would
+    /// return 0 everywhere, so it is shown a box that is too small (about 15pt² outside) and must
+    /// report well over ``GlyphInk/tolerance``.
     @Test(.machinePinned(.pixelSampling))
     func theInkMeasurementCanActuallySeeAnOverflow() {
         // `person.2` at 22pt in a 30pt disc, too small for it.
@@ -166,15 +153,9 @@ import Testing
 /// own in the identical layout, and the answer is the ink the paint doesn't cover.
 enum GlyphInk {
 
-    /// Set from the measured gap between the renderer's fringe and a real overflow. A glyph is
-    /// centred in a box whose scaled width is usually fractional, so its ink lands a fraction of a
-    /// point past the nominal edge. Over every symbol the mode capsules, the storage capsule and the
-    /// pass-lens column draw, at all four sizes, the worst fringe on a correctly sized box is 2.5pt²
-    /// (`clock.badge.exclamationmark` at the default size); `eye` shows the same edge at every size,
-    /// which marks it as the renderer, not a fit problem.
-    ///
-    /// Real overflows measured 10.8 to 21.0pt², so 4 sits 1.6× above the worst fringe and 2.7×
-    /// below the smallest real overflow.
+    /// Set between the renderer's fringe and a real overflow: a glyph centred in a fractional box
+    /// inks a fraction of a point past the edge. The worst fringe on a correctly sized box measured
+    /// 2.5pt² and real overflows 10.8 to 21.0pt², so 4 sits clear of both.
     static let tolerance: CGFloat = 4
 
     /// Area of glyph ink, in pt², falling outside `shape` drawn at `box`.

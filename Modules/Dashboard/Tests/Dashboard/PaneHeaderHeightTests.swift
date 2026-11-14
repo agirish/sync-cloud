@@ -6,11 +6,10 @@ import Sync
 import Design
 import FileExplorerTestSupport
 
-/// Measures a view the way AppKit will, in a real (never-ordered-in) window. The identical helper
-/// lives in Modules/Design/Tests/DesignTests/LensHeaderCardTests.swift: SPM offers no clean way to
-/// share test-support code across packages without a production library product. It measures the
-/// laid-out result, because asserting constants against each other can't see a view that ignores
-/// them.
+/// Measures a view the way AppKit will, in a real (never-ordered-in) window, since constants
+/// asserted against each other can't see a view that ignores them. Duplicated in
+/// Modules/Design/Tests/DesignTests/LensHeaderCardTests.swift: SPM can't share test support across
+/// packages without a production library product.
 @MainActor
 private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     let host = NSHostingView(rootView: AnyView(view.frame(width: width)))
@@ -76,10 +75,9 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     // MARK: Fixtures
 
-    /// Counts the header's laid-out controls, the rendered result rather than the branch meant to
-    /// produce it. By `_FocusRingView`, not `NSControl`: a custom-styled SwiftUI `Button` puts no
-    /// control in the AppKit tree (only the AppKit-backed menus appear), while focus rings come one
-    /// per focusable control.
+    /// Counts the header's laid-out controls by `_FocusRingView`, not `NSControl`: a custom-styled
+    /// SwiftUI `Button` puts no control in the AppKit tree (only the AppKit-backed menus appear),
+    /// while focus rings come one per focusable control.
     @MainActor
     private static func buttonCount<V: View>(_ view: V, width: CGFloat) -> Int {
         let host = NSHostingView(rootView: AnyView(view.frame(width: width)))

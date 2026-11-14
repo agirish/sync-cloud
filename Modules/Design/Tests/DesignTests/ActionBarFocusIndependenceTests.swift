@@ -6,10 +6,8 @@ import Testing
 /// The reason `ActionBarButtonStyle` exists: its weights survive the window losing focus.
 ///
 /// The offscreen window these tests render into is never key, as in the live app after clicking
-/// away (which is why system controls render in their gray inactive style here), so it is a
-/// ready rig for the question. `.borderedProminent` vs `.bordered` is exactly
-/// the difference a window's key state overrides, so a hierarchy built on them shows only while
-/// the app is frontmost.
+/// away. `.borderedProminent` vs `.bordered` is exactly the difference a window's key state
+/// overrides, so a hierarchy built on them shows only while the app is frontmost.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarFocusIndependenceTests {
 
@@ -61,10 +59,8 @@ import Testing
     }
 
     @Test func testTheStyleItReplacesDoesNotSurviveTheSameConditions() {
-        // The control: under identical never-key conditions the system prominent capsule is
-        // markedly closer to gray than ours (about 0.0 saturation against 1.0), so the comparison
-        // has real room. A failure here means AppKit's inactive treatment changed: the premise
-        // moved, not `ActionBarButtonStyle`.
+        // The control: never key, the system prominent capsule is near gray (saturation ~0 vs 1).
+        // A failure here means AppKit's inactive treatment changed, not `ActionBarButtonStyle`.
         let ours = fillColor(of: Button("Copy") {}
             .buttonStyle(.actionBar(.primary, tint: Self.tint, onTint: .white)))
         let system = fillColor(of: Button("Copy") {}

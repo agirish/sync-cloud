@@ -3,15 +3,11 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// The SwiftUI fact behind where Organize's rail measures its width.
-///
-/// A geometry proxy answers "how big am I", never "how much was I offered". A `LensHeaderCard`
-/// whose row can't compress draws at the width it needs and overflows its container, so
-/// `.onGeometryChange` on the card reports the drawn width. Fed to `OrganizeRailMetrics.style(...)`,
-/// that number would always say the rail fits, and the rail would never shed its labels.
-///
-/// So `LensWorkspaceView` measures a zero-height `Color.clear` probe, which takes the width it is
-/// proposed. This pins the mechanism, and fails if a SwiftUI release starts clamping.
+/// The SwiftUI fact behind where Organize's rail measures its width: a geometry proxy answers "how
+/// big am I", never "how much was I offered". A card whose row can't compress reports its drawn
+/// width, so fed to `OrganizeRailMetrics.style(...)` the rail would never shed its labels. Hence
+/// `LensWorkspaceView` measures a zero-height `Color.clear` probe, which takes the width proposed.
+/// This pins the mechanism, and fails if a SwiftUI release starts clamping.
 @Suite struct LensHeaderCardOverflowTests {
 
     @MainActor
@@ -54,15 +50,10 @@ import Testing
                 "the probe reported \(probeReported) for an offered \(offered) — it is being widened by its sibling, which is the whole thing it exists not to be")
     }
 
-    /// Row 2 keeps the width it is offered, however wide its readouts want to be.
-    ///
-    /// The same mechanism on the row that carries incompressible content: every lens fills
-    /// `summary` with `.fixedSize()` pills. If row 2 insisted, the parent would centre the oversized
-    /// card and draw chips off both edges at once. A `layoutPriority` can't fix that: priority
-    /// decides who is asked to shrink, not who is able to.
-    ///
-    /// The second check makes it a fix rather than a squeeze: the readouts yield before the
-    /// controls, so the trailing controls keep their full width while the summary gives way.
+    /// Row 2 keeps the width it is offered, however wide its `.fixedSize()` readouts want to be;
+    /// otherwise the parent centres the oversized card and draws chips off both edges. The readouts
+    /// yield, not the trailing controls. A `layoutPriority` can't do this: it decides who is asked
+    /// to shrink, not who is able to.
     @MainActor
     @Test func aRigidSummaryYieldsInsteadOfWideningTheCard() {
         let offered: CGFloat = 400
@@ -100,10 +91,8 @@ import Testing
     }
 
     /// Where there is room, the readouts are drawn whole and take nothing from the trailing run.
-    ///
-    /// A flexible summary competes for the row's slack: too little and pills a wide window has room
-    /// for scroll out of sight; too much and it takes width from the trailing prose, or the prose
-    /// stretches past its ideal. Neither looks like an overflow, so an overflow test can't see it.
+    /// Getting the slack wrong scrolls pills out of sight or stretches the trailing prose, neither of
+    /// which an overflow test can see.
     @MainActor
     @Test func aSummaryThatFitsIsDrawnWholeAndTakesNothingFromTheTrailing() {
         let offered: CGFloat = 900

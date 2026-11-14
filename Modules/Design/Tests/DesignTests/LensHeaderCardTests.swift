@@ -68,11 +68,9 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     // MARK: The line
 
-    /// The visible height, against the constant both headers read. If `PaneHeader` and this card
-    /// ever disagree, this test or `paneHeaderRestsAtHeaderHeight` (in the Dashboard suite) fails:
-    /// they pin the same number from opposite sides. At rest the card occupies 86pt in its parent
-    /// (2.5 inset + 81 visible + 2.5 inset), so its visible bottom edge lands at 83.5, exactly where
-    /// the file pane's header meets its list (`cardInset` + `headerHeight`).
+    /// The visible height, against the constant both headers read; `paneHeaderRestsAtHeaderHeight`
+    /// (Dashboard) pins it from the other side. At rest the card occupies 86pt (2.5 + 81 + 2.5), so
+    /// its bottom edge lands at 83.5, where the file pane's header meets its list.
     @Test(.machinePinned(.layoutMetrics)) func restsAt81Visible() {
         let total = laidOutHeight(Self.card(), width: 700)
         #expect(total == 86.0)
@@ -137,10 +135,8 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         #expect(laidOutHeight(bare, width: 700) == 86.0)
     }
 
-    /// Unified moves the frame to the window, not the line. The card and its column
-    /// (`columnRegionFrame`) draw no frame or inset; the window's one region (`windowRegionFrame`)
-    /// is the only frame. So the card alone is 81 visible points, and inside the column and region
-    /// it occupies the same 86 with its bottom edge on 83.5. Measured both ways, because a card or
+    /// Unified moves the frame to the window (`windowRegionFrame`), not the line: the card alone is
+    /// 81, and inside the column and region the same 86. Measured both ways, because a card or
     /// column that kept its own inset would pass the first and land 2.5pt low in the region.
     @Test(.machinePinned(.layoutMetrics)) func unifiedLeavesTheFrameToTheColumnAndKeepsTheLine() {
         let unified = LensHeaderCard(
@@ -185,15 +181,9 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         #expect(laidOutHeight(Self.plainCard(showsSearch: true), width: 700) == 86.0)
     }
 
-    /// A query parked by another lens can't open a field here.
-    ///
-    /// `isSearching` is `isExpanded || !searchText.isEmpty`, and the second half is reachable: the
-    /// overview shares To File's query slot, so a query typed there is still in the binding when
-    /// the overview draws. Without the gate a field row would appear over a page that filters
-    /// nothing, and the card would grow.
-    ///
-    /// The `true` case is the control: it proves the fixture carries a query, so the `false` case
-    /// measures the gate rather than an empty string.
+    /// A query parked by another lens can't open a field here: the overview shares To File's query
+    /// slot, so `isSearching` (`isExpanded || !searchText.isEmpty`) would grow the card with a field
+    /// that filters nothing. The `true` case proves the fixture carries a query.
     @Test(.machinePinned(.layoutMetrics)) func aParkedQueryCannotOpenAFieldOnAHeaderThatOffersNoSearch() {
         #expect(laidOutHeight(Self.plainCard(showsSearch: false, searchText: "tax"), width: 700) == 86.0)
         #expect(laidOutHeight(Self.plainCard(showsSearch: true, searchText: "tax"), width: 700) > 86.0,

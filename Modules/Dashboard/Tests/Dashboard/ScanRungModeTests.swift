@@ -32,9 +32,8 @@ import Design
     // MARK: What each mode presents
 
     /// Scan and Stop are two actions on one control, so every fact the user reads must tell them
-    /// apart; a stop sign whose tooltip offers ⌘R is the mismatch to prevent. They agree only on
-    /// availability: both are live, and neither spins (only `.busy` does): a spinning stop sign is
-    /// not a thing.
+    /// apart (a stop sign whose tooltip offers ⌘R is the mismatch). They agree only on
+    /// availability: both are live, and neither spins (only `.busy` does).
     @Test func testScanAndStopDifferInEveryFactTheUserReads() {
         let scan = ScanRungMode.scan
         let stop = ScanRungMode.stop

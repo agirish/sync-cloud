@@ -4,12 +4,9 @@ import Foundation
 
 /// Every hue paint in the app background answers to the Tint slider.
 ///
-/// `LiquidGlassBackground` paints the hue in several places (the accent diagonal, Clear's even
-/// veil, Clear's titlebar boost, dark's accent glow). A new paint added at full strength would
-/// ignore the slider, so Tint 0 would look almost untouched where it applies, while every numeric
-/// test in `TintCurveTests` still passed, since the curve itself would be right. So the set is
-/// derived from the source, not listed: a new paint is counted by the same scan and must carry
-/// the scale or fail.
+/// `LiquidGlassBackground` paints the hue in several places. A new paint at full strength would
+/// ignore the slider while every test in `TintCurveTests` still passed, so the set is derived
+/// from the source, not listed: a new paint is counted by the same scan and must carry the scale.
 struct BackgroundHuePaintsScaleTests {
 
     /// The `LiquidGlassBackground` modifier's source, from its declaration to its closing brace at
@@ -80,10 +77,9 @@ struct BackgroundHuePaintsScaleTests {
     }
 
     @Test func theAccentDiagonalIsScaledByTheTint() throws {
-        // The diagonal is the one hue paint that doesn't go through `accentColor.opacity` (it
-        // maps `hue.gradientColors` against its own opacity table), so the scan above can't see
-        // it, and it dominates every level but Clear. Sliced to the end of the statement, not to a
-        // line count, so re-wrapping the expression can't move the multiplication out of view.
+        // The diagonal maps `hue.gradientColors` against its own opacity table, invisible to the
+        // scan above. Sliced to the end of the statement, not a line count, so re-wrapping can't
+        // move the multiplication out of view.
         let statement = try Self.gradientAssignment()
         let opacities = Self.arguments(of: ".opacity(", in: statement)
         try #require(!opacities.isEmpty,

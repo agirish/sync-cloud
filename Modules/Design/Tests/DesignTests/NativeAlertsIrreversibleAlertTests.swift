@@ -38,9 +38,8 @@ import Testing
     }
 }
 
-/// Escape cancels a Cancel-is-default alert. NSAlert gives a button titled "Cancel" Escape, but a
-/// button holds one key equivalent, so making Cancel answer Return takes Escape from it, and
-/// without the monitor Escape does nothing.
+/// Escape cancels a Cancel-is-default alert. A button holds one key equivalent, so making Cancel
+/// answer Return takes Escape from it, and without the monitor Escape does nothing.
 ///
 /// The modal session can't be run here, so this pins the monitor's decision on real key events,
 /// and the scan holds every Cancel-takes-Return alert in the app to the monitor.
@@ -118,11 +117,8 @@ import Testing
     }
 
     /// Every alert whose Cancel answers Return runs through an Escape monitor, one call per such
-    /// alert, so a new alert built the same way without it fails here.
-    ///
-    /// Any line giving a button Return counts, whatever the button is called, unless the button is
-    /// the confirm (Return confirms there, and Escape stays on Cancel). Comments count for neither
-    /// side, so a call named in a comment can't stand in for one.
+    /// alert. Any line giving a non-confirm button Return counts, whatever it is called; comments
+    /// count for neither side, so a call named in a comment can't stand in for one.
     @Test func everyCancelDefaultAlertAnswersEscape() throws {
         var scanned = 0
         var cancelTakesReturn = 0

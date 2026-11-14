@@ -3,13 +3,10 @@ import Testing
 import Sync
 @testable import Settings
 
-/// Ejecting a card forgets the sources on it: the Settings half. Dimmed means *asleep* in this
-/// app, which suits an unplugged card but not an ejected one, which the user is done with. An
-/// eject is an event the app is told about, not an inference from a source gone quiet, which is
-/// what makes acting on it silently safe.
-///
-/// Whether the volume counted is not decided here: that can't be read once the volume is gone, so
-/// it comes from `MountedVolumeMemory` and the caller has already applied it.
+/// Ejecting a card forgets the sources on it: the Settings half. Dimmed means asleep, which suits an
+/// unplugged card but not an ejected one. An eject is an event the app is told about, not an
+/// inference from a source gone quiet, which is what makes acting on it silently safe. Whether the
+/// volume counted comes from `MountedVolumeMemory`, already applied by the caller.
 @Suite struct VolumeUnmountSourcesTests {
 
     @MainActor
@@ -49,9 +46,8 @@ import Sync
     }
 
     /// An unmount reported as `/` (or empty) must remove nothing. The fixture needs a source at `/`
-    /// itself, which the sidebar's startup-disk row creates when clicked: nested paths survive a
-    /// root unmount anyway, because `mount + "/"` is `//` and prefixes nothing, while a source at
-    /// `/` matches on equality. Deleting the `/` refusal must make this fail.
+    /// itself: nested paths survive anyway, since `mount + "/"` is `//`. Deleting the `/` refusal
+    /// must make this fail.
     @MainActor
     @Test func anUnmountReportedAsTheRootRemovesNothing() {
         let defaults = TestDefaults()
@@ -97,14 +93,10 @@ import Sync
         #expect(settings.isEnabled(id), "the disabled flag outlived the source it belonged to")
     }
 
-    /// One discovery for the whole card, not one per source. Each pass lists the CloudStorage
-    /// mount and `stat`s every provider root, which can block for seconds on network mounts, and
-    /// `discoveryGeneration` only picks which pass publishes, so extra passes are pure cost. Fails
-    /// if the removal calls `removeFolderSource(id:)` per id.
-    ///
-    /// Counted through the lister, which each pass calls exactly once, as `SettingsDiscoveryTests`
-    /// does. The sources are saved before the manager is built with `autoDiscover: false`, so it
-    /// has run no pass and the count starts at zero; adding them through it would start
+    /// One discovery for the whole card, not one per source: each pass lists the CloudStorage mount
+    /// and `stat`s every provider root, which can block on network mounts. Fails if the removal calls
+    /// `removeFolderSource(id:)` per id. The sources are saved before the manager is built with
+    /// `autoDiscover: false`, so the lister count starts at zero; adding them through it would start
     /// discoveries of their own to wait out, which times out under load.
     @MainActor
     @Test func unmountingACardRunsOneDiscoveryRatherThanOnePerSource() async throws {
@@ -128,11 +120,8 @@ import Sync
     }
 
     /// The lister count once at least `reaching` discoveries have run and nothing more has arrived
-    /// for a while. It requires the target rather than reporting whatever it saw: on a busy
-    /// machine the removal's pass may not have started yet, and a count taken before the work
-    /// runs is wrong, not small, so this fails loudly instead.
-    ///
-    /// Polled on the main actor through `LayoutPumpWait.poll` ("Fixed pumps and fixed sleeps" in
+    /// for a while. It requires the target: on a busy machine a count taken before the pass runs is
+    /// wrong, not small. Polled through `LayoutPumpWait.poll` ("Fixed pumps and fixed sleeps" in
     /// `docs/flaky-tests.md`): each pass starts as a main-actor `Task`, so each poll must spend a
     /// main-actor turn, or the loop could spend the whole deadline while the passes sat queued.
     @MainActor

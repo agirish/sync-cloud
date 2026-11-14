@@ -113,10 +113,8 @@ import Sync
 
     /// An empty search field must still draw a way out. `ExpandingSearchField`'s clear button needs
     /// text, the row replaces the pane bar, and Escape only reaches the field while the caret is in
-    /// it, so without a ✕ an empty field with focus elsewhere has no exit.
-    ///
-    /// Counted in painted pixels because SwiftUI's `Button` is not an `NSControl` and leaves nothing
-    /// in the AppKit tree to find.
+    /// it. Counted in painted pixels: SwiftUI's `Button` is not an `NSControl` and leaves nothing in
+    /// the AppKit tree to find.
     @Test("The revealed field always offers a control, even with nothing typed", .machinePinned(.pixelSampling))
     func anEmptyFieldStillHasAWayOut() async {
         let box = Box()
@@ -240,12 +238,9 @@ import Sync
 
     // MARK: - Walking with the mouse
 
-    /// The match count must come with buttons to walk it. ↩/⇧↩ appear only in the placeholder, which
-    /// the query replaces, so without buttons the screen shows no way to walk.
-    ///
-    /// Counted in painted pixels against a control that differs only by the arrows (same summary,
-    /// same ✕, `onSearchAdvance` withheld). A fixed ink threshold would count the counter and ✕ and
-    /// pass with no arrows drawn.
+    /// The match count must come with buttons to walk it: ↩/⇧↩ appear only in the placeholder, which
+    /// the query replaces. Counted against a field with `onSearchAdvance` withheld; a fixed ink
+    /// threshold would count the counter and ✕ and pass with no arrows drawn.
     @Test("The counter comes with buttons to move it", .machinePinned(.pixelSampling))
     func theFieldDrawsWalkButtons() async {
         let with = await Self.controlsInk(matchCount: 7, canAdvance: true)

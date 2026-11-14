@@ -6,9 +6,8 @@ import SwiftUI
 /// The text-size tiles host a selection lens: in Frosted and Clear it lands exactly on the chosen
 /// tile, where Solid draws its accent border and wash, and wears that border as its ring.
 ///
-/// Rendered with the lens probe (glass draws nothing offscreen; see `SelectionLensTests`), which
-/// draws the ring too, so the lens's box is the probe and ring together. The accent is pinned to
-/// blue: the tiles paint `Color.accentColor`, and a Graphite system accent would leave nothing
+/// Rendered with the lens probe (glass draws nothing offscreen), so the lens's box is the probe and
+/// ring together. The accent is pinned to blue: a Graphite system accent would leave nothing
 /// saturated to find.
 @MainActor
 @Suite(.serialized) struct SelectionLensSizePresetTests {

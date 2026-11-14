@@ -94,16 +94,13 @@ import Testing
         }
     }
 
-    /// The `onAccent` path's dot is legible by its ring, which is the fill's paired label colour, so
-    /// this asserts the pairing other accent-filled controls rely on also does this job. Runs over
-    /// every named hue: the pill follows the hue, so one whose ring vanished would leave the dot
-    /// with no boundary.
+    /// The `onAccent` path's dot is legible by its ring, the fill's paired label colour. Runs over
+    /// every named hue, since the pill follows the hue.
     @MainActor
     @Test func testTheRingedDotStaysBoundedOnEveryAccentHue() throws {
         for hue in LiquidGlassHue.allCases where hue != .none {
             // `.none` is the system accent, a dynamic color with no fixed value to measure.
-            // `accentFillColor` matches the call site; the raw accent is a pairing the app never
-            // draws.
+            // `accentFillColor` matches the call site.
             let style = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor, label: hue.onAccentLabelColor)
             let ring = try #require(style.dotRing, "\(hue) accent capsule shipped an unringed dot")
             let ratio = contrast(ring, style.fill)
@@ -111,11 +108,9 @@ import Testing
         }
     }
 
-    /// Why the ring exists: no terracotta colour clears 3:1 on the Green accent fill (not the
-    /// on-accent value, the family's darker dot, or a pale peach). White would, but carries no
-    /// attention signal, so the ring is what makes a warm dot possible. If a re-tune lets a warm dot
-    /// stand alone this fails and the ring becomes removable; until then, removing it drops the dot
-    /// below the floor.
+    /// Why the ring exists: no terracotta colour clears 3:1 on the Green accent fill, and white
+    /// carries no attention signal. If a re-tune lets a warm dot stand alone this fails and the
+    /// ring becomes removable.
     @MainActor
     @Test func testNoWarmDotColorCouldClearTheFloorOnTheGreenAccentFill() {
         let fill = LiquidGlassHue.green.accentFillColor

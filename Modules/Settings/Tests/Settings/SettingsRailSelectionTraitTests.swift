@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Settings
 
-/// The one non-colour carrier of which settings tab is open. `SettingsRail.railRow` paints
-/// selection as an accent fill and an on-accent label, and adds `.isSelected`. Without that line
-/// the rail paints identically and every geometry test stays green, while VoiceOver
-/// loses the only signal, since it can't report colour.
-///
-/// A source scan, because assertions against the live accessibility tree pass vacuously without
-/// an assistive client attached. It names the file it reads and fails if it can't be found.
+/// The one non-colour carrier of which settings tab is open: `SettingsRail.railRow` adds
+/// `.isSelected`. Without it every geometry test stays green while VoiceOver loses the only signal.
+/// A source scan, because assertions against the live accessibility tree pass vacuously without an
+/// assistive client attached.
 @Suite struct SettingsRailSelectionTraitTests {
 
     @Test func theRailRowStillCarriesTheSelectedTrait() throws {

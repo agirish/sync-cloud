@@ -7,10 +7,8 @@ import AppKit
 /// `ViewThatFits` whose candidate rows contain a `Spacer` still advances down the ladder as the
 /// proposed width shrinks.
 ///
-/// Worth a test because the intuition cuts the other way: a Spacer is infinitely flexible, so it
-/// looks as though any row could squeeze into any width and strand the header on its widest
-/// candidate. It doesn't, because a Spacer's ideal width is its `minLength`, giving each candidate
-/// a finite ideal. If an SDK changed that, the header would silently stop shedding and clip.
+/// It holds because a Spacer's ideal width is its `minLength`, giving each candidate a finite
+/// ideal. If an SDK changed that, the header would silently stop shedding and clip.
 @Suite struct ActionBarLadderTests {
 
     /// Lays out a two-rung ladder at `width` and reports which rung was chosen. The rungs differ

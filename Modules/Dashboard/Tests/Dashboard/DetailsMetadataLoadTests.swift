@@ -2,11 +2,8 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// Pins that the Details inspector's stat tells "nothing to show" from "not allowed to look". Both
-/// render as an empty card, so the failure must leave a breadcrumb, or a permissions or IO failure
-/// on a cloud path looks like an empty selection. Follows `FolderJump.siblings`, which surfaces
-/// the same class of failure.
-///
+/// The Details inspector's stat tells "nothing to show" from "not allowed to look": both render as
+/// an empty card, so the failure must leave a breadcrumb (as `FolderJump.siblings` does).
 /// **Not** `@MainActor`, on purpose: the loader must stay `nonisolated`. A `.task` closure inherits
 /// a `View`'s main-actor isolation, so an isolated loader would stat on the main thread and a
 /// wedged `getxattr` would freeze the UI. Put the isolation back and this file stops compiling.

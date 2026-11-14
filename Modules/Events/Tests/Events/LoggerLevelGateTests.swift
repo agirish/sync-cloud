@@ -80,9 +80,8 @@ import Foundation
 
     // MARK: - The ambient level is not the developer's
 
-    /// A test host must not inherit the machine's user-facing state. App-target tests run inside
-    /// SyncCloud.app, so `.standard` is the owner's live preferences, and a Log level above Debug
-    /// there would drop the `debug` lines many suites assert on, red locally and green on CI.
+    /// App-target tests run inside SyncCloud.app, so `.standard` is the owner's live preferences,
+    /// and a Log level above Debug there would drop the `debug` lines many suites assert on.
     /// Same rule as `defaultLogFileURL()` refusing the real `~/sync-cloud.log` under a test runner.
     @Test func theAmbientPersistedLevelIsIgnoredUnderATestRunner() {
         // The premise: this process is a test runner, or the assertion below proves nothing.

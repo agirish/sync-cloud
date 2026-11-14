@@ -5,24 +5,24 @@ import Settings
 @testable import Dashboard
 
 @Suite struct FileActionHandlerTests {
-    
+
     @MainActor
     @Test func testClipboardPersistenceOnCopy() async throws {
         let manager = FileSyncManager()
         let handler = scratchHandler(manager)
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
-        
+
         manager.clipboardNodes = [node]
         manager.clipboardIsCut = false
-        
+
         handler.pasteItems([node], toPath: "/tmp", isCut: false)
         await waitUntil("the failed paste to report") { manager.currentError != nil }
-        
+
         #expect(manager.clipboardNodes.count == 1)
         #expect(manager.clipboardNodes.first?.id == node.id)
         #expect(manager.clipboardIsCut == false)
     }
-    
+
     @MainActor
     @Test func testClipboardRemainsWhenCutPasteFails() async throws {
         let manager = FileSyncManager()
@@ -32,18 +32,18 @@ import Settings
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent("paste-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: destination) }
-        
+
         manager.clipboardNodes = [node]
         manager.clipboardIsCut = true
-        
+
         handler.pasteItems([node], toPath: destination.path, isCut: true)
         await waitUntil("the failed paste to report") { manager.currentError != nil }
-        
+
         #expect(manager.clipboardNodes.count == 1)
         #expect(manager.clipboardNodes.first?.id == node.id)
         #expect(manager.clipboardIsCut == true)
     }
-    
+
     /// The drag-drop move route runs headless end to end: confirmation is the sync layer's
     /// `transferConfirmer` seam, asked exactly once, not a Design-level modal. A second confirm in
     /// the handler would double-prompt every move and hang this test on its alert.
@@ -72,7 +72,6 @@ import Settings
 
         handler.moveItems([node], toPath: dstDir.path)
 
-        // moveItems spawns a Task; wait for the move to land on disk.
         let movedFile = dstDir.appendingPathComponent(node.name)
         await waitUntil("the move to land at \(movedFile.lastPathComponent)") {
             FileManager.default.fileExists(atPath: movedFile.path)
@@ -85,9 +84,8 @@ import Settings
 
     // MARK: - Pane-root guards (vanished providers, prefix aliasing)
 
-    /// A provider id that vanished from settings resolves to an empty root ("" from
-    /// `settings.rootPath(for:)`). The copy must abort with an error before reaching the sync
-    /// layer, or the empty root sends files to a CWD-relative destination.
+    /// A provider id that vanished from settings resolves to an empty root, so the copy must abort
+    /// before reaching the sync layer, or the files go to a CWD-relative destination.
     @MainActor
     @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
         let manager = FileSyncManager()

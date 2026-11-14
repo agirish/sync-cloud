@@ -27,10 +27,9 @@ import Testing
                 == "Go to Taxes — panes are linked, so both move here")
     }
 
-    /// The crumb reads the fact from where it lives: whether the header was handed a both-panes
-    /// action. A source scan, because a hosted SwiftUI tree exposes no tooltip under `swift test`
-    /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip`). Sliced to `crumbButton` so a mention
-    /// elsewhere can't stand in.
+    /// The crumb reads whether the header was handed a both-panes action. A source scan sliced to
+    /// `crumbButton`, because a hosted SwiftUI tree exposes no tooltip under `swift test`
+    /// (`EditorRefusalDimTests.theRefusalIsTheRowsTooltip`).
     @Test func theCrumbAsksWhetherThereIsASecondPane() throws {
         let source = try DashboardSource.read("PaneBreadcrumb.swift")
         let start = try #require(source.range(of: "private func crumbButton("), "crumbButton moved")

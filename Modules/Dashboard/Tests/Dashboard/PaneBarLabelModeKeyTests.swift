@@ -5,14 +5,11 @@ import Sync
 import Design
 @testable import Dashboard
 
-/// The bar's label preference as a persisted fact. `PaneBarLabelMode` is stored as a raw string
-/// under one `UserDefaults` key, so three literals decide whether the preference survives a launch:
-/// the key and the two raw values. Also pins what an unrecognised stored value does.
-///
-/// Pinned end to end: every write uses the literal strings, and the claim is about what the header
-/// then draws. Renaming the key or a case makes the header ignore the string on disk, and everyone
-/// who chose Icon Only silently gets titles back; comparing `PaneBar.labelModeKey` with itself
-/// can't see that. Machine-pinned, because it reads pixels back from a live renderer.
+/// The bar's label preference as a persisted fact: `PaneBarLabelMode` is stored as a raw string
+/// under one `UserDefaults` key, so the key and the two raw values decide whether it survives a
+/// launch. Pinned end to end with literal strings: renaming the key or a case makes the header
+/// ignore the string on disk, and everyone who chose Icon Only silently gets titles back. Also pins
+/// an unrecognised stored value. Machine-pinned, because it reads pixels from a live renderer.
 @MainActor
 @Suite(.serialized) struct PaneBarLabelModeKeyTests {
 

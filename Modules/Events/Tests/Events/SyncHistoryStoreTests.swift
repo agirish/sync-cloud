@@ -113,11 +113,9 @@ import Foundation
         #expect(reloaded.records.isEmpty)
     }
 
-    /// The guard between a test run and the real history file. Suites that build a
-    /// `FileSyncManager` record into `.shared`, and `clear()` truncates, so if the runner
-    /// detection ever missed (a toolchain renaming `swiftpm-testing-helper`, say), a green
-    /// `swift test` would destroy `~/sync-cloud-history.jsonl`. `Logger.defaultLogFileURL` mirrors
-    /// the detection and has the same test (`testDefaultLogFileURLAvoidsRealLogUnderTests`).
+    /// The guard between a test run and the real history file: suites record into `.shared` and
+    /// `clear()` truncates, so a missed runner detection would destroy `~/sync-cloud-history.jsonl`.
+    /// `testDefaultLogFileURLAvoidsRealLogUnderTests` is the log's twin.
     @Test func testDefaultFileURLAvoidsRealHistoryUnderTests() {
         let url = SyncHistoryStore.defaultFileURL()
         let realHistory = URL(fileURLWithPath: (NSString(string: "~")).expandingTildeInPath)
@@ -188,10 +186,9 @@ import Foundation
         #expect(reloaded.records.map(\.sourcePath) == ["/src/good.txt"])
     }
 
-    /// Pins what "once per batch" means: once per call. `append(_:)` is `appendBatch([record])`,
-    /// so three records appended one at a time report three times, and the same three in one
-    /// call report once. Coalescing across calls would hold a report on a timer, and recording
-    /// must never delay anything, so the rule is stated on `append(_:)` instead.
+    /// "Once per batch" means once per call: three `append(_:)` calls report three times, one
+    /// `appendBatch` of three reports once. Coalescing across calls would hold a report on a timer,
+    /// and recording must never delay anything.
     @Test func testTheDropReportIsPerCallSoPerRecordCallersGetAReportPerRecord() throws {
         let url = makeTempURL()
         defer { removeLogFiles(at: url) }
@@ -226,8 +223,8 @@ import Foundation
         #expect(reports.messages.isEmpty)
     }
 
-    /// A History file that can't be written says so once, at ERROR: before, the store looked
-    /// complete while the file stopped growing.
+    /// A History file that can't be written says so once, at ERROR, or the store looks complete
+    /// while the file stops growing.
     @Test func aHistoryFileThatCantBeWrittenSaysSoOnce() throws {
         // A path under a regular file: no directory there, so nothing can be created or written.
         let blocker = makeTempURL()
@@ -251,7 +248,6 @@ import Foundation
 @MainActor
 private final class ReportSpy {
     var messages: [String] = []
-
 }
 
 /// Collects write-failure reports, which arrive on the writer's background queue.

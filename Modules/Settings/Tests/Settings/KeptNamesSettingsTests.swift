@@ -5,14 +5,10 @@ import Testing
 import Sync
 @testable import Settings
 
-/// The kept-names list in Settings ▸ Organize: the inventory of "I meant that name" decisions.
-///
-/// A kept name draws no badge, so this list is the only place to see what has been kept. A name
-/// removed here must stop being kept, durably, or the list lies about what it does.
-///
-/// Asserted against `remove(_:)` and `clearAll(confirm:)`, the methods the row button and Clear
-/// All call, over a real `KeptNamesStore` on an injected suite. Only driving the rendered control
-/// could show that the buttons call these methods.
+/// The kept-names list in Settings ▸ Organize: the inventory of "I meant that name" decisions. A
+/// kept name draws no badge, so this list is the only place to see what has been kept, and a name
+/// removed here must stop being kept, durably. Asserted against `remove(_:)` and
+/// `clearAll(confirm:)`, the methods the buttons call, over a real `KeptNamesStore`.
 @Suite struct KeptNamesSettingsTests {
 
     private func scratch(_ name: String) -> ScratchDefaults {
@@ -88,8 +84,8 @@ import Sync
         }
     }
 
-    /// It belongs beside the rule that raises a risky-name badge (TE332), not on Compare beside
-    /// Ignored items, whose shape it shares: an allowed name clears its badge in every pane.
+    /// It belongs beside the rule that raises a risky-name badge, not on Compare beside Ignored
+    /// items, whose shape it shares: an allowed name clears its badge in every pane.
     @Test func allowedNamesLiveBesideTheNameRule() {
         let entry = SettingsSearchIndex.all.first { $0.title == "Allowed names" }
         let rule = SettingsSearchIndex.all.first { $0.title == "Check folder names against" }

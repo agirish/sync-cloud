@@ -4,9 +4,9 @@ import AppKit
 @testable import Settings
 @testable import Design
 
-/// Appearance ▸ Text & Spacing (Readability until TE332) rendered in the states that matter, with the assertions geometry can make.
-/// A preview that ignored its settings would pass every fit test; what it wouldn't do is change
-/// when the settings do.
+/// Appearance ▸ Text & Spacing rendered in the states that matter, with the assertions geometry
+/// can make. A preview that ignored its settings would pass every fit test; what it wouldn't do is
+/// change when the settings do.
 @Suite struct ReadabilityRenderProbe {
 
     @MainActor

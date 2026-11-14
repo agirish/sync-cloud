@@ -77,10 +77,8 @@ import SwiftUI
 
     // MARK: - The slider's detent labels
 
-    /// The detent rail maps a percentage onto the track the same way the slider does. Pure
-    /// arithmetic, the half that can be wrong silently: a mis-scaled mapping puts every label under
-    /// the wrong tick and still looks tidy. `knobInset`, half a knob SwiftUI doesn't expose, is
-    /// settled by rendering the tab and looking.
+    /// The detent rail maps a percentage onto the track as the slider does; a mis-scaled mapping
+    /// puts every label under the wrong tick and still looks tidy. `knobInset` is settled by eye.
     @Test func theDetentRailMapsThePercentagesOntoTheTrack() {
         #expect(FontSizeDetentLabels.position(FontSize.minimumPercent) == 0)
         #expect(FontSizeDetentLabels.position(FontSize.maximumPercent) == 1)

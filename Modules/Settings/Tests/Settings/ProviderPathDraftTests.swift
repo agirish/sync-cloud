@@ -2,10 +2,9 @@ import Testing
 @testable import Settings
 
 /// Pins the Location field's draft lifecycle, especially what Reset leaves in the field. Reset
-/// can't rely on `onChange(of: provider.path)` to refill the field: with no override, nothing
-/// changes and no refresh comes, and a blank field's blur would commit "" and log a cleared mapping
-/// for a provider that never had one. With an override, the rediscovered default arrives while
-/// the field still has focus. So the tests are sequences, varying both the path and focus.
+/// can't rely on `onChange(of: provider.path)`: with no override nothing changes, and a blank
+/// field's blur would commit "" and log a cleared mapping; with one, the rediscovered default
+/// arrives while the field still has focus. So the tests are sequences varying path and focus.
 @Suite struct ProviderPathDraftTests {
 
     private let iCloudDefault = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"

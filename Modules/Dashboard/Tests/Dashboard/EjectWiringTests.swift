@@ -81,10 +81,9 @@ import Sync
         let host = try DashboardSource.app("ContentView+FolderSidebar.swift")
         let handler = try #require(Self.body(of: "func forgetFolderSidebarSourcesOnUnmount", in: host),
                                    "the unmount handler was renamed — this scan now reads nothing")
-        // In the `defer`: the handler returns early twice below it (an unrecognised volume, and one
-        // with nothing on it), and a plain call at the end reaches neither. Checking the order of
-        // the strings instead would wrongly fail a correct handler whose first guard precedes the
-        // defer.
+        // In the `defer`: the handler returns early twice below it, and a plain call at the end
+        // reaches neither. Checking string order instead would fail a correct handler whose first
+        // guard precedes the defer.
         let deferBlock = try #require(
             handler.range(of: "defer {").flatMap { start in
                 handler.range(of: "\n        }", range: start.upperBound..<handler.endIndex)
@@ -212,15 +211,12 @@ import Sync
     // MARK: The three subscriptions that make an unmount actionable
 
     /// Every notification that changes what is mounted drops the cached walk; `willUnmount` must
-    /// not. The cache is invalidated only by the events that can change its answer, so a handler
-    /// that forgot would leave the column showing a gone volume or missing a new one, silently.
+    /// not. A handler that forgot would leave the column showing a gone volume or missing a new one.
     ///
     /// `willUnmount` is the trap: the volume hasn't gone yet, and dropping the cache there sends
     /// this handler's own record back to a filesystem being torn down, the walk most likely to
-    /// block.
-    ///
-    /// All three are subscribed (each block is required below), because `didUnmount` only says a
-    /// volume went; only a record taken while it was mounted says whether it was a card or a share.
+    /// block. All three are subscribed, because `didUnmount` only says a volume went; only a record
+    /// taken while it was mounted says whether it was a card or a share.
     @Test func everyMountEventDropsTheCachedWalkExceptTheOneThatMustNot() throws {
         let content = try DashboardSource.app("ContentView.swift")
         let host = try DashboardSource.app("ContentView+FolderSidebar.swift")
@@ -228,12 +224,10 @@ import Sync
                      "the invalidation is gone — this scan is aimed at nothing")
         #expect(content.contains("forgetFolderSidebarSourcesOnUnmount"),
                 "the unmount notification is subscribed to but not acted on")
-        // The launch walk. `refreshFolderSidebarRows` returns early wherever the column is hidden,
-        // so a card already in the reader would otherwise never be recorded.
-        //
-        // Through `mountedVolumesAsLastSeen`, the walk and its cache in one, so launch and the
-        // refresh after it walk once; each walk can block on a network mount. Asserted on the
-        // accessor so an edit reaching past the cache fails here.
+        // The launch walk: `refreshFolderSidebarRows` returns early wherever the column is hidden,
+        // so a card already in the reader would otherwise never be recorded. Through the cached
+        // `mountedVolumesAsLastSeen`, so launch and the refresh after it walk once; each walk can
+        // block on a network mount.
         #expect(content.contains("Self.rememberMountedVolumes(Self.mountedVolumesAsLastSeen())"),
                 "nothing records the volumes already mounted at launch")
         #expect(!content.contains("Self.rememberMountedVolumes(Self.mountedVolumes())"),

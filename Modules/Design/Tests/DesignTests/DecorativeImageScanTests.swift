@@ -3,13 +3,9 @@ import Testing
 
 /// Decoration stays out of VoiceOver's way, and an empty state's title is a heading.
 ///
-/// A provider mark always sits beside the source's name, and an empty state's icon is the mood its
-/// title already names; read aloud, each is an asset or symbol name ahead of the words that
-/// matter. The mark is hidden once, in `ProviderLogo`.
-///
-/// A source scan, for the reason `UnnamedControlScanTests` gives: SwiftUI builds no accessibility
-/// tree in a test process with no assistive client attached, so a rendered assertion would pass
-/// whether the modifier is there or not.
+/// A provider mark sits beside the source's name and an empty state's icon repeats its title, so
+/// read aloud each is a symbol name ahead of the words that matter. The mark is hidden once, in
+/// `ProviderLogo`. A source scan, for the reason `UnnamedControlScanTests` gives.
 @Suite struct DecorativeImageScanTests {
 
     private static func source(_ name: String) throws -> String {

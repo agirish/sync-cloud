@@ -4,14 +4,11 @@ import Events
 @testable import Dashboard
 
 /// Pins the order of a history load's two steps: drain the log writer's queue, then read the file.
-///
-/// Clear Logs truncates the log on the writer's background serial queue, so the truncate can still
-/// be pending when the next click starts a history load. That load holds a valid token (the guard
-/// only covers loads in flight at the clear), so a read that overtakes the truncate would bring
-/// back the deleted rows for the window's lifetime.
-///
-/// The test supplies the pending write as `drainWriter`, so the order is observable without racing
-/// a real queue. Deleting the `drainWriter()` call, or moving it after the read, must fail.
+/// Clear Logs truncates on the writer's background serial queue, and the next load holds a valid
+/// token (the guard covers only loads in flight at the clear), so a read that overtook the truncate
+/// would bring back the deleted rows. The test supplies the pending write as `drainWriter`, so the
+/// order is observable without racing a real queue.
+/// Mutation that must fail it: deleting the `drainWriter()` call, or moving it after the read.
 @Suite struct LogHistoryDrainOrderTests {
 
     private let boundary = Date(timeIntervalSince1970: 1_780_000_000)

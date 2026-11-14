@@ -16,10 +16,8 @@ import FileExplorerTestSupport
     // MARK: - What ⋯ no longer offers
 
     /// ⋯ doesn't carry Customize. A source scan, because a SwiftUI `Menu`'s content is built only
-    /// when it opens, and `NSHostingView.menu(for:)` answers for `.contextMenu`, not a `Menu`.
-    /// Guarded both ways: the extracted body must really be `viewOptionsMenu`, and the string must
-    /// still exist in the file exactly once, in `barContextMenu`, or a renamed function, an empty
-    /// read or a deleted command would pass.
+    /// when it opens, and `NSHostingView.menu(for:)` answers for `.contextMenu`, not a `Menu`. The
+    /// command must still exist exactly once, in `barContextMenu`.
     @Test func theOverflowMenuNoLongerCarriesCustomize() throws {
         let body = try PaneBarInkChokePointTests.functionBody("private func viewOptionsMenu(")
         #expect(body.contains("Image(systemName: \"ellipsis\")"),
@@ -52,11 +50,9 @@ import FileExplorerTestSupport
 
     // MARK: - Can you actually aim at the door that is left
 
-    /// Right-clicking anywhere along the bar, controls included, reaches Customize. The row's
-    /// `.contentShape(Rectangle())` covers bare stretches, but pills sit on top, and a control that
-    /// swallowed the right-click would hide the only route to the sheet where the bar is fullest.
-    /// Driven for real (SwiftUI answers `NSView.menu(for:)` by hit-testing), sweeping the whole row
-    /// because a pill's x depends on the arrangement.
+    /// Right-clicking anywhere along the bar, controls included, reaches Customize: a pill that
+    /// swallowed the right-click would hide the only route to the sheet. Driven for real (SwiftUI
+    /// answers `NSView.menu(for:)` by hit-testing), sweeping the row since a pill's x varies.
     @Test(.machinePinned(.pixelSampling)) func theBarsMenuIsAimableAcrossTheWholeRow() throws {
         let probe = try Self.probe()
         var unreachable: [Int] = []
@@ -70,10 +66,9 @@ import FileExplorerTestSupport
                 "the bar's context menu does not answer at x = \(unreachable) — something there swallows the right-click, and Customize has no other route")
     }
 
-    /// Guards the sweep, which would report "reachable everywhere" for a header with no controls,
-    /// or one that folded them all into ⋯. It counts sampled columns, across the whole row, that
-    /// cross a control. The floor sits between two measurements taken here, the full bar and one
-    /// stripped to four controls, so the gap is re-measured rather than remembered.
+    /// Guards the sweep, which would report "reachable everywhere" for a header with no controls.
+    /// It counts sampled columns that cross a control on the full bar and on one stripped to four,
+    /// so the gap is re-measured rather than remembered.
     @Test(.machinePinned(.pixelSampling)) func theSweptRowIsFullOfControls() throws {
         let full = try Self.inkedColumns(.default)
         let stripped = try Self.inkedColumns(PaneBarArrangement([.backForward, .scan, .sort, .hiddenFiles]))
@@ -126,7 +121,7 @@ import FileExplorerTestSupport
     /// Which row of the header the bar is on, read off the controls rather than guessed from ink.
     /// Each pill hosts a `_FocusRingView` (a custom-styled SwiftUI `Button` puts no `NSControl` in
     /// the tree; `PaneBarCanvasTests` relies on the same fact), and the bar is the upper of the two
-    /// focusable rows. Exact, and it doesn't move with the arrangement.
+    /// focusable rows.
     private static func barRowY(of host: NSView) -> CGFloat {
         let frames = FocusRings.frames(in: host)
         guard let top = frames.map(\.minY).min() else {

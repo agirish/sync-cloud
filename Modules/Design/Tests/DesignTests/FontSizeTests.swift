@@ -139,10 +139,9 @@ import Testing
     }
 
     @Test func scalingUpDampsAboveTheKnee() {
-        // Above the knee each base point adds only `surplusSlope` scaled points: 13pt body at
-        // Large is 11 × 1.25 + 2 × 0.5 = 14.75, not the 16.25 a flat multiply would give. These
-        // literals pin the curve: if `knee` or `surplusSlope` moves, this fails and the new numbers
-        // get chosen deliberately.
+        // Above the knee each base point adds only `surplusSlope`: 13pt at Large is
+        // 11 × 1.25 + 2 × 0.5 = 14.75, not a flat 16.25. Moving `knee` or `surplusSlope` fails
+        // this.
         #expect(FontSize.scaledPointSize(13, scale: 1.25) == 14.75)
         #expect(FontSize.scaledPointSize(15, scale: 1.25) == 15.75)
         #expect(FontSize.scaledPointSize(13, scale: 1.4) == 16.4)
@@ -159,11 +158,9 @@ import Testing
     }
 
     @Test func chromeTextAtTheKneeStaysUnderThePinnedRowCliff() {
-        // Measured cliff: one line of system-font text is 18pt tall through 14.85pt and 19pt from
-        // 15.0pt. Header chrome carries 11pt text in pinned 28pt rows with exactly 18pt to spare
-        // (the differences count pill's inset age capsule: 19 + 2 + 8 would be 29). Every
-        // selectable size must keep knee-sized text under 15pt, or those rows grow a pixel and
-        // `theRowIsAlwaysTheActionBarHeight` fails across the ladder.
+        // Measured cliff: system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt, and
+        // 11pt chrome sits in pinned 28pt rows with exactly 18pt to spare. Knee text at 15pt or
+        // more grows those rows a pixel and fails `theRowIsAlwaysTheActionBarHeight`.
         for percent in FontSize.selectablePercents {
             let size = FontSize(percent: percent)
             #expect(FontSize.scaledPointSize(FontSize.knee, scale: size.scale) < 15,
@@ -172,9 +169,8 @@ import Testing
     }
 
     @Test func theCeilingIsTheLargestPercentUnderTheCliff() {
-        // Pins why the range stops where it does, not only that its stops are safe. 136% puts
-        // knee text at 14.96 and 137% at 15.07, so 137 is the first unsafe whole percent and 135
-        // the round number under it.
+        // Why the range stops at 135: 136% puts knee text at 14.96 and 137% at 15.07, the first
+        // unsafe whole percent.
         #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.36) < 15)
         #expect(FontSize.scaledPointSize(FontSize.knee, scale: 1.37) >= 15)
         #expect(FontSize.maximumPercent == 135)
@@ -273,9 +269,8 @@ import Testing
     }
 
     @Test func headlineAndCaption2AreNotPlainRegular() {
-        // Guards the test above: if `metrics(for:)` collapsed to a flat `.regular`, the width check
-        // would still pass for the 9 regular styles. These two would break, so assert them
-        // directly.
+        // Guards the test above, which would still pass for the 9 regular styles if `metrics(for:)`
+        // collapsed to a flat `.regular`.
         #expect(ScaledFont.metrics(for: .headline).weight == .bold)
         #expect(ScaledFont.metrics(for: .caption2).weight == .medium)
         #expect(renderedWidth(.system(size: 13, weight: .bold))
@@ -388,10 +383,9 @@ import Testing
     }
 
     @Test func theDefaultSizeLeavesTheAmbientFontUntouched() {
-        // At the default size the environment font must be left alone, not written as `.body`.
-        // Writing it replaces SwiftUI's implicit default for every unstyled control, a silent
-        // app-wide shift for users who never touched the setting. Compared against no modifier at
-        // all, not against `.body`.
+        // At the default size the environment font is left alone, not written as `.body`, which
+        // would replace SwiftUI's implicit default for every unstyled control. So it is compared
+        // against no modifier at all, not against `.body`.
         let bare = NSHostingView(rootView: Text("Hamburgefonstiv 0123")).fittingSize
         let defaulted = NSHostingView(
             rootView: Text("Hamburgefonstiv 0123").appFontSize(.medium)).fittingSize
@@ -420,10 +414,9 @@ import Testing
     // MARK: Reaching the places the built-in levers do not
 
     @Test func theScaleReachesTableCells() {
-        // A SwiftUI `Table` drops `defaultMinListRowHeight`, `controlSize` and the ambient `\.font`
-        // at its boundary (see `listDensity(_:)`), which is why Compare's table sets fonts per
-        // cell. A custom environment key isn't dropped, but the Differences table is the app's
-        // most text-heavy surface, so prove it rather than assume it.
+        // A `Table` drops `defaultMinListRowHeight`, `controlSize` and the ambient `\.font` at its
+        // boundary (see `listDensity(_:)`). A custom environment key isn't dropped, but the
+        // Differences table is the most text-heavy surface, so this proves it.
         let large = Self.scalesSeenInsideTableCells(scale: FontSize.extraLarge.scale)
         #expect(!large.isEmpty, "no cell ever realized — the probe is broken, not the behaviour")
         #expect(large == [FontSize.extraLarge.scale],
@@ -432,14 +425,11 @@ import Testing
         #expect(Self.scalesSeenInsideTableCells(scale: 1) == [1])
     }
 
-    /// Collects `\.appFontScale` as seen from *inside* a realized `Table` cell.
+    /// Collects `\.appFontScale` as seen from *inside* a realized `Table` cell; a `Table` draws its
+    /// cell text itself, so there are no `NSTextField`s to inspect.
     ///
-    /// Reported from within the cell, because a SwiftUI `Table` draws its cell text itself and
-    /// there are no `NSTextField`s to inspect.
-    ///
-    /// Mounted in a borderless window never ordered in,
-    /// with `isReleasedWhenClosed = false`. Ordering a window in and closing it inside the test
-    /// host segfaults it.
+    /// Mounted in a borderless window never ordered in, with `isReleasedWhenClosed = false`:
+    /// ordering a window in and closing it inside the test host segfaults it.
     @MainActor
     private static func scalesSeenInsideTableCells(scale: CGFloat) -> [CGFloat] {
         final class Box: @unchecked Sendable { var seen: Set<CGFloat> = [] }
@@ -469,9 +459,8 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        // A `Table` builds its cells lazily during a display pass, not during layout. Drawing it
-        // realizes them, and a brief runloop turn lets `onAppear`
-        // fire. The caller's non-empty guard fails the test if the cells stop realizing.
+        // A `Table` builds its cells lazily during a display pass, not during layout: drawing it
+        // realizes them, and a brief runloop turn lets `onAppear` fire.
         if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: rep)
         }

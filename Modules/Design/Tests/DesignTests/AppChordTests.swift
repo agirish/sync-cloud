@@ -21,17 +21,15 @@ import Foundation
         #expect(AppChord.findInPane.display == "⌘F")
         #expect(AppChord.paneBack.display == "⌘[")
         #expect(AppChord.paneForward.display == "⌘]")
-        // The column-stack pair. Both are function-key code points, so these pins also prove
-        // `keyGlyph` names them: without its ↑/↓ arms `display` renders an unprintable glyph,
-        // which draws as a blank box on a keycap.
+        // Function-key code points: without `keyGlyph`'s ↑/↓ arms `display` renders an
+        // unprintable glyph, a blank box on a keycap.
         #expect(AppChord.openSelectedFolder.display == "⌘↓")
         #expect(AppChord.enclosingFolder.display == "⌘↑")
         #expect(AppChord.rescan.display == "⌘R")
         #expect(AppChord.newFolder.display == "⇧⌘N")
         #expect(AppChord.folderSidebar.display == "⌃⌘S")
-        // The editor's two, and the pair that has to stay distinguishable from the two above it:
-        // ⌘S beside ⌃⌘S, and ⌘N beside ⇧⌘N. `noTwoChordsCollide` compares key AND modifiers, so
-        // these are four separate chords rather than two with an accident in them.
+        // ⌘S beside ⌃⌘S and ⌘N beside ⇧⌘N are four separate chords: `noTwoChordsCollide`
+        // compares key and modifiers.
         #expect(AppChord.saveDocument.display == "⌘S")
         #expect(AppChord.newTextFile.display == "⌘N")
         #expect(AppChord.printDocument.display == "⌘P")
@@ -45,9 +43,8 @@ import Foundation
         #expect(AppChord.copyToRight.display == "⌘→")
         #expect(AppChord.moveToLeft.display == "⇧⌘←")
         #expect(AppChord.moveToRight.display == "⇧⌘→")
-        // The tabs. ⌘T/⌘W are Finder's; the cycle pair is SHIFTED so the unshifted ⌘[ / ⌘] stay
-        // pane back/forward, and ⇧⌘T is View ▸ Tab Bar rather than Reopen Closed Tab — which has
-        // no chord at all and so nothing to pin here.
+        // The tabs. ⌘T/⌘W are Finder's; the cycle pair is shifted so the unshifted ⌘[ / ⌘] stay
+        // pane back/forward, and ⇧⌘T is View ▸ Tab Bar (Reopen Closed Tab has no chord).
         #expect(AppChord.newTab.display == "⌘T")
         #expect(AppChord.closeTab.display == "⌘W")
         #expect(AppChord.nextTab.display == "⇧⌘]")
@@ -87,14 +84,12 @@ import Foundation
         #expect(AppChord.cancelOperation.display == "⌘.")
         #expect(AppChord.workspace(1)?.display == "⌘1")
         #expect(AppChord.workspace(5)?.display == "⌘5")
-        // Past nine there is no chord, and asking for one must not take the app down:
-        // `Character.init(String)` requires exactly one grapheme cluster, so a two-digit ordinal
-        // would trap at menu-bar construction and the app would not open.
+        // Past nine there is no chord: `Character.init(String)` traps on a two-digit ordinal at
+        // menu-bar construction, and the app would not open.
         #expect(AppChord.workspace(10) == nil)
         #expect(AppChord.workspace(0) == nil)
-        // The live fixture for `aCommentedPinDoesNotCountAsAPin`: a comment inside this body,
-        // naming a chord the way a real pin does. It must sit here, because the scan reads only
-        // this member. AppChordDecoyMarker.display == "⌘0"
+        // Live fixture for `aCommentedPinDoesNotCountAsAPin`; it must sit here, because the scan
+        // reads only this member. AppChordDecoyMarker.display == "⌘0"
     }
 
     /// The reveal's look-release-press contract holds only while no registered chord contains ⌥:
@@ -120,10 +115,9 @@ import Foundation
         }
     }
 
-    /// No two chords are the same chord. The registry can't stop two being declared identically,
-    /// and two menu items sharing a key equivalent is no build error: AppKit picks one, and the
-    /// other looks like a chord that does nothing. Compared on what reaches the responder chain
-    /// (key character and modifier set), not `display`, which two chords could render alike.
+    /// No two chords share a key equivalent: AppKit would silently pick one, leaving the other a
+    /// chord that does nothing. Compared on key character and modifier set, not `display`, which
+    /// two chords could render alike.
     @Test func noTwoChordsCollide() {
         var seen: [String: Int] = [:]
         for chord in AppChord.registry {
@@ -134,10 +128,9 @@ import Foundation
         #expect(collisions.isEmpty, "two registered chords share a key equivalent: \(collisions)")
     }
 
-    /// ⌘I is one chord with two meanings, held once in the registry. Italic and the Info inspector
-    /// share the key and are routed at press time, so `italic` is an alias of `infoInspector`; a
-    /// second `static let` on the key would fail `noTwoChordsCollide`, rightly, since AppKit would
-    /// pick one. Pinned as an identity, not a display: two different chords could render alike.
+    /// ⌘I is one chord with two meanings, routed at press time, so `italic` is an alias of
+    /// `infoInspector`, not a second `static let` (which `noTwoChordsCollide` would rightly fail).
+    /// Pinned as an identity, not a display: two different chords could render alike.
     @Test func italicIsTheInspectorsChordNotASecondOne() {
         #expect(AppChord.italic.key == AppChord.infoInspector.key)
         #expect(AppChord.italic.modifiers == AppChord.infoInspector.modifiers)
@@ -173,13 +166,10 @@ import Foundation
         }
     }
 
-    /// Every `static let <name> = AppChord(` declaration in `AppChord.swift`. The parameterised
-    /// `workspace(_:)` is a `static func`, rightly not counted.
-    ///
-    /// Counted over the whitespace-collapsed file, not line by line, so a declaration whose
-    /// initialiser wraps onto the next line is still seen; line-scoped, it would be missing here
-    /// and from the registry alike, the count would balance, and no sweep would reach it. Shared
-    /// by the two tests below, so there is one parser to keep current.
+    /// Every `static let <name> = AppChord(` declaration in `AppChord.swift` (`workspace(_:)` is a
+    /// `static func`, rightly not counted). Parsed over the whitespace-collapsed file, so a
+    /// declaration wrapped onto two lines is still seen; line by line it would be missing here and
+    /// from the registry alike, and the count would balance.
     static func declaredChordNames() throws -> Set<String> {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -203,15 +193,12 @@ import Foundation
         return declared
     }
 
-    /// The registry holds every chord that is declared. `AppChord.registry` is a hand-written
-    /// array, so a `static let` added without listing it would be registered, rendered, and
-    /// invisible to every "for every chord" test that reads the registry. Counted from the source,
-    /// so the omission fails here.
+    /// The hand-written `AppChord.registry` holds every declared chord; one left out would be
+    /// invisible to every "for every chord" test that reads the registry.
     @Test func everyDeclaredChordIsInTheRegistry() throws {
         let declared = try Self.declaredChordNames()
-        // Distinct first, or the count proves nothing: listing one member twice in `registry`
-        // would balance the count while a new chord is missing. Every chord renders a different
-        // display, so uniqueness there is a real property.
+        // Distinct first, or a member listed twice would balance the count while a new chord is
+        // missing.
         #expect(Set(AppChord.registry.map(\.display)).count == AppChord.registry.count,
                 "two registry entries render the same display — a duplicate can mask an omission")
         #expect(declared.count == AppChord.registry.count,
@@ -221,11 +208,10 @@ import Foundation
                 """)
     }
 
-    /// The pin test's body, with comments cut, trailing ones included. Cut at `//`, not at the
-    /// first `/`, because `⌘/` is a display string this file pins. Scoped to the one named test, so
-    /// a pin in a disabled test or any other member doesn't count, and a comment naming a chord is
-    /// no pin, the hazard
-    /// `ShortcutCommandsTests.bothReasonsToSuspendTheChordsSurviveInTheExpression` also guards.
+    /// The pin test's body with comments cut, trailing ones included: cut at `//`, not the first
+    /// `/`, because `⌘/` is a pinned display. Scoped to that one test, so a pin in any other member
+    /// or a disabled test doesn't count (as in
+    /// `ShortcutCommandsTests.bothReasonsToSuspendTheChordsSurviveInTheExpression`).
     static func pinnedDisplayExpectations() throws -> String {
         let raw = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
                                "cannot read this test file — the coverage scan would be vacuous")
@@ -251,9 +237,8 @@ import Foundation
     }
 
     /// Every declared chord is pinned by `everyChordRendersItsDocumentedDisplay`. The pins stay
-    /// hand-written, since a pin derived from its value asserts nothing, but the list of them is
-    /// derived, so a new chord fails here the day it is declared. The registry-reading tests can't
-    /// see a chord that is registered but unpinned.
+    /// hand-written (a pin derived from its value asserts nothing), but their list is derived, so a
+    /// new chord fails here the day it is declared.
     @Test func everyDeclaredChordIsPinnedByADisplayExpectation() throws {
         let declared = try Self.declaredChordNames()
         let own = try Self.pinnedDisplayExpectations()

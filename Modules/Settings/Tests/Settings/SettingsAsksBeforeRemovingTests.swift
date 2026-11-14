@@ -4,16 +4,12 @@ import Sync
 import Testing
 @testable import Settings
 
-/// Five Settings controls ask before they throw away choices one click can't bring back: a folder
-/// source's Remove (its name and switched-off state go with it), Sync's Clear All for ignored items,
-/// Organize's Clear All for kept names, Intelligence's Clear for saved suggestions (the next Refine
-/// pays Claude again for every file), and choosing "All columns" for column widths (the widths
-/// sized one at a time are erased, and "Each column" doesn't restore them). A sixth, Hidden from
-/// Claude's Remove, asks the same way because it widens what Claude may see.
-///
-/// The decisions are pinned on the gates, since a SwiftUI button's closure can't be reached from a
-/// test, over real stores where one exists. The last test holds each control to its gate, so the
-/// gates can't be tested and unused.
+/// Settings controls that throw away choices one click can't bring back ask first: a folder
+/// source's Remove (its name and switched-off state go with it), Sync's and Organize's Clear All,
+/// Intelligence's Clear for saved suggestions (the next Refine pays Claude again for every file),
+/// "All columns" (erases widths sized one at a time), and Hidden from Claude's Remove (it widens
+/// what Claude may see). Pinned on the gates, since a SwiftUI button's closure can't be reached
+/// from a test; the last test holds each control to its gate.
 @MainActor
 @Suite struct SettingsAsksBeforeRemovingTests {
 

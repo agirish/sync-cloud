@@ -61,9 +61,8 @@ import AppKit
     }
 
     /// The specimen style is narrower than the named one at every text size, the reason it exists.
-    /// The setup card's exact width belongs to `MacApp` and is measured there
-    /// (`theSetupTextSizeRowFitsTheCardAtEveryTextSize`). If the specimen stops buying width, it is
-    /// a second code path for nothing and the setup form should use the words.
+    /// The setup card's width is measured in `MacApp`
+    /// (`theSetupTextSizeRowFitsTheCardAtEveryTextSize`).
     @MainActor
     @Test func theSpecimenStyleIsNarrowerThanTheNamedOne() {
         for size in FontSize.allCases {

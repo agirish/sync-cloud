@@ -14,9 +14,8 @@ import Testing
     }
 
     /// The account editor offers the door, gated on `canOpen` (absent, not disabled, when the
-    /// vendor's app is missing), and opens it through the shared opener. The door comes from the
-    /// provider, not a second table: one door per provider, declared once on `CloudProvider`,
-    /// keeps the two surfaces from disagreeing.
+    /// vendor's app is missing), through the shared opener. The door comes from the provider,
+    /// declared once on `CloudProvider`, so the two surfaces can't disagree.
     @Test func theAccountEditorOffersTheDoorBehindCanOpen() throws {
         let code = try Self.source()
         let gate = try #require(

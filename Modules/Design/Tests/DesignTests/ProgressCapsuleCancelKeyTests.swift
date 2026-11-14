@@ -3,15 +3,11 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// ⌘. stops the run in the toolbar's progress capsule, and Esc does not.
-///
-/// A long copy must be stoppable from the keyboard. The chord is ⌘., the Mac's cancel-operation
-/// chord, and not Esc: the whole window is live around the capsule, and Esc clears a pane's
-/// selection, so a habitual Esc must not abort the copy. Both directions are pinned.
+/// ⌘. stops the run in the toolbar's progress capsule, and Esc does not: the window is live around
+/// the capsule and Esc clears a pane's selection, so a habitual Esc must not abort the copy.
 ///
 /// Driven through a real window's key-equivalent pass, where a SwiftUI `.keyboardShortcut` lives;
-/// a `Button` is not an `NSControl` and can't be pressed from here any other way. `AppChordTests`
-/// pins what the chord renders; this pins that it is wired.
+/// a `Button` is not an `NSControl` and can't be pressed from here any other way.
 @MainActor
 @Suite(.serialized) struct ProgressCapsuleCancelKeyTests {
 
@@ -73,13 +69,9 @@ import Testing
     private final class Presses { var count = 0 }
 
     /// ⌘. over a window with an Esc button reaches the capsule, and only the capsule. AppKit treats
-    /// ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button elsewhere in the window
-    /// (Settings' close, a sheet's Cancel) is the other claimant; pressing it would close whatever
-    /// lies under the copy and leave the copy running. Both stacking orders, since which view the
-    /// key pass meets first is the question.
-    ///
-    /// Removing the capsule's chord must fail the first half. The second half guards against AppKit
-    /// or SwiftUI starting to map ⌘. onto Esc buttons, which neither does today.
+    /// ⌘. as Esc (`cancelOperation:`), so a `.cancelAction` button elsewhere would close whatever
+    /// lies under the copy and leave it running. Both stacking orders, since which view the key pass
+    /// meets first is the question. Removing the capsule's chord must fail this.
     @Test(arguments: [true, false])
     func commandPeriodCancelsTheCapsuleNotAnEscButtonBesideIt(dialogOnTop: Bool) async throws {
         let progress = cancellable()
@@ -203,10 +195,8 @@ import Testing
     }
 
     /// The Cancel button's key comes from `AppChord.cancelOperation`, whole. The key pass above
-    /// can't see a ⇧ slip in the binding: a button bound to ⇧⌘. still claims a plain ⌘. event,
-    /// because SwiftUI's match is lenient about ⇧ on a punctuation key. `AppChordTests` pins the
-    /// chord's modifiers (its display, and `noTwoChordsCollide` against ⇧⌘. `hiddenFiles`); this
-    /// pins that the button reads them.
+    /// can't see a ⇧ slip: a button bound to ⇧⌘. still claims a plain ⌘. event, because SwiftUI's
+    /// match is lenient about ⇧ on a punctuation key. `AppChordTests` pins the chord's modifiers.
     @Test func theCancelButtonIsBoundToTheRegisteredChord() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

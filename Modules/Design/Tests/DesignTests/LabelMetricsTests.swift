@@ -23,12 +23,9 @@ private let headerTexts = [
 /// The four app font scales. The ladder has to be right at every one of them.
 private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
 
-/// Every scale the size slider can land on, not just the four named presets in `appFontScales`.
-///
-/// The height cases need the whole set: the line box steps with the point size, and the 10pt
-/// pane-bar title lands on 9.5 and 10.5pt at 95% and 105%, sizes where `defaultLineHeight` is
-/// short and neither a named preset. Derived from `selectablePercents`, so widening the slider
-/// widens this.
+/// Every scale the size slider can land on, not just the named presets: the line box steps with the
+/// point size, and the 10pt pane-bar title lands on 9.5 and 10.5pt at 95% and 105%, where
+/// `defaultLineHeight` is short. Derived from `selectablePercents`, so it widens with the slider.
 private let everySelectableScale: [CGFloat] =
     FontSize.selectablePercents.map { FontSize(percent: $0).scale }
 
@@ -45,11 +42,9 @@ private let lineHeightFonts: [ScaledFont] = [
     .system(size: 16, weight: .semibold, design: .rounded).monospacedDigit(),
 ]
 
-/// One shipping call site that draws a non-default face, and a string it really renders.
-///
-/// A struct rather than a tuple because `@Test(arguments:)` only destructures pairs, and `digits`
-/// must travel with the font: `ScaledFont` doesn't expose whether `monospacedDigit()` was applied,
-/// which decides the face a regression would fall back to.
+/// One shipping call site that draws a non-default face, and a string it really renders. A struct
+/// because `@Test(arguments:)` only destructures pairs, and `digits` must travel with the font:
+/// `ScaledFont` doesn't expose whether `monospacedDigit()` was applied.
 struct FaceCallSite: Sendable, CustomStringConvertible {
     let site: String
     /// The font the call site builds, verbatim.
@@ -73,11 +68,7 @@ struct FaceCallSite: Sendable, CustomStringConvertible {
 }
 
 /// Every `.rounded` call site SyncCloud ships: the hits for `design: .rounded` under
-/// `Modules/*/Sources`.
-///
-/// The two spend panes' rounded monospaced-digit `stat` helpers were the other sites until Refine's
-/// own spend readouts went (TE335, E5); the rounded-digits path no longer ships, so no fixture here
-/// exercises it.
+/// `Modules/*/Sources`. No shipping site is rounded with monospaced digits.
 let roundedCallSites = [
     FaceCallSite(site: "PaneRowFonts.name", font: .system(.body, design: .rounded),
                  digits: false, text: "Birth Certificate"),
@@ -89,16 +80,12 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
     NSAttributedString(string: text, attributes: [.font: font]).size().width
 }
 
-/// Checks every number `LabelMetrics` computes against the view SwiftUI actually draws.
-///
-/// The differences header picks its rung by adding up the widths `LabelMetrics` reports, which is
-/// only safe while those equal what SwiftUI lays out. So nothing here compares constants: every
-/// expectation reads `NSHostingView.fittingSize` off a real hosted view.
+/// Checks every number `LabelMetrics` computes against the view SwiftUI actually draws: the
+/// differences header picks its rung by adding those widths, so every expectation reads
+/// `NSHostingView.fittingSize` off a real hosted view, never a constant.
 ///
 /// The hosting view needs a window: detached, it reports 19.0pt for a `checklist` symbol that is
-/// 17.5pt in a window, and errs both ways across the symbol set. Pinned to `.pixelSampling` per
-/// test: every case that hosts a view reads a live renderer, and two pin this Mac's exact figures
-/// (17.5pt for `checklist`, 77.0pt for "Review 1234").
+/// 17.5pt in a window, and errs both ways across the symbol set. Pinned to `.pixelSampling`.
 @MainActor
 @Suite struct LabelMetricsTests {
 
@@ -197,15 +184,9 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         }
     }
 
-    /// The height half of `imageSizeIsNotTheLaidOutWidthButTheAlignmentRectIs`: the obvious API is
-    /// right often enough to look correct.
-    ///
-    /// `NSLayoutManager.defaultLineHeight(for:)` agrees with the drawn box at most sizes and is 1pt
-    /// short at the rest, including 10pt and 11pt, the pane bar's title at 100% and 110%. Short means
-    /// a row reserved off it is a box its own text hangs out of, with no loud symptom.
-    ///
-    /// Two checks per size: that the two APIs really part company here (a size where they agree
-    /// can't fail), and that the one `LabelMetrics` calls matches the drawn view.
+    /// `NSLayoutManager.defaultLineHeight(for:)` is right at most sizes and 1pt short at the rest
+    /// (10pt and 11pt included), so a row reserved off it is a box its own text hangs out of. Each
+    /// size checks that the two APIs really part company there, so the case can fail.
     @Test(.machinePinned(.pixelSampling)) func defaultLineHeightIsNotTheDrawnLineBoxButTheAttributedSizeIs() {
         let layoutManager = NSLayoutManager()
         for pointSize in [CGFloat(9.5), 10, 10.5, 11, 11.5] {
@@ -222,15 +203,10 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
                 == hostedHeight(Text("Hg").font(.system(size: 12))))
     }
 
-    /// A line box is a property of the font, not the run, which lets `lineHeight` take no string and
-    /// cache one entry per font.
-    ///
-    /// **The empty string is the exception, and must never be the sample**: with no characters it
-    /// carries no font run, so `size()` ignores the font and answers for a default face.
-    ///
-    /// Stated as "the empty string ignores the font", not "it differs from the box", because the
-    /// default measures 14.0: 1pt out at 10pt and 13pt but exactly right at 11pt, where the obvious
-    /// assertion would pass on a number that means nothing.
+    /// A line box is a property of the font, not the run, so `lineHeight` takes no string and caches
+    /// one entry per font. **The empty string must never be the sample**: it carries no font run, so
+    /// `size()` answers for a default face. Stated as "ignores the font", not "differs from the box",
+    /// because the default's 14.0 is exactly right at 11pt.
     @Test(.machinePinned(.pixelSampling)) func aLineBoxDoesNotDependOnWhatIsInIt() {
         let pointSizes: [CGFloat] = [10, 11, 13]
         func height(_ text: String, _ pointSize: CGFloat) -> CGFloat {
@@ -300,12 +276,9 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
 
     // MARK: - The cache
 
-    /// The caches are keyed by `NSFont`, and that only works if two separately-built `ScaledFont`s
-    /// resolving to the same face produce fonts that are `==` and hash alike.
-    ///
-    /// The failure is silent and costs performance, not correctness: fonts that compared by
-    /// identity would miss on every lookup, refill the cache to its limit, flush and repeat, putting
-    /// a ~25µs-per-symbol measurement back on every layout pass.
+    /// The caches are keyed by `NSFont`, so two separately built `ScaledFont`s for the same face must
+    /// give fonts that are `==` and hash alike. Otherwise every lookup misses, silently putting a
+    /// ~25µs-per-symbol measurement back on every layout pass.
     @Test func equalScaledFontsResolveToCacheableAppKitFonts() {
         for (a, b) in [(ScaledFont.system(size: 13), ScaledFont.system(size: 13)),
                        (.caption, .caption),
@@ -407,12 +380,9 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         }
     }
 
-    /// `.monospaced` goes the other way: the monospaced face is fixed-pitch throughout, so it
-    /// answers a `monospacedDigit()` request on its own and must win outright. The digits font
-    /// instead gives the proportional face, wrong for every letter: 72.745pt for "18.4k tok" at
-    /// 16pt semibold where the monospaced face lays out 89.016pt.
-    ///
-    /// No shipping call site combines the two; this pins the answer before one does.
+    /// `.monospaced` is fixed-pitch throughout, so it answers a `monospacedDigit()` request on its
+    /// own and must win outright; the digits font would give the proportional face (72.745pt for
+    /// "18.4k tok" against 89.016pt). No shipping call site combines the two yet.
     @Test(.machinePinned(.pixelSampling)) func theMonospacedFaceAnswersADigitRequestOnItsOwn() {
         let font = ScaledFont.system(size: 16, weight: .semibold).monospaced().monospacedDigit()
         let measured = font.nsFont(scale: 1)
@@ -424,11 +394,9 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         #expect(rawWidth("W", measured) == rawWidth("1", measured),
                 "the monospaced face is fixed-pitch across letters too")
 
-        // And asking for digits must not mint a second font for the same face. `LabelMetrics`
-        // keys both caches on `NSFont`, so two objects that measure alike but compare unequal are
-        // two entries, one missing on every lookup. Routing `.monospaced` through the descriptor
-        // transform instead of `NSFont.monospacedSystemFont` gives exactly that (at every weight
-        // but `.regular`).
+        // Asking for digits must not mint a second font for the same face: `LabelMetrics` keys its
+        // caches on `NSFont`. Building `.monospaced` through the descriptor transform instead of
+        // `NSFont.monospacedSystemFont` would (at every weight but `.regular`).
         #expect(measured == ScaledFont.system(size: 16, weight: .semibold).monospaced().nsFont(scale: 1),
                 "the digit request built a different font object for the same face")
         #expect(measured == NSFont.monospacedSystemFont(ofSize: 16, weight: .semibold),
@@ -440,11 +408,9 @@ func rawWidth(_ text: String, _ font: NSFont) -> CGFloat {
         }
     }
 
-    /// `.serif` must measure the serif face too. Nothing in SyncCloud draws it, but a `default:`
-    /// that silently swallows a design is how a rounded font measured as the default face.
-    ///
-    /// Pinned as a width, so it is a claim about the face rather than about a branch existing:
-    /// "Birth Certificate" is 98.872pt in New York against 95.729pt in SF Pro at 13pt.
+    /// `.serif` must measure the serif face too: nothing draws it, but a `default:` that swallows a
+    /// design would measure it as the default face. Pinned as a width: "Birth Certificate" is
+    /// 98.872pt in New York against 95.729pt in SF Pro at 13pt.
     @Test(.machinePinned(.pixelSampling)) func aSerifFontMeasuresTheSerifFace() {
         for (font, plain, text) in [
             (ScaledFont.system(.body, design: .serif), ScaledFont.system(.body), "Birth Certificate"),

@@ -4,13 +4,11 @@ import Sync
 import Testing
 @testable import Settings
 
-/// TE332 step 2's rows for settings the app kept but Settings never showed: One-Way Sync's
-/// notifications, Differences' Group by folder, Show Again for every group kept separate, Add… for
-/// the folders shared without asking, Customize Pane Bar… and the saved signatures.
-///
-/// The two that change what is kept or what Claude may see go through gates tested here over real
-/// stores; the wiring test at the end holds each control to its gate, since a SwiftUI button's
-/// action can't be reached from a test.
+/// Rows for settings the app kept but Settings never showed: One-Way Sync's notifications,
+/// Differences' Group by folder, Show Again for groups kept separate, Add… for folders shared
+/// without asking, Customize Pane Bar… and the saved signatures. The two that change what is kept
+/// or what Claude may see go through gates tested here over real stores; the wiring test holds
+/// each control to its gate, since a SwiftUI button's action can't be reached from a test.
 @MainActor
 @Suite struct NewSettingsRowsTests {
 
