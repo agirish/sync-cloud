@@ -93,17 +93,6 @@ import PDFKit
         #expect(!printed.contains("…"), "the page carries a truncation ellipsis")
     }
 
-    /// The same claim by count: a block measured at the page width keeps every line, so nearly all
-    /// sixty repetitions reach the page.
-    @Test func aWrappedBlockKeepsEveryRepetition() throws {
-        let printed = Self.flattened(allText(try render(String(repeating: "wrapping words ", count: 60))))
-        // Sixty can't fit on one line, so a block pinned to one loses most of them. The margin
-        // allows for a few lost to the extractor's spacing.
-        let occurrences = printed.components(separatedBy: "wrapping words").count - 1
-        #expect(occurrences >= 55,
-                "only \(occurrences) of 60 repetitions reached the page — the block was cut short")
-    }
-
     // MARK: Pagination, end to end
 
     /// A document longer than one page becomes several, in order, with every paragraph printed

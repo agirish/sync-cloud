@@ -14,17 +14,9 @@ import Testing
 
     @Test func aGuidedReviewOverridesTheStoredCollapse() {
         // The review card carries a cursor and progress found nowhere else, so a session re-opens
-        // the pane rather than hiding behind a chevron.
+        // the pane rather than hiding behind a chevron. Ending it returns the strip the user asked
+        // for: the rule is a pure function of the preference, never a mutation of it.
         #expect(!DifferencesView.isCollapsedToHeaderStrip(storedCollapse: true, isReviewing: true))
         #expect(!DifferencesView.isCollapsedToHeaderStrip(storedCollapse: false, isReviewing: true))
-    }
-
-    @Test func theOverrideDoesNotConsumeThePreference() {
-        // Ending the review returns the pane to the strip the user asked for, because the rule is
-        // a pure function of the current preference, never a mutation of it.
-        let duringReview = DifferencesView.isCollapsedToHeaderStrip(storedCollapse: true, isReviewing: true)
-        let afterReview = DifferencesView.isCollapsedToHeaderStrip(storedCollapse: true, isReviewing: false)
-        #expect(duringReview == false)
-        #expect(afterReview == true)
     }
 }

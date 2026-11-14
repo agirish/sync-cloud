@@ -12,18 +12,18 @@ import Testing
 @MainActor
 @Suite struct PaneComparePairMenuTests {
 
-    private func file(_ path: String) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
-    }
+    private func file(_ path: String) -> FileNode { Self.node(path) }
 
-    private func folder(_ path: String) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true)
+    /// A file, or a folder when the path ends in "/".
+    private static func node(_ path: String) -> FileNode {
+        let isFolder = path.hasSuffix("/")
+        let id = isFolder ? String(path.dropLast()) : path
+        return FileNode(id: id, name: (id as NSString).lastPathComponent, isDirectory: isFolder)
     }
 
     private func tree(_ nodes: [FileNode], side: PaneTree.Side = .right) -> PaneTree {
         PaneTree(side: side, version: 1, nodes: nodes)
     }
-
 
     // MARK: Cross-pane
 
@@ -35,67 +35,33 @@ import Testing
         #expect(counterpart.id == "/R/scan.pdf")
     }
 
-    /// The rail has no opposite pane, so `otherSelection` describes a tree nobody can see: the same
-    /// gate the cross-pane copy item beside this one takes. Identical to the case above but for the
-    /// flag.
-    @Test func theSingleSourceRailOffersNoCrossPaneCompare() {
-        let other = tree([file("/R/scan.pdf")])
+    /// Each case offers no counterpart: (why, clicked row, the other pane's rows, its selection,
+    /// single-source).
+    @Test(arguments: [
+        // The rail has no opposite pane, so `otherSelection` describes a tree nobody can see: the
+        // same gate as the cross-pane copy item. The case above but for the flag.
+        ("the single-source rail", "/L/lease.pdf", ["/R/scan.pdf"], ["/R/scan.pdf"], true),
+        // Two selected over there makes "compare with which?" a question the menu cannot ask.
+        ("two selected over there", "/L/lease.pdf", ["/R/a.pdf", "/R/b.pdf"], ["/R/a.pdf", "/R/b.pdf"], false),
+        ("nothing selected over there", "/L/lease.pdf", ["/R/a.pdf"], [], false),
+        // `selectedNodes(at:)` answers with what is in the tree: a stale path is no counterpart.
+        ("the selection names a vanished row", "/L/lease.pdf", ["/R/a.pdf"], ["/R/gone.pdf"], false),
+        // The count is the selection's, not what survived resolving it: a rule counting resolved
+        // nodes would offer the survivor.
+        ("two selected, one since gone", "/L/lease.pdf", ["/R/a.pdf"], ["/R/a.pdf", "/R/gone.pdf"], false),
+        // Folders are out on both sides, each refused on its own: the viewer renders nothing for
+        // one, and Compare already owns two folders.
+        ("the clicked row is a folder", "/L/Reports/", ["/R/a.pdf"], ["/R/a.pdf"], false),
+        ("the counterpart is a folder", "/L/lease.pdf", ["/R/Reports/"], ["/R/Reports"], false),
+        // Two panes on one folder can name the same path twice; a file compared with itself is
+        // "identical" about nothing.
+        ("a file with itself", "/same/x.pdf", ["/same/x.pdf"], ["/same/x.pdf"], false),
+    ] as [(String, String, [String], Set<String>, Bool)])
+    func aCrossPaneRefusalOffersNothing(why: String, clicked: String, other: [String],
+                                        selection: Set<String>, isSingleSource: Bool) {
         #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: other,
-            otherSelection: ["/R/scan.pdf"], isSingleSource: true) == nil)
-    }
-
-    /// Two selected over there makes "compare with which?" a question the menu cannot ask.
-    @Test func twoFilesSelectedInTheOtherPaneOfferNothing() {
-        let other = tree([file("/R/a.pdf"), file("/R/b.pdf")])
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: other,
-            otherSelection: ["/R/a.pdf", "/R/b.pdf"], isSingleSource: false) == nil)
-    }
-
-    @Test func anEmptyOtherSelectionOffersNothing() {
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: tree([file("/R/a.pdf")]),
-            otherSelection: [], isSingleSource: false) == nil)
-    }
-
-    /// A selection can name a row that has since gone; `selectedNodes(at:)` answers with what is
-    /// actually in the tree, so a stale path is no counterpart rather than a crash or a phantom.
-    @Test func aSelectionNamingAVanishedRowOffersNothing() {
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: tree([file("/R/a.pdf")]),
-            otherSelection: ["/R/gone.pdf"], isSingleSource: false) == nil)
-    }
-
-    /// The count is the selection's, not what survived resolving it. Two rows selected over there,
-    /// one since gone, is still a choice between two; a rule counting resolved nodes would offer
-    /// the survivor as the pair.
-    @Test func twoSelectedWithOneGoneStillOfferNothing() {
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: tree([file("/R/a.pdf")]),
-            otherSelection: ["/R/a.pdf", "/R/gone.pdf"], isSingleSource: false) == nil)
-    }
-
-    /// Folders are out on both sides: the viewer has nothing to render for one, and Compare already
-    /// owns two folders. Each side is refused on its own, so a check covering only one would leave
-    /// the other open.
-    @Test func aFolderOnEitherSideIsRefused() {
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: folder("/L/Reports"), otherTree: tree([file("/R/a.pdf")]),
-            otherSelection: ["/R/a.pdf"], isSingleSource: false) == nil,
-            "the clicked row is a folder")
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/L/lease.pdf"), otherTree: tree([folder("/R/Reports")]),
-            otherSelection: ["/R/Reports"], isSingleSource: false) == nil,
-            "the counterpart is a folder")
-    }
-
-    /// Two panes pointed at one folder can name the same path twice, and a viewer comparing a file
-    /// with itself reports "identical" about nothing.
-    @Test func aFileIsNotComparableWithItself() {
-        #expect(PaneComparePairMenu.crossPaneCounterpart(
-            clicked: file("/same/x.pdf"), otherTree: tree([file("/same/x.pdf")]),
-            otherSelection: ["/same/x.pdf"], isSingleSource: false) == nil)
+            clicked: file(clicked), otherTree: tree(other.map(file)),
+            otherSelection: selection, isSingleSource: isSingleSource) == nil, "\(why)")
     }
 
     // MARK: Same pane
@@ -114,23 +80,17 @@ import Testing
         #expect(fromSecond.id == "/L/a.pdf")
     }
 
-    @Test(arguments: [1, 3]) func onlyExactlyTwoIsAPair(count: Int) {
-        let nodes = (0..<count).map { file("/L/f\($0).pdf") }
-        #expect(PaneComparePairMenu.samePaneCounterpart(clicked: nodes[0],
-                                                        selectedNodes: nodes) == nil)
-    }
-
-    /// Right-clicking a third row while two others are selected is not a pair anybody chose.
-    @Test func aClickedRowOutsideTheSelectionOffersNothing() {
-        let selected = [file("/L/a.pdf"), file("/L/b.pdf")]
-        #expect(PaneComparePairMenu.samePaneCounterpart(clicked: file("/L/c.pdf"),
-                                                        selectedNodes: selected) == nil)
-    }
-
-    @Test func aFolderInASamePaneSelectionIsRefused() {
-        let nodes = [file("/L/a.pdf"), folder("/L/Reports")]
-        #expect(PaneComparePairMenu.samePaneCounterpart(clicked: nodes[0],
-                                                        selectedNodes: nodes) == nil)
+    /// Only exactly two is a pair; a clicked third row while two others are selected is not a pair
+    /// anybody chose; a folder in the pair is refused.
+    @Test(arguments: [
+        ("one selected", "/L/f0.pdf", ["/L/f0.pdf"]),
+        ("three selected", "/L/f0.pdf", ["/L/f0.pdf", "/L/f1.pdf", "/L/f2.pdf"]),
+        ("the clicked row is outside the selection", "/L/c.pdf", ["/L/a.pdf", "/L/b.pdf"]),
+        ("a folder in the selection", "/L/a.pdf", ["/L/a.pdf", "/L/Reports/"]),
+    ])
+    func aSamePaneRefusalOffersNothing(why: String, clicked: String, selected: [String]) {
+        #expect(PaneComparePairMenu.samePaneCounterpart(clicked: file(clicked),
+                                                        selectedNodes: selected.map(file)) == nil, "\(why)")
     }
 
     // MARK: How the pair reaches the viewer
@@ -153,22 +113,15 @@ import Testing
 
     /// A same-pane pair has no side to match, so the clicked row leads, and the subtitle names the
     /// one pane once, because "iCloud vs iCloud" would name nothing.
-    @Test func aSamePanePairLeadsWithTheClickedRowAndNamesOnePane() {
+    @Test(arguments: [(true, "/L", "Both in iCloud"), (false, "/R", "Both in Dropbox")])
+    func aSamePanePairLeadsWithTheClickedRowAndNamesItsPane(clickedPaneIsLeft: Bool, dir: String, subtitle: String) {
         let pair = PaneComparePairMenu.pair(
-            clicked: file("/L/b.pdf"), counterpart: file("/L/a.pdf"),
-            counterpartIsInOtherPane: false, clickedPaneIsLeft: true,
+            clicked: file("\(dir)/b.pdf"), counterpart: file("\(dir)/a.pdf"),
+            counterpartIsInOtherPane: false, clickedPaneIsLeft: clickedPaneIsLeft,
             leftPaneName: "iCloud", rightPaneName: "Dropbox")
-        #expect(pair.leftPath == "/L/b.pdf")
-        #expect(pair.rightPath == "/L/a.pdf")
-        #expect(pair.subtitle == "Both in iCloud")
-    }
-
-    @Test func aSamePanePairInTheRightPaneNamesTheRightPane() {
-        let pair = PaneComparePairMenu.pair(
-            clicked: file("/R/b.pdf"), counterpart: file("/R/a.pdf"),
-            counterpartIsInOtherPane: false, clickedPaneIsLeft: false,
-            leftPaneName: "iCloud", rightPaneName: "Dropbox")
-        #expect(pair.subtitle == "Both in Dropbox")
+        #expect(pair.leftPath == "\(dir)/b.pdf")
+        #expect(pair.rightPath == "\(dir)/a.pdf")
+        #expect(pair.subtitle == subtitle)
     }
 
     // MARK: The title, which the header's glyph is derived from

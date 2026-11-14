@@ -52,55 +52,26 @@ import Design
 
     private func mount(phase: PersonGatherPhase, name: String = "Daughter",
                        scheme: ColorScheme = .light, accent: Color = .accentColor) -> NSHostingView<AnyView> {
-        let subject = PersonView(displayName: name, phase: phase, accent: accent,
-                                 onOpenFolder: { _ in }, onReveal: { _ in }, onClear: {})
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, scheme)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host
+        ReviewLensHost.mount(PersonView(displayName: name, phase: phase, accent: accent,
+                                        onOpenFolder: { _ in }, onReveal: { _ in }, onClear: {}),
+                             size: Self.canvas, appearance: scheme == .dark ? .darkAqua : .aqua).host
     }
 
     private func ink(_ host: NSHostingView<AnyView>, _ band: CGRect) -> Int {
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else { return 0 }
-        host.cacheDisplay(in: band, to: rep)
-        guard let bg = rep.colorAt(x: 2, y: 2) else { return 0 }
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let d = max(abs(c.redComponent - bg.redComponent),
-                            max(abs(c.greenComponent - bg.greenComponent),
-                                abs(c.blueComponent - bg.blueComponent)))
-                if d > 0.35 { n += 1 }
-            }
-        }
-        return n
+        guard let rep = PixelProbe.render(host, band), let bg = rep.colorAt(x: 2, y: 2) else { return 0 }
+        return PixelProbe.count(in: rep) { PixelProbe.distance($0, bg) > 0.35 }
     }
 
     /// Pixels that differ between two renders of the same band. An ink count can't answer "did this
     /// number change": `80` and `85` have almost the same glyph density and ink alike.
     private func differingPixels(_ a: NSHostingView<AnyView>, _ b: NSHostingView<AnyView>,
                                  _ band: CGRect) -> Int {
-        a.layoutSubtreeIfNeeded(); b.layoutSubtreeIfNeeded()
-        guard let ra = a.bitmapImageRepForCachingDisplay(in: band),
-              let rb = b.bitmapImageRepForCachingDisplay(in: band) else {
+        guard let ra = PixelProbe.render(a, band), let rb = PixelProbe.render(b, band) else {
             // Recorded rather than answered: callers check both `> 20` and `== 0`, so any count
             // returned here would pass one of them without measuring.
             Issue.record("no bitmap for the band \(band)")
             return 0
         }
-        a.cacheDisplay(in: band, to: ra)
-        b.cacheDisplay(in: band, to: rb)
         guard ra.pixelsWide == rb.pixelsWide, ra.pixelsHigh == rb.pixelsHigh else { return .max }
         return PixelDiff.differingPixels(ra, rb, tolerance: 0)
     }

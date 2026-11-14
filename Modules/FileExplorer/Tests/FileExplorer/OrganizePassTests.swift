@@ -114,16 +114,6 @@ import SwiftUI
 
     // MARK: Re-running a pass whose answer is already on screen
 
-    /// Only a pass answering one lens can be re-run from that lens's row. The file pass answers
-    /// two, so a rescan on each row would be two controls running one walk. Its rescan stays on row
-    /// 2, where one control speaks for the walk.
-    @Test func onlySingleLensPassesCanBeRerunFromARow() {
-        #expect(OrganizePass.duplicates.answersOneLens)
-        #expect(OrganizePass.folderMemory.answersOneLens)
-        #expect(!OrganizePass.file.answersOneLens,
-                "the file pass would put an identical Rescan on three rows")
-    }
-
     /// The rule is a property of the pass, not of how much is reporting. "Offer it when this row is
     /// the pass's only reporting voice" would make the button appear and vanish as lenses start and
     /// stop reporting. This varies the data and asks the view which rows carry the control.
@@ -293,14 +283,17 @@ import SwiftUI
         }
     }
 
-    /// …and the lens doesn't lose its report as a result: it falls back to the quiet footer line.
-    @Test func anUnrunnablePassStillReportsThatItHasNotRun() {
+    /// …and the lens doesn't lose its report as a result: it falls back to the quiet footer line,
+    /// on its own, offering nothing, as on a machine with no filing profile.
+    @Test func anUnrunnablePassStillReportsThatItHasNotRun() throws {
         let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, $0 == .restructure ? .notScanned : .clean)
         }, runnable: [.file, .duplicates])
         #expect(subject.pendingPasses.isEmpty)
         #expect(subject.strandedUnscanned.map(\.lens) == [.restructure],
                 "the unrunnable lens stopped saying it had not run")
+        let restructure = try #require(subject.sections.first { $0.lens == .restructure })
+        #expect(!subject.offersPassRun(for: restructure))
     }
 
     /// One offer per pass, even in the footer: written per row, it could put two identical "Run the
@@ -367,14 +360,6 @@ import SwiftUI
                 "the footer made \(total) run offers — with the file pass half-answered it should make exactly one, and a zero here means the loop above asserted nothing")
         #expect(subject.offersPassRun(for: section(.renames, .notScanned)),
                 "the stranded rename lens is the row that carries the file pass's offer")
-    }
-
-    /// A stranded lens whose pass this host can't run says so and offers nothing: the quiet line on
-    /// its own, as on a machine with no filing profile.
-    @Test func aStrandedLensWithNoRunnablePassOffersNothing() {
-        let subject = overview([section(.restructure, .notScanned)], runnable: [.file, .duplicates])
-        #expect(subject.strandedUnscanned.map(\.lens) == [.restructure])
-        #expect(!subject.offersPassRun(for: subject.sections[0]))
     }
 
     /// A lens that has already answered never draws the footer's run offer, which says "this has

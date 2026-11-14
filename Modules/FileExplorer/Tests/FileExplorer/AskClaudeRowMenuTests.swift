@@ -10,25 +10,9 @@ import Testing
 @MainActor
 @Suite struct AskClaudeRowMenuTests {
 
-    private final class Stub: FileActionDelegate, @unchecked Sendable {
+    private final class Stub: NoOpFileActions, @unchecked Sendable {
         var asks = true
         var hidden: Set<String> = []
-        func handleOpenInEditor(_ path: String) {}
-        func handleRefresh() {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
         var canAskClaude: Bool { asks }
         func askClaudeRefusal(_ nodes: [FileNode]) -> String? {
             nodes.contains { hidden.contains($0.id) } ? "It’s hidden from Claude." : nil

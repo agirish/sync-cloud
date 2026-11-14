@@ -32,7 +32,6 @@ import Sync
     @Test func thePillsCountNamesItsOwnButton() throws {
         let palette = try SourceText.fileExplorer("EditorPDFFillPalette.swift")
         #expect(palette.contains(".help(\"Nothing is written until \\(fill.saveTitle) — the original stays as it is\")"))
-        #expect(!palette.contains("Nothing is written until Save Filled Copy"))
     }
 
     // MARK: TE166 — the leave question

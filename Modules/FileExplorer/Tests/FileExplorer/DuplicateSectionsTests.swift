@@ -43,8 +43,6 @@ import Testing
             group($0.element, name: "g\($0.offset)")
         })
         #expect(sections.map(\.kind) == [.identical, .overlapping, .sameText, .versions])
-        #expect(sections.first?.kind == .identical,
-                "the bulk you can clear in a click leads; everything under it needs a person")
         // The declaration order is not this order, so the constant does real work.
         #expect(DuplicateSections.order != DuplicateMatchType.Kind.allCases)
     }

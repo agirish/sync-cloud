@@ -11,77 +11,46 @@ import Foundation
 
     // MARK: Ticking
 
-    @Test func anUntickedBoxBecomesTicked() {
-        let source = "- [ ] one\n- [ ] two\n"
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: source) == "- [x] one\n- [ ] two\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 2, in: source) == "- [ ] one\n- [x] two\n")
-    }
-
-    @Test func aTickedBoxBecomesUnticked() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [x] one\n") == "- [ ] one\n")
-    }
-
-    /// GFM accepts a capital and other tools write one; the flip recognises it and normalises to
-    /// the lowercase the app writes everywhere else.
-    @Test func aCapitalXIsRecognisedAndNormalised() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [X] one\n") == "- [ ] one\n")
-    }
-
-    @Test func indentedAndNumberedItemsAreBothHandled() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "    - [ ] nested\n")
-                == "    - [x] nested\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "1. [ ] first\n") == "1. [x] first\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "12) [ ] twelfth\n") == "12) [x] twelfth\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "* [ ] star\n") == "* [x] star\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "+ [ ] plus\n") == "+ [x] plus\n")
-    }
-
-    /// The marker and the box are read a Character at a time. `isNumber` is Unicode's, so a digit
-    /// of another script numbers an item as an ASCII one does; and a combining mark joins the
-    /// character before it, so `[ \u{301}]` and `[x\u{301}]` hold no box and are left alone.
-    @Test func aMarkerAndABoxAreReadByCharacter() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "\u{663}. [ ] three\n") == "\u{663}. [x] three\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "\u{1D7D9}. [x] one\n") == "\u{1D7D9}. [ ] one\n")
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [ \u{301}] mark\n") == nil)
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [x\u{301}] mark\n") == nil)
-    }
-
-    /// Why the walk parses real GFM rather than pattern-matching: a bracket pair in prose is not a
-    /// checkbox, and must not become an `[x]`.
-    @Test func aBracketPairInProseIsLeftAlone() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "See [ ] for the blank.\n") == nil)
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "A sentence with - [ ] inside it.\n") == nil)
-    }
-
-    /// `-[x]` is not a task item to any parser, so it must not become one here.
-    @Test func aMarkerWithNoSpaceIsNotATaskItem() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "-[ ] tight\n") == nil)
-    }
-
-    @Test func aNonCheckboxBracketAfterAMarkerIsLeftAlone() {
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [link](url)\n") == nil)
-        #expect(MarkdownEdits.toggleTask(onLine: 1, in: "- [] empty\n") == nil)
-    }
-
-    /// A click can arrive up to a debounce after the buffer changed, naming a line that no longer
-    /// holds a checkbox. Refusing stops it writing an `[x]` into whatever is there now.
-    @Test func aStaleClickChangesNothing() {
-        #expect(MarkdownEdits.toggleTask(onLine: 2, in: "- [ ] one\nplain prose now\n") == nil)
-        #expect(MarkdownEdits.toggleTask(onLine: 90, in: "- [ ] one\n") == nil)
-        #expect(MarkdownEdits.toggleTask(onLine: 0, in: "- [ ] one\n") == nil)
-    }
-
-    /// Nothing outside the three characters moves, including the line's own trailing content and
-    /// the line endings of a file from Windows.
-    @Test func onlyTheBoxIsRewritten() {
-        let crlf = "# Notes\r\n\r\n- [ ] one **bold**\r\n- [x] two\r\n"
-        #expect(MarkdownEdits.toggleTask(onLine: 3, in: crlf)
-                == "# Notes\r\n\r\n- [x] one **bold**\r\n- [x] two\r\n")
-    }
-
-    @Test func theLastLineWithNoTerminatorIsStillALine() {
-        #expect(MarkdownEdits.toggleTask(onLine: 2, in: "- [ ] one\n- [ ] two")
-                == "- [ ] one\n- [x] two")
+    /// Every case asserts the whole buffer after the tick, or `nil` where the click must change
+    /// nothing.
+    @Test(arguments: [
+        ("- [ ] one\n- [ ] two\n", 1, "- [x] one\n- [ ] two\n"),
+        ("- [ ] one\n- [ ] two\n", 2, "- [ ] one\n- [x] two\n"),
+        ("- [x] one\n", 1, "- [ ] one\n"),
+        // GFM accepts a capital and other tools write one; the flip normalises it to lowercase.
+        ("- [X] one\n", 1, "- [ ] one\n"),
+        // Indented and numbered items, and every bullet.
+        ("    - [ ] nested\n", 1, "    - [x] nested\n"),
+        ("1. [ ] first\n", 1, "1. [x] first\n"),
+        ("12) [ ] twelfth\n", 1, "12) [x] twelfth\n"),
+        ("* [ ] star\n", 1, "* [x] star\n"),
+        ("+ [ ] plus\n", 1, "+ [x] plus\n"),
+        // Read a Character at a time: `isNumber` is Unicode's, so another script's digit numbers an
+        // item, and a combining mark joins the character before it, so `[ \u{301}]` holds no box.
+        ("\u{663}. [ ] three\n", 1, "\u{663}. [x] three\n"),
+        ("\u{1D7D9}. [x] one\n", 1, "\u{1D7D9}. [ ] one\n"),
+        ("- [ \u{301}] mark\n", 1, nil),
+        ("- [x\u{301}] mark\n", 1, nil),
+        // Real GFM, not a pattern: a bracket pair in prose is not a checkbox.
+        ("See [ ] for the blank.\n", 1, nil),
+        ("A sentence with - [ ] inside it.\n", 1, nil),
+        // `-[x]` is not a task item to any parser.
+        ("-[ ] tight\n", 1, nil),
+        ("- [link](url)\n", 1, nil),
+        ("- [] empty\n", 1, nil),
+        // A click can arrive up to a debounce after the buffer changed, naming a line that no
+        // longer holds a checkbox: refused, so it writes no `[x]` into whatever is there now.
+        ("- [ ] one\nplain prose now\n", 2, nil),
+        ("- [ ] one\n", 90, nil),
+        ("- [ ] one\n", 0, nil),
+        // Nothing outside the three characters moves: the line's trailing content, a Windows
+        // file's line endings.
+        ("# Notes\r\n\r\n- [ ] one **bold**\r\n- [x] two\r\n", 3, "# Notes\r\n\r\n- [x] one **bold**\r\n- [x] two\r\n"),
+        // The last line with no terminator is still a line.
+        ("- [ ] one\n- [ ] two", 2, "- [ ] one\n- [x] two"),
+    ] as [(String, Int, String?)])
+    func aTickRewritesOnlyTheBox(_ text: String, line: Int, expected: String?) {
+        #expect(MarkdownEdits.toggleTask(onLine: line, in: text) == expected, "\(text.debugDescription) line \(line)")
     }
 
     // MARK: Line ranges

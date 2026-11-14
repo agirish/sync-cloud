@@ -237,21 +237,17 @@ import Sync
                 "the selection is not in the reveal's equality — the pane's gate would miss a change to it")
     }
 
-    /// The pane's gate lets the reveal through: a new token is a change even for the same path.
-    @Test func aRepeatedRevealOfTheSamePathIsANewRequest() {
-        #expect(PaneRowReveal(path: "/r/a.md", token: 1) != PaneRowReveal(path: "/r/a.md", token: 2))
-    }
+    // MARK: Tree and Columns
 
-    // MARK: Tree
-
-    @Test("Tree: a row 140 of 150 down is scrolled into view, not just selected")
-    func theTreeBringsTheRevealedRowIntoView() async throws {
-        let mounted = Self.mount(.tree)
+    /// A row 140 of 150 down is scrolled into view, not just selected.
+    @Test(arguments: [PaneViewMode.tree, .columns])
+    func theRevealedRowIsBroughtIntoView(mode: PaneViewMode) async throws {
+        let mounted = Self.mount(mode)
         let window = mounted.window
         let listed = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.table(listing: Self.rowCount, in: window) != nil
         }
-        try #require(listed.held, "the tree never listed its \(Self.rowCount) rows")
+        try #require(listed.held, "the \(mode.rawValue) pane never listed its \(Self.rowCount) rows")
         let target = Self.target(depth: 0)
         #expect(!Self.rowIsVisible(window, index: Self.targetIndex),
                 "the fixture must start with the row below the fold")
@@ -268,19 +264,20 @@ import Sync
         #expect(revealed.held, "the revealed row is still below the fold (\(revealed.pumps) pumps)")
         // …and the host is told it was answered, once, which is what lets it retire the request.
         #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
-                "the pane reported \(mounted.box.answered.count) answers for one reveal")
+                "the \(mode.rawValue) pane reported \(mounted.box.answered.count) answers for one reveal")
     }
 
     /// Several rows selected on the user's behalf (a PDF batch's copies, 140 to 143 of 150) are
     /// brought into view at the first, the row the reveal names. The control is the one-row test's:
     /// selected, not revealed, they stay below the fold.
-    @Test func theTreeBringsTheFirstOfSeveralRevealedRowsIntoView() async throws {
-        let mounted = Self.mount(.tree)
+    @Test(arguments: [PaneViewMode.tree, .columns])
+    func theFirstOfSeveralRevealedRowsIsBroughtIntoView(mode: PaneViewMode) async throws {
+        let mounted = Self.mount(mode)
         let window = mounted.window
         let listed = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.table(listing: Self.rowCount, in: window) != nil
         }
-        try #require(listed.held, "the tree never listed its \(Self.rowCount) rows")
+        try #require(listed.held, "the \(mode.rawValue) pane never listed its \(Self.rowCount) rows")
         let rows = Set((Self.targetIndex...Self.targetIndex + 3).map { "\(Self.root)/\(Self.name($0))" })
         mounted.box.selection = rows
         let byItself = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
@@ -296,29 +293,31 @@ import Sync
 
     /// Never fight the user: a request for a row the user has since moved off is not answered, nor
     /// reported as answered.
-    @Test func theTreeIgnoresARevealForARowThatIsNotTheSelection() async throws {
-        let mounted = Self.mount(.tree)
+    @Test(arguments: [PaneViewMode.tree, .columns])
+    func aRevealForARowThatIsNotTheSelectionIsIgnored(mode: PaneViewMode) async throws {
+        let mounted = Self.mount(mode)
         let window = mounted.window
         _ = await LayoutPumpWait.pump(window, upTo: 10) { Self.table(listing: Self.rowCount, in: window) != nil }
         mounted.box.selection = ["\(Self.root)/\(Self.name(1))"]
         mounted.box.reveal(Self.target(depth: 0))
         let moved = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
-        #expect(!moved, "the pane scrolled to a row the user is not on")
-        #expect(mounted.box.answered.isEmpty, "a reveal the pane refused was reported as answered")
+        #expect(!moved, "the \(mode.rawValue) pane scrolled to a row the user is not on")
+        #expect(mounted.box.answered.isEmpty, "a reveal the \(mode.rawValue) pane refused was reported as answered")
     }
 
     /// A pane that wasn't on screen when the reveal was asked for (Edit's pane folded behind the
     /// rail, a workspace switch mounting it) answers it when it appears.
-    @Test func theTreeAnswersAStandingRevealWhenItAppears() async throws {
+    @Test(arguments: [PaneViewMode.tree, .columns])
+    func aStandingRevealIsAnsweredWhenThePaneAppears(mode: PaneViewMode) async throws {
         let box = Box()
         let target = Self.target(depth: 0)
         box.selection = [target]
         box.reveal(target)
-        let window = Self.mount(.tree, box: box).window
+        let window = Self.mount(mode, box: box).window
         let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowIsVisible(window, index: Self.targetIndex)
         }
-        #expect(revealed.held, "a pane mounted with the reveal standing opened at the top (\(revealed.pumps) pumps)")
+        #expect(revealed.held, "a \(mode.rawValue) pane mounted with the reveal standing opened at the top (\(revealed.pumps) pumps)")
         #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
     }
 
@@ -327,13 +326,14 @@ import Sync
     /// appearance (Browse and back, the pane collapsed and expanded) would jump the pane back to
     /// the document. The control is the test above: the same mount with the reveal still standing
     /// does scroll.
-    @Test func theTreeDoesNotScrollBackToAnAnsweredRevealWhenItReappears() async throws {
+    @Test(arguments: [PaneViewMode.tree, .columns])
+    func anAnsweredRevealIsNotScrolledBackToOnReappearing(mode: PaneViewMode) async throws {
         let box = Box()
         box.retiresAnswered = true
         let target = Self.target(depth: 0)
-        let first = Self.mount(.tree, box: box).window
+        let first = Self.mount(mode, box: box).window
         let listed = await LayoutPumpWait.pump(first, upTo: 10) { Self.table(listing: Self.rowCount, in: first) != nil }
-        try #require(listed.held, "the tree never listed its rows")
+        try #require(listed.held, "the \(mode.rawValue) pane never listed its rows")
         box.selection = [target]
         box.reveal(target)
         let retired = await LayoutPumpWait.pump(first, upTo: 10) {
@@ -342,39 +342,14 @@ import Sync
         try #require(retired.held, "the reveal was not answered and retired (visible \(Self.rowIsVisible(first, index: Self.targetIndex)), reveal \(String(describing: box.reveal)))")
         first.contentView = nil   // the pane goes away — Browse and back, a collapse
 
-        let again = Self.mount(.tree, box: box).window
+        let again = Self.mount(mode, box: box).window
         _ = await LayoutPumpWait.pump(again, upTo: 10) { Self.table(listing: Self.rowCount, in: again) != nil }
         #expect(box.selection == [target], "the fixture lost its selection — the remount below proves nothing")
         let jumped = await Self.everHolds(again) { Self.rowIsVisible(again, index: Self.targetIndex) }
-        #expect(!jumped, "the pane scrolled back to a reveal it had already answered")
+        #expect(!jumped, "the \(mode.rawValue) pane scrolled back to a reveal it had already answered")
     }
 
     // MARK: Columns
-
-    @Test("Columns: a row 140 of 150 down its column is scrolled into view")
-    func theColumnBringsTheRevealedRowIntoView() async throws {
-        let mounted = Self.mount(.columns)
-        let window = mounted.window
-        let listed = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.table(listing: Self.rowCount, in: window) != nil
-        }
-        try #require(listed.held, "the column never listed its \(Self.rowCount) rows")
-        let target = Self.target(depth: 0)
-        #expect(!Self.rowIsVisible(window, index: Self.targetIndex),
-                "the fixture must start with the row below the fold")
-
-        mounted.box.selection = [target]
-        let byItself = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
-        #expect(!byItself, "selecting the row alone scrolled it into view — the reveal below would prove nothing")
-
-        mounted.box.reveal(target)
-        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.rowIsVisible(window, index: Self.targetIndex)
-        }
-        #expect(revealed.held, "the revealed row is still below the fold (\(revealed.pumps) pumps)")
-        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 },
-                "the column reported \(mounted.box.answered.count) answers for one reveal")
-    }
 
     /// The column itself must be on screen, or the row's scroll shows nothing. Four columns deep in
     /// a 700pt pane, scrolled back to the first column: the reveal brings the deepest column into
@@ -415,75 +390,6 @@ import Sync
         }
         #expect(revealed.held,
                 "column visible \(Self.deepestColumnIsVisible(window)), row visible \(Self.rowIsVisible(window, index: Self.targetIndex)) after \(revealed.pumps) pumps")
-    }
-
-    /// The Columns half of ``theTreeBringsTheFirstOfSeveralRevealedRowsIntoView``: several rows
-    /// selected in the deepest column, revealed at the first.
-    @Test func theColumnBringsTheFirstOfSeveralRevealedRowsIntoView() async throws {
-        let mounted = Self.mount(.columns)
-        let window = mounted.window
-        let listed = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.table(listing: Self.rowCount, in: window) != nil
-        }
-        try #require(listed.held, "the column never listed its \(Self.rowCount) rows")
-        let rows = Set((Self.targetIndex...Self.targetIndex + 3).map { "\(Self.root)/\(Self.name($0))" })
-        mounted.box.selection = rows
-        let byItself = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
-        #expect(!byItself, "selecting the rows alone scrolled them into view — the reveal below would prove nothing")
-
-        mounted.box.reveal(Self.target(depth: 0), selecting: rows)
-        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.rowIsVisible(window, index: Self.targetIndex)
-        }
-        #expect(revealed.held, "the first revealed row is still below the fold (\(revealed.pumps) pumps)")
-        #expect(mounted.box.answered == [mounted.box.reveal].compactMap { $0 })
-    }
-
-    @Test func theColumnsIgnoreARevealForARowThatIsNotTheSelection() async throws {
-        let mounted = Self.mount(.columns)
-        let window = mounted.window
-        _ = await LayoutPumpWait.pump(window, upTo: 10) { Self.table(listing: Self.rowCount, in: window) != nil }
-        mounted.box.selection = ["\(Self.root)/\(Self.name(1))"]
-        mounted.box.reveal(Self.target(depth: 0))
-        let moved = await Self.everHolds(window) { Self.rowIsVisible(window, index: Self.targetIndex) }
-        #expect(!moved, "the column scrolled to a row the user is not on")
-        #expect(mounted.box.answered.isEmpty, "a reveal the column refused was reported as answered")
-    }
-
-    @Test func theColumnsAnswerAStandingRevealWhenTheyAppear() async throws {
-        let box = Box()
-        let target = Self.target(depth: 0)
-        box.selection = [target]
-        box.reveal(target)
-        let window = Self.mount(.columns, box: box).window
-        let revealed = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.rowIsVisible(window, index: Self.targetIndex)
-        }
-        #expect(revealed.held, "a column mounted with the reveal standing opened at the top (\(revealed.pumps) pumps)")
-        #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
-    }
-
-    /// Columns' half of `theTreeDoesNotScrollBackToAnAnsweredRevealWhenItReappears`.
-    @Test func theColumnsDoNotScrollBackToAnAnsweredRevealWhenTheyReappear() async throws {
-        let box = Box()
-        box.retiresAnswered = true
-        let target = Self.target(depth: 0)
-        let first = Self.mount(.columns, box: box).window
-        let listed = await LayoutPumpWait.pump(first, upTo: 10) { Self.table(listing: Self.rowCount, in: first) != nil }
-        try #require(listed.held, "the column never listed its rows")
-        box.selection = [target]
-        box.reveal(target)
-        let retired = await LayoutPumpWait.pump(first, upTo: 10) {
-            Self.rowIsVisible(first, index: Self.targetIndex) && box.reveal == nil
-        }
-        try #require(retired.held, "the reveal was not answered and retired (visible \(Self.rowIsVisible(first, index: Self.targetIndex)), reveal \(String(describing: box.reveal)))")
-        first.contentView = nil   // the pane goes away — Browse and back, a collapse
-
-        let again = Self.mount(.columns, box: box).window
-        _ = await LayoutPumpWait.pump(again, upTo: 10) { Self.table(listing: Self.rowCount, in: again) != nil }
-        #expect(box.selection == [target], "the fixture lost its selection — the remount below proves nothing")
-        let jumped = await Self.everHolds(again) { Self.rowIsVisible(again, index: Self.targetIndex) }
-        #expect(!jumped, "the column scrolled back to a reveal it had already answered")
     }
 
     // MARK: The gate

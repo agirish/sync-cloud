@@ -67,13 +67,9 @@ import Sync
         }
     }
 
+    /// A fixed window of layout passes, floored (`LayoutPumpWait.pumpFloor`).
     private func pump(_ window: NSWindow, seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
+        _ = await LayoutPumpWait.pump(window, upTo: seconds) { false }
     }
 
     /// Mounts the pane with three columns open in a 520pt window: 630pt of content, so the stack
@@ -91,7 +87,17 @@ import Sync
         window.layoutIfNeeded()
 
         box.browsePath = PaneBrowsePath(components: ["a2", "b3"])
-        await pump(window, seconds: 1.5)
+        // Bounded: until three lists are up and the drill's reveal has reached the stack's far end.
+        // Only the lists are required; the tests that need the reveal wait for it themselves.
+        let lists = { PaneRowRevealTests.scrollViews(window.contentView!).filter { $0.documentView is NSTableView } }
+        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
+            guard lists().count == 3,
+                  let stack = PaneRowRevealTests.scrollViews(window.contentView!)
+                      .first(where: { !($0.documentView is NSTableView) }) else { return false }
+            let extent = max(0, (stack.documentView?.frame.width ?? 0) - stack.contentSize.width)
+            return extent > 0 && stack.contentView.bounds.origin.x >= extent - 1
+        }
+        try #require(lists().count == 3, "three columns never mounted: \(lists().count) after \(settled.pumps) passes")
 
         let all = PaneRowRevealTests.scrollViews(window.contentView!)
         let stack = try #require(all.first { !($0.documentView is NSTableView) }, "no stack scroll view")
@@ -205,6 +211,7 @@ import Sync
         }
         walk(window.contentView!)
         let watchdog = try #require(watchdogs.first, "no watchdog mounted in the columns stack")
+        _ = await LayoutPumpWait.pump(window, upTo: 10) { watchdog.resolvedScroller != nil }
         #expect(watchdog.resolvedScroller === stack,
                 "the watchdog resolved the wrong scroll view — a column's list would now be fought over")
     }
@@ -351,25 +358,17 @@ import Sync
         return view
     }
 
-    @Test func testHomeForAnOriginPastTheStartIsTheStart() {
-        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: -40, y: 0), clip: clip())
-        #expect(home == NSPoint(x: 0, y: 0))
-    }
-
-    @Test func testHomeForAnOriginPastTheEndIsTheEnd() {
-        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: 5000, y: 0), clip: clip())
-        #expect(home == NSPoint(x: 400, y: 0))
-    }
-
-    @Test func testAVerticalDisplacementIsPulledFlat() {
-        // The document exactly fills the clip vertically, so any y offset is illegal.
-        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: 100, y: -30), clip: clip())
-        #expect(home == NSPoint(x: 100, y: 0))
-    }
-
-    @Test func testAnInRangeOriginIsItsOwnHome() {
-        let origin = NSPoint(x: 150, y: 0)
-        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip()) == origin)
+    /// Past the start, past the end, displaced vertically (the document exactly fills the clip, so
+    /// any y is illegal), and in range (its own home).
+    @Test(arguments: [
+        (NSPoint(x: -40, y: 0), NSPoint(x: 0, y: 0)),
+        (NSPoint(x: 5000, y: 0), NSPoint(x: 400, y: 0)),
+        (NSPoint(x: 100, y: -30), NSPoint(x: 100, y: 0)),
+        (NSPoint(x: 150, y: 0), NSPoint(x: 150, y: 0)),
+    ])
+    func testTheHomeForAnOrigin(origin: NSPoint, home: NSPoint) {
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip()) == home,
+                "the home for \(origin)")
     }
 
     /// A document narrower than the clip: the left pane resting with three columns in a wide pane.
@@ -409,13 +408,13 @@ import Sync
 
     /// A 200pt scroll view over 600pt of content, with the watchdog mounted inside the document
     /// view, where the SwiftUI `.background` puts it in the real stack.
-    private func mount() -> (window: NSWindow, scroller: NSScrollView, clip: NSClipView) {
+    private func mount(documentWidth: CGFloat = 600) -> (window: NSWindow, scroller: NSScrollView, clip: NSClipView) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let clip = StrandableClipView()
         scroller.contentView = clip
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: documentWidth, height: 100))
         scroller.documentView = document
         let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
         // The code under test decides the pull home; how long it takes to paint depends on whether
@@ -455,13 +454,7 @@ import Sync
         #expect(clip.bounds.origin == NSPoint(x: -40, y: 12),
                 "fixture failed to strand the clip — the pull below is vacuous")
 
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
-        #expect(settled.held,
-                """
-                the watchdog left the clip stranded past the left edge, at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 0, y: 0), "the watchdog left the clip stranded past the left edge, at")
     }
 
     @Test func testAClipStrandedPastTheEndIsPulledToTheEnd() async {
@@ -472,13 +465,7 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: 460, y: 0))  // 400 is the last legal origin
         #expect(clip.bounds.origin.x == 460, "fixture failed to strand the clip")
 
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 400, y: 0))
-        #expect(settled.held,
-                """
-                the watchdog left the clip stranded past the right edge, at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 400, y: 0), "the watchdog left the clip stranded past the right edge, at")
     }
 
     /// A rest that was legal becomes illegal because the viewport grew under it, the case the
@@ -517,13 +504,7 @@ import Sync
             }.first, "the watchdog is not mounted in the document view")
         watchdog.rearm()
 
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 100, y: 0))
-        #expect(settled.held,
-                """
-                a rest the grown viewport made illegal was left stranded at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 100, y: 0), "a rest the grown viewport made illegal was left stranded at")
     }
 
     /// Absence has no observable to wait on, so this holds a fixed window, but first waits a full
@@ -565,30 +546,14 @@ import Sync
     /// fractions, not real strandings, and content narrower than the clip is the state the left
     /// pane rests in.
     @Test func testAStrandedFittingDocumentIsPulledToItsLeadingEdge() async {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        let clip = StrandableClipView()
-        scroller.contentView = clip
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 100))
-        scroller.documentView = document
-        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
-        watchdog.pullDuration = 0        // see `pullDuration` — CoreAnimation may not be ticking here
-        document.addSubview(watchdog)
-        window.contentView?.addSubview(scroller)
+        let (window, _, clip) = mount(documentWidth: 120)
         defer { _ = window }
         await idle(seconds: 0.3)
 
         clip.setBoundsOrigin(NSPoint(x: -60, y: 0))
         #expect(clip.bounds.origin.x == -60, "fixture failed to strand the fitting document")
 
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
-        #expect(settled.held,
-                """
-                a stranded fitting document was not pulled home, at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 0, y: 0), "a stranded fitting document was not pulled home, at")
     }
 
     /// An inset clip legally rests at a negative origin (`-insets.top`); clamping it to the
@@ -666,13 +631,7 @@ import Sync
         clip.setBoundsOrigin(NSPoint(x: 0, y: -17.5))
         #expect(clip.bounds.origin.y == -17.5, "fixture failed to park the list — the pull is vacuous")
 
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0))
-        #expect(settled.held,
-                """
-                the list stayed parked in top overscroll, at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 0, y: 0), "the list stayed parked in top overscroll, at")
     }
 
     /// A list parked past its bottom comes back to the last legal line.
@@ -683,13 +642,7 @@ import Sync
         try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
 
         clip.setBoundsOrigin(NSPoint(x: 0, y: 560))  // 500 is the last legal origin
-        let settled = await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 500))
-        #expect(settled.held,
-                """
-                the list stayed parked past its bottom, at \(clip.bounds.origin) \
-                (gave up after \(settled.passes) passes — a handful means the run was starved, \
-                not that the watchdog is broken)
-                """)
+        await expectPulledHome(clip, to: NSPoint(x: 0, y: 500), "the list stayed parked past its bottom, at")
     }
 
     /// A legally scrolled rest, where a reading user is parked, is never touched.
@@ -713,15 +666,13 @@ import Sync
 
     @Test func testAVerticalDragEngagesTheLock() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 2, dy: -14, at: 0.01)
+        drag(tracker, dx: 2, dy: -14)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.02))
     }
 
     @Test func testAHorizontalDragDoesNot() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: -20, dy: 3, at: 0.01)
+        drag(tracker, dx: -20, dy: 3)
         #expect(!tracker.shouldHoldHorizontalDrift(at: 0.02))
     }
 
@@ -729,8 +680,7 @@ import Sync
     /// horizontal mid-flight stays a vertical drag.
     @Test func testTheFirstRealDeltasDecideForTheWholeGesture() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -10, at: 0.01)
+        drag(tracker, dx: 1, dy: -10)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: -9, dy: 2, at: 0.02)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "a mid-gesture wobble re-decided the axis")
@@ -739,8 +689,7 @@ import Sync
     /// Momentum inherits the drag's decision and keeps the lock alive while it delivers.
     @Test func testMomentumInheritsTheDecisionAndItsEndReleasesIt() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        drag(tracker, dx: 0, dy: -12)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
         tracker.ingest(phase: [], momentumPhase: .changed, dx: -30, dy: -4, at: 0.05)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.06),
@@ -753,8 +702,7 @@ import Sync
     /// defeat the drill's own programmatic auto-scroll after the next click.
     @Test func testTheLockDecaysWhenEventsStopArriving() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        drag(tracker, dx: 0, dy: -12)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.05), "still within the recency window")
         #expect(!tracker.shouldHoldHorizontalDrift(at: 0.02 + WheelGestureTracker.staleness + 0.01),
@@ -767,8 +715,7 @@ import Sync
     /// verdict that releases the hold.
     @Test func testANewGestureStartsUndecidedAndHeld() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        drag(tracker, dx: 0, dy: -12)
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0.05)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.06),
                 "an undecided opening was not held — its first frames can leak")
@@ -836,8 +783,7 @@ import Sync
     /// empty momentumPhase, and re-deciding there would drop the lock before momentum arrives.
     @Test func testAPhasedGestureIsNeverTreatedAsUngrouped() {
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: 0.01)
+        drag(tracker, dx: 1, dy: -12)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "`.ended` was read as an ungrouped event and cleared the decision early")
@@ -867,10 +813,7 @@ import Sync
         defer { _ = window }
         let tracker = WheelGestureTracker()
         let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inA, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                       window: window, locationInWindow: inA, at: 0.01)
+        drag(tracker, dx: 1, dy: -12, window: window, at: inA)
         #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
                 "the gesture's own pane was not held — the original leak is back")
         #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
@@ -886,10 +829,7 @@ import Sync
         let tracker = WheelGestureTracker()
         let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
         let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inA, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12,
-                       window: window, locationInWindow: inA, at: 0.01)
+        drag(tracker, dx: 0, dy: -12, window: window, at: inA)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0,
                        window: window, locationInWindow: inA, at: 0.02)
         tracker.ingest(phase: [], momentumPhase: .changed, dx: 0, dy: -4,
@@ -907,8 +847,7 @@ import Sync
         let (window, paneA, paneB) = twoPanes()
         defer { _ = window }
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: 0.01)
+        drag(tracker, dx: 1, dy: -12)
         #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
                 "an unattributable vertical gesture stopped holding — the original leak is back")
         #expect(tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
@@ -921,10 +860,7 @@ import Sync
         defer { _ = window }
         let tracker = WheelGestureTracker()
         let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inA, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: -18, dy: 2,
-                       window: window, locationInWindow: inA, at: 0.01)
+        drag(tracker, dx: -18, dy: 2, window: window, at: inA)
         #expect(!tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
                 "a horizontal gesture was held against its own pane")
     }
@@ -943,10 +879,7 @@ import Sync
         let tracker = WheelGestureTracker()
         let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
         let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inA, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -6,
-                       window: window, locationInWindow: inA, at: 0.01)
+        drag(tracker, dx: 0, dy: -6, window: window, at: inA)
         // Still the same drag (same gesture, same `.changed` phase), but the pointer has slid over
         // the neighbouring pane.
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -8,
@@ -965,15 +898,9 @@ import Sync
         let tracker = WheelGestureTracker()
         let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
         let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inA, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                       window: window, locationInWindow: inA, at: 0.01)
+        drag(tracker, dx: 1, dy: -12, window: window, at: inA)
         // A fresh gesture, begun in the other pane.
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: inB, at: 0.02)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                       window: window, locationInWindow: inB, at: 0.03)
+        drag(tracker, dx: 1, dy: -12, window: window, at: inB, t: 0.02)
         #expect(tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.04),
                 "the new gesture's own pane was not held — the first gesture latched the attribution")
         #expect(!tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.04),
@@ -991,10 +918,7 @@ import Sync
         let point = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
         #expect(paneB.bounds.contains(paneB.convert(point, from: nil)),
                 "the two panes are not at the same in-window point — location alone would discriminate")
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: windowA, locationInWindow: point, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                       window: windowA, locationInWindow: point, at: 0.01)
+        drag(tracker, dx: 1, dy: -12, window: windowA, at: point)
         #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
                 "the gesture's own pane was not held")
         #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
@@ -1041,10 +965,7 @@ import Sync
                      "the fixture point is outside the stack's scroll view too — it pins nothing")
 
         let tracker = WheelGestureTracker()
-        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                       window: window, locationInWindow: onScroller, at: 0)
-        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                       window: window, locationInWindow: onScroller, at: 0.01)
+        drag(tracker, dx: 1, dy: -12, window: window, at: onScroller)
         #expect(tracker.shouldHoldHorizontalDrift(for: clipA, at: 0.02),
                 "a gesture on the stack's own scroller band held nothing — the vertical leak is back for that strip")
         #expect(!tracker.shouldHoldHorizontalDrift(for: b.contentView, at: 0.02),
@@ -1377,12 +1298,9 @@ private final class StrandableClipView: NSClipView {
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
 }
 
-/// Lets the main actor turn for `seconds` without laying anything out.
+/// Lets the main actor turn for `seconds` without laying anything out, floored like every wait.
 @MainActor private func idle(seconds: Double) async {
-    let deadline = Date().addingTimeInterval(seconds)
-    while Date() < deadline {
-        try? await Task.sleep(nanoseconds: 8_000_000)
-    }
+    _ = await LayoutPumpWait.poll(upTo: seconds) { false }
 }
 
 /// Waits for the watchdog to move the clip, with a floor on passes rather than on seconds. The
@@ -1399,6 +1317,17 @@ private final class StrandableClipView: NSClipView {
 @MainActor private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
                                       timeout: Double = 15) async -> (held: Bool, passes: Int) {
     await LayoutPumpWait.poll(upTo: timeout) { clip.bounds.origin == expected }
+}
+
+/// `waitForOrigin`, expected to hold: fails with where the clip was left and the pass count.
+@MainActor private func expectPulledHome(_ clip: NSClipView, to expected: NSPoint, _ what: String,
+                                         sourceLocation: SourceLocation = #_sourceLocation) async {
+    let settled = await waitForOrigin(clip, toBecome: expected)
+    #expect(settled.held,
+            """
+            \(what) \(clip.bounds.origin) (gave up after \(settled.passes) passes — a handful \
+            means the run was starved, not that the watchdog is broken)
+            """, sourceLocation: sourceLocation)
 }
 
 /// A 200pt stack over 600pt of content at `x` in `window`, its watchdog on `lock` (and `gate`).
@@ -1424,9 +1353,14 @@ private final class StrandableClipView: NSClipView {
 /// lock reads "in flight" for the whole test however late enforcement lands.
 @MainActor private func beginVerticalDragAhead(_ lock: WheelGestureTracker, window: NSWindow? = nil,
                                                at location: NSPoint = .zero) {
-    let ahead = CFAbsoluteTimeGetCurrent() + 3600
-    lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
-                window: window, locationInWindow: location, at: ahead)
-    lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
-                window: window, locationInWindow: location, at: ahead + 0.01)
+    drag(lock, dx: 1, dy: -12, window: window, at: location, t: CFAbsoluteTimeGetCurrent() + 3600)
+}
+
+/// A drag's opening: `.began` at `t`, then one `.changed` of (`dx`, `dy`) 10 ms later.
+@MainActor private func drag(_ tracker: WheelGestureTracker, dx: CGFloat, dy: CGFloat,
+                             window: NSWindow? = nil, at location: NSPoint = .zero, t: TimeInterval = 0) {
+    tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                   window: window, locationInWindow: location, at: t)
+    tracker.ingest(phase: .changed, momentumPhase: [], dx: dx, dy: dy,
+                   window: window, locationInWindow: location, at: t + 0.01)
 }

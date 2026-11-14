@@ -8,7 +8,7 @@ import Sync
 /// Organize's two scanning screens, the duplicate pass and the file pass, must paint their
 /// spinner, status line and Cancel button onto the lens surface and nothing else. A material card
 /// has nothing to blur on an empty lens, so it renders as a flat gray slab. The pane's placeholder
-/// is covered by `PaneScanningPlaceholderRenderTests`; this is the Organize half.
+/// is covered by `PaneBusyChipRenderTests`; this is the Organize half.
 ///
 /// Renders over a magenta backdrop and counts the non-backdrop pixels below the chip header: about
 /// 12k–15k for ink and the Cancel capsule, about 75k with a card. The floor catches a canvas that
@@ -47,15 +47,9 @@ import Sync
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: Self.contentBand))
         withExtendedLifetime(window) { host.cacheDisplay(in: Self.contentBand, to: rep) }
 
-        var painted = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let isBackdrop = c.redComponent > 0.98 && c.greenComponent < 0.02 && c.blueComponent > 0.98
-                if !isBackdrop { painted += 1 }
-            }
+        return PixelProbe.count(in: rep) {
+            !($0.redComponent > 0.98 && $0.greenComponent < 0.02 && $0.blueComponent > 0.98)
         }
-        return painted
     }
 
     enum Scan: Sendable { case duplicates, files }

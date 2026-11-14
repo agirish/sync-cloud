@@ -134,26 +134,19 @@ import Testing
 /// pure static and this checks it.
 @Suite struct PaneColumnRequestRuleTests {
 
-    /// The one state that asks: the walk has settled and this folder was left unread. Also stated
-    /// as the whole table, so a third term added later has to decide about these four cells rather
-    /// than inheriting them.
-    @Test func aSettledPaneAsksForAnUnreadFolder() {
-        #expect(PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: true))
-        let asked = [(false, true), (false, false), (true, true), (true, false)]
-            .filter { PaneColumnsView.asksForChildren(isLoading: $0.0, isUnexplored: $0.1) }
-        #expect(asked.count == 1, "the rule asks in \(asked.count) of the four states, not 1")
-    }
-
-    /// Never mid-walk: every directory is unexplored during the shallow paint.
-    @Test func aLoadingPaneNeverAsks() {
-        #expect(!PaneColumnsView.asksForChildren(isLoading: true, isUnexplored: true))
-        #expect(!PaneColumnsView.asksForChildren(isLoading: true, isUnexplored: false))
-    }
-
-    /// Never for a folder that was read. An empty folder is not a missing one, and the mark
-    /// separates them: a request here would relist the same empty directory on every render,
-    /// because the answer can never clear a mark that isn't set.
-    @Test func aWalkedFolderIsNeverAskedFor() {
-        #expect(!PaneColumnsView.asksForChildren(isLoading: false, isUnexplored: false))
+    /// Every cell of the table, pinned, so a third term added later has to decide about each.
+    @Test(arguments: [
+        // The one state that asks: the walk has settled and this folder was left unread.
+        (false, true, true),
+        // Never mid-walk: every directory is unexplored during the shallow paint.
+        (true, true, false), (true, false, false),
+        // Never for a folder that was read. An empty folder is not a missing one: a request here
+        // would relist the same empty directory on every render, since the answer can never clear
+        // a mark that isn't set.
+        (false, false, false),
+    ])
+    func theRequestRule(isLoading: Bool, isUnexplored: Bool, asks: Bool) {
+        #expect(PaneColumnsView.asksForChildren(isLoading: isLoading, isUnexplored: isUnexplored) == asks,
+                "loading \(isLoading), unexplored \(isUnexplored)")
     }
 }

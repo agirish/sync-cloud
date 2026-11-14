@@ -24,13 +24,6 @@ import Sync
         #expect(query.text == "contract")
     }
 
-    @Test func parsesKindSizeAndFreeText() {
-        let query = DuplicateSearch.parse("kind:PDF >5mb contract")
-        #expect(query.kind == "pdf")
-        #expect(query.sizeAtLeast == 5_000_000)
-        #expect(query.text == "contract")
-    }
-
     @Test func matchesKindOnGroupName() {
         let query = DuplicateSearch.parse("kind:pdf")
         #expect(query.matches(group("contract.pdf", keeperSize: 1)))
@@ -58,12 +51,6 @@ import Sync
         // Everything that isn't an alias stays an exact extension match.
         #expect(DuplicateSearch.parse("kind:jpg").matches(group("photo.jpg", keeperSize: 1)))
         #expect(!DuplicateSearch.parse("kind:jpg").matches(group("photo.png", keeperSize: 1)))
-    }
-
-    @Test func chipsListKindAndSizeAndSkipNameText() {
-        let chips = DuplicateSearch.chips("kind:PDF >5mb contract")
-        #expect(chips == [DuplicateSearch.Chip(raw: "kind:PDF", label: "kind: pdf"),
-                          DuplicateSearch.Chip(raw: ">5mb", label: "> \(FileSyncManager.formatBytes(5_000_000))")])
     }
 
     @Test func chipsAreEmptyWithoutTokens() {

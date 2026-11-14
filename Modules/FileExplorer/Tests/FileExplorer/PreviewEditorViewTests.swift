@@ -16,6 +16,7 @@ import EventsTestSupport
     final class Box {
         let buffer = EditorBuffer()
         var refusals: [PreviewRefusal] = []
+        var refusalOffsets: [Int] = []
         var anchors: [String] = []
     }
 
@@ -34,7 +35,10 @@ import EventsTestSupport
         let box = Box()
         box.buffer.text = text
         let r = PreviewEditRig(text, folder: folder, following: box.buffer) { coordinator in
-            coordinator.onRefusal = { reason, _ in box.refusals.append(reason) }
+            coordinator.onRefusal = { reason, offset in
+                box.refusals.append(reason)
+                box.refusalOffsets.append(offset)
+            }
             coordinator.onFollowAnchor = { box.anchors.append($0) }
         }
         return Rig(view: r.view, coordinator: r.coordinator, source: r.source, undo: r.undo, box: box, window: r.window)
@@ -134,7 +138,7 @@ import EventsTestSupport
     }
 
     /// Backspace at the start of a paragraph would join two blocks: refused, the file untouched, and
-    /// the hint raised.
+    /// the hint raised. The refusal says where it was, so Show in Source can put the caret there.
     @Test func aRefusalChangesNothingAndRaisesTheHint() {
         let r = rig("one\n\ntwo")
         let before = r.display
@@ -143,6 +147,7 @@ import EventsTestSupport
         #expect(r.source.text == "one\n\ntwo")
         #expect(r.display == before)
         #expect(r.box.refusals == [.joinsBlocks])
+        #expect(r.box.refusalOffsets == [5])     // the start of "two"
         #expect(!r.undo.canUndo)
     }
 
@@ -1046,16 +1051,6 @@ import EventsTestSupport
         let spelling = try #require(menu.items.first { $0.title == "Check Spelling While Typing" })
         #expect(spelling.target === r.coordinator)
         #expect(!menu.items.contains { $0.title == "Wrap Lines" })
-    }
-
-    /// A refusal says where it was, so Show in Source can put the caret there.
-    @Test func aRefusalCarriesItsSourceOffset() {
-        let r = rig("one\n\ntwo")
-        var offsets: [Int] = []
-        r.coordinator.onRefusal = { _, offset in offsets.append(offset) }
-        caret(after: "one\n", in: r)
-        r.view.deleteBackward(nil); spin()
-        #expect(offsets == [5])     // the start of "two"
     }
 
     /// Links say how to follow them; text Preview cannot edit says where to.

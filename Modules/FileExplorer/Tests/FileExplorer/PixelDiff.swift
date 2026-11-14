@@ -11,6 +11,13 @@ enum PixelDiff {
     /// scheme are the caller's, applied to `view` before it comes here.
     static func render(_ view: some View, size: CGSize,
                        appearance: NSAppearance.Name = .aqua) -> NSBitmapImageRep? {
+        render(view, size: size, appearance: appearance, passes: 1)
+    }
+
+    /// `render(_:size:appearance:)`, laid out `passes` times: twice where a first layout writes
+    /// state (`.onGeometryChange`) that the drawn frame must reflect.
+    static func render(_ view: some View, size: CGSize, appearance: NSAppearance.Name = .aqua,
+                       passes: Int) -> NSBitmapImageRep? {
         let host = NSHostingView(rootView: AnyView(view))
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
@@ -19,7 +26,7 @@ enum PixelDiff {
         window.appearance = NSAppearance(named: appearance)
         window.colorSpace = .sRGB
         window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        for _ in 0..<passes { host.layoutSubtreeIfNeeded() }
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
         host.cacheDisplay(in: host.bounds, to: rep)
         return rep
@@ -35,6 +42,21 @@ enum PixelDiff {
                 guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
                 if max(abs(p.redComponent - q.redComponent), abs(p.greenComponent - q.greenComponent),
                        abs(p.blueComponent - q.blueComponent)) > tolerance { differing += 1 }
+            }
+        }
+        return differing
+    }
+
+    /// The same count inside `box`, in pixels with its edges truncated; `.max` when the two renders
+    /// differ in size.
+    static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep,
+                                tolerance: CGFloat, in box: NSRect) -> Int {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
+        var differing = 0
+        for y in Int(box.minY)..<min(a.pixelsHigh, Int(box.maxY)) {
+            for x in Int(box.minX)..<min(a.pixelsWide, Int(box.maxX)) {
+                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
+                if PixelProbe.distance(p, q) > tolerance { differing += 1 }
             }
         }
         return differing

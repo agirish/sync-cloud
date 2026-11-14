@@ -160,18 +160,9 @@ import CoreGraphics
     /// The luminance grid is built from the image the DIFF sees — white ground and all — so the
     /// estimator and the comparison cannot disagree about what the page is.
     @Test func theGridReadsAPageAsTheComparisonDoes() throws {
-        let width = 64, height = 40
-        let ctx = try #require(CGContext(data: nil, width: width, height: height,
-                                         bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: CGColorSpaceCreateDeviceRGB(),
-                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
-        let image = try #require(ctx.makeImage())
+        let halfInked = try image(64, 40) { $0.fill(CGRect(x: 0, y: 0, width: 32, height: 40)) }
 
-        let grid = try #require(BitmapDiff.grid(image, width: 32))
+        let grid = try #require(BitmapDiff.grid(halfInked, width: 32))
         #expect(grid.width == 32)
         #expect(grid.height == 20, "the grid did not keep the page's aspect ratio")
         // Ink on one half, paper on the other — whichever way CoreGraphics ordered the rows.
@@ -185,20 +176,9 @@ import CoreGraphics
     /// pages as they are and reports no registration, so nothing downstream captions a declined
     /// alignment.
     @Test func aPairItWillNotAlignIsComparedUnchanged() throws {
-        func image(_ draw: (CGContext) -> Void) throws -> CGImage {
-            let ctx = try #require(CGContext(data: nil, width: 128, height: 160,
-                                             bitsPerComponent: 8, bytesPerRow: 0,
-                                             space: CGColorSpaceCreateDeviceRGB(),
-                                             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            ctx.fill(CGRect(x: 0, y: 0, width: 128, height: 160))
-            ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-            draw(ctx)
-            return try #require(ctx.makeImage())
-        }
         // Two unmistakably different pages: ink in opposite corners.
-        let a = try image { $0.fill(CGRect(x: 8, y: 8, width: 50, height: 40)) }
-        let b = try image { $0.fill(CGRect(x: 70, y: 110, width: 50, height: 40)) }
+        let a = try image(128, 160) { $0.fill(CGRect(x: 8, y: 8, width: 50, height: 40)) }
+        let b = try image(128, 160) { $0.fill(CGRect(x: 70, y: 110, width: 50, height: 40)) }
 
         let result = try #require(BitmapDiff.compareAligning(a, b, wantsDifferenceImage: false).result)
         #expect(result.registration == nil,
@@ -280,16 +260,21 @@ import CoreGraphics
                 "a caller that asked for no picture was handed one anyway — a full-page raster the swipe and onion modes would pay for")
     }
 
-    /// A blank raster of a given size with `draw` run over it in black — the shape both fallback
-    /// fixtures need.
-    private func image(_ width: Int, _ height: Int,
-                       _ draw: (CGContext) -> Void) throws -> CGImage {
+    /// A white RGB canvas of a given size.
+    private func whiteContext(_ width: Int, _ height: Int) throws -> CGContext {
         let ctx = try #require(CGContext(data: nil, width: width, height: height,
                                          bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return ctx
+    }
+
+    /// A blank raster of a given size with `draw` run over it in black.
+    private func image(_ width: Int, _ height: Int,
+                       _ draw: (CGContext) -> Void) throws -> CGImage {
+        let ctx = try whiteContext(width, height)
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         draw(ctx)
         return try #require(ctx.makeImage())
@@ -318,12 +303,7 @@ import CoreGraphics
     /// than an enlargement. `edited` shortens one bar — the "one paragraph changed" a reader is
     /// looking for.
     private func barPage(edited: Bool, width: Int = 512, height: Int = 662) throws -> CGImage {
-        let ctx = try #require(CGContext(data: nil, width: width, height: height,
-                                         bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: CGColorSpaceCreateDeviceRGB(),
-                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let ctx = try whiteContext(width, height)
         let u = CGFloat(width) / 96
         func bar(_ x: CGFloat, _ top: CGFloat, _ w: CGFloat, _ h: CGFloat, _ value: CGFloat) {
             ctx.setFillColor(CGColor(red: value, green: value, blue: value, alpha: 1))
@@ -339,12 +319,7 @@ import CoreGraphics
     /// The page as if it had gone through the scanner at an angle: rotated about its centre and
     /// resampled once, which is the forward transform `BitmapDiff.warped` has to invert.
     private func skewed(_ image: CGImage, degrees: Double) throws -> CGImage {
-        let ctx = try #require(CGContext(data: nil, width: image.width, height: image.height,
-                                         bitsPerComponent: 8, bytesPerRow: 0,
-                                         space: CGColorSpaceCreateDeviceRGB(),
-                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let ctx = try whiteContext(image.width, image.height)
         ctx.interpolationQuality = .high
         ctx.translateBy(x: CGFloat(image.width) / 2, y: CGFloat(image.height) / 2)
         ctx.rotate(by: CGFloat(degrees * .pi / 180))

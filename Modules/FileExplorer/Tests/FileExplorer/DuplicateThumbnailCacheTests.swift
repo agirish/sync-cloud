@@ -38,18 +38,6 @@ import Testing
 
     // MARK: The two ends of the lookup
 
-    /// The peek finds what the store put there.
-    @Test func aStoredPreviewIsFoundByTheSynchronousPeek() {
-        let path = Self.path("stored")
-        let stamp = Date(timeIntervalSince1970: 1_000)
-        let image = Self.image()
-        DuplicateThumbnail.store(image, path: path, side: 54, scale: 2, modified: stamp, in: storage)
-
-        #expect(DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp,
-                                          in: storage) === image,
-                "the peek missed an entry the store just wrote — the two spell the key differently")
-    }
-
     /// A key nobody has written answers nil, not someone else's picture. Another picture is stored
     /// and found first, since on an empty shelf every key answers nil.
     @Test func anUnknownFileIsACleanMiss() throws {
@@ -74,7 +62,7 @@ import Testing
         DuplicateThumbnail.store(image, path: path, side: 54, scale: 2, modified: stamp, in: storage)
         try #require(DuplicateThumbnail.cached(path: path, side: 54, scale: 2, modified: stamp,
                                                in: storage) === image,
-                     "the exact key missed — every nil below would pass with the entry gone")
+                     "the peek missed an entry the store just wrote — the two spell the key differently, and every nil below would pass with the entry gone")
 
         #expect(DuplicateThumbnail.cached(path: path, side: 96, scale: 2, modified: stamp,
                                           in: storage) == nil,

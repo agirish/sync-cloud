@@ -192,9 +192,11 @@ struct HeaderLadderTests {
         #expect(failures.isEmpty, "\(failures.count) rung(s) mispriced:\n\(report)")
     }
 
-    /// The same claim at the other three font scales. Split from the case above so a failure names
-    /// the scale rather than being buried in a 96-case sweep.
-    @Test(arguments: [FontSize.small, .large, .extraLarge])
+    /// The same claim at every font scale, split from the case above so a failure names the
+    /// scale. And the row is the height the `GeometryReader` is pinned to: the filter menu is an
+    /// action-bar capsule at every rung, so it sets the height whatever else is shed, including at
+    /// the largest scale, where the capsule keeps its 28pt frame while its label grows inside it.
+    @Test(arguments: FontSize.allCases)
     func everyRungMeasuresWhatItDrawsAtOtherFontScales(size: FontSize) {
         let scale = size.scale
         let names = PaneProviderNames(leftName: "iCloud Drive", rightName: "Dropbox")
@@ -210,10 +212,14 @@ struct HeaderLadderTests {
             for rung in DifferencesView.renderedCompactionLadder {
                 let row = view.standardHeaderRow(rung, facts: ladder.facts, dressing: dressing,
                                                  targets: targets, sorted: rows, sections: sections)
-                let drawn = host(row.appFontSize(size)).fittingSize.width
-                if ladder.width(of: rung) != drawn {
+                let drawn = host(row.appFontSize(size)).fittingSize
+                if ladder.width(of: rung) != drawn.width {
                     failures.append("\(dressingName) \(rung): computed \(ladder.width(of: rung))pt, "
-                                    + "drew \(drawn)pt")
+                                    + "drew \(drawn.width)pt")
+                }
+                if drawn.height != ActionBarMetrics.height {
+                    failures.append("\(dressingName) \(rung) drew \(drawn.height)pt tall, but the header "
+                                    + "pins the row to \(ActionBarMetrics.height)pt")
                 }
             }
         }
@@ -327,33 +333,6 @@ struct HeaderLadderTests {
         #expect(checked == states.count * Self.dressings().count
                 * DifferencesView.renderedCompactionLadder.count)
         #expect(failures.isEmpty, "\(failures.count) of \(checked) mispriced:\n\(report)")
-    }
-
-    /// The height the `GeometryReader` is pinned to. The filter menu is an action-bar capsule on
-    /// the row at every rung, so it sets the row's height whatever else is shed, including at the
-    /// largest font scale, where the capsule keeps its 28pt frame while its label grows inside it.
-    @Test func theRowIsAlwaysTheActionBarHeight() {
-        let names = PaneProviderNames(leftName: "iCloud Drive", rightName: "Dropbox")
-        let rows = differences()
-        let view = view(rows: rows, names: names)
-        let targets = DifferenceActionTargets(filtered: rows, selection: [])
-        let sections = DifferenceGrouping.sections(rows)
-        for size in FontSize.allCases {
-            for (dressingName, dressing) in Self.dressings() {
-                for rung in DifferencesView.renderedCompactionLadder {
-                    let ladder = HeaderLadder(facts: facts(rows: rows, names: names,
-                                                           dressing: dressing, targets: targets,
-                                                           sections: sections),
-                                              scale: size.scale)
-                    let row = view.standardHeaderRow(rung, facts: ladder.facts, dressing: dressing,
-                                                     targets: targets, sorted: rows, sections: sections)
-                    let drawn = host(row.appFontSize(size)).fittingSize.height
-                    let message = "\(dressingName) \(rung) at \(size) drew \(drawn)pt tall, but "
-                        + "the header pins the row to \(ActionBarMetrics.height)pt"
-                    #expect(drawn == ActionBarMetrics.height, "\(message)")
-                }
-            }
-        }
     }
 
     // MARK: - The mounted view

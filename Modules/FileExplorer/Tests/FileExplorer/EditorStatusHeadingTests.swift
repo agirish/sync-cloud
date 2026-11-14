@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Design
 @testable import FileExplorer
+import FileExplorerTestSupport
 
 /// The heading the caret is in, leading the status line, as a menu of the document's headings.
 @MainActor
@@ -148,20 +149,8 @@ import Design
             .environment(\.selectionLensAppearance, glass ? SelectionLensCallSiteTests.probe : .today)))
         host.frame = NSRect(x: 0, y: 0, width: 1_200, height: 40)
         host.layoutSubtreeIfNeeded()
-        let ring = try #require(rings(in: host).first)
+        let ring = try #require(FocusRings.frames(in: host).first)
         return ring.width - ideal(menu, scale: scale, glass: glass).width
-    }
-
-    private func rings(in host: NSView) -> [NSRect] {
-        var rings: [NSRect] = []
-        func walk(_ view: NSView) {
-            if String(describing: type(of: view)).contains("FocusRing") {
-                rings.append(view.convert(view.bounds, to: host))
-            }
-            view.subviews.forEach(walk)
-        }
-        walk(host)
-        return rings
     }
 
     /// The heading menu's drawn width inside a line `width` points wide, read off its focus ring,
@@ -175,7 +164,7 @@ import Design
             .environment(\.selectionLensAppearance, glass ? SelectionLensCallSiteTests.probe : .today)))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 40)
         host.layoutSubtreeIfNeeded()
-        let found = rings(in: host)
+        let found = FocusRings.frames(in: host)
         return found.count == 1 ? found[0] : nil
     }
 
@@ -577,7 +566,7 @@ import Design
         let host = NSHostingView(rootView: AnyView(line.frame(width: width).environment(\.appFontScale, scale)))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 60)
         await LayoutPumpWait.pump(host, upTo: 0) { false }
-        return rings(in: host).sorted { $0.minX < $1.minX }
+        return FocusRings.frames(in: host).sorted { $0.minX < $1.minX }
     }
 
     private var aHint: EditorStatusHint { EditorStatusHint(token: 1, onShowInSource: {}) }

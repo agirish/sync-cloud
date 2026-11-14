@@ -29,19 +29,12 @@ import Testing
     /// and each pass can cost seconds on a saturated CI main actor.
     private static let testFloor = 5
 
-    /// Keeps the literal above meaningful: it must be reachable within the floor, or the test
-    /// below would be measuring the deadline instead.
-    @Test func theDemandUsedByTheseTestsSitsBelowTheFloor() {
-        #expect(Self.passesDemanded < Self.testFloor,
-                """
-                \(Self.passesDemanded) passes is not reachable within a floor of \
-                \(Self.testFloor) — the floor test below would be measuring the deadline.
-                """)
-    }
-
     /// With the deadline already spent, a condition that needs turns still gets them, which is
-    /// exactly what a congested run has too few of.
-    @Test func theFloorOutlivesAnExpiredDeadline() async {
+    /// exactly what a congested run has too few of. The demand must be reachable within the floor,
+    /// or this would be measuring the deadline instead.
+    @Test func theFloorOutlivesAnExpiredDeadline() async throws {
+        try #require(Self.passesDemanded < Self.testFloor,
+                     "\(Self.passesDemanded) passes is not reachable within a floor of \(Self.testFloor) — this would be measuring the deadline")
         var passes = 0
         let needed = Self.passesDemanded
 

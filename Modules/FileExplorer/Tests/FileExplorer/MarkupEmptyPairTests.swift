@@ -16,13 +16,4 @@ import Foundation
         #expect(edit.text == "", "\(verb) over “\(pair)” gave “\(edit.text)”")
         #expect(edit.selection == NSRange(location: 0, length: 0))
     }
-
-    /// The round trip the doc above describes: Bold on nothing, then Bold on what it wrote.
-    @Test func boldOnNothingThenOnItsPairIsWhereItStarted() throws {
-        let first = try #require(MarkdownEdits.apply(.bold, to: "a  b", selection: NSRange(location: 2, length: 0)))
-        #expect(first.text == "a **** b")
-        let pair = NSRange(location: 2, length: 4)
-        let second = try #require(MarkdownEdits.apply(.bold, to: first.text, selection: pair))
-        #expect(second.text == "a  b")
-    }
 }

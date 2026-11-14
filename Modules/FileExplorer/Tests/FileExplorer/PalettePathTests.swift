@@ -17,17 +17,17 @@ import Foundation
     static let dropbox = "/Users/x/Dropbox"
 
     /// Two sources, one current. `Backup SSD` is the unmounted one the palette carries elsewhere.
-    static func providers(currentIsDocuments: Bool = true) -> [PaletteProvider] {
+    static func providers() -> [PaletteProvider] {
         [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true,
-                         isCurrent: currentIsDocuments, root: documents),
+                         isCurrent: true, root: documents),
          PaletteProvider(id: "dropbox", name: "Dropbox", isMounted: true,
-                         isCurrent: !currentIsDocuments, root: dropbox),
+                         isCurrent: false, root: dropbox),
          PaletteProvider(id: "ssd", name: "Backup SSD", isMounted: false,
                          isCurrent: false, root: "/Volumes/Backup")]
     }
 
-    static func index(currentIsDocuments: Bool = true) -> PaletteIndex {
-        PaletteIndex(providers: providers(currentIsDocuments: currentIsDocuments),
+    static func index() -> PaletteIndex {
+        PaletteIndex(providers: providers(),
                      providerRoot: documents, folders: ["Legal", "Clients/Legal"],
                      home: home, isScanning: false, hasSurvey: true)
     }
@@ -55,9 +55,8 @@ import Foundation
         }
     }
 
-    static func row(_ query: String, probe: Probe, currentIsDocuments: Bool = true) -> PaletteRow? {
-        PaletteRouter.rows(query: query, index: index(currentIsDocuments: currentIsDocuments),
-                           probe: probe.kind)
+    static func row(_ query: String, probe: Probe, index: PaletteIndex = Self.index()) -> PaletteRow? {
+        PaletteRouter.rows(query: query, index: index, probe: probe.kind)
             .first { $0.id.hasPrefix("path.") }
     }
 
@@ -240,9 +239,7 @@ import Foundation
             providerRoot: Self.documents, folders: [], home: Self.home,
             isScanning: false, hasSurvey: true)
         let probe = Probe()
-        let row = try #require(PaletteRouter.rows(query: "~/Dropbox/Clients/Legal", index: index,
-                                                  probe: probe.kind)
-            .first { $0.id.hasPrefix("path.") })
+        let row = try #require(Self.row("~/Dropbox/Clients/Legal", probe: probe, index: index))
         #expect(row.route == .folderInSource(providerId: "clients", path: "\(inner)/Legal"),
                 "the outer source claimed a path the inner one owns — got \(row.route)")
         #expect(row.title == "Open in Clients")
@@ -267,9 +264,7 @@ import Foundation
                                      isCurrent: false, root: "/Volumes/Backup")]
         let index = PaletteIndex(providers: awake, providerRoot: Self.documents, folders: [],
                                  home: Self.home, isScanning: false, hasSurvey: true)
-        let row = try #require(PaletteRouter.rows(query: "/Volumes/Backup/2019", index: index,
-                                                  probe: Probe().kind)
-            .first { $0.id.hasPrefix("path.") })
+        let row = try #require(Self.row("/Volumes/Backup/2019", probe: Probe(), index: index))
         #expect(row.route == .folderInSource(providerId: "ssd", path: "/Volumes/Backup/2019"),
                 "a mounted source the pane is not on is not offered as a switch — got \(row.route)")
     }
@@ -291,9 +286,7 @@ import Foundation
             providerRoot: Self.documents, folders: [], home: Self.home,
             isScanning: false, hasSurvey: true)
         let probe = Probe(directories: ["\(Self.documents)/Legal"])
-        let row = try #require(PaletteRouter.rows(query: "~/Documents/Legal", index: index,
-                                                  probe: probe.kind)
-            .first { $0.id.hasPrefix("path.") })
+        let row = try #require(Self.row("~/Documents/Legal", probe: probe, index: index))
         #expect(row.isAvailable,
                 "a path in the tree the pane is showing was refused with: \(row.unavailable ?? "") — the row and the reveal are asking two different roots")
         #expect(row.route == .folder(path: "\(Self.documents)/Legal"))
@@ -317,9 +310,7 @@ import Foundation
             providerRoot: Self.documents, folders: [], home: Self.home,
             isScanning: false, hasSurvey: true)
         let probe = Probe(directories: ["\(inner)/Legal"])
-        let row = try #require(PaletteRouter.rows(query: "~/Documents/Clients/Legal", index: index,
-                                                  probe: probe.kind)
-            .first { $0.id.hasPrefix("path.") })
+        let row = try #require(Self.row("~/Documents/Clients/Legal", probe: probe, index: index))
         #expect(row.isAvailable,
                 "a folder inside the tree the pane is showing was refused with: \(row.unavailable ?? "") — a nested source claimed it and the check asked the wrong root")
         #expect(row.route == .folder(path: "\(inner)/Legal"))
@@ -355,9 +346,7 @@ import Foundation
             foldersUnavailable: "Not available", home: Self.home,
             isScanning: false, hasSurvey: true)
         let probe = Probe(directories: ["\(Self.documents)/Legal"])
-        let row = try #require(PaletteRouter.rows(query: "~/Documents/Legal", index: index,
-                                                  probe: probe.kind)
-            .first { $0.id.hasPrefix("path.") })
+        let row = try #require(Self.row("~/Documents/Legal", probe: probe, index: index))
         #expect(row.unavailable == "Not available")
         #expect(probe.asked.isEmpty,
                 "a child of a root that did not answer was stat'ed — that is the stalled keystroke this ordering exists to avoid")

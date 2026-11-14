@@ -9,13 +9,6 @@ import Design
 @MainActor
 @Suite struct EditorAutosavePolicyTests {
 
-    @Test func everythingAutosavesUntilSomebodySaysOtherwise() {
-        let policy = EditorAutosavePolicy()
-        #expect(policy.isOn("/n/a.md"))
-        #expect(policy.isOn("/n/b.md"))
-        #expect(policy.suspendedCount == 0)
-    }
-
     /// `nil` is "nothing is open", not "autosave is off"; confusing the two would draw the header's
     /// switch wrong whenever the editor is empty.
     @Test func noDocumentIsNotTheSameAsSwitchedOff() {
@@ -47,16 +40,6 @@ import Design
         #expect(policy.suspendedCount == 0, "switching back on left the path behind")
     }
 
-    /// A file reopened in the same session keeps its setting: the set is keyed by path and nothing
-    /// clears it. Forgetting at quit is the object's lifetime, owned by the app, not checked here.
-    @Test func aFileReopenedInTheSameSessionKeepsItsSetting() {
-        let policy = EditorAutosavePolicy()
-        policy.setOn(false, for: "/n/risky.md")
-        // Open something else, then come back.
-        #expect(policy.isOn("/n/other.md"))
-        #expect(!policy.isOn("/n/risky.md"), "the setting was forgotten between visits")
-    }
-
     /// Two files with similar names are two files, which a prefix match would get wrong.
     @Test func pathsAreMatchedWholeRatherThanByPrefix() {
         let policy = EditorAutosavePolicy()
@@ -76,20 +59,13 @@ import Design
 @MainActor
 @Suite struct EditorAutosaveSwitchVisibilityTests {
 
-    @Test func anOrdinaryOpenDocumentGetsTheSwitch() {
-        #expect(EditorWorkspaceView.showsAutosaveSwitch(hasPath: true, wasRefused: false,
-                                                        isReadOnly: false))
-    }
-
-    /// The three cases where autosave would never write anyway: a switch that changes nothing reads
-    /// as broken, not unavailable.
-    @Test func nothingOpenAndNothingWritableGetNoSwitch() {
-        #expect(!EditorWorkspaceView.showsAutosaveSwitch(hasPath: false, wasRefused: false,
-                                                         isReadOnly: false))
-        #expect(!EditorWorkspaceView.showsAutosaveSwitch(hasPath: true, wasRefused: true,
-                                                         isReadOnly: false))
-        #expect(!EditorWorkspaceView.showsAutosaveSwitch(hasPath: true, wasRefused: false,
-                                                         isReadOnly: true))
+    /// Only an ordinary open document gets it. In the other three cases autosave would never write
+    /// anyway, and a switch that changes nothing reads as broken, not unavailable.
+    @Test(arguments: [(true, false, false, true), (false, false, false, false),
+                      (true, true, false, false), (true, false, true, false)])
+    func onlyAnOrdinaryOpenDocumentGetsTheSwitch(hasPath: Bool, wasRefused: Bool, isReadOnly: Bool, shown: Bool) {
+        #expect(EditorWorkspaceView.showsAutosaveSwitch(hasPath: hasPath, wasRefused: wasRefused,
+                                                        isReadOnly: isReadOnly) == shown)
     }
 }
 

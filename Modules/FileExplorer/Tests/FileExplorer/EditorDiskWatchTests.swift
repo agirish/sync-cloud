@@ -562,22 +562,12 @@ import EventsTestSupport
         #expect(rig.watch.reconcile(afterOwnFileOperation: true) == .followed(renamed))
         let sub = rig.folder.appendingPathComponent("Filed")
         try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
-        #expect(rename(renamed, sub.appendingPathComponent("renamed.md").path) == 0)
-        guard case .followed = rig.watch.reconcile() else { Issue.record("not followed"); return }
+        let filed = sub.appendingPathComponent("renamed.md").path
+        #expect(rename(renamed, filed) == 0)
+        guard case .followed(let followed) = rig.watch.reconcile() else { Issue.record("not followed"); return }
+        #expect(EditorFileStore.resolved(followed) == EditorFileStore.resolved(filed))
+        #expect(EditorDiskWatch.followedNotice(from: renamed, to: followed) == "Moved elsewhere — now in “Filed”")
         #expect(byThisApp == [true, false])
-    }
-
-    @Test func aFileMovedToAnotherFolderIsFollowed() throws {
-        let rig = try Rig()
-        let sub = rig.folder.appendingPathComponent("Filed")
-        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
-        let new = sub.appendingPathComponent("note.md").path
-        #expect(rename(rig.path, new) == 0)
-        guard case .followed(let followed) = rig.watch.reconcile() else {
-            Issue.record("the move was not followed"); return
-        }
-        #expect(EditorFileStore.resolved(followed) == EditorFileStore.resolved(new))
-        #expect(EditorDiskWatch.followedNotice(from: rig.moves[0].0, to: followed) == "Moved elsewhere — now in “Filed”")
     }
 
     // MARK: Deleted: a banner, and the text stays
@@ -1047,12 +1037,6 @@ import EventsTestSupport
         #expect(madeSuggested.lowerBound < commitSuggested.lowerBound)
     }
 
-    @Test func theDeletedBannerOffersSaveAgainOnlyWhereItCouldWrite() {
-        #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true) == [.compare, .useDisks, .keepMine])
-        #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: true) == [.close, .saveAgain])
-        #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: false) == [.close])
-    }
-
     /// The first edit to a Windows file says it converted it, once, on the status line where
     /// "Reloaded — changed elsewhere" goes.
     @Test func convertingAFileToLFIsSaidOnTheStatusLine() async throws {
@@ -1061,14 +1045,6 @@ import EventsTestSupport
         rig.type("three")
         #expect(rig.text == "one\ntwo\nthree", "the edit did not convert the file")
         #expect(rig.watch.notice?.text == "Converted to LF line endings — ⌘Z undoes")
-        #expect(EditorDiskWatch.convertedToLFNotice == "Converted to LF line endings — ⌘Z undoes")
-    }
-
-    /// An LF file is not told it was converted.
-    @Test func anLFFileSaysNothingAboutLineEndings() async throws {
-        let rig = try Rig("one\ntwo\n")
-        rig.type("three")
-        #expect(rig.watch.notice == nil)
     }
 
     /// The banner's words are the ⌘S alert's and the sheet's: Compare… and Keep Mine… with the
@@ -1077,6 +1053,9 @@ import EventsTestSupport
     @Test func theBannerSpeaksTheSameWordsAsTheAlertAndTheSheet() {
         #expect(EditorDiskBannerView.actions(for: .changed, canSaveAgain: true).map(EditorDiskBannerView.title)
                 == ["Compare…", "Use Disk Version", "Keep Mine…"])
+        // The deleted banner offers Save Again only where it could write.
+        #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: true) == [.close, .saveAgain])
+        #expect(EditorDiskBannerView.actions(for: .deleted, canSaveAgain: false) == [.close])
         #expect(EditorDiskBannerView.title(.saveAgain) == "Save Again")
         #expect(EditorDiskVerbs.saveAgain == "Save Again")
         #expect(EditorDiskWatch.useDisksActionName == "Use Disk Version")

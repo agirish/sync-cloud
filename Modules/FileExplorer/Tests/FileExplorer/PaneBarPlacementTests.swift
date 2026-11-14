@@ -27,21 +27,6 @@ import CoreGraphics
         #expect(p.resolveAtTop(selection: ["/10"]) == true)
     }
 
-    @Test func testNoSelectionOrNoVisibleRowStaysBottom() {
-        let p = makePlacement()
-        #expect(p.resolveAtTop(selection: []) == false)
-        // Selected but scrolled out of view (not in rowBottoms): nothing on screen to cover.
-        #expect(p.resolveAtTop(selection: ["/a"]) == false)
-    }
-
-    @Test func testRowAboveTheBarKeepsTheBarAtBottom() {
-        // 530 is above the measured 64pt bar (which covers below 536), so a wider fixed band would
-        // flip here too early.
-        let p = makePlacement()
-        p.rowBottoms = ["/a": 530]
-        #expect(p.resolveAtTop(selection: ["/a"]) == false)
-    }
-
     @Test func testExitNeedsClearanceBeyondTheCoverageZone() {
         // A row under the bar flips it to the top. Then move the row just above the coverage line,
         // inside the exit hysteresis, so the bar must STAY at the top rather than bounce back.
@@ -86,46 +71,27 @@ import CoreGraphics
         }
     }
 
-    @Test func testMeasuredCoverageMovesTheThreshold() {
-        // A taller measured bar covers more of the list, so the flip line rises with it.
-        let p = makePlacement(coverage: 100)
-        p.rowBottoms = ["/a": 520]   // above a 64pt bar, but under a 100pt one (600-100=500)
-        #expect(p.resolveAtTop(selection: ["/a"]) == true)
-    }
-
-    // MARK: Only ON-SCREEN rows count
-
-    /// `rowBottoms` also carries rows the List laid out past the fold. A selected row down there is
-    /// invisible, so a bottom bar covers nothing of it; flipping to the top would just put the bar
-    /// over rows the user can see.
-    @Test func testRowBelowTheViewportDoesNotFlipTheBar() {
-        let p = makePlacement()
-        p.rowBottoms = ["/a": 900]      // viewport is 600 — well past the fold
-        #expect(p.resolveAtTop(selection: ["/a"]) == false)
-    }
-
-    /// The same case in a multi-selection: one off-screen sibling must not drag the bar over the
-    /// selected row that is on screen and uncovered.
-    @Test func testOffscreenSiblingDoesNotFlipOverTheVisibleRow() {
-        let p = makePlacement()
-        p.rowBottoms = ["/visible": 40, "/offscreen": 3000]
-        #expect(p.resolveAtTop(selection: ["/visible", "/offscreen"]) == false)
-    }
-
-    /// A row exactly at the viewport's bottom edge is still on screen, and a bottom bar covers it:
-    /// the clamp must not exclude the boundary row it exists to protect.
-    @Test func testRowExactlyAtTheViewportEdgeStillCounts() {
-        let p = makePlacement()
-        p.rowBottoms = ["/a": 600]
-        #expect(p.resolveAtTop(selection: ["/a"]) == true)
-    }
-
-    /// A pane shorter than the bar is covered end to end at either edge, so no placement reveals
-    /// anything: stay at the resting bottom. A negative `coveredFrom` would read every row as
-    /// covered and pin the bar to the top of a tiny pane.
-    @Test func testPaneShorterThanTheBarStaysAtTheBottom() {
-        let p = makePlacement(viewport: 50, coverage: 64)
-        p.rowBottoms = ["/a": 10]
-        #expect(p.resolveAtTop(selection: ["/a"]) == false)
+    /// One resolve from a fresh placement: (why, viewport, coverage, row bottoms, selection, at top).
+    @Test(arguments: [
+        ("no selection", 600, 64, [:], [], false),
+        // Not in rowBottoms: nothing on screen to cover.
+        ("selected but scrolled out of view", 600, 64, [:], ["/a"], false),
+        // A wider fixed band would flip here too early.
+        ("530 is above the measured 64pt bar, which covers below 536", 600, 64, ["/a": 530], ["/a"], false),
+        ("a taller measured bar raises the flip line to 600-100=500", 600, 100, ["/a": 520], ["/a"], true),
+        // rowBottoms also carries rows laid out past the fold; flipping would cover visible rows.
+        ("a selected row past the fold is invisible", 600, 64, ["/a": 900], ["/a"], false),
+        ("an off-screen sibling must not drag the bar over the visible row", 600, 64,
+         ["/visible": 40, "/offscreen": 3000], ["/visible", "/offscreen"], false),
+        // The clamp must not exclude the boundary row it exists to protect.
+        ("a row exactly at the viewport's bottom edge is on screen and covered", 600, 64, ["/a": 600], ["/a"], true),
+        // Covered end to end at either edge; a negative `coveredFrom` would pin it to the top.
+        ("a pane shorter than the bar stays at the resting bottom", 50, 64, ["/a": 10], ["/a"], false),
+    ] as [(String, CGFloat, CGFloat, [String: CGFloat], Set<String>, Bool)])
+    func aSingleResolve(why: String, viewport: CGFloat, coverage: CGFloat, rowBottoms: [String: CGFloat],
+                        selection: Set<String>, atTop: Bool) {
+        let p = makePlacement(viewport: viewport, coverage: coverage)
+        p.rowBottoms = rowBottoms
+        #expect(p.resolveAtTop(selection: selection) == atTop, "\(why)")
     }
 }

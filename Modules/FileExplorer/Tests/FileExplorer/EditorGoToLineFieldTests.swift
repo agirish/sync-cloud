@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 import AppKit
 import Design
+import FileExplorerTestSupport
 @testable import FileExplorer
 
 /// Go to Line's field, mounted: the status line hosted with a live binding in a key window, and
@@ -63,14 +64,7 @@ import Design
     /// ring (`reading-a-hosted-swiftui-control-by-focus-ring`). The heading menu draws one too, so
     /// the caret's is the one right of every count — the last in the strip's run before the facts.
     private func caretRingOnScreen(in host: NSView, window: NSWindow) -> NSRect? {
-        var rings: [NSRect] = []
-        func walk(_ view: NSView) {
-            if String(describing: type(of: view)).contains("FocusRing") {
-                rings.append(window.convertToScreen(view.convert(view.bounds, to: nil)))
-            }
-            view.subviews.forEach(walk)
-        }
-        walk(host)
+        let rings = FocusRings.frames(in: host).map { window.convertToScreen(host.convert($0, to: nil)) }
         // One ring without a heading; with one, the heading's comes first, leftmost.
         return rings.max { $0.minX < $1.minX }
     }

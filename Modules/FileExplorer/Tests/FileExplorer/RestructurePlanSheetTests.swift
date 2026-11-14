@@ -216,9 +216,8 @@ import Testing
             .mergedFrom(renamedFrom: "Federal Tax", sources: ["State Tax"]))
                     == "was Federal Tax, absorbed State Tax")
         #expect(RestructurePlanSheet.fateNote(.created) == "created")
-        #expect(RestructurePlanSheet.fateNote(.kept) == "kept — no slot in the target shape")
         // A kept folder's note says why: "kept" alone reads as the user's choice.
-        #expect(RestructurePlanSheet.fateNote(.kept)?.contains("no slot") == true)
+        #expect(RestructurePlanSheet.fateNote(.kept) == "kept — no slot in the target shape")
         #expect(RestructurePlanSheet.fateNote(.unchanged) == nil,
                 "an untouched folder says nothing rather than saying \"unchanged\"")
     }
@@ -261,38 +260,6 @@ import Testing
         #expect(RestructurePlanSheet.previewMember(of: elsewhere, family: family,
                                                    members: members) == nil,
                 "an operation outside every member names no exemplar")
-    }
-
-    /// The whole sheet renders with the preview present, so a layout crash fails here rather than
-    /// on a real family.
-    @Test func thePlanSheetRendersWithItsPreview() throws {
-        let finding = StructureFinding(
-            family: "F",
-            schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
-                      .init(vocabulary: ["federal tax"], members: ["2014"])])
-        let files: [String: [String]] = [
-            "F/2013/Federal Tax": ["a.pdf", "b.pdf"],
-            "F/2013/State Tax": ["c.pdf"],
-            "F/2014/Forms": ["d.pdf"],
-        ]
-        let folders: [String: [String]] = [
-            "F": ["2013", "2014"],
-            "F/2013": ["Federal Tax", "State Tax"],
-            "F/2014": ["Forms"],
-        ]
-        let tree = RestructureTreeView(
-            childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
-            files: { files[$0] },
-            fileCount: { files[$0]?.count })
-        let sheet = RestructurePlanSheet(
-            finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
-            profileId: "p", accent: .blue,
-            initialRows: [.init(source: "Federal Tax", target: "Forms"),
-                          .init(source: "State Tax", target: "Forms")],
-            onExport: { _, _ in .saved(filename: "f.json") }, onClose: {})
-        // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
-        let rep = try #require(RestructureRender.raster(sheet, width: 620, height: 620))
-        #expect(RestructureRender.inkedPixels(rep) > 1000)
     }
 
     // MARK: Closing keeps the plan (§5.4's store table)
@@ -445,7 +412,8 @@ import Testing
     }
 
     /// *Discard Plan* paints on a sheet opened from a saved draft. Both renders' close buttons read
-    /// Close, so the difference is the Discard button alone.
+    /// Close, so the difference is the Discard button alone. Two rows merge into one target, so the
+    /// sheet also renders its preview: a layout crash there fails here rather than on a real family.
     @Test func discardPlanPaintsOnASheetOpenedFromADraft() throws {
         func render(discard: Bool) throws -> NSBitmapImageRep {
             let finding = StructureFinding(
@@ -453,10 +421,10 @@ import Testing
                 schemes: [.init(vocabulary: ["forms"], members: ["2013"]),
                           .init(vocabulary: ["federal tax"], members: ["2014"])])
             let files: [String: [String]] = [
-                "F/2013/Federal Tax": ["a.pdf"], "F/2014/Forms": ["d.pdf"],
+                "F/2013/Federal Tax": ["a.pdf"], "F/2013/State Tax": ["c.pdf"], "F/2014/Forms": ["d.pdf"],
             ]
             let folders: [String: [String]] = [
-                "F": ["2013", "2014"], "F/2013": ["Federal Tax"], "F/2014": ["Forms"],
+                "F": ["2013", "2014"], "F/2013": ["Federal Tax", "State Tax"], "F/2014": ["Forms"],
             ]
             let tree = RestructureTreeView(
                 childFolders: { folders[$0] ?? (files[$0] != nil ? [] : nil) },
@@ -464,7 +432,8 @@ import Testing
             let sheet = RestructurePlanSheet(
                 finding: finding, family: "F", members: ["2013", "2014"], tree: tree,
                 profileId: "p", accent: .blue,
-                initialRows: [.init(source: "Federal Tax", target: "Forms")],
+                initialRows: [.init(source: "Federal Tax", target: "Forms"),
+                              .init(source: "State Tax", target: "Forms")],
                 onExport: { _, _ in .saved(filename: "f.json") },
                 hasSavedDraft: true, onDiscardDraft: discard ? {} : nil, onClose: {})
             return try #require(RestructureRender.raster(sheet, width: 620, height: 700))

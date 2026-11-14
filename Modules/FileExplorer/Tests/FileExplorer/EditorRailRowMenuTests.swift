@@ -207,15 +207,18 @@ import FileExplorerTestSupport
                        EditorRailEntry(path: "/Users/me/Notes/cloud.md", name: "cloud.md", size: 10, isCloudOnly: true)]
         #expect(entries.map(\.isDimmed) == [false, true], "the premise: one ordinary row, one dim row")
         let rail = Self.rail(entries, selectedPath: entries[0].path, actions: recorder.actions)
+        var unglyphed: Set<String> = []
         // Two rows' menus read alike, so each is told apart by what its Reveal in Browse does: it is
         // performed at every probe, and a run is a stretch of the same titles and the same path.
         let menus = Self.drawnMenus(AnyView(rail), width: 260, height: 420) { menu in
+            unglyphed.formUnion(menu.items.filter { !$0.isSeparatorItem && $0.image == nil }.map(\.title))
             guard let reveal = menu.items.firstIndex(where: { $0.title == "Reveal in Browse" }) else { return nil }
             menu.performActionForItem(at: reveal)
             return recorder.calls.last
         }
         #expect(menus.map(\.titles) == [Self.fiveDrawn, ["Download", ""] + Self.fiveDrawn],
                 "the rail's rows draw these menus, top to bottom: \(menus.map(\.titles))")
+        #expect(unglyphed.isEmpty, "these items draw no glyph: \(unglyphed.sorted())")
         #expect(menus.map(\.act) == entries.map { "browse \($0.path)" },
                 "each row's Reveal in Browse ran as \(menus.map(\.act))")
     }
@@ -228,25 +231,6 @@ import FileExplorerTestSupport
                 "Reveal in Finder no longer defaults to the Finder reveal")
         #expect(source.contains("NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])"),
                 "the Finder reveal no longer selects the row's file in Finder")
-    }
-
-    /// The menu as drawn, in order. The tests above call `items(for:isCloudOnly:actions:)`; this
-    /// proves the body draws that list and nothing else. Hosted in a `VStack`, each item lays out as
-    /// one focus-ring view at its own y, recognised by the width its label draws at alone (as in
-    /// `OpenInEditorVerbTests`). Separators draw no ring.
-    @Test func theDrawnMenuIsTheItemsInOrder() {
-        let actions = Recorder().actions
-        let items = EditorRailRowMenu.items(for: Self.rowPath, isCloudOnly: true, actions: actions)
-        let solo = items.map { item in
-            Self.focusRingWidths(AnyView(Button(action: {}) {
-                Label(item.title, systemImage: item.systemImage)
-            })).first ?? 0
-        }
-        #expect(solo.allSatisfy { $0 > 0 }, "an item drew nothing alone: \(solo)")
-        #expect(Set(solo).count == items.count, "two labels measure the same, so the order cannot be read: \(solo)")
-        let drawn = Self.focusRingWidths(AnyView(EditorRailRowMenu(path: Self.rowPath, isCloudOnly: true,
-                                                                   actions: actions)))
-        #expect(drawn == solo, "the menu draws \(drawn), expected \(solo) in that order")
     }
 
     static func rail(_ entries: [EditorRailEntry], selectedPath: String? = nil,
@@ -289,13 +273,5 @@ import FileExplorerTestSupport
             fromTop += 2
         }
         return found
-    }
-
-    private static func focusRingWidths(_ view: AnyView) -> [CGFloat] {
-        let host = NSHostingView(rootView: AnyView(
-            VStack(alignment: .leading, spacing: 0) { view }.frame(width: 260)))
-        host.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
-        host.layoutSubtreeIfNeeded()
-        return FocusRings.frames(in: host).sorted { $0.minY < $1.minY }.map(\.width)
     }
 }

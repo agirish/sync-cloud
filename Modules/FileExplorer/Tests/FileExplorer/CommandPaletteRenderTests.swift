@@ -54,20 +54,11 @@ import Design
                                         : Color(red: 0.98, green: 0.98, blue: 0.99))
             .environment(\.colorScheme, scheme)
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+        // Laid out twice before it is cached.
+        guard let rep = offscreenBitmap(subject, size: CGSize(width: width, height: height), appearance: scheme == .dark ? .darkAqua : .aqua,
+                                        layoutPasses: 2) else {
             fatalError("no bitmap rep")
         }
-        host.cacheDisplay(in: host.bounds, to: rep)
         return rep
     }
 

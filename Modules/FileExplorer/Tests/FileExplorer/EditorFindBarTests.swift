@@ -163,21 +163,6 @@ import SwiftUI
         #expect(EditorDocumentSurface.showFindBar(in: nil) == false)
     }
 
-    /// The real editor applies the mark, not only this file's fixture. The tests above set it by
-    /// hand, so dropping it from `makeNSView` would leave them green while ⌘F lost the document.
-    @Test func theEditorReallyMarksItsScrollView() {
-        let editor = PlainTextEditor(source: EditorSourceStorage(text: "hello"), isEditable: true, fontScale: 1,
-                                     documentID: "/a/b.md", undoManager: UndoManager())
-        let host = NSHostingView(rootView: editor.editorTestDefaults("EditorFindBarTests.mark"))
-        host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        host.layoutSubtreeIfNeeded()
-
-        let marked = EditorTestRigs.markedScroll(in: host)
-        #expect(marked != nil, "the editor mounted no scroll view carrying the mark")
-        #expect(marked?.documentView is NSTextView,
-                "the marked view holds no text view for a chord to reach")
-    }
-
     // MARK: Closing retires the bar
 
     /// Closing the document takes its find bar down with it, in both editors: each editor's

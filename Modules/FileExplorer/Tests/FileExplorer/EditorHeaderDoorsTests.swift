@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 import AppKit
 import Design
+import DesignTestSupport
 @testable import FileExplorer
 import FileExplorerTestSupport
 
@@ -578,12 +579,7 @@ import FileExplorerTestSupport
     static func headerSource() throws -> String {
         let text = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         try #require(text.contains("var headerContent: some View"), "not reading EditorWorkspaceView.swift")
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                guard let comment = line.range(of: "//") else { return String(line) }
-                return String(line[..<comment.lowerBound])
-            }
-            .joined(separator: "\n")
+        return SourceComments.stripped(text)
     }
 
     /// One button: from the `Button` that draws `glyph` to the next `Button` or the header's end,

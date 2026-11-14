@@ -18,15 +18,6 @@ import Sync
         )
     }
 
-    // MARK: Folder key
-
-    @Test func testFolderIsTheFirstPathComponentNotTheWholeParent() {
-        // Grouping by the whole parent path would turn a real comparison into ~one section per
-        // row. The top-level folder is the unit a person decides about.
-        #expect(DifferenceGrouping.folder(for: diff("Immigration/Authorization/H-1B/form.pdf")) == "Immigration")
-        #expect(DifferenceGrouping.folder(for: diff("Work/report.docx")) == "Work")
-    }
-
     // MARK: Section building
 
     @Test func testSectionsAppearInTheOrderTheirFirstRowDoes() {
@@ -54,35 +45,8 @@ import Sync
         #expect(Set(regrouped.map(\.id)) == Set(sorted.map(\.id)))
     }
 
-    @Test func testSectionCountMatchesItsRows() {
-        let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Work/b.pdf"), diff("Scans/c.pdf")])
-        #expect(sections.map(\.count) == [2, 1])
-    }
-
     @Test func testEmptyInputProducesNoSections() {
         #expect(DifferenceGrouping.sections([]).isEmpty)
-    }
-
-    // MARK: The fall-back-to-flat gate
-
-    @Test func testASingleSectionIsNotWorthGrouping() {
-        // One header saying the same thing about every row is pure chrome. Falling back to flat
-        // lets grouping default on without making small comparisons noisier.
-        let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Work/b.pdf")])
-        #expect(sections.count == 1)
-        #expect(!DifferenceGrouping.isWorthGrouping(sections))
-    }
-
-    @Test func testNoSectionsIsNotWorthGrouping() {
-        #expect(!DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections([])))
-    }
-
-    /// Two sections of one row each is not enough: "more than one section?" would allow nine
-    /// headers over eleven rows. The gate asks whether the headers pay for their own height.
-    @Test func testTwoSingleRowSectionsIsNotWorthGrouping() {
-        let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Scans/b.pdf")])
-        #expect(sections.count == 2)
-        #expect(!DifferenceGrouping.isWorthGrouping(sections))
     }
 
     /// Root-level rows beside foldered rows: a wrong `folder(for:)` would merge everything loose
@@ -114,25 +78,17 @@ import Sync
         #expect(sections[0].rows.map(\.relativePath) == ["loose.pdf"])
     }
 
-    /// What makes the case above unrepresentable: the root key contains a separator, and `split`
-    /// never hands back a component that does.
-    @Test func testTheRootKeyCannotBeProducedByAnyPath() {
-        #expect(DifferenceGrouping.rootKey.contains("/"))
-        for path in ["a.pdf", "One/a.pdf", "/One/a.pdf", "One//Two/a.pdf", "One/Two/Three/a.pdf"] {
-            let folder = DifferenceGrouping.folder(for: diff(path))
-            #expect(folder == DifferenceGrouping.rootKey || !folder.contains("/"),
-                    "path \(path) produced folder \(folder)")
-        }
-    }
-
     // MARK: Bucketing robustness over malformed parents
 
     /// `folder(for:)` produces a printable bucket for the whole input space, not just well-formed
     /// paths. Engine-built `relativePath`s never carry a leading or trailing slash or a "//", so a
     /// mishandling could sit unseen until a refactor made it live. A leading slash names the folder,
     /// not the raw parent ("/Immigration"), and never a nameless section; a parent of pure
-    /// separators files under the root label, as a root-level item does.
+    /// separators files under the root label, as a root-level item does. The bucket is the top-level
+    /// folder, never the whole parent, which would make ~one section per row. The root key contains
+    /// a separator, which no component can, so no path can produce it.
     @Test func testMalformedParentsStillBucketPrintably() {
+        #expect(DifferenceGrouping.rootKey.contains("/"))
         let paths = [
             "Claude/Projects/Investing/notes.md", "Work/report.docx", "loose.pdf",
             "/Immigration/form.pdf", "/loose.pdf", "/Claude/Projects/notes.md",
@@ -168,26 +124,24 @@ import Sync
 
     // MARK: The worth-grouping gate
 
-    @Test func testManyTinySectionsFallBackToFlat() {
-        // Nine folders, one or two rows each: nine headers over eleven rows would nearly double
-        // the list's height to restate the path, so this must not group.
-        let rows = ["Family/a.pdf", "Family/b.pdf", "Legal/c.pdf", "Finance/d.pdf",
-                    "Claude/e.pdf", "Claude/f.pdf", "Health/g.pdf", "Scans/h.pdf",
-                    "Travel/i.pdf", "Work/j.pdf", "Home/k.pdf"].map(diff)
-        let sections = DifferenceGrouping.sections(rows)
-        #expect(sections.count == 9)
-        #expect(!DifferenceGrouping.isWorthGrouping(sections))
-    }
-
-    @Test func testFewLargeSectionsDoGroup() {
-        // Three folders averaging four rows each: the case grouping exists for.
-        var rows: [FileDifference] = []
-        for folder in ["Immigration", "Work", "Scans"] {
-            rows += (0..<4).map { diff("\(folder)/file-\($0).pdf") }
-        }
-        let sections = DifferenceGrouping.sections(rows)
-        #expect(sections.count == 3)
-        #expect(DifferenceGrouping.isWorthGrouping(sections))
+    /// Whether the headers pay for their own height. One header saying the same thing about every
+    /// row is pure chrome; "more than one section?" would allow nine headers over eleven rows,
+    /// nearly doubling the list's height to restate the path. Three folders averaging four rows
+    /// each is the case grouping exists for.
+    @Test(arguments: [
+        ([], 0, false),
+        (["Work/a.pdf", "Work/b.pdf"], 1, false),
+        (["Work/a.pdf", "Scans/b.pdf"], 2, false),
+        (["Family/a.pdf", "Family/b.pdf", "Legal/c.pdf", "Finance/d.pdf",
+          "Claude/e.pdf", "Claude/f.pdf", "Health/g.pdf", "Scans/h.pdf",
+          "Travel/i.pdf", "Work/j.pdf", "Home/k.pdf"], 9, false),
+        (["Immigration", "Work", "Scans"].flatMap { folder in (0..<4).map { "\(folder)/file-\($0).pdf" } },
+         3, true),
+    ] as [([String], Int, Bool)])
+    func testTheGate(_ paths: [String], sectionCount: Int, worth: Bool) {
+        let sections = DifferenceGrouping.sections(paths.map(diff))
+        #expect(sections.count == sectionCount)
+        #expect(DifferenceGrouping.isWorthGrouping(sections) == worth)
     }
 
     @Test func testTheGateIsExactlyTheAverageThreshold() {

@@ -47,35 +47,17 @@ import Design
 
     private func mount(_ offer: RuleOffer,
                        selected: AutomationRuleProposer.Variant? = nil) -> NSHostingView<AnyView> {
-        // A constant binding: the view reads it, and nothing in a unit test can click a SwiftUI
-        // Button anyway — the selection is set here and the render is what gets asserted.
-        let subject = RuleOfferPromptView(offer: offer, accent: .blue,
-                                          variantChoice: .constant(selected),
-                                          onSave: {}, onNotNow: {})
-            .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .top)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        // The background matters: without it the content composites against the borderless
-        // window's own buffer and every comparison reads zero difference. Never ordered in.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host
+        // A constant binding: nothing in a unit test can click a SwiftUI Button, so the selection
+        // is set here and the render is what gets asserted.
+        ReviewLensHost.mount(RuleOfferPromptView(offer: offer, accent: .blue,
+                                                 variantChoice: .constant(selected),
+                                                 onSave: {}, onNotNow: {})
+                                .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .top),
+                             size: Self.canvas).host
     }
 
     private func band(_ host: NSHostingView<AnyView>, _ rect: CGRect? = nil) -> NSBitmapImageRep? {
-        let area = rect ?? Self.pickerBand
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: area) else { return nil }
-        host.cacheDisplay(in: area, to: rep)
-        return rep
+        PixelProbe.render(host, rect ?? Self.pickerBand)
     }
 
     /// Pixels that are not the background, taken as the band's most common colour. Not the corner

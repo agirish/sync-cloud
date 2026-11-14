@@ -1,10 +1,11 @@
 @testable import FileExplorer
 import Sync
 
-/// A `FileActionDelegate` that does nothing, for tests that mount a pane or build its menu but
-/// never act through it. Every other member keeps the protocol's default, `isEquivalent` (`false`)
-/// included.
-struct NoOpFileActionDelegate: FileActionDelegate {
+/// A `FileActionDelegate` whose every required handler does nothing, so a test's stub declares only
+/// the members it overrides. A class can't inherit from the struct below, hence the protocol.
+protocol NoOpFileActions: FileActionDelegate {}
+
+extension NoOpFileActions {
     func handleRefresh() {}
     func handleOpenInEditor(_ path: String) {}
     func handleFocus(_ node: FileNode) {}
@@ -22,3 +23,8 @@ struct NoOpFileActionDelegate: FileActionDelegate {
     func handleIgnore(_ nodes: [FileNode]) {}
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 }
+
+/// A `FileActionDelegate` that does nothing, for tests that mount a pane or build its menu but
+/// never act through it. Every other member keeps the protocol's default, `isEquivalent` (`false`)
+/// included.
+struct NoOpFileActionDelegate: NoOpFileActions {}

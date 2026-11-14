@@ -175,13 +175,6 @@ import Testing
         #expect(RestructureLens.crowdingCount(deadWeight, .empty) == 2)
         #expect(RestructureLens.crowdingCount(deadWeight, .passThrough) == 1)
         #expect(RestructureLens.crowdingCount(deadWeight, .singleFileLeaf) == 3)
-        // Against the list itself, class by class: catches a count that stopped reading the class
-        // it was asked about.
-        for weightClass in [DeadWeightClass.empty, .passThrough, .singleFileLeaf] {
-            let listed = deadWeight.filter { $0.value == weightClass }.map(\.key).sorted()
-            #expect(RestructureLens.crowdingCount(deadWeight, weightClass) == listed.count,
-                    "\(weightClass): the chip's number and its list disagree")
-        }
         #expect(RestructureLens.crowdingCount([:], .empty) == 0)
     }
 

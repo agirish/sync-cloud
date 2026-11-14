@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import DesignTestSupport
 @testable import FileExplorer
 import FileExplorerTestSupport
 
@@ -40,12 +41,7 @@ import FileExplorerTestSupport
     }
 
     private static func source(_ name: String) throws -> String {
-        // Whole-line comments out (these files keep no `//` inside a string literal), then every
-        // run of whitespace as one space.
-        let code = SourceText.codeOnly(try SourceText.fileExplorer(name))
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line in line.range(of: " // ").map { String(line[..<$0.lowerBound]) } ?? String(line) }
-            .joined(separator: " ")
-        return code.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        // Comments out, then every run of whitespace as one space.
+        SourceComments.stripped(try SourceText.fileExplorer(name)).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

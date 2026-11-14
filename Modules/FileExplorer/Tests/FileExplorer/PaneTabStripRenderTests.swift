@@ -43,28 +43,8 @@ import Design
             // The app pins this on its own window; without it SwiftUI renders an inactive window's
             // desaturated version, which the user never sees.
             .environment(\.controlActiveState, .active)
-        return rasterize(subject, width: width, height: PaneTabStripLadder.stripHeight,
-                         appearance: scheme == .dark ? .darkAqua : .aqua)
-    }
-
-    /// The host both renders share: a borderless window never ordered in, laid out twice.
-    private func rasterize(_ subject: some View, width: CGFloat, height: CGFloat,
-                           appearance: NSAppearance.Name?) -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        if let appearance { window.appearance = NSAppearance(named: appearance) }
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return PixelDiff.render(subject, size: CGSize(width: width, height: PaneTabStripLadder.stripHeight),
+                                appearance: scheme == .dark ? .darkAqua : .aqua, passes: 2)!
     }
 
     /// The strip as the pane mounts it: the accent wash applied outside the view, over an opaque
@@ -82,8 +62,8 @@ import Design
                                         : Color(red: 0.95, green: 0.95, blue: 0.96))
             .environment(\.colorScheme, scheme)
             .environment(\.controlActiveState, .active)
-        return rasterize(subject, width: width, height: PaneTabStripLadder.stripHeight,
-                         appearance: scheme == .dark ? .darkAqua : .aqua)
+        return PixelDiff.render(subject, size: CGSize(width: width, height: PaneTabStripLadder.stripHeight),
+                                appearance: scheme == .dark ? .darkAqua : .aqua, passes: 2)!
     }
 
     /// A point in the strip's empty stretch, right of the last chip and left of the ＋. With two
@@ -127,17 +107,7 @@ import Design
     /// bitmap, not built by hand: `NSColor(white:)` is generic gray and throws on `redComponent`.
     func inked(_ rep: NSBitmapImageRep, in box: NSRect? = nil) -> Int {
         guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
-        let region = box ?? NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh)
-        var count = 0
-        for y in Int(region.minY)..<min(rep.pixelsHigh, Int(region.maxY)) {
-            for x in Int(region.minX)..<min(rep.pixelsWide, Int(region.maxX)) {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if max(abs(c.redComponent - background.redComponent),
-                       max(abs(c.greenComponent - background.greenComponent),
-                           abs(c.blueComponent - background.blueComponent))) > 0.04 { count += 1 }
-            }
-        }
-        return count
+        return PixelProbe.count(in: rep, box) { PixelProbe.distance($0, background) > 0.04 }
     }
 
 
@@ -160,27 +130,6 @@ import Design
         return (rows.max() ?? 0, rows.sorted()[rows.count / 2])
     }
 
-    /// Differing pixels inside a box: how a glyph on a filled ground is measured. The active chip's
-    /// ground already differs from the backdrop at every pixel of the title box, so an ink count
-    /// saturates and reads the same with the name drawn or blanked.
-    func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep, in box: NSRect) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for y in Int(box.minY)..<min(a.pixelsHigh, Int(box.maxY)) {
-            for x in Int(box.minX)..<min(a.pixelsWide, Int(box.maxX)) {
-                guard let pa = a.colorAt(x: x, y: y), let pb = b.colorAt(x: x, y: y) else { continue }
-                if abs(pa.redComponent - pb.redComponent) > 0.01
-                    || abs(pa.greenComponent - pb.greenComponent) > 0.01
-                    || abs(pa.blueComponent - pb.blueComponent) > 0.01 { differing += 1 }
-            }
-        }
-        return differing
-    }
-
-    func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        PixelDiff.differingPixels(a, b, tolerance: 0.01)
-    }
-
     // MARK: The positive control
 
     /// Everything below asserts ink somewhere. A harness that rendered an empty canvas would make
@@ -199,7 +148,7 @@ import Design
             let live = render(items: [item("Finance", active: true), item("Photos")],
                               width: 620, scheme: scheme)
             let parked = render(items: [item("Finance"), item("Photos")], width: 620, scheme: scheme)
-            #expect(differingPixels(live, parked) > 300,
+            #expect(PixelDiff.differingPixels(live, parked, tolerance: 0.01) > 300,
                     "nothing distinguishes the live tab from a parked one in \(scheme)")
         }
     }
@@ -301,10 +250,11 @@ import Design
                                                scale: 1)
         #expect(layout.rung == .compact, "this fixture is meant to be on the squeezed rung")
 
+        // Differential: the active chip's ground inks the whole title box, so an ink count saturates.
         let named = render(items: five(firstTitle: "Finance"), width: 340)
         let blank = render(items: five(firstTitle: ""), width: 340)
         let box = titleBox(of: named, tabWidth: layout.tabWidth)
-        #expect(differingPixels(named, blank, in: box) > 100,
+        #expect(PixelDiff.differingPixels(named, blank, tolerance: 0.01, in: box) > 100,
                 "the chip's name is not drawn at the floor width")
     }
 
@@ -327,7 +277,7 @@ import Design
                                   item("Documents", mark: "folder.fill")], width: 620)
         let mixed = render(items: [item("Documents", active: true, mark: "folder.fill"),
                                    item("Documents", mark: "externaldrive.fill")], width: 620)
-        #expect(differingPixels(same, mixed) > 30,
+        #expect(PixelDiff.differingPixels(same, mixed, tolerance: 0.01) > 30,
                 "the two chips render identically — the provider mark is not being drawn")
     }
 
@@ -345,7 +295,7 @@ import Design
         let blank = render(items: [item("", active: true), item("Photos"), item("Legal"),
                                    item("Medical"), item("Finance")], width: 220)
         let box = titleBox(of: named, tabWidth: layout.tabWidth)
-        #expect(differingPixels(named, blank, in: box) > 100,
+        #expect(PixelDiff.differingPixels(named, blank, tolerance: 0.01, in: box) > 100,
                 "the chip rung drew no name for the active tab")
     }
 
@@ -367,7 +317,7 @@ import Design
         // and reads like "the count is not drawn".
         let countBox = NSRect(x: CGFloat(many.pixelsWide) * 0.52, y: 0,
                               width: CGFloat(many.pixelsWide) * 0.20, height: CGFloat(many.pixelsHigh))
-        #expect(differingPixels(many, few, in: countBox) > 20,
+        #expect(PixelDiff.differingPixels(many, few, tolerance: 0.01, in: countBox) > 20,
                 "the chip rung draws no count — nothing says the other tabs exist")
         // And not merely a smudge: a clipped digit would pass the check above, so the count's ink
         // is compared against the empty band beside it.
@@ -380,14 +330,13 @@ import Design
     /// View ▸ Tab Bar at one tab draws a real chip, not a bare ＋. One tab usually draws no strip,
     /// but that is the pane's decision; this switch exists to show one anyway.
     @Test(.machinePinned(.pixelSampling)) func aOneTabStripDrawsItsTab() {
-        let rep = render(items: [item("Finance", active: true)], width: 620)
         let named = render(items: [item("Finance", active: true)], width: 620)
         let blank = render(items: [item("", active: true)], width: 620)
-        #expect(inked(rep) > 200, "a one-tab strip drew almost nothing")
+        #expect(inked(named) > 200, "a one-tab strip drew almost nothing")
         let box = titleBox(of: named,
                            tabWidth: PaneTabStripLadder.layout(available: 620 - 10,
                                                                titles: ["Finance"], scale: 1).tabWidth)
-        #expect(differingPixels(named, blank, in: box) > 100,
+        #expect(PixelDiff.differingPixels(named, blank, tolerance: 0.01, in: box) > 100,
                 "the one visible tab has no name drawn on it")
     }
 
@@ -410,7 +359,7 @@ import Design
             y: 0,
             width: PaneTabStripLadder.closeSide * perPoint,
             height: CGFloat(alone.pixelsHigh))
-        #expect(differingPixels(alone, paired, in: closeBox) > 20,
+        #expect(PixelDiff.differingPixels(alone, paired, tolerance: 0.01, in: closeBox) > 20,
                 "the lone tab draws a ✕ that would close the window")
     }
 
@@ -446,7 +395,7 @@ import Design
 
         // The harness control: the same render twice differs nowhere, so a difference below is a
         // difference in what was drawn rather than in how it was drawn.
-        #expect(differingPixels(plain, again, in: slot) == 0,
+        #expect(PixelDiff.differingPixels(plain, again, tolerance: 0.01, in: slot) == 0,
                 "two identical strips differ in the parked chip's close slot — the harness is unstable")
         // The claim.
         let drawn = glyphPixels(plain, from: slotStart, to: slotEnd, ground: ground)
@@ -461,7 +410,7 @@ import Design
                 the pinned tab's glyph is not in this box either — the box is wrong, so the \
                 emptiness above proves nothing
                 """)
-        #expect(differingPixels(plain, pinned, in: slot) > 20)
+        #expect(PixelDiff.differingPixels(plain, pinned, tolerance: 0.01, in: slot) > 20)
     }
 
     // MARK: The chip rung's chevron
@@ -677,16 +626,11 @@ import Design
         let inset = (PaneTabStripLadder.stripHeight - PaneTabStripLadder.tabHeight) / 2
         let bottom = Int((PaneTabStripLadder.stripHeight - inset - rowInset) * perPoint)
         let top = max(0, bottom - Int((PaneTabStripLadder.tabHeight - 2 * rowInset) * perPoint))
-        var count = 0
-        for y in top..<min(rep.pixelsHigh, bottom) {
-            for x in Int(x0 * perPoint)..<min(rep.pixelsWide, Int(x1 * perPoint)) {
-                guard let p = rep.colorAt(x: x, y: y) else { continue }
-                if max(abs(p.redComponent - ground.redComponent),
-                       max(abs(p.greenComponent - ground.greenComponent),
-                           abs(p.blueComponent - ground.blueComponent))) > 0.06 { count += 1 }
-            }
+        let (left, right) = ((x0 * perPoint).rounded(.down), (x1 * perPoint).rounded(.down))
+        return PixelProbe.count(in: rep, CGRect(x: left, y: CGFloat(top), width: right - left,
+                                                height: CGFloat(bottom - top))) {
+            PixelProbe.distance($0, ground) > 0.06
         }
-        return count
     }
 
     // MARK: The reorder drag
@@ -806,11 +750,11 @@ import Design
                           y: 0,
                           width: PaneTabStripLadder.closeSide * perPoint,
                           height: CGFloat(pinned.pixelsHigh))
-        #expect(differingPixels(pinned, plain, in: slot) > 20,
+        #expect(PixelDiff.differingPixels(pinned, plain, tolerance: 0.01, in: slot) > 20,
                 "a pinned tab is drawn exactly like an unpinned one — nothing says it is pinned")
         // The name is untouched: pinning is a position and a protection, not a shrink to mark-only.
         let title = titleBox(of: pinned, tabWidth: width)
-        #expect(differingPixels(pinned, plain, in: title) < 20, "pinning moved the chip's name")
+        #expect(PixelDiff.differingPixels(pinned, plain, tolerance: 0.01, in: title) < 20, "pinning moved the chip's name")
     }
 
     /// Pinned tabs never fold away: they are pinned so they stay reachable, and a folded active tab
@@ -896,6 +840,6 @@ import Design
         .background(Color(red: 0.95, green: 0.95, blue: 0.96))
         .environment(\.colorScheme, .light)
         .environment(\.controlActiveState, .active)
-        return rasterize(subject, width: width, height: height, appearance: nil)
+        return PixelDiff.render(subject, size: CGSize(width: width, height: height), passes: 2)!
     }
 }

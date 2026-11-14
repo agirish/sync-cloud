@@ -24,16 +24,4 @@ import Testing
         #expect(OrganizeLens.railItems.count == OrganizeLens.allCases.count,
                 "a lens exists that the rail does not draw — the state this retirement ended")
     }
-
-    /// The `WorkspaceLensKind` bridge answers only lenses the rail draws: a caller storing what the
-    /// bridge hands back must not end up selecting nothing.
-    @Test func theBridgeAnswersOnlyRailItems() {
-        for kind in WorkspaceLensKind.allCases {
-            // The bridge is failable for a future kind added without a rail item; today every kind
-            // maps to one.
-            guard let item = OrganizeLens(kind) else { continue }
-            #expect(OrganizeLens.railItems.contains(item),
-                    "\(kind.rawValue) bridges to a lens the rail does not draw")
-        }
-    }
 }

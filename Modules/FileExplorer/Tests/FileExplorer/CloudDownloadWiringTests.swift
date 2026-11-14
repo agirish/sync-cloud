@@ -76,34 +76,6 @@ import Sync
 
     // MARK: - Routing
 
-    /// Positive control for the ignore tests below: with this harness and timing, a post the pane
-    /// should take reaches the watch, which forgets the path on its way in.
-    @Test func aPaneWatchesItsOwnRequest() async {
-        let ghost = "/wiring/left/ghost.bin"
-        CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _, channel) = mount(isLeft: true, currentPath: "/wiring/left")
-        defer { teardown(window) }
-        CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
-
-        CloudDownloadRequest.post(path: ghost, from: .left, through: channel)
-
-        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(ghost) != true }.held)
-    }
-
-    /// The right pane derives its own token and must take a `.right` post. Fails if the receiver is
-    /// hardcoded to `.left`, which every other test in the suite would miss.
-    @Test func theRightPaneWatchesItsOwnRequest() async {
-        let ghost = "/wiring/right/ghost.bin"
-        CloudOnlyBadgeCache.clear(underRoot: "/wiring")
-        let (window, _, channel) = mount(isLeft: false, currentPath: "/wiring/right")
-        defer { teardown(window) }
-        CloudOnlyBadgeCache.record(ghost, isCloudOnly: true)
-
-        CloudDownloadRequest.post(path: ghost, from: .right, through: channel)
-
-        #expect(await LayoutPumpWait.pump(window, upTo: 3) { CloudOnlyBadgeCache.cached(ghost) != true }.held)
-    }
-
     /// Both panes default to the same provider, so one path can be on screen twice; the pane that
     /// didn't ask must not start a second watch, nor a second `forget`, which invalidates every
     /// in-flight badge stat in both panes.

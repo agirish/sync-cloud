@@ -748,16 +748,8 @@ import EventsTestSupport
     /// A text view holding `text`, first responder in a window as Edit's document surface, so the
     /// menu bar's `applyMarkup` door finds it. The caller closes the window.
     private static func windowedTextView(_ text: String, allowsUndo: Bool = false) -> (NSWindow, NSTextView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-                              styleMask: [.titled], backing: .buffered, defer: false)
+        let (_, view, window) = EditorTestRigs.markedTextView(text: text, usesFindBar: false, allowsUndo: allowsUndo)
         window.isReleasedWhenClosed = false
-        let scroll = NSTextView.scrollableTextView()
-        scroll.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
-        scroll.identifier = EditorDocumentSurface.identifier
-        window.contentView?.addSubview(scroll)
-        let view = scroll.documentView as! NSTextView
-        if allowsUndo { view.allowsUndo = true }
-        view.string = text
         window.makeFirstResponder(view)
         return (window, view)
     }

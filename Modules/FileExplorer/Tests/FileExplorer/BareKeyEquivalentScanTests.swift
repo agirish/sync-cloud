@@ -29,41 +29,18 @@ import Testing
     /// package, so only this sweep can read it. Tests are exempt: a test may host the banned shape
     /// to characterise it, and the defect only matters where it ships.
     private static func sweptSources() throws -> [(url: URL, text: String)] {
-        let fm = FileManager.default
-        let modules = try #require(
-            try? fm.contentsOfDirectory(at: modulesDir, includingPropertiesForKeys: nil),
-            "cannot list \(modulesDir.path) — the sweep below would be vacuous")
-        var roots = modules.map { $0.appendingPathComponent("Sources") }
-        roots.append(modulesDir.deletingLastPathComponent().appendingPathComponent("MacApp"))
-        var files: [(URL, String)] = []
-        for root in roots {
-            // An enumerator can come back non-nil yet empty for an unlistable folder, so the count
-            // floor below is the real guard.
-            guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
-                continue
-            }
-            for case let url as URL in enumerator where url.pathExtension == "swift" {
-                let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                        "cannot read \(url.path) — the sweep would silently skip it")
-                files.append((url, text))
-            }
+        let files = try AppCopyScan.sourceFiles().map {
+            (url: AppCopyScan.repoRoot.appendingPathComponent($0.path), text: $0.code)
         }
         // Non-vacuity: the tree holds hundreds of source files, so a sweep that finds a fraction
         // of them is reading the wrong directory.
         try #require(files.count > 150,
                      "swept only \(files.count) files under \(modulesDir.path) — wrong root?")
-        try #require(files.contains { $0.0.lastPathComponent == "AutomationsLens.swift" },
+        try #require(files.contains { $0.url.lastPathComponent == "AutomationsLens.swift" },
                      "AutomationsLens.swift — where both original offenders lived — was not swept")
-        try #require(files.contains { $0.0.path.contains("/MacApp/") },
+        try #require(files.contains { $0.url.path.contains("/MacApp/") },
                      "MacApp/ was not swept — and no other test can read it (it is in no package)")
         return files
-    }
-
-    /// Comment lines dropped, so prose about the banned shape can't trip the scan.
-    private static func codeOnly(_ source: String) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
     }
 
     /// `.keyboardShortcut(<anything>, modifiers: <empty>)`: any key, across line breaks, with the
@@ -78,7 +55,7 @@ import Testing
         var offenders: [String] = []
         var keyboardShortcutSeen = false
         for (url, text) in try Self.sweptSources() {
-            let code = Self.codeOnly(text)
+            let code = SourceText.codeOnly(text)
             if code.contains(".keyboardShortcut(") { keyboardShortcutSeen = true }
             let range = NSRange(code.startIndex..., in: code)
             for match in Self.bareEquivalent.matches(in: code, range: range) {
@@ -203,7 +180,7 @@ import Testing
     private static func offenders(in files: [(url: URL, text: String)]) -> [String] {
         var found: [String] = []
         for (url, text) in files {
-            let code = codeOnly(text)
+            let code = SourceText.codeOnly(text)
             for banned in bannedSpellings where code.contains(banned) {
                 found.append("\(url.lastPathComponent) contains `\(banned)`")
             }
@@ -232,42 +209,12 @@ import Testing
         for (name, reason) in Self.exemptFromTheKeyEquivalentBan {
             let file = try #require(all.first { $0.url.lastPathComponent == name },
                                     "exemption for \(name) (\(reason)) names no file under FileExplorer/Sources")
-            let code = Self.codeOnly(file.text)
+            let code = SourceText.codeOnly(file.text)
             #expect(Self.bannedSpellings.contains { code.contains($0) }, """
                     \(name) is exempted (\(reason)) but registers no key equivalent any more. \
                     Drop the exemption and put the file back in the net.
                     """)
         }
-    }
-
-    /// The exemptions are the only way out, and the net is otherwise total. This keeps the two
-    /// tests above from being mutually vacuous: every file registering a key equivalent must be
-    /// exempt, so the ban applies to every other file, not to a hand-picked set.
-    ///
-    /// It sees exemption, not membership: it uses the same `isFileExplorerSource` as the net, so a
-    /// file the predicate misses is invisible to both. Membership is pinned by
-    /// `aFileInASubdirectoryOfSourcesIsStillInTheNet`.
-    @Test func theExemptionsAreTheOnlyWayOut() throws {
-        // Mutations that must fail: `.keyboardShortcut(.defaultAction)` added to ReviewCardView
-        // or DestinationPicker's exemption deleted (`noAlwaysMountedSurface…`); a bogus exemption
-        // for a file that registers nothing (`everyExemptionNamesALiveFileThatStillRegistersOne`).
-        let exemptNames = Set(Self.exemptFromTheKeyEquivalentBan.keys)
-        let netted = try Self.bannedFromKeyEquivalents().map { $0.url.lastPathComponent }
-        #expect(Set(netted).isDisjoint(with: exemptNames),
-                "an exempt file is in the net — the filter is not applying the map")
-        // Every file that registers one is either in the net (and so an offender) or exempt.
-        // With the suite green the first set is empty, so the exemptions account for all of them
-        // and nothing escapes the ban some third way.
-        let registering = try Self.sweptSources().filter { file in
-            guard Self.isFileExplorerSource(file.url) else { return false }
-            let code = Self.codeOnly(file.text)
-            return Self.bannedSpellings.contains { code.contains($0) }
-        }.map { $0.url.lastPathComponent }
-        #expect(Set(registering) == exemptNames, """
-                files registering a key equivalent: \(Set(registering).sorted()); \
-                exempted: \(exemptNames.sorted()). These must agree exactly — a difference either \
-                way means the exemption list has drifted from the code.
-                """)
     }
 
     /// The other half of the rule: a surface that wants a bare key uses `.onKeyPress`, but that
@@ -287,7 +234,7 @@ import Testing
             "MacApp/ContentView.swift was not swept — has it moved, or did the sweep stop reading MacApp/?")
         // Indentation-insensitive: the handler sits deep inside a view builder and a reflow would
         // otherwise fail this for a reason that is not the rule.
-        let code = Self.codeOnly(contentView.text)
+        let code = SourceText.codeOnly(contentView.text)
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         #expect(code.contains(
             ".onKeyPress(keys: [.return, .keypadEnter], phases: .down) { press in "

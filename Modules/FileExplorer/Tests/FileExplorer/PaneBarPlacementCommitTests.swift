@@ -23,104 +23,22 @@ import Sync
 @MainActor
 @Suite struct PaneBarPlacementCommitTests {
 
-    final class Counter {
-        var flips = 0
-    }
+    private typealias Box = PaneBarHostHarness.Box
+    private typealias Counter = PaneBarHostHarness.Counter
 
-    final class Box: ObservableObject {
-        @Published var tree: PaneTree
-        @Published var selection: Set<String> = []
-        @Published var browsePath = PaneBrowsePath()
-        /// What the host's action bar is acting on: the selection `resolveAtTop` reasons from.
-        @Published var hostSelection: Set<String> = []
-        init(tree: PaneTree) { self.tree = tree }
-    }
-
-    private static let root = "/root"
-
-    private static func tree(folders: Int) -> PaneTree {
-        let nodes = (0..<folders).map { i -> FileNode in
-            let dir = "\(root)/folder\(i)"
-            let kids = (0..<4).map { j in
-                FileNode(id: "\(dir)/file\(j)", name: "file\(j)", isDirectory: false)
-            }
-            return FileNode(id: dir, name: "folder\(i)", isDirectory: true, children: kids)
-        }
-        return PaneTree(side: .left, version: 1, nodes: nodes)
-    }
-
-    /// A pane whose host resolves the edge from its own `body` and mounts a bar on the result:
-    /// `ContentView`'s shape, which `ColumnsDisplayCycleTests.TwoPaneHarness` omits.
-    private struct Harness: View {
-        @ObservedObject var box: Box
-        let placement: PaneBarPlacement
-        let index: PaneChildrenIndex
-        let counter: Counter
-        let downloads: NotificationCenter
-        @State private var barAtTop = false
-
-        var body: some View {
-            _ = barAtTop
-            let edge = placement.resolveAtTop(selection: box.hostSelection)
-            return FileTreeView(
-                tree: box.tree,
-                otherTree: PaneTree(side: .right, version: 1, nodes: []),
-                isLoading: false,
-                currentPath: PaneBarPlacementCommitTests.root,
-                selection: $box.selection,
-                otherSelection: [],
-                isLeft: true,
-                delegate: NoOpFileActionDelegate(),
-                placement: placement,
-                onBarEdgeFlip: {
-                    counter.flips += 1
-                    withAnimation(.easeInOut(duration: 0.22)) { barAtTop.toggle() }
-                },
-                viewMode: .columns,
-                childrenIndex: index,
-                browsePath: $box.browsePath,
-                onColumnNavigate: { box.browsePath = $0 },
-                downloadChannel: downloads
-            )
-            .overlay(alignment: edge ? .top : .bottom) {
-                if !box.hostSelection.isEmpty {
-                    Color.clear.frame(height: 44).padding(10)
-                }
-            }
-        }
-    }
-
-    /// Mounted on this suite's own `NotificationCenter`: a mounted `FileTreeView` subscribes to
-    /// `.cloudDownloadRequested` whether it wants it or not. See `docs/flaky-tests.md`, "A mounted
-    /// view is a live subscriber, in every suite at once".
     private func mount(_ box: Box, counter: Counter) -> (NSWindow, PaneBarPlacement) {
-        let placement = PaneBarPlacement()
-        let index = PaneChildrenIndex(tree: box.tree, treeRoot: Self.root)
-        let host = NSHostingView(
-            rootView: Harness(box: box, placement: placement, index: index,
-                              counter: counter, downloads: NotificationCenter())
-        )
-        host.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.contentView = host
-        window.layoutIfNeeded()
-        return (window, placement)
+        PaneBarHostHarness.mount(box, counter: counter)
     }
 
     private func pump(_ window: NSWindow, seconds: Double) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            window.layoutIfNeeded()
-        }
+        PaneBarHostHarness.pump(window, seconds: seconds)
     }
 
     /// The bar's edge changes on a selection change, without a flip callback, because the host
     /// committed it synchronously from `body`. Both halves are asserted: without the first this
     /// would pass over a dormant path, and without the second it wouldn't say what it is for.
     @Test func aSelectionChangeMovesTheEdgeWithoutAskingForAFlip() throws {
-        let box = Box(tree: Self.tree(folders: 40))
+        let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
         // Drops the SwiftUI graph and the pane's live subscription rather than leaving it to ARC.
@@ -172,25 +90,15 @@ import Sync
         await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
     }
 
-    private func columnList(_ window: NSWindow) -> NSScrollView? {
-        var found: [NSScrollView] = []
-        func walk(_ v: NSView) {
-            if let s = v as? NSScrollView, s.documentView is NSTableView { found.append(s) }
-            v.subviews.forEach(walk)
-        }
-        walk(window.contentView!)
-        return found.first
-    }
-
     /// Columns' row bottoms are in the viewport's own space: the first row ends about a row below
     /// the viewport's top. A probe converting into another space (the window's bottom-up one, the
     /// clip's) would be hundreds of points off and the bar would flip early or never; every other
     /// assertion about bottoms is relative and wouldn't notice.
     @Test func columnRowBottomsAreInTheViewportsSpace() async throws {
-        let box = Box(tree: Self.tree(folders: 40))
+        let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let (window, placement) = mount(box, counter: Counter())
         defer { window.contentView = nil }
-        let first = "\(Self.root)/folder0"
+        let first = "\(PaneBarHostHarness.root)/folder0"
         await waitUntil(window) { placement.rowBottoms[first] != nil && placement.viewportHeight > 0 }
         let bottom = try #require(placement.rowBottoms[first], "the first row was never reported")
         let below = bottom - placement.viewportGlobalMinY
@@ -201,7 +109,7 @@ import Sync
     /// to the top; the column then scrolls until that row rises clear of the band, and the bar is
     /// asked back down exactly once.
     @Test func scrollingAColumnFlipsTheBarOnce() async throws {
-        let box = Box(tree: Self.tree(folders: 40))
+        let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
         defer { window.contentView = nil }
@@ -217,7 +125,8 @@ import Sync
         try #require(placement.atTop, "selecting the lowest visible row did not raise the bar")
         #expect(counter.flips == 0, "a selection change asked for a flip")
 
-        let list = try #require(columnList(window), "no column list")
+        let list = try #require(PaneRowRevealTests.scrollViews(window.contentView!).first { $0.documentView is NSTableView },
+                                "no column list")
         let clip = list.contentView
         clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + 160))
         list.reflectScrolledClipView(clip)

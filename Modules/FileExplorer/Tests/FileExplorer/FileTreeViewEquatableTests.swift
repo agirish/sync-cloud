@@ -19,25 +19,9 @@ import Design
 @MainActor
 @Suite struct FileTreeViewEquatableTests {
 
-    private struct StubDelegate: FileActionDelegate {
+    private struct StubDelegate: NoOpFileActions {
         /// Distinguishes two stubs so the delegate half of the comparison can be driven.
         var id: Int = 0
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
         func isEquivalent(to other: FileActionDelegate) -> Bool {
             (other as? StubDelegate)?.id == id
         }
@@ -321,25 +305,7 @@ import Design
     /// and a silent staleness bug.
     @Test("A delegate that has not opted in blocks the gate rather than being assumed equivalent")
     func nonOptedInDelegateBlocksTheGate() {
-        struct Bare: FileActionDelegate {
-            func handleRefresh() {}
-            func handleOpenInEditor(_ path: String) {}
-            func handleFocus(_ node: FileNode) {}
-            func handleCopy(_ nodes: [FileNode]) {}
-            func handleMove(_ nodes: [FileNode]) {}
-            func handleDelete(_ nodes: [FileNode]) {}
-            func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-            func handlePaste(_ targetDir: FileNode) {}
-            func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-            func handlePasteToPath(_ path: String) {}
-            func handleRename(_ node: FileNode) {}
-            func handleCreateFolder(at path: String) {}
-            func handleGetInfo(for path: String) {}
-            func handleSort(_ option: SortOption) {}
-            func handleIgnore(_ nodes: [FileNode]) {}
-            func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-        }
-        #expect(pane(delegate: Bare()) != pane(delegate: Bare()))
+        #expect(pane(delegate: NoOpFileActionDelegate()) != pane(delegate: NoOpFileActionDelegate()))
     }
 
     /// Presence of the host's Quick Look callback decides where the row menu's preview goes: the

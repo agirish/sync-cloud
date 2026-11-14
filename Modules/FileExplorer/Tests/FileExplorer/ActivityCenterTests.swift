@@ -186,18 +186,6 @@ import Sync
         #expect(center.recent[0].isStopped)
     }
 
-    /// A notification for a repeat folded into an earlier row picks out that row.
-    @Test func aFoldedRepeatsNotificationPicksOutItsRow() {
-        let center = ActivityCenter()
-        let first = OperationBanner.success("Copied “a.txt” to Backup")
-        let second = OperationBanner.success("Copied “a.txt” to Backup")
-        center.record(first, finishedRun: nil, seen: false)
-        center.record(second, finishedRun: nil, seen: false)
-        #expect(center.recent.count == 1)
-        center.openWindow(highlighting: second.id)
-        #expect(center.highlighted == center.recent[0].id)
-    }
-
     /// A folded row's Show in Log covers its last repeat too.
     @Test func aFoldedRowsSpanCoversEveryRepeat() {
         let center = ActivityCenter()
@@ -267,17 +255,21 @@ import Sync
         #expect(center.dotHeldFor == nil && !center.showsDot)
     }
 
-    /// The arriving message's row flashes; a repeat folded into an earlier row flashes that row.
+    /// The arriving message's row flashes; a repeat folded into an earlier row flashes that row,
+    /// and a notification for that repeat picks it out too.
     @Test func aFlashPicksOutTheArrivingRowAndFiresOncePerArrival() {
         let center = ActivityCenter()
         let first = OperationBanner.success("Copied “a.txt” to Backup")
         let second = OperationBanner.success("Copied “a.txt” to Backup")
         center.record(first, finishedRun: nil, seen: true)
         center.record(second, finishedRun: nil, seen: true)
+        #expect(center.recent.count == 1)
         center.flashRow(for: second.id)
         #expect(center.flashedRow == center.recent[0].id)
         #expect(center.flashes == 1)
         center.flashRow(for: second.id)
         #expect(center.flashes == 2, "a second arrival of the same row must flash again")
+        center.openWindow(highlighting: second.id)
+        #expect(center.highlighted == center.recent[0].id)
     }
 }

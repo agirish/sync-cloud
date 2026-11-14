@@ -14,15 +14,16 @@ import Foundation
     /// covering range, so a verb reaching past the last covered line fails here.
     @Test func nothingOutsideTheTouchedLinesIsRewritten() {
         let text = "alpha\nbravo\ncharlie\ndelta\necho\n"
-        let ns = text as NSString
         // A selection sitting entirely inside "bravo" and "charlie".
         let selection = NSRange(location: 8, length: 6)
+        var checked = 0
         for (name, prefix) in Self.prefixes {
             guard let edit = MarkdownEdits.prefixLines(text, selection, prefix) else { continue }
+            checked += 1
             #expect(edit.text.hasPrefix("alpha\n"), "\(name) rewrote the line above the selection")
             #expect(edit.text.hasSuffix("delta\necho\n"),
                     "\(name) rewrote the lines below the selection")
-            #expect(ns.length > 0)
         }
+        #expect(checked >= 6, "only \(checked) of \(Self.prefixes.count) prefixes applied, so the rest checked nothing")
     }
 }

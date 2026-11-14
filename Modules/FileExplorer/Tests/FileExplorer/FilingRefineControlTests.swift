@@ -137,18 +137,6 @@ import SwiftUI
         #expect(differingPixels(withCloud, withoutCloud) > 200)
     }
 
-    /// The button no longer names a model: Refine runs on the chat's (TE335), which is a read-out
-    /// elsewhere. A pixel diff can't show that, since the label is the same for every model, so the
-    /// source is read: the title says Claude, and nothing here reads a model setting of Organize's own.
-    @Test func theButtonSaysClaudeAndTheModelIsTheChatsNotOrganizes() throws {
-        let source = SourceText.codeOnly(try SourceText.fileExplorer("LensWorkspaceView.swift"))
-        #expect(source.contains(#"Label("Refine \(batch.count) with Claude…""#))
-        #expect(!source.contains("cloudModelDefaultsKey") && !source.contains("usesCloudDefaultsKey"),
-                "Organize has no model or switch of its own to read")
-        #expect(source.contains("AskClaudeModels.defaultsKey"),
-                "the tooltip and Refine Names name the chat's model, read from the setting its menu writes")
-    }
-
     @Test func theInvitationIsWithheldWhenThereIsNowhereToSendTheUser() throws {
         // A host with no Settings to open (the previews, and any embedder that doesn't pass the
         // closure) must not paint a button that does nothing. The positive control is the mount

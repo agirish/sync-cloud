@@ -19,26 +19,16 @@ import Sync
         )
     }
 
-    @Test func nothingReadYetIsASpinnerNotAClaim() {
-        #expect(column(nil).state == .loading)
-    }
-
-    @Test func aFolderThatCouldNotBeReadDoesNotSayItIsEmpty() {
-        let unreadable = DestinationFolderListing(folders: [], outcome: .unreadable)
-
-        // The words are the user-visible half, so they are asserted, not just "some message".
-        #expect(column(unreadable).state == .message("Can’t be read"))
-        #expect(column(unreadable).state != .message("Empty"))
-    }
-
-    @Test func aFolderWithNoSubfoldersStillSaysEmpty() {
-        let empty = DestinationFolderListing(folders: [], outcome: .listed)
-        #expect(column(empty).state == .message("Empty"))
-    }
-
-    @Test func aFolderWithSubfoldersDrawsRows() {
-        let listed = DestinationFolderListing(
-            folders: [DestinationFolder(path: "/p/Health/Medical")], outcome: .listed)
-        #expect(column(listed).state == .rows)
+    /// Nothing read yet is a spinner, not a claim. A folder that couldn't be read says so in the
+    /// words the column shows, never "Empty"; one with no subfolders still says "Empty".
+    @Test(arguments: [
+        (nil, .loading),
+        (DestinationFolderListing(folders: [], outcome: .unreadable), .message("Can’t be read")),
+        (DestinationFolderListing(folders: [], outcome: .listed), .message("Empty")),
+        (DestinationFolderListing(folders: [DestinationFolder(path: "/p/Health/Medical")], outcome: .listed),
+         .rows),
+    ] as [(DestinationFolderListing?, DestinationColumn.State)])
+    func theColumnDraws(_ listing: DestinationFolderListing?, _ expected: DestinationColumn.State) {
+        #expect(column(listing).state == expected)
     }
 }

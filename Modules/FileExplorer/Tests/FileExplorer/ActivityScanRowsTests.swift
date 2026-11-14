@@ -23,19 +23,19 @@ import Testing
         #expect(shown == [.restructure])
     }
 
-    /// The card and the row read the same state: paused by the Mac, it says so and that it goes on
-    /// by itself; paused by the reader, only that it is paused.
-    @Test func readDocumentsSaysWhoPausedIt() {
-        let started = Date(timeIntervalSince1970: 1_780_315_200)
-        let hot = DocumentSurveyProgress(completed: 40, total: 300, phase: .paused(.thermal),
-                                         startedAt: started, readingSeconds: 60)
-        #expect(DocumentSurveyCardText.title(for: .live(hot)) == "Reading documents · paused at 40 of 300")
-        let reading = DocumentSurveyProgress(completed: 40, total: 300, phase: .reading, currentFolder: "Taxes",
-                                             startedAt: started, readingSeconds: 60)
-        #expect(DocumentSurveyCardText.title(for: .live(reading)) == "Reading documents · 40 of 300")
-        let finishing = DocumentSurveyProgress(completed: 300, total: 300, phase: .finishing,
-                                               startedAt: started, readingSeconds: 60)
-        #expect(DocumentSurveyCardState.live(finishing) == .finishing(done: 300))
+    /// The row says who paused the reading, as the card does: paused by the Mac, it says so and
+    /// that it goes on by itself; paused by the reader, only that it is paused.
+    @Test func readDocumentsSaysWhoPausedIt() throws {
+        let manager = FileSyncManager()
+        for (pause, said) in [(DocumentSurveyPause.thermal, "Paused — the Mac is running hot. Resumes on its own."),
+                              (.user, "Paused.")] {
+            manager.documentSurveyProgress = DocumentSurveyProgress(
+                completed: 40, total: 300, phase: .paused(pause),
+                startedAt: Date(timeIntervalSince1970: 1_780_315_200), readingSeconds: 60)
+            let row = try #require(ActivityScanRows.rows(manager) { _ in }.first)
+            #expect(row.run.title == "Reading documents · paused at 40 of 300")
+            #expect(row.run.detail == said, "paused by \(pause)")
+        }
     }
 
     /// A source's own reading is shown on To File's strip, so its row's Show goes there rather

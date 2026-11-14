@@ -11,20 +11,11 @@ import Design
 @MainActor
 @Suite struct EditorAutosaveTests {
 
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("editor-autosave-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("editor-autosave") }
 
     private func opened(_ contents: String, named name: String = "note.md",
                         in folder: URL) throws -> (EditorDocument, URL) {
-        let url = folder.appendingPathComponent(name)
-        try Data(contents.utf8).write(to: url)
-        let document = EditorDocument()
-        EditorFileStore.load(path: url.path, into: document)
-        return (document, url)
+        try EditorScratchFolder.opened(contents, named: name, in: folder)
     }
 
     @Test func aCleanDocumentIsNotWritten() throws {
@@ -135,18 +126,15 @@ import Design
     /// The debounce key carries the path, not just the version: two documents can share a version,
     /// and `.task(id:)` restarts only when the id changes, so a pending write could land on a file
     /// no longer open.
-    @Test func theDebounceKeyDistinguishesTwoDocumentsAtTheSameVersion() {
+    @Test func theDebounceKeySeparatesDocumentsAndMovesWithAWrite() {
         let a = EditorAutosave.Key(version: 4, path: "/a/one.md")
         let b = EditorAutosave.Key(version: 4, path: "/a/two.md")
         #expect(a != b, "two files at one version share a debounce key — a pending write can land on the wrong one")
         #expect(a == EditorAutosave.Key(version: 4, path: "/a/one.md"))
         // The version still moves it, or typing wouldn't restart the wait.
         #expect(a != EditorAutosave.Key(version: 5, path: "/a/one.md"))
-    }
-
-    /// A write that commits moves the key, so typing whose debounce was turned away while that
-    /// write was out is waited for again rather than left with nothing scheduled.
-    @Test func theDebounceKeyMovesWhenAWriteCommits() {
+        // A write that commits moves the key, so typing whose debounce was turned away while that
+        // write was out is waited for again rather than left with nothing scheduled.
         let before = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 1), size: 4, fileID: 7)
         let after = EditorFileStore.Stamp(modifiedAt: Date(timeIntervalSince1970: 2), size: 9, fileID: 8)
         #expect(EditorAutosave.Key(version: 4, path: "/a/one.md", stamp: before)

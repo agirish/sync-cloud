@@ -92,7 +92,6 @@ import Sync
         let pdfWord = try #require(rowBody.range(of: "Text(Self.kindWord)"))
         let facts = try #require(rowBody.range(of: "ViewThatFits(in: .horizontal)"))
         #expect(pdfWord.lowerBound < facts.lowerBound, "row 2 does not start with \"PDF\"")
-        #expect(!card.contains("Read only\""), "the Read only tag is back")
     }
 
     /// Row 2 sheds whole segments ("Text selectable" first, then the inches, then the paper's name,
@@ -136,18 +135,12 @@ import Sync
         pdf.fill.endEditing()
         try #require(pdf.fill.unsavedCaption == "1 item not saved")
         #expect(abs(drawn() - before) < 0.5, "row 2 changed with an item placed")
-        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
-        #expect(!card.contains("unsavedCaption"), "the header counts Fill & Sign's items again")
     }
 
-    /// No status line under a PDF; a text file keeps its own.
-    @Test func aPDFHasNoStatusLineAndATextFileKeepsOne() throws {
+    /// A text file keeps its status line.
+    @Test func aTextFileKeepsItsStatusLine() throws {
         let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
-        #expect(!workspace.contains("EditorPDFStatusLine"), "the PDF's status line is mounted again")
-        #expect(workspace.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts("), "the text status line went too")
-        for file in ["EditorPDFCard.swift", "EditorPDFCanvas.swift", "EditorPDFCapsule.swift"] {
-            #expect(!(try ChromeGlassWiringTests.source(file)).contains("struct EditorPDFStatusLine"))
-        }
+        #expect(workspace.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts("), "the text status line went")
     }
 
     // MARK: The capsule: where it is
@@ -662,14 +655,6 @@ import Sync
 
     // MARK: Keyboard and VoiceOver
 
-    /// ⌃⌘L reaches the capsule's field, and the header has no page field to compete.
-    @Test func goToPageFocusesTheCapsulesField() throws {
-        let capsule = try ChromeGlassWiringTests.source("EditorPDFCapsule.swift")
-        #expect(capsule.contains(".onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }"))
-        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
-        #expect(!card.contains("pageFieldRequest"), "the header still answers Go to Page…")
-    }
-
     /// After the header in the tab order, and every control named. The canvas is under the header
     /// in the document column, the pages before the capsule and the capsule before the find card;
     /// each of the capsule's buttons and the field has a label VoiceOver reads.
@@ -695,25 +680,10 @@ import Sync
     /// in the window match before and after, in the whole workspace as the column draws it.
     @Test func theFindCardLeavesThePageWhereItWas() async throws {
         let pdf = try await open(pages: 3)
-        let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
-        let window = host(workspace, size: CGSize(width: 900, height: 700))
-        defer { window.contentView = nil }
-        let root = try #require(window.contentView)
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) { (self.descendant(ReaderPDFView.self, in: root)?.bounds.width ?? 0) > 0 }
-        try #require(settled.held, "no page view in the document card")
-        _ = await LayoutPumpWait.pump(window, upTo: 1) { false }
-        let view = try #require(descendant(ReaderPDFView.self, in: root))
-        let page = try #require(pdf.document?.page(at: 0))
-        let frameBefore = inWindow(view)
-        let pageBefore = view.convert(view.convert(page.bounds(for: view.displayBox), from: page), to: nil)
-        pdf.find.show()
-        _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
-        #expect(pdf.find.isShown)
-        let after = try #require(descendant(ReaderPDFView.self, in: root))
-        #expect(after === view, "opening find rebuilt the page view")
-        #expect(inWindow(view) == frameBefore, "opening find moved the pages: \(frameBefore) → \(inWindow(view))")
-        let pageAfter = view.convert(view.convert(page.bounds(for: view.displayBox), from: page), to: nil)
-        #expect(abs(pageAfter.minY - pageBefore.minY) < 0.5 && abs(pageAfter.minX - pageBefore.minX) < 0.5,
-                "opening find moved the page: \(pageBefore) → \(pageAfter)")
+        try await PDFFixtures.expectPageStaysPut(pdf, defaults: defaults, when: "opening find",
+                                                 after: { pdf.find.show() }) { window, _ in
+            _ = await LayoutPumpWait.pump(window, upTo: 2) { false }
+            #expect(pdf.find.isShown)
+        }
     }
 }

@@ -30,23 +30,11 @@ struct OrganizeScopeChipTests {
     /// because the existing assertions were measured in light mode.
     static func render(_ view: some View, width: CGFloat = 320, height: CGFloat = 28,
                        scheme: ColorScheme = .light) -> NSBitmapImageRep {
-        let host = NSHostingView(rootView: AnyView(
-            view.frame(width: width, height: height, alignment: .leading)
-                .background(scheme == .dark ? Color.black : Color.white)
-                .environment(\.colorScheme, scheme)))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        PixelDiff.render(view.frame(width: width, height: height, alignment: .leading)
+                            .background(scheme == .dark ? Color.black : Color.white)
+                            .environment(\.colorScheme, scheme),
+                         size: CGSize(width: width, height: height),
+                         appearance: scheme == .dark ? .darkAqua : .aqua)!
     }
 
     /// Columns carrying any non-background ink, as a set: the chip's painted footprint.
@@ -173,7 +161,7 @@ struct OrganizeScopeChipTests {
     /// and its bottom edge is pinned to the file pane's header↔list boundary, so a summary row past
     /// its 22pt budget shifts a boundary two panes away. Measured off the render, not reasoned from
     /// font sizes.
-    @Test(.machinePinned(.pixelSampling)) func theChipFitsTheSummaryRowsHeightBudget() {
+    @Test(.machinePinned(.layoutMetrics)) func theChipFitsTheSummaryRowsHeightBudget() {
         let host = NSHostingView(rootView: AnyView(Self.chip("Income Tax", folderCount: 3013)))
         let natural = host.fittingSize
         #expect(natural.height > 0, "the chip measured as zero-height — nothing was laid out")

@@ -177,19 +177,6 @@ import Sync
         #expect(monitor.problems == [Self.work.id: .notRunning(.oneDrive)])
     }
 
-    /// An account folder File Provider no longer knows is a leftover whose account is gone: it
-    /// gets nothing, while a live account of the same app does.
-    @Test func aLeftoverAccountFolderShowsNothing() async {
-        let fake = Fake()
-        fake.set(running: .oneDrive, false)
-        fake.set(deadAccount: Self.work.rootPath)
-        let monitor = monitor(fake)
-        await monitor.refresh()
-        fake.now += CloudAppStatusModel.notRunningGrace
-        await monitor.refresh()
-        #expect(monitor.problems == [Self.personal.id: .notRunning(.oneDrive)])
-    }
-
     // MARK: Not responding, iCloud
 
     /// A folder not downloaded here that didn't answer marks the source it is in, and only that
@@ -543,8 +530,10 @@ import Sync
         #expect(model.watchedPaths == ["/x/Report.docx"])
     }
 
-    /// A failed File Provider check is asked again, so a moment it was unavailable doesn't hide
-    /// a source until the next wake; a "known" answer is kept.
+    /// An account folder File Provider no longer knows is a leftover whose account is gone: it
+    /// gets nothing, while a live account of the same app does. A failed check is asked again, so
+    /// a moment it was unavailable doesn't hide a source until the next wake; a "known" answer is
+    /// kept.
     @Test func aFailedAccountCheckIsAskedAgain() async {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -553,7 +542,7 @@ import Sync
         await monitor.refresh()
         fake.now += CloudAppStatusModel.notRunningGrace
         await monitor.refresh()
-        #expect(monitor.problems[Self.work.id] == nil)
+        #expect(monitor.problems == [Self.personal.id: .notRunning(.oneDrive)])
         fake.set(liveAccount: Self.work.rootPath)
         await monitor.refresh()
         #expect(monitor.problems[Self.work.id] == .notRunning(.oneDrive))
@@ -679,9 +668,7 @@ import Sync
     /// at once; the window's own provider restore doesn't, so ContentView's one call is the
     /// Settings one.
     @Test func theUserGesturesAskAndARestoreDoesNot() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
+        let root = AppCopyScan.repoRoot
         func source(_ path: String) throws -> String { try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) }
         let menu = try source("Modules/FileExplorer/Sources/FileExplorer/ProviderMenu.swift")
         #expect(menu.contains("cloudApps.checkNow([id])\n                onSelect(id)"), "a pick does not check before selecting")

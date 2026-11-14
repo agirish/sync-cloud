@@ -13,14 +13,6 @@ import Sync
     typealias Scratch = OneWaySyncControllerTests.Scratch
     static let lastSync: Int64 = 1_789_990_000
 
-    func controller(_ scratch: Scratch, state: OneWaySyncSavedState = OneWaySyncSavedState(lastSyncAt: lastSync))
-        -> (OneWaySyncController, ActivityCenter) {
-        let center = ActivityCenter()
-        let controller = OneWaySyncController(store: nil, center: center, cloudApps: CloudAppMonitor(), refusal: .testRunner)
-        controller.adopt(scratch.record, state: state)
-        return (controller, center)
-    }
-
     /// The scratch record holds Legal/Will.pdf, which isn't on disk: a removal the watcher reports
     /// is a change against that record.
     func noteRemoval(_ controller: OneWaySyncController, _ scratch: Scratch, id: UInt64 = 10) {
@@ -34,7 +26,7 @@ import Sync
     /// Folders takes its count with it, with no batch needed to show it.
     @Test func aNewRecordReachesThePillAtOnce() throws {
         let scratch = try Scratch()
-        let (controller, _) = controller(scratch)
+        let (controller, _) = scratch.controller(state: .init(lastSyncAt: Self.lastSync))
         noteRemoval(controller, scratch)
         #expect(controller.changeTally.count == 1)
         var record = scratch.record
@@ -50,7 +42,7 @@ import Sync
     @Test func theCountSitsBelowPauseAndAboveSynced() throws {
         let scratch = try Scratch()
         let since = Date(timeIntervalSince1970: TimeInterval(Self.lastSync))
-        let (controller, center) = controller(scratch)
+        let (controller, center) = scratch.controller(state: .init(lastSyncAt: Self.lastSync))
         #expect(controller.ladder == .upToDate(asOf: since, skipped: 0))
         noteRemoval(controller, scratch)
         #expect(controller.changeTally == .init(count: 1))
@@ -101,20 +93,16 @@ import Sync
         return try #require(PixelDiff.render(subject, size: size))
     }
 
-    func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        PixelDiff.differingPixels(a, b, tolerance: 0)
-    }
-
     /// The count draws in the app's accent, so Coral and Green differ; "Synced at" keeps its
     /// green whatever the accent — the control that shows the hue reaches the pill at all.
     @Test func theCountDrawsInTheAccent() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch)
+        let (controller, center) = scratch.controller(state: .init(lastSyncAt: Self.lastSync))
         let syncedCoral = try render(controller, center, hue: .coral), syncedGreen = try render(controller, center, hue: .green)
-        #expect(differingPixels(syncedCoral, syncedGreen) == 0, "Synced at took the accent")
+        #expect(PixelDiff.differingPixels(syncedCoral, syncedGreen, tolerance: 0) == 0, "Synced at took the accent")
         noteRemoval(controller, scratch)
         let coral = try render(controller, center, hue: .coral), green = try render(controller, center, hue: .green)
-        #expect(differingPixels(coral, syncedCoral) > 100, "the pill didn't change when changes came in")
-        #expect(differingPixels(coral, green) > 100, "the count's pill isn't in the accent")
+        #expect(PixelDiff.differingPixels(coral, syncedCoral, tolerance: 0) > 100, "the pill didn't change when changes came in")
+        #expect(PixelDiff.differingPixels(coral, green, tolerance: 0) > 100, "the count's pill isn't in the accent")
     }
 }

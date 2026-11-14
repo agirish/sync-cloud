@@ -186,36 +186,23 @@ import Foundation
 
     // MARK: - Root-scoped clear (C11)
 
-    /// One pane's republish must not wipe the answers the other pane's rows still serve from.
-    @MainActor
-    @Test func aScopedClearDropsOnlyEntriesUnderItsRoot() {
-        reset()
-        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
-        CloudOnlyBadgeCache.record("/left/sub/b.bin", isCloudOnly: false)
-        CloudOnlyBadgeCache.record("/right/c.bin", isCloudOnly: true)
-
-        CloudOnlyBadgeCache.clear(underRoot: "/left")
-
-        #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == nil)
-        #expect(CloudOnlyBadgeCache.cached("/left/sub/b.bin") == nil)
-        // The other pane's memo survives.
-        #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == true)
-    }
-
-    /// Prefixes match per path component: `/a/bc` is not under `/a/b`, though a character-wise
-    /// `hasPrefix(root)` would say it is.
+    /// One pane's republish drops every answer under its root, at any depth, and none the other
+    /// pane's rows still serve from. Prefixes match per path component: `/a/bc` is not under
+    /// `/a/b`, though a character-wise `hasPrefix(root)` would say it is.
     @MainActor
     @Test func aScopedClearDoesNotMatchSiblingsSharingACharacterPrefix() {
         reset()
         CloudOnlyBadgeCache.record("/a/bc", isCloudOnly: true)
         CloudOnlyBadgeCache.record("/a/b/child.bin", isCloudOnly: true)
         CloudOnlyBadgeCache.record("/a/b", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/a/b/sub/g.bin", isCloudOnly: false)
 
         CloudOnlyBadgeCache.clear(underRoot: "/a/b")
 
         #expect(CloudOnlyBadgeCache.cached("/a/bc") == true)          // sibling survives
         #expect(CloudOnlyBadgeCache.cached("/a/b/child.bin") == nil)  // descendant dropped
         #expect(CloudOnlyBadgeCache.cached("/a/b") == nil)            // the root itself dropped
+        #expect(CloudOnlyBadgeCache.cached("/a/b/sub/g.bin") == nil)  // a grandchild dropped
     }
 
     /// A root handed in with trailing separators scopes identically to one without. Every one is

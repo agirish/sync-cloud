@@ -12,22 +12,6 @@ import UniformTypeIdentifiers
 
     private static let dir = "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Documents/TODO"
 
-    private static func rows() -> [PaneRow] {
-        let nodes = [
-            FileNode(id: "\(dir)/School", name: "School", isDirectory: true, children: []),
-            FileNode(id: "\(dir)/scan.pdf", name: "scan.pdf", isDirectory: false,
-                     modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
-                     fileSize: 37_000, kind: "com.adobe.pdf"),
-            FileNode(id: "\(dir)/notes.txt", name: "notes.txt", isDirectory: false),
-        ]
-        return PaneRow.project(nodes, side: .left, version: 1)
-    }
-
-    /// The item for one of `rows()`'s files.
-    private static func item(_ name: String) throws -> ColumnPreviewItem {
-        ColumnPreviewItem(node: try #require(rows().first { $0.id == "\(dir)/\(name)" }?.node))
-    }
-
     // MARK: - Whether Quick Look may see it
 
     /// Every case of the classification. The one that matters is a cloud-only placeholder: in
@@ -49,57 +33,39 @@ import UniformTypeIdentifiers
 
     // MARK: - What the preview area says and offers
 
-    /// The user-visible half of `isAwaitingDownload`: a download in flight shows its spinner, not a
-    /// Download button. Tested as values because the rendered form can't be read: SwiftUI builds no
-    /// accessibility tree without an assistive client. Fails if the caption becomes a constant
-    /// `"Not downloaded"` or the control swap `if false`.
-    @Test func aDownloadInFlightSaysSoAndShowsProgressInsteadOfTheOffer() {
-        #expect(ColumnPreviewColumn.caption(source: .cloudOnly, isAwaitingDownload: true)
-                == "Downloading…")
-        #expect(PreviewAccessory.decide(source: .cloudOnly, isAwaitingDownload: true) == .downloading)
-    }
-
-    /// The resting state of a placeholder: say it is not here, and offer to fetch it.
-    @Test func anIdlePlaceholderOffersTheDownload() {
-        #expect(ColumnPreviewColumn.caption(source: .cloudOnly, isAwaitingDownload: false)
-                == "Not downloaded")
-        #expect(PreviewAccessory.decide(source: .cloudOnly, isAwaitingDownload: false) == .offer)
-    }
-
-    /// Only a placeholder has anything to offer. A vanished file can't be fetched; this is
-    /// `testClassify`'s vanished-file rule, at the control.
-    @Test func aVanishedFileSaysSoAndOffersNothing() {
-        #expect(ColumnPreviewColumn.caption(source: .missing, isAwaitingDownload: false)
-                == "This file is no longer here")
-        #expect(PreviewAccessory.decide(source: .missing, isAwaitingDownload: false) == .none)
-    }
-
-    /// A materialized or not-yet-probed file is captionless and bare, the icon alone, so the column
-    /// has content the moment it appears.
-    @Test func aPreviewableOrUnprobedFileIsBare() {
-        for source: ColumnPreviewSource? in [.quickLook, nil] {
-            #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: false) == nil)
-            #expect(PreviewAccessory.decide(source: source, isAwaitingDownload: false) == .none)
-        }
-    }
-
-    /// `isAwaitingDownload` is read only through the classification. The probe for the shown file can
-    /// still be out, and a watch reaching a column that moved on to a local file must not caption it
-    /// "Downloading…" or hide its preview behind a spinner.
-    @Test func aWatchOnAFileThatIsNotAPlaceholderChangesNothing() {
-        for source: ColumnPreviewSource? in [.quickLook, .missing, nil] {
-            #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: true)
-                    == ColumnPreviewColumn.caption(source: source, isAwaitingDownload: false))
-            #expect(PreviewAccessory.decide(source: source, isAwaitingDownload: true) == .none)
-        }
+    /// What the area says and offers, as values because SwiftUI builds no accessibility tree
+    /// without an assistive client. A download in flight shows its spinner, not a Download button;
+    /// an idle placeholder offers the fetch; a vanished file can't be fetched (`testClassify`'s
+    /// vanished-file rule, at the control); a materialized or unprobed file is bare, the icon
+    /// alone. `isAwaitingDownload` is read only through the classification: a watch reaching a
+    /// column that moved on to a local file must not caption it "Downloading…".
+    @Test(arguments: [
+        (ColumnPreviewSource?.some(.cloudOnly), true, "Downloading…", PreviewAccessory.downloading),
+        (.cloudOnly, false, "Not downloaded", .offer),
+        (.missing, false, "This file is no longer here", .none),
+        (.missing, true, "This file is no longer here", .none),
+        (.quickLook, false, nil, .none),
+        (.quickLook, true, nil, .none),
+        (nil, false, nil, .none),
+        (nil, true, nil, .none),
+    ] as [(ColumnPreviewSource?, Bool, String?, PreviewAccessory)])
+    func theAreaSaysAndOffers(source: ColumnPreviewSource?, isAwaitingDownload: Bool,
+                              caption: String?, accessory: PreviewAccessory) {
+        #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: isAwaitingDownload)
+                == caption)
+        #expect(PreviewAccessory.decide(source: source, isAwaitingDownload: isAwaitingDownload)
+                == accessory)
     }
 
     /// Before its own probe completes the column offers nothing, whatever the pane's latch says.
     /// Ties the two instance properties to the statics above: forward either to a constant and this
     /// fails.
     @MainActor
-    @Test func anUnprobedColumnOffersNothing() throws {
-        let item = try Self.item("scan.pdf")
+    @Test func anUnprobedColumnOffersNothing() {
+        let item = ColumnPreviewItem(node: FileNode(
+            id: "\(Self.dir)/scan.pdf", name: "scan.pdf", isDirectory: false,
+            modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
+            fileSize: 37_000, kind: "com.adobe.pdf"))
         let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true)
 
         #expect(column.accessory == .none)

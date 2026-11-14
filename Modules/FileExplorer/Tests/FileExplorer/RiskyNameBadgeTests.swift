@@ -89,25 +89,9 @@ import Sync
 @Suite(.serialized) struct RiskyNameBadgeRoutingTests {
 
     /// Answers from a fixed table, so these cases test the wiring rather than the rules.
-    private struct StubDelegate: FileActionDelegate {
+    private struct StubDelegate: NoOpFileActions {
         var reasons: [String: String] = [:]
         var kept: Set<String> = []
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
         func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
             kept.contains(name) ? nil : reasons[name]
         }

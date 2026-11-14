@@ -295,17 +295,14 @@ import Testing
                                page: 0, pairing: PagePairing(leftPages: 2, rightPages: 2),
                                syncSuspended: false)
         let (host, window) = HostedView.framed(view, size: CGSize(width: 800, height: 500))
-        func views(_ v: NSView) -> [PDFView] {
-            v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
-        }
         // `LayoutPumpWait`, not a wall-clock deadline: the documents arrive on main-actor turns,
         // and under load seconds buy few of them ("Fixed pumps and fixed sleeps",
         // `docs/flaky-tests.md`).
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
-            let found = views(host)
+            let found = pdfViews(host)
             return found.count == 2 && found.allSatisfy { $0.document != nil }
         }
-        let pdfs = views(host)
+        let pdfs = pdfViews(host)
         #expect(held, "the pair never finished loading (\(pumps) pumps, \(pdfs.count) panes)")
         #expect(pdfs.count == 2, "expected two PDF panes, found \(pdfs.count)")
         #expect(pdfs.allSatisfy { $0.document?.pageCount == 2 },
@@ -326,11 +323,8 @@ import Testing
                                page: 0, pairing: PagePairing(leftPages: 2, rightPages: 2),
                                syncSuspended: false)
         let (host, window) = HostedView.framed(view, size: CGSize(width: 400, height: 200))
-        func views(_ v: NSView) -> [PDFView] {
-            v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + views($0) }
-        }
         func clips() -> [NSClipView] {
-            views(host).compactMap { $0.documentView?.enclosingScrollView?.contentView }
+            pdfViews(host).compactMap { $0.documentView?.enclosingScrollView?.contentView }
         }
         // Wait for the clip views, not just the documents: the observer needs the clip view, and
         // it doesn't exist at construction.
@@ -612,12 +606,7 @@ import Testing
     @Test func atTheRealPaneSizeThereIsSomethingToScroll() async throws {
         let fixture = try LetterFixture()
         let (host, window) = mountLetterPair(fixture)
-        // Paced by the PDFKit lane, not by seconds; see `LaneWait`.
-        let (loaded, pumps) = await LaneWait.pump(window) {
-            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
-        }
-        try #require(loaded, "the pair never loaded (\(pumps) lane passes)")
-        for pane in pdfViews(host) {
+        for pane in try await loadedPanes(host, window) {
             let documentHeight = try #require(pane.documentView?.frame.height)
             let clipHeight = try #require(pane.documentView?.enclosingScrollView?.contentView.bounds.height)
             #expect(documentHeight > clipHeight + 1, """
@@ -639,14 +628,10 @@ import Testing
         let fixture = try LetterFixture()
         let reports = PageReports()
         let (host, window) = mountLetterPair(fixture, pageReports: reports)
-        let (loaded, passes) = await LaneWait.pump(window) {
-            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
-        }
-        try #require(loaded, "the pair never loaded (\(passes) lane passes)")
+        let pane = try await loadedPanes(host, window)[0]
         try #require(reports.pages.isEmpty,
                      "a page was reported before anything moved: \(reports.pages)")
 
-        let pane = pdfViews(host)[0]
         let document = try #require(pane.document)
         pane.go(to: try #require(document.page(at: 1)))
 
@@ -667,12 +652,7 @@ import Testing
         let fixture = try LetterFixture()
         let reports = PageReports()
         let (host, window) = mountLetterPair(fixture, pageReports: reports, syncSuspended: true)
-        let (loaded, passes) = await LaneWait.pump(window) {
-            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
-        }
-        try #require(loaded, "the pair never loaded (\(passes) lane passes)")
-
-        let pane = pdfViews(host)[0]
+        let pane = try await loadedPanes(host, window)[0]
         let document = try #require(pane.document)
         pane.go(to: try #require(document.page(at: 1)))
 
@@ -698,10 +678,7 @@ import Testing
                                syncSuspended: false,
                                onPageChange: { reports.record($0) })
         let (host, window) = HostedView.framed(view, size: CGSize(width: 1000, height: 430))
-        let (loaded, passes) = await LaneWait.pump(window) {
-            pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document != nil }
-        }
-        try #require(loaded, "the pair never loaded (\(passes) lane passes)")
+        _ = try await loadedPanes(host, window)
         // Give every notification the surface's own move produces time to arrive.
         _ = await LayoutPumpWait.pump(window, upTo: 3) { false }
         #expect(reports.pages.filter { $0 == 1 }.isEmpty, """
@@ -742,33 +719,29 @@ import Testing
         let box = PageBox(page: 0)
         let (host, window) = HostedView.host(AnyView(
             PagingHarness(box: box, left: fixture.twoPage, right: fixture.twoPageEdited)), size: CGSize(width: 800, height: 500))
-
-        func panes(_ v: NSView) -> [PDFView] {
-            v.subviews.flatMap { [$0].compactMap { $0 as? PDFView } + panes($0) }
-        }
         // Both halves matter: `allSatisfy` is vacuously true on an empty array, so the count is
         // asserted too.
-        try #require(panes(host).count == 2 && panes(host).allSatisfy { $0.document == nil },
+        try #require(pdfViews(host).count == 2 && pdfViews(host).allSatisfy { $0.document == nil },
                      "a document arrived before the turn — this would test the ordinary path")
 
         box.page = 1
         host.layoutSubtreeIfNeeded()
 
         let (loaded, pumps) = await LayoutPumpWait.pump(window, upTo: 5) {
-            let found = panes(host)
+            let found = pdfViews(host)
             return found.count == 2 && found.allSatisfy { $0.document != nil }
         }
         try #require(loaded, "the pair never finished loading (\(pumps) pumps)")
 
         let (turned, turnPumps) = await LayoutPumpWait.pump(window, upTo: 3) {
-            panes(host).allSatisfy { pane in
+            pdfViews(host).allSatisfy { pane in
                 guard let document = pane.document, let current = pane.currentPage else {
                     return false
                 }
                 return document.index(for: current) == 1
             }
         }
-        let landed = panes(host).map { pane -> Int in
+        let landed = pdfViews(host).map { pane -> Int in
             guard let document = pane.document, let current = pane.currentPage else { return -1 }
             return document.index(for: current)
         }

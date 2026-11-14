@@ -17,7 +17,7 @@ import Sync
     @Test(.machinePinned(.pixelSampling)) func theGateSwapsTheCardForTheAnswer() throws {
         let card = try Self.rendered(hasReviewed: false, findings: [Self.finding()])
         let answer = try Self.rendered(hasReviewed: true, findings: [Self.finding()])
-        let differing = Self.differingPixels(card, answer)
+        let differing = PixelDiff.differingPixels(card, answer, tolerance: 0.02)
         #expect(Double(differing) > Double(card.pixelsWide * card.pixelsHigh) * 0.05,
                 "\(differing) pixels separate the setup card from the revealed answer — the launch gate is drawing the same thing either side of itself")
     }
@@ -32,7 +32,7 @@ import Sync
         // of each other, since a sentence with an icon and a two-row card cover similar area.
         // `differingPixels` separates them at about 15%.
         #expect(Self.ink(clean) > 200, "the clean state paints almost nothing — the lens reveals a blank pane")
-        let differing = Self.differingPixels(clean, answer)
+        let differing = PixelDiff.differingPixels(clean, answer, tolerance: 0.02)
         let canvas = clean.pixelsWide * clean.pixelsHigh
         #expect(Double(differing) > Double(canvas) * 0.05,
                 "\(differing) of \(canvas) pixels separate a clean tree from one with findings — the two states are drawing the same thing")
@@ -75,51 +75,17 @@ import Sync
                                  findings: [StructureFinding],
                                  ancestor: [StructureFinding] = []) throws -> NSBitmapImageRep {
         let size = CGSize(width: 420, height: 320)
-        let host = NSHostingView(rootView: AnyView(
+        return try #require(PixelDiff.render(
             RestructureLens(findings: findings, aboutAncestor: ancestor, hasProfile: true,
                             folderCount: 3_013, providerName: "iCloud", accent: .blue,
                             onReveal: { _ in }, hasReviewed: hasReviewed, onReview: {},
                             onUpdateSurvey: {})
                 .frame(width: size.width, height: size.height)
-                .background(Color(nsColor: .windowBackgroundColor))
-        ))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+                .background(Color(nsColor: .windowBackgroundColor)),
+            size: size))
     }
 
     private static func ink(_ rep: NSBitmapImageRep) -> Int {
-        var hits = 0
-        for x in 0..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
-                guard let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if px.redComponent < 0.72 || px.greenComponent < 0.72 || px.blueComponent < 0.72 { hits += 1 }
-            }
-        }
-        return hits
-    }
-
-    private static func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
-        var differing = 0
-        for x in 0..<a.pixelsWide {
-            for y in 0..<a.pixelsHigh {
-                guard let pa = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      let pb = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let d = abs(pa.redComponent - pb.redComponent)
-                    + abs(pa.greenComponent - pb.greenComponent)
-                    + abs(pa.blueComponent - pb.blueComponent)
-                if d > 0.05 { differing += 1 }
-            }
-        }
-        return differing
+        PixelProbe.count(in: rep) { min($0.redComponent, $0.greenComponent, $0.blueComponent) < 0.72 }
     }
 }

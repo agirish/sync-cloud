@@ -41,17 +41,24 @@ import Foundation
 
     // MARK: A root that is merely asleep
 
+    /// One iCloud root with these folders, asleep when `unavailable` is set.
+    static func rootIndex(folders: [String] = [], recent: [String] = [], pinned: [String] = [],
+                          unavailable: String?) -> PaletteIndex {
+        PaletteIndex(
+            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
+            providerRoot: root, folders: folders,
+            recentFolders: recent, pinnedFolders: pinned,
+            foldersUnavailable: unavailable,
+            people: [], registry: nil, isScanning: false, hasSurvey: true)
+    }
+
     /// Under a sleeping root, remembered folders are listed, marked and unrunnable, not dropped.
     /// The root is checked first, so a sleeping drive takes out every recent and pin at once;
     /// dropping them would make "no recents" look the same as "drive not awake". A remembered
     /// folder that has gone is hidden only when the root answered.
     @Test func anAsleepRootListsItsRememberedFoldersMarkedRatherThanHidingThem() throws {
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
-            providerRoot: Self.root, folders: [],
-            recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
-            foldersUnavailable: "Not available",
-            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let index = Self.rootIndex(recent: ["Legal", "Finance/US"], pinned: ["Archive/2019/Legal"],
+                                   unavailable: "Not available")
         let rows = PaletteRouter.rows(query: "", index: index)
         let folders = rows.filter { $0.group == .folders }
 
@@ -65,18 +72,21 @@ import Foundation
         let opening = try #require(PaletteSelection.initialIndex(in: rows))
         #expect(rows[opening].isAvailable, "the palette opens with ↩ aimed at a row it cannot run")
         #expect(rows[opening].group != .folders)
+
+        // The awake control, so the mark is not just "unavailable is whatever we passed": with the
+        // root awake the very same folders are live rows.
+        let awake = PaletteRouter.rows(query: "", index: Self.rootIndex(
+            recent: ["Legal", "Finance/US"], pinned: ["Archive/2019/Legal"], unavailable: nil))
+            .filter { $0.group == .folders }
+        #expect(awake.count == 3)
+        #expect(awake.allSatisfy { $0.isAvailable })
     }
 
     /// A typed query under a sleeping root marks its folders too. `folders` comes from the survey
     /// profile in memory, so it matches with the drive asleep; without the mark, typing one letter
     /// would offer the tree as live destinations and ↩ would reveal a path that isn't there.
     @Test func aTypedQueryUnderAnAsleepRootMarksItsFoldersToo() {
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
-            providerRoot: Self.root, folders: ["Legal", "Archive/2019/Legal"],
-            recentFolders: [], pinnedFolders: [],
-            foldersUnavailable: "Not available",
-            people: [], registry: nil, isScanning: false, hasSurvey: true)
+        let index = Self.rootIndex(folders: ["Legal", "Archive/2019/Legal"], unavailable: "Not available")
         let rows = PaletteRouter.rows(query: "legal", index: index)
         let folders = rows.filter { $0.group == .folders }
 
@@ -88,34 +98,12 @@ import Foundation
             #expect(PaletteSelection.chosen(at: offset, in: rows) == nil,
                     "↩ on \(row.title) still tries to reveal a path under a root that did not answer")
         }
-    }
 
-    /// The awake half of the same query, so the assertion above is not just "unavailable is
-    /// whatever we passed".
-    @Test func aTypedQueryUnderAWakeRootStillOffersItsFolders() {
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
-            providerRoot: Self.root, folders: ["Legal", "Archive/2019/Legal"],
-            recentFolders: [], pinnedFolders: [],
-            foldersUnavailable: nil,
-            people: [], registry: nil, isScanning: false, hasSurvey: true)
-        let folders = PaletteRouter.rows(query: "legal", index: index).filter { $0.group == .folders }
-        #expect(folders.count == 2)
-        #expect(folders.allSatisfy { $0.isAvailable })
-    }
-
-    /// The other side, so the assertion above is not just "unavailable is whatever we passed":
-    /// with the root awake the very same folders are live rows.
-    @Test func aWakeRootListsTheSameFoldersAsRunnable() {
-        let index = PaletteIndex(
-            providers: [PaletteProvider(id: "icloud", name: "iCloud", isMounted: true, isCurrent: true)],
-            providerRoot: Self.root, folders: [],
-            recentFolders: ["Legal", "Finance/US"], pinnedFolders: ["Archive/2019/Legal"],
-            foldersUnavailable: nil,
-            people: [], registry: nil, isScanning: false, hasSurvey: true)
-        let folders = PaletteRouter.rows(query: "", index: index).filter { $0.group == .folders }
-        #expect(folders.count == 3)
-        #expect(folders.allSatisfy { $0.isAvailable })
+        // The awake control: the same query under a root that answered offers live folders.
+        let awake = PaletteRouter.rows(query: "legal", index: Self.rootIndex(
+            folders: ["Legal", "Archive/2019/Legal"], unavailable: nil)).filter { $0.group == .folders }
+        #expect(awake.count == 2)
+        #expect(awake.allSatisfy { $0.isAvailable })
     }
 
     static func routes(_ query: String, _ index: PaletteIndex? = nil) -> [PaletteRoute] {
@@ -128,38 +116,31 @@ import Foundation
 
     // MARK: The lede — free-text routing
 
-    /// A query that is a verb and an object routes to both, in one row: the property that makes
-    /// the palette worth having.
-    @Test func organizeIncomeTaxAimsOrganizeAtThatFolder() {
-        let top = try? #require(Self.first("organize income tax"))
-        #expect(top == .organize(lens: nil, scope: "\(Self.root)/Finance/US/Income Tax"),
-                "the top row for a verb-and-object query was \(String(describing: top))")
-    }
+    /// A query and the route its top row must take.
+    static let firstRoutes: [(query: String, route: PaletteRoute)] = [
+        // A verb and an object route to both, in one row: the property that makes the palette
+        // worth having. Routing to Organize alone would drop the folder silently.
+        ("organize income tax", .organize(lens: nil, scope: "\(root)/Finance/US/Income Tax")),
+        // A lens name is a verb too, and takes a folder like Organize does; the connective is
+        // dropped only between the halves.
+        ("duplicates in Legal", .organize(lens: .duplicates, scope: "\(root)/Legal")),
+        ("duplicates Legal", .organize(lens: .duplicates, scope: "\(root)/Legal")),
+        // A two-word place name is found, object and all; a single-word parse loses this. It
+        // doesn't prove longest-first order: no two-word name's head is also a name (`splitVerb`).
+        ("to file legal", .organize(lens: .toFile, scope: "\(root)/Legal")),
+        // A verb with no object is just the place; Storage, a lens, carries a scope like the rest.
+        ("storage", .organize(lens: .storage, scope: nil)),
+        ("compare", .compare),
+        ("storage legal", .organize(lens: .storage, scope: "\(root)/Legal")),
+        // A `PaletteRoute` case with no `PalettePlace` beside it compiles and routes correctly,
+        // but nothing ever emits a row carrying it.
+        ("browse", .browse),
+    ]
 
-    /// The object must not be dropped: routing to Organize alone would land you there still
-    /// answering about wherever you were, with nothing on screen saying so.
-    @Test func theFolderHalfOfAVerbQueryIsNeverDiscarded() {
-        let rows = PaletteRouter.rows(query: "organize income tax", index: Self.index())
-        let scoped = rows.filter {
-            if case .organize(_, let scope) = $0.route { return scope != nil } else { return false }
-        }
-        #expect(!scoped.isEmpty, "no row carried the folder — the object was dropped")
-        // And it outranks the bare place row, which is also in the results and answers half.
-        let bareIndex = rows.firstIndex { $0.route == .organize(lens: nil, scope: nil) }
-        let scopedIndex = rows.firstIndex { if case .organize(_, .some) = $0.route { return true } else { return false } }
-        if let bareIndex, let scopedIndex {
-            #expect(scopedIndex < bareIndex,
-                    "the row that answers half the query is ranked above the one that answers all of it")
-        }
-    }
-
-    /// A lens name is a verb too, and takes a folder like Organize does.
-    @Test func aLensNameAndAFolderRouteToThatLensScoped() {
-        #expect(Self.first("duplicates in Legal")
-                == .organize(lens: .duplicates, scope: "\(Self.root)/Legal"))
-        // The connective is dropped only between the halves, so this is the same request.
-        #expect(Self.first("duplicates Legal")
-                == .organize(lens: .duplicates, scope: "\(Self.root)/Legal"))
+    @Test(arguments: firstRoutes)
+    func theTopRowTakesTheRoute(_ query: String, _ route: PaletteRoute) {
+        let top = Self.first(query)
+        #expect(top == route, "the top row for “\(query)” was \(String(describing: top))")
     }
 
     /// "rename" reaches Renames, the place that fixes names, even though nothing is called
@@ -175,21 +156,6 @@ import Foundation
         }.count == 1)
     }
 
-    /// A place whose name is two words is found, object and all; a single-word parse loses this
-    /// query. It doesn't prove longest-first order: no two-word name's head is also a name, so the
-    /// direction is unobservable (noted at `splitVerb`).
-    @Test func aTwoWordPlaceNameIsFoundBeforeItsFirstWordCanMisfire() {
-        #expect(Self.first("to file legal")
-                == .organize(lens: .toFile, scope: "\(Self.root)/Legal"))
-    }
-
-    @Test func aVerbWithNoObjectIsJustThePlace() {
-        // "storage" reaches the Storage lens, which carries a scope like every other lens; the
-        // unscoped query lands on the same page.
-        #expect(Self.first("storage") == .organize(lens: .storage, scope: nil))
-        #expect(Self.first("compare") == .compare)
-    }
-
     /// Edit answers to what it does with a PDF: "pdf", "sign" and "fill" reach it, and its line
     /// under the name mentions PDFs, not just text files.
     @Test func editAnswersToItsPDFWords() {
@@ -198,13 +164,6 @@ import Foundation
             #expect(rows.contains { $0.route == .editor }, "“\(query)” does not reach Edit")
         }
         #expect(PalettePlace.editor.detail == "Write in a text file, or fill and sign a PDF")
-    }
-
-    /// Storage, as a lens, takes a folder.
-    @Test func storageTakesAFolderSinceItBecameALens() {
-        #expect(Self.first("storage legal")
-                == .organize(lens: .storage, scope: "\(Self.root)/Legal"),
-                "\"storage <folder>\" no longer carries the folder — the derived lens place has lost its scope route")
     }
 
     /// A folder the tree does not have must not silently become the bare place — that would answer
@@ -270,12 +229,21 @@ import Foundation
                 "a deeper namesake outranked the folder the name means: \(paths)")
     }
 
+    /// Rows that tie on score within a group are ordered by title, so the order never depends on
+    /// the order the builders produced them in. Mutation: drop the title tiebreak.
     @Test func theOrderIsTotalSoTheSameQueryNeverShuffles() {
-        let a = PaletteRouter.rows(query: "fin", index: Self.index()).map(\.id)
-        let b = PaletteRouter.rows(query: "fin", index: Self.index()).map(\.id)
-        #expect(a == b)
-        // Not vacuous: the query really did produce a list to order.
-        #expect(a.count > 2)
+        func row(_ title: String, _ group: PaletteGroup = .folders, score: Int = 100) -> PaletteRow {
+            PaletteRow(id: "\(group)-\(title)", group: group, title: title, symbol: "folder",
+                       route: .folder(path: "/\(title)"), score: score)
+        }
+        let tied = [row("Gamma"), row("Alpha"), row("Beta"), row("Top", score: 200), row("Act", .actions)]
+        let expected = ["Top", "Alpha", "Beta", "Gamma", "Act"]
+        #expect(PaletteRouter.sorted(tied).map(\.title) == expected)
+        #expect(PaletteRouter.sorted(tied.reversed()).map(\.title) == expected)
+        // And a real query's list is a fixed point, whatever order its rows arrive in.
+        let rows = PaletteRouter.rows(query: "fin", index: Self.index())
+        #expect(rows.count > 2, "the query produced no list to order")
+        #expect(PaletteRouter.sorted(rows.reversed()).map(\.id) == rows.map(\.id))
     }
 
     @Test func aDestinationIsNeverListedTwice() {
@@ -294,12 +262,6 @@ import Foundation
         #expect(rows.dropFirst().first?.route == .folder(path: "\(Self.root)/Medical"))
         #expect(rows.contains { $0.route == .compare })
         #expect(rows.contains { $0.route == .organize(lens: .rules, scope: nil) })
-    }
-
-    /// ⌘K reaches Browse by name. A `PaletteRoute` case with no `PalettePlace` beside it compiles
-    /// and routes correctly, but nothing ever emits a row carrying it.
-    @Test func browseIsReachableByName() {
-        #expect(Self.first("browse") == .browse)
     }
 
     /// The words for looking at files, rather than being told about them, reach Browse. "files"

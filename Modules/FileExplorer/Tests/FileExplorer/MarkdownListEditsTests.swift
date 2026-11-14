@@ -55,6 +55,8 @@ struct MarkdownListEditsTests {
         ("9. nine|", "9. nine\n10. "),
         // A leading zero is kept.
         ("01. one|", "01. one\n02. "),
+        // The last number a marker can carry is still counted on to.
+        ("999999998. a|", "999999998. a\n999999999. "),
     ])
     func aNumberCountsOn(_ before: String, _ after: String) {
         #expect(afterReturn(before) == after)
@@ -176,14 +178,18 @@ struct MarkdownListEditsTests {
         #expect(MarkdownListEdits.returnEdit(in: text, selection: selection) == nil)
     }
 
-    /// The front matter's closing line is the boundary: the same `- a` below it is the body's.
-    @Test func belowTheFrontMatterIsTheBody() {
-        #expect(returnEdit("---\ntags: x\n---\n- a|") == .continueWith("- "))
-    }
-
-    /// The fence's closing line is a boundary too.
-    @Test func afterAClosedFenceIsTheBody() {
-        #expect(returnEdit("```\ncode\n```\n- a|") == .continueWith("- "))
+    @Test(arguments: [
+        // The front matter's closing line is the boundary: the same `- a` below it is the body's.
+        "---\ntags: x\n---\n- a|",
+        // The fence's closing line is a boundary too.
+        "```\ncode\n```\n- a|",
+        // A Windows file carries on too.
+        "- a\r\n- b|",
+        // An ideographic space is content to CommonMark: the item is not empty.
+        "- \u{3000}|",
+    ])
+    func theseCarryOnTheList(_ marked: String) {
+        #expect(returnEdit(marked) == .continueWith("- "), "\(marked.debugDescription)")
     }
 
     /// U+2028 is a character to the parser, so the line holding it is one line, on the caret's own
@@ -192,10 +198,6 @@ struct MarkdownListEditsTests {
     @Test func aLineSeparatorInsideALineIsPartOfIt() throws {
         #expect(returnEdit("- a\n- b\u{2028}c|") == .continueWith("- "))
         #expect(try #require(tab("- a\u{2028}x\n- b|")).0 == "- a\u{2028}x\n  - b")
-    }
-
-    @Test func aWindowsFileCarriesOnToo() {
-        #expect(returnEdit("- a\r\n- b|") == .continueWith("- "))
     }
 
     // MARK: - Tab and ⇧Tab
@@ -438,11 +440,6 @@ struct MarkdownListEditsTests {
         // The `.` of `100.` selected; the marker is now `1.`, so the selection collapses onto the
         // end of the new marker: at 6 (line start) + 4 (under `99. `) + 2 (`1.`).
         #expect(after == NSRange(location: 12, length: 0))
-    }
-
-    /// An ideographic space is content to CommonMark: the item is not empty, and is carried on.
-    @Test func anIdeographicSpaceIsNotEmpty() {
-        #expect(returnEdit("- \u{3000}|") == .continueWith("- "))
     }
 
     // MARK: - Found by the second review: whatever moves must read back as the same document
@@ -733,11 +730,6 @@ struct MarkdownListEditsTests {
         #expect(returnEdit("- a|\n\n- b") == .continueWith("- "))
         #expect(returnEdit("- a|\n\npara") == .continueWith("- "))
         #expect(returnEdit("- a\n  - b|\n- c") == .continueWith("  - "))
-    }
-
-    /// The last number a marker can carry is still counted on to.
-    @Test func theLastNineDigitNumberIsCountedOnTo() {
-        #expect(afterReturn("999999998. a|") == "999999998. a\n999999999. ")
     }
 
     // MARK: - Found by the third review

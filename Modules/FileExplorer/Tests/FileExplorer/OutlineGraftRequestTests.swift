@@ -62,25 +62,17 @@ import Sync
         let body = try SourceText.body(of: "var body: some View {", in: outline)
         #expect(body.contains("onNeedChildren(paneRow.node.id, true)"),
                 "the placeholder's appear-time ask is not marked passive — every scroll past re-lists an unreadable folder")
-        #expect(!outline.contains("onNeedChildren(id, true)"),
-                "opening a row asks passively")
     }
 
-    /// A walked folder must not be asked about. Every ordinary directory is this case, so a request
-    /// here would relist the whole tree one folder at a time as the user browses it.
+    /// A walked folder must not be asked about, empty or not: `[]` children and no mark is an
+    /// answer, not an absence. Every ordinary directory is this case, so a request here would
+    /// relist the whole tree one folder at a time as the user browses it.
     @MainActor
-    @Test func openingAWalkedDirectoryAsksForNothing() {
-        let rows = [node("/r/walked", unexplored: false,
-                         children: [node("/r/walked/a", unexplored: false, children: [])])]
-        #expect(requestsWhenExpanding(rows, path: "/r/walked", open: true).isEmpty)
-    }
-
-    /// A genuinely empty walked folder is also not asked about — `[]` children and no mark is an
-    /// answer, not an absence.
-    @MainActor
-    @Test func openingAnEmptyWalkedDirectoryAsksForNothing() {
-        let rows = [node("/r/empty", unexplored: false, children: [])]
-        #expect(requestsWhenExpanding(rows, path: "/r/empty", open: true).isEmpty)
+    @Test(arguments: [("/r/walked", 1), ("/r/empty", 0)] as [(String, Int)])
+    func openingAWalkedDirectoryAsksForNothing(path: String, children: Int) {
+        let rows = [node(path, unexplored: false,
+                         children: (0..<children).map { node("\(path)/\($0)", unexplored: false, children: []) })]
+        #expect(requestsWhenExpanding(rows, path: path, open: true).isEmpty)
     }
 
     /// Closing is not a request. A collapse fires the same setter, and a listing started then is
@@ -110,29 +102,26 @@ import Sync
         PaneOutlineRows<EmptyView>.placeholder(for: row, isLoading: loading, graftsInFlight: inFlight)
     }
 
-    @Test func anEmptyWalkedFolderSaysEmpty() throws {
-        #expect(caption(try row(false, children: []))?.text == "Empty")
-    }
-
-    @Test func anUnreadFolderSaysItCannotBeRead() throws {
-        #expect(caption(try row(true, children: []))?.text == "Can’t be read")
-    }
-
-    /// Being read is not unreadable: a spinner, no words.
-    @Test func aFolderBeingReadShowsASpinner() throws {
-        #expect(caption(try row(true, children: []), inFlight: ["/r/f"]) == .loading)
-    }
-
-    /// While the pane's own walk runs every folder is unexplored; nothing is claimed.
-    @Test func nothingIsSaidWhileThePaneIsLoading() throws {
-        #expect(caption(try row(true, children: []), loading: true) == nil)
-    }
-
-    /// The control: a folder with children, and a file, get no placeholder.
-    @Test func aFolderWithChildrenOrAFileGetsNone() throws {
-        let child = FileNode(id: "/r/f/a", name: "a", isDirectory: false)
-        #expect(caption(try row(false, children: [child])) == nil)
-        #expect(caption(try row(false, children: nil)) == nil)
+    /// Each state by its literal words where it has them. Being read is not unreadable: a spinner,
+    /// no words. While the pane's own walk runs every folder is unexplored, so nothing is claimed.
+    /// The controls: a folder with children, and a file (`children` nil), get no placeholder.
+    @Test(arguments: [
+        (false, 0, false, false, nil, "Empty"),
+        (true, 0, false, false, nil, "Can’t be read"),
+        (true, 0, false, true, .loading, nil),
+        (true, 0, true, false, nil, nil),
+        (false, 1, false, false, nil, nil),
+        (false, nil, false, false, nil, nil),
+    ] as [(Bool, Int?, Bool, Bool, PaneColumnsView.Caption?, String?)])
+    func theCaptionForAnOpenedFolder(unexplored: Bool, children: Int?, loading: Bool, inFlight: Bool,
+                                     expected: PaneColumnsView.Caption?, words: String?) throws {
+        let kids = children.map { n in (0..<n).map { FileNode(id: "/r/f/\($0)", name: "\($0)", isDirectory: false) } }
+        let shown = caption(try row(unexplored, children: kids), loading: loading, inFlight: inFlight ? ["/r/f"] : [])
+        if let words {
+            #expect(shown?.text == words)
+        } else {
+            #expect(shown == expected)
+        }
     }
 
     /// The outline draws the placeholder and the pane hands it what it needs: the outline body must

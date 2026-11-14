@@ -57,19 +57,8 @@ import Sync
             .background(Color.white)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        // Laid out twice before it is cached.
+        return offscreenBitmap(subject, size: size, appearance: .aqua, layoutPasses: 2)
     }
 
     /// Every pixel carrying the accent ground: bluer than white by a clear margin, and not the

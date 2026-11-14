@@ -100,28 +100,11 @@ import Sync
 
     // MARK: - The memo, under a mounted tree pane
 
-    /// The main assertion: mount a pane, render it several times, and require the rules to have run
-    /// exactly once per distinct name the pane asked about, no more (the memo works) and no fewer
-    /// (nothing else is answering). Stated against the pane's own traffic, not a hand-written
-    /// number, so it survives a change in row height or window size.
-    @Test func aMountedPaneEvaluatesEachDistinctNameExactlyOnce() {
-        RiskyNameBadgeCache.resetForTesting()
-        let box = Box()
-        let delegate = BadgeRecordingDelegate(provider: .oneDrive)
-        BadgeEvaluationLog.record { log in
-            let window = mount(box, delegate: delegate)
-            BadgeMemoMount.settle(window)
-            for pass in 0..<6 { renderPass(window, box, selecting: pass) }
-
-            BadgeMemoAssertions.eachDistinctNameEvaluatedOnce(asked: delegate.asked, log: log,
-                                                             pane: "tree")
-            window.close()
-        }
-    }
-
-    /// Re-rendering the pane must be free: the first pass pays for the names it sees, and every
-    /// later pass adds nothing. Zero is exact, which no wall-clock bar can state.
-    @Test func furtherRenderPassesEvaluateNothingNew() {
+    /// Mount a pane and render it six times. The rules run exactly once per distinct name the pane
+    /// asked about (no more: the memo works; no fewer: nothing else answers), every pass after the
+    /// first adds nothing, and the 600 names behind the collapsed folders are never touched: a walk
+    /// of the published tree (~140 ms per publish, on the main actor) would touch them all.
+    @Test func aMountedPaneEvaluatesEachVisibleNameOnceEver() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
         let delegate = BadgeRecordingDelegate(provider: .oneDrive)
@@ -133,33 +116,16 @@ import Sync
             let asksAfterFirst = delegate.asked.count
             for pass in 1..<6 { renderPass(window, box, selecting: pass) }
 
+            BadgeMemoAssertions.eachDistinctNameEvaluatedOnce(asked: delegate.asked, log: log, pane: "tree")
             BadgeMemoAssertions.laterPassesAreFree(afterFirst: afterFirst, asksAfterFirst: asksAfterFirst,
                                                    asked: delegate.asked, log: log, pane: "tree")
-            window.close()
-        }
-    }
-
-    /// The eager-pass guard. The fixture's three collapsed folders hold 600 names no visible row
-    /// shows. A lazy pane never touches them; a walk of the published tree (the up-front index the
-    /// cache's doc comment rejects at ~140 ms per publish) touches all of them, on the main actor,
-    /// on the path that decides how long opening a folder takes.
-    @Test func theCollapsedSubtreeIsNeverEvaluated() {
-        RiskyNameBadgeCache.resetForTesting()
-        let box = Box()
-        let delegate = BadgeRecordingDelegate(provider: .oneDrive)
-        BadgeEvaluationLog.record { log in
-            let window = mount(box, delegate: delegate)
-            BadgeMemoMount.settle(window)
-            for pass in 0..<3 { renderPass(window, box, selecting: pass) }
-
-            BadgeMemoAssertions.theUnopenedSubtreeIsUntouched(asked: delegate.asked, log: log,
-                                                              pane: "tree")
+            BadgeMemoAssertions.theUnopenedSubtreeIsUntouched(asked: delegate.asked, log: log, pane: "tree")
             window.close()
         }
     }
 }
 
-/// The same three claims, against the columns pane.
+/// The same claims, against the columns pane.
 ///
 /// `PaneColumnsView` is the badge's second render call site (`PaneColumnsView.columnRow`), with the
 /// same shape: `riskyNameReason` per row, per pass, evaluated while building the row. The two panes
@@ -226,22 +192,9 @@ import Sync
         BadgeMemoMount.renderPass(window) { box.selection = [BadgeMemoFixture.fileID(index)] }
     }
 
-    @Test func aMountedColumnEvaluatesEachDistinctNameExactlyOnce() {
-        RiskyNameBadgeCache.resetForTesting()
-        let box = Box()
-        let delegate = BadgeRecordingDelegate(provider: .oneDrive)
-        BadgeEvaluationLog.record { log in
-            let window = mount(box, delegate: delegate)
-            BadgeMemoMount.settle(window)
-            for pass in 0..<6 { renderPass(window, box, selecting: pass) }
-
-            BadgeMemoAssertions.eachDistinctNameEvaluatedOnce(asked: delegate.asked, log: log,
-                                                             pane: "columns")
-            window.close()
-        }
-    }
-
-    @Test func furtherRenderPassesEvaluateNothingNew() {
+    /// The same six-pass run against the columns pane: an unopened folder's column doesn't exist,
+    /// so none of the 600 names behind one may be evaluated.
+    @Test func aMountedColumnEvaluatesEachVisibleNameOnceEver() {
         RiskyNameBadgeCache.resetForTesting()
         let box = Box()
         let delegate = BadgeRecordingDelegate(provider: .oneDrive)
@@ -253,25 +206,10 @@ import Sync
             let asksAfterFirst = delegate.asked.count
             for pass in 1..<6 { renderPass(window, box, selecting: pass) }
 
+            BadgeMemoAssertions.eachDistinctNameEvaluatedOnce(asked: delegate.asked, log: log, pane: "columns")
             BadgeMemoAssertions.laterPassesAreFree(afterFirst: afterFirst, asksAfterFirst: asksAfterFirst,
                                                    asked: delegate.asked, log: log, pane: "columns")
-            window.close()
-        }
-    }
-
-    /// The columns pane's eager-pass guard: an unopened folder's column doesn't exist, so none of
-    /// the 600 names behind one may be evaluated.
-    @Test func theUnopenedColumnsAreNeverEvaluated() {
-        RiskyNameBadgeCache.resetForTesting()
-        let box = Box()
-        let delegate = BadgeRecordingDelegate(provider: .oneDrive)
-        BadgeEvaluationLog.record { log in
-            let window = mount(box, delegate: delegate)
-            BadgeMemoMount.settle(window)
-            for pass in 0..<3 { renderPass(window, box, selecting: pass) }
-
-            BadgeMemoAssertions.theUnopenedSubtreeIsUntouched(asked: delegate.asked, log: log,
-                                                              pane: "columns")
+            BadgeMemoAssertions.theUnopenedSubtreeIsUntouched(asked: delegate.asked, log: log, pane: "columns")
             window.close()
         }
     }

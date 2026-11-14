@@ -85,8 +85,11 @@ import Sync
     }
 
     /// A provider switch: two populated panes on one root, then both trees dropped and refilled
-    /// from a different root in a single turn.
-    @Test func testProviderSwitchTreeSwapSettlesWellInsideTheWindowsViewBudget() async throws {
+    /// from a different root in a single turn, as `invalidateComparisonState()` does it. Without
+    /// `refillsLeft`, only the right pane comes back, shallowly: the window is nearly empty, so its
+    /// budget is smallest and a fixed amount of churn is likeliest to exceed it.
+    @Test(arguments: [true, false])
+    func aTreeSwapSettlesWellInsideTheWindowsViewBudget(refillsLeft: Bool) async throws {
         let box = Box(left: Self.tree(side: .left, files: 60),
                       right: Self.tree(side: .right, files: 60),
                       path: Self.root)
@@ -94,18 +97,13 @@ import Sync
         _ = await LayoutPumpWait.pump(window, upTo: 15) {
             PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60]
         }
-
         // Not vacuous: both panes materialised tables with rows in them.
-        let before = PaneLayoutSettle.tableRowCounts(window.contentView!)
-        #expect(before.count == 2, "expected two pane tables, got \(before)")
-        #expect(before.allSatisfy { $0 == 60 }, "panes did not lay out their rows: \(before)")
+        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60])
 
-        // The swap as `invalidateComparisonState()` does it: both trees emptied synchronously, then
-        // refilled from the new root in the same turn.
         box.left = PaneTree(side: .left, version: 2, nodes: [])
         box.right = PaneTree(side: .right, version: 2, nodes: [])
         box.path = "/newroot"
-        box.left = Self.tree(side: .left, files: 19, version: 3)
+        if refillsLeft { box.left = Self.tree(side: .left, files: 19, version: 3) }
         box.right = Self.tree(side: .right, files: 19, version: 3)
 
         let rounds = PaneLayoutSettle.roundsToSettle(window, cap: 400)
@@ -115,30 +113,5 @@ import Sync
         #expect(rounds < views / 4,
                 "tree swap took \(rounds) layout rounds against a \(views)-view window — AppKit raises once passes exceed views")
         #expect(rounds < 400, "tree swap never settled (\(rounds) rounds)")
-    }
-
-    /// The same swap into a nearly empty window: the right pane paints 19 nodes and the left none.
-    /// The budget is smallest here, so a fixed amount of churn is likeliest to exceed it.
-    @Test func testSwapIntoANearlyEmptyWindowStaysInsideItsShrunkenBudget() async throws {
-        let box = Box(left: Self.tree(side: .left, files: 60),
-                      right: Self.tree(side: .right, files: 60),
-                      path: Self.root)
-        let window = mount(box)
-        _ = await LayoutPumpWait.pump(window, upTo: 15) {
-            PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60]
-        }
-        #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [60, 60])
-
-        // Both trees dropped; only the right one comes back, and only shallowly.
-        box.left = PaneTree(side: .left, version: 2, nodes: [])
-        box.right = PaneTree(side: .right, version: 2, nodes: [])
-        box.path = "/newroot"
-        box.right = Self.tree(side: .right, files: 19, version: 3)
-
-        let rounds = PaneLayoutSettle.roundsToSettle(window, cap: 400)
-        let views = PaneLayoutSettle.viewCount(window.contentView!)
-        #expect(rounds < views / 4,
-                "swap into a nearly-empty window took \(rounds) rounds against \(views) views")
-        #expect(rounds < 400, "swap never settled (\(rounds) rounds)")
     }
 }

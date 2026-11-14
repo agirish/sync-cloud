@@ -102,15 +102,6 @@ import FileExplorerTestSupport
 
     // MARK: - The view
 
-    /// `makeNSView` builds the subclass, still on TextKit 2, which `EditorTextSettings` explains
-    /// the editor must not drop off.
-    @Test func theFactoryBuildsTheSubclassOnTextKit2() {
-        let scroll = EditorTextView.scrollableTextView()
-        let view = scroll.documentView as? EditorTextView
-        #expect(view != nil)
-        #expect(view?.textLayoutManager != nil)
-    }
-
     // MARK: - TE54 Return
 
     /// Return and the marker it adds are one undo step, never part of the typing before them, so
@@ -718,10 +709,12 @@ import FileExplorerTestSupport
         #expect(html.view.string == "<details>\nx\n</details>\n\n![](Images/Note-1.png)\n\nmore")
     }
 
-    /// A read-only Markdown note takes no image: the drop is AppKit's, which a read-only view refuses.
-    @Test func aDropOnAReadOnlyNoteIsAppKits() throws {
-        let note = try TestTextFiles.write("x", named: "Note.md")
-        let rig = rig("x", editable: false, importer: note)
+    /// A read-only Markdown note, or a plain-text file, takes no image: the drop is AppKit's, which
+    /// a read-only view refuses.
+    @Test(arguments: [(name: "Note.md", markdown: true, editable: false), (name: "Note.txt", markdown: false, editable: true)])
+    func aDropOnAReadOnlyNoteOrPlainTextIsAppKits(_ file: (name: String, markdown: Bool, editable: Bool)) throws {
+        let note = try TestTextFiles.write("x", named: file.name)
+        let rig = rig("x", markdown: file.markdown, editable: file.editable, importer: note)
         #expect(rig.coordinator.handleDrop(imageFiles: ["/tmp/a.png"], at: 0, in: rig.view) == .notMine)
     }
 
@@ -833,12 +826,6 @@ import FileExplorerTestSupport
         #expect(modeSwitch.contains("previewScrollRequest = EditorScrollRequest(line: caret.line, token: scrollToken)"))
         // A file just opened is parsed at once, so its heading isn't 150ms behind its counts.
         #expect(workspace.contains("if !blocks.isEmpty { try? await Task.sleep(for: .milliseconds(150)) }"))
-    }
-
-    @Test func aDropOnPlainTextIsAppKits() throws {
-        let note = try TestTextFiles.write("x", named: "Note.txt")
-        let rig = rig("x", markdown: false, importer: note)
-        #expect(rig.coordinator.handleDrop(imageFiles: ["/tmp/a.png"], at: 0, in: rig.view) == .notMine)
     }
 
     /// All or nothing: a PDF among the photos makes the whole drop AppKit's, which inserts the

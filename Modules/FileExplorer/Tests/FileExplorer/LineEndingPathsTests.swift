@@ -228,7 +228,8 @@ import EventsTestSupport
         #expect(r.box.text == r.view.string)   // and the document heard about it
     }
 
-    /// A pasted CRLF goes in as LF, in an LF file too: Edit writes nothing but LF.
+    /// A pasted CRLF goes in as LF, in an LF file too: Edit writes nothing but LF. So does a CRLF
+    /// alone, with no lone CR beside it.
     @Test func aPastedCRLFIsWrittenAsLF() {
         let r = rig("one\n", caret: 3)
         let board = board { $0.setString("x\r\ny\rz", forType: .string) }
@@ -236,6 +237,12 @@ import EventsTestSupport
         board.releaseGlobally()
         #expect(r.view.string == "onex\ny\nz\n")
         #expect(r.view.selectedRange() == NSRange(location: 8, length: 0))
+
+        let alone = rig("one\n", caret: 3)
+        let crlf = self.board { $0.setString("x\r\ny", forType: .string) }
+        alone.view.readSelection(from: crlf, type: .string); spin()
+        crlf.releaseGlobally()
+        #expect(alone.view.string == "onex\ny\n")
     }
 
     /// Opening, reading, moving the caret and selecting change nothing: a file is converted by an
@@ -554,15 +561,6 @@ import EventsTestSupport
         spin()
         #expect(r.view.string == text)
         #expect(!r.undo.canUndo)
-    }
-
-    /// A pasted CRLF alone, with no lone CR beside it, is written as LF too.
-    @Test func aPastedCRLFAloneIsWrittenAsLF() {
-        let r = rig("one\n", caret: 3)
-        let board = board { $0.setString("x\r\ny", forType: .string) }
-        r.view.readSelection(from: board, type: .string); spin()
-        board.releaseGlobally()
-        #expect(r.view.string == "onex\ny\n")
     }
 
     /// Text the net writes itself (a paste with a line break, into an empty note) wears the view's

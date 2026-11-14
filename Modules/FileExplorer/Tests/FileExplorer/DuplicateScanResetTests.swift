@@ -6,31 +6,19 @@ import Testing
 /// with no visible cause, or a "Nothing matches" that blames a search that isn't set.
 @Suite struct DuplicateScanResetTests {
 
+    /// Every filter kind, each with a stale search and session credit: each filter hides most
+    /// groups, so any one surviving a rescan is the same defect, and "… freed this session" must
+    /// only ever count the current results' work.
     @Test func aFreshDuplicatesScanClearsEveryNarrowing() {
-        var filter: DuplicateMatchFilter = .versions
-        var query = "kind:pdf"
-        var reclaim = ReclaimTally()
-        reclaim.credit(4_096)
-
-        DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
-
-        // Results pre-narrowed by a choice made against the previous scan misstate what it found.
-        #expect(filter == .all)
-        #expect(query.isEmpty)
-        // "… freed this session" must only ever count the current results' work.
-        #expect(reclaim.totalBytes == 0)
-    }
-
-    /// The reset holds for every filter kind: each hides most groups, so any one surviving a rescan
-    /// is the same defect. The `.all` pass is a clean session, which the reset leaves clean.
-    @Test func everyFilterKindIsRetiredByAScan() {
         for stale: DuplicateMatchFilter in DuplicateMatchFilter.allCases {
             var filter = stale
-            var query = ""
+            var query = "kind:pdf"
             var reclaim = ReclaimTally()
+            reclaim.credit(4_096)
             DuplicateScanReset.duplicatesScanStarted(filter: &filter, searchQuery: &query, reclaim: &reclaim)
             #expect(filter == .all, "\(stale) survived a fresh scan")
-            #expect(query.isEmpty && reclaim.totalBytes == 0)
+            #expect(query.isEmpty)
+            #expect(reclaim.totalBytes == 0)
         }
     }
 }

@@ -63,15 +63,6 @@ import Sync
         #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: []))
         #expect(DifferenceFilter.missingOnRight.matches(d, failedIDs: [d.id]))
     }
-
-    @Test func testDisplayNameWithSpatialFallbackMatchesOriginalLabels() {
-        // With the Left/Right fallback names, the labels read "Left" and "Right".
-        let names = PaneProviderNames.leftRight
-        #expect(DifferenceFilter.missingOnLeft.displayName(leftName: names.left, rightName: names.right) == "Missing on Left")
-        #expect(DifferenceFilter.missingOnRight.displayName(leftName: names.left, rightName: names.right) == "Missing on Right")
-        #expect(DifferenceFilter.changedCopyToRight.displayName(leftName: names.left, rightName: names.right) == "Changed (Left newer)")
-        #expect(DifferenceFilter.changedCopyToLeft.displayName(leftName: names.left, rightName: names.right) == "Changed (Right newer)")
-    }
 }
 
 /// `PaneProviderNames`: pane display names, with same-provider disambiguation.

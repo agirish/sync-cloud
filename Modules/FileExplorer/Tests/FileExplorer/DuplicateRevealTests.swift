@@ -36,7 +36,8 @@ import Sync
     }
 
     /// The file's own group, not just some group: of two groups only one holds the path, so a
-    /// resolver that took the first fails.
+    /// resolver that took the first fails. The path is a non-keeper copy, as the file clicked
+    /// usually is.
     @Test func theGroupHoldingTheFileIsTheOneRevealed() {
         let other = Self.group(["/a/other.txt", "/b/other.txt"], name: "other.txt")
         let mine = Self.group(["/a/x.txt", "/b/x.txt"], name: "x.txt")
@@ -44,16 +45,6 @@ import Sync
             for: DuplicateRevealRequest(path: "/b/x.txt"),
             groups: [other, mine], isScanning: false, scannedRoot: Self.scanned)
         #expect(outcome == .reveal(groupID: mine.id))
-    }
-
-    /// A non-keeper copy anchors as well as the keeper: the file clicked is usually not the one the
-    /// scan would keep.
-    @Test func aNonKeeperCopyRevealsItsGroupToo() {
-        let mine = Self.group(["/a/x.txt", "/b/x.txt"], name: "x.txt")
-        #expect(DuplicateReveal.outcome(for: DuplicateRevealRequest(path: "/b/x.txt"),
-                                        groups: [mine], isScanning: false,
-                                        scannedRoot: Self.scanned)
-                == .reveal(groupID: mine.id))
     }
 
     @Test func aFileInNoGroupIsNamedRatherThanShrugged() {
@@ -66,18 +57,7 @@ import Sync
 
     /// `isScanning` is checked before the groups are searched. During a scan the groups on screen
     /// are the previous scan's, so searching first would answer `notFound` from results that never
-    /// saw the file, and its search query would then filter the new results as they arrive. The
-    /// file is absent from the stale groups here.
-    @Test func aRunningScanWaitsRatherThanAnsweringFromStaleResults() {
-        let outcome = DuplicateReveal.outcome(
-            for: DuplicateRevealRequest(path: "/a/x.txt"),
-            groups: [Self.group(["/a/old.txt", "/b/old.txt"], name: "old.txt")],
-            isScanning: true, scannedRoot: Self.scanned)
-        #expect(outcome == .waiting)
-    }
-
-    /// The same inputs with the scan finished don't answer `.waiting`, or the test above would pass
-    /// against a resolver that never answers anything else.
+    /// saw the file; the same inputs with the scan finished resolve.
     @Test func theSameInputsResolveOnceTheScanEnds() {
         let request = DuplicateRevealRequest(path: "/a/x.txt")
         let groups = [Self.group(["/a/old.txt", "/b/old.txt"], name: "old.txt")]
@@ -260,13 +240,6 @@ import Sync
                                              awaitsScanReplacing: .init(root: nil))
         #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
                                         scannedRoot: nil) == .waiting)
-        #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
-                                        scannedRoot: "/pane") == .notFound(name: "x.txt"))
-    }
-
-    /// A request that didn't start a scan resolves against whatever results are on screen.
-    @Test func aRequestWithoutItsOwnScanResolvesImmediately() {
-        let request = DuplicateRevealRequest(path: "/pane/x.txt")
         #expect(DuplicateReveal.outcome(for: request, groups: [], isScanning: false,
                                         scannedRoot: "/pane") == .notFound(name: "x.txt"))
     }

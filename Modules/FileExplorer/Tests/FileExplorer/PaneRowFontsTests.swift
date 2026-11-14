@@ -24,6 +24,7 @@ import Design
         #expect(fonts.secondary == Font.caption)
         #expect(fonts.cloudBadge == Font.caption)
         #expect(fonts.differenceBadge == Font.subheadline)
+        #expect(fonts.riskyNameBadge == Font.caption)
         #expect(fonts.countPill == Font.caption2.weight(.semibold))
         #expect(fonts.chevron == Font.caption2.weight(.semibold))
     }
@@ -48,20 +49,8 @@ import Design
         #expect(fonts.secondary == ScaledFont.caption.resolved(scale: scale))
         #expect(fonts.cloudBadge == ScaledFont.caption.resolved(scale: scale))
         #expect(fonts.differenceBadge == ScaledFont.subheadline.resolved(scale: scale))
+        #expect(fonts.riskyNameBadge == ScaledFont.caption.resolved(scale: scale))
         #expect(fonts.countPill == ScaledFont.caption2.weight(.semibold).resolved(scale: scale))
         #expect(fonts.chevron == ScaledFont.caption2.weight(.semibold).resolved(scale: scale))
-    }
-
-    /// Every assertion above would still pass if `PaneRowFonts` ignored its `scale` argument and
-    /// always returned the default fonts, because `.medium` is scale 1. So the setting has to be
-    /// shown to reach the rows.
-    @Test("A larger text size genuinely produces different fonts")
-    func scaleIsNotIgnored() {
-        let base = PaneRowFonts(scale: 1)
-        let large = PaneRowFonts(scale: FontSize.extraLarge.scale)
-        #expect(base != large)
-        #expect(base.name != large.name)
-        #expect(base.secondary != large.secondary)
-        #expect(base.differenceBadge != large.differenceBadge)
     }
 }

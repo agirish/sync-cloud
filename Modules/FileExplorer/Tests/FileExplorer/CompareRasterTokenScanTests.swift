@@ -15,22 +15,7 @@ import Foundation
 
     private func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }
 
-    @Test func theOneClearerRotatesTheTokenBeforeItClears() throws {
-        let source = try source()
-        // A rename fails loudly rather than passing.
-        let body = try SourceText.body(of: "private func clearRasters() {", in: source)
-
-        let rotate = try #require(body.range(of: "rasterToken = UUID()"), """
-                `clearRasters` drops the rasters without rotating `rasterToken`, so a render \
-                already in flight still satisfies its own guard and re-fills them
-                """)
-        let clear = try #require(body.range(of: "pageComparison = PageComparison()"),
-                                 "`clearRasters` no longer clears the comparison — re-aim this scan")
-        #expect(rotate.lowerBound < clear.lowerBound,
-                "the token is rotated after the clear, which leaves the same window open")
-    }
-
-    /// And nothing writes that state without rotating the token or standing behind it. A clearer
+    /// Nothing writes that state without rotating the token or standing behind it. A clearer
     /// (`clearRasters`) rotates first; a completion writes only past `guard rasterToken == token`.
     /// A bare `pageComparison = PageComparison()` with neither above it is what a well-meant
     /// "clear it here too" edit looks like.
@@ -62,5 +47,24 @@ import Foundation
                 """)
         #expect(source.components(separatedBy: "clearRasters()").count - 1 >= 3,
                 "the two clearers no longer call `clearRasters` — re-aim this scan")
+    }
+
+    /// `refreshRasters` re-reads its token after the comparison's hop too, not only the render's.
+    /// The comparison runs in a `Task.detached`, which `.task(id:)` cancellation does not reach, so
+    /// a page turn in that time rotates `rasterToken`; without the second guard the superseded
+    /// verdict lands in `heldComparisonKey`, `pageComparison` and the strip's dot. The scan above
+    /// reads each member only up to its first write, which the render's guard already answers.
+    @Test func theComparisonsResultIsGuardedBeforeItIsHeld() throws {
+        let body = try SourceText.body(of: "private func refreshRasters() async {", in: try source())
+        let comparison = try #require(body.range(of: "BitmapDiff.compare"),
+                                      "`refreshRasters` no longer runs the comparison — re-aim this scan")
+        let hop = try #require(body.range(of: "}.value", range: comparison.upperBound..<body.endIndex),
+                               "the comparison is no longer awaited off the main actor — re-aim this scan")
+        let held = try #require(body.range(of: "heldComparisonKey = decodeKey", range: hop.upperBound..<body.endIndex),
+                                "the comparison's result is no longer held — re-aim this scan")
+        #expect(body[hop.upperBound..<held.lowerBound].contains("guard rasterToken == token"), """
+                the comparison's result is written without re-reading `rasterToken` after its hop, \
+                so a verdict for a page already left lands on the strip
+                """)
     }
 }

@@ -4,8 +4,7 @@ import SwiftUI
 @testable import FileExplorer
 
 /// The Contents results, drawn: the rail rendered with the switch on each side, so the results are
-/// seen to paint rather than assumed from the model. The renders are left in the temporary folder
-/// as `rd38-rail-names.png` and `rd38-rail-contents.png` to look at.
+/// seen to paint rather than assumed from the model.
 @MainActor
 @Suite(.serialized) struct EditorRailContentRenderTests {
 
@@ -65,7 +64,7 @@ import SwiftUI
             contentSearch: EditorRailContentSearch(model: model, folder: "/Recipes", onOpen: { _, _ in }))
     }
 
-    private func render<V: View>(_ view: V, named name: String) -> NSBitmapImageRep {
+    private func render<V: View>(_ view: V) -> NSBitmapImageRep {
         let host = NSHostingView(rootView: AnyView(view
             .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .top)
             .background(Color.white)
@@ -82,8 +81,6 @@ import SwiftUI
         host.layoutSubtreeIfNeeded()
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: rep)
-        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("rd38-rail-\(name).png")
-        try? rep.representation(using: .png, properties: [:])?.write(to: url)
         return rep
     }
 
@@ -104,8 +101,8 @@ import SwiftUI
     /// two files and stops; Contents lists the two files that hold the word, their lines and the
     /// Spotlight group, which reach far further down the rail.
     @Test func theContentsResultsPaint() async {
-        let names = render(rail(await seededModel(scope: .names)), named: "names")
-        let contents = render(rail(await seededModel(scope: .contents)), named: "contents")
+        let names = render(rail(await seededModel(scope: .names)))
+        let contents = render(rail(await seededModel(scope: .contents)))
         // The band below the two name rows: empty on Names, the results on Contents.
         let lowNames = ink(names, rows: 190...420)
         let lowContents = ink(contents, rows: 190...420)

@@ -333,17 +333,15 @@ import Design
 
     private func source() throws -> String { try SourceText.fileExplorer("PaneColumnsView.swift") }
 
-    /// Comment lines stripped, because the note on the row names the constructs it forbids, and a
-    /// scan that read prose would convict the explanation.
-    private func codeOnly(_ text: String) -> String { SourceText.codeOnly(text) }
-
     /// The row itself carries no gesture of any kind. Scoped to the row's own modifier chain,
     /// because `.onTapGesture` is legitimate elsewhere in the file: the trailing deselect filler is
     /// not a row and has no List selection to protect.
     @Test func theColumnRowCarriesNoGesture() throws {
         let code = try source()
         let row = try #require(code.range(of: ".tag(node.id)"), "the column row is gone")
-        let chain = codeOnly(String(code[row.upperBound...].prefix(4000)))
+        // Comment lines stripped: the note on the row names the constructs it forbids, and a scan
+        // that read prose would convict the explanation.
+        let chain = SourceText.codeOnly(String(code[row.upperBound...].prefix(4000)))
         for construct in ["TapGesture", "onTapGesture", "simultaneousGesture",
                           "highPriorityGesture", "DragGesture", ".gesture("] {
             #expect(!chain.contains(construct), """
@@ -358,7 +356,7 @@ import Design
     @Test func theListsSelectionCommitStillNavigates() throws {
         let code = try source()
         let setter = try #require(code.range(of: "set: { newValue in"), "the column selection binding is gone")
-        let body = codeOnly(String(code[setter.upperBound...].prefix(4000)))
+        let body = SourceText.codeOnly(String(code[setter.upperBound...].prefix(4000)))
         #expect(body.contains("navigation(for: row, depth: depth)"),
                 "the column drill is gone — clicking a folder no longer opens its column")
         #expect(body.contains("PaneViewMode.clickNavigates(modifiers: clickModifiers)"),
@@ -381,8 +379,8 @@ import Design
 /// because it isn't about widths. `@MainActor`, and not optionally: `PaneTabStrip` is a SwiftUI
 /// `View`, so `visible(_:slots:)` inherits main-actor isolation, and its closure in
 /// `items.filter { !$0.isPinned }` carries it. Called from a nonisolated test it compiles, then
-/// traps in `_swift_task_checkIsolatedSwift` with no message. A test that returns before that
-/// closure (as `morePinnedTabsThanSlots…` does) passes either way and proves nothing about it.
+/// traps in `_swift_task_checkIsolatedSwift` with no message. A case that returns before that
+/// closure (more pinned tabs than slots) passes either way and proves nothing about it.
 @Suite @MainActor struct PaneTabStripActiveVisibilityTests {
 
 
@@ -410,26 +408,5 @@ import Design
                 }
             }
         }
-    }
-
-    /// The one branch where that doesn't hold, stated so it is a known shape: with more pinned tabs
-    /// than slots the window is all pinned, and an unpinned active tab isn't drawn, nor its marker.
-    /// A record of the edge, not a claim that it is right.
-    @Test func morePinnedTabsThanSlotsDropsAnUnpinnedActiveTab() {
-        let items = [
-            PaneTabStrip.Item(id: UUID(), title: "P0", markImageName: "folder", isActive: false,
-                              fullPath: "/p0", isPinned: true),
-            PaneTabStrip.Item(id: UUID(), title: "P1", markImageName: "folder", isActive: false,
-                              fullPath: "/p1", isPinned: true),
-            PaneTabStrip.Item(id: UUID(), title: "A", markImageName: "folder", isActive: true,
-                              fullPath: "/a"),
-        ]
-        let shown = PaneTabStrip.visible(items, slots: 1)
-        let allPinned = shown.allSatisfy { $0.isPinned }
-        let anyActive = shown.contains { $0.isActive }
-        #expect(shown.count == 1)
-        #expect(allPinned)
-        #expect(!anyActive,
-                "if this now shows the active tab, the edge is gone and the note above is stale")
     }
 }

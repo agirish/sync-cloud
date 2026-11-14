@@ -177,7 +177,7 @@ import FileExplorerTestSupport
         window.contentView = host
         defer { window.orderOut(nil) }
         window.layoutIfNeeded()
-        let view = try #require(textView(in: host), "no text view mounted — this test sees nothing")
+        let view = try #require(EditorTestRigs.textView(in: host), "no text view mounted — this test sees nothing")
         reports.rangeCounts = []
         reports.ranges = []
         view.setSelectedRanges([NSValue(range: NSRange(location: 0, length: 5)),
@@ -190,12 +190,6 @@ import FileExplorerTestSupport
     }
 
     // MARK: In the workspace
-
-    private func textView(in view: NSView) -> NSTextView? {
-        if let found = view as? NSTextView { return found }
-        for sub in view.subviews { if let found = textView(in: sub) { return found } }
-        return nil
-    }
 
     /// The bottom of the workspace, the status line, as pixels.
     private func statusStrip(_ host: NSView) -> NSBitmapImageRep? {
@@ -238,7 +232,7 @@ import FileExplorerTestSupport
         let bare = statusStrip(host)
         _ = await LayoutPumpWait.pump(window, upTo: 0) { false }
         try #require(differingPixels(bare, statusStrip(host)) == 0, "the strip moves with nothing selected")
-        let editor = try #require(textView(in: host), "no text view mounted — this test sees nothing")
+        let editor = try #require(EditorTestRigs.textView(in: host), "no text view mounted — this test sees nothing")
 
         editor.setSelectedRange(NSRange(location: 0, length: 7))
         let shown = await LayoutPumpWait.pump(window, upTo: 5) { differingPixels(bare, statusStrip(host)) > 50 }

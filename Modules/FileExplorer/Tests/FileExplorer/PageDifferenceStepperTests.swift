@@ -12,14 +12,10 @@ import Testing
 
     // MARK: Order
 
-    @Test func aStepForwardWalksTheFollowingPagesAndWraps() {
-        #expect(PageDifferenceStepper.searchOrder(from: 2, direction: 1, stripLength: 5)
-                == [3, 4, 0, 1])
-    }
-
-    @Test func aStepBackWalksThePrecedingPagesAndWraps() {
-        #expect(PageDifferenceStepper.searchOrder(from: 2, direction: -1, stripLength: 5)
-                == [1, 0, 4, 3])
+    /// A step forward walks the following pages, a step back the preceding ones, and both wrap.
+    @Test(arguments: [(1, [3, 4, 0, 1]), (-1, [1, 0, 4, 3])])
+    func aStepWalksOnwardAndWraps(direction: Int, order: [Int]) {
+        #expect(PageDifferenceStepper.searchOrder(from: 2, direction: direction, stripLength: 5) == order)
     }
 
     /// The current page is never in the order: a step that could land where it started would read

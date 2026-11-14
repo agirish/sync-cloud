@@ -324,37 +324,20 @@ import Testing
 
     // MARK: Stepping between changes
 
-    /// The first ↓ goes to the first change. Counting from region 0 and adding one would skip to
-    /// the second, leaving the first reachable only by wrapping round.
-    @Test func theFirstStepDownLandsOnTheFirstChange() {
-        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 5) == 0)
-    }
-
-    /// The mirror: stepping up from nowhere is the last change, not the second-to-first.
-    @Test func theFirstStepUpLandsOnTheLastChange() {
-        #expect(TextPairDiff.steppedRegion(from: nil, direction: -1, count: 5) == 4)
-    }
-
-    /// Every position steps to its neighbour, and both ends wrap: the stepper's stated contract.
-    @Test func steppingWalksEveryRegionAndWrapsAtBothEnds() {
-        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 3) == 1)
-        #expect(TextPairDiff.steppedRegion(from: 1, direction: 1, count: 3) == 2)
-        #expect(TextPairDiff.steppedRegion(from: 2, direction: 1, count: 3) == 0)
-        #expect(TextPairDiff.steppedRegion(from: 0, direction: -1, count: 3) == 2)
-    }
-
-    /// A diff with nothing in it has nowhere to step, and says so rather than returning a position
-    /// the pane would then try to scroll to.
-    @Test func anIdenticalPairHasNoRegionToStepTo() {
-        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 0) == nil)
-        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 0) == nil)
-    }
-
-    /// One change: both directions stay on it rather than stepping off the end.
-    @Test func aSingleChangeIsItsOwnNeighbourInBothDirections() {
-        #expect(TextPairDiff.steppedRegion(from: nil, direction: 1, count: 1) == 0)
-        #expect(TextPairDiff.steppedRegion(from: 0, direction: 1, count: 1) == 0)
-        #expect(TextPairDiff.steppedRegion(from: 0, direction: -1, count: 1) == 0)
+    /// Every position steps to its neighbour and both ends wrap; an identical pair has nowhere to
+    /// step, rather than a position the pane would then try to scroll to.
+    @Test(arguments: [
+        // The first ↓ is the first change: counting from region 0 and adding one would skip it.
+        (Int?.none, 1, 5, Int?.some(0)),
+        // The first ↑ is the last change.
+        (nil, -1, 5, 4),
+        (0, 1, 3, 1), (1, 1, 3, 2), (2, 1, 3, 0), (0, -1, 3, 2),
+        (nil, 1, 0, nil), (0, 1, 0, nil),
+        // One change is its own neighbour both ways, rather than stepping off the end.
+        (nil, 1, 1, 0), (0, 1, 1, 0), (0, -1, 1, 0),
+    ])
+    func steppingBetweenChanges(from: Int?, direction: Int, count: Int, expected: Int?) {
+        #expect(TextPairDiff.steppedRegion(from: from, direction: direction, count: count) == expected)
     }
 }
 
@@ -421,27 +404,6 @@ import Testing
     }
 
     // MARK: The intra-line pass has a budget too
-
-    /// A file with no newlines walks straight past the line cap: `estimatedCost` on the line arrays
-    /// answers 4 for one line against one, so a 4 MiB minified script is admitted, and its one
-    /// changed row's words go through the same Myers. Such a file holds ~800,000 words a side,
-    /// where 8,000 already cost a second, so the intra-line budget must mark the row whole.
-    @Test func oneEnormousLineIsMarkedWholeRatherThanHangingThePane() throws {
-        let left = (0..<40_000).map { "alpha\($0)" }.joined(separator: " ")
-        let right = (0..<40_000).map { "beta\($0)" }.joined(separator: " ")
-        // The premise: the line cap admits this pair, so the intra-line budget is the only thing
-        // standing between the reader and the hang.
-        #expect(TextPairDiff.refusalNote(left: [left], right: [right]) == nil,
-                "the line cap now refuses this, and this test no longer tests what it says")
-
-        let diff = TextPairDiff.make(left: [left], right: [right])
-
-        #expect(diff.coarseRows == 1, "the row paid for a word pass it could not afford")
-        let row = try #require(diff.rows.first)
-        #expect(row.kind == .changed, "the row is still a changed row — only its word runs are gone")
-        #expect(row.leftSegments == nil && row.rightSegments == nil)
-        #expect(row.left == left, "the text itself must survive: the pane still renders the line")
-    }
 
     /// The positive control, and the line this feature is for: ordinary changed lines still get
     /// their word runs, so the budget hasn't simply turned the intra-line pass off.

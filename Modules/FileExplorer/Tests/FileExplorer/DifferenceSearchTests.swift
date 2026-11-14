@@ -71,14 +71,6 @@ import Sync
         #expect(query.freeText == ">report kind:")
     }
 
-    // MARK: parse — tokens
-
-    @Test func parsesEachTokenKindAlongsideFreeText() {
-        let query = DifferenceSearch.parse("kind:PDF >10mb only:left budget")
-        #expect(query.tokens == [.kind("pdf"), .sizeAtLeast(10_000_000), .onlyLeft])
-        #expect(query.freeText == "budget")
-    }
-
     // MARK: matching
 
     @Test func kindMatchesExtensionCaseInsensitively() {

@@ -69,13 +69,7 @@ import Sync
     }
 
     private func rowCount(_ view: NSView) -> Int {
-        var n = 0
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { n += t.numberOfRows }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return n
+        PaneLayoutSettle.tableRowCounts(view).reduce(0, +)
     }
 
     /// The distinct heights the list's row views are sitting at. One value means every row settled
@@ -153,7 +147,9 @@ import Sync
             window.setContentSize(NSSize(width: width, height: 600))
             worst = max(worst, PaneLayoutSettle.roundsToSettle(window))
         }
+        let views = PaneLayoutSettle.viewCount(window.contentView!)
         let heights = rowHeights(window.contentView!)
+        #expect(worst < views / 4, "even short names took \(worst) layout rounds against \(views) views")
         #expect(heights.count == 1, "even short names disagreed on height: \(heights.sorted())")
     }
 }

@@ -11,14 +11,9 @@ import Foundation
 
     @Test func aFileOfOneKindReportsThatKind() {
         #expect(EditorLineEnding.detect(in: "a\nb\n") == .lf)
+        // Every CRLF contains a CR, so counting CRs and LFs separately would call this mixed.
         #expect(EditorLineEnding.detect(in: "a\r\nb\r\n") == .crlf)
         #expect(EditorLineEnding.detect(in: "a\rb\r") == .cr)
-    }
-
-    /// Every CRLF contains a CR, so counting CRs and LFs separately would report an ordinary
-    /// Windows file as mixed.
-    @Test func aWindowsFileIsCRLFRatherThanMixed() {
-        #expect(EditorLineEnding.detect(in: "one\r\ntwo\r\nthree\r\n") == .crlf)
     }
 
     @Test func genuinelyMixedIsReportedAsMixed() {
@@ -34,10 +29,6 @@ import Foundation
     @Test func noLineBreakMeansNoAnswer() {
         #expect(EditorLineEnding.detect(in: "one line, no terminator") == nil)
         #expect(EditorLineEnding.detect(in: "") == nil)
-    }
-
-    @Test func aTrailingCarriageReturnIsALoneCR() {
-        #expect(EditorLineEnding.detect(in: "a\r") == .cr)
     }
 
     // MARK: Counts
@@ -104,13 +95,10 @@ import Foundation
 
     // MARK: Captions
 
-    @Test func oneIsSingular() {
+    @Test func oneIsSingularAndZeroAndManyArePlural() {
         let one = EditorDocumentFacts.of("x", encoding: nil)
         #expect(one.wordsCaption == "1 word")
         #expect(one.charactersCaption == "1 character")
-    }
-
-    @Test func zeroAndManyArePlural() {
         let none = EditorDocumentFacts.empty
         #expect(none.wordsCaption == "0 words")
         #expect(none.charactersCaption == "0 characters")

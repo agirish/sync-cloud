@@ -13,12 +13,7 @@ import SwiftUI
 @MainActor
 @Suite(.serialized) struct EditorContentOpenMountedTests {
 
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("content-open-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("content-open") }
 
     private struct Mounted {
         let window: NSWindow
@@ -152,7 +147,7 @@ import SwiftUI
         try Data("nothing to see\n".utf8).write(to: other)
         let document = EditorDocument()
         _ = EditorFileStore.load(path: other.path, into: document)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: ScratchDefaults("EditorContentOpenMountedTests.pdf"))
 
         let model = EditorContentSearchModel()
         model.typingSettle = .milliseconds(1)

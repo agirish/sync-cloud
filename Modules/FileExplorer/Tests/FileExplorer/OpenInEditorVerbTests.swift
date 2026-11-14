@@ -14,41 +14,6 @@ import FileExplorerTestSupport
 @MainActor
 @Suite struct OpenInEditorVerbTests {
 
-    /// A delegate that records the hand-off, so the wiring can be asserted rather than assumed.
-    private final class Recorder: FileActionDelegate, @unchecked Sendable {
-        var opened: [String] = []
-        func handleOpenInEditor(_ path: String) { opened.append(path) }
-        func handleRefresh() {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
-    }
-
-    /// The gate the menu item is written with, over the kinds the rail lists and the kinds it does
-    /// not. This is the classifier alone; that the menu item applies it is asserted by
-    /// `thePredicateAgreesWithTheGateTheRowMenuApplies` below.
-    @Test func theVerbIsOfferedForTextKindsAndNothingElse() {
-        for name in ["notes.md", "readme.txt", "data.json", "run.sh", "Package.swift", "notes.markdown"] {
-            #expect(PairContentKind.classify(path: name) == .text,
-                    "\(name) is not a text kind, so the row menu would not offer the editor")
-        }
-        for name in ["photo.jpg", "paper.pdf", "archive.zip", "clip.mov", "app.dmg"] {
-            #expect(PairContentKind.classify(path: name) != .text,
-                    "\(name) would be offered to a text editor")
-        }
-    }
-
     /// The public predicate the doors outside this package ask, over the whole table.
     /// `PairContentKind` is internal, so the Info inspector and the File menu gate their Open in
     /// Edit on `EditableText.isText`, and it must accept exactly what the row menu's gate accepts.
@@ -60,7 +25,7 @@ import FileExplorerTestSupport
             #expect(EditableText.isText(path: "/a/notes.\(ext)"),
                     "the table lists .\(ext) but the predicate refuses it — a door would withhold it")
         }
-        for name in ["photo.jpg", "report.pdf", "archive.zip", "clip.mov", "Makefile", "/a/Downloads"] {
+        for name in ["photo.jpg", "report.pdf", "archive.zip", "clip.mov", "app.dmg", "Makefile", "/a/Downloads"] {
             #expect(!EditableText.isText(path: name),
                     "\(name) reads as text — a door would offer it and the editor would refuse")
         }
@@ -75,7 +40,7 @@ import FileExplorerTestSupport
     /// nothing for a row Edit can't open, and an empty build has no size, so deleting the item or
     /// dropping the `if` that gates it fails here.
     @Test func thePredicateAgreesWithTheGateTheRowMenuApplies() {
-        let delegate = Recorder()
+        let delegate = NoOpFileActionDelegate()
         for name in ["notes.md", "readme.txt", "Package.swift", "photo.jpg", "report.pdf", "noext"] {
             let drawn = NSHostingView(rootView: AnyView(
                 SharedFileMenuItems.openInEditor(name, delegate: delegate).labelsHidden())).fittingSize.height > 0
@@ -116,7 +81,7 @@ import FileExplorerTestSupport
     /// alone, then matched in the whole menu. No hard-coded pixel counts, so not machine-pinned; it
     /// assumes the three labels measure differently, and fails loudly if they stop.
     @Test func theDrawnMenuPutsOpenInEditAboveGetInfo() throws {
-        let delegate = Recorder()
+        let delegate = NoOpFileActionDelegate()
         let editorWidth = Self.soloWidth(SharedFileMenuItems.openInEditor("/a/notes.md", delegate: delegate))
         let getInfoWidth = Self.soloWidth(SharedFileMenuItems.getInfo(for: "/a/notes.md", delegate: delegate))
         let refreshWidth = Self.soloWidth(SharedFileMenuItems.refresh(delegate: delegate))

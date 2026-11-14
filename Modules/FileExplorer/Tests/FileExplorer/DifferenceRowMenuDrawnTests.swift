@@ -52,13 +52,15 @@ import FileExplorerTestSupport
 
     /// One editor item per side, directly under Compare… and ahead of Get Info: the two-sided text
     /// row draws the `.docx` row's menu with the two items spliced in at index 1, nothing else moved.
-    @Test func aTextRowDrawsOpenInEditPerSideBetweenCompareAndGetInfo() throws {
+    /// A PDF row draws the same; Edit opens it read-only.
+    @Test(arguments: ["notes.md", "report.pdf"])
+    func aTextRowDrawsOpenInEditPerSideBetweenCompareAndGetInfo(_ name: String) throws {
         let left = editorWidth("iCloud"), right = editorWidth("Dropbox")
         #expect(left > 0 && right > 0, "an editor item drew nothing on its own")
         #expect(left != right, "the two sides' labels measure the same, so the order below proves less")
 
         let refused = drawn(row(.differentDates, name: "report.docx"))
-        let text = drawn(row(.differentDates, name: "notes.md"))
+        let text = drawn(row(.differentDates, name: name))
         // The premise: neither editor width appears in the .docx menu, or a splice match could be
         // a coincidence of widths.
         #expect(refused.count >= 9, "the .docx row's menu drew \(refused.count) items — the baseline is wrong")
@@ -67,30 +69,20 @@ import FileExplorerTestSupport
         var expected = refused
         expected.insert(contentsOf: [left, right], at: 1)
         #expect(text == expected,
-                "the text row's menu is not the .docx row's with Open in Edit (iCloud, Dropbox) at index 1: \(text) vs \(refused)")
-    }
-
-    /// A PDF row draws the text row's editor items in the same place; Edit opens it read-only.
-    @Test func aPDFRowDrawsOpenInEditPerSideBetweenCompareAndGetInfo() {
-        let refused = drawn(row(.differentDates, name: "report.docx"))
-        var expected = refused
-        expected.insert(contentsOf: [editorWidth("iCloud"), editorWidth("Dropbox")], at: 1)
-        #expect(drawn(row(.differentDates, name: "report.pdf")) == expected,
-                "the PDF row's menu is not the .docx row's with Open in Edit (iCloud, Dropbox) at index 1")
-        #expect(drawn(row(.missingOnRight, name: "report.pdf")) == [editorWidth("iCloud")] + drawn(row(.missingOnRight, name: "report.docx")),
-                "a PDF row only on iCloud should lead with Open in Edit (iCloud)")
+                "the \(name) row's menu is not the .docx row's with Open in Edit (iCloud, Dropbox) at index 1: \(text) vs \(refused)")
     }
 
     /// A row missing on one side offers one item, and it leads the menu: a one-sided row has no
     /// Compare….
-    @Test func aOneSidedTextRowDrawsOneEditorItemFirst() {
+    @Test(arguments: ["notes.md", "report.pdf"])
+    func aOneSidedTextRowDrawsOneEditorItemFirst(_ name: String) {
         let refused = drawn(row(.missingOnRight, name: "report.docx"))
-        let text = drawn(row(.missingOnRight, name: "notes.md"))
+        let text = drawn(row(.missingOnRight, name: name))
         #expect(text == [editorWidth("iCloud")] + refused,
                 "a row only on iCloud should draw Open in Edit (iCloud) first and nothing else new")
         #expect(!text.contains(editorWidth("Dropbox")), "the missing side is offered to the editor")
 
-        let onlyRight = drawn(row(.missingOnLeft, name: "notes.md"))
+        let onlyRight = drawn(row(.missingOnLeft, name: name))
         #expect(onlyRight.first == editorWidth("Dropbox"), "a row only on Dropbox does not lead with its editor item")
         #expect(!onlyRight.contains(editorWidth("iCloud")), "the missing side is offered to the editor")
     }

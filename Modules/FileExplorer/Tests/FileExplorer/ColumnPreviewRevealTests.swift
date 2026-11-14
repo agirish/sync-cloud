@@ -318,46 +318,8 @@ import Sync
         window.layoutIfNeeded()
     }
 
-    /// Widening the columns pushes the deepest column past the pane's edge while the clip keeps its
-    /// origin; the reveal must follow the divider's commit. Driven by writing the stored width,
-    /// which the drag commits in `onEnded` and the view keys its driver on; a `DragGesture` can't be
-    /// synthesized here.
-    @Test func testWideningTheColumnsKeepsTheDeepestColumnOnScreen() async throws {
-        let mounted = try await mount(paneWidth: 690, depth: 2)
-        defer { _ = mounted.window }
-
-        let deepestBefore = try #require(columnFrames(mounted).last)
-        #expect(deepestBefore.maxX <= visibleSpan(mounted).upperBound + 1,
-                "the deepest column was already hidden before the resize — this test's premise is gone")
-
-        let contentBefore = mounted.stack.documentView?.frame.width ?? 0
-        let originBefore = mounted.stack.contentView.bounds.origin.x
-
-        // A drag that grows every column from 210 to 260, committed.
-        mounted.defaults.set(260.0, forKey: PaneViewMode.columnWidthDefaultsKey)
-        await wait(mounted.window, upTo: 25) {
-            (mounted.stack.documentView?.frame.width ?? 0) > contentBefore
-        }
-        await wait(mounted.window, upTo: 25) {
-            mounted.stack.contentView.bounds.origin.x != originBefore
-        }
-        await settle(mounted)
-
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > contentBefore,
-                "the stored column width never reached the layout (content \(content)pt) — nothing below measures a resize")
-        #expect(content > mounted.stack.contentView.bounds.width,
-                "the widened stack does not overflow its viewport — the reveal is unobservable here, so this is vacuous")
-        let deepest = try #require(columnFrames(mounted).last)
-        let visible = visibleSpan(mounted)
-        #expect(deepest.maxX <= visible.upperBound + 1,
-                "widening the columns pushed the deepest column off screen and nothing revealed it: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
-        #expect(deepest.minX >= visible.lowerBound - 1,
-                "the deepest column is cut off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
-    }
-
-    /// The per-column form of the test above: one column committed wider pushes the deepest past
-    /// the edge, and the driver on the per-column widths, which nothing else fires, reveals it.
+    /// One column committed wider pushes the deepest past the edge, and the driver on the
+    /// per-column widths, which nothing else fires, reveals it.
     @Test func testSizingOneColumnWiderKeepsTheDeepestColumnOnScreen() async throws {
         let mounted = try await mount(paneWidth: 690, depth: 2)
         defer { _ = mounted.window }
@@ -379,10 +341,8 @@ import Sync
         let content = mounted.stack.documentView?.frame.width ?? 0
         #expect(content > contentBefore, "the column's own width never reached the layout — nothing below measures it")
         #expect(content > mounted.stack.contentView.bounds.width, "the stack does not overflow — the reveal is unobservable")
-        let deepest = try #require(columnFrames(mounted).last)
-        let visible = visibleSpan(mounted)
-        #expect(deepest.maxX <= visible.upperBound + 1 && deepest.minX >= visible.lowerBound - 1,
-                "sizing one column wider hid the deepest one: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "sizing one column wider hid the deepest one: \(report)")
     }
 
     /// The stack keeps a gutter after its last column, outside its scroll view, so the viewport and
@@ -476,10 +436,8 @@ import Sync
                 "the wider width never reached the layout (content \(content)pt) — nothing below measures a widening")
         #expect(content > clip.bounds.width,
                 "the widened stack does not overflow its viewport — the reveal is unobservable here")
-        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
-        let visible = visibleSpan(mounted)
-        #expect(deepest.maxX <= visible.upperBound + 1,
-                "widening the columns left the deepest column off screen in a scrolled-back pane: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "widening the columns left the deepest column off screen in a scrolled-back pane: \(report)")
     }
 
     /// The reveal's 0.25s retry must resolve its target when it runs, not when it was scheduled.
@@ -526,10 +484,8 @@ import Sync
         let content = mounted.stack.documentView?.frame.width ?? 0
         #expect(content > clip.bounds.width,
                 "the drilled stack does not overflow its viewport — nothing here could have retreated")
-        let deepest = try #require(frames.last, "no deepest column")
-        let visible = visibleSpan(mounted)
-        #expect(deepest.maxX <= visible.upperBound + 1,
-                "the drill never revealed its deepest column: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        let (visible, report) = try deepestColumnIsVisible(mounted)
+        #expect(visible, "the drill never revealed its deepest column: \(report)")
     }
 
     /// A reveal must wait out the user's in-flight vertical momentum in the same pane, not be
@@ -553,11 +509,7 @@ import Sync
         let (lock, ahead) = try holdStack(mounted)
         let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
 
-        // Drill one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
-        // is off the trailing edge and only a reveal can bring it back.
-        mounted.box.browsePath = Self.browsePath(depth: 3)
-        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
-                     "the drill never opened a fourth column")
+        try await drillToFourColumns(mounted)
 
         // Both reveal attempts happen inside this window and the hold is still engaged throughout.
         let marker = Marker()
@@ -570,12 +522,7 @@ import Sync
         try #require(lock.shouldHoldHorizontalDrift(for: clip),
                      "the hold lapsed early — the reveal was never actually fought")
 
-        // Nothing is vacuous: four columns, and they overflow the viewport.
-        let frames = columnFrames(mounted)
-        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > clip.bounds.width,
-                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+        expectFourOverflowing(mounted)
 
         // The finger leaves and the momentum runs out: `momentumPhase.ended` is how the tracker
         // releases a real flick.
@@ -588,12 +535,9 @@ import Sync
             guard let deepest = self.columnFrames(mounted).last else { return false }
             return deepest.maxX <= self.visibleSpan(mounted).upperBound + 1
         }
-        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
-        let visible = visibleSpan(mounted)
-        #expect(revealed,
-                "the reveal was defeated by the pane's own in-flight gesture and never re-issued: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
-        #expect(deepest.minX >= visible.lowerBound - 1,
-                "the re-issued reveal cut the deepest column off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        let (whole, report) = try deepestColumnIsVisible(mounted)
+        #expect(revealed, "the reveal was defeated by the pane's own in-flight gesture and never re-issued: \(report)")
+        #expect(whole, "the re-issued reveal cut the deepest column off on its leading edge: \(report)")
     }
 
     /// Puts `mounted`'s stack under a hold this test owns, and returns the tracker holding it.
@@ -636,11 +580,7 @@ import Sync
 
         let held = try holdStack(mounted)
 
-        // Drill one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
-        // is off the trailing edge and only a reveal can bring it back.
-        mounted.box.browsePath = Self.browsePath(depth: 3)
-        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
-                     "the drill never opened a fourth column")
+        try await drillToFourColumns(mounted)
 
         // The gesture keeps delivering for the whole plausible span, past both attempts' chains
         // (the retry's starts `revealRetryDelay` later, so it expires last).
@@ -654,12 +594,7 @@ import Sync
         try #require(held.lock.shouldHoldHorizontalDrift(for: clip),
                      "the hold lapsed during the wait — the reveal was never actually made to wait")
 
-        // Nothing is vacuous: four columns, and they overflow the viewport.
-        let frames = columnFrames(mounted)
-        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > clip.bounds.width,
-                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+        expectFourOverflowing(mounted)
 
         // The finger leaves and the momentum runs out.
         held.lock.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0,
@@ -671,10 +606,9 @@ import Sync
             guard let deepest = self.columnFrames(mounted).last else { return false }
             return deepest.maxX <= self.visibleSpan(mounted).upperBound + 1
         }
-        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
-        let visible = visibleSpan(mounted)
+        let (_, report) = try deepestColumnIsVisible(mounted)
         #expect(revealed,
-                "a \(Self.plausibleContinuousGesture)s gesture spent the reveal's deferral budget and the column never came back: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+                "a \(Self.plausibleContinuousGesture)s gesture spent the reveal's deferral budget and the column never came back: \(report)")
     }
 
     /// One frame at 60Hz, the cadence momentum events arrive on, so how far away the next one is
@@ -709,11 +643,7 @@ import Sync
         let gate = try #require(watchdog.holdGate,
                                 "the pane's watchdog carries no gate — there is no chain here to watch")
 
-        // Drill one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
-        // is off the trailing edge and only a reveal can bring it back.
-        mounted.box.browsePath = Self.browsePath(depth: 3)
-        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
-                     "the drill never opened a fourth column")
+        try await drillToFourColumns(mounted)
         // Past both attempts, so the chain that scrolls below is a parked one that waited.
         await pump(mounted.window, seconds: PaneColumnsView.revealRetryDelay + 0.3)
         try #require(clip.bounds.origin.x == 0,
@@ -754,12 +684,7 @@ import Sync
         try #require(await wait(mounted.window, upTo: 5) { gate.hasPendingReveal },
                      "the chain retired while the gesture was delivering again — it asked the gate inside the very gap that made it read false, which is the same outcome as never asking")
 
-        // Nothing is vacuous: four columns, and they overflow the viewport.
-        let frames = columnFrames(mounted)
-        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > clip.bounds.width,
-                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+        expectFourOverflowing(mounted)
 
         // The chain is still bounded; its budget is pinned from both ends in
         // `testTheHoldBudgetIsLongerThanAnyGestureAndShorterThanForever`.
@@ -786,11 +711,7 @@ import Sync
         let gate = try #require(watchdog.holdGate,
                                 "the pane's watchdog carries no gate — there is nothing here to cancel")
 
-        // Drill one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
-        // is off the trailing edge and only a reveal can bring it back.
-        mounted.box.browsePath = Self.browsePath(depth: 3)
-        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
-                     "the drill never opened a fourth column")
+        try await drillToFourColumns(mounted)
 
         // The teardown, landed between the reveal's two attempts.
         try #require(await wait(mounted.window, upTo: 25) { gate.hasPendingReveal },
@@ -803,13 +724,7 @@ import Sync
         try #require(!held.lock.shouldHoldHorizontalDrift(for: clip),
                      "the fixture failed to release the hold — an unmoved stack below would prove only that the hold won")
 
-        // Nothing is vacuous: four columns overflowing the viewport, so a retry that ran would have
-        // somewhere real to scroll to.
-        let frames = columnFrames(mounted)
-        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > clip.bounds.width,
-                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — a retry could not have moved it either way")
+        expectFourOverflowing(mounted)
 
         // Bounded by a queued marker, not the wall clock, and sampled throughout (`maxOriginDrift`).
         let drift = await maxOriginDrift(mounted, from: 0)
@@ -910,9 +825,7 @@ import Sync
         defer { trace.stop() }
         let log = LogCapture()
 
-        mounted.box.browsePath = Self.browsePath(depth: 3)
-        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
-                     "the drill never opened a fourth column")
+        try await drillToFourColumns(mounted)
 
         let marker = Marker()
         DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.5) {
@@ -920,13 +833,7 @@ import Sync
         }
         _ = await wait(mounted.window, upTo: 30) { marker.fired }
 
-        // Nothing is vacuous: four columns overflow the viewport, so a reveal has real distance to
-        // move.
-        let frames = columnFrames(mounted)
-        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
-        let content = mounted.stack.documentView?.frame.width ?? 0
-        #expect(content > clip.bounds.width,
-                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — there is nothing for a reveal to move")
+        expectFourOverflowing(mounted)
 
         // 1. The exhaustion is logged. Read once, not polled: the marker drained after both attempts
         //    (`maxOriginDrift`), so the line is written by now if it ever will be.
@@ -953,6 +860,29 @@ import Sync
                 "the hold budget is \(seconds)s — an ordinary continuous scroll reaches that, and reaching it costs the reveal its wait")
         #expect(seconds <= 120,
                 "the hold budget is \(seconds)s — that is how long one deferred chain can retain a pane that is already gone")
+    }
+
+    /// Drills one deeper: four 210pt columns are 840pt in a 690pt pane, so the new deepest column
+    /// is off the trailing edge and only a reveal can bring it back.
+    private func drillToFourColumns(_ mounted: Mounted,
+                                    sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column", sourceLocation: sourceLocation)
+    }
+
+    /// Nothing is vacuous: four columns, and they overflow the viewport, so a reveal (or a stray
+    /// scroll) has real distance to move.
+    private func expectFourOverflowing(_ mounted: Mounted,
+                                       sourceLocation: SourceLocation = #_sourceLocation) {
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4",
+                sourceLocation: sourceLocation)
+        let viewport = mounted.stack.contentView.bounds.width
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > viewport,
+                "the drilled stack does not overflow its \(viewport)pt viewport (content \(content)pt) — the reveal is unobservable here",
+                sourceLocation: sourceLocation)
     }
 
     /// Whether the deepest column lies wholly inside the clip, with the measurement for a message.

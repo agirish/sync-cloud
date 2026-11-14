@@ -39,7 +39,8 @@ import AppKit
     /// only while `measuring` is true (as the row does under the pointer), and returns every
     /// answer the probe reported.
     private func reports(width: CGFloat, measuring: Bool = true, name: String = longName,
-                         host existing: NSHostingView<AnyView>? = nil, into answers: Box) -> NSHostingView<AnyView> {
+                         host existing: NSHostingView<AnyView>? = nil, into answers: Box) async -> NSHostingView<AnyView> {
+        let before = answers.values.count
         let label = Text(name)
             .lineLimit(1)
             .truncationMode(.middle)
@@ -55,59 +56,53 @@ import AppKit
             window.contentView = host
         }
         host.frame = CGRect(x: 0, y: 0, width: width, height: 40)
-        host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        host.layoutSubtreeIfNeeded()
+        // Measuring: until the answer comes. Not measuring: the floor's worth of passes, so an
+        // absence is bounded by turns, not by the clock (flaky-tests "Fixed pumps and fixed sleeps").
+        _ = await LayoutPumpWait.pump(host, upTo: measuring ? 5 : 0) { measuring && answers.values.count > before }
         return host
     }
 
     final class Box { var values: [Bool] = [] }
 
-    @Test func aNameTooLongForItsWidthReportsCut() {
+    /// The control: the same name with room to spare reports whole — which is what keeps the cut
+    /// cases below from passing on a probe that says "cut" about everything.
+    @Test func aNameWithRoomReportsWhole() async {
         let answers = Box()
-        _ = reports(width: 90, into: answers)
-        #expect(answers.values == [true], "a 90pt label of a 66-character name reported \(answers.values)")
-    }
-
-    /// The control: the same name with room to spare reports whole — which is what keeps the rule
-    /// above from passing on a probe that says "cut" about everything.
-    @Test func aNameWithRoomReportsWhole() {
-        let answers = Box()
-        _ = reports(width: 680, into: answers)
+        _ = await reports(width: 680, into: answers)
         #expect(answers.values == [false], "a 680pt label of the name reported \(answers.values)")
     }
 
     /// A row not under the pointer measures nothing: no answer at all, even for a cut name.
-    @Test func anUnarmedProbeMeasuresNothing() {
+    @Test func anUnarmedProbeMeasuresNothing() async {
         let answers = Box()
-        _ = reports(width: 90, measuring: false, into: answers)
+        _ = await reports(width: 90, measuring: false, into: answers)
         #expect(answers.values.isEmpty, "a probe not measuring reported \(answers.values)")
     }
 
     /// The pointer arriving arms it, and the answer comes at once — the row's tooltip is decided
     /// by the measurement taken on hover.
-    @Test func armingACutNameReportsCut() {
+    @Test func armingACutNameReportsCut() async {
         let answers = Box()
-        let host = reports(width: 90, measuring: false, into: answers)
-        _ = reports(width: 90, measuring: true, host: host, into: answers)
+        let host = await reports(width: 90, measuring: false, into: answers)
+        _ = await reports(width: 90, measuring: true, host: host, into: answers)
         #expect(answers.values == [true], "unarmed then armed reported \(answers.values)")
     }
 
     /// A re-arm reports afresh rather than trusting the last hover's answer: a name cut on one
     /// hover and widened before the next must lose its tooltip.
-    @Test func reArmingAfterAWidenReportsWhole() {
+    @Test func reArmingAfterAWidenReportsWhole() async {
         let answers = Box()
-        let host = reports(width: 90, into: answers)
-        _ = reports(width: 680, measuring: false, host: host, into: answers)
-        _ = reports(width: 680, measuring: true, host: host, into: answers)
+        let host = await reports(width: 90, into: answers)
+        _ = await reports(width: 680, measuring: false, host: host, into: answers)
+        _ = await reports(width: 680, measuring: true, host: host, into: answers)
         #expect(answers.values == [true, false], "cut, widened unarmed, re-armed reported \(answers.values)")
     }
 
     /// Widening a cut name to fit flips it back, so the tooltip goes when the name is whole again.
-    @Test func wideningACutNameReportsWhole() {
+    @Test func wideningACutNameReportsWhole() async {
         let answers = Box()
-        let host = reports(width: 90, into: answers)
-        _ = reports(width: 680, host: host, into: answers)
+        let host = await reports(width: 90, into: answers)
+        _ = await reports(width: 680, host: host, into: answers)
         #expect(answers.values == [true, false], "narrow then wide reported \(answers.values)")
     }
 

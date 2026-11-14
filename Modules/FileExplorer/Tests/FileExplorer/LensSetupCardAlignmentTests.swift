@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import SwiftUI
 import Design
+import DesignTestSupport
 @testable import FileExplorer
 @testable import Sync
 
@@ -112,7 +113,7 @@ import Design
 
     // MARK: Rendering
 
-    static func render<V: View>(_ subject: V, scheme: ColorScheme = .light) -> NSBitmapImageRep {
+    static func render<V: View>(_ subject: V, scheme: ColorScheme = .light) throws -> NSBitmapImageRep {
         let wrapped = subject
             .frame(width: canvas.width, height: canvas.height, alignment: .top)
             .background(backdrop)
@@ -120,21 +121,8 @@ import Design
             // Materials desaturate when the window isn't key, and a borderless test window never
             // is: the same pin `CommandPaletteRenderTests` documents and the real window sets.
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(wrapped))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return try #require(offscreenBitmap(AnyView(wrapped), size: canvas,
+                                            appearance: scheme == .dark ? .darkAqua : .aqua, layoutPasses: 2))
     }
 
     /// The topmost row holding ink, in points from the top of the pane.
@@ -188,51 +176,45 @@ import Design
     /// that lens's trigger a full line below the rest, and prose is edited by people not looking at
     /// five screens side by side, so the check lives here. Rules is included though it has no scan:
     /// its trigger writes the first rule, and it sits in the same rail.
-    @Test(.machinePinned(.pixelSampling)) func everyLensTriggerLandsAtTheSameHeight() {
-        let panes: [(String, Int?)] = [
-            ("To File", Self.firstAccentRow(Self.render(Self.toFilePane()))),
-            ("Duplicates", Self.firstAccentRow(Self.render(Self.duplicatesPane()))),
-            ("Renames", Self.firstAccentRow(Self.render(Self.renamesPane()))),
+    @Test(.machinePinned(.pixelSampling)) func everyLensTriggerLandsAtTheSameHeight() throws {
+        let panes: [(name: String, rep: NSBitmapImageRep)] = [
+            ("To File", try Self.render(Self.toFilePane())),
+            ("Duplicates", try Self.render(Self.duplicatesPane())),
+            ("Renames", try Self.render(Self.renamesPane())),
             // Restructure's reveal card, not its no-survey one, which has no trigger to measure.
             // This card also has a second button beside the trigger and a footnote under the
             // samples, both places a stray point of padding would take it off the line.
-            ("Restructure", Self.firstAccentRow(Self.render(Self.restructureReadyPane()))),
-            ("Rules", Self.firstAccentRow(Self.render(Self.rulesPane()))),
-            ("Storage", Self.firstAccentRow(Self.render(Self.storagePane()))),
+            ("Restructure", try Self.render(Self.restructureReadyPane())),
+            ("Rules", try Self.render(Self.rulesPane())),
+            ("Storage", try Self.render(Self.storagePane())),
         ]
-        for (name, row) in panes {
+        let triggers = panes.map { ($0.name, Self.firstAccentRow($0.rep)) }
+        for (name, row) in triggers {
             #expect(row != nil, """
                     \(name) drew no trigger band — either the button is missing or this harness \
                     stopped recognising it, and neither is an aligned card.
                     """)
         }
-        let rows = panes.compactMap(\.1)
-        guard let first = rows.first else { return }
-        for ((name, _), row) in zip(panes, rows) {
-            #expect(abs(row - first) <= 2, """
-                    \(name)'s trigger starts at \(row)pt against To File's \(first)pt — its \
-                    header is a line taller or shorter than the rest. Keep the message to two \
-                    lines and the safety contract to one.
-                    """)
+        let rows = triggers.compactMap(\.1)
+        if let first = rows.first {
+            for ((name, _), row) in zip(triggers, rows) {
+                #expect(abs(row - first) <= 2, """
+                        \(name)'s trigger starts at \(row)pt against To File's \(first)pt — its \
+                        header is a line taller or shorter than the rest. Keep the message to two \
+                        lines and the safety contract to one.
+                        """)
+            }
         }
-    }
 
-    @Test(.machinePinned(.pixelSampling)) func everyLensOpensAtTheSameHeight() {
-        let panes: [(String, Int?)] = [
-            ("To File", Self.firstInkRow(Self.render(Self.toFilePane()))),
-            ("Duplicates", Self.firstInkRow(Self.render(Self.duplicatesPane()))),
-            ("Renames", Self.firstInkRow(Self.render(Self.renamesPane()))),
-            ("Restructure", Self.firstInkRow(Self.render(Self.restructureReadyPane()))),
-            ("Restructure (no survey)", Self.firstInkRow(Self.render(Self.restructurePane()))),
-            ("Rules", Self.firstInkRow(Self.render(Self.rulesPane()))),
-            ("Storage", Self.firstInkRow(Self.render(Self.storagePane()))),
-        ]
-        for (name, row) in panes {
+        // And every lens opens at the same height, the no-survey card included.
+        let opens = panes.map { ($0.name, Self.firstInkRow($0.rep)) }
+            + [("Restructure (no survey)", Self.firstInkRow(try Self.render(Self.restructurePane())))]
+        for (name, row) in opens {
             #expect(row != nil, "\(name) rendered blank — the harness is broken, not aligned")
         }
-        let rows = panes.compactMap(\.1)
-        guard let first = rows.first else { return }
-        for ((name, _), row) in zip(panes, rows) {
+        let inkRows = opens.compactMap(\.1)
+        guard let first = inkRows.first else { return }
+        for ((name, _), row) in zip(opens, inkRows) {
             // 2pt, not 0: antialiasing on a glyph's top edge can land a hair either way, and a
             // misplaced row is far more.
             #expect(abs(row - first) <= 2,
@@ -251,8 +233,8 @@ import Design
     /// would land the user somewhere that can't help. But "no button" must not become "no card":
     /// the pitch, samples and note remain, and a state collapsed to a bare header would satisfy a
     /// test that only checked the button was gone.
-    @Test(.machinePinned(.pixelSampling)) func restructureDrawsItsCardWithoutATrigger() {
-        let noSurvey = Self.render(Self.restructurePane())
+    @Test(.machinePinned(.pixelSampling)) func restructureDrawsItsCardWithoutATrigger() throws {
+        let noSurvey = try Self.render(Self.restructurePane())
         #expect(Self.firstInkRow(noSurvey) != nil, "the no-survey card drew nothing at all")
         // No accent band: `firstAccentRow` only reports a run wide enough to be a filled control,
         // so the header icon doesn't trip it. A hit here is a button that shouldn't exist.
@@ -262,7 +244,7 @@ import Design
                 """)
         // And it is still a card: compared with the same lens with a survey and a reveal trigger.
         // Equal renders would mean one of the two draws nothing.
-        let ready = Self.render(Self.restructureReadyPane())
+        let ready = try Self.render(Self.restructureReadyPane())
         #expect(Self.differingPixels(noSurvey, ready) > 1_000)
         // The floor as well as the ceiling: the samples and note carry real ink of their own, well
         // past what a lone header and two sentences would.

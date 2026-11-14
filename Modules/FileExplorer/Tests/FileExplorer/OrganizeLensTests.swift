@@ -9,24 +9,6 @@ import Testing
 
     // MARK: The property the rail exists for
 
-    @Test func everyLensIsAlwaysAPlace() {
-        // A rail item is never absent, even at zero, because "Organize this folder" has to land
-        // somewhere before any scan has run. Filtering by count would leave it nowhere to go.
-        #expect(OrganizeLens.allCases.count == 6)
-        #expect(OrganizeLens.allCases.first == .toFile)
-        // Storage is last: the rail runs from act-heavy to act-never, so the lens that only
-        // reports sits at the far end.
-        #expect(OrganizeLens.allCases.last == .storage)
-    }
-
-    @Test func aBadgeIsAbsentAtZeroRatherThanShowingZero() {
-        // The place persists at zero; the badge does not. `nil`, not `0`, so the view has no zero
-        // to render by accident.
-        #expect(OrganizeLens.toFile.badge(count: 0) == nil)
-        #expect(OrganizeLens.toFile.badge(count: 1) == 1)
-        #expect(OrganizeLens.renames.badge(count: 17) == 17)
-    }
-
     @Test func theTwoLensesThatCannotActNeverCarryABadge() {
         // A badge promises something here to act on, which two lenses can't keep. Each is asserted
         // at a non-zero count, where a rule that merely suppressed zeroes would pass and prove

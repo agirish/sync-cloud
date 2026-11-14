@@ -7,38 +7,13 @@ import Design
 import FileExplorerTestSupport
 @testable import FileExplorer
 
-/// A row-menu delegate with a window behind it — `canSaveAsPDF` — recording what it was asked.
-@MainActor
-private final class SaveBox {
-    var asked: [[String]] = []
-}
-
-private struct SaveDelegate: FileActionDelegate {
-    let box: SaveBox
+/// A row-menu delegate with a window behind it: `canSaveAsPDF`.
+private struct SaveDelegate: NoOpFileActions {
     /// False for the same menu with no window behind it — the baseline a hidden item matches.
     var offersSave = true
     var canSaveAsPDF: Bool { offersSave }
-    func handleSaveAsPDF(paths: [String]) {
-        MainActor.assumeIsolated { box.asked.append(paths) }
-    }
     /// PDF Tools stays live, so a PDF row draws them and the tests can tell the two items apart.
     var canRunPDFTools: Bool { true }
-    func handleRefresh() {}
-    func handleOpenInEditor(_ path: String) {}
-    func handleFocus(_ node: FileNode) {}
-    func handleCopy(_ nodes: [FileNode]) {}
-    func handleMove(_ nodes: [FileNode]) {}
-    func handleDelete(_ nodes: [FileNode]) {}
-    func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-    func handlePaste(_ targetDir: FileNode) {}
-    func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-    func handlePasteToPath(_ path: String) {}
-    func handleRename(_ node: FileNode) {}
-    func handleCreateFolder(at path: String) {}
-    func handleGetInfo(for path: String) {}
-    func handleSort(_ option: SortOption) {}
-    func handleIgnore(_ nodes: [FileNode]) {}
-    func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 }
 
 /// Save as PDF: the offer, the row menu's item, the run, and its banner. Serialized: the runs print
@@ -420,11 +395,11 @@ private struct SaveDelegate: FileActionDelegate {
     }
 
     /// One convertible file draws Save as PDF in PDF Tools' section, after Quick Look and before
-    /// Rename, and clicking it hands the delegate that file.
+    /// Rename.
     @Test func oneFileDrawsTheItemBetweenQuickLookAndRename() throws {
         let doc = path("Lease Renewal 2026.docx")
         try Data("x".utf8).write(to: URL(fileURLWithPath: doc))
-        let delegate = SaveDelegate(box: SaveBox())
+        let delegate = SaveDelegate()
         let item = Self.soloWidth(SaveAsPDFMenuItem(offer: .single(path: doc), delegate: delegate))
         let quickLook = Self.soloWidth(Button(action: {}) { Label("Quick Look", systemImage: "doc.viewfinder") })
         let rename = Self.soloWidth(Button(action: {}) { Label("Rename", systemImage: "pencil") })
@@ -437,7 +412,7 @@ private struct SaveDelegate: FileActionDelegate {
         let renameAt = try #require(drawn.firstIndex(of: rename))
         #expect(quickLookAt < at && at < renameAt, "Save as PDF is at \(at), Quick Look \(quickLookAt), Rename \(renameAt)")
         // With no window behind the menu, it is not there at all.
-        let baseline = Self.drawnRowWidths([node(doc)], delegate: SaveDelegate(box: SaveBox(), offersSave: false))
+        let baseline = Self.drawnRowWidths([node(doc)], delegate: SaveDelegate(offersSave: false))
         #expect(drawn.count == baseline.count + 1)
     }
 
@@ -446,10 +421,19 @@ private struct SaveDelegate: FileActionDelegate {
     @Test func aPDFRowDrawsNoSaveAsPDF() {
         let pdf = path("Statement.pdf")
         PDFFixtures.write(pdf, pages: 1)
-        let drawn = Self.drawnRowWidths([node(pdf)], delegate: SaveDelegate(box: SaveBox()))
-        #expect(drawn == Self.drawnRowWidths([node(pdf)], delegate: SaveDelegate(box: SaveBox(), offersSave: false)))
+        let drawn = Self.drawnRowWidths([node(pdf)], delegate: SaveDelegate())
+        #expect(drawn == Self.drawnRowWidths([node(pdf)], delegate: SaveDelegate(offersSave: false)))
         #expect(!drawn.contains(Self.soloWidth(SaveAsPDFMenuItem(offer: .single(path: pdf),
-                                                                delegate: SaveDelegate(box: SaveBox())))))
+                                                                delegate: SaveDelegate()))))
+    }
+
+    /// The item's action hands the delegate the offer's paths. A source pin: nothing offscreen can
+    /// click a SwiftUI menu button.
+    @Test func theItemHandsTheDelegateTheOffersPaths() throws {
+        let item = try SourceText.block(opening: "struct SaveAsPDFMenuItem: View",
+                                        in: SourceText.fileExplorer("PaneSaveAsPDF.swift"))
+        #expect(SourceText.normalized(item).contains(
+            SourceText.normalized("Button(action: { delegate.handleSaveAsPDF(paths: offer.paths) })")))
     }
 
     /// Several files draw "Save as PDF · 3 files" first after Refresh; a selection with a PDF in it
@@ -457,8 +441,7 @@ private struct SaveDelegate: FileActionDelegate {
     @Test func severalFilesDrawTheBatchItemFirstAfterRefresh() throws {
         let paths = ["Lease.docx", "Deck.pptx", "Trip.md"].map(path)
         for file in paths { try Data("x".utf8).write(to: URL(fileURLWithPath: file)) }
-        let box = SaveBox()
-        let delegate = SaveDelegate(box: box)
+        let delegate = SaveDelegate()
         let item = Self.soloWidth(SaveAsPDFMenuItem(offer: .several(paths: paths), delegate: delegate))
         let drawn = Self.drawnRowWidths(paths.map { node($0) }, delegate: delegate)
         #expect(drawn.firstIndex(of: item) == 1, "Save as PDF · 3 files is not first after Refresh: \(drawn)")
@@ -467,7 +450,7 @@ private struct SaveDelegate: FileActionDelegate {
         PDFFixtures.write(pdf, pages: 1)
         let mixed = (paths + [pdf]).map { node($0) }
         #expect(Self.drawnRowWidths(mixed, delegate: delegate)
-                == Self.drawnRowWidths(mixed, delegate: SaveDelegate(box: SaveBox(), offersSave: false)),
+                == Self.drawnRowWidths(mixed, delegate: SaveDelegate(offersSave: false)),
                 "a selection with a PDF in it draws Save as PDF")
     }
 }

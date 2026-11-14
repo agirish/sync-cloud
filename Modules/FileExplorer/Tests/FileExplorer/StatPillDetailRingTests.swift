@@ -29,31 +29,21 @@ import Testing
                          size: size, appearance: appearance)!
     }
 
-    private func luminance(_ c: NSColor) -> CGFloat {
-        guard let s = c.usingColorSpace(.sRGB) else { return 0 }
-        return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
-    }
-
-    private func contrast(_ a: NSColor, _ b: NSColor) -> Double {
-        let x = luminance(a), y = luminance(b)
-        let (hi, lo) = x > y ? (x, y) : (y, x)
-        return Double((hi + 0.05) / (lo + 0.05))
-    }
-
     /// Walks the frame's middle row inward and returns the contrast between the accent field and
     /// the first pixel that departs from it by more than anti-aliasing noise. Nil when the row
-    /// never changes, meaning nothing was drawn; the caller reports that as a failure.
+    /// never changes, meaning nothing was drawn; the caller reports that as a failure. `colorAt`
+    /// from an sRGB window already holds sRGB numbers: never `.usingColorSpace(.sRGB)` them.
     private func edgeContrast(in rep: NSBitmapImageRep) -> Double? {
         let midY = rep.pixelsHigh / 2
-        guard let field = rep.colorAt(x: 1, y: midY)?.usingColorSpace(.sRGB) else { return nil }
+        guard let field = rep.colorAt(x: 1, y: midY) else { return nil }
         // 0.06 per channel: above the dithering the window's backing store introduces on a flat
         // fill, well below any real paint change.
         for x in 2..<rep.pixelsWide {
-            guard let px = rep.colorAt(x: x, y: midY)?.usingColorSpace(.sRGB) else { continue }
+            guard let px = rep.colorAt(x: x, y: midY) else { continue }
             let departed = abs(px.redComponent - field.redComponent) > 0.06
                 || abs(px.greenComponent - field.greenComponent) > 0.06
                 || abs(px.blueComponent - field.blueComponent) > 0.06
-            if departed { return contrast(px, field) }
+            if departed { return Double(Contrast.ratio(px, field)) }
         }
         return nil
     }

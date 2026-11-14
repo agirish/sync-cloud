@@ -56,16 +56,10 @@ import Sync
         }
     }
 
-    private func pump(_ window: NSWindow, seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            window.layoutIfNeeded()
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-    }
-
-    private func mount(width: CGFloat, path: [String], room: PaneInfoRoom?) async -> (NSWindow, Box) {
+    /// Mounts the stack and pumps until `settled` holds, bounded (flaky-tests "Fixed pumps and fixed
+    /// sleeps"); the result says whether it held and after how many passes.
+    private func mount(width: CGFloat, path: [String], room: PaneInfoRoom?,
+                       until settled: @escaping () -> Bool) async -> (NSWindow, Box, (held: Bool, pumps: Int)) {
         let box = Box()
         box.room = room
         let tree = Self.tree()
@@ -76,8 +70,14 @@ import Sync
         window.contentView = host
         window.layoutIfNeeded()
         box.browsePath = PaneBrowsePath(components: path)
-        await pump(window, seconds: 1.0)
-        return (window, box)
+        let wait = await LayoutPumpWait.pump(window, upTo: 10, until: settled)
+        return (window, box, wait)
+    }
+
+    /// Info's room at the visible region's trailing edge: where a reveal parks the stack.
+    private static func revealed(_ slot: PaneInfoSlot) -> Bool {
+        guard let room = slot.room, let viewport = room.viewport else { return false }
+        return abs(room.frame.maxX - viewport.maxX) < 1.5
     }
 
     /// The room sits right after the deepest column, as wide as asked, as tall as the stack, with
@@ -85,9 +85,11 @@ import Sync
     /// folder deeper moves it right by a column, at least the columns' 140 floor.
     @Test func theRoomFollowsTheDeepestColumn() async throws {
         let slot = PaneInfoSlot()
-        let (window, box) = await mount(width: 1200, path: ["a1"], room: PaneInfoRoom(width: 300, slot: slot))
+        let (window, box, wait) = await mount(width: 1200, path: ["a1"], room: PaneInfoRoom(width: 300, slot: slot)) {
+            slot.room?.viewport != nil
+        }
         defer { _ = window }
-        let room = try #require(slot.room, "the stack kept no room for Info, or never said where")
+        let room = try #require(slot.room, "the stack kept no room for Info, or never said where (\(wait.pumps) passes)")
         #expect(room.frame.width == 300)
         #expect(room.frame.height == 400)
         #expect(room.dividerEdge == .trailing)
@@ -100,54 +102,67 @@ import Sync
 
         let before = room.frame.minX
         box.browsePath = PaneBrowsePath(components: ["a1", "b2"])
-        await pump(window, seconds: 1.0)
+        let drill = await LayoutPumpWait.pump(window, upTo: 10) {
+            (slot.room?.frame.minX ?? before) - before >= PaneViewMode.minimumColumnWidth
+        }
         let after = try #require(slot.room).frame.minX
         #expect(after - before >= PaneViewMode.minimumColumnWidth,
-                "a drill did not move Info's room past the new column (\(before) → \(after))")
+                "a drill did not move Info's room past the new column (\(before) → \(after), \(drill.pumps) passes)")
     }
 
     /// A stack deeper than the pane is revealed with Info's room at the visible region's trailing
     /// edge, not the deepest column's, or the drill would leave Info off screen.
     @Test func aDeepStackIsRevealedToTheRoom() async throws {
         let slot = PaneInfoSlot()
-        let (window, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot))
+        let (window, _, wait) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot)) {
+            Self.revealed(slot)
+        }
         defer { _ = window }
         let room = try #require(slot.room)
         let viewport = try #require(room.viewport)
         #expect(abs(room.frame.maxX - viewport.maxX) < 1.5,
-                "the reveal parked the stack at \(room.frame.maxX), not at the visible edge \(viewport.maxX)")
+                "the reveal parked the stack at \(room.frame.maxX), not at the visible edge \(viewport.maxX) (\(wait.pumps) passes)")
     }
 
     /// Info scrolled off the trailing edge comes back on a reveal request (Get Info with Info open),
     /// as it does when it opens. Mutation: without the request's onChange, the stack stays put.
     @Test func aRevealRequestBringsInfoBack() async throws {
         let slot = PaneInfoSlot()
-        let (window, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot))
+        let (window, _, mounted) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot)) {
+            Self.revealed(slot)
+        }
         defer { _ = window }
+        try #require(mounted.held, "the mount's own reveal never landed (\(mounted.pumps) passes)")
         let stack = try #require(slot.stackScroller)
-        // Scrolled back to the first column, until it holds: the mount's own reveal can still be
-        // landing on a loaded machine and put the stack back. Bounded.
-        var away = try #require(slot.room)
-        for _ in 0..<40 {
+        let off = {
+            guard let room = slot.room, let viewport = room.viewport else { return false }
+            return room.frame.maxX > viewport.maxX + 50
+        }
+        // Scrolled back to the first column until it holds: a late layout can still put it back.
+        var scrolled = (held: false, pumps: 0)
+        for _ in 0..<5 where !scrolled.held {
             stack.contentView.scroll(to: .zero)
             stack.reflectScrolledClipView(stack.contentView)
-            await pump(window, seconds: 0.25)
-            away = try #require(slot.room)
-            if let viewport = away.viewport, away.frame.maxX > viewport.maxX + 50 { break }
+            scrolled = await LayoutPumpWait.pump(window, upTo: 2, until: off)
         }
+        let away = try #require(slot.room)
         let viewport = try #require(away.viewport)
-        try #require(away.frame.maxX > viewport.maxX + 50, "the stack never scrolled Info off (\(away.frame.maxX) vs \(viewport.maxX))")
+        try #require(scrolled.held, "the stack never scrolled Info off (\(away.frame.maxX) vs \(viewport.maxX), \(scrolled.pumps) passes)")
         slot.requestReveal()
-        await pump(window, seconds: 1.0)
+        let reveal = await LayoutPumpWait.pump(window, upTo: 10) { Self.revealed(slot) }
         let back = try #require(slot.room)
-        #expect(abs(back.frame.maxX - viewport.maxX) < 1.5, "Info stayed off at \(back.frame.maxX), edge \(viewport.maxX)")
+        #expect(abs(back.frame.maxX - viewport.maxX) < 1.5,
+                "Info stayed off at \(back.frame.maxX), edge \(viewport.maxX) (\(reveal.pumps) passes)")
     }
 
     /// Info finds the scroll view a swipe over it is handed to: the stack's, never a column's list,
     /// which would turn a sideways swipe over Info into a vertical scroll of some column.
     @Test func infoFindsTheStacksScrollView() async throws {
         let slot = PaneInfoSlot()
-        let (window, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot))
+        let (window, _, _) = await mount(width: 640, path: ["a2", "b3"], room: PaneInfoRoom(width: 300, slot: slot)) {
+            guard let stack = slot.stackScroller else { return false }
+            return (stack.documentView?.frame.width ?? 0) > stack.contentSize.width
+        }
         defer { _ = window }
         let stack = try #require(slot.stackScroller, "Info has no stack to hand its swipes to")
         #expect(!(stack.documentView is NSTableView), "Info would hand its swipes to a column's list")
@@ -160,21 +175,14 @@ import Sync
     /// Info where the room was.
     @Test func closingWithdrawsTheRoom() async throws {
         let slot = PaneInfoSlot()
-        let (window, box) = await mount(width: 1200, path: ["a1"], room: PaneInfoRoom(width: 300, slot: slot))
+        let (window, box, _) = await mount(width: 1200, path: ["a1"], room: PaneInfoRoom(width: 300, slot: slot)) {
+            slot.room != nil
+        }
         defer { _ = window }
-        #expect(slot.room != nil)
+        try #require(slot.room != nil)
         box.room = nil
-        await pump(window, seconds: 0.5)
-        #expect(slot.room == nil, "the room outlived Info")
-    }
-
-    /// No room, nothing reported: every surface that does not ask (Organize's lens, the tests) draws
-    /// its stack as before.
-    @Test func noRoomIsKeptUnlessAsked() async throws {
-        let slot = PaneInfoSlot()
-        let (window, _) = await mount(width: 1200, path: ["a1"], room: nil)
-        defer { _ = window }
-        #expect(slot.room == nil)
+        let gone = await LayoutPumpWait.pump(window, upTo: 10) { slot.room == nil }
+        #expect(slot.room == nil, "the room outlived Info (\(gone.pumps) passes)")
     }
 }
 

@@ -147,14 +147,10 @@ import EventsTestSupport
                                        effectiveRange: nil) as? NSParagraphStyle)?.textLists.first
         }
         let before = list()
-        var edited = 0
-        let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                              object: session.display, queue: nil) { note in
-            edited = max(edited, (note.object as! NSTextStorage).editedRange.length)
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
         let at = (session.display.string as NSString).range(of: "Item 100 ").location + 4
-        session.perform(RenderedEdit(range: NSRange(location: at, length: 0), text: "x", action: .typing))
+        let edited = largestEdit(of: session.display) {
+            session.perform(RenderedEdit(range: NSRange(location: at, length: 0), text: "x", action: .typing))
+        }
         #expect(source.text.contains("Itemx 100 "), sourceLocation: sourceLocation)
         #expect(list() === before, "the list is still the list it was", sourceLocation: sourceLocation)
         #expect(edited < 40, "\(edited) characters of the view's storage replaced", sourceLocation: sourceLocation)
@@ -186,14 +182,10 @@ import EventsTestSupport
 
         session.perform(RenderedEdit(range: NSRange(location: end + 1, length: 0), text: "x", action: .typing))
         #expect(source.text.contains("Words here x\n"), "typed after the held space")
-        var edited = 0
-        let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                              object: session.display, queue: nil) { note in
-            edited = max(edited, (note.object as! NSTextStorage).editedRange.length)
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
         let item = (session.display.string as NSString).range(of: "Item 30 ").location + 4
-        session.perform(RenderedEdit(range: NSRange(location: item, length: 0), text: "x", action: .typing))
+        let edited = Self.largestEdit(of: session.display) {
+            session.perform(RenderedEdit(range: NSRange(location: item, length: 0), text: "x", action: .typing))
+        }
         #expect(source.text.contains("Itemx 30 "))
         #expect(edited < 40, "\(edited) characters of the view's storage replaced by a keystroke in the list")
         Self.expectFresh(session, "a keystroke after a resize")
@@ -488,6 +480,19 @@ import EventsTestSupport
         let attachment = (session.display.string as NSString).range(of: "\u{FFFC}").location
         #expect((session.display.attribute(.attachment, at: attachment, effectiveRange: nil) as? NSTextAttachment)?
             .image?.size == NSSize(width: 40, height: 30))
+    }
+
+    /// Runs `body` and returns the longest `editedRange` `storage` reported meanwhile: how much of
+    /// the view's text one keystroke replaced.
+    static func largestEdit(of storage: NSTextStorage, during body: () -> Void) -> Int {
+        var edited = 0
+        let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
+                                                              object: storage, queue: nil) { note in
+            edited = max(edited, (note.object as! NSTextStorage).editedRange.length)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        body()
+        return edited
     }
 
     static func settle(until done: () -> Bool) async throws {

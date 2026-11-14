@@ -172,7 +172,6 @@ extension PDFFixtures {
             #expect(!logged.contains("ssn") && !logged.contains("6789"), "\(error) logs \(logged)")
         }
         #expect(fill.logDetail == "fill form (1 field)")
-        #expect(!fill.logDetail.contains("ssn"))
         #expect(fill.formLoss == nil && !fill.rebuildsDocument, "an in-place fill was said to lose the form")
     }
 

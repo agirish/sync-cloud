@@ -56,7 +56,7 @@ import Testing
     func breakdownOrder() {
         let tally = RenameBacklogTally([plan(named: 42, reshuffled: 16, padded: 1_134, skips: 7)])
         // Not biggest-first: a reshuffle is the only change that moves a file already correct, so
-        // it must not sit behind a thousand paddings.
+        // it must not sit behind a thousand paddings. Grouped, as the folder counts beside it are.
         #expect(tally.breakdown == "42 to name · 16 to reshuffle · 1,134 to pad · 7 left alone")
     }
 
@@ -87,13 +87,6 @@ import Testing
         #expect(RenamePassLens.summary(p) == "nothing to do · 2 left alone")
     }
 
-    @Test("Counts are grouped once they get big enough to need it")
-    func countsAreGrouped() {
-        // Backlogs run to four figures; "1134 to pad" beside a grouped folder count would compare
-        // two numbers written differently.
-        #expect(RenameBacklogTally([plan(padded: 1_134)]).breakdown.contains("1,134"))
-    }
-
     // MARK: headerBreakdown — the header's shorter form of the same words
 
     @Test("The header collects the two rare kinds and drops the skips")
@@ -102,10 +95,9 @@ import Testing
         let tally = RenameBacklogTally([p])
         // The folder rows' string, pinned equal to `RenamePassLens.summary`, is unchanged.
         #expect(tally.breakdown == "7 to name · 6 to reshuffle · 628 to pad · 2 left alone")
-        #expect(tally.headerBreakdown == "13 to name or reshuffle · 628 to pad")
         // Rare and consequential first, bulk last (`stepParts`' order), so the few worth a second
         // look aren't buried behind the bulk.
-        #expect(tally.headerBreakdown.hasPrefix("13 to name or reshuffle"))
+        #expect(tally.headerBreakdown == "13 to name or reshuffle · 628 to pad")
         // The point: narrower (190.5pt against 268.5 in the header's 11pt monospaced-digit face).
         #expect(tally.headerBreakdown.count < tally.breakdown.count)
     }

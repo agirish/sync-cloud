@@ -39,16 +39,20 @@ import Testing
 
     /// The 4 MiB single line, end to end: the diff refuses its word pass and the pane refuses its
     /// layout, leaving a readable head, a note, and the diff's own "marked whole" caption above it.
-    /// The line is the case the word budget exists for, and it is priced without being tokenised.
+    /// The line is the case the word budget exists for, and it is priced without being tokenised:
+    /// one line against one walks straight past the line cap, so the budget is all that bounds it.
     @Test func theFourMegabyteLineIsBoundedInBothPlaces() throws {
         let left = String(repeating: "abcd ", count: 400_000)
         let right = String(repeating: "abce ", count: 400_000)
         #expect(TextPairDiff.wordCount(left) > TextPairDiff.maxWordsForIntraLine,
                 "the fixture is no longer past the gate")
+        #expect(TextPairDiff.refusalNote(left: [left], right: [right]) == nil,
+                "the line cap now refuses this, and this test no longer tests the word budget")
         let diff = TextPairDiff.make(left: [left], right: [right])
         #expect(diff.coarseRows == 1, "the row paid for a word pass it could not afford")
         let row = try #require(diff.rows.first)
-        #expect(row.leftSegments == nil)
+        #expect(row.kind == .changed, "the row is still a changed row — only its word runs are gone")
+        #expect(row.leftSegments == nil && row.rightSegments == nil)
         #expect(row.left == left, "the text itself must survive: the pane draws it")
         let text = try #require(row.left)
         let drawn = TextPairDiffView.rendered(text)

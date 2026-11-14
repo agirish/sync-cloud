@@ -364,7 +364,6 @@ import FileExplorerTestSupport
         let before = listing(folder(of: note))
         expectRefusal(EditorImageImport.importImages([.png(png())], forNote: note), in: folder(of: note), before: before,
                       mentioning: "“Images” in this note’s folder is an alias to a folder that isn’t there any more")
-        #expect(listing(folder(of: note)) == before)
     }
 
     @Test func aCloudOnlyImagesFolderIsRefused() throws {

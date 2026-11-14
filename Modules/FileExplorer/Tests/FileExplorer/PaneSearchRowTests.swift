@@ -107,7 +107,7 @@ import Sync
     /// can't take the width that makes the name wrap. Measured against a short plain row, not the
     /// same row unannotated, at three widths: a name that wraps on its own would make both taller
     /// and pass.
-    @Test("Annotating a row never makes it taller", .machinePinned(.layoutMetrics))
+    @Test("Annotating a row never makes it taller")
     func theAnnotationNeverGrowsTheRow() {
         let long = "Quarterly Tax Return and Supporting Schedules 2025 final.pdf"
         let info = FileRowInfo(FileNode(id: "/r/\(long)", name: long, isDirectory: false))

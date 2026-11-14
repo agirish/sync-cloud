@@ -34,22 +34,11 @@ import Design
     }
 
     private func render<V: View>(_ view: V) -> NSBitmapImageRep? {
-        let host = NSHostingView(rootView: AnyView(
-            view.frame(width: Self.size.width, height: Self.size.height)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .environment(\.colorScheme, .light)))
-        host.frame = CGRect(origin: .zero, size: Self.size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        // Laid out twice before it is cached.
+        offscreenBitmap(view.frame(width: Self.size.width, height: Self.size.height)
+                            .background(Color(nsColor: .windowBackgroundColor))
+                            .environment(\.colorScheme, .light),
+                        size: Self.size, appearance: .aqua, layoutPasses: 2)
     }
 
     /// Same match type and name, different glyph (a folder against a document): only the icon may

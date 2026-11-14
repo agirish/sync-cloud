@@ -86,14 +86,13 @@ import Design
         return resolved
     }
 
+    /// `Contrast`'s readings of `color` converted to sRGB first, as these always were.
     private static func luminance(_ color: NSColor) -> CGFloat {
-        guard let s = color.usingColorSpace(.sRGB) else { return 0 }
-        return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
+        color.usingColorSpace(.sRGB).map(Contrast.luminance) ?? 0
     }
 
     static func contrast(_ ink: NSColor, on surface: NSColor) -> CGFloat {
-        let a = luminance(ink), b = luminance(surface)
-        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+        Contrast.ratio(ink.usingColorSpace(.sRGB) ?? ink, surface.usingColorSpace(.sRGB) ?? surface)
     }
 
     /// Every identity tint clears 3:1 against the card fill, in both appearances.

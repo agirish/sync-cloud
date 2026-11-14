@@ -14,7 +14,7 @@ private final class ToolBox {
     var asked: [(PDFToolRequest, [String])] = []
 }
 
-private struct PDFToolDelegate: FileActionDelegate {
+private struct PDFToolDelegate: NoOpFileActions {
     let box: ToolBox
     /// False for the same menu with no window behind it: the baseline a hidden submenu matches.
     var offersTools = true
@@ -22,22 +22,6 @@ private struct PDFToolDelegate: FileActionDelegate {
     func handlePDFTool(_ request: PDFToolRequest, paths: [String]) {
         MainActor.assumeIsolated { box.asked.append((request, paths)) }
     }
-    func handleRefresh() {}
-    func handleOpenInEditor(_ path: String) {}
-    func handleFocus(_ node: FileNode) {}
-    func handleCopy(_ nodes: [FileNode]) {}
-    func handleMove(_ nodes: [FileNode]) {}
-    func handleDelete(_ nodes: [FileNode]) {}
-    func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-    func handlePaste(_ targetDir: FileNode) {}
-    func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-    func handlePasteToPath(_ path: String) {}
-    func handleRename(_ node: FileNode) {}
-    func handleCreateFolder(at path: String) {}
-    func handleGetInfo(for path: String) {}
-    func handleSort(_ option: SortOption) {}
-    func handleIgnore(_ nodes: [FileNode]) {}
-    func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 }
 
 /// The PDF Tools submenu in a pane's row menu, and the runs it starts.
@@ -66,25 +50,6 @@ private struct PDFToolDelegate: FileActionDelegate {
 
     private func node(_ path: String, isDirectory: Bool = false) -> FileNode {
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: isDirectory)
-    }
-
-    private struct Original {
-        let bytes: Data
-        let modified: Date
-    }
-
-    /// The original's bytes and date, set into the past first so a write this second can't hide
-    /// behind it.
-    private func pin(_ file: String) throws -> Original {
-        let past = Date(timeIntervalSince1970: 1_600_000_000)
-        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
-        return Original(bytes: try Data(contentsOf: URL(fileURLWithPath: file)), modified: past)
-    }
-
-    private func expectUntouched(_ file: String, _ original: Original, _ label: String) throws {
-        #expect(try Data(contentsOf: URL(fileURLWithPath: file)) == original.bytes, "\(label): the original's bytes changed")
-        let modified = try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date
-        #expect(modified == original.modified, "\(label): the original's date moved")
     }
 
     // MARK: Where the submenu is drawn
@@ -375,7 +340,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         case .removePassword: PDFFixtures.writeLocked(file, password: "pw", pages: 3)
         default: PDFFixtures.write(file, pages: 3)
         }
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         var wrote: [String] = []
         let model = PanePDFTools()
         model.host = PanePDFToolHost(didWrite: { wrote.append($0) })
@@ -392,7 +357,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         #expect(tools.banner?.kind == .wrote(expected), "\(item): \(String(describing: tools.banner))")
         #expect(FileManager.default.fileExists(atPath: expected), "\(item): no copy at \(expected)")
         #expect(wrote == [expected], "\(item): the window was told of \(wrote)")
-        try expectUntouched(file, original, "\(item)")
+        try original.expectUntouched(file, "\(item)")
         let name = (expected as NSString).lastPathComponent
         #expect(await log.holds(.info, containing: "PDF Tools in Browse wrote \(name)"),
                 "\(item): the log line does not name the workspace")
@@ -459,7 +424,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         for file in paths {
             if case .compress = tool { PDFFixtures.writeScan(file, pages: 2) } else { PDFFixtures.write(file, pages: 2) }
         }
-        let originals = try paths.map(pin)
+        let originals = try paths.map(RestPinnedOriginal.init)
         let kind: EditorPDFBatchKind = switch tool {
         case .rotate(let turns): .rotate(quarterTurns: turns)
         case .compress: .compress
@@ -474,7 +439,7 @@ private struct PDFToolDelegate: FileActionDelegate {
         let copies = paths.map { EditorPDFCopyName.firstChoice(for: $0, suffix: suffix) }
         for (index, copy) in copies.enumerated() {
             #expect(FileManager.default.fileExists(atPath: copy), "no copy at \(copy)")
-            try expectUntouched(paths[index], originals[index], (paths[index] as NSString).lastPathComponent)
+            try originals[index].expectUntouched(paths[index], (paths[index] as NSString).lastPathComponent)
             #expect(await log.holds(.info, containing: "PDF Tools in Compare wrote \((copy as NSString).lastPathComponent)"))
         }
         #expect(batch.banner?.kind == .wroteSeveral(copies))
@@ -841,7 +806,8 @@ private struct PDFToolDelegate: FileActionDelegate {
         model.start(.rotateAll(quarterTurns: 1), paths: paths, writer: "PDF Tools in Browse")
         guard case .batch(let first)? = model.current else { Issue.record("no batch"); return }
         model.start(.compress, paths: [paths[0]], writer: "PDF Tools in Browse")
-        if case .batch(let still)? = model.current { #expect(still === first, "a second run replaced the first") }
+        let still: EditorPDFBatch? = if case .batch(let batch)? = model.current { batch } else { nil }
+        #expect(still === first, "a second run replaced the first")
         await model.work?.value
         #expect(first.banner?.kind == .wroteSeveral(paths.map {
             EditorPDFCopyName.firstChoice(for: $0, suffix: "rotated") }))

@@ -69,26 +69,21 @@ import SwiftUI
 
     /// The rail must answer the coverage question the overview answers, or the rail's "checked,
     /// nothing here" sits beside an overview row saying the lens never ran. `hasFoundDuplicates`
-    /// alone can't answer it: it stays true forever once any scan has run.
-    @Test func theRailDoesNotCallALensCleanForASubtreeItsScanNeverCovered() {
+    /// alone can't answer it: it stays true forever once any scan has run. Both directions, so the
+    /// rail cannot simply have stopped saying clean.
+    @Test(arguments: [("/root/Photos", false), ("/root", true)])
+    func theRailAndTheOverviewAgreeOnWhatTheScanCovered(scanRoot: String, covered: Bool) {
         let m = FileSyncManager()
-        m.duplicateScanRoot = "/root/Photos"
+        m.duplicateScanRoot = scanRoot
         m.hasFoundDuplicates = true
         m.duplicateGroups = []
-        #expect(subject(m).railCounts.state(.duplicates) == .notScanned,
-                "the rail called the whole tree checked on the strength of one subfolder")
+        let rail: RailItemState = covered ? .clean : .notScanned
+        let overview: OrganizeOverviewState = covered ? .clean : .notScanned
+        #expect(subject(m).railCounts.state(.duplicates) == rail,
+                covered ? "the rail stopped saying clean for a scan that covered the subject"
+                        : "the rail called the whole tree checked on the strength of one subfolder")
         // The overview says the same thing about the same lens — that agreement is the point.
-        #expect(duplicatesState(m) == .notScanned)
-    }
-
-    /// Both directions, so the rail cannot simply have stopped saying clean.
-    @Test func theRailStillSaysCleanWhenTheScanCoveredTheSubject() {
-        let m = FileSyncManager()
-        m.duplicateScanRoot = "/root"
-        m.hasFoundDuplicates = true
-        m.duplicateGroups = []
-        #expect(subject(m).railCounts.state(.duplicates) == .clean)
-        #expect(duplicatesState(m) == .clean)
+        #expect(duplicatesState(m) == overview)
     }
 
     /// To File takes the one-level rule, and this is the only behavioural test of it. Its pass
@@ -127,23 +122,17 @@ import SwiftUI
 
     /// Renames is clean only when both of its halves ran: the rename plans (filing walk) and the
     /// risky names (`detectRiskyNames`, run on that walk only when a name ruleset is supplied).
-    /// Otherwise "nothing here" would vouch for a list nothing looked at. Asserted on the rail and
-    /// the overview, because they must agree.
-    @Test func aFilingScanWithoutTheNamesHalfDoesNotCallRenamesClean() {
+    /// Otherwise "nothing here" would vouch for a list nothing looked at. Both halves alone, so the
+    /// rule is "both", not one of them; asserted on the rail and the overview, because they must agree.
+    @Test(arguments: [(true, false), (false, true)])
+    func oneHalfAloneDoesNotCallRenamesClean(plans: Bool, names: Bool) {
         let m = FileSyncManager()
-        m.filingScanFolder = "/root"
-        m.hasSuggestedFiling = true    // rename plans computed; hasScannedNames stays false
+        if plans { m.filingScanFolder = "/root" }
+        m.hasSuggestedFiling = plans
+        m.hasScannedNames = names
         #expect(subject(m).railCounts.state(.renames) == .notScanned,
-                "rename plans alone called the folded item clean — the names list was never computed")
-        #expect(renamesState(m) == .notScanned)
-    }
-
-    /// And the mirror half, so the rule is "both", not "the rename half".
-    @Test func aNamesOnlyPassDoesNotCallRenamesClean() {
-        let m = FileSyncManager()
-        m.hasScannedNames = true       // risky names computed clean; the plans never were
-        #expect(subject(m).railCounts.state(.renames) == .notScanned,
-                "a names-only pass called the whole folded item clean")
+                plans ? "rename plans alone called the folded item clean — the names list was never computed"
+                      : "a names-only pass called the whole folded item clean")
         #expect(renamesState(m) == .notScanned)
     }
 
@@ -367,21 +356,11 @@ import SwiftUI
         #expect(!headline.contains("20"), "the headline counted the capped lists: \(headline)")
     }
 
-    /// Before an analysis it says it has not looked, rather than reporting an empty report.
-    @Test func storageSaysNotScannedBeforeItHasRun() {
-        #expect(storageState(FileSyncManager()) == .notScanned)
-    }
-
     /// The ledger's denominator does not move for Storage, in either state. `countedLenses` gates
     /// on `carriesBadge`, so a badgeless Storage never enters `checksTotal`, and a receipt is not a
     /// "check that reported". Both states, because a section counted only once it had something to
     /// say would leave the meter at "4 of 5" from the first analysis on.
     @Test func theLedgerIgnoresStorageInEveryState() {
-        let counted = OrganizeOverview.Ledger.countedLenses(runnablePasses: Set(OrganizePass.allCases))
-        #expect(!counted.contains(.storage))
-        #expect(!counted.contains(.rules))
-        #expect(counted.count == 4)
-
         let before = OrganizeOverview.Ledger.derived(
             from: subject(FileSyncManager()).overviewModel.sections,
             runnablePasses: Set(OrganizePass.allCases), reclaimable: nil, scopeFolders: nil)

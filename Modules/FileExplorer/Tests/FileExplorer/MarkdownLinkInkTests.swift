@@ -38,14 +38,6 @@ import Design
         return out
     }
 
-    static func ratio(_ a: NSColor, _ b: NSColor) -> CGFloat {
-        func lum(_ c: NSColor) -> CGFloat {
-            AccentLabel.relativeLuminance(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent)
-        }
-        let (x, y) = (lum(a) + 0.05, lum(b) + 0.05)
-        return max(x, y) / min(x, y)
-    }
-
     static func same(_ a: NSColor, _ b: NSColor) -> Bool {
         abs(a.redComponent - b.redComponent) < 0.002 && abs(a.greenComponent - b.greenComponent) < 0.002
             && abs(a.blueComponent - b.blueComponent) < 0.002
@@ -56,7 +48,7 @@ import Design
     @Test func theRawAccentMissesTheFloor() throws {
         let pane = try #require(Self.grounds(dark: false).first?.1)
         for hue in [LiquidGlassHue.green, .coral, .amber, .blue] {
-            let raw = Self.ratio(Self.resolved(hue.accentColor, dark: false), pane)
+            let raw = Contrast.ratio(Self.resolved(hue.accentColor, dark: false), pane)
             #expect(raw < Self.textFloor, "raw \(hue.displayName) is \(raw):1 on the light pane — the defect is gone")
         }
     }
@@ -73,7 +65,7 @@ import Design
                 #expect(Self.same(readOnly, editable),
                         "\(hue.displayName) \(side): read-only draws \(readOnly), editable \(editable)")
                 for (name, ground) in Self.grounds(dark: dark) {
-                    let r = Self.ratio(readOnly, ground)
+                    let r = Contrast.ratio(readOnly, ground)
                     #expect(r >= Self.textFloor, "\(hue.displayName) link on \(name) is \(r):1")
                 }
             }

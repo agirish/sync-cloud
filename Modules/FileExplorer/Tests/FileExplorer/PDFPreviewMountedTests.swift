@@ -115,11 +115,17 @@ import UniformTypeIdentifiers
         descendants(of: view).compactMap { $0 as? QLPreviewView }
     }
 
-    /// Waits for a condition on the shared pumping loop: the preview is held back by
-    /// `previewSettleDelay`, and what it waits on arrives on main-actor turns, not on a clock.
-    private func wait(_ window: NSWindow, upTo seconds: Double,
-                      for condition: () -> Bool) async -> (held: Bool, pumps: Int) {
-        await LayoutPumpWait.pump(window, upTo: seconds, until: condition)
+    /// Mounts the fixture PDF and waits until its page is laid out. The waits here pump the shared
+    /// loop: the preview is held back by `previewSettleDelay`, and what it waits on arrives on
+    /// main-actor turns, not on a clock.
+    private func laidOutPDFView(_ fixture: Fixture, width: CGFloat, height: CGFloat) async throws
+    -> (view: FitPagePDFView, window: NSWindow) {
+        let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: width, height: height)
+        let settled = await LayoutPumpWait.pump(mounted.window, upTo: 10) {
+            (pdfView(in: mounted.host)?.scaleFactor ?? 0) > 0 && pdfView(in: mounted.host)?.document != nil
+        }
+        try #require(settled.held, "the PDF never laid out (\(settled.pumps) passes)")
+        return (try #require(pdfView(in: mounted.host)), mounted.window)
     }
 
     /// A PDF is drawn by PDFKit, in this process: the Quick Look path renders in an `NSRemoteView`
@@ -127,7 +133,7 @@ import UniformTypeIdentifiers
     @Test func testAPDFIsMountedInPDFKitAndNotInQuickLook() async throws {
         let fixture = try Fixture()
         let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
-        let settled = await wait(mounted.window, upTo: 10) { pdfView(in: mounted.host) != nil }
+        let settled = await LayoutPumpWait.pump(mounted.window, upTo: 10) { pdfView(in: mounted.host) != nil }
         try #require(settled.held, "no PDF view after \(settled.pumps) layout passes")
         #expect(quickLookViews(in: mounted.host).isEmpty,
                 "the file reached Quick Look as well — both renderers are mounted")
@@ -137,49 +143,32 @@ import UniformTypeIdentifiers
     @Test func testAnImageStillGoesToQuickLook() async throws {
         let fixture = try Fixture()
         let mounted = mount(item(fixture.png, uti: UTType.png.identifier), width: 820, height: 700)
-        let settled = await wait(mounted.window, upTo: 10) { !quickLookViews(in: mounted.host).isEmpty }
+        let settled = await LayoutPumpWait.pump(mounted.window, upTo: 10) { !quickLookViews(in: mounted.host).isEmpty }
         try #require(settled.held, "no Quick Look view after \(settled.pumps) layout passes")
         #expect(pdfView(in: mounted.host) == nil)
     }
 
-    /// In a preview far wider than tall, the page must still be whole; fitted to the width, a
-    /// letter page in 560pt would be about 1060pt tall and show only the top third. Asserted on the
-    /// page's size in the view's own coordinates, which is what the reader sees, not on
-    /// `scaleFactor`.
-    @Test func testAWidePreviewShowsAWholePage() async throws {
+    /// The page is whole in a preview far wider than tall (fitted to the width, a letter page in
+    /// 560pt would be about 1060pt tall and show only the top third) and in a narrow one. Both
+    /// shapes, because a rule that fitted only one would look right in whichever was tried.
+    /// Asserted on the page's size in the view's own coordinates, which is what the reader sees,
+    /// not on `scaleFactor`.
+    @Test(arguments: [(820, 700, true), (420, 900, false)] as [(CGFloat, CGFloat, Bool)])
+    func testAPreviewOfEitherShapeShowsAWholePage(width: CGFloat, height: CGFloat, heightBound: Bool) async throws {
         let fixture = try Fixture()
-        let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
-        let settled = await wait(mounted.window, upTo: 10) {
-            (pdfView(in: mounted.host)?.scaleFactor ?? 0) > 0 && pdfView(in: mounted.host)?.document != nil
-        }
-        try #require(settled.held, "the PDF never laid out (\(settled.pumps) passes)")
-        let view = try #require(pdfView(in: mounted.host))
+        let (view, window) = try await laidOutPDFView(fixture, width: width, height: height)
+        defer { _ = window }
 
         let drawn = CGSize(width: Fixture.pageSize.width * view.scaleFactor,
                            height: Fixture.pageSize.height * view.scaleFactor)
         #expect(drawn.height <= view.bounds.height,
                 "the page is \(drawn.height)pt tall in a \(view.bounds.height)pt view — it is cut off")
-        #expect(drawn.width <= view.bounds.width)
-        // Height-bound at this shape, which is where fitting on width goes wrong.
-        #expect(drawn.height > view.bounds.height - 1)
-    }
-
-    /// The same page in a narrow preview: whole again, and width-bound. Both shapes, because a rule
-    /// that fitted only one would look right in whichever was tried.
-    @Test func testANarrowPreviewShowsAWholePage() async throws {
-        let fixture = try Fixture()
-        let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 420, height: 900)
-        let settled = await wait(mounted.window, upTo: 10) {
-            (pdfView(in: mounted.host)?.scaleFactor ?? 0) > 0 && pdfView(in: mounted.host)?.document != nil
-        }
-        try #require(settled.held, "the PDF never laid out (\(settled.pumps) passes)")
-        let view = try #require(pdfView(in: mounted.host))
-
-        let drawn = CGSize(width: Fixture.pageSize.width * view.scaleFactor,
-                           height: Fixture.pageSize.height * view.scaleFactor)
         #expect(drawn.width <= view.bounds.width,
                 "the page is \(drawn.width)pt wide in a \(view.bounds.width)pt view")
-        #expect(drawn.height <= view.bounds.height)
+        if heightBound {
+            // Height-bound at the wide shape, which is where fitting on width goes wrong.
+            #expect(drawn.height > view.bounds.height - 1)
+        }
     }
 
     /// Nothing paints a slab behind the page. The preview sits on the pane's own surface, and in
@@ -191,7 +180,7 @@ import UniformTypeIdentifiers
         let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
         // The document as well as the view: it arrives from the lane after the view mounts, and the
         // scroll view read here is the one PDFKit lays out around a document.
-        let settled = await wait(mounted.window, upTo: 10) { pdfView(in: mounted.host)?.document != nil }
+        let settled = await LayoutPumpWait.pump(mounted.window, upTo: 10) { pdfView(in: mounted.host)?.document != nil }
         try #require(settled.held, "no PDF document after \(settled.pumps) layout passes")
         let view = try #require(pdfView(in: mounted.host))
 
@@ -207,12 +196,7 @@ import UniformTypeIdentifiers
     /// would pass a mere "a scroll view exists" check.
     @Test func testTheWholeDocumentIsScrollable() async throws {
         let fixture = try Fixture()
-        let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
-        let settled = await wait(mounted.window, upTo: 10) {
-            (pdfView(in: mounted.host)?.scaleFactor ?? 0) > 0 && pdfView(in: mounted.host)?.document != nil
-        }
-        try #require(settled.held, "the PDF never laid out (\(settled.pumps) passes)")
-        let view = try #require(pdfView(in: mounted.host))
+        let (view, window) = try await laidOutPDFView(fixture, width: 820, height: 700)
         #expect(view.displayMode == .singlePageContinuous,
                 "a paged mode scrolls within one page — the document is not reachable")
 
@@ -236,7 +220,7 @@ import UniformTypeIdentifiers
         let farEnd = abs(opensAt - span) > abs(opensAt) ? span : 0
         scroll.contentView.scroll(to: NSPoint(x: scroll.documentVisibleRect.origin.x, y: farEnd))
         scroll.reflectScrolledClipView(scroll.contentView)
-        mounted.window.layoutIfNeeded()
+        window.layoutIfNeeded()
 
         #expect(abs(scroll.documentVisibleRect.origin.y - opensAt) > visible,
                 "the clip view moved \(scroll.documentVisibleRect.origin.y - opensAt)pt from \(opensAt) — there is a scroll view but nothing scrolls")
@@ -361,7 +345,7 @@ import UniformTypeIdentifiers
         #expect(outcomes.reported.isEmpty)
 
         hold.release()
-        let arrived = await wait(hosted.window, upTo: 10) { view.document != nil }
+        let arrived = await LayoutPumpWait.pump(hosted.window, upTo: 10) { view.document != nil }
         #expect(arrived.held, "the document never arrived once the lane was free (\(arrived.pumps) passes)")
         #expect(view.document?.documentURL?.path == fixture.pdf)
         #expect(outcomes.reported == [.opened])
@@ -402,7 +386,7 @@ import UniformTypeIdentifiers
         defer { withExtendedLifetime(fixture) {} }
         let hosted = host(page(fixture.pdf))
         let view = try #require(pdfView(in: hosted.host))
-        let loaded = await wait(hosted.window, upTo: 10) { view.document != nil }
+        let loaded = await LayoutPumpWait.pump(hosted.window, upTo: 10) { view.document != nil }
         try #require(loaded.held, "the first document never arrived (\(loaded.pumps) passes)")
 
         let hold = LaneHold()
@@ -414,7 +398,7 @@ import UniformTypeIdentifiers
                 "the previous file's page stayed up while the next one was queued")
 
         hold.release()
-        let arrived = await wait(hosted.window, upTo: 10) { view.document != nil }
+        let arrived = await LayoutPumpWait.pump(hosted.window, upTo: 10) { view.document != nil }
         #expect(arrived.held)
         #expect(view.document?.documentURL?.path == fixture.otherPDF)
     }
@@ -462,7 +446,7 @@ import UniformTypeIdentifiers
         let outcomes = Outcomes()
         let renders = Renders()
         let hosted = host(ReRendered(renders: renders, path: fixture.brokenPDF, outcomes: outcomes))
-        let failed = await wait(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
+        let failed = await LayoutPumpWait.pump(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
         try #require(failed.held, "the broken file never reported (\(failed.pumps) passes)")
 
         for _ in 0..<4 {
@@ -543,7 +527,7 @@ import UniformTypeIdentifiers
         let outcomes = Outcomes()
         let hosted = host(page(fixture.brokenPDF, outcomes: outcomes))
         let view = try #require(pdfView(in: hosted.host))
-        let reported = await wait(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
+        let reported = await LayoutPumpWait.pump(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
         try #require(reported.held, "no outcome for the broken file (\(reported.pumps) passes)")
 
         #expect(outcomes.reported == [.unreadable])
@@ -561,7 +545,7 @@ import UniformTypeIdentifiers
         let outcomes = Outcomes()
         let hosted = host(page(fixture.lockedPDF, outcomes: outcomes))
         let view = try #require(pdfView(in: hosted.host))
-        let reported = await wait(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
+        let reported = await LayoutPumpWait.pump(hosted.window, upTo: 10) { !outcomes.reported.isEmpty }
         try #require(reported.held, "no outcome for the locked file (\(reported.pumps) passes)")
 
         #expect(outcomes.reported == [.locked])
@@ -590,11 +574,13 @@ import UniformTypeIdentifiers
         // few layout passes so PDFKit has built whatever scroll view it builds without a document.
         _ = await LayoutPumpWait.pump(hosted.window, upTo: 0.2) { false }
         #expect(view.backgroundColor.alphaComponent == 0, "the empty PDF view paints over the placeholder")
-        #expect(descendants(of: view).compactMap { $0 as? NSScrollView }.allSatisfy { !$0.drawsBackground },
+        let scrollers = descendants(of: view).compactMap { $0 as? NSScrollView }
+        try #require(!scrollers.isEmpty, "PDFKit built no scroll view, so the check below would check nothing")
+        #expect(scrollers.allSatisfy { !$0.drawsBackground },
                 "PDFKit's scroll view paints over the placeholder while the page loads")
 
         hold.release()
-        let arrived = await wait(hosted.window, upTo: 10) {
+        let arrived = await LayoutPumpWait.pump(hosted.window, upTo: 10) {
             view.document != nil && placeholders(in: hosted.host).isEmpty
         }
         #expect(arrived.held,
@@ -608,7 +594,7 @@ import UniformTypeIdentifiers
         let hosted = host(PDFPagePreview(url: URL(fileURLWithPath: fixture.brokenPDF)) { outcome in
             Placeholder(outcome: outcome)
         })
-        let settled = await wait(hosted.window, upTo: 10) {
+        let settled = await LayoutPumpWait.pump(hosted.window, upTo: 10) {
             placeholders(in: hosted.host).first?.outcome == .unreadable
         }
         #expect(settled.held,

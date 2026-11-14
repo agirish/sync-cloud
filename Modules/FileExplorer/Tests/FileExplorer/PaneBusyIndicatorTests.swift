@@ -57,8 +57,8 @@ enum BusyPaneFixture {
     }
 }
 
-/// What the busy chip paints, and where. Rendered over a magenta backdrop nothing in the UI uses
-/// (`PaneScanningPlaceholderRenderTests`' method), so every non-backdrop pixel is the subject's.
+/// What the busy chip paints, and where. Rendered over a magenta backdrop nothing in the UI uses,
+/// so every non-backdrop pixel is the subject's.
 ///
 /// `.machinePinned(.pixelSampling)` like its siblings: the floors and ceilings are ink counts read
 /// on this Mac, and they move with font rasterization and backing scale.
@@ -96,18 +96,21 @@ enum BusyPaneFixture {
 
     /// An empty pane being read paints in its bottom-right corner and nowhere else; the centre
     /// stays clear. Both halves matter: a centre clear because nothing rendered at all would pass
-    /// the second on its own.
+    /// the second on its own. And it paints spinner and label, no card: a material card has nothing
+    /// to blur on an empty pane and draws a flat gray slab (~53k px here; ink is ~3.2k).
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func anEmptyPaneBeingReadPaintsOnlyItsCorner(appearance: NSAppearance.Name) throws {
         let size = CGSize(width: 420, height: 300)
         let rep = try Self.render(BusyPaneFixture.pane(nodes: [], isLoading: true),
                                   size: size, appearance: appearance, suite: "empty")
         let corner = CGRect(x: size.width - 220, y: size.height - 70, width: 220, height: 70)
-        let rest = Self.painted(in: CGRect(origin: .zero, size: size), of: rep, viewSize: size)
-            - Self.painted(in: corner, of: rep, viewSize: size)
+        let total = Self.painted(in: CGRect(origin: .zero, size: size), of: rep, viewSize: size)
         let inCorner = Self.painted(in: corner, of: rep, viewSize: size)
+        let rest = total - inCorner
         #expect(inCorner > 300, "\(appearance.rawValue): the corner chip did not paint (\(inCorner) px)")
         #expect(rest < 50, "\(appearance.rawValue): the pane painted \(rest) px outside its corner chip")
+        #expect(total > 800, "\(appearance.rawValue): placeholder painted almost nothing (\(total) px)")
+        #expect(total < 12_000, "\(appearance.rawValue): placeholder is painting a fill (\(total) px)")
     }
 
     /// Backed over rows, bare over nothing. The backing is a material, and on an empty pane a

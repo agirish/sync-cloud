@@ -12,20 +12,11 @@ import Foundation
 @MainActor
 @Suite struct EditorAutosaveSnapshotTests {
 
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("editor-snapshot-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("editor-snapshot") }
 
     private func opened(_ contents: String, named name: String = "note.md",
                         in folder: URL) throws -> (EditorDocument, URL) {
-        let url = folder.appendingPathComponent(name)
-        try Data(contents.utf8).write(to: url)
-        let document = EditorDocument()
-        EditorFileStore.load(path: url.path, into: document)
-        return (document, url)
+        try EditorScratchFolder.opened(contents, named: name, in: folder)
     }
 
     /// A keystroke lands while the write is out. The snapshot went to disk, not the buffer, so
@@ -148,24 +139,10 @@ import Foundation
                 "an older background write overwrote a newer synchronous one")
     }
 
-    /// The control for the ordering test: a ticket not overtaken commits, or a store that refused
-    /// everything would pass it.
-    @Test func aBackgroundWriteThatWasNotOvertakenCommits() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let url = folder.appendingPathComponent("note.md")
-        try Data("original\n".utf8).write(to: url)
-
-        let ticket = EditorFileStore.issueWriteTicket()
-        let stamp = try EditorFileStore.write("from autosave\n", toPath: url.path,
-                                              encoding: .utf8, ticket: ticket)
-        #expect(stamp != nil)
-        #expect(try String(contentsOf: url, encoding: .utf8) == "from autosave\n")
-    }
-
     /// Two background writes in flight: the newer wins whichever lands first. The host dispatches
     /// one at a time, but its guard is a `@State` flag a rebuilt view would reset, so the store
-    /// must hold this on its own.
+    /// must hold this on its own. The newer write is also the ordering test's control: a ticket
+    /// nothing overtook commits, or a store that refused everything would pass.
     @Test func theNewerOfTwoBackgroundWritesWins() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }

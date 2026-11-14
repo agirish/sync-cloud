@@ -67,31 +67,9 @@ import Design
                                onBuildStorage: {})
             .defaultAppStorage(defaults)
             .environment(\.appFontScale, scale)
-            .frame(width: canvas.width, height: canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        // Without a window the content composites against the borderless window's own buffer and
-        // every comparison reads as zero difference.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
         // Twice: `.onGeometryChange` writes `railStyle` after a pass, so a single layout renders
         // the initial value rather than the width-dependent answer.
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return host
-    }
-
-    private func strip(_ host: NSHostingView<AnyView>, _ band: CGRect) -> NSBitmapImageRep? {
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
-        host.cacheDisplay(in: band, to: rep)
-        return rep
+        return ReviewLensHost.mount(subject, size: canvas, passes: 2).host
     }
 
     /// The x-extent of row 1's leading cluster, read off the render by the recipe of
@@ -101,7 +79,7 @@ import Design
     /// hundreds of points.
     private func leadingExtent(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
         let origin: CGFloat = 8
-        guard let rep = strip(host, CGRect(x: origin, y: 12, width: width - origin, height: 30)),
+        guard let rep = PixelProbe.render(host, CGRect(x: origin, y: 12, width: width - origin, height: 30)),
               let background = rep.colorAt(x: 2, y: 2) else { return nil }
         let scale = CGFloat(rep.pixelsWide) / (width - origin)
         var inked: [Bool] = []
@@ -184,18 +162,9 @@ import Design
         let host = mount(Self.manager(Self.report()), section: nil)
         let header: CGFloat = 81
         let band = CGRect(x: 8, y: header + 14, width: 420, height: 34)
-        let rep = try #require(strip(host, band))
+        let rep = try #require(PixelProbe.render(host, band))
         let background = try #require(rep.colorAt(x: 2, y: rep.pixelsHigh - 2))
-        var inked = 0
-        for x in 0..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
-                if delta > 0.03 { inked += 1 }
-            }
-        }
+        let inked = PixelProbe.count(in: rep) { PixelProbe.distance($0, background) > 0.03 }
         #expect(inked > 200,
                 "the band under the header drew \(inked) inked pixels — the section capsule is not in the content card")
     }

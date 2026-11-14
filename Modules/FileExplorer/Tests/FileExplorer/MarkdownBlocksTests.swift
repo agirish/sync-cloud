@@ -49,18 +49,16 @@ import Foundation
         }
     }
 
-    @Test func bulletsAndNumbersCarryTheirMarkers() {
-        #expect(markers("- one\n- two\n\n1. first\n2. second\n") == [.bullet, .bullet, .ordered(1), .ordered(2)])
-    }
-
-    @Test func anOrderedListStartingElsewhereKeepsItsNumbering() {
-        #expect(markers("7. seven\n8. eight\n") == [.ordered(7), .ordered(8)])
-    }
-
-    /// Task state comes from the parser, not from a pre-pass, which is the argument for parsing
-    /// real GFM: a regex over `- [ ]` would also claim a literal bracket pair someone typed.
-    @Test func taskItemsCarryTheirCheckedState() {
-        #expect(markers("- [ ] School forms\n- [x] Passport receipts\n") == [.task(done: false), .task(done: true)])
+    @Test(arguments: [
+        ("- one\n- two\n\n1. first\n2. second\n", [.bullet, .bullet, .ordered(1), .ordered(2)]),
+        // An ordered list starting elsewhere keeps its numbering.
+        ("7. seven\n8. eight\n", [.ordered(7), .ordered(8)]),
+        // Task state comes from the parser, not a pre-pass, which is the argument for parsing real
+        // GFM: a regex over `- [ ]` would also claim a literal bracket pair someone typed.
+        ("- [ ] School forms\n- [x] Passport receipts\n", [.task(done: false), .task(done: true)]),
+    ] as [(String, [MarkdownListMarker])])
+    func listItemsCarryTheirMarkers(_ source: String, _ expected: [MarkdownListMarker]) {
+        #expect(markers(source) == expected)
     }
 
     @Test func aBracketPairInProseIsNotATaskItem() {

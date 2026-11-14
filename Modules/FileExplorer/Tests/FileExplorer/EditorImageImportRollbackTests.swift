@@ -16,13 +16,6 @@ import FileExplorerTestSupport
 
     private let fm = FileManager.default
 
-    private func png() -> Data {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8,
-                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                   colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-        return rep.representation(using: .png, properties: [:])!
-    }
-
     private func listing(_ path: String) -> [String] {
         ((try? fm.contentsOfDirectory(atPath: path)) ?? []).sorted()
     }
@@ -34,7 +27,7 @@ import FileExplorerTestSupport
         let before = listing(folder)
         try #require(!fm.fileExists(atPath: images), "the Images folder was there already — nothing to make")
 
-        let report = EditorImageImport.importImages([.data(png(), extension: "png/unwritable")], forNote: note)
+        let report = EditorImageImport.importImages([.data(EditorTestRigs.png(), extension: "png/unwritable")], forNote: note)
 
         guard case .refused(let reason) = report else {
             Issue.record("not refused: \(report)")
@@ -51,7 +44,7 @@ import FileExplorerTestSupport
         let note = try TestTextFiles.write("# Pasta\n", named: "Pasta.md")
         let images = ((note as NSString).deletingLastPathComponent as NSString)
             .appendingPathComponent(EditorImageImport.folderName)
-        let report = EditorImageImport.importImages([.data(png(), extension: "png")], forNote: note)
+        let report = EditorImageImport.importImages([.data(EditorTestRigs.png(), extension: "png")], forNote: note)
         #expect(report == .wrote(files: [images + "/Pasta-1.png"], madeFolder: images, linked: ["Images/Pasta-1.png"]))
     }
 }

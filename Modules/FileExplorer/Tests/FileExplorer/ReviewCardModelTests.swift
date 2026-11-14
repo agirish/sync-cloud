@@ -191,13 +191,18 @@ import Sync
                 == "Folder missing on right — “Docs/report.txt/lib” inside it is a link.")
     }
 
+    /// A pending row the review holds back: its sizes differ with no newer side.
+    private static func heldRow() -> FileDifference {
+        FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
+                       type: .differentDates, action: .copyToRight, description: "x",
+                       leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+    }
+
     /// Copy Remaining with one pending row: a decided row takes `syncFile` (with Retry); a held one
     /// takes `syncAll`, which leaves it out and says so, as it does for two or more.
     @Test func copyRemainingSendsALoneHeldRowThroughTheHeldFilter() throws {
         let plain = diff()
-        let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
-                                  type: .differentDates, action: .copyToRight, description: "x",
-                                  leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        let held = Self.heldRow()
         #expect(CopyRemainingRoute.route([plain]) == .single(plain))
         #expect(CopyRemainingRoute.route([held]) == .bulk, "a lone held row was copied unasked")
         #expect(CopyRemainingRoute.route([plain, held]) == .bulk)
@@ -215,9 +220,7 @@ import Sync
     /// state both take this count.
     @Test func copyRemainingCountsOnlyTheRowsItWillCopy() throws {
         let plain = diff()
-        let held = FileDifference(relativePath: "a.txt", leftItemPath: "/l/a.txt", rightItemPath: "/r/a.txt",
-                                  type: .differentDates, action: .copyToRight, description: "x",
-                                  leftFileSize: 1, rightFileSize: 2, heldBack: .sizesDifferWithoutANewerSide)
+        let held = Self.heldRow()
         #expect(CopyRemainingRoute.copyableCount([held, plain]) == 1)
         #expect(CopyRemainingRoute.copyableCount([held, held]) == 0)
 

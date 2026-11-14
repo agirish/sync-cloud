@@ -216,20 +216,11 @@ import FileExplorerTestSupport
         await rig.undoAndSettle(expecting: "Hello world\n")
     }
 
-    /// ⌘Z with no switch at all reaches the document too. On TextKit 2 an `NSTextView` undo edits
-    /// its storage without sending `textDidChange`, so a buffer that followed `textDidChange` alone
-    /// would leave the screen showing the old text while the document, autosave and the dirty dot
-    /// kept the new.
-    @Test func undoWithoutASwitchReachesTheDocument() async throws {
-        let rig = try Rig("Hello world\n", mode: .edit)
-        defer { withExtendedLifetime(rig) {} }
-        try await rig.type(" there", at: 5)
-        await rig.undoAndSettle(expecting: "Hello world\n")
-    }
-
     /// Type, ⌘Z, close: the file holds the undone text. The close settles the buffer through
     /// autosave's flush, which writes `document.text`, so a buffer still holding the undone typing
-    /// would write it to disk under a screen that no longer shows it.
+    /// would write it to disk under a screen that no longer shows it. With no switch at all: on
+    /// TextKit 2 an `NSTextView` undo edits its storage without sending `textDidChange`, so a buffer
+    /// that followed `textDidChange` alone would keep the typing the screen no longer shows.
     @Test func typeUndoThenTheClosingFlushWritesTheUndoneText() async throws {
         let rig = try Rig("Hello world\n", mode: .edit)
         defer { withExtendedLifetime(rig) {} }

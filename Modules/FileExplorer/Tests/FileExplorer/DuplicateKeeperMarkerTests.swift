@@ -65,24 +65,25 @@ import Testing
 @Suite struct DuplicateScanSkipNoteTests {
     private typealias Skips = FileSyncManager.DuplicateScanSkips
 
-    @Test func nilWhenNothingWasSkipped() {
-        #expect(DuplicateScanSkipNote.text(Skips()) == nil)
-    }
-
-    @Test func listsOnlyTheReasonsThatOccurred() {
-        let cloudOnly = DuplicateScanSkipNote.text(Skips(cloudOnly: 3))
-        #expect(cloudOnly == "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected.")
-        // Hard links are counted too: dropped files must never just quietly shrink the results.
-        let links = DuplicateScanSkipNote.text(Skips(multiLink: 2))
-        #expect(links == "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
-    }
-
-    /// A file that was gone, unreadable, replaced between stat and open, or rewritten mid-read is a
-    /// skip like any other and is counted, or the results would just get smaller with no pill,
-    /// note or log saying why.
-    @Test func filesThatCouldNotBeReadAreCountedLikeEveryOtherSkip() {
-        let note = DuplicateScanSkipNote.text(Skips(unverifiable: 4))
-        #expect(note == "4 files outside duplicate detection: 4 unreadable or changed while being read. Duplicates among them are not detected.")
+    /// The whole note for each reason alone and all three together. Hard links and files that
+    /// could not be read (gone, unreadable, replaced between stat and open, rewritten mid-read) are
+    /// skips like any other, or the results would just get smaller with no pill saying why. With
+    /// nothing outside detection there is no pill, so the declined-text sentence has nowhere to
+    /// hang: image-only scans not comparing by text is ordinary, not a warning.
+    @Test(arguments: [
+        (Skips(), nil),
+        (Skips(cloudOnly: 3),
+         "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected."),
+        (Skips(multiLink: 2),
+         "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected."),
+        (Skips(unverifiable: 4),
+         "4 files outside duplicate detection: 4 unreadable or changed while being read. Duplicates among them are not detected."),
+        (Skips(cloudOnly: 2, multiLink: 3, unverifiable: 1),
+         "6 files outside duplicate detection: 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing), 1 unreadable or changed while being read. Duplicates among them are not detected."),
+        (Skips(textUnreadable: 853), nil),
+    ] as [(FileSyncManager.DuplicateScanSkips, String?)])
+    func theNoteListsOnlyTheReasonsThatOccurred(_ skips: FileSyncManager.DuplicateScanSkips, _ expected: String?) {
+        #expect(DuplicateScanSkipNote.text(skips) == expected)
     }
 
     /// They are in the total, which counts files no duplicate claim of any kind could be made about.
@@ -91,11 +92,6 @@ import Testing
         #expect(Skips(cloudOnly: 2, multiLink: 3, unverifiable: 4).total == 9)
         // A text-only decline is not in the total: those files were hashed and grouped normally.
         #expect(Skips(textUnreadable: 853).total == 0)
-    }
-
-    @Test func combinesBothReasonsWithATotal() {
-        let both = DuplicateScanSkipNote.text(Skips(cloudOnly: 2, multiLink: 3, unverifiable: 1))
-        #expect(both == "6 files outside duplicate detection: 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing), 1 unreadable or changed while being read. Duplicates among them are not detected.")
     }
 
     @Test func singularTotalDropsThePluralS() {
@@ -109,12 +105,6 @@ import Testing
         let note = DuplicateScanSkipNote.text(Skips(cloudOnly: 1, textUnreadable: 853))
         #expect(note?.hasPrefix("1 file outside duplicate detection") == true)
         #expect(note?.contains("A further 853 documents were hashed but said too little") == true)
-    }
-
-    @Test func nothingSkippedStaysSilentEvenWhenDocumentsSaidTooLittle() {
-        // No files outside detection means no pill, so the declined-text sentence has nowhere to
-        // hang. On purpose: image-only scans not comparing by text is ordinary, not a warning.
-        #expect(DuplicateScanSkipNote.text(Skips(textUnreadable: 853)) == nil)
     }
 
     @Test func oneDeclinedDocumentReadsSingular() {

@@ -142,16 +142,4 @@ import FileExplorerTestSupport
         #expect(source.contains("ForEach(EditorPDFHeaderControls.Rung.allCases, id: \\.self) { rung in"))
         #expect(source.contains("accent: accent, accentFill: accentFill, onAccent: onAccent, rung: rung)"), "the actions are not drawn at the chosen rung")
     }
-
-    /// No "PDF" tag beside the name, and no page, zoom or layout control in the header: the name
-    /// ends in .pdf, and the capsule carries those.
-    @Test func theNameRowHoldsTheFileAndWhatActsOnIt() throws {
-        let card = try ChromeGlassWiringTests.source("EditorPDFCard.swift")
-        let start = try #require(card.range(of: "func nameRow(_ rung: EditorPDFHeaderControls.Rung) -> some View {"))
-        let end = try #require(card.range(of: "private var metaRow: some View {", range: start.upperBound..<card.endIndex))
-        let row = String(card[start.upperBound..<end.lowerBound])
-        for gone in ["EditorPDFZoom", "pageField", "EditorPDFLayoutMenu", "Text(\"PDF\")", "EditorPDFCapsule"] {
-            #expect(!row.contains(gone), "the name row draws \(gone) again")
-        }
-    }
 }

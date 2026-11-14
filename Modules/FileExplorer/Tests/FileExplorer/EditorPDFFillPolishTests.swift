@@ -101,13 +101,8 @@ import Sync
     /// Esc on the pages, through the overlay, closes the find card first, then the palette.
     @Test func escapeOnThePagesClosesFindFirstThenThePalette() async throws {
         let pdf = try await open()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 700), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        let reader = ReaderPDFView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
-        window.contentView = reader
-        reader.document = pdf.document
-        reader.layoutSubtreeIfNeeded()
-        reader.fillSign = pdf.fill
+        let (window, reader) = EditorTestRigs.readerWindow(pdf.document, fill: pdf.fill,
+                                                           size: CGSize(width: 500, height: 700), scale: 1)
         var findShown = true
         reader.onEscape = {
             guard findShown else { return false }
@@ -529,7 +524,6 @@ import Sync
         let bar = try SourceText.fileExplorer("EditorFormatBar.swift")
         #expect(bar.contains("EditorStylePicker(current: state.heading, accent: accent)"))
         #expect(bar.contains("fill(hovering ? AccentFill.deepened(accent) : .clear)"))
-        #expect(!bar.contains("fill(hovering ? Color.accentColor"))
     }
 
     // MARK: TE126 — words

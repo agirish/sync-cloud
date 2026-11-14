@@ -16,6 +16,7 @@ import FileExplorerTestSupport
 @Suite(.serialized) final class EditorPDFRailTests {
 
     let folder = NSTemporaryDirectory() + "editor-pdf-rail-" + UUID().uuidString
+    private let defaults = ScratchDefaults("EditorPDFRailTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -26,21 +27,12 @@ import FileExplorerTestSupport
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
     @discardableResult
-    private func wait(_ label: String, turns: Int = 1000, until done: () -> Bool) async -> Bool {
-        for _ in 0..<turns {
-            if done() { return true }
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("never happened in \(turns) lane turns: \(label)")
-        return false
+    private func wait(_ label: String, until done: () -> Bool) async -> Bool {
+        await PDFFixtures.waitInLane(label, until: done)
     }
 
     private func opened(_ file: String) async -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
-        pdf.open(path: file, log: { _ in })
-        await wait("\(file) to open") { pdf.phase != .loading }
-        return pdf
+        await PDFFixtures.openedAnyPhase(file, defaults: defaults)
     }
 
     private func entry(_ name: String, kind: EditorRailEntry.Kind = .text) -> EditorRailEntry {
@@ -276,7 +268,7 @@ import FileExplorerTestSupport
         PDFFixtures.write(file, pages: 40)
         // A watch that never settles inside the test, so the rewrite below is looked at once, by
         // hand. A live watch would look again, re-queuing the reload and withdrawing the first.
-        let pdf = EditorPDFDocument(settle: .seconds(3600), isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(settle: .seconds(3600), isCloudOnly: { _ in false }, defaults: defaults)
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
 

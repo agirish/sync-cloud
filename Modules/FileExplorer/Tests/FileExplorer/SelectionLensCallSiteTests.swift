@@ -215,18 +215,11 @@ import Sync
         }
     }
 
-    @Test(.machinePinned(.pixelSampling))
-    func editsModeCapsuleHostsItsLens() {
+    @Test(.machinePinned(.pixelSampling), arguments: [EditorModeBar.Rung.labelled, .glyphOnly])
+    func editsModeCapsuleHostsItsLens(rung: EditorModeBar.Rung) {
         Self.expectLensOnTodaysMarker(
-            first: EditorModeBar(mode: .constant(.edit), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .labelled),
-            last: EditorModeBar(mode: .constant(.split), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .labelled))
-    }
-
-    @Test(.machinePinned(.pixelSampling))
-    func editsModeCapsuleHostsItsLensOnTheGlyphRungToo() {
-        Self.expectLensOnTodaysMarker(
-            first: EditorModeBar(mode: .constant(.edit), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly),
-            last: EditorModeBar(mode: .constant(.split), accentFill: Self.markerGreen, onAccent: .white, forcedRung: .glyphOnly))
+            first: EditorModeBar(mode: .constant(.edit), accentFill: Self.markerGreen, onAccent: .white, forcedRung: rung),
+            last: EditorModeBar(mode: .constant(.split), accentFill: Self.markerGreen, onAccent: .white, forcedRung: rung))
     }
 
     @Test(.machinePinned(.pixelSampling))

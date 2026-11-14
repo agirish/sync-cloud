@@ -57,11 +57,6 @@ import FileExplorerTestSupport
         return hosted
     }
 
-    /// One `_FocusRingView` per focusable control — see `PaneHeaderHeightTests.buttonCount`.
-    private func controls(in host: NSView) -> Int {
-        return FocusRings.count(in: host)
-    }
-
     private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }
 
     // MARK: Which reading, by the pane's state
@@ -188,8 +183,8 @@ import FileExplorerTestSupport
             let whole = host(label.row(location.parts(rung: [0, 1, 2, 3, 4]), compressible: false)
                                 .scaledFont(.system(size: 10)).environment(\.appFontScale, scale),
                              width: 900)
-            #expect(controls(in: folded) == 3,
-                    "at \(scale) the folded rung drew \(controls(in: folded)) controls — two doors and the menu expected")
+            #expect(FocusRings.count(in: folded) == 3,
+                    "at \(scale) the folded rung drew \(FocusRings.count(in: folded)) controls — two doors and the menu expected")
             #expect(abs(folded.fittingSize.height - whole.fittingSize.height) < 0.01,
                     "at \(scale) the folded rung is \(folded.fittingSize.height)pt, the whole path \(whole.fittingSize.height)pt")
         }
@@ -222,10 +217,10 @@ import FileExplorerTestSupport
     /// location, the three-level crumb three more, so drawing the wrong reading for the pane fails.
     @Test func theHeaderDrawsOneDoorOpenAndOnePerLevelCollapsed() throws {
         let doc = try document(named: "Test.md")
-        let none = controls(in: host(workspace(doc, location: nil).headerContent, width: 620))
-        let open = controls(in: host(workspace(doc, location: Self.location(Self.finance, .folderName))
+        let none = FocusRings.count(in: host(workspace(doc, location: nil).headerContent, width: 620))
+        let open = FocusRings.count(in: host(workspace(doc, location: Self.location(Self.finance, .folderName))
                                         .headerContent, width: 620))
-        let collapsed = controls(in: host(workspace(doc, location: Self.location(Self.finance, .crumb))
+        let collapsed = FocusRings.count(in: host(workspace(doc, location: Self.location(Self.finance, .crumb))
                                              .headerContent, width: 620))
         #expect(open == none + 1, "pane open: \(open) controls against \(none) with no location")
         #expect(collapsed == none + 3, "pane collapsed: \(collapsed) controls against \(none) with no location")
@@ -250,15 +245,15 @@ import FileExplorerTestSupport
             }
             let long = host(workspace(doc, location: Self.location(Self.deep, .crumb))
                                .headerContent.environment(\.appFontScale, scale), width: width)
-            let none = controls(in: bare)
-            let drawn = controls(in: long) - none
+            let none = FocusRings.count(in: bare)
+            let drawn = FocusRings.count(in: long) - none
             #expect(drawn >= 1 && drawn < Self.deep.count,
                     "at \(scale) the deep crumb drew \(drawn) doors in \(width)pt — it did not fold")
         }
         // The control: with room, the whole path is drawn.
-        let wide = controls(in: host(workspace(doc, location: Self.location(Self.deep, .crumb)).headerContent,
+        let wide = FocusRings.count(in: host(workspace(doc, location: Self.location(Self.deep, .crumb)).headerContent,
                                      width: 1_400))
-        let wideNone = controls(in: host(workspace(doc, location: nil).headerContent, width: 1_400))
+        let wideNone = FocusRings.count(in: host(workspace(doc, location: nil).headerContent, width: 1_400))
         #expect(wide - wideNone == Self.deep.count, "given 1,400pt the crumb still folded")
     }
 
@@ -313,7 +308,7 @@ import FileExplorerTestSupport
         let doc = try document(named: "note.txt")
         let view = workspace(doc, location: nil)
         func count(width: CGFloat, scale: CGFloat) -> Int {
-            controls(in: host(EditorDocumentHeader { view.headerContent }
+            FocusRings.count(in: host(EditorDocumentHeader { view.headerContent }
                                 .environment(\.appFontScale, scale), width: width))
         }
         let wide = count(width: 900, scale: 1)
@@ -442,12 +437,12 @@ import FileExplorerTestSupport
             defaults.set(style.rawValue, forKey: LiquidGlass.surfaceStyleKey)
             let crumb = host(workspace(empty, location: Self.location(paneFolder, .crumb))
                                 .defaultAppStorage(defaults), width: 700, height: 400)
-            #expect(controls(in: crumb) == 3,
-                    "\(style): the empty page draws \(controls(in: crumb)) controls with a three-level crumb — the ＋ and two doors expected")
+            #expect(FocusRings.count(in: crumb) == 3,
+                    "\(style): the empty page draws \(FocusRings.count(in: crumb)) controls with a three-level crumb — the ＋ and two doors expected")
             let named = host(workspace(empty, location: Self.location(paneFolder, .folderName))
                                 .defaultAppStorage(defaults), width: 700, height: 400)
-            #expect(controls(in: named) == 1,
-                    "\(style): the empty page draws \(controls(in: named)) controls with `in Finance` — the ＋ alone expected; the folder's name is words")
+            #expect(FocusRings.count(in: named) == 1,
+                    "\(style): the empty page draws \(FocusRings.count(in: named)) controls with `in Finance` — the ＋ alone expected; the folder's name is words")
         }
         // The words themselves, as data: the folder's own level is text.
         #expect(Self.location(paneFolder, .folderName).parts(rung: [])

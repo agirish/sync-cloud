@@ -57,15 +57,6 @@ import EventsTestSupport
         return NSColor(srgbRed: CGFloat(p[0]) / 255, green: CGFloat(p[1]) / 255, blue: CGFloat(p[2]) / 255, alpha: 1)
     }
 
-    static func lum(_ c: NSColor) -> CGFloat {
-        AccentLabel.relativeLuminance(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent)
-    }
-
-    static func ratio(_ a: NSColor, _ b: NSColor) -> CGFloat {
-        let (x, y) = (lum(a) + 0.05, lum(b) + 0.05)
-        return max(x, y) / min(x, y)
-    }
-
     /// The sheet, hosted in a window that is never ordered in, rendered once its form has loaded,
     /// with the y, in points from the top, of the last field's lower edge.
     private func render(rootTint: Color?, dark: Bool) async throws -> (NSBitmapImageRep, fieldsEnd: CGFloat) {
@@ -140,8 +131,9 @@ import EventsTestSupport
         var best: CGFloat = 1
         for y in rows { for x in 0..<rep.pixelsWide {
             let c = pixel(rep, x, y)
-            guard dark ? lum(c) > lum(bezel) : lum(c) < lum(bezel) else { continue }
-            best = max(best, ratio(c, bezel))
+            guard dark ? Contrast.luminance(c) > Contrast.luminance(bezel)
+                       : Contrast.luminance(c) < Contrast.luminance(bezel) else { continue }
+            best = max(best, Contrast.ratio(c, bezel))
         } }
         return best
     }

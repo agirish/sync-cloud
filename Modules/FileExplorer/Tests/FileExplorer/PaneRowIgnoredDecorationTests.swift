@@ -15,23 +15,8 @@ import Sync
 
     /// Reports every node as ignored and counts the asks, so the single-source case can be shown to
     /// skip the query rather than discard its answer (the column row runs it per row, per click).
-    @MainActor private final class AlwaysIgnoredDelegate: FileActionDelegate {
+    @MainActor private final class AlwaysIgnoredDelegate: NoOpFileActions {
         var askCount = 0
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
         func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
             askCount += 1
             return true

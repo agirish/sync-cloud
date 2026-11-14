@@ -653,6 +653,7 @@ import EventsTestSupport
         #expect(ranAt - freed >= 0.75, "it ran out \(ranAt - freed) s after the main thread was free")
     }
 
+    /// A synchronous wrapper: `Thread.sleep` is unavailable from an async context.
     private static func holdTheMainThread(for seconds: TimeInterval) {
         Thread.sleep(forTimeInterval: seconds)
     }

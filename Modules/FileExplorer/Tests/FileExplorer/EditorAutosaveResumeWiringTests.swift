@@ -15,11 +15,7 @@ import Foundation
 @Suite struct EditorAutosaveResumeWiringTests {
 
     private static func autosaveSwitchAction() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/EditorWorkspaceView.swift")
-        let source = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                  "cannot read EditorWorkspaceView.swift — this check is vacuous")
+        let source = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         let start = try #require(source.range(of: "private var autosaveSwitch: some View {"),
                                  "`autosaveSwitch` is gone or renamed — re-aim this scan")
         let rest = source[start.upperBound...]

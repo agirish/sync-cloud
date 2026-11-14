@@ -243,51 +243,32 @@ import Foundation
 
     // MARK: Line prefixes
 
-    @Test func aHeadingIsAppliedAndRemoved() {
-        #expect(apply(.heading(2), "Title\n", range(0, 0))?.text == "## Title\n")
-        #expect(apply(.heading(2), "## Title\n", range(0, 0))?.text == "Title\n")
-    }
-
-    /// Re-applying at another level replaces the marker rather than stacking a second one.
-    @Test func changingHeadingLevelReplacesTheMarker() {
-        #expect(apply(.heading(3), "# Title\n", range(0, 0))?.text == "### Title\n")
-    }
-
-    /// Body is a removal with nothing to put back, so it is never a toggle — pressing it twice
-    /// leaves a paragraph a paragraph.
-    @Test func bodyOnlyEverRemoves() {
-        #expect(apply(.heading(0), "### Title\n", range(0, 0))?.text == "Title\n")
-        #expect(apply(.heading(0), "Title\n", range(0, 0)) == nil)
-    }
-
-    @Test func listsNumberThemselvesAcrossTheSelection() {
-        let source = "one\ntwo\nthree\n"
-        let edit = apply(.numberedList, source, range(0, 13))
-        #expect(edit?.text == "1. one\n2. two\n3. three\n", "produced \(edit?.text ?? "nil")")
-    }
-
-    @Test func aBulletedListTogglesOffWhenEveryLineHasOne() {
-        let listed = "- one\n- two\n"
-        #expect(apply(.bulletList, listed, range(0, 11))?.text == "one\ntwo\n")
-    }
-
-    /// A mixed selection is finished rather than inverted: the first press gives every line the
-    /// prefix, and only then does a second press take it away.
-    @Test func aMixedSelectionIsCompletedNotInverted() {
-        let mixed = "- one\ntwo\n"
-        let first = apply(.bulletList, mixed, range(0, 9))
-        #expect(first?.text == "- one\n- two\n", "produced \(first?.text ?? "nil")")
-    }
-
-    /// A bulleted list and a checklist both open with a dash, so Bulleted List on a checklist has
-    /// to mean "make it a plain list" rather than "strip the dash and leave the boxes".
-    @Test func bulletOnATaskListMakesItAPlainList() {
-        #expect(apply(.bulletList, "- [ ] one\n", range(0, 0))?.text == "- one\n")
-    }
-
-    @Test func taskItemsAreAppliedAndRemoved() {
-        #expect(apply(.taskItem, "one\n", range(0, 0))?.text == "- [ ] one\n")
-        #expect(apply(.taskItem, "- [x] one\n", range(0, 0))?.text == "one\n")
+    /// One line-prefix verb on one buffer, caret or selection, and the whole buffer it leaves (nil:
+    /// refused). Each row's last cell says what it pins.
+    @Test(arguments: [
+        (MarkupVerb.heading(2), "Title\n", 0, 0, "## Title\n", "a heading is applied"),
+        (.heading(2), "## Title\n", 0, 0, "Title\n", "and removed"),
+        (.heading(3), "# Title\n", 0, 0, "### Title\n", "another level replaces the marker, not stacks"),
+        // Body is a removal with nothing to put back, so pressing it twice leaves a paragraph.
+        (.heading(0), "### Title\n", 0, 0, "Title\n", "body removes a heading"),
+        (.heading(0), "Title\n", 0, 0, nil, "body is never a toggle"),
+        (.numberedList, "one\ntwo\nthree\n", 0, 13, "1. one\n2. two\n3. three\n", "a list numbers itself across the selection"),
+        (.bulletList, "- one\n- two\n", 0, 11, "one\ntwo\n", "bullets toggle off when every line has one"),
+        (.bulletList, "- one\ntwo\n", 0, 9, "- one\n- two\n", "a mixed selection is completed, not inverted"),
+        // A checklist opens with a dash too: Bulleted List means "make it a plain list".
+        (.bulletList, "- [ ] one\n", 0, 0, "- one\n", "bullets on a task list make a plain list"),
+        (.taskItem, "one\n", 0, 0, "- [ ] one\n", "a task item is applied"),
+        (.taskItem, "- [x] one\n", 0, 0, "one\n", "and removed"),
+        // A quote nests in front of whatever the line already was; the list verbs are alternatives.
+        (.blockQuote, "- one\n", 0, 0, "> - one\n", "quoting keeps the list"),
+        (.blockQuote, "> - one\n", 0, 0, "- one\n", "unquoting keeps the list"),
+        // Prefixing a blank line would put a lone `- ` between paragraphs, or read it as missing one.
+        (.bulletList, "- one\n\n- two\n", 0, 12, "one\n\ntwo\n", "a blank line inside a selection is left alone"),
+    ] as [(MarkupVerb, String, Int, Int, String?, String)])
+    func aLinePrefixVerb(verb: MarkupVerb, text: String, location: Int, length: Int,
+                         expected: String?, what: String) {
+        let produced = apply(verb, text, range(location, length))?.text
+        #expect(produced == expected, "\(what): produced \(String(describing: produced))")
     }
 
     /// A box with nothing after it (its trailing space trimmed) is still a task, not a bullet whose
@@ -302,21 +283,6 @@ import Foundation
             let bullet = apply(.bulletList, line, range(line.count, 0))?.text
             #expect(bullet == "- ", "Bullets on “\(line)” wrote \(String(describing: bullet))")
         }
-    }
-
-    /// Markdown nests a quote in front of whatever the line already was, so quoting a list leaves a
-    /// quoted list — unlike the list verbs, which are alternatives to each other.
-    @Test func quotingKeepsWhateverTheLineAlreadyWas() {
-        #expect(apply(.blockQuote, "- one\n", range(0, 0))?.text == "> - one\n")
-        #expect(apply(.blockQuote, "> - one\n", range(0, 0))?.text == "- one\n")
-    }
-
-    /// A blank line inside a selection stays blank: prefixing it would put a lone `- ` between two
-    /// paragraphs, and the toggle must not read it as "this line is missing the prefix" either.
-    @Test func blankLinesInsideASelectionAreLeftAlone() {
-        let source = "- one\n\n- two\n"
-        #expect(apply(.bulletList, source, range(0, 12))?.text == "one\n\ntwo\n",
-                "the blank line broke the toggle")
     }
 
     /// A list or heading verb reads past a line's quote markers and indentation, and writes after

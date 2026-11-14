@@ -37,25 +37,8 @@ import Sync
         return submenu.items.filter { !$0.isSeparatorItem }.map { ($0.state == .on ? "✓ " : "") + $0.title }
     }
 
-    private static func source() throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/ProviderMenu.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read ProviderMenu.swift — every scan here would be vacuous")
-        try #require(text.count > 500, "ProviderMenu.swift read as \(text.count) characters — truncated?")
-        return text
-    }
-
-    /// Whole-line comments stripped, so prose describing the invariants cannot satisfy the scans.
-    private static func codeOnly(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     @Test func oneInlinePickerCarriesTheWholeListAndItsCheckColumn() throws {
-        let code = Self.codeOnly(try Self.source())
+        let code = SourceText.codeOnly(try SourceText.fileExplorer("ProviderMenu.swift"))
         let pickers = code.components(separatedBy: "Picker(").count - 1
         #expect(pickers == 1,
                 "found \(pickers) Picker(s) — a second Picker over the same binding splits the check column and re-spaces the menu")
@@ -86,7 +69,7 @@ import Sync
     }
 
     @Test func theMenuStaysCompressibleHorizontally() throws {
-        let code = Self.codeOnly(try Self.source())
+        let code = SourceText.codeOnly(try SourceText.fileExplorer("ProviderMenu.swift"))
         #expect(code.contains(".fixedSize(horizontal: false, vertical: true)"),
                 "the vertical-only fixedSize is the ballooning-label fix — full fixedSize ignores the width proposal")
         // Exactly one `.fixedSize`, with its spelling pinned above: one count bans both the bare

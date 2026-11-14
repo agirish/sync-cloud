@@ -29,22 +29,8 @@ import Sync
 
     /// The row on a plain light ground, in a real window so text really rasterises.
     private func render<V: View>(_ view: V) -> NSBitmapImageRep? {
-        let subject = view
-            .frame(width: Self.size.width, height: Self.size.height)
-            .background(Color.white)
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        PixelDiff.render(view.frame(width: Self.size.width, height: Self.size.height)
+                             .background(Color.white).environment(\.colorScheme, .light), size: Self.size)
     }
 
     /// How much the bitmap departs from white, summed over every pixel. Compositing at opacity α
@@ -53,7 +39,7 @@ import Sync
         var total = 0.0
         for x in 0..<rep.pixelsWide {
             for y in 0..<rep.pixelsHigh {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
                 total += (1 - c.redComponent) + (1 - c.greenComponent) + (1 - c.blueComponent)
             }
         }

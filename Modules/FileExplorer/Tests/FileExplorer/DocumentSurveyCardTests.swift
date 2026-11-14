@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Sync
 @testable import FileExplorer
 
 /// The document survey card's words and its bar.
@@ -134,6 +135,25 @@ import Testing
         #expect(!detail.contains("1 h 50"), "a paused card is counting down to nothing")
     }
 
+    /// A live survey's state says who paused it: paused by the Mac, it says so and that it goes on
+    /// by itself; paused by the reader, only that it is paused. Finishing is its own state.
+    @Test func aLiveSurveySaysWhoPausedIt() {
+        func live(_ phase: DocumentSurveyProgress.Phase, done: Int = 40,
+                  folder: String? = nil) -> DocumentSurveyCardState {
+            .live(DocumentSurveyProgress(completed: done, total: 300, phase: phase, currentFolder: folder,
+                                         startedAt: Date(timeIntervalSince1970: 1_780_315_200),
+                                         readingSeconds: 60))
+        }
+        let hot = live(.paused(.thermal))
+        #expect(DocumentSurveyCardText.title(for: hot) == "Reading documents · paused at 40 of 300")
+        #expect(DocumentSurveyCardText.detail(for: hot) == "Paused — the Mac is running hot. Resumes on its own.")
+        let mine = live(.paused(.user))
+        #expect(DocumentSurveyCardText.title(for: mine) == "Reading documents · paused at 40 of 300")
+        #expect(DocumentSurveyCardText.detail(for: mine) == "Paused.")
+        #expect(DocumentSurveyCardText.title(for: live(.reading, folder: "Taxes")) == "Reading documents · 40 of 300")
+        #expect(live(.finishing, done: 300) == .finishing(done: 300))
+    }
+
     /// The user's own pause doesn't claim to resume on its own, because it doesn't.
     @Test func aUserPauseDoesNotPromiseToResumeItself() {
         let pause = DocumentSurveyCardState.PauseNote(sentence: "Paused.", resumesOnItsOwn: false)
@@ -216,6 +236,9 @@ import Testing
         #expect(detail.contains("2,306"))
         #expect(!detail.contains("read "), "a missing stamp was rendered as a claim about when")
         #expect(detail.lowercased().contains("only what has changed"))
+        // An empty tree still says something.
+        let empty = DocumentSurveyCardState.settled(folders: 0, lastRead: nil)
+        #expect(!DocumentSurveyCardText.title(for: empty).isEmpty && !DocumentSurveyCardText.detail(for: empty).isEmpty)
     }
 
 
@@ -245,25 +268,6 @@ import Testing
                 "finishing does not tell the reader there is nothing for them to do")
         // No bar: the reading has stopped counting.
         #expect(DocumentSurveyCardText.fraction(for: state) == nil)
-    }
-
-    @Test func everyStateHasATitleAndADetail() {
-        let states: [DocumentSurveyCardState] = [
-            .offered(documents: 100),
-            .offered(documents: nil),
-            .running(done: 1, total: 100, folder: "A", secondsRemaining: 60, pause: nil),
-            .running(done: 1, total: 100, folder: "A", secondsRemaining: 60,
-                     pause: .init(sentence: "Paused.", resumesOnItsOwn: false)),
-            .finishing(done: 100),
-            .interrupted(done: 1, total: 100),
-            .finished(summary: "done.", unreadableTypes: 0),
-            .settled(folders: 2306, lastRead: Date()),
-            .settled(folders: 0, lastRead: nil),
-        ]
-        for state in states {
-            #expect(!DocumentSurveyCardText.title(for: state).isEmpty)
-            #expect(!DocumentSurveyCardText.detail(for: state).isEmpty)
-        }
     }
 
     // MARK: - The verbs do what they say

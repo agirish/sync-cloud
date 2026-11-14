@@ -126,26 +126,16 @@ import AppKit
     }
 
     /// The end of the file reaches mid-height too: the bottom inset is what lets it; without it the
-    /// last line could only sit at the bottom edge.
-    @Test func theLastLineReachesMidHeight() throws {
-        let rig = hosted(on: true)
-        defer { withExtendedLifetime(rig.window) {} }
-        let end = (rig.view.string as NSString).length
-        rig.view.setSelectedRange(NSRange(location: end, length: 0))
-        rig.view.scrollRangeToVisible(NSRange(location: end, length: 0))
-        settle(rig.window)
-        let share = try caretShare(rig)
-        #expect(abs(share - 0.5) < 0.03, "the last line sits at \(share) of the height")
-    }
-
-    /// And so does the empty line after a final line break, where a caret goes after Return at the
-    /// end of a file and TextKit 2 has no fragment of its own.
-    @Test func theEmptyLastLineReachesMidHeight() throws {
-        let rig = hosted(text: (1...400).map { "line \($0)" }.joined(separator: "\n") + "\n", on: true)
+    /// last line could only sit at the bottom edge. And so does the empty line after a final line
+    /// break, where a caret goes after Return at the end of a file and TextKit 2 has no fragment.
+    @Test(arguments: [false, true])
+    func theLastLineReachesMidHeight(endsInABreak: Bool) throws {
+        let rig = hosted(text: (1...400).map { "line \($0)" }.joined(separator: "\n") + (endsInABreak ? "\n" : ""),
+                         on: true)
         defer { withExtendedLifetime(rig.window) {} }
         place(rig, NSRange(location: (rig.view.string as NSString).length, length: 0))
         let share = try caretShare(rig)
-        #expect(abs(share - 0.5) < 0.03, "the empty last line sits at \(share) of the height")
+        #expect(abs(share - 0.5) < 0.03, "the last line (ending in a break: \(endsInABreak)) sits at \(share) of the height")
     }
 
     /// Turned on, the caret's line comes to the middle at once, not at the next keystroke.

@@ -106,30 +106,13 @@ final class BadgeEvaluationLog {
 ///
 /// A class, not a struct: the panes hold this as an existential and the recording has to survive
 /// being copied into the view graph.
-final class BadgeRecordingDelegate: FileActionDelegate {
+final class BadgeRecordingDelegate: NoOpFileActions {
     let provider: CloudProvider.ProviderType
     /// Every ask, in order and with repeats: `count` is the traffic the pane generates,
     /// `Set(…).count` is what the memo may charge for.
     private(set) var asked: [String] = []
 
     init(provider: CloudProvider.ProviderType) { self.provider = provider }
-
-    func handleRefresh() {}
-    func handleOpenInEditor(_ path: String) {}
-    func handleFocus(_ node: FileNode) {}
-    func handleCopy(_ nodes: [FileNode]) {}
-    func handleMove(_ nodes: [FileNode]) {}
-    func handleDelete(_ nodes: [FileNode]) {}
-    func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-    func handlePaste(_ targetDir: FileNode) {}
-    func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-    func handlePasteToPath(_ path: String) {}
-    func handleRename(_ node: FileNode) {}
-    func handleCreateFolder(at path: String) {}
-    func handleGetInfo(for path: String) {}
-    func handleSort(_ option: SortOption) {}
-    func handleIgnore(_ nodes: [FileNode]) {}
-    func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
 
     /// No kept-name short-circuit, unlike production: it would let a name be asked about without
     /// reaching the memo, and these cases compare the two counts directly.

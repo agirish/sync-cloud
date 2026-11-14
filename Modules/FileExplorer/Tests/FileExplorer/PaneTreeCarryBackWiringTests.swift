@@ -32,42 +32,35 @@ import Sync
         ])
     }
 
-    /// Mounts a Columns pane holding `selection` and a resting stack, and returns every column move
-    /// it asked its host for.
-    private func mountColumns(selection selected: Set<String>,
-                              parked: PaneBrowsePath = PaneBrowsePath(),
-                              search: PaneSearchResults? = nil,
-                              isLoading: Bool = false,
-                              tree: PaneTree? = nil) -> [PaneBrowsePath] {
-        final class Box: @unchecked Sendable { var moves: [PaneBrowsePath] = [] }
-        let box = Box()
-        var selection = selected
-        var browse = parked
-        let tree = tree ?? self.tree()
-        let view = FileTreeView(
-            tree: tree,
-            otherTree: PaneTree(side: .right, version: 1, nodes: []),
-            isLoading: isLoading,
-            currentPath: Self.root,
-            selection: Binding(get: { selection }, set: { selection = $0 }),
-            otherSelection: [],
-            isLeft: true,
-            delegate: NoOpFileActionDelegate(),
-            isSingleSource: true,
-            search: search,
-            isActivePane: true,
-            viewMode: .columns,
-            childrenIndex: PaneChildrenIndex(tree: tree, treeRoot: Self.root),
-            browsePath: Binding(get: { browse }, set: { browse = $0 }),
-            onColumnNavigate: { box.moves.append($0); browse = $0 })
+    final class Moves: @unchecked Sendable { var moves: [PaneBrowsePath] = [] }
 
-        let host = NSHostingView(rootView: AnyView(view.frame(width: 640, height: 420)))
+    /// Mounts `view` in a borderless window and returns a pump spinning the run loop `n` × 20 ms:
+    /// the carry is asked from `onAppear` and `onChange`, which fire only from the run loop here.
+    private func mount(_ view: some View) -> (Int) -> Void {
+        let host = NSHostingView(rootView: AnyView(view))
         host.frame = NSRect(x: 0, y: 0, width: 640, height: 420)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        for _ in 0..<40 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        return { n in
+            withExtendedLifetime(window) {
+                for _ in 0..<n { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+            }
+        }
+    }
+
+    /// Mounts a Columns pane holding `selection` and a resting stack, and returns every column move
+    /// it asked its host for.
+    private func mountColumns(selection: Set<String>, parked: PaneBrowsePath = PaneBrowsePath(),
+                              search: PaneSearchResults? = nil, isLoading: Bool = false,
+                              tree: PaneTree? = nil) -> [PaneBrowsePath] {
+        let box = Moves()
+        let flag = LoadFlag()
+        flag.loading = isLoading
+        let spin = mount(LoadHarness(flag: flag, tree: tree ?? self.tree(), selection: selection,
+                                     search: search, parked: parked, onNavigate: { box.moves.append($0) }))
+        spin(40)
         return box.moves
     }
 
@@ -91,9 +84,10 @@ import Sync
         let tree: PaneTree
         let selection: Set<String>
         var search: PaneSearchResults? = nil
+        var parked = PaneBrowsePath()
         let onNavigate: (PaneBrowsePath) -> Void
-        @State private var browse = PaneBrowsePath()
-        @State private var selected: Set<String> = []
+        @State private var browse: PaneBrowsePath? = nil
+        @State private var selected: Set<String>? = nil
 
         var body: some View {
             FileTreeView(
@@ -101,8 +95,7 @@ import Sync
                 otherTree: PaneTree(side: .right, version: 1, nodes: []),
                 isLoading: flag.loading,
                 currentPath: PaneTreeCarryBackWiringTests.root,
-                selection: Binding(get: { selected.isEmpty ? selection : selected },
-                                   set: { selected = $0 }),
+                selection: Binding(get: { selected ?? selection }, set: { selected = $0 }),
                 otherSelection: [],
                 isLeft: true,
                 delegate: NoOpFileActionDelegate(),
@@ -112,7 +105,7 @@ import Sync
                 viewMode: .columns,
                 childrenIndex: PaneChildrenIndex(tree: tree,
                                                  treeRoot: PaneTreeCarryBackWiringTests.root),
-                browsePath: Binding(get: { browse }, set: { browse = $0 }),
+                browsePath: Binding(get: { browse ?? parked }, set: { browse = $0 }),
                 onColumnNavigate: { onNavigate($0); browse = $0 })
                 .frame(width: 640, height: 420)
         }
@@ -120,25 +113,18 @@ import Sync
 
     private func mountColumnsThenFinishLoading(selection: Set<String>,
                                                search: PaneSearchResults? = nil) -> [PaneBrowsePath] {
-        final class Box: @unchecked Sendable { var moves: [PaneBrowsePath] = [] }
-        let box = Box()
+        let box = Moves()
         let flag = LoadFlag()
-        let host = NSHostingView(rootView: AnyView(
-            LoadHarness(flag: flag, tree: tree(), selection: selection, search: search,
-                        onNavigate: { box.moves.append($0) })))
-        host.frame = NSRect(x: 0, y: 0, width: 640, height: 420)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        let spin = mount(LoadHarness(flag: flag, tree: tree(), selection: selection, search: search,
+                                     onNavigate: { box.moves.append($0) }))
+        spin(30)
         // The arrival happened under a load; nothing may have moved yet. Then the load lands.
         let duringLoad = box.moves
         if search == nil {
             #expect(duringLoad.isEmpty, "the mid-load arrival moved the columns before the tree settled")
         }
         flag.loading = false
-        for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        spin(30)
         return box.moves
     }
 
@@ -195,26 +181,19 @@ import Sync
     /// `Claude`, so the two answers are component-identical, and the latch that stops a tab switch
     /// re-yanking the columns must not swallow the second carry.
     @Test func testReRootingLetsAnIdenticallyNamedPlaceCarryAgain() {
-        final class Box: @unchecked Sendable { var moves: [PaneBrowsePath] = [] }
-        let box = Box()
+        let box = Moves()
         let flag = RootFlag()
-        let host = NSHostingView(rootView: AnyView(
-            ReRootHarness(flag: flag, roots: ["/root-one", "/root-two"],
-                          onNavigate: { box.moves.append($0) })))
-        host.frame = NSRect(x: 0, y: 0, width: 640, height: 420)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        let spin = mount(ReRootHarness(flag: flag, roots: ["/root-one", "/root-two"],
+                                       onNavigate: { box.moves.append($0) }))
+        spin(30)
         #expect(box.moves.count == 1, "the first root did not carry at all — this test proves nothing")
 
         // Re-root as the app does: the focus moves and the tree reloads under it.
         flag.loading = true
         flag.index = 1
-        for _ in 0..<20 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        spin(20)
         flag.loading = false
-        for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        spin(30)
         #expect(box.moves.count == 2,
                 "the new root's identically named place was read as already carried and skipped")
         #expect(box.moves.last?.components == ["Claude"])

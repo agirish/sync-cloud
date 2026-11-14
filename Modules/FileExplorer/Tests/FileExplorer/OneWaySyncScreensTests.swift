@@ -9,14 +9,6 @@ import Sync
 @Suite struct OneWaySyncScreensTests {
     typealias Scratch = OneWaySyncControllerTests.Scratch
 
-    func controller(_ scratch: Scratch, state: OneWaySyncSavedState = OneWaySyncSavedState(),
-                    refusal: OneWaySyncLaunchRefusal? = .testRunner) -> (OneWaySyncController, ActivityCenter) {
-        let center = ActivityCenter()
-        let controller = OneWaySyncController(store: nil, center: center, cloudApps: CloudAppMonitor(), refusal: refusal)
-        controller.adopt(scratch.record, state: state)
-        return (controller, center)
-    }
-
     static func waiting(_ center: ActivityCenter) {
         center.raiseOneWaySync([OneWaySyncNotice(id: "ows:file:Legal/Will.pdf", kind: .needsYou, scope: .file(folder: "Legal", path: "Legal/Will.pdf"),
                                                  title: "Will.pdf was edited in Dropbox", raisedAt: Date())])
@@ -27,7 +19,7 @@ import Sync
     /// The page's ladder, first that applies: a running sync's activity never hides what needs you.
     @Test func whatNeedsYouOutranksWhatTheSyncIsDoing() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
+        let (controller, center) = scratch.controller(state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
         controller.activity = "Syncing 12"
         let pill = OneWaySyncStatusPill(controller: controller, center: center, onSetUp: {})
         #expect(pill.title == "Syncing 12")
@@ -38,7 +30,7 @@ import Sync
     /// A stop saved before a relaunch, with nothing in memory saying so, is still a stop.
     @Test func aSavedStopRowIsTheStoppedRung() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch)
+        let (controller, center) = scratch.controller()
         center.raiseOneWaySync([OneWaySyncRows.stop(.dropboxNotRunning, at: Date())])
         Self.waiting(center)
         #expect(controller.stop == nil)
@@ -49,7 +41,7 @@ import Sync
     /// a short pill costs Verify and Review as little room as it can.
     @Test func theBarReservesWhatThePillSays() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000), refusal: nil)
+        let (controller, center) = scratch.controller(state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000), refusal: nil)
         let synced = OneWaySyncStatusPill.width(controller: controller, scale: 1)
         Self.waiting(center)
         let waiting = OneWaySyncStatusPill.width(controller: controller, scale: 1)
@@ -61,7 +53,7 @@ import Sync
         controller.stop = .dropboxNotUploading
         #expect(OneWaySyncStatusPill.width(controller: controller, scale: 1) == OneWaySyncStatusPill.maxWidth)
         // A copy that may not sync and was never set up draws nothing, and is priced at nothing.
-        let (unset, _) = self.controller(scratch, refusal: .outsideApplications(bundlePath: "/tmp/SyncCloud.app"))
+        let (unset, _) = scratch.controller(refusal: .outsideApplications(bundlePath: "/tmp/SyncCloud.app"))
         unset.adopt(nil, state: nil)
         #expect(OneWaySyncStatusPill.width(controller: unset, scale: 1) == 0)
     }
@@ -70,14 +62,14 @@ import Sync
     /// up, in every Compare.
     @Test func beforeSetupThePillShowsOnlyForICloudAndDropbox() throws {
         let scratch = try Scratch()
-        let (controller, _) = controller(scratch, refusal: nil)
+        let (controller, _) = scratch.controller(refusal: nil)
         controller.adopt(nil, state: nil)
         #expect(OneWaySyncStatusPill.isShown(controller: controller, paneTypes: [.dropBox, .iCloud]))
         #expect(!OneWaySyncStatusPill.isShown(controller: controller, paneTypes: [.oneDrive, .localFolder]))
         #expect(!OneWaySyncStatusPill.isShown(controller: controller, paneTypes: [.iCloud, .iCloud]))
         controller.adopt(scratch.record, state: OneWaySyncSavedState())
         #expect(OneWaySyncStatusPill.isShown(controller: controller, paneTypes: [.oneDrive, .localFolder]))
-        let (refused, _) = self.controller(scratch, refusal: .outsideApplications(bundlePath: "/tmp/SyncCloud.app"))
+        let (refused, _) = scratch.controller(refusal: .outsideApplications(bundlePath: "/tmp/SyncCloud.app"))
         refused.adopt(nil, state: nil)
         #expect(!OneWaySyncStatusPill.isShown(controller: refused, paneTypes: [.dropBox, .iCloud]))
     }
@@ -85,7 +77,7 @@ import Sync
     /// A stop whose cause has cleared goes at once, and the pill with it.
     @Test func aStopClearsWhenDropboxRunsAgain() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch)
+        let (controller, center) = scratch.controller()
         controller.stop = .dropboxNotRunning
         center.raiseOneWaySync([OneWaySyncRows.stop(.dropboxNotRunning, at: Date())])
         controller.cloudApps.updateModelForTests { $0.app(.dropbox, isRunning: true, at: Date()) }
@@ -148,10 +140,9 @@ import Sync
         #expect(OneWaySyncEmptySheet.title(count: 1, bytes: 10, loaded: true).hasPrefix("SyncCloud Removed · 1 item · "))
         #expect(OneWaySyncEmptySheet.title(count: 0, bytes: 0, loaded: false) == "SyncCloud Removed")
         let now = Date(timeIntervalSince1970: 1_790_000_000)
-        #expect(OneWaySyncSettingsView.removedLine(count: 1, bytes: 10, oldest: now.addingTimeInterval(-86_400 - 60), now: now)
-                .contains(" · 1 item · ") == true)
-        #expect(OneWaySyncSettingsView.removedLine(count: 1, bytes: 10, oldest: now.addingTimeInterval(-86_400 - 60), now: now)
-                .contains("oldest 1 day ·"))
+        let removedLine = OneWaySyncSettingsView.removedLine(count: 1, bytes: 10, oldest: now.addingTimeInterval(-86_400 - 60), now: now)
+        #expect(removedLine.contains(" · 1 item · "))
+        #expect(removedLine.contains("oldest 1 day ·"))
     }
 
     /// Resume says what the next sync would apply, the way the first run's step does.

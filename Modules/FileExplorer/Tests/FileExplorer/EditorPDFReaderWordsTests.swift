@@ -21,7 +21,6 @@ import PDFToolkitCore
         let sheets = try ChromeGlassWiringTests.source("EditorPDFToolSheets.swift")
         #expect(EditorAcrossPolishTests.squashed(sheets).contains("} else if failure == nil { EditorPDFReadingSpinner()"),
                 "Clean Metadata's spinner says nothing")
-        #expect(ChromeGlassWiringTests.count("ProgressView().controlSize(.small)\n            }", in: sheets) == 0)
     }
 
     /// Clean Metadata says what the copy keeps: a form PDF's copy holds the five fields and nothing

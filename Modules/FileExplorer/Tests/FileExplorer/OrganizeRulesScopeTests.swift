@@ -88,12 +88,7 @@ import Design
     }
 
     private func strip(_ host: NSHostingView<AnyView>, _ band: CGRect) -> NSBitmapImageRep {
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else {
-            fatalError("no bitmap rep for \(band)")
-        }
-        host.cacheDisplay(in: band, to: rep)
-        return rep
+        PixelProbe.render(host, band)!
     }
 
     /// Pixels that differ between two same-sized bands. A count, not a Bool: one stray antialiased
@@ -108,18 +103,7 @@ import Design
     /// that keeps the comparisons from passing over two blank images.
     private func inked(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
-        var count = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if max(abs(c.redComponent - background.redComponent),
-                       max(abs(c.greenComponent - background.greenComponent),
-                           abs(c.blueComponent - background.blueComponent))) > 0.03 {
-                    count += 1
-                }
-            }
-        }
-        return count
+        return PixelProbe.count(in: rep) { PixelProbe.distance($0, background) > 0.03 }
     }
 
     // MARK: The trap
@@ -171,14 +155,7 @@ import Design
         func accentPixels(_ lens: OrganizeLens) -> Int {
             let rep = strip(mount(Self.manager(), lens: lens, scope: Self.inbox),
                             CGRect(x: 8, y: 44, width: 240, height: 30))
-            var count = 0
-            for y in 0..<rep.pixelsHigh {
-                for x in 0..<rep.pixelsWide {
-                    guard let c = rep.colorAt(x: x, y: y) else { continue }
-                    if c.blueComponent - c.redComponent > 0.08 { count += 1 }
-                }
-            }
-            return count
+            return PixelProbe.count(in: rep) { $0.blueComponent - $0.redComponent > 0.08 }
         }
         let live = accentPixels(.toFile)
         let suspended = accentPixels(.rules)

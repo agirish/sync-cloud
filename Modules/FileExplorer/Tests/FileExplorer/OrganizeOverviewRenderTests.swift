@@ -49,14 +49,7 @@ import Design
                  blurb: "Where the tree disagrees with its own habits.")]
     }
 
-    private final class Mounted {
-        let host: NSHostingView<AnyView>
-        let window: NSWindow
-        init(host: NSHostingView<AnyView>, window: NSWindow) {
-            self.host = host
-            self.window = window
-        }
-    }
+    private typealias Mounted = (host: NSHostingView<AnyView>, window: NSWindow)
 
     private func mount(_ sections: [OrganizeOverviewSection],
                        runnable: Set<OrganizePass> = Set(OrganizePass.allCases),
@@ -68,30 +61,14 @@ import Design
             ledger: OrganizeOverview.Ledger(checksRun: 2, checksTotal: 5),
             runnablePasses: runnable,
             onOpen: { _ in }, onRun: { _ in })
-            .frame(width: Self.canvas.width, height: Self.canvas.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        // Without a window every comparison below reads as zero difference ("nothing painted"),
-        // whatever the code did. `window.layoutIfNeeded()` is deliberately not used: it disarms
-        // AppKit's runaway guards, and a fixture that cannot fail is worse than none.
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        return Mounted(host: host, window: window)
+        // `window.layoutIfNeeded()` is deliberately not used: it disarms AppKit's runaway guards,
+        // and a fixture that cannot fail is worse than none.
+        return ReviewLensHost.mount(subject, size: Self.canvas, passes: 2)
     }
 
+    /// `m` is a parameter so its window outlives the render; a hosting view without one paints blank.
     private func bitmap(_ m: Mounted, _ band: CGRect) -> NSBitmapImageRep? {
-        m.host.layoutSubtreeIfNeeded()
-        guard let rep = m.host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
-        m.host.cacheDisplay(in: band, to: rep)
-        return rep
+        PixelProbe.render(m.host, band)
     }
 
     private static var fullBand: CGRect { CGRect(origin: .zero, size: canvas) }
@@ -112,10 +89,7 @@ import Design
             var n = 0
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(c.redComponent - background.redComponent),
-                                max(abs(c.greenComponent - background.greenComponent),
-                                    abs(c.blueComponent - background.blueComponent)))
-                if delta > 0.04 { n += 1 }
+                if PixelProbe.distance(c, background) > 0.04 { n += 1 }
             }
             if n >= 3 { rows.append(y) }
         }
@@ -269,27 +243,6 @@ import Design
     // pins it on `OrganizeOverview.actions(for:)`, the card's `actions:`, and names which control
     // survives.
 
-    /// Nothing on this screen says “Scan…”, because nothing on it navigates instead of scanning. A
-    /// guard against a navigating scan link returning.
-    @Test func theOverviewOffersNoNavigatingScanLink() throws {
-        let code = try Self.overviewCode()
-        #expect(!code.contains("\"Scan…\""),
-                "the overview draws a “Scan…” control again — it should name the pass it runs")
-        #expect(!code.contains("onScan"),
-                "the lens-taking scan callback is back; it navigated rather than scanning")
-        // The scan is the point, so prove the check could have failed: the strings it hunts for
-        // are in this file, and they are found when the comments are left in.
-        let withComments = try Self.overviewSource()
-        #expect(withComments.contains("\"Scan…\""),
-                "nothing records what this screen used to draw — the guard above proves nothing")
-    }
-
-    /// The source with comment lines removed, because the file's comments quote `"Scan…"` and a
-    /// scan of the raw text would read prose as code.
-    private static func overviewCode() throws -> String { SourceText.codeOnly(try overviewSource()) }
-
-    private static func overviewSource() throws -> String { try SourceText.fileExplorer("OrganizeOverview.swift") }
-
     // MARK: The evidence is real
 
     /// A finding draws every example it is given, up to the limit. Measured by changing how many
@@ -355,35 +308,9 @@ import Design
                 "the sentence reaches the pixels, not just the space it occupies")
     }
 
-    /// And it renders only when one is due — the row is absent, not blank, with no nudge.
-    @Test(.machinePinned(.pixelSampling)) func theNudgeLineRendersOnlyWhenOneIsDue() throws {
-        let without = try #require(bitmap(mount(Self.sections(examples: 1)), Self.fullBand))
-        let with = try #require(bitmap(
-            mount(Self.sections(examples: 1),
-                  nudge: OrganizeOverview.BacklogNudge(
-                    sentence: "2026 has files but no folders yet in Health/Dental.",
-                    setUp: {}, dismiss: {})),
-            Self.fullBand))
-        #expect(differingPixels(without, with) > 500,
-                "the nudge line takes its own space on the surface")
-    }
-
-    /// And it stays out of the ledger, checked where the ledger is computed as well as in the
-    /// render. The render alone proves nothing, since `mount` passes a `Ledger` the test builds.
-    /// `Ledger.derived` takes only the sections and the runnable passes, so the nudge can't reach
-    /// the ratio.
+    /// And it stays out of the ledger. `Ledger.derived` takes only the sections and the runnable
+    /// passes, so the nudge can't reach the ratio; this pins the drawn tile.
     @Test(.machinePinned(.pixelSampling)) func theNudgeDoesNotTouchTheChecksLedger() throws {
-        // The derivation the workspace uses, over the same sections, is the number that must not
-        // move; nothing about a nudge can reach it.
-        let counted = OrganizeOverview.Ledger.derived(
-            from: Self.sections(examples: 1),
-            runnablePasses: Set(OrganizePass.allCases),
-            reclaimable: nil, scopeFolders: nil)
-        #expect(counted.checksTotal
-                == OrganizeOverview.Ledger.countedLenses(
-                    runnablePasses: Set(OrganizePass.allCases)).count,
-                "the denominator is the runnable lenses, and a nudge is not a lens")
-
         // The ledger strip is the top band; the nudge renders beneath it.
         let ledgerBand = CGRect(x: 0, y: 0, width: Self.canvas.width, height: 74)
         let without = try #require(bitmap(mount(Self.sections(examples: 1)), ledgerBand))

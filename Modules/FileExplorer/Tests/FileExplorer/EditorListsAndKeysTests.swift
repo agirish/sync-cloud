@@ -177,7 +177,6 @@ import Foundation
         let menu = try SourceText.fileExplorer("EditorRailFolderMenu.swift")
         #expect(menu.contains("if trail.subfolders.count > EditorFolderTrail.subfolderCap, let onShowAll {"))
         #expect(menu.contains("Button(EditorFolderTrail.showAllTitle(count: trail.subfolders.count), action: onShowAll)"))
-        #expect(!menu.contains("open the file pane to see them all"))
         #expect(try SourceText.fileExplorer("EditorFileRailView.swift").contains("onGoTo: onGoToFolder, onShowAll: onOpenFilePane)"))
         #expect(try SourceText.fileExplorer("EditorWorkspaceView.swift").contains("onOpenFilePane: onOpenFilePane,"))
     }

@@ -38,6 +38,26 @@ import Foundation
         return application
     }
 
+    /// Where a table row's caret goes in the rendered text.
+    enum Caret: Sendable, CustomTestStringConvertible {
+        case offset(Int), at(String), after(String)
+        var testDescription: String {
+            switch self {
+            case .offset(let n): "offset \(n)"
+            case .at(let s): "at \(s.debugDescription)"
+            case .after(let s): "after \(s.debugDescription)"
+            }
+        }
+    }
+
+    private func offset(_ caret: Caret, in p: MarkdownProjection) -> Int {
+        switch caret {
+        case .offset(let n): n
+        case .at(let needle): at(needle, in: p)
+        case .after(let needle): after(needle, in: p)
+        }
+    }
+
     private func refusal(_ outcome: PreviewEditOutcome) -> PreviewRefusal? {
         if case .refuse(let reason, _, _) = outcome { return reason }
         return nil
@@ -59,27 +79,36 @@ import Foundation
         #expect(result?.sourceSelection == NSRange(location: 6, length: 0))
     }
 
-    /// No escape table is guessed: a `*` the parser leaves alone goes in bare.
-    @Test func anAsteriskThatStaysLiteralIsNotEscaped() {
-        let source = "a b"
-        let p = project(source)
-        let result = applied(type("*", at: after("a", in: p), in: source))
-        #expect(result?.source == "a* b")
-    }
-
     @Test func typingIntoAnEmptyFileWritesIt() {
         let result = applied(type("Hello", at: 0, in: ""))
         #expect(result?.source == "Hello")
         #expect(result?.undo == .typing)
     }
 
-    /// An intraword `_` is not emphasis to the parser, so it goes in bare.
-    @Test func anUnderscoreInsideAWordIsNotEscaped() {
-        let source = "snake case"
-        let p = project(source)
-        let result = applied(type("_", at: after("snake", in: p), in: source))
-        // "snake_ case": the underscore is not followed by a letter yet, and still renders bare.
-        #expect(result?.source == "snake_ case")
+    /// Typed text lands where the file says it should, escaped only where it would change the render.
+    @Test(arguments: [
+        // A `*` the parser leaves alone goes in bare: no escape table is guessed.
+        ("a b", Caret.after("a"), "*", "a* b"),
+        // An intraword `_` is not emphasis, so it goes in bare.
+        ("snake case", .after("snake"), "_", "snake_ case"),
+        // At the end of a link's text, typing goes after the `)`, not into the link.
+        ("See [the docs](http://x.y) now", .after("the docs"), "x", "See [the docs](http://x.y)x now"),
+        // At the start of a span, typing stays outside it.
+        ("**bold** rest", .offset(0), "x", "x**bold** rest"),
+        // In a continuation line, past its indent.
+        ("> one\n>    two", .at("two"), "x", "> one\n>    xtwo"),
+        // A ragged table keeps its own spacing, as the Table menu's edits do: only the row changes.
+        ("| a | b |\n|-|-|\n| c | d |", .after("c"), "x", "| a | b |\n|-|-|\n| cx | d |"),
+        // A typed `|` in a cell is `\|`.
+        ("| a | b |\n|-|-|\n| c | d |", .after("c"), "|", "| a | b |\n|-|-|\n| c\\| | d |"),
+        // A compact table is the author's style: only its row changes.
+        ("|a|b|\n|-|-|\n|c|d|", .after("c"), "x", "|a|b|\n|-|-|\n|cx|d|"),
+        // So is a table without its outer pipes.
+        ("a | b\n--|--\nc | d", .after("c"), "x", "a | b\n--|--\ncx | d"),
+    ])
+    func typingWritesTheSource(source: String, caret: Caret, text: String, expected: String) {
+        let result = applied(type(text, at: offset(caret, in: project(source)), in: source))
+        #expect(result?.source == expected)
     }
 
     /// Typing at the end of bold continues the bold.
@@ -92,21 +121,6 @@ import Foundation
         #expect(typed?.source == "Use **plentyx** of")
     }
 
-    /// At the end of a link's text, typing goes after the `)`, not into the link.
-    @Test func typingAtTheEndOfALinkGoesOutsideIt() {
-        let source = "See [the docs](http://x.y) now"
-        let p = project(source)
-        let result = applied(type("x", at: after("the docs", in: p), in: source))
-        #expect(result?.source == "See [the docs](http://x.y)x now")
-    }
-
-    @Test func typingAtTheStartOfASpanStaysOutsideIt() {
-        let source = "**bold** rest"
-        let p = project(source)
-        let result = applied(type("x", at: 0, in: source))
-        #expect(result?.source == "x**bold** rest")
-    }
-
     @Test func aStraightQuoteTypedIsKeptStraightInTheFile() {
         let source = "Dont stop"
         let p = project(source)
@@ -114,13 +128,6 @@ import Foundation
         // The file gets the straight quote; the preview shows the parser's curly one.
         #expect(result?.source == "Don't stop")
         #expect(result?.projection.renderedString == "Don’t stop")
-    }
-
-    @Test func typingInAContinuationLineLandsPastItsIndent() {
-        let source = "> one\n>    two"
-        let p = project(source)
-        let result = applied(type("x", at: at("two", in: p), in: source))
-        #expect(result?.source == "> one\n>    xtwo")
     }
 
     // MARK: Deleting (A2)
@@ -136,14 +143,22 @@ import Foundation
         #expect(result?.source == "Use **ple** parmesan")
     }
 
-    /// Deleting all of a bold word takes its markers with it: no `****` left behind.
-    @Test func deletingAllOfASpanRemovesItsMarkers() {
-        let source = "Use **plenty** of"
+    /// Deleting a rendered run removes its whole source, markers and all.
+    @Test(arguments: [
+        // All of a bold word takes its markers with it: no `****` left behind.
+        ("Use **plenty** of", Caret.at("plenty"), 6, "Use  of"),
+        // The rendered `&` is the whole `&amp;`.
+        ("salt &amp; pepper", .at("&"), 1, "salt  pepper"),
+        // A soft break joins the lines.
+        ("one\ntwo", .offset(3), 1, "onetwo"),
+        // ⌫ that would leave a space at a line's end takes the space too, rather than being refused.
+        ("hello w\n\nnext", .at("w"), 1, "hello\n\nnext"),
+    ])
+    func deletingWritesTheSource(source: String, caret: Caret, length: Int, expected: String) {
         let p = project(source)
         let result = applied(PreviewEditTranslator.translate(
-            RenderedEdit(range: NSRange(location: at("plenty", in: p), length: 6), action: .delete),
-            in: p))
-        #expect(result?.source == "Use  of")
+            RenderedEdit(range: NSRange(location: offset(caret, in: p), length: length), action: .delete), in: p))
+        #expect(result?.source == expected)
     }
 
     @Test func typingOverAllOfABoldWordKeepsItBold() {
@@ -153,23 +168,6 @@ import Foundation
             RenderedEdit(range: NSRange(location: at("plenty", in: p), length: 6), text: "lots",
                          action: .typing), in: p))
         #expect(result?.source == "Use **lots** of")
-    }
-
-    /// The rendered `&` is the whole `&amp;`.
-    @Test func deletingARenderedEntityDeletesAllOfIt() {
-        let source = "salt &amp; pepper"
-        let p = project(source)
-        let result = applied(PreviewEditTranslator.translate(
-            RenderedEdit(range: NSRange(location: at("&", in: p), length: 1), action: .delete), in: p))
-        #expect(result?.source == "salt  pepper")
-    }
-
-    @Test func deletingASoftBreakJoinsTheLines() {
-        let source = "one\ntwo"
-        let p = project(source)
-        let result = applied(PreviewEditTranslator.translate(
-            RenderedEdit(range: NSRange(location: 3, length: 1), action: .delete), in: p))
-        #expect(result?.source == "onetwo")
     }
 
     /// Backspace at a block's start would join two blocks.
@@ -505,23 +503,6 @@ import Foundation
                     .hasSuffix("| cx") == true)
     }
 
-    /// …and a ragged table keeps its own spacing, as the Table menu's edits keep it: only the row
-    /// typed in changes.
-    @Test func typingInARaggedTableChangesOnlyItsRow() {
-        let source = "| a | b |\n|-|-|\n| c | d |"
-        let p = project(source)
-        let result = applied(type("x", at: after("c", in: p), in: source))
-        #expect(result?.source == "| a | b |\n|-|-|\n| cx | d |")
-    }
-
-    /// A typed `|` in a cell is `\|`.
-    @Test func aPipeTypedInACellIsEscaped() {
-        let source = "| a | b |\n|-|-|\n| c | d |"
-        let p = project(source)
-        let result = applied(type("|", at: after("c", in: p), in: source))
-        #expect(result?.source == "| a | b |\n|-|-|\n| c\\| | d |")
-    }
-
     /// Tab in a row's last cell moves to the next row's first cell; the source is untouched.
     @Test func tabMovesBetweenCells() {
         let source = "| a | b |\n|---|---|\n| c | d |"
@@ -677,14 +658,6 @@ import Foundation
         #expect(result?.projection.renderedString == "Use Vec<T>")
     }
 
-    /// ⌫ that would leave a space at a line's end takes the space too, rather than being refused.
-    @Test func deletingTheLastWordTakesTheSpaceBeforeIt() {
-        let source = "hello w\n\nnext"
-        let p = project(source)
-        let result = applied(edit(NSRange(location: at("w", in: p), length: 1), .delete, in: source))
-        #expect(result?.source == "hello\n\nnext")
-    }
-
     /// Quote and a Heading on the opened paragraph leave somewhere to type, in the new block.
     @Test func quoteAndHeadingOnTheOpenedParagraphCanBeTypedInto() {
         for (verb, marker) in [(MarkupVerb.blockQuote, "> "), (.heading(2), "## ")] {
@@ -715,17 +688,6 @@ import Foundation
         let p = project(source)
         let result = applied(edit(NSRange(location: after("done", in: p), length: 0), .returnKey, in: source))
         #expect(result?.source == "- **done**\n- ")
-    }
-
-    /// A compact table is the author's style: typing in it changes only its row.
-    @Test func aCompactTableKeepsItsStyle() {
-        let source = "|a|b|\n|-|-|\n|c|d|"
-        let result = applied(type("x", at: after("c", in: project(source)), in: source))
-        #expect(result?.source == "|a|b|\n|-|-|\n|cx|d|")
-        // …and so is a table written without its outer pipes, lined up or not.
-        let bare = "a | b\n--|--\nc | d"
-        let typed = applied(type("x", at: after("c", in: project(bare)), in: bare))
-        #expect(typed?.source == "a | b\n--|--\ncx | d")
     }
 
     /// Bullets over two paragraphs makes two items.

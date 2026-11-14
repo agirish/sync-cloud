@@ -92,4 +92,17 @@ import Foundation
                     .contains("filterIsNarrowing"),
                 "`isFiltered` restates the filter rule instead of sharing it")
     }
+
+    /// The Refine button names no model: Refine runs on the chat's (TE335), read out elsewhere. A
+    /// pixel diff can't show that, since the label is the same for every model, so the source is
+    /// read: the title says Claude, and nothing here reads a model setting of Organize's own. Here,
+    /// not in the pixel-pinned `FilingRefineControlTests`, so it runs on every push.
+    @Test func theButtonSaysClaudeAndTheModelIsTheChatsNotOrganizes() throws {
+        let source = SourceText.codeOnly(try SourceText.fileExplorer("LensWorkspaceView.swift"))
+        #expect(source.contains(#"Label("Refine \(batch.count) with Claude…""#))
+        #expect(!source.contains("cloudModelDefaultsKey") && !source.contains("usesCloudDefaultsKey"),
+                "Organize has no model or switch of its own to read")
+        #expect(source.contains("AskClaudeModels.defaultsKey"),
+                "the tooltip and Refine Names name the chat's model, read from the setting its menu writes")
+    }
 }

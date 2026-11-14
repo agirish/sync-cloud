@@ -8,12 +8,7 @@ import Sync
 
     // MARK: Fixtures
 
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("content-search-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("content-search") }
 
     @discardableResult
     private func write(_ text: String, to relative: String, in root: URL) throws -> String {
@@ -261,28 +256,37 @@ import Sync
     /// Held, not timed: past the first ten reads every reader waits at a gate until the stream is
     /// dropped, so the count can't depend on how fast the consumer gets its turn. Released, the
     /// waiting readers finish and no other file opens: past the count at the drop, at most the
-    /// readers already between the stop check and the read.
+    /// readers already between the stop check and the read. The count is read once the search has
+    /// let go of its reader, not after a fixed sleep, which a slow run could pass while reads go on.
     @Test func droppingTheStreamStopsTheReads() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }
         for n in 1...200 { try write("word", to: String(format: "f%03d.md", n), in: root) }
         let reads = Reads()
         let gate = DispatchSemaphore(value: 0)
-        let read: @Sendable (String) -> BoundedTextRead.Outcome = { path in
-            reads.add(path)
-            if reads.paths.count > 10 { _ = gate.wait(timeout: .now() + 60) }
-            return BoundedTextRead.read(path: path)
+        // The search holds `read` until its thread and every queued read are done; once it lets go,
+        // no file can open. Only the search holds it, so `alive` going nil marks that moment.
+        final class Token: Sendable {}
+        weak var alive: Token?
+        func gatedRead() -> @Sendable (String) -> BoundedTextRead.Outcome {
+            let token = Token()
+            alive = token
+            return { path in
+                withExtendedLifetime(token) {}
+                reads.add(path)
+                if reads.paths.count > 10 { _ = gate.wait(timeout: .now() + 60) }
+                return BoundedTextRead.read(path: path)
+            }
         }
-        for await event in EditorContentSearch.search("word", in: root.path, read: read) {
+        for await event in EditorContentSearch.search("word", in: root.path, read: gatedRead()) {
             if case .hit = event { break }
         }
         let atDrop = reads.paths.count
         // Opened for good: a search that went on reading would now read all 200.
         for _ in 0..<200 { gate.signal() }
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<2000 where alive != nil { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(alive == nil, "the search still held its reader 10 s after the stream was dropped")
         let settled = reads.paths.count
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(reads.paths.count == settled, "files were still being read after the stream was dropped")
         #expect(settled <= atDrop + EditorContentSearch.maxConcurrentReads && settled < 200,
                 "read \(settled) of 200 files (\(atDrop) when it was dropped) — files were opened after the drop")
         #expect(atDrop > 0, "the positive control: the search had started")

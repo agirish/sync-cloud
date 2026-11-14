@@ -360,8 +360,7 @@ import FileExplorerTestSupport
             if c.redComponent > c.blueComponent + 0.25 {
                 warm += 1
                 if c.alphaComponent > 0.99 {
-                    deepest = min(deepest, AccentLabel.relativeLuminance(
-                        red: c.redComponent, green: c.greenComponent, blue: c.blueComponent))
+                    deepest = min(deepest, Contrast.luminance(c))
                 }
             }
             if c.blueComponent > c.redComponent + 0.25 { blue += 1 }

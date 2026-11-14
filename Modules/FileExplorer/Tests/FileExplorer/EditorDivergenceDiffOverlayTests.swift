@@ -21,13 +21,10 @@ import FileExplorerTestSupport
                 == "Take the version on the right and lose what you typed.")
     }
 
-    @Test func theEditorColumnCountsTheBufferSWords() {
-        #expect(EditorDivergenceColumns.editor(words: 1_204) == "In Edit · 1,204 words")
-    }
-
     /// Singular for one, by the same function the status line uses, so "1 words" can't slip in
     /// through a second spelling.
-    @Test func oneWordIsOneWord() {
+    @Test func theEditorColumnCountsTheBufferSWords() {
+        #expect(EditorDivergenceColumns.editor(words: 1_204) == "In Edit · 1,204 words")
         #expect(EditorDivergenceColumns.editor(words: 1) == "In Edit · 1 word")
         #expect(EditorDivergenceColumns.editor(words: 0) == "In Edit · 0 words")
     }
@@ -75,12 +72,7 @@ import FileExplorerTestSupport
 /// want a different next move from someone choosing which version of their work wins.
 @Suite struct EditorDivergenceRefusalTests {
 
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("divergence-diff-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("divergence-diff") }
 
     /// The pass the overlay runs, over a real file — the same call, with the same two labels.
     private func diff(buffer: String, diskPath: String) -> TextPairDiffPipeline.Outcome {
@@ -144,12 +136,7 @@ import FileExplorerTestSupport
         })
         try bytes.write(to: URL(fileURLWithPath: path))
 
-        let outcome = TextPairDiffPipeline.diff(
-            left: .text("one\n", lossy: false, encoding: .utf8),
-            right: BoundedTextRead.read(path: path),
-            leftLabel: EditorDivergenceColumns.editorLabel,
-            rightLabel: EditorDivergenceColumns.diskLabel,
-            isCancelled: { false })
+        let outcome = diff(buffer: "one\n", diskPath: path)
         #expect(outcome.diff?.changedLineCount == 0, "the text is the same; only the bytes differ")
         #expect(outcome.notes.contains { $0.contains("Encodings differ") },
                 "nothing said the file was rewritten in another encoding: \(outcome.notes)")
@@ -165,13 +152,6 @@ import FileExplorerTestSupport
 
     static func source() throws -> String {
         try SourceText.fileExplorer("EditorDivergenceDiffOverlay.swift", atLeast: 2000)
-    }
-
-    /// The positive control: this scan is reading the file it names.
-    @Test func theScanCanActuallyFail() throws {
-        let source = try Self.source()
-        #expect(source.contains("public struct EditorDivergenceDiffOverlay"))
-        #expect(!source.contains("thisStringIsNotInTheFile"))
     }
 
     /// Every way out that isn't one of the three buttons (Escape, ⏎, keypad Enter, a click on the

@@ -46,23 +46,7 @@ import Sync
                           tree: tree(side: side), otherPaths: nil)
     }
 
-    struct StubDelegate: FileActionDelegate {
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
+    struct StubDelegate: NoOpFileActions {
         func isEquivalent(to other: FileActionDelegate) -> Bool { other is StubDelegate }
     }
 
@@ -241,37 +225,23 @@ import Sync
         #expect(selected.held, "the hit should be selected (\(selected.pumps) pumps, got \(box.selection))")
     }
 
-    /// “Exactly the hit's ancestors”, measured: revealing a hit in Finance must not open IRS.
-    /// `financeOpenRowCount` is one short of `bothOpenRowCount` precisely because IRS stayed shut.
-    @Test("Revealing one hit does not open a sibling folder that also has matches")
-    func revealingAHitLeavesOtherBranchesShut() async {
-        let box = Box()
-        let window = Self.mount(box, viewMode: .tree)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
-
-        // "tax" matches in BOTH Finance and IRS; hit 0 is in Finance.
-        box.ask(Self.results("tax"), at: 0)
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) {
-            Self.rowCount(window) == Self.financeOpenRowCount
-        }
-        #expect(settled.held,
-                "only Finance should have opened (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
-        #expect(Self.rowCount(window) != Self.bothOpenRowCount,
-                "IRS must stay shut until the walk reaches its hit")
-    }
-
-    /// …and walking on to that sibling's hit opens it without closing the first. The reveal adds to
-    /// the expansion, as clicking your way down would.
+    /// “Exactly the hit's ancestors”, measured: revealing a hit in Finance must not open IRS
+    /// (`financeOpenRowCount` is one short of `bothOpenRowCount` because IRS stayed shut). Walking on
+    /// to that sibling's hit then opens it without closing the first: the reveal adds to the
+    /// expansion, as clicking your way down would.
     @Test("Walking on to the next branch opens it and keeps the first one open")
     func walkingOnAccumulatesExpansion() async {
         let box = Box()
         let window = Self.mount(box, viewMode: .tree)
         _ = await LayoutPumpWait.pump(window, upTo: 5) { Self.rowCount(window) == Self.collapsedRowCount }
 
+        // "tax" matches in BOTH Finance and IRS; hit 0 is in Finance.
         box.ask(Self.results("tax"), at: 0)
-        _ = await LayoutPumpWait.pump(window, upTo: 10) {
+        let first = await LayoutPumpWait.pump(window, upTo: 10) {
             Self.rowCount(window) == Self.financeOpenRowCount
         }
+        #expect(first.held,
+                "only Finance should have opened (\(first.pumps) pumps, \(Self.rowCount(window)) rows)")
 
         // Hit 2 is Documents/IRS/taxes.csv. A walk, so the nonce moves with the index.
         box.walk(to: 2)
@@ -462,7 +432,7 @@ import Sync
 @MainActor
 @Suite struct PaneOutlineExpansionTests {
 
-    private static let remembered: Set<String> = [
+    nonisolated static let remembered: Set<String> = [
         "/root/Documents", "/root/Documents/Finance", "/elsewhere/Archive", "/root2/Docs",
     ]
 
@@ -478,25 +448,19 @@ import Sync
         #expect(kept == ["/root/Documents", "/root/Documents/Finance"])
     }
 
-    /// A trailing slash on the root must not make every path foreign: the pane's `currentPath`
-    /// comes from a join, and `PaneBrowsePath.normalized` is the one rule for this.
-    @Test("A trailing slash on the root changes nothing")
-    func aTrailingSlashIsNormalized() {
-        #expect(FileTreeView.expansionPruned(Self.remembered, toRoot: "/root/")
-                == FileTreeView.expansionPruned(Self.remembered, toRoot: "/root"))
-    }
-
-    /// The root itself is legitimately expandable, so it survives its own prune.
-    @Test("The root itself is kept")
-    func theRootSurvives() {
-        #expect(FileTreeView.expansionPruned(["/root"], toRoot: "/root") == ["/root"])
-    }
-
-    /// An empty root is not a root: it arrives before a pane has one, and pruning everything
-    /// against it would silently collapse the outline.
-    @Test("An empty root prunes nothing")
-    func anEmptyRootIsNotAFilter() {
-        #expect(FileTreeView.expansionPruned(Self.remembered, toRoot: "") == Self.remembered)
+    /// The prune's edges, each against what `/root` keeps.
+    @Test("The prune's edges", arguments: [
+        // A trailing slash must not make every path foreign: `currentPath` comes from a join, and
+        // `PaneBrowsePath.normalized` is the one rule for this.
+        (PaneOutlineExpansionTests.remembered, "/root/", ["/root/Documents", "/root/Documents/Finance"]),
+        // The root itself is legitimately expandable, so it survives its own prune.
+        (["/root"], "/root", ["/root"]),
+        // An empty root is not a root: it arrives before a pane has one, and pruning everything
+        // against it would silently collapse the outline.
+        (PaneOutlineExpansionTests.remembered, "", PaneOutlineExpansionTests.remembered),
+    ] as [(Set<String>, String, Set<String>)])
+    func thePrunesEdges(paths: Set<String>, root: String, kept: Set<String>) {
+        #expect(FileTreeView.expansionPruned(paths, toRoot: root) == kept, "root \"\(root)\"")
     }
 
     /// And the pane really calls it: a pure function with no caller is a green test over dead code.
@@ -635,6 +599,8 @@ import Sync
     /// Walk to a hit, click a different file, and let a background republish land (same query, new
     /// generation, as `recomputeSearch` produces when either tree republishes): the click must
     /// survive. A reveal keyed on the generation fails it by putting the selection back on the hit.
+    /// The control, and the feature itself: a nonce bump (↩) after it must still reveal, so this
+    /// can't be passing because reveals stopped working.
     @Test("A same-query republish does not take back a selection made after the walk")
     func aRepublishDoesNotStealTheSelection() async {
         let box = Fixture.Box()
@@ -656,22 +622,6 @@ import Sync
         #expect(!after.held,
                 "a republish must not re-fire the reveal — the selection moved off the user's row after \(after.pumps) pumps")
         #expect(box.selection == [elsewhere])
-    }
-
-    /// The control for the test above, and the feature itself: the same state change plus a nonce
-    /// bump (↩) must reveal, so the test above can't be passing because reveals stopped working.
-    @Test("A walk after the republish still reveals")
-    func aWalkStillReveals() async {
-        let box = Fixture.Box()
-        let window = Fixture.mount(box, viewMode: .tree)
-        _ = await LayoutPumpWait.pump(window, upTo: 5) { Fixture.rowCount(window) == Fixture.collapsedRowCount }
-
-        box.ask(Fixture.results("notes"), at: 0)
-        let hit = "\(Fixture.root)/Documents/Finance/tax-notes.md"
-        _ = await LayoutPumpWait.pump(window, upTo: 10) { box.selection == [hit] }
-
-        box.selection = ["\(Fixture.root)/Movies"]
-        box.republish(Fixture.results("notes", generation: 2), standingAt: 0)
 
         // ↩: the user asks to be taken back. Same index, so the nonce is the only thing moving.
         box.walk(to: 0)

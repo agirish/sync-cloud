@@ -18,7 +18,7 @@ import Design
         for hue in hues {
             let ramp = TreemapView.ramp(hue, count: 8)
             #expect(ramp.count == 8, "\(hue) produced \(ramp.count) steps")
-            let luminances = ramp.map { luminance(of: srgb($0)) }
+            let luminances = ramp.map { Contrast.luminance(srgb($0)) }
             for i in 1..<luminances.count {
                 #expect(luminances[i] > luminances[i - 1],
                         "\(hue) step \(i) (\(luminances[i])) is not lighter than step \(i - 1) (\(luminances[i - 1]))")
@@ -59,7 +59,7 @@ import Design
                 for (index, step) in TreemapView.ramp(hue, count: count).enumerated() {
                     let fill = srgb(step)
                     let label = srgb(Color.onFillLabel(step))
-                    let ratio = contrast(luminance(of: composite(label, over: fill)), luminance(of: fill))
+                    let ratio = Contrast.ratio(composite(label, over: fill), fill)
                     #expect(ratio >= 3.0,
                             "\(hue) step \(index) of \(count) pairs at \(ratio):1, under the 3:1 large-text floor")
                 }
@@ -83,10 +83,10 @@ import Design
         #expect(TreemapView.ramp(.teal, count: 0).isEmpty)
         let one = TreemapView.ramp(.teal, count: 1)
         #expect(one.count == 1)
-        #expect(abs(luminance(of: srgb(one[0])) - luminance(of: srgb(LiquidGlassHue.teal.accentColor))) < 0.001)
+        #expect(abs(Contrast.luminance(srgb(one[0])) - Contrast.luminance(srgb(LiquidGlassHue.teal.accentColor))) < 0.001)
     }
 
-    // MARK: - Contrast helpers (mirroring `AccentLabelColorTests`, which cannot be imported)
+    // MARK: - Colour helpers
 
     private func srgb(_ color: Color) -> NSColor {
         guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
@@ -104,13 +104,4 @@ import Design
                        blue: blend(label.blueComponent, fill.blueComponent), alpha: 1)
     }
 
-    private func luminance(of color: NSColor) -> CGFloat {
-        AccentLabel.relativeLuminance(red: color.redComponent,
-                                      green: color.greenComponent, blue: color.blueComponent)
-    }
-
-    private func contrast(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
-        let (hi, lo) = (max(a, b), min(a, b))
-        return (hi + 0.05) / (lo + 0.05)
-    }
 }

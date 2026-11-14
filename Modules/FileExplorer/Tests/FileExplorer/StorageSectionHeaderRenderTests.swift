@@ -41,27 +41,13 @@ import DesignTestSupport
     }
 
     private func bitmap(_ m: ProbeRig<AnyView>, _ band: CGRect) -> NSBitmapImageRep? {
-        m.host.layoutSubtreeIfNeeded()
-        guard let rep = m.host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
-        m.host.cacheDisplay(in: band, to: rep)
-        return rep
+        PixelProbe.render(m.host, band)
     }
 
     /// Pixels that differ from the window background: "something is painted here".
     private func inked(_ rep: NSBitmapImageRep) -> Int {
-        var count = 0
-        let background = rep.colorAt(x: 1, y: 1)
-        for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
-            for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                if abs(c.redComponent - (background?.redComponent ?? 1)) > 0.06
-                    || abs(c.greenComponent - (background?.greenComponent ?? 1)) > 0.06
-                    || abs(c.blueComponent - (background?.blueComponent ?? 1)) > 0.06 {
-                    count += 1
-                }
-            }
-        }
-        return count
+        guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
+        return PixelProbe.count(in: rep) { PixelProbe.distance($0, background) > 0.06 }
     }
 
     /// The section header's own band, found by the row where its tint is painted. Not "the first

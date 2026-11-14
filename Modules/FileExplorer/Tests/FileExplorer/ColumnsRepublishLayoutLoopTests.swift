@@ -19,36 +19,8 @@ import Sync
     /// The column width from the app's real defaults (`com.abhishekgirish.SyncCloud`).
     private static let realColumnWidth: CGFloat = 210
 
-    final class Box: ObservableObject {
-        @Published var tree: PaneTree
-        @Published var browsePath = PaneBrowsePath()
-        @Published var selection: Set<String> = []
-        init(tree: PaneTree) { self.tree = tree }
-    }
-
-    /// A real on-disk root, as in the app.
-    final class Fixture {
-        let root: String
-        init(files: Int) {
-            root = NSTemporaryDirectory() + "columns-loop-" + UUID().uuidString
-            let dir = URL(fileURLWithPath: root)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            for i in 0..<files {
-                let name = "Quarterly Business Review \(i) — Consolidated Findings (final).txt"
-                try? Data("x".utf8).write(to: dir.appendingPathComponent(name))
-            }
-        }
-        deinit { try? FileManager.default.removeItem(atPath: root) }
-
-        func tree(files: Int, version: Int) -> PaneTree {
-            let nodes = (0..<files).map { i -> FileNode in
-                let name = "Quarterly Business Review \(i) — Consolidated Findings (final).txt"
-                return FileNode(id: "\(root)/\(name)", name: name, isDirectory: false,
-                                fileSize: 1, kind: UTType.plainText.identifier)
-            }
-            return PaneTree(side: .left, version: version, nodes: nodes)
-        }
-    }
+    typealias Box = ColumnsDisplayCycleTests.Box
+    typealias Fixture = ColumnsDisplayCycleTests.Fixture
 
     private struct Harness: View {
         @ObservedObject var box: Box

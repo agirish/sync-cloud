@@ -161,20 +161,14 @@ import Sync
 
     // MARK: Sort keys (driven by the Table's KeyPathComparator sortOrder)
 
-    @Test func testNameSortAscendingAndDescending() {
-        let list = [diff("z/apple.txt"), diff("a/mango.txt"), diff("m/banana.txt")]
-        let asc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)])
-        #expect(asc.map(\.fileName) == ["apple.txt", "banana.txt", "mango.txt"])
-        let desc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .reverse)])
-        #expect(desc.map(\.fileName) == ["mango.txt", "banana.txt", "apple.txt"])
-    }
-
-    @Test func testNameSortIsCaseInsensitiveAndNumberAware() {
-        // The Name column sorts with `.localizedStandard` (Finder-style): case doesn't shove
-        // capitals above lowercase, and numbers order numerically (File2 before File10).
+    /// The table's default sort, the one the session starts with, orders names Finder-style:
+    /// case doesn't shove capitals above lowercase, and numbers order numerically (File2 before
+    /// File10). Mutation: `.localizedStandard` → `.lexical` in `DifferencesSession.sortOrder`.
+    @MainActor
+    @Test func theDefaultSortOrdersNamesLikeFinder() {
         let list = [diff("z/File2.txt"), diff("z/file10.txt"), diff("z/apple.txt"), diff("z/File1.txt")]
-        let asc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)])
-        #expect(asc.map(\.fileName) == ["apple.txt", "File1.txt", "File2.txt", "file10.txt"])
+        let sorted = list.sorted(using: DifferencesSession().sortOrder)
+        #expect(sorted.map(\.fileName) == ["apple.txt", "File1.txt", "File2.txt", "file10.txt"])
     }
 
     @Test func testSizeSortHandlesUnknownSizes() {
@@ -201,17 +195,6 @@ import Sync
         // Rank order: missingOnLeft (0), missingOnRight (1), differentDates (2); within a type,
         // input order is preserved (stable sort), so the two date diffs stay a-before-d.
         #expect(asc.map(\.relativePath) == ["c", "b", "a", "d"])
-    }
-
-    @Test func testPathSortOrdersByParentAndKeepsRootRowsFirst() {
-        let list = [
-            diff("Legal/lease.pdf"),
-            diff("visa.pdf"),
-            diff("HOA/2024/report.pdf"),
-        ]
-        let asc = list.sorted(using: [KeyPathComparator(\.parentPath, comparator: .localizedStandard, order: .forward)])
-        // Root rows ("" parent) first, then folders in name order — siblings end up adjacent.
-        #expect(asc.map(\.relativePath) == ["visa.pdf", "HOA/2024/report.pdf", "Legal/lease.pdf"])
     }
 
     // MARK: Path column text (where a row's file lives, anchored at the compared folder)

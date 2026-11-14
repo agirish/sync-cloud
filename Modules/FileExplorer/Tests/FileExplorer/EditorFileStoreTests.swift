@@ -7,13 +7,7 @@ import Foundation
 /// a change), which a fake would pass whatever the real `replaceItem` did.
 @Suite struct EditorFileStoreTests {
 
-    /// A scratch directory, removed when the test's `defer` runs.
-    private func scratch() throws -> URL {
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("editor-store-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
+    private func scratch() throws -> URL { try EditorScratchFolder.make("editor-store") }
 
     private func write(_ data: Data, named name: String, in folder: URL) throws -> String {
         let url = folder.appendingPathComponent(name)
@@ -488,21 +482,6 @@ import Foundation
         case .utf32LittleEndian: return [0xFF, 0xFE, 0x00, 0x00]
         case .utf32BigEndian: return [0x00, 0x00, 0xFE, 0xFF]
         }
-    }
-
-    /// The control for the case above: a plain UTF-8 file gains no byte-order mark from any of it.
-    @Test func aPlainUTF8FileStaysPlain() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let path = try write(Data("hello\n".utf8), named: "plain.md", in: folder)
-
-        guard case .editable(_, _, let encoding) = EditorFileStore.open(path: path) else {
-            Issue.record("a plain file did not open as editable")
-            return
-        }
-        try EditorFileStore.write("edited\n", toPath: path, encoding: encoding)
-        #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("edited\n".utf8),
-                "a plain UTF-8 file acquired a byte-order mark")
     }
 
     // MARK: Names

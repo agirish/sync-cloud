@@ -41,7 +41,7 @@ import Combine
     /// Go to Page… asks again on every press: a count, so a second ⌃⌘L with the field already up
     /// still puts the caret in it.
     @Test func everyGoToPageIsANewAsk() {
-        let state = EditorPDFViewState()
+        let state = EditorPDFViewState(defaults: ScratchDefaults("EditorPDFMenuBarSeams.goToPage"))
         let before = state.pageFieldRequest
         state.requestPageField()
         state.requestPageField()
@@ -54,11 +54,13 @@ import Combine
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    /// The capsule's page field answers Go to Page…, whose request is what the menu item sends.
+    /// The capsule's page field answers Go to Page…, whose request is what the menu item sends,
+    /// and the header has no page field to compete.
     @Test func thePageFieldTakesTheCaretWhenAsked() throws {
         let card = try source("EditorPDFCapsule.swift")
         #expect(card.contains(".onChange(of: state.pageFieldRequest) { _, _ in pageFieldFocused = true }"),
                 "nothing answers Text ▸ Go to Page… — the item would do nothing")
+        #expect(!(try source("EditorPDFCard.swift")).contains("pageFieldRequest"), "the header still answers Go to Page…")
     }
 
     /// ⌘A in the Pages grid is Edit ▸ Select All's, which reads what the grid publishes while it has

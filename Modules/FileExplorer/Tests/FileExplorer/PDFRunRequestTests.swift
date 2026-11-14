@@ -439,19 +439,9 @@ import FileExplorerTestSupport
         try "Two\n".write(toFile: two, atomically: true, encoding: .utf8)
         let chosen = [one: EditorFileStore.Stamp(modifiedAt: .distantPast, size: 1), two: EditorFileStore.stamp(ofPath: two)!]
         let result = await run(model(), [one, two], expecting: chosen)
+        #expect(result?.outcome == .partlyWrote, "\(String(describing: result))")
         #expect(result?.skipped == [PDFRunResult.Skipped(path: one, reason: "it changed since it was chosen")],
                 "\(String(describing: result?.skipped))")
         #expect(result?.written.map(\.path) == [(second as NSString).appendingPathComponent("Notes.pdf")])
-    }
-
-    /// A file that changed since it was chosen is left alone; the others are saved.
-    @Test func aFileChangedSinceItWasChosenIsLeftAlone() async throws {
-        let one = try write("One\n", "One.txt"), two = try write("Two\n", "Two.txt")
-        let chosen = [one: EditorFileStore.stamp(ofPath: one)!,
-                      two: EditorFileStore.Stamp(modifiedAt: .distantPast, size: 1)]
-        let result = await run(model(), [one, two], expecting: chosen)
-        #expect(result?.outcome == .partlyWrote, "\(String(describing: result))")
-        #expect(result?.written.map(\.path) == [path("One.pdf")])
-        #expect(result?.skipped == [PDFRunResult.Skipped(path: two, reason: "it changed since it was chosen")])
     }
 }

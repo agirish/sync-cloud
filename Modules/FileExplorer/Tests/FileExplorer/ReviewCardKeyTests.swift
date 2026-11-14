@@ -72,6 +72,16 @@ import Sync
 
     /// Waits for the card's own deferred `FocusState` claim — the acquisition the app relies on —
     /// so a green here also says the card really does take focus on appearance.
+    /// A card mounted and holding focus, its actions counted into the recorder; nil (recorded)
+    /// when focus never lands.
+    private func focusedCard() async throws -> (Recorder, NSWindow)? {
+        let recorder = Recorder()
+        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
+        let (window, _) = host(subject)
+        guard await waitForCardFocus(in: window) else { return nil }
+        return (recorder, window)
+    }
+
     private func waitForCardFocus(in window: NSWindow) async -> Bool {
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
             window.firstResponder !== window && !(window.firstResponder is NSText)
@@ -117,10 +127,7 @@ import Sync
     /// Both Enter keys copy: the hint row advertises ⏎ for the primary action, and a full-size
     /// keyboard has two keycaps that say so.
     @Test func bothEnterKeysRunThePrimaryAction() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         sendReturn(window)
         try #require(recorder.primaries == 1,
@@ -138,10 +145,7 @@ import Sync
     /// `isActing` gate closes only once the host's async outcome lands, so auto-repeat could launch
     /// several copies of the row first; `.down`-only prevents that, as it does for ⌫.
     @Test func aHeldEnterCopiesExactlyOneItem() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         sendReturn(window)
         for _ in 0..<3 { sendReturn(window, isARepeat: true) }
@@ -165,10 +169,7 @@ import Sync
     /// `isPlainKeystroke` (⌘⌥⌃⇧ only): every keypad Enter carries `.numericPad` and `.function`,
     /// so `modifiers.isEmpty` would refuse the key outright.
     @Test func aModifiedEnterCopiesNothing() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         // Positive control: both plain keycaps really reach the handler.
         sendReturn(window)
@@ -181,14 +182,16 @@ import Sync
             sendKeypadEnter(window, modifiers: modifier)
         }
         #expect(recorder.primaries == 2, """
-                a MODIFIED Enter ran the primary action (primaries: \(recorder.primaries)).                 ⌘/⌥/⌃/⇧ + ⏎ are chords, and the primary copies a real file.
+                a MODIFIED Enter ran the primary action (primaries: \(recorder.primaries)). \
+                ⌘/⌥/⌃/⇧ + ⏎ are chords, and the primary copies a real file.
                 """)
 
         // Caps Lock is a lock, not a chord: both keycaps must still copy while it is engaged.
         sendReturn(window, modifiers: .capsLock)
         sendKeypadEnter(window, modifiers: .capsLock)
         #expect(recorder.primaries == 4, """
-                Enter with Caps Lock engaged copied nothing (primaries: \(recorder.primaries)).                 `.capsLock` rides on every event while the lock is engaged.
+                Enter with Caps Lock engaged copied nothing (primaries: \(recorder.primaries)). \
+                `.capsLock` rides on every event while the lock is engaged.
                 """)
         #expect(recorder.skips == 0)
         #expect(recorder.exits == 0)
@@ -197,10 +200,7 @@ import Sync
     /// A modified ⌫ is not a skip. The positive control (plain ⌫ skips) keeps the modified readings
     /// from passing against a card that never wired its handler.
     @Test func aModifiedDeleteSkipsNothing() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         sendDelete(window)
         try #require(recorder.skips == 1,
@@ -222,10 +222,7 @@ import Sync
     /// pane" (⌘→ copies there), and a skip can't be taken back. The plain ⌫ afterwards keeps the
     /// arrow's silence from passing against a card that never got focus.
     @Test func rightArrowDoesNotSkip() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         let arrow: NSEvent.ModifierFlags = [.function, .numericPad]
         send(window, keyCode: 124, characters: "\u{F703}", modifiers: arrow)
@@ -241,10 +238,7 @@ import Sync
     /// arrives as `EventModifiers` rawValue 1), so a `press.modifiers.isEmpty` guard would silently
     /// take ⌫-skip away from anyone who left it on. Only ⌘⌥⌃⇧ may refuse the skip.
     @Test func capsLockDoesNotDisableTheSkipKey() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         sendDelete(window, modifiers: .capsLock)
         #expect(recorder.skips == 1, """
@@ -258,10 +252,7 @@ import Sync
     /// The held-key rule the handler's `.down`-only phases promise, proven here rather than assumed
     /// from the walkthrough card's twin: a held ⌫ skips exactly one row.
     @Test func aHeldDeleteSkipsExactlyOneRow() async throws {
-        let recorder = Recorder()
-        let subject = try #require(makeCard(into: recorder), "fixture queue produced no session")
-        let (window, _) = host(subject)
-        guard await waitForCardFocus(in: window) else { return }
+        guard case let (recorder, window)? = try await focusedCard() else { return }
 
         sendDelete(window)
         for _ in 0..<3 { sendDelete(window, isARepeat: true) }

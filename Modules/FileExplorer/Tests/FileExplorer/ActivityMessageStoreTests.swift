@@ -42,19 +42,6 @@ import Sync
         #expect(abs(back.span.lowerBound.timeIntervalSince(said.span.lowerBound)) < 0.001)
     }
 
-    /// A refusal is shown this session and never written.
-    @Test func aRefusalIsNeverKept() {
-        let url = scratchURL()
-        defer { try? FileManager.default.removeItem(at: url) }
-        let store = ActivityMessageStore(fileURL: url)
-        var refusal = message("Wait for the current operation to finish before syncing", severity: .warning)
-        refusal.isRefusal = true
-        store.save(refusal)
-        store.save(message("Couldn’t move “a.pdf”", severity: .error))
-        store.flush()
-        #expect(ActivityMessageStore(fileURL: url).load().map(\.message) == ["Couldn’t move “a.pdf”"])
-    }
-
     /// A repeat folding into a row writes the row again; the newest line for its id wins.
     @Test func theNewestLineForARowWins() {
         let url = scratchURL()

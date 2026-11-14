@@ -152,12 +152,7 @@ import Testing
     /// The engine call lives in one place. A surface that calls it directly runs an inverse that can
     /// move hundreds of files without asking.
     @Test func onlyTheSharedPathCallsTheEngine() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // FileExplorer
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // FileExplorer package
-            .deletingLastPathComponent()   // Modules
-            .deletingLastPathComponent()   // repo root
+        let root = SourceText.modules.deletingLastPathComponent()   // the repo root
         var callers: [String] = []
         for dir in ["MacApp", "Modules/FileExplorer/Sources", "Modules/Dashboard/Sources"] {
             let base = root.appendingPathComponent(dir)

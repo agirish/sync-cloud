@@ -77,16 +77,19 @@ import Testing
 
     // MARK: The acceptance
 
-    @Test mutating func testAClickBelowTheLastRowIsAccepted() {
+    /// A click `below` points under the last row, with `modifiers` held. The first pixel past the
+    /// last row already counts: no gap between "the list ends" and "the click deselects". ⌘ and ⇧
+    /// are the list's own extend and range-select, so deselecting when one misses a row by a pixel
+    /// would collapse the selection being built; ⌥, the pane's mirror modifier held routinely while
+    /// navigating, must not disable the gesture.
+    @Test(arguments: [
+        (150, [], true), (0.5, [], true),
+        (150, .command, false), (150, .shift, false), (150, .option, true),
+    ] as [(CGFloat, NSEvent.ModifierFlags, Bool)])
+    mutating func testAClickBelowTheLastRow(below: CGFloat, modifiers: NSEvent.ModifierFlags, accepted: Bool) {
         let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table))
-    }
-
-    /// The first pixel past the last row already counts: there should be no gap between "the list
-    /// ends" and "the click deselects".
-    @Test mutating func testTheBoundaryBelowTheLastRowIsAccepted() {
-        let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 0.5), table))
+        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + below), table, modifiers) == accepted,
+                "\(below)pt below with modifiers \(modifiers.rawValue)")
     }
 
     /// An empty folder's column is all empty area: where a deselect is most obviously right, and
@@ -94,26 +97,5 @@ import Testing
     @Test mutating func testAnEmptyTableIsAllEmptyArea() {
         let table = table(rows: 0)
         #expect(accepts(CGPoint(x: 100, y: 10), table))
-    }
-
-    // MARK: Modifiers
-
-    /// ⌘ and ⇧ are the list's own extend and range-select. Deselecting when one of them misses a
-    /// row by a pixel would collapse the multi-selection being built.
-    @Test mutating func testCommandClickOnEmptyAreaIsRefused() {
-        let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .command) == false)
-    }
-
-    @Test mutating func testShiftClickOnEmptyAreaIsRefused() {
-        let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .shift) == false)
-    }
-
-    /// A modifier that means nothing to selection must not disable the gesture: ⌥ is the pane's
-    /// mirror modifier, held routinely while navigating.
-    @Test mutating func testOptionClickOnEmptyAreaStillDeselects() {
-        let table = table(rows: 5)
-        #expect(accepts(CGPoint(x: 100, y: belowLastRow(table, rows: 5) + 150), table, .option))
     }
 }

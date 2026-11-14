@@ -15,19 +15,10 @@ import Design
         return out
     }
 
-    func luminance(_ c: NSColor) -> CGFloat {
-        AccentLabel.relativeLuminance(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent)
-    }
-
-    func ratio(_ a: NSColor, _ b: NSColor) -> CGFloat {
-        let (x, y) = (luminance(a) + 0.05, luminance(b) + 0.05)
-        return max(x, y) / min(x, y)
-    }
-
     @Test func theSidesReadAsTextInBothAppearances() {
         for (name, color) in [("source", OneWaySyncPalette.sourceNS), ("copy", OneWaySyncPalette.copyNS)] {
-            #expect(ratio(resolved(color, .aqua), Self.lightSheet) >= 4.5, "\(name) in light")
-            #expect(ratio(resolved(color, .darkAqua), Self.darkSheet) >= 4.5, "\(name) in dark")
+            #expect(Contrast.ratio(resolved(color, .aqua), Self.lightSheet) >= 4.5, "\(name) in light")
+            #expect(Contrast.ratio(resolved(color, .darkAqua), Self.darkSheet) >= 4.5, "\(name) in dark")
         }
     }
 }

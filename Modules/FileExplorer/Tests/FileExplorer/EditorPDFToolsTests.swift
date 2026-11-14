@@ -128,26 +128,6 @@ extension PDFFixtures {
         return tools
     }
 
-    /// The original as it was, to compare against afterwards: its bytes and its modification date,
-    /// set into the past first so a write in this second can't hide behind it.
-    private struct Original {
-        let bytes: Data
-        let modified: Date
-    }
-
-    private func pin(_ file: String) throws -> Original {
-        let past = Date(timeIntervalSince1970: 1_600_000_000)
-        try FileManager.default.setAttributes([.modificationDate: past], ofItemAtPath: file)
-        return Original(bytes: try Data(contentsOf: URL(fileURLWithPath: file)), modified: past)
-    }
-
-    private func expectUntouched(_ file: String, _ original: Original, _ label: String) throws {
-        let now = try Data(contentsOf: URL(fileURLWithPath: file))
-        #expect(now == original.bytes, "\(label): the original's bytes changed")
-        let modified = try FileManager.default.attributesOfItem(atPath: file)[.modificationDate] as? Date
-        #expect(modified == original.modified, "\(label): the original's date moved to \(String(describing: modified))")
-    }
-
     private func texts(_ file: String) -> [String] {
         guard let document = PDFDocument(url: URL(fileURLWithPath: file)) else { return [] }
         return (0..<document.pageCount).map {
@@ -205,21 +185,21 @@ extension PDFFixtures {
     @Test(arguments: Case.allCases)
     func everyToolWritesANewCopyAndLeavesTheOriginal(_ item: Case) async throws {
         let (file, encryption) = fixture(for: item)
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         let tools = tools(file, encryption: encryption)
 
         let first = await tools.run(item.tool)
         let expected = path("Invoice (\(item.suffix)).pdf")
         #expect(first == .wrote(expected), "\(item): \(first)")
         #expect(FileManager.default.fileExists(atPath: expected), "\(item): no copy at \(expected)")
-        try expectUntouched(file, original, "\(item), first run")
+        try original.expectUntouched(file, "\(item), first run")
         #expect(tools.banner?.kind == .wrote(expected))
         #expect(tools.banner?.message.contains("Invoice (\(item.suffix)).pdf") == true,
                 "\(item): banner says \(tools.banner?.message ?? "nothing")")
 
         let second = await tools.run(item.tool)
         #expect(second == .wrote(path("Invoice (\(item.suffix)) 2.pdf")), "\(item), second run: \(second)")
-        try expectUntouched(file, original, "\(item), second run")
+        try original.expectUntouched(file, "\(item), second run")
 
         #expect(PDFKitSerialAccess.peakConcurrentParses <= 1)
         #expect(!files().contains { $0.hasPrefix(".tmp_") }, "\(item) left staging behind: \(files())")
@@ -498,7 +478,7 @@ extension PDFFixtures {
     @Test func aDraggedOrderIsWrittenOnlyOnSave() async throws {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         let tools = tools(file)
 
         tools.move([0], onto: 2)
@@ -524,7 +504,7 @@ extension PDFFixtures {
         #expect(copy == path("Three (reordered).pdf"))
         #expect(texts(copy) == ["Page 3", "Page 1", "Page 2"], "pages: \(texts(copy))")
         #expect(tools.arrangement == nil)
-        try expectUntouched(file, original, "reorder")
+        try original.expectUntouched(file, "reorder")
     }
 
     /// Leaving with a pending order asks first: No keeps it and stays; Yes lets the document go, and
@@ -707,12 +687,12 @@ extension PDFFixtures {
     @Test func aCompressThatDoesNotHelpWritesNothing() async throws {
         let file = path("Lean.pdf")
         PDFFixtures.write(file, pages: 2)
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         let tools = tools(file)
         let outcome = await tools.run(.compress(.quality(0.85)))
         #expect(outcome == .nothingWritten("Already about as small as this compression gets — nothing was written."))
         #expect(files() == ["Lean.pdf"], "written: \(files())")
-        try expectUntouched(file, original, "no-gain compress")
+        try original.expectUntouched(file, "no-gain compress")
     }
 
     /// Cancel stops Compress between pages and leaves nothing: no copy, no `.tmp_` orphan.
@@ -862,7 +842,7 @@ extension PDFFixtures {
         PDFFixtures.write(file, pages: 3)
         let name = (file as NSString).lastPathComponent
         let base = (name as NSString).deletingPathExtension
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         let tools = tools(file)
         let root = try staging(tools)
         tools.move([2], onto: 0)
@@ -874,7 +854,7 @@ extension PDFFixtures {
         #expect(texts(copy) == ["Page 3", "Page 1", "Page 2"], "pages: \(texts(copy))")
         // Page 1 turned, and it now sits second.
         #expect(try #require(PDFDocument(url: URL(fileURLWithPath: copy))).pageRotations == [0, 90, 0])
-        try expectUntouched(file, original, "rotate in the new order")
+        try original.expectUntouched(file, "rotate in the new order")
         #expect(files() == [".staging-root", name, "\(base) (reordered, rotated).pdf"].sorted(),
                 "not exactly one copy: \(files())")
         #expect(leftIn(root).isEmpty, "the middle bytes were left behind: \(leftIn(root))")
@@ -893,7 +873,7 @@ extension PDFFixtures {
         let turned = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
         turned.page(at: 1)?.rotation = 90
         try #require(turned.write(to: URL(fileURLWithPath: file)))
-        let original = try pin(file)
+        let original = try RestPinnedOriginal(file)
         let tools = tools(file)
         let root = try staging(tools)
         tools.move([3], onto: 0)
@@ -904,7 +884,7 @@ extension PDFFixtures {
         #expect(outcome == .wrote(copy), "\(outcome)")
         #expect(texts(copy) == ["Page 4", "Page 2", "Page 3"], "pages: \(texts(copy))")
         #expect(try #require(PDFDocument(url: URL(fileURLWithPath: copy))).pageRotations == [0, 90, 0])
-        try expectUntouched(file, original, "delete in the new order")
+        try original.expectUntouched(file, "delete in the new order")
         #expect(files() == [".staging-root", "Four (reordered, page removed).pdf", "Four.pdf"],
                 "not exactly one copy: \(files())")
         #expect(leftIn(root).isEmpty, "the middle bytes were left behind: \(leftIn(root))")
@@ -1214,14 +1194,8 @@ extension PDFFixtures {
     /// on the light window ground, while the readable red clears it in both appearances. Compress's
     /// size line, the page range's and the passwords' mismatch: no sheet sentence is bare red.
     @Test func theSheetsRedSentencesTakeTheReadableRed() throws {
-        func srgb(_ c: NSColor) -> NSColor { c.usingColorSpace(.sRGB) ?? c }
-        func luminance(_ c: NSColor) -> CGFloat {
-            let s = srgb(c)
-            return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
-        }
         func contrast(_ x: NSColor, _ y: NSColor) -> CGFloat {
-            let (a, b) = (luminance(x), luminance(y))
-            return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+            Contrast.ratio(x.usingColorSpace(.sRGB) ?? x, y.usingColorSpace(.sRGB) ?? y)
         }
         for dark in [false, true] {
             let appearance = try #require(NSAppearance(named: dark ? .darkAqua : .aqua))

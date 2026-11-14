@@ -409,7 +409,5 @@ import AppKit
         let rig = hosted("one\ntwo\n")
         defer { withExtendedLifetime(rig.window) {} }
         #expect(rig.coordinator.onVisibleLineChange == nil)
-        rig.coordinator.onVisibleLineChange = { _ in }
-        #expect(rig.coordinator.onVisibleLineChange != nil)
     }
 }

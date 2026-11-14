@@ -42,28 +42,13 @@ import Sync
         #expect(rows.map(\.kind) == [.text, .text, .pdf, .text])
     }
 
-    /// A folder of files Edit doesn't open is not an empty folder: this count is what tells a
-    /// folder of photos from one with nothing in it.
-    @Test func aFolderOfUnopenableFilesIsCountedRatherThanCalledEmpty() throws {
+    /// The count of files Edit doesn't open is what tells a folder of photos from an empty one. It
+    /// counts no folders, follows the hidden-files preference, and isn't asked once the rail lists
+    /// something: only the empty caption reads it, and it isn't on screen then.
+    @Test func theOtherFileCountCountsWhatTheRailLeavesOut() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
-        try file("photo one.jpg", in: folder)
-        try file("photo two.jpg", in: folder)
-        try file("letter.docx", in: folder)
-
-        let survey = EditorRail.survey(in: folder.path, showsHidden: false,
-                                       isCloudOnly: nothingIsCloudOnly)
-        #expect(survey.rows.isEmpty, "a file Edit does not open was listed")
-        #expect(survey.otherFileCount == 3,
-                "counted \(survey.otherFileCount as Int?) of the 3 files in the folder")
-    }
-
-    /// Directories are not files: counting them would say "none of the 4 files" over a folder
-    /// holding three subfolders and one file.
-    @Test func theOtherFileCountLeavesFoldersOut() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        try file("letter.docx", in: folder)
+        for name in ["photo one.jpg", "photo two.jpg", "letter.docx", ".hidden.docx"] { try file(name, in: folder) }
         for name in ["Archive", "Sent", "Drafts"] {
             try FileManager.default.createDirectory(at: folder.appendingPathComponent(name),
                                                     withIntermediateDirectories: true)
@@ -71,36 +56,16 @@ import Sync
 
         let survey = EditorRail.survey(in: folder.path, showsHidden: false,
                                        isCloudOnly: nothingIsCloudOnly)
-        #expect(survey.otherFileCount == 1,
-                "subfolders were counted as files: \(survey.otherFileCount as Int?)")
-    }
-
-    /// The count describes what he can see. A folder whose only other file is hidden reads as empty
-    /// while hidden files are off, because on screen it is.
-    @Test func theOtherFileCountFollowsTheHiddenFilesPreference() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
-        try file("visible.docx", in: folder)
-        try file(".hidden.docx", in: folder)
-
-        #expect(EditorRail.survey(in: folder.path, showsHidden: false,
-                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 1)
+        #expect(survey.rows.isEmpty, "a file Edit does not open was listed")
+        #expect(survey.otherFileCount == 3,
+                "counted \(survey.otherFileCount as Int?) of the 3 visible files (subfolders or hidden counted?)")
         #expect(EditorRail.survey(in: folder.path, showsHidden: true,
-                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 2)
-    }
+                                  isCloudOnly: nothingIsCloudOnly).otherFileCount == 4)
 
-    /// Not asked when the rail has rows, which keeps the second pass off every folder with a note
-    /// in it: only the empty caption reads this, and it isn't on screen then.
-    @Test func theOtherFileCountIsNotAskedWhenTheRailListsSomething() throws {
-        let folder = try scratch()
-        defer { try? FileManager.default.removeItem(at: folder) }
         try file("notes.md", in: folder)
-        try file("letter.docx", in: folder)
-
-        let survey = EditorRail.survey(in: folder.path, showsHidden: false,
-                                       isCloudOnly: nothingIsCloudOnly)
-        #expect(survey.rows.map(\.name) == ["notes.md"])
-        #expect(survey.otherFileCount == nil,
+        let listing = EditorRail.survey(in: folder.path, showsHidden: false, isCloudOnly: nothingIsCloudOnly)
+        #expect(listing.rows.map(\.name) == ["notes.md"])
+        #expect(listing.otherFileCount == nil,
                 "the folder was walked a second time to answer a question nobody asked")
     }
 
@@ -203,7 +168,8 @@ import Sync
     /// Anywhere in the name, ignoring case and diacritics: his folders have accented names in
     /// them, and somebody typing `rec` means `Récipes`. An empty or blank filter is no filter,
     /// since somebody who has typed a space and stopped is mid-thought, and answering "no files"
-    /// would look like the rail emptied itself.
+    /// would look like the rail emptied itself. It never reorders: the order is `entries(in:)`'s,
+    /// and a re-sort would make the list jump as you type (the `.md` case is in rail order).
     @Test(arguments: [("plan", ["Release plan.md"]), ("PLAN", ["Release plan.md"]),
                       ("recipes", ["Récipes.md"]),
                       ("", ["Release plan.md", "scratch.txt", "Récipes.md"]),
@@ -211,13 +177,5 @@ import Sync
                       (".md", ["Release plan.md", "Récipes.md"])])
     func aFilterMatches(_ query: String, names: [String]) {
         #expect(EditorRail.filtered(three, matching: query).map(\.name) == names)
-    }
-
-    /// The filter narrows what is drawn and never reorders it: the Finder-like order is decided in
-    /// `entries(in:)`, and a filter that re-sorted would make the list jump as you type.
-    @Test func theFilterKeepsTheRailsOrder() {
-        let ordered = EditorRail.filtered(three, matching: "e").map(\.name)
-        #expect(ordered == three.filter { $0.name.localizedCaseInsensitiveContains("e") || $0.name.contains("é") }.map(\.name),
-                "the filter reordered the rail: \(ordered)")
     }
 }

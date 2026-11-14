@@ -53,22 +53,35 @@ import Design
             DuplicateMatchStyle.symbol(.identical), DuplicateMatchStyle.symbol(.overlapping(sharedFraction: 0.5)),
             DuplicateMatchStyle.symbol(.versions),
         ]
-        // Fixed symbols hardcoded across LensWorkspaceView / DuplicateGroupCard.
-        symbols += [
-            "internaldrive", "line.3.horizontal.decrease.circle", "checkmark.circle.fill",
-            "wand.and.stars", "arrow.clockwise", "folder.badge.gearshape", "doc.on.doc",
-            "exclamationmark.triangle", "square.on.square",
-            "chevron.down", "chevron.right", "checkmark", "trash", "arrow.triangle.merge",
-            "circle.slash", "largecircle.fill.circle", "circle", "info.circle",
-            RevealGlyph.inFinder, "lock",
-            // Filing suggestion card ("Remembered" and AI badges), rescan, preview, retry
-            "arrow.turn.down.right", "arrow.right.circle", "folder", "xmark", "memories",
-            "eye", "folder.badge.gearshape", "wand.and.stars", "sparkles", "arrow.triangle.2.circlepath",
-            "cloud",   // Filing spend row
-        ]
+        // A constant, not a `systemImage:` literal, so the source scan below can't see it.
+        symbols.append(RevealGlyph.inFinder)
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                     "missing SF Symbol \(symbol)")
         }
+    }
+
+    /// Every `systemImage:` / `systemName:` literal in FileExplorer's sources names a real SF
+    /// Symbol: a typo renders blank at runtime. Mutation: `"arrow.triangle.merge"` →
+    /// `"arrow.triangle.mergex"` in `DuplicateGroupCard`.
+    @Test func everySymbolLiteralInTheSourcesExists() throws {
+        let literal = try NSRegularExpression(pattern: #"\b(?:systemImage|systemName):\s*"([^"\\\n]+)""#)
+        let files = try AppCopyScan.sourceFiles().filter { $0.path.hasPrefix("Modules/FileExplorer/Sources/") }
+        try #require(files.count > 60, "only \(files.count) FileExplorer source files — wrong root?")
+        var found = 0
+        var missing: [String] = []
+        for (path, text) in files {
+            let code = SourceText.codeOnly(text)
+            for match in literal.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                guard let range = Range(match.range(at: 1), in: code) else { continue }
+                found += 1
+                let name = String(code[range])
+                if NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil {
+                    missing.append("\((path as NSString).lastPathComponent): \(name)")
+                }
+            }
+        }
+        #expect(found >= 250, "found only \(found) symbol literals — the scan is not reading the sources")
+        #expect(missing.isEmpty, "not SF Symbols: \(missing)")
     }
 }

@@ -36,18 +36,22 @@ import Sync
             record.nextKey = 3
             return record
         }
-    }
 
-    func controller(_ scratch: Scratch, state: OneWaySyncSavedState = OneWaySyncSavedState()) -> (OneWaySyncController, ActivityCenter) {
-        let center = ActivityCenter()
-        let controller = OneWaySyncController(store: nil, center: center, cloudApps: CloudAppMonitor(), refusal: .testRunner)
-        controller.adopt(scratch.record, state: state)
-        return (controller, center)
+        /// A controller holding `record`, told this process may not sync unless `refusal` says
+        /// otherwise.
+        @MainActor
+        func controller(state: OneWaySyncSavedState = OneWaySyncSavedState(),
+                        refusal: OneWaySyncLaunchRefusal? = .testRunner) -> (OneWaySyncController, ActivityCenter) {
+            let center = ActivityCenter()
+            let controller = OneWaySyncController(store: nil, center: center, cloudApps: CloudAppMonitor(), refusal: refusal)
+            controller.adopt(record, state: state)
+            return (controller, center)
+        }
     }
 
     @Test func theDropboxPaneRefusesSyncedFilesAndTheirFoldersButNotItsOwn() throws {
         let scratch = try Scratch()
-        let (controller, _) = controller(scratch)
+        let (controller, _) = scratch.controller()
         let synced = scratch.dropbox.appendingPathComponent("Legal/Will.pdf").path
         #expect(controller.refusal(forChanging: [synced])?.contains("synced from iCloud") == true)
         // A synced folder, spelled in another case, as Dropbox's names ignore case.
@@ -97,7 +101,7 @@ import Sync
     /// group; any other first run doesn't.
     @Test func aTakeoversFirstRunIsMarked() throws {
         let scratch = try Scratch()
-        let (controller, _) = controller(scratch)
+        let (controller, _) = scratch.controller()
         let now = Date(timeIntervalSince1970: 1_790_000_000)
         #expect(OneWaySyncController.firstRunState(settings: OneWaySyncSettings(), unticked: [], takingOver: false, now: now).takenOverAt == nil)
         #expect(OneWaySyncController.firstRunState(settings: OneWaySyncSettings(), unticked: ["Work"], takingOver: true, now: now).takenOverAt
@@ -128,7 +132,7 @@ import Sync
 
     @Test func eachPaneKnowsItsSide() throws {
         let scratch = try Scratch()
-        let (controller, _) = controller(scratch)
+        let (controller, _) = scratch.controller()
         #expect(controller.role(ofFolder: scratch.iCloud.appendingPathComponent("Legal").path) == .source)
         // A folder beside the synced ones isn't synced, so it has no side.
         try FileManager.default.createDirectory(at: scratch.iCloud.appendingPathComponent("Work"), withIntermediateDirectories: true)
@@ -139,7 +143,7 @@ import Sync
 
     @Test func theToolbarSaysTheFirstRungThatApplies() throws {
         let scratch = try Scratch()
-        let (controller, center) = controller(scratch, state: OneWaySyncSavedState(pausedSince: 1_790_000_000, lastSyncAt: 1_789_990_000))
+        let (controller, center) = scratch.controller(state: OneWaySyncSavedState(pausedSince: 1_790_000_000, lastSyncAt: 1_789_990_000))
         #expect(controller.ladder == .paused(since: Date(timeIntervalSince1970: 1_790_000_000)))
         center.raiseOneWaySync([OneWaySyncNotice(id: "ows:file:Legal/Will.pdf", kind: .needsYou, scope: .file(folder: "Legal", path: "Legal/Will.pdf"),
                                                  title: "Will.pdf was edited in Dropbox", raisedAt: Date())])
@@ -161,7 +165,7 @@ import Sync
         record.refused = [OneWaySyncRefusedFile(
             iCloudPath: "Legal/CON.pdf", iCloudID: 11, size: 3, modified: 0, changed: nil, dropboxPath: "Legal/CON.pdf",
             record: nil, why: "excluded from sync", refusedAt: 0)]
-        let (controller, center) = controller(scratch, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
+        let (controller, center) = scratch.controller(state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
         controller.adopt(record, state: OneWaySyncSavedState(lastSyncAt: 1_789_990_000))
         #expect(controller.ladder == .upToDate(asOf: Date(timeIntervalSince1970: 1_789_990_000), skipped: 1))
         #expect(OneWaySyncStatusPill(controller: controller, center: center, onSetUp: {}).title.hasSuffix(" · 1 skipped · Sync Now"))
@@ -199,22 +203,13 @@ import Sync
             let gate = DispatchSemaphore(value: 0)
             OneWaySyncRun.writeQueue.async { gate.wait() }
             let running = Task { @MainActor in await answer() }
-            var waited = 0
-            while !controller.isAnswering, waited < 200 {
-                try await Task.sleep(for: .milliseconds(10))
-                waited += 1
-            }
-            #expect(controller.isAnswering, "\(name)")
+            #expect(await LayoutPumpWait.poll(upTo: 5) { controller.isAnswering }.held, "\(name)")
             #expect(controller.syncNowRefusal == "Wait for the change you asked for to finish", "\(name)")
             gate.signal()
             await running.value
             #expect(!controller.isAnswering, "\(name)")
             // Reverse syncs after: that pass (with no store, it returns at once) ends first.
-            waited = 0
-            while controller.isRunning, waited < 200 {
-                try await Task.sleep(for: .milliseconds(10))
-                waited += 1
-            }
+            #expect(await LayoutPumpWait.poll(upTo: 5) { !controller.isRunning }.held, "\(name): the pass after never ended")
         }
     }
 

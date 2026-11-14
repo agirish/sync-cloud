@@ -46,6 +46,7 @@ extension PDFFixtures {
 @MainActor
 @Suite(.serialized) final class EditorPDFCatalogPartsTests {
     let folder = NSTemporaryDirectory() + "editor-pdf-catalog-" + UUID().uuidString
+    private let defaults = ScratchDefaults("EditorPDFCatalogPartsTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -55,19 +56,8 @@ extension PDFFixtures {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Opens `file` and waits — a lane turn at a time, bounded — for the load to be applied.
     private func open(_ file: String) async -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
-        var loaded = false
-        pdf.onLoaded = { _ in loaded = true }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where !loaded {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        if !loaded { Issue.record("\((file as NSString).lastPathComponent) never loaded") }
-        pdf.onLoaded = nil
-        return pdf
+        await PDFFixtures.openedAnyPhase(file, defaults: defaults)
     }
 
     // MARK: The words

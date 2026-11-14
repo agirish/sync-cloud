@@ -283,9 +283,7 @@ import Sync
     @Test func noColumnRowCarriesAGeometryReader() throws {
         func codeOnly(_ text: Substring) -> String { SourceText.codeOnly(String(text)) }
         let columns = try SourceText.fileExplorer("PaneColumnsView.swift")
-        let rowStart = try #require(columns.range(of: "private func columnRow("), "the column row moved")
-        let rowEnd = try #require(columns[rowStart.upperBound...].range(of: "\n    }\n"), "the column row has no end")
-        let columnRow = codeOnly(columns[rowStart.lowerBound..<rowEnd.upperBound])
+        let columnRow = try SourceText.body(of: "private func columnRow(", in: columns)
         #expect(columnRow.contains(".tag(node.id)"), "the scan is not reading the column row — it proves nothing")
 
         let rows = try SourceText.fileExplorer("FileTreeView.swift")
@@ -298,9 +296,7 @@ import Sync
         let columnRowViewEnd = columns[columnRowViewStart.upperBound...].range(of: "\nstruct ")?.lowerBound ?? columns.endIndex
         let columnRowView = codeOnly(columns[columnRowViewStart.lowerBound..<columnRowViewEnd])
         #expect(columnRowView.contains("FileRowView("), "the scan is not reading ColumnRowView — it proves nothing")
-        let backgroundStart = try #require(columns.range(of: "private func rowBackground("), "rowBackground moved")
-        let backgroundEnd = try #require(columns[backgroundStart.upperBound...].range(of: "\n    }\n"), "rowBackground has no end")
-        let rowBackground = codeOnly(columns[backgroundStart.lowerBound..<backgroundEnd.upperBound])
+        let rowBackground = try SourceText.body(of: "private func rowBackground(", in: columns)
 
         for (name, code) in [("the column row", columnRow), ("FileRowView", fileRow),
                              ("ColumnRowView", columnRowView), ("the row background", rowBackground)] {

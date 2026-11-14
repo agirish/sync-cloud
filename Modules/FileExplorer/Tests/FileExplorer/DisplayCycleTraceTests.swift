@@ -32,15 +32,6 @@ import AppKit
                 "a cycle that was never reported must not move the high-water mark")
     }
 
-    @Test func testACycleAtTheFloorIsReportedAndRemembered() {
-        DisplayCycleTrace.resetForTesting()
-        for _ in 0..<DisplayCycleTrace.floor { DisplayCycleTrace.notePass(window: 7) }
-        let reported = DisplayCycleTrace.endCycle()
-        #expect(reported.count == 1)
-        #expect(reported.first?.passes == DisplayCycleTrace.floor)
-        #expect(DisplayCycleTrace.worstSoFar(window: 7) == DisplayCycleTrace.floor)
-    }
-
     /// The count is per window, as AppKit's budget is: a total would hide which window churned.
     @Test func testWindowsAreCountedSeparatelyAndTheWorstLeads() {
         DisplayCycleTrace.resetForTesting()

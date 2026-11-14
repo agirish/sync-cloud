@@ -106,13 +106,8 @@ enum ReplaceFixtures {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    private func open(_ file: String) async throws -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
-        pdf.tools.isCloudOnly = { _ in false }
-        pdf.open(path: file, log: { _ in })
-        for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
-        try #require(pdf.phase == .open)
-        return pdf
+    private func open(_ file: String, sourceLocation: SourceLocation = #_sourceLocation) async throws -> EditorPDFDocument {
+        try await PDFFixtures.opened(file, defaults: defaults, sourceLocation: sourceLocation)
     }
 
     static let dark = CGColor(srgbRed: 0.6, green: 0.05, blue: 0.1, alpha: 1)
@@ -696,14 +691,6 @@ enum ReplaceFixtures {
             return NSColor(srgbRed: mix(t.redComponent, g.redComponent), green: mix(t.greenComponent, g.greenComponent),
                            blue: mix(t.blueComponent, g.blueComponent), alpha: 1)
         }
-        func luminance(_ c: NSColor) -> CGFloat {
-            let s = srgb(c)
-            return AccentLabel.relativeLuminance(red: s.redComponent, green: s.greenComponent, blue: s.blueComponent)
-        }
-        func contrast(_ x: NSColor, _ y: NSColor) -> CGFloat {
-            let (l1, l2) = (luminance(x), luminance(y))
-            return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
-        }
         // The card's own ground in each appearance, and in light a 0.96 sheet too.
         let sheet = NSColor(srgbRed: 0.96, green: 0.96, blue: 0.96, alpha: 1)
         for dark in [false, true] {
@@ -716,7 +703,7 @@ enum ReplaceFixtures {
                     for (name, ground) in grounds {
                         let hue = EditorPDFRetypeHint.chipHue(sameFont: sameFont)
                         let wash = over(hue, EditorPDFRetypeHint.chipWashAlpha, ground)
-                        ratios.append((name, contrast(over(drawn, 1, wash), wash)))
+                        ratios.append((name, Contrast.ratio(over(drawn, 1, wash), wash)))
                     }
                 }
                 #expect(ratios.count == (dark ? 1 : 2))

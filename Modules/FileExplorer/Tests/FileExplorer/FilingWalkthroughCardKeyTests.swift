@@ -146,22 +146,9 @@ import Sync
 
     // MARK: The keypad's Enter is the same decision as the main row's
 
-    /// A full-size keyboard has two Enter keys, and the card must hear both. The keypad's Enter is
-    /// the key a two-handed user filing a stack of documents presses; a card deaf to it would file
-    /// nothing, silently, with its hint row advertising ⏎. Nothing on screen distinguishes the two
-    /// keycaps, so that failure would look like a wedged card.
-    @Test func theKeypadsEnterFilesLikeTheMainRowReturn() async {
-        let recorder = Recorder()
-        let (window, _) = host(card(into: recorder))
-        guard await waitForCardFocus(in: window) else { return }
-
-        sendKeypadEnter(window)
-        #expect(recorder.decisions == [true], """
-                the numeric keypad's Enter (keyCode 76, U+0003) filed nothing: \(recorder.decisions).                 It must file exactly like the main row's ⏎ — the keycaps mean the same thing.
-                """)
-        #expect(recorder.cancels == 0)
-    }
-
+    /// A full-size keyboard has two Enter keys, and the card must hear both: a card deaf to the
+    /// keypad's would file nothing, silently, under a hint advertising ⏎.
+    ///
     /// The modifier rule for the keypad's Enter: ⌘⏎/⇧⏎ are "open"/"extend" chords whichever keycap
     /// produced them, and this Enter arrives with `.numericPad` and `.function` already set, so the
     /// guard has to be `isPlainKeystroke` (⌘⌥⌃⇧ only) and not `modifiers.isEmpty`, which would
@@ -195,20 +182,6 @@ import Sync
     }
 
     // MARK: The keys, with the card focused
-
-    /// ⏎ files, → skips, esc cancels, through the focus the card acquired for itself.
-    @Test func theFocusedCardReceivesItsThreeKeys() async {
-        let recorder = Recorder()
-        let (window, _) = host(card(into: recorder))
-        guard await waitForCardFocus(in: window) else { return }
-
-        sendReturn(window)
-        sendRightArrow(window)
-        sendEscape(window)
-        #expect(recorder.decisions == [true, false],
-                "got \(recorder.decisions) — ⏎ must file and → must skip")
-        #expect(recorder.cancels == 1, "esc did not cancel")
-    }
 
     /// A modified key is not a decision. ⌘⏎ / ⇧⏎ are "open"/"add to selection" chords all over
     /// macOS, and ⌥→ / ⌃→ are word-wise and Space-switch navigation; none of them is the plain

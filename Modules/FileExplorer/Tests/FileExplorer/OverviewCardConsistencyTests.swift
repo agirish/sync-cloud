@@ -47,13 +47,10 @@ import Design
                        OverviewCardAction(title: "Start over", run: {})]
         #expect(OverviewCardAction.drawingOrder(actions).map(\.title)
                 == ["Stop", "Start over", "Pause"])
-    }
-
-    /// A card with no primary keeps its order untouched rather than promoting one by accident.
-    @Test func aCardWithNoPrimaryIsLeftAlone() {
-        let actions = [OverviewCardAction(title: "One", run: {}),
-                       OverviewCardAction(title: "Two", run: {})]
-        #expect(OverviewCardAction.drawingOrder(actions).map(\.title) == ["One", "Two"])
+        // A card with no primary keeps its order untouched rather than promoting one by accident.
+        let plain = [OverviewCardAction(title: "One", run: {}),
+                     OverviewCardAction(title: "Two", run: {})]
+        #expect(OverviewCardAction.drawingOrder(plain).map(\.title) == ["One", "Two"])
     }
 
     /// At most one primary per card, in every state any card can be in, so no card grows two verbs
@@ -220,12 +217,7 @@ import Design
         let reporting = Self.section(.restructure,
                                      .findings(count: 53, headline: "53 findings", examples: []))
         #expect(Self.overview([reporting], nudge: Self.nudge()).nudgeHost?.lens == .restructure)
-    }
-
-    /// And nothing attaches when nothing is due: the host is about the nudge, not about the card.
-    @Test func noNudgeMeansNoHost() {
-        let reporting = Self.section(.restructure,
-                                     .findings(count: 53, headline: "53 findings", examples: []))
+        // And nothing attaches when nothing is due: the host is about the nudge, not about the card.
         #expect(Self.overview([reporting]).nudgeHost == nil)
     }
 
@@ -241,17 +233,7 @@ import Design
         // measurably less.
         let with = try #require(Self.render(page))
         let without = try #require(Self.render(Self.overview([clean])))
-        var differing = 0
-        for y in 0..<min(with.pixelsHigh, without.pixelsHigh) {
-            for x in 0..<min(with.pixelsWide, without.pixelsWide) {
-                guard let a = with.colorAt(x: x, y: y), let b = without.colorAt(x: x, y: y) else {
-                    continue
-                }
-                if max(abs(a.redComponent - b.redComponent),
-                       max(abs(a.greenComponent - b.greenComponent),
-                           abs(a.blueComponent - b.blueComponent))) > 0.04 { differing += 1 }
-            }
-        }
+        let differing = PixelDiff.differingPixels(with, without, tolerance: 0.04)
         #expect(differing > 2000, "a homeless nudge drew nothing — it is lost, not relocated")
     }
 
@@ -343,9 +325,7 @@ import Design
                           .findings(count: 722, headline: "722 groups",
                                     examples: ["clip.mp4 — 2 copies"]))]))
         let offer = try #require(Self.cardFill([Self.section(.duplicates, .notScanned)]))
-        let delta = max(abs(reporting.redComponent - offer.redComponent),
-                        max(abs(reporting.greenComponent - offer.greenComponent),
-                            abs(reporting.blueComponent - offer.blueComponent)))
+        let delta = PixelProbe.distance(reporting, offer)
         #expect(delta < 0.02,
                 "the reporting card's fill is \(reporting), the offer's \(offer) — one is tinted")
     }
@@ -357,9 +337,7 @@ import Design
             [Self.section(.duplicates,
                           .findings(count: 722, headline: "722 groups", examples: []))]))
         let offer = try #require(Self.glyphFill([Self.section(.duplicates, .notScanned)]))
-        let delta = max(abs(reporting.redComponent - offer.redComponent),
-                        max(abs(reporting.greenComponent - offer.greenComponent),
-                            abs(reporting.blueComponent - offer.blueComponent)))
+        let delta = PixelProbe.distance(reporting, offer)
         #expect(delta > 0.02,
                 "a reporting glyph tile is indistinguishable from an offer's — nothing says work")
     }
@@ -509,9 +487,7 @@ import Design
         }
         func differs(_ y: Int) -> Bool {
             guard let c = rep.colorAt(x: column, y: y) else { return false }
-            return max(abs(c.redComponent - ground.redComponent),
-                       max(abs(c.greenComponent - ground.greenComponent),
-                           abs(c.blueComponent - ground.blueComponent))) > 0.008
+            return PixelProbe.distance(c, ground) > 0.008
         }
         // The first row that is not the window ground is the card's top hairline; step past it and
         // past the corner's curve before reading the fill.
@@ -528,23 +504,7 @@ import Design
         // Tall enough that a 135% render still fits every card; a page that overflowed would clip
         // the last card's verb and the probe would not see it.
         let size = CGSize(width: width ?? canvas.width, height: canvas.height * (1 + fontScale))
-        let subject = page
-            .environment(\.appFontScale, fontScale)
-            .frame(width: size.width, height: size.height)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        let mounted = ReviewLensHost.mount(page.environment(\.appFontScale, fontScale), size: size, passes: 2)
+        return withExtendedLifetime(mounted.window) { PixelProbe.render(mounted.host, mounted.host.bounds) }
     }
 }

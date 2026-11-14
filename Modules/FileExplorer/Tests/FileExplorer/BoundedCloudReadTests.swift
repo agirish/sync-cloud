@@ -24,7 +24,8 @@ import Testing
         #expect(reads.run { ran.set(); return 2 } == nil)
 
         release.signal()
-        #expect(await waitUntil { reads.recoveries == 1 }, "the stuck read never reported back")
+        #expect(await LayoutPumpWait.poll(upTo: 15) { reads.recoveries == 1 }.held,
+                "the stuck read never reported back")
         #expect(!ran.isSet, "a read was started while another was stuck")
         #expect(reads.run { 3 } == 3, "reads resume once the stuck one returns")
         #expect(reads.recoveries == 1)
@@ -42,14 +43,5 @@ import Testing
         private var value = false
         func set() { lock.withLock { value = true } }
         var isSet: Bool { lock.withLock { value } }
-    }
-
-    private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
-        let end = Date().addingTimeInterval(timeout)
-        while Date() < end {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return condition()
     }
 }

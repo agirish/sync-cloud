@@ -113,6 +113,7 @@ enum PDFTextFixtures {
 
     let folder = NSTemporaryDirectory() + "editor-pdf-find-" + UUID().uuidString
     typealias HeldLane = EditorPDFRailTests.HeldLane
+    private let defaults = ScratchDefaults("EditorPDFFindTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -122,16 +123,9 @@ enum PDFTextFixtures {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Waits until `done` holds; bounded in turns, so it fails with a label instead of hanging.
     @discardableResult
-    private func wait(_ label: String, turns: Int = 4000, until done: () -> Bool) async -> Bool {
-        for _ in 0..<turns {
-            if done() { return true }
-            _ = await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        Issue.record("timed out waiting for \(label)")
-        return false
+    private func wait(_ label: String, until done: () -> Bool) async -> Bool {
+        await PDFFixtures.waitInLane(label, turns: 4000, until: done)
     }
 
     /// A five-page PDF with "needle" once on every page.
@@ -142,24 +136,21 @@ enum PDFTextFixtures {
     }
 
     private func find(_ file: String, pages: Int, lane: EditorPDFLane = .pdfKit,
-                      view: EditorPDFViewState = EditorPDFViewState()) -> EditorPDFFind {
-        let find = EditorPDFFind(view: view, lane: lane)
+                      view: EditorPDFViewState? = nil) -> EditorPDFFind {
+        let find = EditorPDFFind(view: view ?? EditorPDFViewState(defaults: defaults), lane: lane)
         find.attach(path: file, pageCount: pages, hasText: true)
         return find
     }
 
     private func opened(_ file: String) async -> EditorPDFDocument {
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
-        pdf.open(path: file, log: { _ in })
-        await wait("the PDF to open") { pdf.phase != .loading }
-        return pdf
+        await PDFFixtures.openedAnyPhase(file, defaults: defaults, turns: 4000)
     }
 
     // MARK: The search
 
     /// Turns start at the page on screen and wrap, and the first match shown is that page's.
     @Test func theSearchStartsAtTheCurrentPageAndWraps() async {
-        let view = EditorPDFViewState()
+        let view = EditorPDFViewState(defaults: defaults)
         view.currentPage = 3
         let find = find(needles(), pages: 5, view: view)
         find.show()
@@ -176,7 +167,7 @@ enum PDFTextFixtures {
 
     /// ⌘G and ⇧⌘G wrap, and each step asks for its match's page.
     @Test func steppingWrapsBothWays() async {
-        let view = EditorPDFViewState()
+        let view = EditorPDFViewState(defaults: defaults)
         let find = find(needles(), pages: 5, view: view)
         find.show()
         find.search("needle")
@@ -256,7 +247,7 @@ enum PDFTextFixtures {
     @Test func theHighlightsAreTheMatchesByPage() async {
         let file = path("twice.pdf")
         PDFTextFixtures.write(file, pages: (0..<6).map { ["Page \($0 + 1): a needle,", "and a second needle."] })
-        let view = EditorPDFViewState()
+        let view = EditorPDFViewState(defaults: defaults)
         view.currentPage = 3
         let find = find(file, pages: 6, view: view)
         find.show()
@@ -527,7 +518,7 @@ enum PDFTextFixtures {
 
     /// Hiding lets the search's document go and gives the pages the keyboard back.
     @Test func hidingReleasesTheDocumentAndHandsBackTheKeyboard() async throws {
-        let view = EditorPDFViewState()
+        let view = EditorPDFViewState(defaults: defaults)
         let find = find(needles(pages: 2), pages: 2, view: view)
         find.show()
         find.search("needle")
@@ -578,16 +569,12 @@ enum PDFTextFixtures {
     /// reaches WCAG's 4.5:1 for body text.
     @Test func theHighlightLeavesTheTextReadable() throws {
         let tint = try #require(NSColor.findHighlightColor.usingColorSpace(.sRGB))
-        func over(_ base: CGFloat, alpha: CGFloat) -> [CGFloat] {
-            [tint.redComponent, tint.greenComponent, tint.blueComponent].map { alpha * $0 + (1 - alpha) * base }
-        }
-        func luminance(_ rgb: [CGFloat]) -> CGFloat {
-            let l = rgb.map { $0 <= 0.03928 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
-            return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]
+        func over(_ base: CGFloat, alpha: CGFloat) -> NSColor {
+            let c = [tint.redComponent, tint.greenComponent, tint.blueComponent].map { alpha * $0 + (1 - alpha) * base }
+            return NSColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: 1)
         }
         for alpha in [EditorPDFFindOverlay.currentAlpha, EditorPDFFindOverlay.otherAlpha] {
-            let text = luminance(over(0, alpha: alpha)), page = luminance(over(1, alpha: alpha))
-            let ratio = (page + 0.05) / (text + 0.05)
+            let ratio = Contrast.ratio(over(1, alpha: alpha), over(0, alpha: alpha))
             #expect(ratio >= 4.5, "text under a \(alpha) tint reads at \(ratio):1")
         }
     }
@@ -824,7 +811,7 @@ enum PDFTextFixtures {
     /// ⌘E's selection is read from the page view mounted now: one torn down after its successor
     /// was built leaves the successor's in place.
     @Test func anOldPageViewKeepsItsHandsOffTheNewOnesSelection() {
-        let state = EditorPDFViewState()
+        let state = EditorPDFViewState(defaults: defaults)
         let old = ReaderPDFView(), new = ReaderPDFView()
         state.reader = old
         state.reader = new

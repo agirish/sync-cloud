@@ -99,10 +99,7 @@ import Testing
         state.fit = .actual
         menu = EditorPDFZoomMenu.menu(for: state)
         #expect(menu.items.filter { $0.state == .on }.map(\.title) == ["Actual Size", "100%"])
-        // Not at another scale, nor while a fit holds the page, even one that lands on 100%.
-        state.fit = nil
-        state.scale = 1.25
-        #expect(EditorPDFZoomMenu.menu(for: state).items.filter { $0.state == .on }.map(\.title) == ["125%"])
+        // Not while a fit holds the page, even one that lands on 100% (another scale: `EditorPDFLayoutTests`).
         state.fit = .page
         state.scale = 1
         #expect(EditorPDFZoomMenu.menu(for: state).items.filter { $0.state == .on }.map(\.title) == ["Fit Page"])
@@ -363,15 +360,9 @@ import Testing
         code.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
-    /// A FileExplorer source file, its `//` comments stripped.
+    /// A FileExplorer source file, its whole-line `//` comments stripped.
     static func source(_ name: String) throws -> String {
-        let url = sourcesFolder.appendingPathComponent(name)
-        let text = try String(contentsOf: url, encoding: .utf8)
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
-                line.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String(line)
-            }
-            .joined(separator: "\n")
+        SourceText.codeOnly(try SourceText.fileExplorer(name))
     }
 
     static var sourcesFolder: URL {

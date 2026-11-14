@@ -390,27 +390,13 @@ import Sync
     /// place in the window match before and after, in the whole workspace.
     @Test func turningFillAndSignOnLeavesThePageWhereItWas() async throws {
         let pdf = try await open(pages: 3)
-        let workspace = EditorWorkspaceView.fixture(pdf: pdf).readingSettings(from: defaults)
-        let window = host(workspace, size: CGSize(width: 900, height: 700))
-        defer { window.contentView = nil }
-        let root = try #require(window.contentView)
-        let settled = await LayoutPumpWait.pump(window, upTo: 10) { (self.descendants(ReaderPDFView.self, in: root).first?.bounds.width ?? 0) > 0 }
-        try #require(settled.held, "no page view in the document card")
-        _ = await LayoutPumpWait.pump(window, upTo: 1) { false }
-        let view = try #require(descendants(ReaderPDFView.self, in: root).first)
-        let page = try #require(pdf.document?.page(at: 0))
-        let frameBefore = inWindow(view)
-        let pageBefore = view.convert(view.convert(page.bounds(for: view.displayBox), from: page), to: nil)
-        pdf.fill.toggle()
-        let up = await LayoutPumpWait.pump(window, upTo: 10) {
-            self.descendants(EditorPDFGripView.self, in: root).contains { $0.piece == .palette }
+        try await PDFFixtures.expectPageStaysPut(pdf, defaults: defaults, when: "turning Fill & Sign on",
+                                                 after: { pdf.fill.toggle() }) { window, root in
+            let up = await LayoutPumpWait.pump(window, upTo: 10) {
+                self.descendants(EditorPDFGripView.self, in: root).contains { $0.piece == .palette }
+            }
+            try #require(pdf.fill.isOn && up.held, "the palette did not come up")
         }
-        try #require(pdf.fill.isOn && up.held, "the palette did not come up")
-        #expect(descendants(ReaderPDFView.self, in: root).first === view, "turning Fill & Sign on rebuilt the page view")
-        #expect(inWindow(view) == frameBefore, "turning Fill & Sign on moved the pages: \(frameBefore) → \(inWindow(view))")
-        let pageAfter = view.convert(view.convert(page.bounds(for: view.displayBox), from: page), to: nil)
-        #expect(abs(pageAfter.minY - pageBefore.minY) < 0.5 && abs(pageAfter.minX - pageBefore.minX) < 0.5,
-                "turning Fill & Sign on moved the page: \(pageBefore) → \(pageAfter)")
     }
 
     /// The palette floats over the canvas, and a click beside it reaches the pages, so placing
@@ -446,16 +432,8 @@ import Sync
 
     // MARK: What went
 
-    /// No Fill & Sign toolbar, line of words or row 2 count: nothing mounts a Fill & Sign row under
-    /// the header or draws a click hint or field count; the tooltips say what a tool does.
-    @Test func theToolbarAndItsWordsAreGone() throws {
-        let workspace = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
-        #expect(!workspace.contains("EditorPDFFill"), "the workspace mounts a Fill & Sign row again")
-        for file in ["EditorPDFFillPalette.swift", "EditorPDFFillSign.swift", "EditorPDFCanvas.swift", "EditorPDFCard.swift"] {
-            let source = try ChromeGlassWiringTests.source(file)
-            #expect(!source.contains("statusSegments"), "\(file) draws Fill & Sign's line of words")
-            #expect(!source.contains("struct EditorPDFFillSignBar"), "\(file) has the toolbar")
-        }
+    /// The canvas floats Fill & Sign's palette and save pill over the pages.
+    @Test func theCanvasFloatsThePaletteAndTheSavePill() throws {
         let canvas = try ChromeGlassWiringTests.source("EditorPDFCanvas.swift")
         #expect(canvas.contains("EditorPDFFillPalette(fill: fill"), "the canvas does not float the palette")
         #expect(canvas.contains("EditorPDFFillSaveStack(fill: fill"), "the canvas does not float the save pill")

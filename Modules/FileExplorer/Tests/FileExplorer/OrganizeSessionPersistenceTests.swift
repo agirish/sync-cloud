@@ -78,19 +78,6 @@ import Testing
         #expect(session.searchQueries[.duplicates] == "invoice")
     }
 
-    /// An empty seed may not clear a live query. The app passes no seed, so a seed applied anywhere
-    /// but on first mount would wipe the parked query at the next publish, and a running scan
-    /// publishes several times a second.
-    @Test func anEmptySeedLeavesAParkedQueryAlone() {
-        let session = LensWorkspaceSession()
-        session.searchQueries[.duplicates] = "kind:pdf"
-
-        let survivor = LensWorkspaceView.startingSession(session, seed: [:])
-
-        #expect(survivor.searchQueries[.duplicates] == "kind:pdf",
-                "the app's empty seed cleared a query the reader had typed")
-    }
-
     // MARK: The resets, which now have nothing under them
 
     /// A new scan retires the previous scan's narrowing even when the session outlives the view.

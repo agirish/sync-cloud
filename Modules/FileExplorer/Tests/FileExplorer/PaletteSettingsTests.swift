@@ -57,23 +57,17 @@ import Testing
 
     // MARK: The word that started this
 
+    /// Readability carries `appearance` as a keyword, so both tabs answer, and the one whose name
+    /// it is has to lead.
     @Test func typingATabNameReachesThatTab() throws {
         let rows = settingsRows("appearance")
+        #expect(rows.map(\.id).contains("settings.readability"),
+                "Readability no longer answers “appearance”, so nothing here outranks it")
         let first = try #require(rows.first)
         #expect(first.title == "Settings ▸ Appearance")
         #expect(first.route == .settings(tab: "appearance"))
         #expect(first.detail == "Theme, accent, glass, and surfaces")
         #expect(first.symbol == "paintbrush")
-    }
-
-    /// Readability carries `appearance` as a keyword, so both tabs answer, and the one whose name
-    /// it is has to lead.
-    @Test func aTabNamedByTheQueryOutranksOneThatMerelyKnowsTheWord() throws {
-        let rows = settingsRows("appearance")
-        let ids = rows.map(\.id)
-        let appearance = try #require(ids.firstIndex(of: "settings.appearance"))
-        let readability = try #require(ids.firstIndex(of: "settings.readability"))
-        #expect(appearance < readability)
     }
 
     /// The vocabulary penalty, pinned where position works against it. The test above can't pin it:
@@ -129,30 +123,19 @@ import Testing
 
     /// The position decrement must never lift a row across a match tier: the last tab matched by
     /// name beats the first tab matched only by vocabulary. Tests the property, not the arithmetic.
-    @Test func positionNeverOutranksHowWellSomethingMatched() throws {
-        let many = (0..<10).map { i in
-            PaletteSettingsTab(id: "t\(i)", name: i == 9 ? "Advanced" : "Tab \(i)",
+    /// At 25 tabs it is the clamp: ten never reach `maxPositionDecrement`, while the last of 25
+    /// has a raw offset (24) past the penalty (20), so without the clamp a tab that merely knows
+    /// the word would outrank the tab it names, just because of where it sits in the rail.
+    @Test(arguments: [10, 25])
+    func positionNeverOutranksHowWellSomethingMatched(count: Int) {
+        let many = (0..<count).map { i in
+            PaletteSettingsTab(id: "t\(i)", name: i == count - 1 ? "Advanced" : "Tab \(i)",
                                detail: "d\(i)", symbol: "gearshape",
                                vocabulary: i == 0 ? ["advanced"] : [])
         }
         let rows = PaletteRouter.rows(query: "advanced", index: PaletteIndex(settingsTabs: many))
             .filter { $0.group == .settings }
-        #expect(rows.map(\.id) == ["settings.t9", "settings.t0"])
-    }
-
-    /// The clamp, at a list long enough to need it. Ten tabs never reach `maxPositionDecrement`, so
-    /// nothing above exercises it. With 25 tabs the last one's raw offset (24) exceeds the penalty
-    /// (20), so without the clamp a tab that merely knows the word would outrank the tab it names,
-    /// just because of where it sits in the rail.
-    @Test func aLongTabListCannotReorderItselfByPosition() {
-        let many = (0..<25).map { i in
-            PaletteSettingsTab(id: "t\(i)", name: i == 24 ? "Advanced" : "Tab \(i)",
-                               detail: "d\(i)", symbol: "gearshape",
-                               vocabulary: i == 0 ? ["advanced"] : [])
-        }
-        let rows = PaletteRouter.rows(query: "advanced", index: PaletteIndex(settingsTabs: many))
-            .filter { $0.group == .settings }
-        #expect(rows.map(\.id) == ["settings.t24", "settings.t0"])
+        #expect(rows.map(\.id) == ["settings.t\(count - 1)", "settings.t0"])
     }
 
     /// The bound as arithmetic: the largest decrement must stay strictly under the smallest gap
@@ -215,9 +198,10 @@ import Testing
 
     /// The group draws as one run under one header: a Settings row stranded between two Places rows
     /// would put the same heading on screen twice.
-    @Test func theGroupDrawsContiguously() {
+    @Test func theGroupDrawsContiguously() throws {
         let rows = PaletteRouter.rows(query: "s", index: Self.index)
         let positions = rows.indices.filter { rows[$0].group == .settings }
-        #expect(positions.isEmpty || positions == Array(positions.first!...positions.last!))
+        try #require(positions.count >= 2, "“s” offers \(positions.count) Settings rows, too few to test the run")
+        #expect(positions == Array(positions.first!...positions.last!))
     }
 }

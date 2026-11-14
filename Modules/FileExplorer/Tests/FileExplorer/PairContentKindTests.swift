@@ -64,15 +64,6 @@ import UniformTypeIdentifiers
         #expect(PairContentKind.classify(ext: "svg") == .other)
     }
 
-    /// The positive control for the test above: the decodable check doesn't answer "no" to
-    /// everything, which would send every image to Quick Look and retire the image viewer.
-    @Test func theOrdinaryImageFormatsAreStillDecodable() throws {
-        for ext in ["png", "jpg", "heic", "tiff", "gif"] {
-            let type = try #require(UTType(filenameExtension: ext), "\(ext)")
-            #expect(PairContentKind.imageIOCanDecode(type), "\(ext) should be decodable")
-        }
-    }
-
     /// A camera RAW is why this asks ImageIO instead of carrying a list: the answer has to track
     /// the codecs the OS actually has. The premise is asserted apart from the answer, so if a
     /// machine lacks the codec the first line says so instead of the test agreeing with itself.

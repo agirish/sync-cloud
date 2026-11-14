@@ -161,34 +161,26 @@ import Design
     /// mint such a path: the landing's recents and pins, a folder match, and a verb row's Organize
     /// scope. Missing one would let "organize legal" write a scope for a folder on a sleeping
     /// drive, move the workspace to show it, and reveal nothing. Walked through `pathUnderRoot`, so
-    /// a new builder can't be missed the same way.
-    @Test func everyPathBearingRouteIsRefusedWhenTheRootIsAsleep() {
-        let index = Self.index(unavailable: "Not available")
+    /// a new builder can't be missed the same way. The awake case keeps this from being
+    /// "unavailable is whatever we passed": a fix that marked everything always fails it.
+    @Test(arguments: ["Not available", nil] as [String?])
+    func everyPathBearingRouteIsRefusedWhenTheRootIsAsleep(unavailable: String?) {
+        let index = Self.index(unavailable: unavailable)
         var seen = 0
         for query in Self.pathBearingQueries {
             for row in PaletteRouter.rows(query: query, index: index, probe: Self.probe) {
                 guard let path = Self.pathUnderRoot(of: row.route) else { continue }
                 seen += 1
-                #expect(row.unavailable == "Not available",
-                        "“\(query)” offers \(path) as a live destination under a root that did not answer")
+                if let unavailable {
+                    #expect(row.unavailable == unavailable,
+                            "“\(query)” offers \(path) as a live destination under a root that did not answer")
+                } else {
+                    #expect(row.isAvailable, "“\(query)” refuses a folder under a root that is right there")
+                }
             }
         }
         #expect(seen >= 7,
                 "only \(seen) path-bearing rows were reached — the queries no longer cover the builders this is about")
-    }
-
-    /// The awake half, so the test above isn't just "unavailable is whatever we passed", and a fix
-    /// that marked everything always would fail here.
-    @Test func thoseSameRoutesAreLiveWhenTheRootAnswers() {
-        let index = Self.index()
-        var seen = 0
-        for query in Self.pathBearingQueries {
-            for row in PaletteRouter.rows(query: query, index: index, probe: Self.probe) where Self.pathUnderRoot(of: row.route) != nil {
-                seen += 1
-                #expect(row.isAvailable, "“\(query)” refuses a folder under a root that is right there")
-            }
-        }
-        #expect(seen >= 7, "only \(seen) path-bearing rows were reached — this pair is not measuring the same set")
     }
 
     /// The landing alone, what ⌘K opens on, must carry the four groups. A destination reachable

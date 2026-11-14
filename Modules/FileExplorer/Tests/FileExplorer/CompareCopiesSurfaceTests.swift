@@ -34,50 +34,30 @@ import Testing
     /// a 27-inch window must not hand two previews 1,900 points each. And below the minimum it
     /// overhangs rather than shrinking: a 40pt-wide preview pane hides the bug, an overhanging card
     /// shows it.
+    ///
+    /// A remembered size is honoured, but clamped on every render, not only when written: the
+    /// window can shrink between sessions or displays, and a card that trusted its stored size
+    /// would open wider than the window, its verdict bar and grip off screen. Zero is what
+    /// `@AppStorage` holds before the first drag, and it reads as "unset", not as a 0×0 card.
     @Test(arguments: [
-        (CGSize(width: 810, height: 560), CGSize(width: 762, height: 512)),
-        (CGSize(width: 2400, height: 1400),
+        (CGSize(width: 810, height: 560), nil, CGSize(width: 762, height: 512)),
+        (CGSize(width: 2400, height: 1400), nil,
          CGSize(width: CompareOverlayMetrics.idealWidth, height: CompareOverlayMetrics.idealHeight)),
-        (CGSize(width: 300, height: 200),
+        (CGSize(width: 300, height: 200), nil,
          CGSize(width: CompareOverlayMetrics.minimumWidth, height: CompareOverlayMetrics.minimumHeight)),
-    ])
-    func theOverlayIsClampedToTheWindow(available: CGSize, expected: CGSize) {
-        #expect(CompareOverlayMetrics.size(available: available) == expected)
-    }
-
-    // MARK: The remembered size
-
-    /// A card never resized opens at the default, the size the clamp cases above check.
-    @Test func withNothingStoredTheCardOpensAtItsDefault() {
-        let available = CGSize(width: 1600, height: 1000)
-        #expect(CompareOverlayMetrics.size(available: available, stored: nil)
-                    == CompareOverlayMetrics.size(available: available))
-        // Zero is what `@AppStorage` holds before the first drag, and it must read as "unset"
-        // rather than as a 0×0 card.
-        #expect(CompareOverlayMetrics.size(available: available, stored: .zero)
-                    == CompareOverlayMetrics.size(available: available))
-    }
-
-    @Test func aRememberedSizeIsHonoured() {
-        let stored = CGSize(width: 900, height: 620)
-        #expect(CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000),
-                                           stored: stored) == stored)
-    }
-
-    /// A stored size is clamped on every render, not only when written. The window can shrink
-    /// between sessions or displays, and a card that trusted its stored size would open wider than
-    /// the window, with its verdict bar and grip off screen.
-    @Test func aRememberedSizeIsReClampedToASmallerWindow() {
-        let stored = CGSize(width: 1600, height: 1000)
-        let available = CGSize(width: 900, height: 700)
-        #expect(CompareOverlayMetrics.size(available: available, stored: stored) == available)
-    }
-
-    @Test func aRememberedSizeCannotSitBelowTheFloor() {
-        let stored = CGSize(width: 100, height: 100)
-        let size = CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000),
-                                              stored: stored)
-        #expect(size == CompareOverlayMetrics.minimum)
+        (CGSize(width: 1600, height: 1000), nil,
+         CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000))),
+        (CGSize(width: 1600, height: 1000), .zero,
+         CompareOverlayMetrics.size(available: CGSize(width: 1600, height: 1000))),
+        (CGSize(width: 1600, height: 1000), CGSize(width: 900, height: 620), CGSize(width: 900, height: 620)),
+        (CGSize(width: 900, height: 700), CGSize(width: 1600, height: 1000), CGSize(width: 900, height: 700)),
+        (CGSize(width: 1600, height: 1000), CGSize(width: 100, height: 100), CompareOverlayMetrics.minimum),
+    ] as [(CGSize, CGSize?, CGSize)])
+    func theOverlayIsClampedToTheWindow(available: CGSize, stored: CGSize?, expected: CGSize) {
+        #expect(CompareOverlayMetrics.size(available: available, stored: stored) == expected)
+        if stored == nil {
+            #expect(CompareOverlayMetrics.size(available: available) == expected)
+        }
     }
 
     // MARK: The payload

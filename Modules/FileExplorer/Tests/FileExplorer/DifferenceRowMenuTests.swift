@@ -26,22 +26,16 @@ import Sync
 
     // MARK: Which sides exist
 
-    @Test func testMissingOnRightOffersOnlyLeftSide() {
-        let sides = DifferenceRowMenu.existingSides(for: diff(.missingOnRight), paneNames: names)
-        #expect(sides == [.init(paneName: "iCloud", path: "/icloud/docs/report.txt")])
-    }
-
-    @Test func testMissingOnLeftOffersOnlyRightSide() {
-        let sides = DifferenceRowMenu.existingSides(for: diff(.missingOnLeft), paneNames: names)
-        #expect(sides == [.init(paneName: "Dropbox", path: "/dropbox/docs/report.txt")])
-    }
-
-    @Test func testDifferentDatesOffersBothSidesLeftFirst() {
-        let sides = DifferenceRowMenu.existingSides(for: diff(.differentDates), paneNames: names)
-        #expect(sides == [
-            .init(paneName: "iCloud", path: "/icloud/docs/report.txt"),
-            .init(paneName: "Dropbox", path: "/dropbox/docs/report.txt"),
-        ])
+    /// A missing side offers nothing; both sides come left first.
+    @Test(arguments: [
+        (FileDifference.DifferenceType.missingOnRight,
+         [DifferenceRowMenu.Side(paneName: "iCloud", path: "/icloud/docs/report.txt")]),
+        (.missingOnLeft, [.init(paneName: "Dropbox", path: "/dropbox/docs/report.txt")]),
+        (.differentDates, [.init(paneName: "iCloud", path: "/icloud/docs/report.txt"),
+                           .init(paneName: "Dropbox", path: "/dropbox/docs/report.txt")]),
+    ])
+    func testWhichSidesExist(_ type: FileDifference.DifferenceType, _ expected: [DifferenceRowMenu.Side]) {
+        #expect(DifferenceRowMenu.existingSides(for: diff(type), paneNames: names) == expected)
     }
 
     @Test func testSameProviderOnBothSidesYieldsDistinctPaneNames() {
@@ -346,42 +340,24 @@ import Sync
 
     // MARK: Ignore toggle
 
-    @Test func testToggleIgnoresUsingRelativePath() {
-        let d = diff(.differentDates)
-        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: [])
-        #expect(updated == ["docs/report.txt"])
-        // The inserted target must satisfy the predicate applyFilters() uses to drop differences,
-        // so the row leaves the list.
-        #expect(FileSyncManager.isIgnoredPath(d.relativePath, ignored: updated))
-    }
-
-    @Test func testToggleRemovesExistingIgnoreEntry() {
-        let d = diff(.differentDates)
-        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: ["docs/report.txt", "other"])
-        #expect(updated == ["other"])
-    }
-
-    @Test func testTogglePreservesUnrelatedEntries() {
-        let d = diff(.missingOnRight)
-        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: ["keep/me"])
-        #expect(updated == ["keep/me", "docs/report.txt"])
-    }
-
-    @Test func testToggleOnAncestorCoveredRowUnignoresByRemovingAncestor() {
-        // The row is ignored via the "docs" entry, so isIgnored and the label say "Include". The
-        // toggle must remove the covering entry; inserting "docs/report.txt" would leave the row
-        // ignored with a dead menu item.
-        let d = diff(.differentDates)
-        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: ["docs", "other"])
-        #expect(updated == ["other"])
-        #expect(!DifferenceRowMenu.isIgnored(d, ignoredPaths: updated))
-    }
-
-    @Test func testToggleRemovesExactEntryAndCoveringAncestorTogether() {
-        let d = diff(.differentDates)
-        let updated = DifferenceRowMenu.toggledIgnoredPaths(
-            for: d, ignoredPaths: ["docs", "docs/report.txt"])
-        #expect(updated.isEmpty)
+    /// The toggle on `docs/report.txt`: it inserts the relative path, removes an exact entry, keeps
+    /// unrelated ones, and on a row covered by an ancestor ("docs") removes the covering entry,
+    /// since inserting the path would leave the row ignored with a dead menu item. Either way the
+    /// row's state flips, by the predicate `applyFilters()` uses to drop differences too.
+    @Test(arguments: [
+        (.differentDates, [], ["docs/report.txt"]),
+        (.differentDates, ["docs/report.txt", "other"], ["other"]),
+        (.missingOnRight, ["keep/me"], ["keep/me", "docs/report.txt"]),
+        (.differentDates, ["docs", "other"], ["other"]),
+        (.differentDates, ["docs", "docs/report.txt"], []),
+    ] as [(FileDifference.DifferenceType, Set<String>, Set<String>)])
+    func testToggle(_ type: FileDifference.DifferenceType, _ before: Set<String>, _ expected: Set<String>) {
+        let d = diff(type)
+        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: before)
+        #expect(updated == expected)
+        let ignored = DifferenceRowMenu.isIgnored(d, ignoredPaths: updated)
+        #expect(ignored == !DifferenceRowMenu.isIgnored(d, ignoredPaths: before))
+        #expect(FileSyncManager.isIgnoredPath(d.relativePath, ignored: updated) == ignored)
     }
 
     // MARK: Ignored state (drives the Ignore/Include label)

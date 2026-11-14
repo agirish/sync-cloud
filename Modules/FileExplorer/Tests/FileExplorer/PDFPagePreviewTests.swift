@@ -13,22 +13,16 @@ import UniformTypeIdentifiers
 
     // MARK: - Which renderer
 
-    @Test func testAPDFIsDrawnByPDFKit() {
-        #expect(PreviewRenderer.forType(.pdf) == .pdfPages)
-    }
-
-    /// Everything Quick Look already handles well stays with it: images come out whole (a 900×2400
-    /// PNG in a 500×560 preview shows both ends), and text opens in a scrolling text view.
-    @Test func testEveryOtherTypeStaysWithQuickLook() {
-        for type: UTType in [.png, .jpeg, .plainText, .movie, .rtf, .zip] {
-            #expect(PreviewRenderer.forType(type) == .quickLook, "\(type.identifier)")
-        }
-    }
-
-    /// An unresolved type is Quick Look's, not PDFKit's: the fallback must be the renderer that can
-    /// draw anything, not the one that understands a single format.
-    @Test func testAnUnknownTypeStaysWithQuickLook() {
-        #expect(PreviewRenderer.forType(nil) == .quickLook)
+    /// PDFKit draws a PDF. Everything Quick Look already handles well stays with it: images come
+    /// out whole (a 900×2400 PNG in a 500×560 preview shows both ends), and text opens in a
+    /// scrolling text view. An unresolved type is Quick Look's too: the fallback must be the
+    /// renderer that can draw anything, not the one that understands a single format.
+    @Test(arguments: [
+        (.pdf, .pdfPages), (.png, .quickLook), (.jpeg, .quickLook), (.plainText, .quickLook),
+        (.movie, .quickLook), (.rtf, .quickLook), (.zip, .quickLook), (nil, .quickLook),
+    ] as [(UTType?, PreviewRenderer)])
+    func testEachTypeGoesToItsRenderer(type: UTType?, renderer: PreviewRenderer) {
+        #expect(PreviewRenderer.forType(type) == renderer, "\(type?.identifier ?? "no type")")
     }
 
     // MARK: - The type a preview item carries

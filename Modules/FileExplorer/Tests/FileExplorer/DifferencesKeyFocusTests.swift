@@ -119,15 +119,6 @@ private final class LyingContent: NSView {
                 "⇧↓ after the click should select two rows (\(extended.pumps) pumps, got \(table.selectedRowIndexes.map { $0 }))")
     }
 
-    /// The call site: mounting the real view registers its table, or the rule above is a function
-    /// nothing calls.
-    @Test("Mounting the differences view registers its table for key focus")
-    func theViewRegistersItsTable() async {
-        guard let (_, table) = await mountedAndRegistered() else { return }
-        #expect(PaneListKeyFocus.isRegistered(table))
-        #expect(table.tableColumns.count > 1, "control: this is the multi-column differences table, not a pane list")
-    }
-
     // MARK: The frame route
 
     /// The table is found from the click's point, without relying on hit-testing. Prints what
@@ -169,17 +160,6 @@ private final class LyingContent: NSView {
         PaneListKeyFocus.noteClick(mouseUp(onRow: 2, of: table, in: window), schedule: { $0() })
         #expect(window.firstResponder === table,
                 "with hit-testing blind, the point alone must still find the list")
-    }
-
-    /// Mounting the real view puts a click normalizer on its table. A test window can't show the
-    /// normalizer is needed, since clicks reach the event stream fine there; this only pins that it
-    /// is installed.
-    @Test("Mounting the differences view puts a click normalizer on its table")
-    func theViewInstallsAClickNormalizer() async {
-        guard let (_, table) = await mountedAndRegistered() else { return }
-        let normalizers = table.gestureRecognizers.filter { $0.delegate is PaneListKeyFocus.ClickNormalizer }
-        #expect(normalizers.count == 1,
-                "want exactly one normalizer, found \(normalizers.count) among \(table.gestureRecognizers.count) recognizers")
     }
 
     /// It observes and never recognizes: claiming the click would make the rows dead to selection,

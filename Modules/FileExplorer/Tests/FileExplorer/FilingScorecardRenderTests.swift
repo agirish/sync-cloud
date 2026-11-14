@@ -56,7 +56,7 @@ import Testing
         #expect(tick < 400, "the replay tick is a thin mark, not a recolour: \(tick) pixels")
     }
 
-    /// The whole sheet, with a change list longer than four rows, written out to look at.
+    /// The whole sheet, with a change list longer than four rows.
     @Test(.machinePinned(.pixelSampling)) func theSheetRendersEveryPanel() throws {
         var records = (0..<6).map { Self.record(.kept, name: "kept-\($0).pdf") }
         records += [
@@ -75,8 +75,6 @@ import Testing
         let empty = try Self.rendered(FilingScorecardSheet(store: Self.store([]), session: session,
                                                            syncManager: manager, accent: .blue), size)
         #expect(PixelDiff.differingPixels(full, empty, tolerance: 0.05) > 20_000)
-        let png = FileManager.default.temporaryDirectory.appendingPathComponent("filing-scorecard-sheet.png")
-        try full.representation(using: .png, properties: [:])?.write(to: png)
     }
 }
 

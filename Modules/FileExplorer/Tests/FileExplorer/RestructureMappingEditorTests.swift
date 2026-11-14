@@ -181,8 +181,9 @@ import Testing
                 "a filter matching nothing hides every row")
     }
 
-    /// The whole sheet renders with a filter present.
-    @Test func theEditorRendersFilteredAndUnfiltered() throws {
+    /// The whole sheet renders with its filter field showing (past `filterAppearsAbove` rows).
+    /// `filterText` is `@State`, so only the unfiltered list is drawn.
+    @Test func theEditorRendersWithItsFilterField() throws {
         let finding = StructureFinding(
             family: "F",
             schemes: [.init(vocabulary: ["forms"], members: ["2013"]),

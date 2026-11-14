@@ -169,7 +169,6 @@ import EventsTestSupport
         let source = ">   lead *x* y\n>    cont *z*"
         let p = project(source)
         #expect(contentSources(p) == ["lead ", "x", " y", "cont ", "z"])
-        #expect(p.blocks.map(\.readOnly) == [nil])
     }
 
     /// The paragraph's own indent shifts the other way: `cont` is reported a column LATE.
@@ -187,7 +186,6 @@ import EventsTestSupport
     @Test func aGreaterThanAfterFourSpacesIsText() {
         let source = "a\n    >b *c*\n\n> q\n>     >r *s*"
         let p = project(source)
-        #expect(p.blocks.map(\.readOnly) == [nil, nil])
         #expect(contentSources(p) == ["a", ">b ", "c", "q", ">r ", "s"])
     }
 
@@ -228,11 +226,9 @@ import EventsTestSupport
     @Test func aCellsUnpositionedTextAndEscapedPipesStillMap() {
         let unmatched = "| a | b~~ |\n|---|:-:|\n| c | d |"
         let p = project(unmatched)
-        #expect(p.blocks.map(\.readOnly) == [nil])
         #expect(contentSources(p) == ["a", "b~~", "c", "d"])
         let pipes = "| a |\n|---|\n| *x*\\|*y* \\| z |"
         let q = project(pipes)
-        #expect(q.blocks.map(\.readOnly) == [nil])
         #expect(contentSources(q) == ["a", "x", "\\|", "y", " \\| z"])
     }
 
@@ -344,7 +340,6 @@ import EventsTestSupport
     @Test func aBackslashBreakInACRLFFileMaps() {
         let source = "foo\\\r\nbar *x*\r\nbaz\r\n\r\na\\\r\n  b\\\r\nc *d*"
         let p = project(source)
-        #expect(p.blocks.map(\.readOnly) == [nil, nil])
         #expect(contentSources(p) == ["foo", "bar ", "x", "baz", "a", "b", "c ", "d"])
     }
 
@@ -534,14 +529,6 @@ import EventsTestSupport
         let p = project(source)
         checkInvariants(p)
         #expect(checkSentinels(source) > 0)
-    }
-
-    /// The fixture should be editable almost everywhere; a regression that quietly turned blocks
-    /// read-only would pass every map test, so count them.
-    @Test func theNoteFixtureIsReadOnlyOnlyWhereItShouldBe() {
-        let p = project(Self.corpus[0])
-        let readOnly = p.blocks.compactMap(\.readOnly)
-        #expect(readOnly == [.frontMatter, .html, .indentedCode])
     }
 
     /// Pins which corpus blocks are read-only, and why. The sentinels skip a read-only block, and
@@ -945,11 +932,6 @@ private enum MarkdownProjectionTestsSupport {
         return nil
     }
 
-    /// Waits on the main actor, which the image's load needs, for `done`.
-    private func wait(_ done: () -> Bool) async {
-        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
-    }
-
     /// VoiceOver reads an image's alt text, and a picture that cannot be shown leads with it, as in
     /// the read-only Preview, rather than "Image" or "Image — reason".
     ///
@@ -960,7 +942,7 @@ private enum MarkdownProjectionTestsSupport {
         let inline = try #require(imageAttachment(in: session, "inlineImage"))
         #expect(inline.image?.accessibilityDescription == "the dog")
         let block = try #require(imageAttachment(in: session))
-        await wait { block.image?.accessibilityDescription?.hasPrefix("a cat asleep — ") == true }
+        _ = await LayoutPumpWait.poll(upTo: 5) { block.image?.accessibilityDescription?.hasPrefix("a cat asleep — ") == true }
         let described = block.image?.accessibilityDescription ?? ""
         #expect(described.hasPrefix("a cat asleep — ") && described.count > "a cat asleep — ".count,
                 "the alt, then why: \(described)")
@@ -982,7 +964,7 @@ private enum MarkdownProjectionTestsSupport {
             if let attachment = value as? NSTextAttachment { pictures.append(attachment) }
         }
         try #require(pictures.count == 2)
-        await wait { pictures.allSatisfy { $0.image?.size == CGSize(width: 20, height: 10) } }
+        _ = await LayoutPumpWait.poll(upTo: 5) { pictures.allSatisfy { $0.image?.size == CGSize(width: 20, height: 10) } }
         #expect(pictures.map { $0.image?.size } == [CGSize(width: 20, height: 10), CGSize(width: 20, height: 10)])
         #expect(pictures.map { $0.image?.accessibilityDescription } == ["first", "second"])
     }

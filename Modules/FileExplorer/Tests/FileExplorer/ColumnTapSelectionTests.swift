@@ -108,51 +108,27 @@ import Sync
         return window
     }
 
-    private func pump(_ window: NSWindow, seconds: Double) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, true)
-            window.layoutIfNeeded()
-        }
-    }
-
-    private func tables(_ view: NSView) -> [NSTableView] {
-        var found: [NSTableView] = []
-        func walk(_ v: NSView) {
-            if let t = v as? NSTableView { found.append(t) }
-            for sub in v.subviews { walk(sub) }
-        }
-        walk(view)
-        return found
-    }
-
-    /// The pane really materialises its columns, so nothing here passes against a window that
-    /// rendered nothing.
-    @Test func testTheColumnsPaneMountsAndDrills() {
-        let box = Box()
-        let window = mount(box)
-        pump(window, seconds: 0.5)
-        #expect(tables(window.contentView!).count == 1, "resting pane should be one column")
-
-        box.browsePath = PaneBrowsePath(components: ["folder2"])
-        pump(window, seconds: 0.6)
-        #expect(tables(window.contentView!).count == 2, "drilling should open a second column")
-    }
+    private func tables(_ view: NSView) -> [NSTableView] { PaneSearchTreeRevealTests.tables(view) }
 
     /// A click replaces the whole selection rather than adding to it: the selection is a flat
     /// `Set<String>` shared across columns, and a plain click means "just this row". Driven through
     /// the column's own table, where a click's selection commits.
-    @Test func testAClickReplacesTheSelectionRatherThanExtendingIt() throws {
+    @Test func testAClickReplacesTheSelectionRatherThanExtendingIt() async throws {
         let box = Box()
         box.selection = ["\(Self.root)/folder0", "\(Self.root)/folder1"]
         let window = mount(box)
-        pump(window, seconds: 0.5)
+        let reached = await LayoutPumpWait.pump(window, upTo: 5) {
+            self.tables(window.contentView!).first?.selectedRowIndexes == IndexSet([0, 1])
+        }
         let column = try #require(tables(window.contentView!).first)
-        #expect(column.selectedRowIndexes == IndexSet([0, 1]), "the two-row selection never reached the column")
+        #expect(reached.held,
+                "the two-row selection never reached the column (\(reached.pumps) pumps, \(column.selectedRowIndexes.map { $0 }))")
 
         column.selectRowIndexes(IndexSet(integer: 4), byExtendingSelection: false)
-        pump(window, seconds: 0.5)
-        #expect(box.selection == ["\(Self.root)/folder4"],
-                "a click must replace the selection, not extend it: \(box.selection.sorted())")
+        let replaced = await LayoutPumpWait.pump(window, upTo: 5) {
+            box.selection == ["\(Self.root)/folder4"]
+        }
+        #expect(replaced.held,
+                "a click must replace the selection, not extend it (\(replaced.pumps) pumps): \(box.selection.sorted())")
     }
 }

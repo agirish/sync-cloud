@@ -146,6 +146,9 @@ import FileExplorerTestSupport
         recents.remove(path: "/n/A.md")
         #expect(recents.stored.map(\.path) == ["/n/C.md", "/gone/B.md"])
         #expect(recents.shown.map(\.path) == ["/n/C.md"], "the removed row is still drawn")
+        let afterRemove = try JSONDecoder().decode([EditorRecentFile].self,
+                                                   from: try #require(defaults.data(forKey: EditorRecentFiles.key)))
+        #expect(afterRemove.map(\.path) == ["/n/C.md", "/gone/B.md"], "Remove from Recents was not written")
         recents.clear()
         #expect(recents.stored.isEmpty && recents.shown.isEmpty)
         let data = try #require(defaults.data(forKey: "editorRecentFiles"))
@@ -320,11 +323,13 @@ import FileExplorerTestSupport
 
     /// Emptied by the person, the list is written as `[]`, not removed, so nothing reads its own
     /// Remove as a reset.
-    @Test func removingTheLastFileWritesAnEmptyList() {
+    @Test func removingTheLastFileWritesAnEmptyList() throws {
         let defaults = ScratchDefaults("EditorRecentFilesEmptied")
         let recents = store(defaults)
         recents.record(path: "/n/one.md", kind: .text, at: t0)
         recents.remove(path: "/n/one.md")
-        #expect(defaults.object(forKey: EditorRecentFiles.key) != nil)
+        let written = try JSONDecoder().decode([EditorRecentFile].self,
+                                               from: try #require(defaults.data(forKey: EditorRecentFiles.key)))
+        #expect(written.isEmpty, "the emptied list was not written: \(written.map(\.path))")
     }
 }

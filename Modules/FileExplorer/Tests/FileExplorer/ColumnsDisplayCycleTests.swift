@@ -26,7 +26,7 @@ import Sync
         func takePasses() -> Int { defer { passes = 0 }; return passes }
     }
 
-    private struct StubDelegate: FileActionDelegate {
+    private struct StubDelegate: NoOpFileActions {
         /// Whether every row carries a risky-name badge. Off by default, matching the protocol
         /// extension's nil `riskyNameReason`, under which no row badges.
         var badgesEveryName = false
@@ -38,22 +38,6 @@ import Sync
             badgesHandedOut?.count += 1
             return "trailing space"
         }
-        func handleRefresh() {}
-        func handleOpenInEditor(_ path: String) {}
-        func handleFocus(_ node: FileNode) {}
-        func handleCopy(_ nodes: [FileNode]) {}
-        func handleMove(_ nodes: [FileNode]) {}
-        func handleDelete(_ nodes: [FileNode]) {}
-        func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {}
-        func handlePaste(_ targetDir: FileNode) {}
-        func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-        func handlePasteToPath(_ path: String) {}
-        func handleRename(_ node: FileNode) {}
-        func handleCreateFolder(at path: String) {}
-        func handleGetInfo(for path: String) {}
-        func handleSort(_ option: SortOption) {}
-        func handleIgnore(_ nodes: [FileNode]) {}
-        func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool { false }
     }
 
     /// A reference box, because `FileActionDelegate` conformers here are structs and SwiftUI

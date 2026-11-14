@@ -210,22 +210,8 @@ import Design
         return ReviewLensHost.mount(subject, size: canvas, passes: 2).host
     }
 
-    private func strip(_ host: NSHostingView<AnyView>, _ band: CGRect) -> NSBitmapImageRep? {
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: band) else { return nil }
-        host.cacheDisplay(in: band, to: rep)
-        return rep
-    }
-
     /// Pixels split by how far they are from the band's own background corner.
     ///
-    /// The largest per-channel departure of `c` from `background`.
-    private static func delta(_ c: NSColor, _ background: NSColor) -> CGFloat {
-        max(abs(c.redComponent - background.redComponent),
-            max(abs(c.greenComponent - background.greenComponent),
-                abs(c.blueComponent - background.blueComponent)))
-    }
-
     /// `wash` separates a capsule from a run of text: a tinted capsule covers its whole area in a
     /// low-opacity fill, a large soft departure from the background, while text is a small area of
     /// near-black `ink` with a thin antialiased fringe. A row of capsules reads dense in `wash`;
@@ -239,7 +225,7 @@ import Design
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
+                let delta = PixelProbe.distance(c, background)
                 if delta > 0.35 { ink += 1 } else if delta > 0.03 { wash += 1 }
             }
         }
@@ -259,15 +245,9 @@ import Design
     /// must be small enough to be a wash and large enough not to be the background.
     private func accentWash(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
-                if delta > 0.02 && (c.blueComponent - c.redComponent) > 0.05 { n += 1 }
-            }
+        return PixelProbe.count(in: rep) {
+            PixelProbe.distance($0, background) > 0.02 && ($0.blueComponent - $0.redComponent) > 0.05
         }
-        return n
     }
 
     /// Strong, blue-dominant pixels: the ring, told apart from the fill behind it.
@@ -279,15 +259,9 @@ import Design
     /// pixels with the ring, 632 without it, 402 on an unringed rail.
     private func accentEdge(_ rep: NSBitmapImageRep) -> Int {
         guard let background = rep.colorAt(x: 2, y: 2) else { return 0 }
-        var n = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
-                if delta > 0.30 && (c.blueComponent - c.redComponent) > 0.18 { n += 1 }
-            }
+        return PixelProbe.count(in: rep) {
+            PixelProbe.distance($0, background) > 0.30 && ($0.blueComponent - $0.redComponent) > 0.18
         }
-        return n
     }
 
     /// The x-extent of row 1's leading cluster (the rail plus the intro button), read off the
@@ -301,7 +275,7 @@ import Design
     /// reports the card's padding as rail width. Dropping short runs can't help once it has merged.
     private func leadingExtent(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
         let origin: CGFloat = 8
-        guard let rep = strip(host, CGRect(x: origin, y: 12, width: width - origin, height: 30)),
+        guard let rep = PixelProbe.render(host, CGRect(x: origin, y: 12, width: width - origin, height: 30)),
               let background = rep.colorAt(x: 2, y: 2) else { return nil }
         let scale = CGFloat(rep.pixelsWide) / (width - origin)
         var inked: [Bool] = []
@@ -309,7 +283,7 @@ import Design
             var n = 0
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
+                let delta = PixelProbe.distance(c, background)
                 if delta > 0.03 { n += 1 }
             }
             inked.append(n >= 2)
@@ -350,7 +324,7 @@ import Design
             var n = 0
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
+                let delta = PixelProbe.distance(c, background)
                 if delta > 0.10 { n += 1 }
             }
             inked.append(n >= 2)
@@ -388,8 +362,8 @@ import Design
     @Test("The rail row wears capsules and the readout row does not", .machinePinned(.pixelSampling))
     func onlyTheControlRowWearsCapsules() throws {
         let host = mount(Self.manager(queue: 24, names: 17), lens: .toFile)
-        let rail = try #require(strip(host, Self.railZone))
-        let readout = try #require(strip(host, Self.readoutZone))
+        let rail = try #require(PixelProbe.render(host, Self.railZone))
+        let readout = try #require(PixelProbe.render(host, Self.readoutZone))
 
         // Staleness guard first, which makes the claim mean anything: a band that drifted off its
         // row paints nothing, and nothing satisfies "no capsule" trivially. The readout must be
@@ -416,33 +390,24 @@ import Design
         allConfident.publishFilingSuggestions((0..<24).map { Self.suggestion("f\($0).pdf", confident: true) })
         allConfident.hasSuggestedFiling = true
 
-        let mixed = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                       Self.readoutZone))
-        let clean = try #require(strip(mount(allConfident, lens: .toFile), Self.readoutZone))
+        let mixed = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                   Self.readoutZone))
+        let clean = try #require(PixelProbe.render(mount(allConfident, lens: .toFile), Self.readoutZone))
         #expect(counts(mixed).ink != counts(clean).ink,
                 "the readout painted the same thing for 24 ready and for 16 ready with 8 unsure — it is not reading the scan")
     }
 
     // MARK: The rail is on screen, and it is the rail
 
-    @Test("Every rail item reaches the screen", .machinePinned(.pixelSampling))
-    func theRailPaints() throws {
-        let rail = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                      Self.railZone))
-        // The rail's capsules and labels. A bare threshold would pass on one item, so this is
-        // paired with the per-item probe below.
-        #expect(counts(rail).ink > 600, "row 1 is nearly empty — the rail is not drawing")
-    }
-
     @Test("The rail draws on a lens whose apparatus is not the filing one", .machinePinned(.pixelSampling))
     func theRailSurvivesTheApparatusSwitch() throws {
         // The rail must sit outside the summary arm only the filing apparatus reaches, or standing
         // on Duplicates or Rules would draw that lens's own pills and no rail. Rules borrows
         // `.automations`' apparatus, the furthest from filing's, so it is the strongest case.
-        let onFiling = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                          Self.railZone))
-        let onRules = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .rules),
-                                         Self.railZone))
+        let onFiling = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                      Self.railZone))
+        let onRules = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .rules),
+                                                     Self.railZone))
         #expect(counts(onRules).ink > 600,
                 "row 1 is empty on the Rules lens — the rail is drawn inside one apparatus's arm again")
         // The same items either way; only the ring moves, so the renders differ but neither is
@@ -457,8 +422,8 @@ import Design
         // be measured in pixels, and as the ring: deleting the stroke leaves the deepened fill,
         // which still moves a whole-band diff. `accentEdge` separates them (about 2,500 with the
         // ring, 630 without).
-        let ringed = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                        Self.railZone))
+        let ringed = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                    Self.railZone))
         let edge = accentEdge(ringed)
         #expect(edge > 1500,
                 "the selected item painted \(edge) full-strength accent pixels — the ring is not drawing, and only the fill is left to say which lens you are on")
@@ -469,10 +434,10 @@ import Design
         // A ring drawn on a fixed item would satisfy the test above forever. Both states are
         // ringed, so here the pixel diff is the right instrument: the question is whether the ring
         // moved.
-        let onToFile = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                          Self.railZone))
-        let onRenames = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .renames),
-                                           Self.railZone))
+        let onToFile = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                      Self.railZone))
+        let onRenames = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .renames),
+                                                       Self.railZone))
         #expect(accentEdge(onRenames) > 1500, "the Renames selection drew no ring")
         #expect(differingPixels(onToFile, onRenames) > 200,
                 "selecting a different rail item changed almost nothing — the ring is pinned to one item")
@@ -483,10 +448,10 @@ import Design
         // The overview has a place of its own, "All" at the head of the rail, and it is ringed when
         // `railLens` is nil: the overview renders, and clicking the selected lens again comes back
         // here.
-        let overview = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: nil),
-                                          Self.railZone))
-        let selected = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                          Self.railZone))
+        let overview = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: nil),
+                                                      Self.railZone))
+        let selected = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                      Self.railZone))
         #expect(counts(overview).ink > 600, "the overview drew no rail — it is not the unselected state")
 
         // Something is ringed: about 400 accent-edge pixels when nothing is, against 2,500 for a
@@ -498,8 +463,8 @@ import Design
         // …and it is All that is ringed, not a lens: the ring sits in the rail's first item,
         // measured over the leading 120pt, which at this canvas holds All and nothing else.
         let allItem = CGRect(x: 8, y: 12, width: 120, height: 30)
-        let overviewAll = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: nil), allItem))
-        let toFileAll = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile), allItem))
+        let overviewAll = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: nil), allItem))
+        let toFileAll = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile), allItem))
         #expect(accentEdge(overviewAll) > accentEdge(toFileAll) + 200,
                 "All painted \(accentEdge(overviewAll)) accent-edge pixels on the overview and \(accentEdge(toFileAll)) with a lens selected — the ring is not moving to All")
 
@@ -513,10 +478,10 @@ import Design
     func aBadgeIsAbsentAtZero() throws {
         // The item is unconditional, which is what pointed invocation lands on, so this compares
         // two renders of the same items and asserts the badge is what changed.
-        let none = try #require(strip(mount(Self.manager(queue: 24, names: 0), lens: .toFile),
-                                      Self.railZone))
-        let some = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                      Self.railZone))
+        let none = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 0), lens: .toFile),
+                                                  Self.railZone))
+        let some = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                  Self.railZone))
         #expect(differingPixels(none, some) > 100,
                 "17 risky names painted the same rail as none — the Names badge is not drawing")
         // And the item itself is there either way: a place is not a badge.
@@ -527,10 +492,10 @@ import Design
     func theCountReachesTheBadge() throws {
         // Two non-zero counts of different digit widths. A presence indicator rather than a number
         // would render these identically.
-        let three = try #require(strip(mount(Self.manager(queue: 24, names: 3), lens: .toFile),
-                                       Self.railZone))
-        let seventeen = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                           Self.railZone))
+        let three = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 3), lens: .toFile),
+                                                   Self.railZone))
+        let seventeen = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                       Self.railZone))
         #expect(differingPixels(three, seventeen) > 50,
                 "3 and 17 risky names painted the same badge — it is not carrying the count")
     }
@@ -548,8 +513,8 @@ import Design
         // controls out, and a third badge pushes the rail past that edge, so the crop would lose
         // more of "Rules" than the badge adds and invert the ink comparison.
         let whole = CGRect(x: 8, y: 12, width: 700, height: 30)
-        let a = try #require(strip(mount(withFindings, lens: .toFile), whole))
-        let b = try #require(strip(mount(none, lens: .toFile), whole))
+        let a = try #require(PixelProbe.render(mount(withFindings, lens: .toFile), whole))
+        let b = try #require(PixelProbe.render(mount(none, lens: .toFile), whole))
         #expect(differingPixels(a, b) > 50,
                 "a tree with a divergent family painted the same rail as one with none — the badge is not reading the detector")
         #expect(counts(a).ink > counts(b).ink,
@@ -564,11 +529,11 @@ import Design
         // above the shed threshold and the rail spells its names out. At both widths the ink is
         // within a few per cent; a shed 900pt render inks less than half the 1400pt one, which the
         // assertion catches if row 1 picks up a tenant again.
-        let wide = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                      Self.railZone))
-        let atNineHundred = try #require(strip(mount(Self.manager(queue: 24, names: 17),
-                                                     lens: .toFile, width: 900),
-                                               Self.railZone))
+        let wide = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                  Self.railZone))
+        let atNineHundred = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17),
+                                                                 lens: .toFile, width: 900),
+                                                           Self.railZone))
         #expect(counts(atNineHundred).ink > counts(wide).ink * 3 / 4,
                 "at 900pt the rail inked \(counts(atNineHundred).ink) against \(counts(wide).ink) at 1400 — it is shedding its labels again, so row 1 has picked up a tenant the reserve does not know about")
 
@@ -576,12 +541,12 @@ import Design
         // itself. Measured to the left of that toggle, which draws in every state and would make
         // this band non-empty whatever the actions did.
         let host = mount(Self.manager(queue: 24, names: 17, refine: true), lens: .toFile, width: 1400)
-        let rowOneTrailing = try #require(strip(host, CGRect(x: 1000, y: 12, width: 330, height: 30)))
+        let rowOneTrailing = try #require(PixelProbe.render(host, CGRect(x: 1000, y: 12, width: 330, height: 30)))
         #expect(counts(rowOneTrailing).ink < 200,
                 "row 1's trailing band inked \(counts(rowOneTrailing).ink) — a control is still drawing up there, and the reserve is sized for none")
         // …and they are drawing on row 2, or the assertion above passes by the actions having
         // vanished.
-        let rowTwoTrailing = try #require(strip(host, Self.trailingZone(1400)))
+        let rowTwoTrailing = try #require(PixelProbe.render(host, Self.trailingZone(1400)))
         #expect(counts(rowTwoTrailing).ink > 400,
                 "row 2's trailing band inked \(counts(rowTwoTrailing).ink) — the controls did not arrive where they were moved to")
     }
@@ -599,8 +564,8 @@ import Design
         // The rail runs All | To File · Duplicates · …, so Duplicates' item sits second among the
         // lenses. A 150pt band from x 150 holds it at this canvas and neither neighbour.
         let band = CGRect(x: 150, y: 12, width: 150, height: 30)
-        let hot = try #require(strip(mount(reporting, lens: .toFile), band))
-        let cold = try #require(strip(mount(clean, lens: .toFile), band))
+        let hot = try #require(PixelProbe.render(mount(reporting, lens: .toFile), band))
+        let cold = try #require(PixelProbe.render(mount(clean, lens: .toFile), band))
         #expect(accentWash(hot) > accentWash(cold) + 300,
                 "a reporting lens washed \(accentWash(hot)) accent pixels and a clean one \(accentWash(cold)) — the tint is not carrying the finding, so the row is six identical capsules again")
         // …and the clean one is still a capsule, or the control claim is gone with the colour.
@@ -701,6 +666,14 @@ import Design
         #expect(OrganizeRailMetrics.badgeWidth(1_192, scale: 1)
                 < OrganizeRailMetrics.badgeWidth(999, scale: 1) + 8,
                 "the four-digit badge costs as much as it did unabbreviated — the model is measuring `1,192` while the row paints `1.1k`")
+        // `410` is not `24`: a flat two-digit figure per badge would under-charge a three-digit
+        // count by about 8pt a badge and let the row truncate while the arithmetic reports room.
+        #expect(OrganizeRailMetrics.badgeWidth(410, scale: 1)
+                > OrganizeRailMetrics.badgeWidth(24, scale: 1))
+        #expect(OrganizeRailMetrics.leadingWidth(scale: 1,
+                                                 state: Self.states([.duplicates: 410]))
+                > OrganizeRailMetrics.leadingWidth(scale: 1,
+                                                   state: Self.states([.duplicates: 24])))
     }
 
     @Test("Shedding is arithmetic, and it answers both ways")
@@ -820,18 +793,6 @@ import Design
                 """)
     }
 
-    @Test("A wider badge costs more than a narrower one")
-    func theBadgeIsMeasuredByItsDigits() {
-        // `410` is not `24`: a flat two-digit figure per badge would under-charge a three-digit
-        // count by about 8pt a badge and let the row truncate while the arithmetic reports room.
-        #expect(OrganizeRailMetrics.badgeWidth(410, scale: 1)
-                > OrganizeRailMetrics.badgeWidth(24, scale: 1))
-        #expect(OrganizeRailMetrics.leadingWidth(scale: 1,
-                                                 state: Self.states([.duplicates: 410]))
-                > OrganizeRailMetrics.leadingWidth(scale: 1,
-                                                   state: Self.states([.duplicates: 24])))
-    }
-
     @Test("The leading model matches what row 1 draws at every text size the app ships", .machinePinned(.pixelSampling),
           arguments: FontSize.allCases)
     func theLeadingModelMatchesWhatTheRowDraws(size: FontSize) throws {
@@ -878,16 +839,16 @@ import Design
         let width: CGFloat = 1400
 
         // Before any scan: no controls, and therefore no rule.
-        let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
-                                             lens: .toFile, width: width), edge(width)))
+        let never = try #require(PixelProbe.render(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
+                                                         lens: .toFile, width: width), edge(width)))
         // Wash, not ink: the divider is a 1pt `.quaternary` rule that registers about 56 wash
         // pixels and zero ink, so only the faint-fill measure can see it.
         #expect(counts(never).wash < 20,
                 "row 2's trailing edge washed \(counts(never).wash) before any scan — the divider is drawing with no controls beside it")
 
         // After one: controls, and the rule that separates them from the prose.
-        let scanned = try #require(strip(mount(Self.manager(queue: 24, names: 17),
-                                               lens: .toFile, width: width), edge(width)))
+        let scanned = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17),
+                                                           lens: .toFile, width: width), edge(width)))
         #expect(counts(scanned).ink > 100,
                 "row 2's trailing edge inked \(counts(scanned).ink) with a finished scan — the controls are not drawing where the divider says they are")
     }
@@ -901,11 +862,11 @@ import Design
         // answer is worse than the staleness.
         let scanning = Self.manager(queue: 24, names: 17)
         scanning.isSuggestingFiles = true
-        let onToFile = try #require(strip(mount(scanning, lens: .toFile), Self.readoutZone))
+        let onToFile = try #require(PixelProbe.render(mount(scanning, lens: .toFile), Self.readoutZone))
 
         // The overview at the same moment does draw its readout: the non-vacuity half. Without it,
         // "the band is empty" would pass just as well with `overviewSummary` deleted.
-        let onOverview = try #require(strip(mount(scanning, lens: nil), Self.readoutZone))
+        let onOverview = try #require(PixelProbe.render(mount(scanning, lens: nil), Self.readoutZone))
         #expect(counts(onOverview).ink > 200,
                 "the overview drew no readout while a scan was running — this comparison proves nothing")
         #expect(counts(onToFile).ink < counts(onOverview).ink / 2,
@@ -929,7 +890,7 @@ import Design
         let railEnd = try #require(leadingExtent(host, width: width),
                                    "row 1 drew no leading cluster at \(size.scale)× — nothing to measure from")
         let band = CGRect(x: railEnd + 8, y: 12, width: width - railEnd - 16, height: 30)
-        let rep = try #require(strip(host, band))
+        let rep = try #require(PixelProbe.render(host, band))
 
         // Measured as the inked extent, not an ink count: the question is how much width the
         // trailing side consumes, and a wide sparse control inks like a narrow dense one.
@@ -974,7 +935,7 @@ import Design
         // reaching back past the actions catches other row-2 content and reads its motion as
         // truncation.
         let roomy = mount(manager, lens: .duplicates, width: 2400)
-        let reference = try #require(strip(roomy, Self.trailingZone(2400)))
+        let reference = try #require(PixelProbe.render(roomy, Self.trailingZone(2400)))
 
         // A band of widths, not one point: a reserve a few points short puts the truncation just
         // above the flip, and a single probe would step over it.
@@ -983,9 +944,9 @@ import Design
             let host = mount(manager, lens: .duplicates, width: width)
             // The rail is spelled out here; otherwise "not truncated" is satisfied by the shed
             // state, which fits trivially.
-            #expect(counts(try #require(strip(host, Self.railZone))).ink > 600,
+            #expect(counts(try #require(PixelProbe.render(host, Self.railZone))).ink > 600,
                     "at \(width)pt the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
-            let tight = try #require(strip(host, Self.trailingZone(width)))
+            let tight = try #require(PixelProbe.render(host, Self.trailingZone(width)))
             #expect(differingPixels(tight, reference) == 0,
                     "at \(width)pt — \(offset)pt above the width the model starts spelling the rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
         }
@@ -1009,17 +970,17 @@ import Design
         // The reference is taken at the same scale: the question is whether a header at this width
         // renders its actions like a roomy one, and a 1× reference would answer a different
         // question at every other size.
-        let reference = try #require(strip(mount(manager, lens: .toFile, width: 2400, scale: size.scale),
-                                           Self.trailingZone(2400)))
+        let reference = try #require(PixelProbe.render(mount(manager, lens: .toFile, width: 2400, scale: size.scale),
+                                                       Self.trailingZone(2400)))
         for offset in stride(from: 0.0, through: 480.0, by: 60.0) {
             let width = (threshold + offset).rounded(.up)
             let host = mount(manager, lens: .toFile, width: width, scale: size.scale)
             // Scaled with the text, because the rail's ink is: the flat 600 that suits 1.0 is a
             // near-miss at 0.9, where the same spelled-out items paint less of everything.
             let floor = 600 * size.scale * size.scale
-            #expect(Double(counts(try #require(strip(host, Self.railZone))).ink) > floor,
+            #expect(Double(counts(try #require(PixelProbe.render(host, Self.railZone))).ink) > floor,
                     "at \(width)pt and \(size.scale)× the rail is not spelled out — this probe is measuring the shed state, where nothing has to fit")
-            let tight = try #require(strip(host, Self.trailingZone(width)))
+            let tight = try #require(PixelProbe.render(host, Self.trailingZone(width)))
             #expect(differingPixels(tight, reference) == 0,
                     "at \(width)pt and \(size.scale)× — \(offset)pt above the width the model starts spelling To File's rail out — the actions render differently from a roomy header, i.e. they are being truncated to buy the labels room")
         }
@@ -1067,7 +1028,7 @@ import Design
     /// than the reach to the trailing side, so the first run is exactly the readout.
     private func leadingRunEndOnRowTwo(_ host: NSHostingView<AnyView>, width: CGFloat) -> CGFloat? {
         let origin: CGFloat = 8
-        guard let rep = strip(host, CGRect(x: origin, y: 50, width: width - origin - 8, height: 22)),
+        guard let rep = PixelProbe.render(host, CGRect(x: origin, y: 50, width: width - origin - 8, height: 22)),
               let background = rep.colorAt(x: 2, y: 2) else { return nil }
         let scale = CGFloat(rep.pixelsWide) / (width - origin - 8)
         var lastInk = -1, gapRun = 0
@@ -1076,7 +1037,7 @@ import Design
             var on = false
             for y in 0..<rep.pixelsHigh {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
-                let delta = Self.delta(c, background)
+                let delta = PixelProbe.distance(c, background)
                 if delta > 0.03 { on = true; break }
             }
             if on { lastInk = x; gapRun = 0 } else if lastInk >= 0 {
@@ -1141,8 +1102,8 @@ import Design
 
         #expect(reported.filingSurveyReport?.summary.isEmpty == false,
                 "the fixture is not carrying a survey report at all, so the comparison below would pass on an empty premise")
-        #expect(differingPixels(try #require(strip(mount(reported, lens: .toFile, width: width), wholeRow)),
-                                try #require(strip(mount(quiet, lens: .toFile, width: width), wholeRow))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(reported, lens: .toFile, width: width), wholeRow)),
+                                try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: width), wholeRow))) == 0,
                 "row 2 renders differently once a finished survey report exists — the report is still being drawn there, so it is still renting the row and still the thing that gets truncated")
 
         // The positive control: "no difference" is also what a misplaced band or a blank row
@@ -1150,8 +1111,8 @@ import Design
         // back non-zero.
         let running = Self.manager(queue: 24, names: 17, refine: true, heavyReadout: true)
         _ = running.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders…")
-        #expect(differingPixels(try #require(strip(mount(running, lens: .toFile, width: width), wholeRow)),
-                                try #require(strip(mount(quiet, lens: .toFile, width: width), wholeRow))) > 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(running, lens: .toFile, width: width), wholeRow)),
+                                try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: width), wholeRow))) > 0,
                 "a running survey changes nothing on row 2 either — the band is not looking at the row, so the zero above proves nothing about the finished report")
     }
 
@@ -1193,18 +1154,18 @@ import Design
         let idle = Self.manager(queue: 24, names: 17, refine: true)
 
         let width: CGFloat = 1400
-        let busy = try #require(strip(mount(running, lens: .toFile, width: width),
-                                      Self.statusZone(width)))
-        let quiet = try #require(strip(mount(idle, lens: .toFile, width: width),
-                                       Self.statusZone(width)))
+        let busy = try #require(PixelProbe.render(mount(running, lens: .toFile, width: width),
+                                                  Self.statusZone(width)))
+        let quiet = try #require(PixelProbe.render(mount(idle, lens: .toFile, width: width),
+                                                   Self.statusZone(width)))
         #expect(counts(busy).ink > counts(quiet).ink + 200,
                 "row 2's status zone painted \(counts(busy).ink) inked pixels while a survey was running and \(counts(quiet).ink) with nothing to say — the in-flight branch is not drawing, so the menu item goes back to looking like it did nothing")
 
         // And the actions are untouched by a survey in flight; they share this row with it.
-        #expect(differingPixels(try #require(strip(mount(running, lens: .toFile, width: width),
-                                                   Self.trailingZone(width))),
-                                try #require(strip(mount(idle, lens: .toFile, width: width),
-                                                   Self.trailingZone(width)))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(running, lens: .toFile, width: width),
+                                                               Self.trailingZone(width))),
+                                try #require(PixelProbe.render(mount(idle, lens: .toFile, width: width),
+                                                               Self.trailingZone(width)))) == 0,
                 "the actions render differently while the folder-memory survey is running — the progress line is taking their words")
     }
 
@@ -1224,10 +1185,10 @@ import Design
         manager.hasFoundDuplicates = true
         let width: CGFloat = 1400
 
-        let onDuplicates = counts(try #require(strip(mount(manager, lens: .duplicates, width: width),
-                                                     Self.statusZone(width)))).ink
-        let onToFile = counts(try #require(strip(mount(manager, lens: .toFile, width: width),
-                                                 Self.statusZone(width)))).ink
+        let onDuplicates = counts(try #require(PixelProbe.render(mount(manager, lens: .duplicates, width: width),
+                                                                 Self.statusZone(width)))).ink
+        let onToFile = counts(try #require(PixelProbe.render(mount(manager, lens: .toFile, width: width),
+                                                             Self.statusZone(width)))).ink
         #expect(onToFile > 200,
                 "the progress line painted \(onToFile) inked pixels on To File — the fixture is not producing it, so the comparison below proves nothing")
         #expect(onDuplicates < 20,
@@ -1243,11 +1204,11 @@ import Design
         let manager = Self.manager(queue: 24, names: 17, refine: true)
         _ = manager.beginScan(\.filingSurveyLifecycle, status: "Looking for new folders in Documents…")
         let width: CGFloat = 1400
-        let plain = counts(try #require(strip(mount(manager, lens: .toFile, width: width),
-                                              Self.statusZone(width)))).ink
-        let large = counts(try #require(strip(mount(manager, lens: .toFile, width: width,
-                                                    scale: FontSize.extraLarge.scale),
-                                              Self.statusZone(width)))).ink
+        let plain = counts(try #require(PixelProbe.render(mount(manager, lens: .toFile, width: width),
+                                                          Self.statusZone(width)))).ink
+        let large = counts(try #require(PixelProbe.render(mount(manager, lens: .toFile, width: width,
+                                                                scale: FontSize.extraLarge.scale),
+                                                          Self.statusZone(width)))).ink
         #expect(plain > 200,
                 "the progress line painted \(plain) inked pixels at 1.0× — it is not drawing, so the comparison below is between two blanks")
         #expect(large > plain,
@@ -1267,15 +1228,15 @@ import Design
         let readout = CGRect(x: 8, y: 50, width: 330, height: 22)
 
         // Renames is settled at 800.
-        #expect(differingPixels(try #require(strip(mount(busy, lens: .renames, width: width), readout)),
-                                try #require(strip(mount(quiet, lens: .renames, width: width), readout))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(busy, lens: .renames, width: width), readout)),
+                                try #require(PixelProbe.render(mount(quiet, lens: .renames, width: width), readout))) == 0,
                 "the Renames readout still moves when a survey runs — R1 did not settle the lens it was reported against")
 
         // To File is settled too, from 1000 up. Its actions are Organize's widest set with the
         // refine offer showing (436.5–468pt against Renames' 240), so it has the least room left on
         // this row.
-        #expect(differingPixels(try #require(strip(mount(busy, lens: .toFile, width: 1000), readout)),
-                                try #require(strip(mount(quiet, lens: .toFile, width: 1000), readout))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(busy, lens: .toFile, width: 1000), readout)),
+                                try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: 1000), readout))) == 0,
                 "To File's readout moves when a survey runs even at 1000pt, where the row has room")
 
         // The one case not settled, recorded rather than hidden: To File at 800 with the refine
@@ -1286,8 +1247,8 @@ import Design
         // bound, not zero: pinning the number would freeze a defect, and asserting nothing would
         // let it grow back to a clipped sentence.
         let residue = differingPixels(
-            try #require(strip(mount(busy, lens: .toFile, width: width), readout)),
-            try #require(strip(mount(quiet, lens: .toFile, width: width), readout)))
+            try #require(PixelProbe.render(mount(busy, lens: .toFile, width: width), readout)),
+            try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: width), readout)))
         #expect(residue < 150,
                 "To File's readout gave up \(residue) pixels to a running survey at 800pt, against 66 when this was measured — row 2 is over-subscribed by more than the spinner now, so something has been added to it without a width model to seat it")
 
@@ -1297,24 +1258,24 @@ import Design
         // To File's actions (refine + file-all) but is wider than Renames' single Rescan, where it
         // would also catch the tail of the status text across the divider and report a correct
         // layout as changed.
-        #expect(differingPixels(try #require(strip(mount(busy, lens: .toFile, width: width),
-                                                   Self.trailingZone(width))),
-                                try #require(strip(mount(quiet, lens: .toFile, width: width),
-                                                   Self.trailingZone(width)))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(busy, lens: .toFile, width: width),
+                                                               Self.trailingZone(width))),
+                                try #require(PixelProbe.render(mount(quiet, lens: .toFile, width: width),
+                                                               Self.trailingZone(width)))) == 0,
                 "To File renders its actions differently while a survey is running — the progress line is taking their words")
         // Renames' actions are Rescan alone, 109pt against the card's trailing edge, so the band is
         // 108 at x = width − 118, measured: what a survey changes on this lens spans x 534…672 (the
         // status), and Rescan sits entirely beyond it. The button does not move, which is the
         // claim.
         let renamesActions = CGRect(x: width - 118, y: 48, width: 108, height: 26)
-        #expect(differingPixels(try #require(strip(mount(busy, lens: .renames, width: width),
-                                                   renamesActions)),
-                                try #require(strip(mount(quiet, lens: .renames, width: width),
-                                                   renamesActions))) == 0,
+        #expect(differingPixels(try #require(PixelProbe.render(mount(busy, lens: .renames, width: width),
+                                                               renamesActions)),
+                                try #require(PixelProbe.render(mount(quiet, lens: .renames, width: width),
+                                                               renamesActions))) == 0,
                 "Renames renders its actions differently while a survey is running — the progress line is taking their words")
         // The band must be over something, or the zero above is about blank card.
-        #expect(counts(try #require(strip(mount(quiet, lens: .renames, width: width),
-                                          renamesActions))).ink > 100,
+        #expect(counts(try #require(PixelProbe.render(mount(quiet, lens: .renames, width: width),
+                                                      renamesActions))).ink > 100,
                 "the Renames actions band painted almost nothing — it is not over the Rescan button, so the comparison above proves nothing")
     }
 
@@ -1352,8 +1313,8 @@ import Design
         // `.toFile` fixture would pass whether or not Rescan's own gate survived. Renames reaches
         // the same gate with no intro to stand down for, so an empty band there is Rescan's gate
         // and nothing else.
-        let never = try #require(strip(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
-                                             lens: .renames), Self.actionsZone))
+        let never = try #require(PixelProbe.render(mount(Self.manager(queue: 0, names: 17, hasScanned: false),
+                                                         lens: .renames), Self.actionsZone))
         #expect(counts(never).ink < 20,
                 "the action band is inked before any scan has completed — Rescan is ungated")
     }
@@ -1369,7 +1330,7 @@ import Design
         // `.none` arm is the case.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
                          lens: nil, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
-        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        let band = try #require(PixelProbe.render(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink > 100,
                 "the overview's trailing band painted nothing with the pane in a subfolder — there is no way to point Organize at what you are browsing")
     }
@@ -1382,7 +1343,7 @@ import Design
         // pane as `theMovedButtonDrawsBeforeAnyScan`; only the rail selection differs.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
                          lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
-        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        let band = try #require(PixelProbe.render(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink < 20,
                 "To File drew a header control before its first scan — the setup card below it is already the invitation, naming the same folder")
     }
@@ -1394,7 +1355,7 @@ import Design
         // so standing down here would leave it with no way to aim at all.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
                          lens: .renames, providerRoot: "/root", scanTarget: "/root/Family/Daughter")
-        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        let band = try #require(PixelProbe.render(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink > 100,
                 "Renames lost the moved button — the stand-down is keyed on the scan flag rather than on To File")
     }
@@ -1409,11 +1370,11 @@ import Design
         // is a setup card, so a lens picked for drawing less would stop being a control. Comparing
         // the one lens's two states isolates the claim: before a scan the full invitation, after a
         // clean one a plain empty state.
-        let toFile = try #require(strip(
+        let toFile = try #require(PixelProbe.render(
             mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
                   lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter"),
             Self.contentZone))
-        let scanned = try #require(strip(
+        let scanned = try #require(PixelProbe.render(
             mount(Self.manager(queue: 0, names: 0, hasScanned: true, scanFolder: nil),
                   lens: .toFile, providerRoot: "/root", scanTarget: "/root/Family/Daughter"),
             Self.contentZone))
@@ -1432,7 +1393,7 @@ import Design
         // `OrganizeAim`'s answer.
         let host = mount(Self.manager(queue: 0, names: 0, hasScanned: false, scanFolder: nil),
                          lens: nil, providerRoot: "/root", scanTarget: "/root")
-        let band = try #require(strip(host, Self.trailingZone(Self.canvas.width)))
+        let band = try #require(PixelProbe.render(host, Self.trailingZone(Self.canvas.width)))
         #expect(counts(band).ink < 20,
                 "the overview drew a control with the pane at the provider root — Organize is offering to re-aim at what it is already aimed at")
     }
@@ -1444,10 +1405,10 @@ import Design
         // for the wrong reason. Pinned against the state with the most controls: a full queue draws
         // Rescan, Refine and File all, so this band must ink well beyond the one drawing Rescan
         // alone.
-        let full = try #require(strip(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
-                                      Self.actionsZone))
-        let rescanOnly = try #require(strip(mount(Self.manager(queue: 0, names: 17), lens: .toFile),
-                                            Self.actionsZone))
+        let full = try #require(PixelProbe.render(mount(Self.manager(queue: 24, names: 17), lens: .toFile),
+                                                  Self.actionsZone))
+        let rescanOnly = try #require(PixelProbe.render(mount(Self.manager(queue: 0, names: 17), lens: .toFile),
+                                                        Self.actionsZone))
         #expect(counts(full).ink > counts(rescanOnly).ink + 200,
                 "three controls and one control inked this band almost identically — it is not over the actions")
         // Rescan outlives the queue: everything filed, findings still standing, and Rescan must not

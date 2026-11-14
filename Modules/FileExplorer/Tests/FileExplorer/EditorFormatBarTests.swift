@@ -1259,11 +1259,7 @@ import EventsTestSupport
     }
 
     static func source(_ file: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/FileExplorer/\(file)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-        return text.split(separator: "\n", omittingEmptySubsequences: false)
+        try SourceText.fileExplorer(file).split(separator: "\n", omittingEmptySubsequences: false)
             .map { codePart(of: String($0)) }
             .joined(separator: "\n")
     }

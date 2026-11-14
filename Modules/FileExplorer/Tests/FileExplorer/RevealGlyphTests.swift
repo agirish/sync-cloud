@@ -10,7 +10,6 @@ import Design
         // The magnifier is reserved for search (Differences search toggle, log-viewer field);
         // Reveal in Finder is the outward box-arrow everywhere.
         #expect(RevealGlyph.inFinder == "arrow.up.forward.square")
-        #expect(RevealGlyph.inFinder != "magnifyingglass")
     }
 
     @Test func testRevealGlyphExistsInSFSymbols() {

@@ -100,9 +100,9 @@ import DesignTestSupport
     /// whatever accent the host's defaults carry. Scanlines above ``belowTheSwitcher`` are skipped:
     /// the section switcher's selected segment is a wide accent fill above every list and would
     /// read as a bar. So the capsule is excluded by row, as the file-type glyphs are by column.
-    private func chromaEdges(_ rep: NSBitmapImageRep) -> [Int: Int] {
+    private func chromaEdges(_ rep: NSBitmapImageRep, from top: Int = StorageMagnitudeRenderTests.belowTheSwitcher) -> [Int: Int] {
         var edges: [Int: Int] = [:]
-        for y in Self.belowTheSwitcher..<rep.pixelsHigh {
+        for y in top..<rep.pixelsHigh {
             var edge = -1
             for x in stride(from: rep.pixelsWide - 1, through: 0, by: -1) {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
@@ -184,15 +184,8 @@ import DesignTestSupport
     /// test measures the wrong four).
     @Test func theSwitcherIsAboveTheBandTheBarsAreMeasuredIn() throws {
         let rep = try #require(render(section: .largest))
-        var chromatic: [Int] = []
-        for y in 0..<rep.pixelsHigh {
-            for x in stride(from: rep.pixelsWide - 1, through: 200, by: -1) {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let hi = max(c.redComponent, max(c.greenComponent, c.blueComponent))
-                let lo = min(c.redComponent, min(c.greenComponent, c.blueComponent))
-                if hi - lo > 0.03 { chromatic.append(y); break }
-            }
-        }
+        // Scanlines whose rightmost chromatic pixel is past the glyph column, over the whole page.
+        let chromatic = chromaEdges(rep, from: 0).filter { $0.value >= 200 }.map(\.key)
         let above = chromatic.filter { $0 < Self.belowTheSwitcher }
         let below = chromatic.filter { $0 >= Self.belowTheSwitcher }
         // The capsule is there, above the cut; "nothing above the cut" would also pass if the

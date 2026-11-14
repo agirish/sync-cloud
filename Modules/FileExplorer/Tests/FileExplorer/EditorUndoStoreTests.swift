@@ -33,29 +33,37 @@ import Foundation
     /// `NSTextView` registers undo by character range, so a shared stack replays one file's edits
     /// into another, splicing or throwing `NSRangeException`. Identical contents are the case a
     /// buffer comparison misses (the shipped `removeAllActions()` under `if view.string != text`).
+    /// The stack comes back with the storage its actions edit: an `NSTextView` registers undo
+    /// against its storage, so a stack handed back beside a different one reverts text nobody sees.
     @Test(arguments: [("one", "two"), ("identical", "identical")])
     func aDocumentGetsItsOwnStackAndKeepsIt(a: String, b: String) {
         let subject = store()
         subject.activate(path: "/n/a.md", text: a)
         let first = subject.current
+        let storageA = subject.source
 
         edit(subject); subject.remember(text: a)
         subject.activate(path: "/n/b.md", text: b)
         #expect(subject.current !== first, "two documents shared one stack")
+        #expect(subject.source !== storageA, "two documents shared one storage")
+        #expect(subject.source.text == b)
 
         edit(subject); subject.remember(text: b)
         subject.activate(path: "/n/a.md", text: a)
         #expect(subject.current === first, "the first document's history was not handed back")
+        #expect(subject.source === storageA, "the stack came back without the storage its actions edit")
     }
 
     /// The case the whole fingerprint exists for. Leave a file with autosave off, answer "Don't
     /// Save", and the disk holds text from before the edits while the stack holds registrations
     /// made against the text after them. Replaying that splices or throws `NSRangeException`;
-    /// refusing it costs a lost history and nothing else.
+    /// refusing it costs a lost history and nothing else. The storage goes with the stack: it
+    /// holds the text the stack was made against, and handed back it would put that on screen.
     @Test func aStackIsRefusedWhenTheBufferCameBackDifferent() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "the edited text")
         let edited = subject.current
+        let editedSource = subject.source
         edit(subject); subject.remember(text: "the edited text")
 
         subject.activate(path: "/n/b.md", text: "elsewhere")
@@ -64,6 +72,9 @@ import Foundation
         // Back to a.md, but the file on disk is what it was before the edits.
         subject.activate(path: "/n/a.md", text: "the ORIGINAL text")
         #expect(subject.current !== edited, "a stale stack was handed back")
+        #expect(subject.source !== editedSource, "a stale storage was handed back with a refused stack")
+        #expect(subject.source.text == "the ORIGINAL text", "the fresh storage does not hold what was loaded")
+        #expect(subject.source.textStorage.string == "the ORIGINAL text")
     }
 
     /// Equal strings, different bytes, and the stack is refused.
@@ -109,13 +120,17 @@ import Foundation
         #expect(subject.current === manager)
     }
 
+    /// Nothing open gets a fresh stack and a fresh, empty storage beside it.
     @Test func nothingOpenGetsAFreshStack() {
         let subject = store()
         subject.activate(path: "/n/a.md", text: "one")
         let manager = subject.current
+        let storageA = subject.source
         edit(subject); subject.remember(text: "one")
         subject.activate(path: nil, text: "")
         #expect(subject.current !== manager)
+        #expect(subject.source !== storageA)
+        #expect(subject.source.text.isEmpty)
     }
 
     // MARK: The bound
@@ -234,39 +249,6 @@ import Foundation
 
     // MARK: The text storage kept beside each stack (TE67.0)
 
-    /// A stack comes back with the storage its actions edit. An `NSTextView` registers undo against
-    /// its storage, so a stack handed back beside a different one reverts text nobody can see.
-    @Test func aStackComesBackWithTheStorageItsActionsEdit() {
-        let subject = store()
-        subject.activate(path: "/n/a.md", text: "one")
-        let storageA = subject.source
-        edit(subject); subject.remember(text: "one")
-        subject.activate(path: "/n/b.md", text: "two")
-        #expect(subject.source !== storageA, "two documents shared one storage")
-        #expect(subject.source.text == "two")
-        edit(subject); subject.remember(text: "two")
-
-        subject.activate(path: "/n/a.md", text: "one")
-        #expect(subject.source === storageA, "the stack came back without the storage its actions edit")
-    }
-
-    /// A refused stack takes its storage with it: the fingerprint refusal, one level down. The
-    /// storage holds the text the stack was made against; handing it back to a buffer that loaded
-    /// something else would put that text on screen.
-    @Test func aRefusedStackTakesItsStorageWithIt() {
-        let subject = store()
-        subject.activate(path: "/n/a.md", text: "the edited text")
-        let edited = subject.source
-        edit(subject); subject.remember(text: "the edited text")
-        subject.activate(path: "/n/b.md", text: "elsewhere")
-        edit(subject); subject.remember(text: "elsewhere")
-
-        subject.activate(path: "/n/a.md", text: "the ORIGINAL text")
-        #expect(subject.source !== edited, "a stale storage was handed back with a refused stack")
-        #expect(subject.source.text == "the ORIGINAL text", "the fresh storage does not hold what was loaded")
-        #expect(subject.source.textStorage.string == "the ORIGINAL text")
-    }
-
     /// The next load cannot write into the storage just put away. `remember` runs before the buffer
     /// is replaced; a storage still attached would take the incoming file's text in, against a
     /// fingerprint of what it held, and be handed back holding the wrong file. Mutation: drop
@@ -287,17 +269,6 @@ import Foundation
         buffer.follow(subject.source)
         #expect(buffer.source === subject.source)
         #expect(buffer.source.textStorage.string == "the next file")
-    }
-
-    /// Nothing open gets a fresh, empty storage beside its fresh stack.
-    @Test func nothingOpenGetsAFreshStorage() {
-        let subject = store()
-        subject.activate(path: "/n/a.md", text: "one")
-        let storageA = subject.source
-        edit(subject); subject.remember(text: "one")
-        subject.activate(path: nil, text: "")
-        #expect(subject.source !== storageA)
-        #expect(subject.source.text.isEmpty)
     }
 
     /// Eviction releases the storage with the stack, the memory the bound exists for. Asserted by

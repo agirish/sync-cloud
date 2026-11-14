@@ -43,7 +43,7 @@ import Foundation
     // MARK: The optimization
 
     /// A scroll delivers bounds changes at frame cadence; arming a work item for each is the cost
-    /// this type exists to avoid.
+    /// this type exists to avoid. Every report after the first lands while that timer is in flight.
     @Test("A burst of activity arms exactly one timer")
     func burstArmsOneTimer() {
         let (timer, harness) = make()
@@ -53,21 +53,8 @@ import Foundation
             timer.noteActivity { ran += 1 }
         }
         #expect(harness.armCount == 1)
-        #expect(ran == 0)
-    }
-
-    /// A timer that armed per report would still pass "the action eventually runs", so this count
-    /// is what gives the test above its meaning.
-    @Test("Reports arriving while a timer is in flight cost no new timer")
-    func reportsDuringFlightDoNotArm() {
-        let (timer, harness) = make()
-        timer.noteActivity {}
-        #expect(harness.armCount == 1)
         #expect(timer.isPending)
-
-        timer.noteActivity {}
-        timer.noteActivity {}
-        #expect(harness.armCount == 1)
+        #expect(ran == 0)
     }
 
     // MARK: The guarantee it must not trade away
@@ -83,9 +70,10 @@ import Foundation
     }
 
     /// The timer was armed at the first report but activity continued, so when it fires the stream
-    /// has not been idle long enough: it must wait out the remainder, not correct mid-gesture.
+    /// has not been idle long enough: it must wait out the remainder, not a fresh full window, or a
+    /// steady stream would push the correction further out each cycle.
     @Test("A timer that fires while activity is still recent re-arms instead of running early")
-    func lateActivityDefersTheRun() {
+    func lateActivityDefersTheRun() throws {
         let (timer, harness) = make(quiescence: 0.14)
         var ran = 0
         timer.noteActivity { ran += 1 }          // armed at t=1000
@@ -96,24 +84,13 @@ import Foundation
         #expect(ran == 0)
         #expect(harness.armCount == 1)           // re-armed rather than run
         #expect(timer.isPending)
-
-        harness.fireNext(advancingBy: 0.10)      // t=1000.24, idle is now 0.14
-        #expect(ran == 1)
-    }
-
-    /// The re-arm waits the remainder, not a fresh full window, or a steady stream would push the
-    /// correction further out each cycle instead of one quiescence after the last report.
-    @Test("The re-arm waits only the remaining time")
-    func reArmWaitsTheRemainder() throws {
-        let (timer, harness) = make(quiescence: 0.14)
-        timer.noteActivity {}
-        harness.now += 0.10
-        timer.noteActivity {}
-        harness.fireNext(advancingBy: 0.04)      // idle 0.04, so 0.10 remains
-        // Approximately: the remainder is a difference of doubles, and pinning it to the bit would
+        // Approximately: the remainder is a difference of doubles; pinning it to the bit would
         // test floating-point arithmetic, not the rule.
         let remaining = try #require(harness.scheduled.first?.delay)
         #expect(abs(remaining - 0.10) < 0.001)
+
+        harness.fireNext(advancingBy: 0.10)      // t=1000.24, idle is now 0.14
+        #expect(ran == 1)
     }
 
     @Test("A fresh burst after the action ran arms a new timer")

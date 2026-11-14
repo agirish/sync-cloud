@@ -108,6 +108,12 @@ import Sync
 
     static let root = "/root"
 
+    /// A fresh memory and the left Browse pane's slot on it.
+    private static func memorySlot() -> (PaneScrollMemory, PaneScrollMemorySlot) {
+        let memory = PaneScrollMemory()
+        return (memory, PaneScrollMemorySlot(memory: memory, surface: "Browse.left"))
+    }
+
     /// 30 folders of 30 folders of 12 files: three columns overflow a 520pt window, and the first two
     /// lists are taller than their viewports.
     private static let tree: PaneTree = {
@@ -267,8 +273,7 @@ import Sync
     /// The stack comes back to the offset it was left at: not to its first column, and not to the
     /// deepest either, where a first visit lands.
     @Test func aRebuiltPaneReturnsToItsStackOffset() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         // Seeded as a stack already visited and left at its first column, so the first mount
         // restores once rather than revealing: a first visit's reveal scrolls from queued blocks
         // that can land seconds late, after this test's scroll. The reveal has its own test; this
@@ -321,8 +326,7 @@ import Sync
     /// number it was: a preview opened since, a narrower window or a column resized elsewhere would
     /// leave that short of the end, with the deepest column hidden.
     @Test func aStackKeptAtItsEndComesBackToItsEndAsItIsNow() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         // Kept at the end of a stack that was then a lot narrower than this one is.
         memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
                            position: Position(offset: 12, atEnd: true))
@@ -339,8 +343,7 @@ import Sync
     /// A position that no longer fits lands, clamped, as soon as the columns lay out, rather than
     /// waiting out every fallback check for room that never comes, showing the first column.
     @Test func aPositionThatNoLongerFitsLandsWithoutWaitingOutTheFallback() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
                            position: Position(offset: 5_000, atEnd: false))
         let window = await mount(["a2", "b3"], slot: slot)
@@ -357,8 +360,7 @@ import Sync
 
     /// Each column's list comes back to where it was scrolled, per folder.
     @Test func aRebuiltPaneReturnsEachListToItsOffset() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         let first = await mount(["a2", "b3"], slot: slot)
         let firstLists = lists(first)
         try #require(firstLists.count == 3, "expected three column lists")
@@ -385,8 +387,7 @@ import Sync
     /// A list kept at its bottom comes back to the bottom of the list as it is now, which a shorter
     /// viewport (Compare's panes are shorter than Browse's) or a folder that lost files moves.
     @Test func aListKeptAtItsBottomComesBackToItsBottom() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         memory.recordList(directory: "/root/a2", position: Position(offset: 3, atEnd: true))
         let window = await mount(["a2", "b3"], slot: slot)
         defer { window.contentView = nil }
@@ -403,8 +404,7 @@ import Sync
     /// other keeps its place. A query left in the field is standing state, not a request, so it
     /// must not turn the whole memory off.
     @Test func onlyTheColumnHoldingASearchHitYieldsToIt() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         memory.recordList(directory: "/root", position: Position(offset: 80, atEnd: false))
         memory.recordList(directory: "/root/a2", position: Position(offset: 40, atEnd: false))
         let window = await mount(["a2", "b3"], slot: slot, searchRevealTarget: "/root/a2/b24")
@@ -424,8 +424,7 @@ import Sync
     /// and the deepest column is revealed, as a drill would. Seeded rather than scrolled, so there is
     /// certainly a position for the OLD stack that a looser key would hand over.
     @Test func aChangedStackRevealsItsDeepestColumnInstead() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
                            position: Position(offset: 0, atEnd: false))
 
@@ -443,8 +442,7 @@ import Sync
     /// to lay out and lands the turn after, so the turn that first lays them out could show the
     /// stack at its first column. Every turn from the mount on is read: hidden, or in place.
     @Test func aRebuiltStackIsNeverShownBeforeItsPositionLands() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         memory.recordStack(surface: "Browse.left", treeRoot: Self.root, components: ["a2", "b3"],
                            position: Position(offset: 50, atEnd: false))
         let watch = FrameWatch()
@@ -471,8 +469,7 @@ import Sync
     /// A rebuilt list is never shown before its position lands: `aRebuiltStackIsNeverShownBefore…`
     /// for a column's vertical position, which waits for the column's rows.
     @Test func aRebuiltListIsNeverShownBeforeItsPositionLands() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         // No stack position: a stack waiting on its own would be held clear too, and would hide the
         // list along with it — the list's own wait would go untested. Unkept, the stack reveals.
         memory.recordList(directory: "/root/a2", position: Position(offset: 80, atEnd: false))
@@ -500,8 +497,7 @@ import Sync
     /// its top, which a restore can't move, so a cover would only blank it for a frame on every
     /// switch back to a Columns pane.
     @Test func aColumnNobodyScrolledIsNeverHeldClear() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (_, slot) = Self.memorySlot()
         let first = await mount(["a2", "b3"], slot: slot)
         await pump(0.3)                                   // laid out, so its columns are kept
         first.contentView = nil
@@ -527,8 +523,7 @@ import Sync
     /// can't move it and a cover would only blank the whole pane for a frame on each switch back.
     /// `aRebuiltStackIsNeverShownBeforeItsPositionLands` is the other half, for one that can move.
     @Test func aStackThatFitsIsNeverHeldClear() async throws {
-        let memory = PaneScrollMemory()
-        let slot = PaneScrollMemorySlot(memory: memory, surface: "Browse.left")
+        let (memory, slot) = Self.memorySlot()
         // What `record` keeps for a row with no room: at its start, and at its end.
         let kept = PaneScrollMemory.Position.resting(at: 0, in: 0...0, noRoomIsEnd: true)
         try #require(kept.atEnd)

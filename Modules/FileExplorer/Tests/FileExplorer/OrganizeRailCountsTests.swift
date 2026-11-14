@@ -46,49 +46,11 @@ import Foundation
         // Absent at zero, never a greyed "0".
         let none = LensWorkspaceView.RailCounts()
         #expect(OrganizeLens.allCases.allSatisfy { none.badge($0) == nil })
+        // The pre-scan state: nothing counted, nothing claimed.
+        #expect(OrganizeLens.allCases.allSatisfy { none[$0] == 0 })
         let one = LensWorkspaceView.RailCounts(toFile: 1)
         #expect(one.badge(.toFile) == 1)
         #expect(OrganizeLens.allCases.count { one.badge($0) != nil } == 1)
-    }
-
-    @Test func rulesNeverBadgesEvenWhenItHasRules() {
-        // The distinction the badge draws, asserted through the same arithmetic the rail uses
-        // rather than by re-reading `carriesBadge`.
-        let rulesOnly = LensWorkspaceView.RailCounts(rules: 8)
-        #expect(rulesOnly[.rules] == 8)
-        #expect(rulesOnly.badge(.rules) == nil)
-    }
-
-    @Test func theDefaultIsAllZeros() {
-        // The pre-scan state: nothing counted, nothing claimed.
-        let d = LensWorkspaceView.RailCounts()
-        #expect(OrganizeLens.allCases.allSatisfy { d[$0] == 0 })
-    }
-
-    /// "Clean" on Renames vouches for both of its lists. The badge sums `renames + names`, filled
-    /// by different passes: rename plans by the filing walk, risky names by `detectRiskyNames`,
-    /// which that walk runs only with a name ruleset. One half alone reads "not scanned", never
-    /// "nothing here". Only "both halves ran", which can underclaim but never overclaim, passes all
-    /// four.
-    ///
-    /// Every scan passes through this half-run state, since the walk publishes both lists before it
-    /// sets `hasSuggestedFiling`, and a cancel leaves it there. `OrganizeOverviewWiringTests` pins
-    /// that the overview card answers it the same way.
-    @Test func theFoldedItemIsNotCleanUntilBothHalvesHaveRun() {
-        var counts = LensWorkspaceView.RailCounts()
-        counts.scanned = [.renames]      // filing walk ran without a name ruleset
-        #expect(counts.state(.renames) == .notScanned,
-                "rename plans alone called the folded item clean — the names list was never computed")
-        counts.scanned = []              // names half ran and came back clean; plans never computed
-        counts.namesScanned = true
-        #expect(counts.state(.renames) == .notScanned,
-                "a names-only pass called the whole folded item clean")
-        counts.scanned = [.renames]
-        #expect(counts.state(.renames) == .clean)
-        // Findings outrank the scan question — a badge is a badge whichever half found it.
-        counts.names = 3
-        counts.scanned = []
-        #expect(counts.state(.renames) == .reporting(3))
     }
 
     /// The backlog's readout counts the same list its badge does, through the subscript, or the

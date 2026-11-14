@@ -2,12 +2,13 @@ import Testing
 import SwiftUI
 import AppKit
 import Design
+import FileExplorerTestSupport
 @testable import FileExplorer
 
 /// Go to Line: what the field accepts, where it lands (clamped, in characters, on lines of the
 /// file), and that a mounted text view puts the caret on a logical line, not a wrapped row.
 @MainActor
-@Suite(.serialized) struct EditorGoToLineTests {
+@Suite(.serialized) struct EditorGoToLineTests: EditorPopoverRig {
 
     // MARK: What the field accepts
 
@@ -105,16 +106,6 @@ import Design
 
     // MARK: The status line's door
 
-    private func rings(in host: NSView) -> [NSRect] {
-        var rings: [NSRect] = []
-        func walk(_ view: NSView) {
-            if String(describing: type(of: view)).contains("FocusRing") { rings.append(view.convert(view.bounds, to: host)) }
-            view.subviews.forEach(walk)
-        }
-        walk(host)
-        return rings
-    }
-
     private func statusLine(goTo: Bool, rung: EditorStatusLine.Rung? = nil) -> EditorStatusLine {
         EditorStatusLine(facts: EditorDocumentFacts(words: 78, characters: 412, lines: 9, lineEnding: .lf, encoding: "UTF-8"),
                          caret: EditorCaret(line: 48, column: 12), fileSize: "4 KB", forcedRung: rung,
@@ -133,9 +124,9 @@ import Design
             host.layoutSubtreeIfNeeded()
             return host
         }
-        let offered = rings(in: hosted(statusLine(goTo: true)))
+        let offered = FocusRings.frames(in: hosted(statusLine(goTo: true)))
         #expect(offered.count == 1, "the line drew \(offered.count) buttons with Go to Line offered")
-        #expect(rings(in: hosted(statusLine(goTo: false))).isEmpty, "the caret is a button in Preview")
+        #expect(FocusRings.frames(in: hosted(statusLine(goTo: false))).isEmpty, "the caret is a button in Preview")
         // The ring is the caret's: as wide as its words (plus the wash's padding), and right of the
         // two counts — not some other control.
         let words = NSHostingView(rootView: Text(EditorStatusLine.caretCaption(EditorCaret(line: 48, column: 12)))
@@ -152,13 +143,6 @@ import Design
     }
 
     // MARK: A mounted text view
-
-    private func spin(_ window: NSWindow) {
-        for _ in 0..<10 {
-            _ = CFRunLoopRunInMode(.defaultMode, 0.02, true)
-            window.layoutIfNeeded()
-        }
-    }
 
     /// Line 3 is the file's third line however the window wraps the first: with a first line many
     /// rows long, a go to 3:4 must not land inside line 1, as a visual-row count would.
@@ -178,7 +162,7 @@ import Design
         host.frame = NSRect(x: 0, y: 0, width: 220, height: 120)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
-        spin(window)
+        spin(window, 10)
         let view = try #require(EditorTestRigs.textView(in: host), "no text view mounted — this test sees nothing")
         // The premise: the first line really is wrapped into several rows here.
         try #require(view.textContainer?.widthTracksTextView == true, "wrapping is off, so this proves nothing")
@@ -193,14 +177,14 @@ import Design
         #expect(firstLineRows > 3, "the first line took \(firstLineRows) rows (row height \(rowHeight))")
 
         host.rootView = editor(EditorScrollRequest(line: 3, token: 1, column: 4))
-        spin(window)
+        spin(window, 10)
         let caret = EditorCaret.at(utf16Offset: view.selectedRange().location, in: view.string)
         #expect(caret == EditorCaret(line: 3, column: 4), "the caret went to \(caret)")
         #expect(view.selectedRange().length == 0)
 
         // Past the end: the file's last line, "third line" — not the empty place after its break.
         host.rootView = editor(EditorScrollRequest(line: 400, token: 2, column: 1))
-        spin(window)
+        spin(window, 10)
         #expect(EditorCaret.at(utf16Offset: view.selectedRange().location, in: view.string) == EditorCaret(line: 3, column: 1))
     }
 }

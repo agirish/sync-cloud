@@ -44,7 +44,7 @@ import Design
     /// `FileRowView` is the row both pane presentations render (the tree pane directly, the Columns
     /// stack through `ColumnRowView`); a reason must widen it by the badge. The two rows differ only
     /// in `riskyReason`, since varying the name would change the text's own width.
-    @Test(.machinePinned(.layoutMetrics)) func aPaneRowIsWiderWhenItsNameIsRisky() {
+    @Test func aPaneRowIsWiderWhenItsNameIsRisky() {
         let node = rowInfo(name: "Q3: final.pdf")
         let badged = fittingWidth(
             FileRowView(node: node, isIgnored: false, diffStatus: nil, containedDiffCount: 0,
@@ -60,7 +60,7 @@ import Design
 
     /// The same row at compact density: the badge takes the pane's resolved fonts, and a density
     /// change is the sort of thing that quietly drops a trailing element.
-    @Test(.machinePinned(.layoutMetrics)) func aCompactPaneRowCarriesTheBadgeToo() {
+    @Test func aCompactPaneRowCarriesTheBadgeToo() {
         let node = rowInfo(name: "Q3: final.pdf")
         let badged = fittingWidth(
             FileRowView(node: node, isIgnored: false, diffStatus: nil, containedDiffCount: 0,
@@ -79,7 +79,7 @@ import Design
     /// One name judged by two rulesets, not two names by one, which would differ in text width
     /// whatever the badge did. The badge is then the only thing that can change, and this pins the
     /// per-provider answer: a colon is fatal on OneDrive and fine on iCloud.
-    @Test(.machinePinned(.layoutMetrics)) func aDifferencesRowBadgesANameOnlyTheDestinationRejects() {
+    @Test func aDifferencesRowBadgesANameOnlyTheDestinationRejects() {
         let row = difference("Q3: final.pdf")
 
         let strict = fittingWidth(
@@ -95,7 +95,7 @@ import Design
 
     /// A keep silences the badge on this surface too. Same row, same ruleset, only the kept set
     /// differs, so this can't pass by the name having been fine all along.
-    @Test(.machinePinned(.layoutMetrics)) func aKeptNameDropsTheDifferencesBadge() {
+    @Test func aKeptNameDropsTheDifferencesBadge() {
         let risky = difference("Q3: final.pdf")
 
         let badged = fittingWidth(
@@ -136,7 +136,7 @@ import Design
             var hits = 0
             for x in stride(from: 0, to: rep.pixelsWide, by: 1) {
                 for y in stride(from: 0, to: rep.pixelsHigh, by: 1) {
-                    guard let px = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    guard let px = rep.colorAt(x: x, y: y) else { continue }
                     // Generous tolerance: the glyph is antialiased and drawn with
                     // `foregroundStyle`, so only its core pixels are the flat colour.
                     let distance = abs(px.redComponent - target.redComponent)

@@ -15,12 +15,18 @@ import Sync
                                 size: 1, modificationDate: nil, candidates: candidates)
     }
 
+    /// The suggestion overload and the raw-confidence one, both pinned to the same tiers, so the
+    /// card's chip and its meter can never disagree.
     @Test func tierMirrorsBestConfidence() {
         #expect(FilingConfidenceTier.of(suggestion("a", .high)) == .high)
         #expect(FilingConfidenceTier.of(suggestion("b", .medium)) == .medium)
         #expect(FilingConfidenceTier.of(suggestion("c", .low)) == .low)
         // No candidate ("Pick a home" on the card) is a decision the user still owes, so low tier.
         #expect(FilingConfidenceTier.of(suggestion("d", nil)) == .low)
+        #expect(FilingConfidenceTier.of(FilingConfidence.high) == .high)
+        #expect(FilingConfidenceTier.of(FilingConfidence.medium) == .medium)
+        #expect(FilingConfidenceTier.of(FilingConfidence.low) == .low)
+        #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
     }
 
     @Test func sectionsAreOrderedHighMediumLowAndDropEmptyTiers() {
@@ -57,20 +63,6 @@ import Sync
         #expect(FilingConfidenceTier.low.filledBars == 1)
         // Never an empty meter: even the weakest tier lights one bar.
         #expect(FilingConfidenceTier.allCases.allSatisfy { (1...3).contains($0.filledBars) })
-        // Strictly increasing, so "more bars" always reads as "surer".
-        #expect(FilingConfidenceTier.high.filledBars > FilingConfidenceTier.medium.filledBars)
-        #expect(FilingConfidenceTier.medium.filledBars > FilingConfidenceTier.low.filledBars)
-    }
-
-    @Test func tierFromRawConfidenceAgreesWithSuggestionKeying() {
-        #expect(FilingConfidenceTier.of(FilingConfidence.high) == .high)
-        #expect(FilingConfidenceTier.of(FilingConfidence.medium) == .medium)
-        #expect(FilingConfidenceTier.of(FilingConfidence.low) == .low)
-        // No candidate ("Pick a home") is the low tier, the same default as the card's chip.
-        #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
-        // The confidence overload and the suggestion overload must never disagree (chip == meter).
-        #expect(FilingConfidenceTier.of(suggestion("a", .high)) == FilingConfidenceTier.of(FilingConfidence.high))
-        #expect(FilingConfidenceTier.of(suggestion("d", nil)) == FilingConfidenceTier.of(nil as FilingConfidence?))
     }
 
     @Test func everyTierHasADistinctNonEmptyGloss() {

@@ -54,28 +54,9 @@ import Sync
                 .frame(width: 60, height: 26, alignment: .trailing)
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, .light)
-            let host = NSHostingView(rootView: AnyView(subject))
-            host.frame = CGRect(x: 0, y: 0, width: 60, height: 26)
-            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: .aqua)
-            window.colorSpace = .sRGB
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            return rep
+            return try #require(PixelDiff.render(subject, size: CGSize(width: 60, height: 26)))
         }
-        let cloud = try rendered(true), downloaded = try rendered(false)
-        var differing = 0
-        for y in 0..<min(cloud.pixelsHigh, downloaded.pixelsHigh) {
-            for x in 0..<min(cloud.pixelsWide, downloaded.pixelsWide) {
-                guard let a = cloud.colorAt(x: x, y: y), let b = downloaded.colorAt(x: x, y: y) else { continue }
-                if max(abs(a.redComponent - b.redComponent),
-                       max(abs(a.greenComponent - b.greenComponent),
-                           abs(a.blueComponent - b.blueComponent))) > 0.02 { differing += 1 }
-            }
-        }
+        let differing = PixelDiff.differingPixels(try rendered(true), try rendered(false), tolerance: 0.02)
         #expect(differing > 20, "a cloud-only file's slot painted \(differing) pixels differently — no ☁ was drawn")
     }
 

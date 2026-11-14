@@ -98,17 +98,9 @@ enum PDFURLOpens {
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Waits until `done` holds, a lane turn and a short main-actor pause at a time; bounded, so it
-    /// fails with a label instead of hanging.
     @discardableResult
-    private func wait(_ label: String, turns: Int = 1000, until done: () -> Bool) async -> Bool {
-        for _ in 0..<turns {
-            if done() { return true }
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("never happened in \(turns) lane turns: \(label)")
-        return false
+    private func wait(_ label: String, until done: () -> Bool) async -> Bool {
+        await PDFFixtures.waitInLane(label, until: done)
     }
 
     /// Runs `action` and waits for the model's next applied load; `nil` when none came.
@@ -130,7 +122,7 @@ enum PDFURLOpens {
     @Test func aPDFOpensWithItsFacts() async {
         let file = path("report.pdf")
         PDFFixtures.write(file, pages: 3)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         #expect(pdf.path == file)
         #expect(pdf.document != nil)
@@ -147,7 +139,7 @@ enum PDFURLOpens {
     @Test func aScanSaysImageOnly() async {
         let file = path("scan.pdf")
         PDFFixtures.write(file, pages: 2, size: CGSize(width: 595, height: 842), text: false)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         #expect(pdf.facts?.hasText == false)
         #expect(pdf.facts?.textCaption == "Image only")
@@ -158,7 +150,7 @@ enum PDFURLOpens {
     @Test func anUnreadableFileIsRefused() async throws {
         let file = path("broken.pdf")
         try Data("not a pdf at all".utf8).write(to: URL(fileURLWithPath: file))
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .refused(EditorPDFDocument.unreadableReason))
         #expect(pdf.document == nil)
         #expect(pdf.refusal == EditorPDFDocument.unreadableReason)
@@ -171,7 +163,7 @@ enum PDFURLOpens {
     @Test func aCloudOnlyFileIsRefusedWithoutAParse() async {
         let file = path("cloud.pdf")
         PDFFixtures.write(file, pages: 1)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in true })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in true }, defaults: defaults)
         var phases: [EditorPDFDocument.Phase] = []
         pdf.onLoaded = { phases.append($0) }
         pdf.open(path: file, log: { [weak self] in self?.logged.append($0) })
@@ -190,7 +182,7 @@ enum PDFURLOpens {
         let file = path("locked.pdf")
         let secret = "correct-horse-\(UUID().uuidString.prefix(6))"
         PDFFixtures.writeLocked(file, password: secret, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .locked)
         #expect(pdf.document == nil, "a locked document must not reach the page view")
         #expect(!pdf.canPrint)
@@ -216,7 +208,7 @@ enum PDFURLOpens {
         let file = path("Statement.pdf")
         let secret = "s-\(UUID().uuidString.prefix(6))"
         PDFFixtures.writeLocked(file, password: secret, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .locked)
         #expect(await pdf.attemptUnlock(password: "wrong") == .refused)
         #expect(EditorPDFUnlockView.message(after: .refused, name: pdf.name)
@@ -250,7 +242,7 @@ enum PDFURLOpens {
         let first = path("first.pdf"), second = path("second.pdf")
         PDFFixtures.write(first, pages: 4)
         PDFFixtures.write(second, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         let phase = await loaded(pdf) {
             pdf.open(path: first, log: { _ in })
             pdf.open(path: second, log: { _ in })
@@ -268,7 +260,7 @@ enum PDFURLOpens {
     @Test func closeReleasesTheDocument() async {
         let file = path("long.pdf")
         PDFFixtures.write(file, pages: 6)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         weak var held = pdf.document
         #expect(held != nil)
@@ -286,7 +278,7 @@ enum PDFURLOpens {
     @Test func aChangeOnDiskReloadsAndKeepsThePage() async throws {
         let file = path("growing.pdf")
         PDFFixtures.write(file, pages: 5)
-        let pdf = EditorPDFDocument(settle: .milliseconds(50), isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(settle: .milliseconds(50), isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         // As the view would report it: the reader is on page 4.
         pdf.view.currentPage = 3
@@ -311,7 +303,7 @@ enum PDFURLOpens {
         let flag = Flag()
         let file = path("evicted.pdf")
         PDFFixtures.write(file, pages: 5)
-        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in flag.cloudOnly })
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in flag.cloudOnly }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         let replacement = path("revision.pdf")
         PDFFixtures.write(replacement, pages: 6)
@@ -350,7 +342,7 @@ enum PDFURLOpens {
     @Test func aDeletedFileSaysSo() async throws {
         let file = path("doomed.pdf")
         PDFFixtures.write(file, pages: 1)
-        let pdf = EditorPDFDocument(settle: .milliseconds(50), isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(settle: .milliseconds(50), isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         let phase = await loaded(pdf) { try? FileManager.default.removeItem(atPath: file) }
         #expect(phase == .refused(EditorPDFDocument.goneReason))
@@ -366,7 +358,7 @@ enum PDFURLOpens {
     @Test func theOpenWaitsForTheLane() async throws {
         let file = path("held.pdf")
         PDFFixtures.write(file, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         let hold = LaneHold()
         defer { hold.release() }
         try #require(await hold.waitUntilHeld(), "the lane never came free to be held")
@@ -393,7 +385,7 @@ enum PDFURLOpens {
         let passed = path("passed-over.pdf"), stopped = path("stopped-on.pdf")
         PDFFixtures.write(passed, pages: 3)
         PDFFixtures.write(stopped, pages: 1)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         let hold = LaneHold()
         defer { hold.release() }
         try #require(await hold.waitUntilHeld())
@@ -440,7 +432,7 @@ enum PDFURLOpens {
     @Test func aLoadThatLandsAfterCloseIsDropped() async throws {
         let file = path("closed-early.pdf")
         PDFFixtures.write(file, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         let hold = LaneHold()
         defer { hold.release() }
         try #require(await hold.waitUntilHeld())
@@ -458,7 +450,7 @@ enum PDFURLOpens {
         let file = path("lane.pdf"), other = path("other.pdf")
         PDFFixtures.write(file, pages: 2)
         PDFFixtures.write(other, pages: 8)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         async let elsewhere: Int = PDFKitSerialAccess.perform {
             PDFDocument(url: URL(fileURLWithPath: other))?.pageCount ?? 0
         }
@@ -507,7 +499,7 @@ enum PDFURLOpens {
         default: PDFFixtures.write(file, pages: 2)
         }
         let toolkit = PDFToolkit.encryptionState(of: URL(fileURLWithPath: file))
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == (kind == "locked" ? .locked : .open))
         #expect(pdf.tools.encryption == toolkit, "\(kind): the tools were told \(String(describing: pdf.tools.encryption)), the toolkit says \(toolkit)")
         let opened = await PDFKitSerialAccess.perform {
@@ -556,7 +548,7 @@ enum PDFURLOpens {
     func pageFitShowsAWholePage(size: CGSize) async throws {
         let file = path("fit.pdf")
         PDFFixtures.write(file, pages: 3)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         let (window, view) = try await mountedReader(pdf, size: size)
         defer { window.contentView = nil }
@@ -572,7 +564,7 @@ enum PDFURLOpens {
     @Test func widthFitFillsTheWidth() async throws {
         let file = path("width.pdf")
         PDFFixtures.write(file, pages: 3)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         pdf.view.fit = .width
         let (window, view) = try await mountedReader(pdf, size: CGSize(width: 820, height: 500))
@@ -589,7 +581,7 @@ enum PDFURLOpens {
     @Test func theWorkspaceDrawsPagesAndNoTextSurface() async throws {
         let file = path("card.pdf")
         PDFFixtures.write(file, pages: 2)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         #expect(await open(pdf, file) == .open)
         let view = EditorWorkspaceView.fixture(pdf: pdf)
             .readingSettings(from: defaults)
@@ -657,7 +649,6 @@ enum PDFURLOpens {
                                    majorVersion: 1, minorVersion: 7, fileSize: "184 KB", hasText: true)
         let widest = EditorPDFFactsRow.rungs(facts, page: 1).first
         #expect(widest == ["Letter, 8.5 × 11 in", "184 KB", "Text selectable"])
-        #expect(!(widest ?? []).joined().contains("1.7"), "the version is back in row 2")
         #expect(EditorPDFFactsRow.kindHelp(facts)
                 == "Edit never changes this file. Tools and Fill & Sign save a new copy beside it.\nPDF version 1.7")
         #expect(EditorPDFFactsRow.kindHelp(nil) == "Edit never changes this file. Tools and Fill & Sign save a new copy beside it.")
@@ -665,7 +656,7 @@ enum PDFURLOpens {
     }
 
     @Test func zoomingLeavesTheFitAndStepsTheScale() {
-        let state = EditorPDFViewState()
+        let state = EditorPDFViewState(defaults: defaults)
         state.scale = 1
         state.zoom(in: true)
         #expect(state.fit == nil)

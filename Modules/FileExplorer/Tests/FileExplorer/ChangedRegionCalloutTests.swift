@@ -77,14 +77,6 @@ import Testing
 
     // MARK: The aspect-fit mapping
 
-    /// A square image in a wide frame is letterboxed left and right, so the callouts have to be
-    /// offset by the same margin the image is.
-    @Test func aFittedRectIsCentredAndScaled() {
-        let fitted = ChangedRegionCallouts.fittedRect(imageSize: CGSize(width: 100, height: 100),
-                                                      in: CGSize(width: 400, height: 200))
-        #expect(fitted == CGRect(x: 100, y: 0, width: 200, height: 200))
-    }
-
     @Test func aTallImageIsFittedByWidth() {
         let fitted = ChangedRegionCallouts.fittedRect(imageSize: CGSize(width: 100, height: 200),
                                                       in: CGSize(width: 100, height: 1000))
@@ -101,6 +93,9 @@ import Testing
                     .isNull)
     }
 
+    /// A square image in a wide frame is letterboxed left and right, so the callouts are offset by
+    /// the same margin the image is.
+    ///
     /// A region at the image's top-left lands at the letterbox's top-left, scaled, and the y axis
     /// is **not** flipped: a `CGBitmapContext`'s buffer starts at the image's top row, the
     /// direction SwiftUI lays out in. A flip would look right on a symmetric page and be wrong on
