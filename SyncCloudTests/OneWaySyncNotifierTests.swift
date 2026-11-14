@@ -4,13 +4,11 @@ import UserNotifications
 @testable import SyncCloud
 import Sync
 
-/// One-way sync's notifications: their own opt-in, off until setup turns it on; posted whichever
-/// app is in front, which General's background-completion ones are not; one identifier per row, so
-/// a reminder replaces the row's earlier notification; and the row named, so a click opens Now on
-/// it.
+/// One-way sync's notifications: their own opt-in, off until setup turns it on; shown even with
+/// the app in front, unlike General's; one identifier per row, so a reminder replaces the row's
+/// earlier one; and the row named, so a click opens Now on it.
 @MainActor
 @Suite struct OneWaySyncNotifierTests {
-
     static let delivery = OneWaySyncNoticeDelivery(
         kind: .first, rowID: "limit:Legal", title: "Legal: 31 removals wait for you", body: "Everything else keeps syncing.")
 

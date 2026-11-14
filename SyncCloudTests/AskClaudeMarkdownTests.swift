@@ -270,7 +270,6 @@ import Testing
             .frame(width: container.width, height: container.height, alignment: .topLeading), width: container.width)
     }
 
-
     /// The thread's own answer bubble draws a heading as the bold line `**Title**` draws, not as
     /// "# Title". "Title" in plain weight shows the comparison can see the difference.
     @Test func theThreadDrawsAHeadingAsABoldLine() async throws {

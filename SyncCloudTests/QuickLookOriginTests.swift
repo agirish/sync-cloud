@@ -8,15 +8,12 @@ import Foundation
 /// stale (`followsPane` omitted), or a Differences or lens preview is moved or closed by an
 /// unrelated pane click (`followsPane: true` where it doesn't belong).
 ///
-/// `ContentView` needs a live `FileSyncManager` and a render pass, so the call sites are checked
-/// in source: the reader fails loudly on a missing or short file, and the exact count means a new entry point can't be added without deciding this.
+/// Checked in source, since `ContentView` needs a live manager and a render pass; the exact count
+/// means a new entry point can't be added without deciding this.
 @Suite struct QuickLookOriginTests {
 
-    /// Every call to `toggleQuickLook(` across the app, each as `toggleQuickLook(<its whole
-    /// argument list>)`, whitespace-normalised (``normalizedCode(_:)``). Swept over all of
-    /// `MacApp/`, since a fixed file list would miss a call in a new file. Read per call, not per
-    /// line: ``argumentLists(of:in:)`` reads to the closing paren, skips comments and strings, and
-    /// doesn't count the definition.
+    /// Every call to `toggleQuickLook(` across `MacApp/`, each with its whole argument list,
+    /// whitespace-normalised. ``argumentLists(of:in:)`` skips comments, strings and the definition.
     static func callSites() throws -> [String] {
         argumentLists(of: "toggleQuickLook(", in: sourceCodeOnly(try macAppSources()))
             .map { "toggleQuickLook(\(normalizedCode($0)))" }

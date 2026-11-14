@@ -3,14 +3,12 @@ import Foundation
 import Events
 @testable import SyncCloud
 
-/// What the shipped Info level keeps: the launch's level decision, autosave's tally, and the one-off
-/// records C1 promoted out of Debug.
+/// What the shipped Info level keeps: the launch's level decision, autosave's tally, and one-off
+/// records promoted out of Debug.
 ///
-/// Every test process runs at Debug (`Logger.persistedMinimumLevel` under a test runner), so a
-/// promoted line demoted again would still be captured and no `LogCapture` test would fail. Where a
-/// test can drive the line, its own suite asserts the level (`PaneTabWiringTests`,
-/// `OrphanSweeperTests`, `FolderJumpFailureReportTests`). The rest are reached only through a view
-/// or a race, so their level is pinned here in the source.
+/// Every test process runs at Debug, so a promoted line demoted again would still be captured and
+/// no `LogCapture` test would fail. Lines reached only through a view or a race are pinned here in
+/// the source.
 @Suite struct ShippedLogLevelTests {
 
     // MARK: - The launch's level

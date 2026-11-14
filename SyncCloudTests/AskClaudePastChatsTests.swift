@@ -385,7 +385,6 @@ import Sync
         #expect(!chat.cardIsExpired(try #require(chat.items.last?.id)))
     }
 
-
     /// A carry is built when the question goes: a folder hidden after Continue in a New Chat keeps
     /// what the chat read there from Claude, and a chat deleted since sends nothing.
     @Test func aCarryFollowsWhatIsHiddenAndDeletedAfterContinue() async throws {

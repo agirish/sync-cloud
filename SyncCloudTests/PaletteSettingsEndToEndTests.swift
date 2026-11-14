@@ -5,13 +5,10 @@ import FileExplorer
 import Settings
 @testable import SyncCloud
 
-/// The real tabs, through the real router: the only place the two halves meet.
-/// `SettingsTabDigestTests` checks the derivation and `PaletteSettingsTests` the ranking against a
-/// hand-written fixture; both would pass with the real vocabulary routing to the wrong page. So
-/// these queries run against `SettingsTab.digests` itself, each checked against the tab it is
-/// meant to reach.
+/// The real tabs (`SettingsTab.digests`) through the real router. `SettingsTabDigestTests` and
+/// `PaletteSettingsTests` would both pass with the real vocabulary routing to the wrong page; this
+/// is the only place the two halves meet.
 @Suite struct PaletteSettingsEndToEndTests {
-
     /// The index as the host builds it, minus the parts that need a live engine: the same `map`
     /// `paletteIndex` performs. Nothing else on the index affects a Settings row.
     private static let index = PaletteIndex(
@@ -43,9 +40,8 @@ import Settings
         }
     }
 
-    /// Key words, each against the page it should reach. Unlike the catalog test, which asks
-    /// whether the word is in the index, this asks whether it wins: a word on the right tab and on
-    /// a better-scoring wrong one fails only here.
+    /// Key words win on the tab they should reach. The catalog test asks only whether a word is in
+    /// the index; a word also on a better-scoring wrong tab fails only here.
     @Test func thePromisedWordsLandOnThePromisedTab() throws {
         let promised: [(String, SettingsView.SettingsTab)] = [
             ("glass", .appearance), ("blur", .appearance), ("dark mode", .appearance),
@@ -66,8 +62,8 @@ import Settings
         }
     }
 
-    /// A word found on a page opens that page, not whichever page the tab last showed (TE332):
-    /// the route carries `tab/page`, and the host opens `SettingsPlace(page)` for it.
+    /// A word found on a page opens that page, not whichever page the tab last showed: the route
+    /// carries `tab/page`, and the host opens `SettingsPlace(page)` for it.
     @Test func aWordOpensThePageItIsOn() throws {
         let promised: [(String, String)] = [
             ("glass", "appearance/look"), ("row spacing", "appearance/textAndSpacing"),
@@ -92,9 +88,8 @@ import Settings
         }
     }
 
-    /// Sources carries `browse` as a keyword (Synchronized path's Browse… button), so both Sources
-    /// and the Browse tab answer it and Browse must lead: the live case of the collision the
-    /// penalty exists for.
+    /// Sources carries `browse` as a keyword (its Browse… button), so both tabs answer it and the
+    /// Browse tab must lead: the live case of the collision the penalty exists for.
     @Test func bothTabsAnswerBrowseAndTheRightOneLeads() throws {
         let rows = PaletteRouter.rows(query: "browse", index: Self.index)
             .filter { $0.group == .settings }
@@ -126,14 +121,10 @@ import Settings
 
     // MARK: What actually fits on the row
 
-    /// The width budget, measured against the row's own geometry. The panel is as wide as the Go
-    /// to field, 320pt at the floor. Both lines are `lineLimit(1)`, so an over-long one truncates
-    /// quietly and nothing else would report it. This guards the upper bound;
-    /// `everyDetailSaysSomethingTheNameDoesNot` in `SettingsTests` holds the lower.
-    ///
-    /// Measured on the selected row, the narrower case (it draws a trailing `↩`), at the default
-    /// text size. At the largest size some truncate, which is accepted: this list scrolls and
-    /// truncates prose by design.
+    /// Each line fits the row at the Go to field's floor width: both are `lineLimit(1)`, so an
+    /// over-long one truncates silently. Measured on the selected row (narrower, with its `↩`) at the
+    /// default text size; truncation at the largest size is accepted. The lower bound is
+    /// `everyDetailSaysSomethingTheNameDoesNot` in `SettingsTests`.
     @MainActor
     @Test func everyDetailFitsTheFloorWidth() {
         let floor = GoToFieldMetrics.floorWidth

@@ -172,23 +172,13 @@ import UniformTypeIdentifiers
         #expect(await ContentSignalExtractor.tokens(forFileAt: path).isEmpty)
     }
 
-    /// End-to-end OCR over a synthetic scan (huge, clean, black-on-white text that Vision's `.fast`
-    /// recognizer reads reliably), which must not also report that Vision failed.
+    /// End-to-end OCR over a synthetic scan (huge, clean text Vision's `.fast` recognizer reads
+    /// reliably), which must not also log "OCR failed on …": that warning belongs in the `catch`
+    /// only, or it fires on every scan. The failing direction has no seam to drive.
     ///
-    /// The "OCR failed on …" warning lets an operator tell a broken recognizer from a folder of
-    /// blank scans, which works only if it stays inside the throwing branch. Logged beside the
-    /// `perform` instead of in its `catch`, it would fire every time, and the extracted text would
-    /// look the same.
-    ///
-    /// The failing direction isn't tested: `VNImageRequestHandler.perform` throws only for a
-    /// recognizer that can't run, there is no seam for a stub handler, and every image CoreGraphics
-    /// decodes is one Vision accepts (the corrupt fixture above fails at `CGImageSourceCreate…`).
-    ///
-    /// The absence is read from a `LogCapture` opened before the call ("A log assertion reading a
-    /// window that has already rolled" in `docs/flaky-tests.md`): `Logger.shared.entries` is one
-    /// process-wide window that can roll past the whole call and pass having examined nothing. A
-    /// line written after the call is `#require`d from the capture, so a capture that heard
-    /// nothing fails. No `.serialized` needed: no other test writes `clean-scan.png`.
+    /// The absence is read from a `LogCapture` opened before the call and closed by a line of its
+    /// own, under a name no other test writes (`docs/flaky-tests.md`, "A log assertion reading a
+    /// window that has already rolled").
     @MainActor
     @Test func aScanThatOCRsCleanlyReportsNoOCRFailure() async throws {
         let dir = FixtureDir()
@@ -220,15 +210,9 @@ import UniformTypeIdentifiers
 
     // MARK: PDF extraction is serialized
 
-    /// PDFKit's text extraction is not thread-safe, so this queue must stay serial.
-    ///
-    /// Read concurrently, about 1% of real documents return different text from run to run. The
-    /// damage is silent (reordered or dropped blocks, still decodable prose), so nothing downstream
-    /// can notice it.
-    ///
-    /// Asserts the outcome, peak concurrency, not the source: a `.concurrent` shared lane fails
-    /// this, as does anything else that lets two parses overlap. The counter exists for this test,
-    /// since serialization has no other outside signature.
+    /// PDFKit's text extraction is not thread-safe, so this queue must stay serial: read
+    /// concurrently, some documents silently return reordered or dropped text. Asserts peak
+    /// concurrency, so a `.concurrent` lane or anything else letting two parses overlap fails it.
     @Test func pdfExtractionNeverRunsTwoParsesAtOnce() async throws {
         let dir = FixtureDir()
         let paths = try (0..<12).map { i -> String in
@@ -257,13 +241,9 @@ import UniformTypeIdentifiers
 
     // MARK: - "Could not look" is not "nothing to say"
 
-    /// Every reader here answers `""` on failure, so a log line is the only thing that separates a
-    /// read failure from an empty document. Without one, a text file the scan can't open or a PDF
-    /// that won't parse goes to the classifier on its filename alone, with nothing saying why.
-    ///
-    /// Driven with real files, the only way to make these reads fail: `chmod 000` for the text
-    /// branch, bytes that aren't a PDF for the other. Both read a `LogCapture` opened before the
-    /// read, like the OCR test above, and use fixture names no other test writes.
+    /// Every reader answers `""` on failure, so a log line is all that tells a read failure from an
+    /// empty document. Real files make the reads fail: `chmod 000` for text, non-PDF bytes for PDF;
+    /// each read under a `LogCapture` opened first, with a fixture name no other test writes.
     @MainActor
     @Test func aFileThatCannotBeReadSaysSoRatherThanReadingAsEmpty() async throws {
         let dir = FixtureDir()

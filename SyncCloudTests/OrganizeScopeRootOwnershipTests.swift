@@ -7,11 +7,10 @@ import Foundation
 /// outside the root it is handed, so the wrong root silently wipes the scope and the folder just
 /// named, and that survives relaunch.
 ///
-/// **A SwiftUI context menu does not move focus**, so the row menus must pass their own pane's
-/// root, not the focused pane's. Source assertions, because the call sites live in a view body;
+/// A SwiftUI context menu does not move focus, so the row menus must pass their own pane's root,
+/// not the focused pane's. Source assertions, because the call sites live in a view body;
 /// `OrganizeScopeNormalizationTests` covers the normalization itself.
 @Suite struct OrganizeScopeRootOwnershipTests {
-
     /// The row menus aim at their own pane. Both are named, since the closures sit one line apart
     /// and a fix to only one would look done.
     @Test(arguments: [("onOrganizeFolder", "organizeFolderAction("), ("onOrganizeScope", "setOrganizeScope(")])

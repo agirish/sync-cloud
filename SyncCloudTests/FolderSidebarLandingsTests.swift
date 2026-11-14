@@ -4,20 +4,17 @@ import Sync
 import Testing
 import Foundation
 
-/// The landing folders Recents subtracts: the host half of the rule in `CrossSourceRecentsTests`.
-/// The rule, `FolderJumpStore.mostRecentAcrossRoots`, is pure and tested where it lives. What it
-/// can't see is whether the map handed to it is keyed the way the store keys its recents. Get that
-/// wrong and nothing fails or logs: Recents fills with every source's landing ("Documents, My
-/// Drive, Documents…"), a silent no-op.
+/// The landing folders Recents subtracts: the host half of `FolderJumpStore.mostRecentAcrossRoots`,
+/// tested in `CrossSourceRecentsTests`. What the rule can't see is whether the map handed to it is
+/// keyed as the store keys its recents; get that wrong and nothing fails or logs, and Recents fills
+/// with every source's landing ("Documents, My Drive, Documents…").
 @Suite struct FolderSidebarLandingsTests {
-
     private func provider(_ id: String, root: String, openAt: String) -> CloudProvider {
         CloudProvider(id: id, displayName: id, imageName: "folder.fill",
                       rootPath: root, openAt: openAt, type: .localFolder)
     }
 
-    /// A typical install: every connected source lands somewhere, and those landings are what
-    /// Recents would fill up with.
+    /// Every connected source lands somewhere, and those landings are what Recents would fill with.
     @Test func everySourceContributesItsLandingUnderTheStoresKey() {
         let landings = ContentView.folderSidebarLandings([
             provider("dropbox", root: "/Users/x/Library/CloudStorage/Dropbox", openAt: "Documents"),
@@ -27,9 +24,9 @@ import Foundation
         #expect(landings["/Users/x/Library/CloudStorage/GoogleDrive-emp"] == "My Drive")
     }
 
-    /// The keying, the half that fails silently. A folder source keeps the `~` in its stored path
-    /// while the store keys recents on the expanded spelling (`FolderJumpStore.key(forRoot:)`), so a
-    /// map built from the raw `rootPath` would match no root and subtract nothing.
+    /// A folder source keeps the `~` in its stored path while the store keys recents on the expanded
+    /// spelling (`FolderJumpStore.key(forRoot:)`), so a map from the raw `rootPath` would match no root
+    /// and subtract nothing.
     @Test func aFolderSourcesTildeIsExpandedTheWayTheStoreExpandsIt() {
         let landings = ContentView.folderSidebarLandings([
             provider("local", root: "~/Documents", openAt: "Finance")
@@ -40,9 +37,8 @@ import Foundation
         #expect(landings["~/Documents"] == nil, "the raw spelling is keyed, which matches no recent")
     }
 
-    /// A trailing slash is the other spelling of one root (a source path is user-editable in
-    /// Settings), and `key(forRoot:)` settles it. A source that opens at its root carries an empty
-    /// landing rather than being left out; `recordVisit` never writes a recent for a root.
+    /// A trailing slash (a source path is user-editable) is one root, which `key(forRoot:)` settles. A
+    /// source opening at its root carries an empty landing rather than being left out.
     @Test(arguments: [("/Users/x/Sync/", "Documents", "/Users/x/Sync"),
                       ("/Users/x/iCloud", "", "/Users/x/iCloud")])
     func aSourceIsKeyedOnItsRootsOneSpelling(root: String, openAt: String, key: String) {
@@ -50,8 +46,7 @@ import Foundation
         #expect(landings[key] == openAt)
     }
 
-    /// No sources is the first-run state: an empty map, which the store reads as "subtract
-    /// nothing".
+    /// No sources (the first run): an empty map, read as "subtract nothing".
     @Test func noSourcesYieldNoLandings() {
         #expect(ContentView.folderSidebarLandings([]).isEmpty)
     }

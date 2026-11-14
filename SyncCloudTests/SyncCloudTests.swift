@@ -11,13 +11,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
 @Suite struct SyncCloudTests {
 
-    /// The pure quit decision (the NSAlert branch itself isn't unit-testable), `(operations in
-    /// flight, warn before quit, decision)`. No active operations means an unconditional, silent
-    /// terminate, no breadcrumb needed. Active operations with the warning disabled skip the alert
-    /// but still quit: the delegate logs the quit-with-operations breadcrumb (worded for the
-    /// setting, not the dialog nobody saw) and flushes on this branch so it survives. With the
-    /// warning enabled they route to the alert, carrying the count so the logged decision names
-    /// how many operations were in flight.
+    /// The pure quit decision, `(operations in flight, warn before quit, decision)`. Nothing in
+    /// flight terminates silently; with the warning off the app still quits, but the delegate logs
+    /// and flushes a breadcrumb; with it on, the alert gets the count so the logged decision names it.
     @Test(arguments: [
         (0, true, SyncCloudAppDelegate.QuitDecision.allowNoActiveOperations),
         (0, false, .allowNoActiveOperations),
@@ -30,10 +26,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
                                                   warnBeforeQuit: warnBeforeQuit) == expected)
     }
 
-    /// The quit guard counts a Restructure landing as in flight. Its re-derive queues no file
+    /// The quit guard counts a Restructure landing as in flight: its re-derive queues no file
     /// operation, so a guard reading only `activeFileOperationsCount` would let ⌘Q through
-    /// silently mid-landing. `FileSyncManager.operationsAQuitWouldInterrupt` owns the counting
-    /// (tested in Sync); this pins that the guard asks it. Read off comment-stripped source.
+    /// mid-landing. Pins that the guard asks `FileSyncManager.operationsAQuitWouldInterrupt`.
     @Test func testTheQuitGuardCountsALandingInProgress() throws {
         let source = sourceCodeOnly(try macAppFile("SyncCloudApp.swift"))
         #expect(source.contains("func applicationShouldTerminate("),
@@ -405,12 +400,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     // MARK: The pane-bar migration's launch line
 
-    /// The line this launch writes must be the migration's own answer, not a literal naming a
-    /// control, which would go false as soon as a second migration step shipped.
-    ///
-    /// A source scan because the call sits inside `if !isRunningTests`, so no fixture can reach it.
-    /// `PaneBarMigrationTests.theLaunchLineNamesEveryControlTheMigrationActuallyAdded` owns the
-    /// wording; this pins that the app asks for it. Read off comment-stripped source.
+    /// The launch line is the migration's own answer, not a literal naming a control. A source scan
+    /// because the call sits inside `if !isRunningTests`; `PaneBarMigrationTests` owns the wording.
     @Test func testTheLaunchNamesWhatThePaneBarMigrationActuallyAdded() throws {
         let source = try macAppCode("SyncCloudApp.swift")
         // The positive control: the right file, and the migration still runs at launch, so the
@@ -427,13 +418,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         }
     }
 
-    /// The report of what the stored bar cannot show belongs to the delegate, not `App.init`.
-    /// SwiftUI can re-run `init`, so anything there that writes would repeat on every rebuild of the
-    /// scene; the launch breadcrumb lives in `applicationDidFinishLaunching` for the same reason.
-    ///
-    /// A source scan because `applicationDidFinishLaunching` is AppKit's to call, and the test
-    /// host's launch is not the app's. `PaneBarMigrationTests.testTheMigrationItselfWritesNoReachReport`
-    /// owns the other end, so a report that runs twice per launch and one that never runs both fail.
+    /// The stored bar's reach report runs once, from `applicationDidFinishLaunching`, not
+    /// `App.init`, which SwiftUI can re-run on every scene rebuild. A source scan because the test
+    /// host's launch is not the app's; `PaneBarMigrationTests` owns the other end.
     @Test func testTheStoredPaneBarIsReportedOnceFromTheLaunchDelegate() throws {
         let source = try macAppCode("SyncCloudApp.swift")
 

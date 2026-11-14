@@ -5,17 +5,12 @@ import Settings
 import Sync
 @testable import SyncCloud
 
-/// Open moves Organize's scope; browsing does not. The scope must not follow wherever the pane
-/// drifts: the left pane is also how destinations get inspected while filing, so a scope that
-/// followed every navigation would destroy the queue mid-file. Open is the user naming a folder,
-/// like "Organize This Folder…", so it re-aims the lenses too.
-///
-/// The gate is `ownsOrganizeScope`, not the layout: on the comparison panes the same call is
-/// "Compare only this folder", a claim about the comparison, and must not re-aim the lenses.
-/// Asserted in both directions, since a delegate that always or never scoped would pass one.
+/// Open moves Organize's scope; browsing does not, since the left pane is also how destinations
+/// are inspected while filing, and a scope that followed it would destroy the queue mid-file. The
+/// gate is `ownsOrganizeScope`, not the layout: on the comparison panes the same call is "Compare
+/// only this folder". Asserted both ways, since an always- or never-scoping delegate passes one.
 @MainActor
 @Suite struct PaneOpenMovesScopeTests {
-
     private func delegate(isSingleSource: Bool,
                           ownsOrganizeScope: Bool? = nil,
                           scoped: @escaping (FileNode) -> Void) -> PaneActionDelegate {
@@ -36,10 +31,8 @@ import Sync
     @Test(arguments: [
         // Open on the single-source rail moves the scope.
         (true, true, true),
-        // Browse looks like the rail to a layout question and isn't the rail.
-        // `TopPaneVisibility.mode(for:)` calls Browse and Storage `.singleSource`, so gating on
-        // layout would let Right-click ▸ Open in Browse re-aim every Organize lens at a folder
-        // Organize was never told about, surviving relaunch, with nothing looking broken.
+        // Browse is `.singleSource` too, so a layout gate would let Open in Browse silently re-aim
+        // every Organize lens, surviving relaunch.
         (true, false, false),
         // "Compare only this folder", the same call on the comparison panes: they isolate a
         // mapping; they don't choose what Organize answers about.
@@ -65,9 +58,8 @@ import Sync
     }
 
     @Test func openDoesNotAlsoStartAScan() {
-        // Open is navigation. `onOrganizeFolder` is what scans ("Organize This Folder…"); routing
-        // Open through it would run a filing pass for every folder stepped into. Scope filters
-        // rather than rescans, so the lenses re-answer for free.
+        // Open is navigation: routed through `onOrganizeFolder` it would run a filing pass for
+        // every folder stepped into. Scope filters rather than rescans.
         var scanned: [String] = []
         var scoped: [String] = []
         let d = paneDelegate(isSingleSource: true, ownsOrganizeScope: true,

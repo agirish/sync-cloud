@@ -7,7 +7,6 @@ import Sync
 /// stack is left looking like.
 @MainActor
 @Suite struct PaneBackgroundDeselectLogicTests {
-
     /// Stands in for `FileSyncManager`'s selection properties.
     private final class State: PaneSelectionState {
         var selectedLeftPaths: Set<String> = []
@@ -17,12 +16,10 @@ import Sync
 
     // MARK: Letting the selection go
 
-    /// `(left, right)` before the click; both are empty after it. The common case is the first, and
-    /// why this clears both sides: a selection lives in at most one pane, so the click usually lands
-    /// in the other pane's empty space, and clearing only the clicked side would leave the gesture
-    /// dead exactly when the user expects it to work. The clicked pane clears too. Both populated
-    /// can exist for a single frame while a cross-pane clear is in flight (`applySelectionWrite`
-    /// defers the sibling half), so that must not leave one behind.
+    /// `(left, right)` before the click; both are empty after it. A selection lives in at most one
+    /// pane, so the click usually lands in the other pane's empty space, and clearing only the clicked
+    /// side would leave the gesture dead. Both populated can exist for a frame while a cross-pane
+    /// clear is in flight (`applySelectionWrite` defers the sibling half), so neither may be left.
     @Test(arguments: [
         (["/left/a", "/left/b"], []),
         ([], ["/right/a"]),
@@ -41,14 +38,11 @@ import Sync
 
     // MARK: What the columns are left looking like
 
-    /// `(stack, clicked column depth, the stack left, or nil for no change)`. Finder-exact: clicking
-    /// column 0's empty space with three open closes the two to its right; the middle column closes
-    /// only what is beyond it. The deepest column has nothing beyond it, so it only deselects,
-    /// reported as no change so the caller skips `applyColumnNavigation` rather than re-applying
-    /// (and, with the seam link on, re-mirroring) the stack it has. A resting pane has nothing to
-    /// close. No depth (the dead space past the last column, Tree mode, the single-source rail)
-    /// never navigates. A depth past the end can't lengthen the stack: `truncate` clamps, and a
-    /// stale depth arriving after the stack shrank must not resurrect a column.
+    /// `(stack, clicked column depth, the stack left, or nil for no change)`, Finder-exact: a click
+    /// closes the columns beyond the clicked one. The deepest column only deselects, reported as no
+    /// change so the caller doesn't re-apply (and re-mirror) the stack. No depth (dead space past the
+    /// last column, Tree, the rail) never navigates, and a stale depth past the end can't lengthen
+    /// the stack: `truncate` clamps, so no closed column is resurrected.
     @Test(arguments: [
         (["Documents", "Invoices"], 0, []),
         (["Documents", "Invoices", "2026"], 1, ["Documents"]),
@@ -63,8 +57,7 @@ import Sync
         #expect(result?.components == expected)
     }
 
-    /// Truncating discards the forward stack, so `›` can't walk back into a column the user just
-    /// closed, as with every other branching move.
+    /// Truncating discards the forward stack, so `›` can't walk back into a column just closed.
     @Test func testClosingColumnsDiscardsTheForwardStack() {
         var path = PaneBrowsePath(components: ["Documents", "Invoices"])
         path.popLast()

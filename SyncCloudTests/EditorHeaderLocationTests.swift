@@ -9,7 +9,6 @@ import FileExplorer
 /// the `DuplicateRevealCoordinatorTests` way.
 @MainActor
 @Suite struct EditorHeaderLocationTests {
-
     // MARK: What it says
 
     /// The pane breadcrumb's words: the source's display name first (never the root folder's last
@@ -51,10 +50,9 @@ import FileExplorer
         #expect(location.help == "/Volumes/Backup/Scratch")
     }
 
-    /// A folder under another of the user's sources is placed there, in words: the Dropbox copy
-    /// opened from the differences list, which stays in the right pane while the left shows iCloud.
-    /// The source's name leads in both readings, so it never reads just "in Backup", and no level
-    /// is a door. Fails if the `otherSources` try is dropped.
+    /// A folder under another of the user's sources (a Dropbox copy opened from Compare) is placed
+    /// there in words, led by that source's name, and no level is a door. Fails if the
+    /// `otherSources` try is dropped.
     @Test func aFolderUnderAnotherSourceNamesThatSource() throws {
         let others: [(name: String, root: String)] = [
             (name: "Dropbox", root: "/Users/me/Dropbox"),
@@ -94,10 +92,9 @@ import FileExplorer
         #expect(nowhere.otherSourceName == nil)
     }
 
-    /// The ＋ and the naming row call the folder what the pane's breadcrumb does. At the top of
-    /// iCloud Drive the folder's last component is "com~apple~CloudDocs"; the breadcrumb says
-    /// "iCloud". Below the top it is the folder's own name; no folder, nothing. Fails on the first
-    /// line if `lastPathComponent` replaces the location's word.
+    /// The ＋ and the naming row call the folder what the breadcrumb does: "iCloud" at the top of
+    /// iCloud Drive (not "com~apple~CloudDocs"), else its own name. Fails on the first line if
+    /// `lastPathComponent` replaces the location's word.
     @Test func theNewFileFolderIsNamedAsTheBreadcrumbNamesIt() {
         let root = "/Users/me/Library/Mobile Documents/com~apple~CloudDocs"
         #expect(EditorHeaderLocation.folderName(paneFolder: root, sourceRoot: root,
@@ -115,11 +112,9 @@ import FileExplorer
                                               providerName: "x", paneIsOpen: true, links: [:]) == nil)
     }
 
-    /// No document: the pane's folder, where a new file would be made, its own level named but not
-    /// a door. The levels above keep their doors, the same targets a document's crumb has; the
-    /// folder's own word would only send the pane where it already is. Returning `nil` with no
-    /// document fails the first `#require`; keeping the last level's target, or dropping every
-    /// target, fails the `segments` line.
+    /// No document: the pane's folder (where a new file would go) is named but is not a door onto
+    /// itself; the levels above keep their doors. Fails if it returns `nil`, keeps the last level's
+    /// target, or drops every target.
     @Test func noDocumentNamesThePanesFolderWithoutADoorOntoItself() throws {
         for paneIsOpen in [true, false] {
             let location = try #require(EditorHeaderLocation.location(
@@ -187,11 +182,9 @@ import FileExplorer
         ])
     }
 
-    /// One INFO line per press, whatever the press did: the user runs at INFO, and under "Just the
-    /// text" the pane that moved is folded away, so the log is the only trace. The line says what
-    /// happened, read off the manager: a browse, a re-root (which re-scopes Compare and clears the
-    /// session's ignores, so it says so), or nothing, including the root crumb. Fails on the
-    /// re-root and no-op lines if `describe` always answers "browsed".
+    /// One INFO line per press saying what happened: a browse, a re-root (naming what it resets),
+    /// or nothing. The user runs at INFO and the moved pane may be folded away, so the log is the
+    /// only trace. Fails if `describe` always answers "browsed".
     @Test func everyPressLeavesOneLineSayingWhatItDid() {
         let tree = FileSyncManager.scratch()
         var logged: [String] = []
@@ -209,10 +202,9 @@ import FileExplorer
 
     // MARK: The rail's folder menu
 
-    /// The rail's folder menu speaks the location's words: every level from the source down, each
-    /// with the combined path its crumb goes to, the folder's own named but not offered, and the
-    /// folder's own target, which a subfolder's is built from. Through iCloud Drive's linked
-    /// `Documents`, so the folder is placed as the pane lists it.
+    /// The rail's folder menu speaks the location's words: each level with its crumb's target, the
+    /// folder's own named but not offered, plus the folder's own target for its subfolders. Run
+    /// through iCloud Drive's linked `Documents`, so the folder is placed as the pane lists it.
     @Test func theRailsTrailIsTheLocationsLevelsPlusTheFoldersOwnTarget() throws {
         let trail = try #require(EditorHeaderLocation.folderTrail(
             paneFolder: "/home/Documents/Family/Anuraag", sourceRoot: "/c", providerName: "iCloud",
@@ -300,13 +292,9 @@ import FileExplorer
 /// touch no AppKit or SwiftUI, and on the main thread they would hold up every main-actor test in
 /// the process (see `EditorHandOffRunWiringTests`).
 @Suite struct EditorHeaderLocationWiringTests {
-
-    /// Edit's document column is told when the pane beside it draws its tab strip (by the pane's
-    /// own rule, and only while the pane is open), and moves with the strip's curve. Dashboard's
-    /// `EditHeaderMatchesPaneHeaderTests` measures the layout; this pins that the app hands it the
-    /// real answer. Fails with `paneShowsTabStrip: false`, or without the collapse term or the
-    /// animation. The animation is keyed on the strip alone: `sourcePaneShowsTabStrip` also flips
-    /// on a fold, which must snap.
+    /// Edit's document column is told when the open pane draws its tab strip, and moves with the
+    /// strip's curve (`EditHeaderMatchesPaneHeaderTests` measures the layout). The animation is
+    /// keyed on the strip alone: `sourcePaneShowsTabStrip` also flips on a fold, which must snap.
     @Test func theDocumentColumnIsToldAboutThePanesTabStrip() throws {
         let editor = try macAppFile("ContentView+Editor.swift")
         #expect(try CallArguments(of: "EditorWorkspaceView(", in: sourceCodeOnly(editor))
@@ -319,11 +307,8 @@ import FileExplorer
                 "the document column does not move with the strip's own animation")
     }
 
-    /// An Organize lens is told the same thing, by the same rule: its header card leaves the
-    /// strip's slot empty too (`LensWorkspaceView.paneShowsTabStrip`), measured in Dashboard's
-    /// `LensHeaderMatchesPaneHeaderTests`. Pinned: the one construction is handed Edit's column's
-    /// predicate (so a collapsed rail leaves no slot), and the workspace moves with the strip's
-    /// curve.
+    /// An Organize lens is handed Edit's same predicate, so its header leaves the strip's slot
+    /// empty too, and moves with the strip's curve (`LensHeaderMatchesPaneHeaderTests` measures it).
     @Test func theLensIsToldAboutThePanesTabStrip() throws {
         let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         #expect(try CallArguments(of: "LensWorkspaceView(", in: content)
@@ -334,17 +319,10 @@ import FileExplorer
                 "the lens column does not move with the strip's own animation")
     }
 
-    /// The app's closures, pinned by scan, since a test that injects its own closure can't see the
-    /// real one replaced by `{ _ in }`. The header is handed the live location and the doors; the
-    /// doors select through the one owed-selection rule (`owePaneSelection`, which pays through the
-    /// pane's own selection setter), log at INFO, and are told the mode the pane is drawn in; the
-    /// location knows the user's other sources, and the ＋ the breadcrumb's word for its folder; the
-    /// reading is keyed on the pane's collapse bit. The doors' body never reaches the pane's
-    /// visibility or the document: a crumb must not expand the collapsed pane, and no door may
-    /// settle or reload the file.
-    ///
-    /// Each argument is read by its label on the call it belongs to (``CallArguments``), so an
-    /// argument's position or a call's line breaks don't matter.
+    /// The app's closures, pinned by scan (read by label with ``CallArguments``), since a test that
+    /// injects its own can't see the real one replaced by `{ _ in }`. The doors select through
+    /// `owePaneSelection` and log at INFO, and never reach the pane's visibility or the document: a
+    /// crumb must not expand a collapsed pane, and no door may settle or reload the file.
     @Test func theHeaderIsWiredToTheRealDoors() throws {
         let editor = try macAppFile("ContentView+Editor.swift")
         let code = sourceCodeOnly(editor)
@@ -374,17 +352,15 @@ import FileExplorer
                 "the doors do not ask the mode the pane is drawn in")
         #expect(location.passes("paneIsOpen", "!panesHiddenForCurrentTab"),
                 "the reading is not keyed on the pane's collapse bit")
-        // The empty page names the folder a new file goes in: the same `editorFolder` the ＋, ⌘N,
-        // the rail and the naming row all read. Read off the location's own call, since
+        // The empty page names the folder ⌘N creates in. Read off the location's own call, since
         // `paneFolder: editorFolder` is passed elsewhere in the file too.
         #expect(location.passes("paneFolder", "editorFolder"),
                 "the empty page's location is not the folder ⌘N creates in")
 
         let doors = sourceCodeOnly(try macAppFile("EditorLocationDoors.swift"))
         let start = try #require(doors.range(of: "struct EditorLocationDoors {"))
-        // Comments stripped: the body's own comments explain why `openInEditor` is not reached,
-        // and a scan matching them would report the explanation as the call. Read to the end of
-        // the file, so an extension added below the struct is read too.
+        // Comments stripped, since they name `openInEditor` to explain it isn't called. Read to
+        // the end of the file, so an extension below the struct is read too.
         let body = CodeText(String(doors[start.upperBound...]))
         for forbidden in ["togglePanes", "panesHidden", "loadIntoEditor", "openInEditor",
                           "settleEditorDocument", "selectedWorkspace"] {
@@ -395,10 +371,9 @@ import FileExplorer
                 "a crumb no longer takes the pane breadcrumb's own route")
     }
 
-    /// The rail's folder menu, wired to the real pane: the workspace is handed the live trail,
-    /// built from `editorFolder` and the survey's own folders, and a pick goes through the doors'
-    /// `goTo`, the crumbs' route. Fails with `onGoToFolder: nil`, or a trail built from another
-    /// folder.
+    /// The rail's folder menu is handed the live trail, built from `editorFolder` and the survey's
+    /// folders, and a pick goes through the doors' `goTo`. Fails with `onGoToFolder: nil`, or a
+    /// trail built from another folder.
     @Test func theRailsFolderMenuIsWiredToTheRealPane() throws {
         let editor = try macAppFile("ContentView+Editor.swift")
         let code = sourceCodeOnly(editor)

@@ -3,12 +3,9 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// Does a view drawn over an AppKit table take the click, or does the table under it?
-///
-/// `AskClaudeDock.swift` records that a SwiftUI overlay over the panes' tables once lost the
-/// caret and let a Delete meant for the chat reach the file list. The narrow-window overlay and
-/// Info's drawer put the Ask Claude column and a SwiftUI drawer over the file panes again, so this
-/// walks the real hit-test over a real `NSTableView` before either is built.
+/// A view drawn over an AppKit table takes the click, not the table under it. A SwiftUI overlay
+/// over the panes' tables can lose the caret and let a Delete meant for the chat reach the file
+/// list (`AskClaudeDock.swift`), so this walks the real hit-test over a real `NSTableView`.
 @MainActor
 @Suite struct OverlayHitTestSpikeTests {
     /// A pane's table, as the app hosts one: an `NSTableView` in a scroll view behind a representable.

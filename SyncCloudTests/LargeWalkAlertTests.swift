@@ -5,7 +5,6 @@ import Testing
 /// What the large-folder prompt says, asserted on the pure text builders rather than by running
 /// the alert: an `NSAlert` in a test suite is a hang, not a test.
 @Suite struct LargeWalkAlertTests {
-
     private func preflight(_ pass: LargeWalkPreflight.Pass, root: String = "/Users/x/Stuff",
                            limit: Int = 400_000) -> LargeWalkPreflight {
         LargeWalkPreflight(pass: pass, rootPath: root, probeLimit: limit)
@@ -17,9 +16,8 @@ import Testing
         #expect(!text.contains("/Users/x"), "the prompt prints a whole path")
     }
 
-    /// "More than", never a total: the probe stopped, so it doesn't know how much of the tree it
-    /// didn't see. A figure would be invented, and wrong in the direction that matters to a reader
-    /// deciding whether to wait.
+    /// "More than", never a total: the probe stopped, so any figure would be invented, and too low
+    /// for a reader deciding whether to wait.
     @Test func theCountIsALowerBoundAndNeverTheProbesOwnTally() {
         let p = preflight(.storageLens)
         let text = SyncOperationAlerts.largeWalkInformativeText(p)
@@ -27,9 +25,8 @@ import Testing
         #expect(text.contains("400,000"), "the prompt names no figure at all")
     }
 
-    /// A pass that reads file content past the walk costs more, and its prompt says so. Asked of
-    /// `readsFileContents` rather than named cases, so a new pass can't quietly inherit the cheaper
-    /// sentence.
+    /// A pass that reads file content costs more, and its prompt says so. Asked of
+    /// `readsFileContents`, so a new pass can't quietly inherit the cheaper sentence.
     @Test func onlyThePassesThatReadContentsSayTheyDo() {
         for pass in LargeWalkPreflight.Pass.allCases {
             let text = SyncOperationAlerts.largeWalkInformativeText(preflight(pass))

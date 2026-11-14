@@ -39,13 +39,9 @@ let waitPollFloor = 50
 
 // MARK: - Reading the app target's own source
 
-/// Every Swift file in `MacApp/`, concatenated: the haystack for a source scan whose subject is a
-/// call site rather than a file. `MacApp/` is in no SPM package, so tests reach it as text. Reading
-/// the whole directory means moving code between files fails nothing, and a count catches a second
-/// copy of a rule wherever it is written.
-///
-/// Two kinds of check must still name their file: a positive control, which needs a text known to
-/// hold something; and a `!contains` whose string another file legitimately says. No per-file
+/// Every Swift file in `MacApp/`, concatenated: the haystack for a scan whose subject is a call site
+/// rather than a file, so moving code between files fails nothing. A positive control, or a
+/// `!contains` whose string another file legitimately says, must still name its file. No per-file
 /// length guard, so a small new file passes; the result's size is asserted instead.
 func macAppSources() throws -> String {
     let directory = macAppDirectory()
@@ -526,8 +522,7 @@ private func matchingBracket(_ open: Int, in b: [UInt8], roles: [SwiftLexeme]) -
 /// answered by the member's own prose. Returns everything after `declaration` up to the closing
 /// brace, less that brace's own line.
 ///
-/// Keep one reader here rather than per-suite copies, which drift. FileExplorer's `SourceText`
-/// keeps its own because the FileExplorer module cannot see this one.
+/// Keep one reader here rather than per-suite copies, which drift.
 func declarationBody(of declaration: String, in source: String,
                      sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
     let code = sourceCodeOnly(source)

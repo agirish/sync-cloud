@@ -82,11 +82,9 @@ import Foundation
                 "the band order is no longer an explicit walk, so it cannot be read off the code")
     }
 
-    /// The Locations drag is indexed against the rows it dragged, not the provider list. A provider
-    /// whose folder is a canonical place is claimed by it and drawn in Favorites, so it's absent
-    /// from Locations; indexing the providers would reorder a different source than the one
-    /// dragged, or index past the end. Invisible without a claimed provider, which
-    /// `SidebarReorder`'s own tests don't have.
+    /// The Locations drag is indexed against the rows it dragged, not the provider list: a claimed
+    /// provider is drawn in Favorites, so indexing the providers would reorder a different source
+    /// than the one dragged, or index past the end.
     @Test func theSourceDragIndexesTheRowsItDragged() throws {
         let code = try Self.source()
         #expect(code.contains("let shown = folderSidebarLocationRows"),
@@ -106,11 +104,8 @@ import Foundation
                 "the order is written as the visible list plus the rest, which relocates every source nobody dragged")
     }
 
-    /// One pass per refresh; two would build every place row twice for one column. The volume walk
-    /// is handed down (see the next test, and `EjectWiringTests.theRefreshWalksTheVolumesOnce`).
-    ///
-    /// Matched on the call's opening rather than a whole argument list, so adding an argument
-    /// doesn't silently take the count to zero.
+    /// One build per refresh. Matched on the call's opening rather than a whole argument list, so
+    /// adding an argument doesn't silently take the count to zero.
     @Test func theRowsAreBuiltOncePerRefresh() throws {
         let code = try Self.source()
         let calls = code.components(separatedBy: "buildFolderSidebarPlaceRows(providers").count - 1
@@ -215,13 +210,9 @@ import Foundation
 /// The tail of Locations, in the order it is drawn: the startup disk, then any card, then the
 /// Trash.
 ///
-/// Asserted end to end because three mechanisms must agree: `SidebarFavoritePlaces.standard`
-/// leaving the disk out (so it stays a `.device` row), `SidebarSourceModel.orderedVolumes` putting
-/// the internal disk ahead of the removable one, and `splitFolderSidebarPlaceRows`' band walk
-/// putting `.trash` last. A test of any one passes while the column is wrong.
-///
-/// The Trash row depends on `~/.Trash` existing, which `isMountedFolder` checks; the assertions
-/// name it, so a machine without one fails loudly instead of measuring a shorter list.
+/// End to end, because `SidebarFavoritePlaces.standard`, `SidebarSourceModel.orderedVolumes` and
+/// the band walk must all agree. The Trash row needs `~/.Trash` to exist; the assertions name it,
+/// so a machine without one fails loudly instead of measuring a shorter list.
 @Suite struct LocationsDeviceBandOrderTests {
 
     static let card = SidebarSourceModel.Volume(name: "Untitled", path: "/Volumes/Untitled",

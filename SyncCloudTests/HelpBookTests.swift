@@ -11,7 +11,6 @@ import Testing
 /// unique id, every cross-link resolves, and search narrows as the sidebar expects. The content is
 /// a hand-kept mirror of the app: update a topic and this test together when a feature changes.
 @Suite struct HelpBookTests {
-
     @Test func testSectionsCoverTheExpectedAreas() {
         #expect(HelpBook.sections.map(\.title) == [
             "Getting started",
@@ -133,11 +132,9 @@ import Testing
         #expect(copy.contains("pin it"), "Help does not mention pinning, which has no other teacher")
     }
 
-    /// Every "Settings ▸ X" the Help book prints names a tab that really exists. A tab's case can
-    /// keep its name while its label changes (Providers is labelled Sources), so copy can point at a
-    /// name not on screen. Derived from `SettingsTab.displayName`, so a relabel fails here. Only the
-    /// arrow form is matched: it names a destination, while "cloud providers" as a plain noun is
-    /// still correct.
+    /// Every "Settings ▸ X" in Help names a real tab label, read from `SettingsTab.displayName`, so a
+    /// relabel (Providers shows as Sources) fails here. Only the arrow form is matched: "cloud
+    /// providers" as a plain noun is still correct.
     @Test func everySettingsPathInHelpNamesARealTab() {
         let realNames = Set(SettingsView.SettingsTab.allCases.map(\.displayName))
         var found = 0
@@ -228,10 +225,8 @@ import Testing
                 "a PDF left open in Edit took ⌘? in Browse to the PDF's page")
         #expect(HelpBook.sectionTitle(forTopicID: "browse-workspace") == "Getting started")
 
-        // The copy counts the workspaces too, and a number in prose doesn't move when one is added.
-        // The articles read better with the word, so the count is checked here rather than
-        // interpolated. Folded to a `Bool` first: `everyWord` is the whole book, and `#expect` on it
-        // would dump every article into the failure.
+        // A count in prose doesn't move when a workspace is added, so it is checked here. Folded to
+        // a `Bool` first: `#expect` on `everyWord` would dump the whole book into the failure.
         let count = Workspace.allCases.count
         let everyWord = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for claim in ["⌘1 through ⌘\(count)", "⌘1 – ⌘\(count)", "the \(Self.spelled(count)) workspaces"] {
@@ -241,10 +236,9 @@ import Testing
         }
     }
 
-    /// Edit's article names every door into Edit, and the ways back out and around. The count is a
-    /// number in prose, which doesn't move on its own, so each door is looked for by what the article
-    /// must say to name it, and any other count anywhere in the book fails. A stale count, a dropped
-    /// door's clause, or "they all do the same thing" must each fail it.
+    /// Edit's article names every door into Edit, and the ways back out and around, each by the
+    /// clause that names it. Fails on a stale count anywhere in the book, a dropped door's clause, or
+    /// "they all do the same thing".
     @MainActor
     @Test func editsArticleNamesEveryDoorIntoEdit() throws {
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
@@ -285,7 +279,7 @@ import Testing
             let said = everyWord.contains(stale)
             #expect(!said, "an article still says “\(stale)” — there are eight")
         }
-        // Not since Compare's list of differences stopped moving the pane.
+        // Compare's list of differences leaves the pane put.
         #expect(!text.contains("all do the same thing"),
                 "Edit's article says the doors all do the same thing — the differences list leaves the pane put")
         // The release notes too, both copies: neither may say the doors all do the same thing.
@@ -298,16 +292,15 @@ import Testing
         }
     }
 
-    /// Help names controls by their current labels: Restructure's re-read is “Update the Survey”
-    /// (never a Rescan, never “…now”), File's trash item is Move Selection to Trash…, and a kept
-    /// folder is in Favorites, not "pinned", a word reserved for tabs. Each positive half is checked
-    /// against the control's own source, so a rename on either side fails here.
+    /// Help names controls by their current labels: “Update the Survey”, Move Selection to Trash…,
+    /// and Favorites for a kept folder ("pinned" is reserved for tabs). Each label is checked against
+    /// the control's own source, so a rename on either side fails here.
     @Test func helpNamesControlsByTheirCurrentLabels() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for stale in ["a Rescan beside it", "Update the Survey now", "then Delete, then"] {
             #expect(!book.contains(stale), "Help still says “\(stale)”")
         }
-        // "Pinned" is a tab's word now; a folder is a favorite. Any other "pinned" is the old name.
+        // "Pinned" is a tab's word; a folder is a favorite.
         let lines = HelpBook.allTopics.flatMap(Self.copy(of:))
         let pinned = lines.filter { $0.localizedCaseInsensitiveContains("pinned") }
         #expect(!pinned.isEmpty, "Help no longer mentions a pinned tab — this scan would be vacuous")
@@ -322,11 +315,9 @@ import Testing
         #expect(commands.contains("Button(\"Move Selection to Trash…\")"), "File's trash item was renamed")
     }
 
-    /// The lines about Edit say what Edit does, each checked against what it describes: Edit
-    /// autosaves, so it doesn't save "when you ask it to"; a non-Markdown file, or none, has a Files
-    /// tab alone (`EditorRailTab.shown`); README's Edit section says "file list", not "rail", and
-    /// offers a PDF's outline only at two or more bookmarks (`EditorRailTab.minimumPDFBookmarks`);
-    /// and ⌘O opens a selected PDF as well as a text file. Any stale line must fail it.
+    /// Help and README describe Edit as it is: it autosaves, a non-Markdown file has a Files tab
+    /// alone (`EditorRailTab.shown`), a PDF's outline needs two bookmarks
+    /// (`EditorRailTab.minimumPDFBookmarks`), and ⌘O opens a PDF too. Any stale line fails it.
     @Test func editsLinesSayWhatEditDoes() throws {
         let book = HelpBook.allTopics.flatMap(Self.copy(of:)).joined(separator: " ")
         for stale in ["it saves when you ask it to", "The file list has two tabs: Files and Outline"] {
@@ -387,10 +378,8 @@ import Testing
         #expect(said, "Help does not give the shortcuts window's key")
     }
 
-    /// Help names the Markup verbs that only add. Not every verb "takes itself off if you choose it
-    /// again": Link wraps the selection in another link, Code Block in another fence, Divider adds
-    /// another line, and the Table items make or change a table. The overclaiming sentence must fail
-    /// it.
+    /// Help names the Markup verbs that only add (Link, Code Block, Divider, the Table items), so it
+    /// can't claim every verb "takes itself off if you choose it again". Fails on that sentence.
     @Test func markupHelpNamesTheVerbsThatOnlyAdd() throws {
         let topic = try #require(HelpBook.topic(id: "editor-workspace"))
         let text = Self.copy(of: topic).joined(separator: " ")
@@ -438,10 +427,9 @@ import Testing
         return words.indices.contains(n) ? words[n] : "\(n)"
     }
 
-    /// Every one of Organize's rail sections has an article of its own. A substring scan can't show
-    /// that: "Rules" appears in several topics, so deleting the Rules article would leave it green.
-    /// The map below names the topic each section is documented by, walked over `allCases` so a
-    /// section added without one fails here.
+    /// Every Organize rail section has its own article. A substring scan would miss a deleted Rules
+    /// article ("Rules" is in several topics), so the map names each section's topic, walked over
+    /// `allCases` so a section added without one fails here.
     @Test func everyOrganizeSectionHasAnArticle() {
         let expected: [OrganizeLens: String] = [
             .toFile: "file-loose-items",
@@ -474,10 +462,9 @@ import Testing
 
     // MARK: - Restructure, since it grew a surface that writes
 
-    /// Restructure's four articles exist, and all stay in the Organize section.
-    /// ``everyOrganizeSectionHasAnArticle`` maps each rail item to one topic, so it can't see the
-    /// planning, applying and scaffolding articles, the only ones about a surface that moves the
-    /// reader's files.
+    /// Restructure's four articles exist and stay in the Organize section.
+    /// ``everyOrganizeSectionHasAnArticle`` sees one topic per rail item, so it misses the planning,
+    /// applying and scaffolding articles, the ones about a surface that moves the reader's files.
     @Test func restructureIsDocumentedInFourArticles() {
         for id in ["restructure-shapes", "restructure-plan", "restructure-apply",
                    "restructure-scaffold"] {
@@ -490,10 +477,9 @@ import Testing
         }
     }
 
-    /// Help may not call Restructure read-only while Apply exists: a claim like "it never rewrites"
-    /// would be a false promise about the reader's data, and every other guard here reads structure,
-    /// not claims. Tied to the code: while `applyPlan` is in `Sync` the phrases are banned; if Apply
-    /// is removed, the anchor fails first and the ban is reconsidered.
+    /// Help may not call Restructure read-only while Apply exists: "it never rewrites" would be a
+    /// false promise about the reader's data. While `applyPlan` is in `Sync` the phrases are banned;
+    /// if Apply is removed, the anchor fails first and the ban is reconsidered.
     @Test func noArticleCallsRestructureReadOnly() throws {
         let apply = try repoFile("Modules/Sync/Sources/Sync/FileSyncManager+RestructureApply.swift")
         try #require(apply.contains("func applyPlan("),
@@ -506,10 +492,9 @@ import Testing
         }
     }
 
-    /// Restructure's two undos are both taught, and told apart. ⌘Z is a grouped undo held in memory
-    /// for the session; *Undo this reorganisation* replays a reversal kept on disk. Teaching only
-    /// the first says a reorganisation stops being reversible at quit; teaching only the second
-    /// loses the one keystroke that takes a landing straight back.
+    /// Restructure's two undos are both taught and told apart: ⌘Z is a session undo held in memory;
+    /// *Undo this reorganisation* replays a reversal kept on disk. Teaching only ⌘Z implies a
+    /// reorganisation can't be undone after quitting.
     @Test func bothOfRestructuresUndosAreTaught() throws {
         let topic = try #require(HelpBook.topic(id: "restructure-apply"))
         let words = Self.copy(of: topic).joined(separator: " ")
@@ -520,10 +505,9 @@ import Testing
                 "nothing says the ledger undo outlives the session — the whole difference between the two")
     }
 
-    /// No topic is reachable only by scrolling the sidebar: the related chips are the one route
-    /// between articles. `testEveryRelatedLinkResolvesToARealTopic` walks the graph from the links,
-    /// so it can't see a topic nothing points at. No exemption for the topic Help opens on: if it
-    /// ever ends up unlinked, that is a decision to make, not one already made.
+    /// Every topic is linked from another, since the related chips are the one route between
+    /// articles; `testEveryRelatedLinkResolvesToARealTopic` can't see a topic nothing points at. No
+    /// exemption for the topic Help opens on.
     @Test func everyTopicIsLinkedFromSomewhere() {
         var inbound: [String: Int] = [:]
         for topic in HelpBook.allTopics {
@@ -535,10 +519,9 @@ import Testing
         }
     }
 
-    /// Help may not send anyone to Help menu items the app no longer has (Keyboard Shortcuts,
-    /// Activity Log and Sync History live elsewhere): ``everyMenuPathInHelpNamesARealMenuItem``
-    /// checks every "Help ▸ X" against the menu. This is the other half: the Help entries that do
-    /// exist are still taught, so that check can't become a rule against naming the Help menu.
+    /// The Help menu's real entries are still taught, the other half of
+    /// ``everyMenuPathInHelpNamesARealMenuItem``, so that check can't turn into a rule against naming
+    /// the Help menu at all.
     @Test func noArticleSendsTheUserToARetiredHelpMenuItem() {
         let reveal = HelpBook.filteredSections(matching: "Help ▸ Reveal Log File").flatMap(\.topics).map(\.id)
         #expect(reveal.contains("activity-log"))
@@ -546,11 +529,9 @@ import Testing
         #expect(setup.contains("setup"))
     }
 
-    /// Every "<Menu> ▸ <Item>" in the Help book names a menu item the running app really has. Read
-    /// off `NSApp.mainMenu`, not the source: whether a `CommandMenu` or a nested `Menu` became the
-    /// arrangement it declares is something only the running app answers (as in `WindowMenuTests`).
-    /// Moving an item between menus otherwise breaks no test. "Settings ▸ …" is excluded: Settings is
-    /// a tab rail, checked by ``everySettingsPathInHelpNamesARealTab``.
+    /// Every "<Menu> ▸ <Item>" in Help names an item the running app has. Read off `NSApp.mainMenu`,
+    /// since only the running app shows how a `CommandMenu` or nested `Menu` was arranged (as in
+    /// `WindowMenuTests`). "Settings ▸ …" is checked by ``everySettingsPathInHelpNamesARealTab``.
     @MainActor
     @Test func everyMenuPathInHelpNamesARealMenuItem() throws {
         let mainMenu = try #require(NSApp.mainMenu)
@@ -577,11 +558,9 @@ import Testing
         #expect(checked > 4, "only \(checked) menu paths were found — this scan has gone vacuous")
     }
 
-    /// The reverse walk: every menu the app has is written about somewhere in the book. The forward
-    /// walk can't see a menu nobody wrote about, since an unwritten path is never wrong. Derived from
-    /// `NSApp.mainMenu`, so a new menu is covered the day it appears. The match is on "<Menu> ▸ ",
-    /// never the bare word: "File", "Edit", "View", "Go" and "Window" are ordinary English, and only
-    /// a menu path has the arrow.
+    /// The reverse walk: every menu in `NSApp.mainMenu` is written about somewhere, which the forward
+    /// walk can't see. Matched on "<Menu> ▸ ", never the bare word: "File", "Edit", "View", "Go" and
+    /// "Window" are ordinary English.
     @MainActor
     @Test func everyMenuInTheBarIsDescribedInTheBook() throws {
         let mainMenu = try #require(NSApp.mainMenu)
@@ -642,11 +621,9 @@ import Testing
         return out
     }
 
-    /// The macOS version Help claims is the one the app is built against; a wrong one costs a reader
-    /// a download and a failed launch. `Bundle.main` is the app here, since `SyncCloud.app` hosts
-    /// `SyncCloudTests`. `HelpBook.minimumSystemRequirement` reads the bundle, so this catches the
-    /// two ways the derived string can still be wrong: the fallback firing (no
-    /// `LSMinimumSystemVersion`), and the formatting (`26.0` must read `26`, `15.4` must keep `.4`).
+    /// The macOS version Help claims is the one the app is built against. `Bundle.main` is the app,
+    /// which hosts `SyncCloudTests`. Catches the fallback firing (no `LSMinimumSystemVersion`) and
+    /// bad formatting (`26.0` must read `26`, `15.4` must keep `.4`).
     @Test func theStatedSystemRequirementMatchesTheBuild() throws {
         let raw = try #require(Bundle.main.infoDictionary?["LSMinimumSystemVersion"] as? String,
                                "the host bundle carries no LSMinimumSystemVersion — this test cannot see the truth")
@@ -662,10 +639,9 @@ import Testing
                 "the requirement fell back to the vague form inside the real app bundle")
     }
 
-    /// The requirement is derived and can't be typed back in: a literal is the obvious edit, reads
-    /// fine, and is right only on the day it is typed. Comment-stripped, so a doc comment quoting the
-    /// phrase isn't the failure. Scoped to `HelpBook.swift`, the one file where exactly one
-    /// occurrence (the property's own interpolation) is expected.
+    /// The requirement stays derived, never typed back in as a literal. Comment-stripped, so a doc
+    /// comment quoting the phrase doesn't count; `HelpBook.swift` should hold exactly one occurrence,
+    /// the property's own interpolation.
     @Test func theRequirementIsNotWrittenOutAsALiteral() throws {
         let source = sourceCodeOnly(try macAppFile("HelpBook.swift"))
         try #require(source.count > 10_000, "HelpBook.swift read as \(source.count) characters")
@@ -678,7 +654,7 @@ import Testing
     }
 
     /// Retired product vocabulary stays out of the copy: "Filing" is Organize's To File lens, and
-    /// "tidy" is no longer the product's voice. Search-based like the drag test below, so every
+    /// "tidy" is not the product's voice. Search-based like the drag test below, so every
     /// block type is covered. Topic ids aren't searched: `tidy-duplicates` is a frozen identifier.
     @Test func testNoArticleUsesRetiredVocabulary() {
         for word in ["tidy", "filing"] {
@@ -687,10 +663,9 @@ import Testing
         }
     }
 
-    /// No article may teach cross-pane drag & drop, which the app doesn't have. The other tests pin
-    /// structure, so an article could document a missing feature and stay green. The phrases are
-    /// that feature's own, not a ban on dragging: the tab strip's reorder drag is real, and the last
-    /// check keeps it taught.
+    /// No article teaches cross-pane drag & drop, which the app doesn't have. The phrases are that
+    /// feature's own, not a ban on dragging: the tab strip's reorder drag is real, and the last check
+    /// keeps it taught.
     @Test func testNoArticleTeachesCrossPaneDragAndDrop() {
         for phrase in ["drag items", "drag files", "between panes", "dropping"] {
             let hits = HelpBook.filteredSections(matching: phrase).flatMap(\.topics).map(\.id)
@@ -703,14 +678,12 @@ import Testing
     }
 }
 
-
 /// The related-chip row is a wrapping layout, not an `HStack`, which squeezes instead of wrapping
 /// and hyphenates labels inside tall ovals. A source scan of the call site's choice of container:
 /// `FlowLayoutMathTests` pins the wrapping geometry, and a layout or render test can't tell a
 /// squeezed row from a wrapped one. It also keeps MacApp on FileExplorer's flow layout rather than
 /// a third copy. `declarationBody` is brace-bounded, so a neighbour can't answer for this struct.
 @Suite struct HelpChipRowTests {
-
     static func source() throws -> String { try macAppFile("HelpBook.swift") }
 
     @Test func theChipsUseTheSharedWrappingLayout() throws {

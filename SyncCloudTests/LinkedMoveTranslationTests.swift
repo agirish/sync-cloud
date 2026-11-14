@@ -2,23 +2,15 @@ import Testing
 import Foundation
 import Sync
 
-/// Every linked action that drives the sibling pane with a path measured from this pane's root
-/// must translate it first; this is the one place they can all be seen. A linked crumb click
-/// (`ContentView.navigateBothPanes`), a linked drill (`FileActionHandler.focusFolder`, in
-/// `Dashboard`) and a linked Open in New Tab (`ContentView+PaneTabs.mirrorOpenInNewTab`) each hand
-/// a root-relative path to the other pane. Sources land at different `openAt` depths (`""` for
-/// iCloud, `Documents` for OneDrive and Dropbox, `My Drive/Documents` for Google Drive), so the
-/// same string can name folders up to two components apart; `PathBoundary.reanchor` translates.
-///
-/// An untranslated mirror fails quietly: `PaneTabMirror` prunes a missing path, so the tab opens at
-/// the top of the account, or on an unrelated folder of the same name. The negative control below
-/// stops the set's assertion passing on a coincidence.
+/// Every linked action that hands the sibling pane a path measured from this pane's root translates
+/// it with `PathBoundary.reanchor`: sources land at different `openAt` depths (`""` for iCloud,
+/// `Documents` for Dropbox, `My Drive/Documents` for Google Drive), so one string can name folders
+/// two components apart. Untranslated, it fails quietly: `PaneTabMirror` prunes a missing path, so
+/// the tab opens at the top of the account or on an unrelated folder of the same name.
 @Suite struct LinkedMoveTranslationTests {
-
-    /// All three, named individually so a failure says which lost the translation. Two spellings:
-    /// the app's pair go through `ContentView.relativePathForPane`, while `FileActionHandler`, in
-    /// `Dashboard`, can't see `ContentView` and calls the rule itself. The seam's own body is checked
-    /// too, or "calls the seam" would be a claim about a name.
+    /// Crumb click, drill and Open in New Tab, named so a failure says which lost the translation.
+    /// The app's pair go through `relativePathForPane`, whose own body is checked too;
+    /// `FileActionHandler` can't see `ContentView` and calls the rule itself.
     @Test func everyLinkedHandoffTranslatesTheSiblingsPath() throws {
         let sites: [(file: String, declaration: String, translator: String, what: String)] = [
             ("MacApp/ContentView.swift",
@@ -48,10 +40,9 @@ import Sync
                 "relativePathForPane does not read both panes' landing folders: \(seam)")
     }
 
-    /// The negative control. ⌘T's mirror must not translate: neither pane moves, and the sibling
-    /// opens a tab at its own current folder, so no path crosses between panes. A `reanchor` here
-    /// would be a no-op while the panes are in step and wrong once they drift. Without this control
-    /// the test above could pass on "the file mentions reanchor somewhere".
+    /// The negative control: ⌘T's mirror opens the sibling at its own folder, so no path crosses and
+    /// nothing is translated. Keeps ``everyLinkedHandoffTranslatesTheSiblingsPath`` from passing on
+    /// "the file mentions reanchor somewhere".
     @Test func theMirrorThatDoesNotCrossPanesDoesNotTranslate() throws {
         let source = try repoFile("MacApp/ContentView+PaneTabs.swift")
         let body = try declarationBody(of: "func openNewTabHere(isLeft: Bool)", in: source)

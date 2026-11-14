@@ -8,12 +8,9 @@ import Design
 /// the width the setup card gives its preset row, and which tiles that row draws.
 @Suite struct TextSizeSetupIntegrationTests {
 
-    /// The You step's text-size row fits the card at every text size. `SetupSheetFitTests`
-    /// measures the step's height, and a row whose tile labels truncate is as tall as one that fits.
-    ///
-    /// The margin is wide (the row wants roughly half the width available), so this is only the
-    /// outer bound: the card is wide enough for the control at all. A fixed width on the row, which
-    /// would truncate it, is guarded by `theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth`.
+    /// The You step's text-size row fits the card at every text size; a row whose labels truncate
+    /// is as tall as one that fits, so the height measurements can't see it. The outer bound only:
+    /// a fixed width on the row is the next test's.
     @MainActor
     @Test(.machinePinned(.layoutMetrics)) func theSetupTextSizeRowFitsTheCardAtEveryTextSize() {
         for size in FontSize.allCases {
@@ -42,10 +39,8 @@ import Design
     /// The setup form draws the tiles that do not name a row spacing, and does not pin their width.
     /// Neither failure is visible to a layout test.
     ///
-    /// The style is a vocabulary decision: this screen runs on step one of a first launch, before
-    /// the person has seen a file list, so "Comfortable" and "Compact" name nothing yet, though
-    /// `.named` would fit the card. A fixed width truncates the tile labels ("Comfor…") without
-    /// changing the row's height, so the row is never given one.
+    /// Before the person has seen a file list, "Comfortable" and "Compact" name nothing yet. A fixed
+    /// width truncates the tile labels ("Comfor…") without changing the row's height.
     @Test func theSetupFormUsesTheSpecimenTilesAndDoesNotPinTheirWidth() throws {
         let source = try macAppFile("Setup/AppearanceScreen.swift")
         let statement = try #require(Self.expression(containing: "SizePresetRow(fontSize: $fontSize",

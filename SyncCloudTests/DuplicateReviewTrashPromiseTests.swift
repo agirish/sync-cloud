@@ -1,18 +1,11 @@
 import Testing
 import Foundation
 
-/// The Compare review's trash confirmation must not promise an undo it can't always deliver.
-///
-/// On a volume with no Trash (exFAT, most SMB shares) `deleteItems` can't trash the copy and
-/// escalates to the permanent-delete confirmation, which destroys it outright; nothing reaches
-/// the undo manager. `DuplicateReviewCoordinator`'s log line already branches "Trashed" against
-/// "Permanently deleted" for the same reason.
-///
-/// A scan, because the text lives in a default closure around a blocking `NSAlert`. Both
-/// directions are asserted: no unconditional ⌘Z claim, and the text names the second
-/// confirmation, which is real (`SyncOperationAlerts.confirmPermanentDelete`, critical style).
+/// The Compare review's trash confirmation must not promise an undo it can't always deliver: on a
+/// volume with no Trash (exFAT, most SMB shares) `deleteItems` escalates to a permanent delete that
+/// never reaches the undo manager. A scan, since the text sits around a blocking `NSAlert`; it also
+/// checks the second, critical confirmation the text promises is real.
 @Suite struct DuplicateReviewTrashPromiseTests {
-
     @Test func theTrashConfirmationDoesNotPromiseAnUnconditionalUndo() throws {
         let source = try macAppSources()
 

@@ -6,18 +6,13 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// Compare's differences list opens a file in Edit without moving the left pane, and what the
-/// hand-off does with the pane in each variant, driven against a real `FileSyncManager` the
-/// `EditorHeaderLocationTests` way.
-///
-/// Why the list needs its own variant (pinned by the control below): the ordinary hand-off
-/// re-roots the left pane on the file's folder (`focusOn`), and in Compare that pane is half the
-/// comparison the list shows. `focusOn` clears the session's "Ignore in comparison" entries, resets
-/// the column stack, pushes a history entry and sends a refresh, which `ContentView` turns into a
-/// reload and a new comparison scan, replacing the list under the user.
+/// What each hand-off variant does to the left pane, driven against a real `FileSyncManager`.
+/// Compare's differences list opens a file without moving the pane: the ordinary hand-off's
+/// `focusOn` would clear the session's "Ignore in comparison" entries, reset the column stack, push
+/// history and send a refresh, which `ContentView` turns into a new comparison scan that replaces
+/// the list under the user.
 @MainActor
 @Suite struct EditorHandOffRunTests {
-
     static let root = "/c"
     /// A comparison scoped to `Documents`, with one row set aside for the session and a refresh
     /// counter: the state a Compare user is in when they right-click a difference.
@@ -57,10 +52,9 @@ import FileExplorer
 
     // MARK: What each variant does to the pane
 
-    /// The app's tab follow replaces the in-place re-root, and comes after the settle. It is handed
-    /// the file's folder between the settle and the switch to Edit, and the pane is left to it. Not
-    /// called on a Cancel, when the folder is already the one Edit shows, or for `.staysPut`. Fails
-    /// if `focusPane` is also called, or called before the settle.
+    /// A supplied tab follow replaces the re-root and is handed the file's folder between the settle
+    /// and the switch to Edit; never on a Cancel, an already-shown folder, or `.staysPut`. Fails if
+    /// `focusPane` is also called, or called before the settle.
     @Test func aSuppliedFollowIsHandedTheFolderAfterTheSettle() {
         let scene = Scene()
         scene.handOff(Self.file, pane: .followsTheFile, followFolder: { scene.steps.append("follow \($0)") })
@@ -81,8 +75,7 @@ import FileExplorer
         put.handOff(Self.file, pane: .staysPut, followFolder: { put.steps.append("follow \($0)") })
         #expect(!put.steps.contains { $0.hasPrefix("follow") }, "the differences list's pane was moved")
 
-        // From Compare's panes and Organize the pane moves too: the follow is told to keep the
-        // source (`handOffToEditor` passes `keepsSource`), not skipped. Fails if
+        // From Compare's panes and Organize the pane moves too, keeping its source. Fails if
         // `.followsOnItsSource` is left out of the moving arm.
         let ownSource = Scene()
         ownSource.handOff(Self.file, pane: .followsOnItsSource, followFolder: { ownSource.steps.append("follow \($0)") })
@@ -106,9 +99,9 @@ import FileExplorer
         #expect(scene.refreshes.isEmpty, "a refresh was sent — the comparison would be re-scanned")
     }
 
-    /// The control, and the reason for the variant: the ordinary hand-off, from the same state,
-    /// re-scopes the comparison and throws the session's ignores away. If this stops being true,
-    /// the variant isn't needed and the test above passes for nothing.
+    /// The control: from the same state, the ordinary hand-off re-scopes the comparison and drops the
+    /// session's ignores. If this stops being true, the `.staysPut` variant isn't needed and
+    /// ``theDifferencesListsHandOffLeavesTheComparisonAlone`` passes for nothing.
     @Test func theOrdinaryHandOffReScopesTheComparison() {
         let scene = Scene()
         #expect(scene.handOff(Self.file, pane: .followsTheFile) == .opened)
@@ -161,11 +154,9 @@ import FileExplorer
 
     // MARK: Which folder "already there" asks about
 
-    /// The guard asks about the folder Edit will show, not the one on screen. With Browse drawing
-    /// Columns at Documents › Finance and Edit drawing Tree, the pane's stack is shared and parked
-    /// while Tree is drawn, so one pane shows `Documents/Finance` in Browse and `Documents` in Edit.
-    /// Reading Browse's folder, a hand-off of a file in Finance would take "already there", skip
-    /// the re-root, and leave Edit's Tree on Documents with the file's owed selection dropped.
+    /// The "already there" guard asks about the folder Edit will show, not Browse's. With Browse in
+    /// Columns at Documents › Finance and Edit in Tree on Documents, reading Browse's folder would
+    /// skip the re-root and leave Edit's Tree on Documents with the owed selection dropped.
     @Test func theHandOffAsksTheFolderEditWillShow() {
         let scene = Scene()
         scene.manager.navigatePane(isLeft: true, toCombinedPath: "Documents/Finance", drawsColumns: true)
@@ -218,11 +209,9 @@ import FileExplorer
 
     // MARK: The header's location, from Compare
 
-    /// What the header's "in <folder>" does to the comparison after a differences-list open. The
-    /// file is below the comparison's scope, so in Columns the door is a browse move inside it (no
-    /// re-scope, no scan, the ignores kept). In Tree it is a re-root (Tree has no column stack),
-    /// which re-scopes the comparison and clears the ignores, as the pane's own breadcrumb does in
-    /// Tree. That is deliberate: a Tree pane can't show a folder any other way.
+    /// The header's "in <folder>" after a differences-list open: in Columns a browse move inside the
+    /// scope (no re-scope, no scan, ignores kept); in Tree a re-root that re-scopes and clears the
+    /// ignores, deliberately, as a Tree pane can't show a folder any other way.
     @Test func theHeaderLocationFromCompareMovesColumnsButReRootsATree() {
         let location = EditorDocumentLocation(
             segments: [.init(name: "Cloud", target: ""), .init(name: "Documents", target: "Documents"),
@@ -267,10 +256,9 @@ import FileExplorer
         #expect(scene.log == ["Reveal in Browse from a rail row's menu: \(Self.file) — Browse already shows its folder"])
     }
 
-    /// Edit in Tree, Browse in Columns with its stack parked deeper. Revealing a file in the scope
-    /// Edit's Tree shows: `focusOn` of that scope is a no-op and would leave Browse on the parked
-    /// folder, without the file. Browse's own route is a browse move back to the scope, with no
-    /// re-scope and no scan.
+    /// Edit in Tree, Browse in Columns parked deeper: revealing a file at the scope is a browse move
+    /// back to it, with no re-scope or scan. `focusOn` of the scope is a no-op and would leave Browse
+    /// on the parked folder, without the file.
     @Test func aParkedStackDeeperThanTheFileIsBroughtBack() {
         let scene = Scene()
         scene.manager.navigatePane(isLeft: true, toCombinedPath: "Documents/Finance", drawsColumns: true)
@@ -316,10 +304,8 @@ import FileExplorer
         #expect(outside.log == ["Reveal in Browse from a rail row's menu: /elsewhere/a.md is outside the left source — Browse stays where it is"])
     }
 
-    /// Reveal in Browse is greyed exactly where the reveal would go nowhere. Both read one answer
-    /// (`browseTarget`), so the item is live for every file the pane can move to and greyed, with
-    /// its reason, for one outside the left source (from Compare's right side, or another source).
-    /// Fails if the refusal always answers `nil`.
+    /// Reveal in Browse is greyed, with its reason, only for a file outside the left source; the
+    /// item and the act both read `browseTarget`. Fails if the refusal always answers `nil`.
     @Test func revealInBrowseIsGreyedOnlyOutsideTheLeftSource() {
         #expect(EditorRevealInBrowse.refusal(for: Self.file, sourceRoot: Self.root, links: [:]) == nil)
         #expect(EditorRevealInBrowse.refusal(for: "/c/top.md", sourceRoot: Self.root, links: [:]) == nil,
@@ -334,14 +320,9 @@ import FileExplorer
                                              links: ["/c": ["Documents": "/home/Documents"]]) == nil)
     }
 
-    /// Reveal in Browse from Edit ends with the file selected in Browse, driven through the
-    /// functions the app runs on a real manager over a real folder: the act
-    /// (`EditorRevealInBrowse.reveal`), the debt as `owePaneSelection` records it (with the
-    /// workspace on screen then), the rule `settleOwedPaneSelection` asks with the pane's answers,
-    /// and the app's write. Columns (a browse move, listed at once) and Tree (a re-root, listed
-    /// once the refresh's walk lands). The file is a rail row that is not the open document, which
-    /// only Browse can pay, and the right pane's set is cleared by the payment. A debt recorded
-    /// before the switch would be Edit's, and Browse would drop it.
+    /// Reveal in Browse from Edit ends with the file selected in Browse and the right pane's set
+    /// cleared, in Columns and Tree, through the app's own act, debt, rule and write. Ordering: a
+    /// debt recorded before the switch to Browse would be Edit's, and Browse drops it.
     @MainActor @Test(arguments: [true, false])
     func revealInBrowseFromEditLandsWithTheFileSelected(browseDrawsColumns: Bool) async throws {
         // The real path (`realpath`, which keeps `/private`): a walk names its nodes by it, and the
@@ -355,9 +336,8 @@ import FileExplorer
         let file = "\(tax)/notes.md", open = "\(root)/Documents/letter.md"
         for path in [file, open] { try Data("x\n".utf8).write(to: URL(fileURLWithPath: path)) }
 
-        // Edit, with its pane (Tree) on Documents and a document open there; a set in the right
-        // pane. `loadTree` takes the source's root and walks the pane's folder under it, as the
-        // app's refresh does.
+        // Edit's Tree pane on Documents with a document open, and a set in the right pane.
+        // `loadTree` walks the pane's folder under the source's root, as the app's refresh does.
         let manager = FileSyncManager.scratch()
         manager.focusOn(relativePath: "Documents", isLeft: true)
         var paneFolder: String { PaneLogic.fullPath(root: root, relativePath: manager.leftRelativePath) }
@@ -400,7 +380,6 @@ import FileExplorer
 /// and in `EditorHandOffRunTests` (main-actor for its `FileSyncManager`s) it would run on the main
 /// thread and hold up every main-actor test in the process.
 @Suite struct EditorHandOffRunWiringTests {
-
     /// The app hands the act Edit's folder, through the one member that reads each workspace's
     /// view mode; `resolvedViewMode` is that member for the workspace on screen.
     @Test func theAppAsksForEditsFolder() throws {
@@ -415,14 +394,9 @@ import FileExplorer
                 "resolvedViewMode no longer delegates — two answers to one question")
     }
 
-    /// `handOffToEditor` runs this act with the window's own pieces, and with no pane named takes
-    /// the door's rule for its workspace (`EditorHandOffRun.pane(forDoorIn:isReviewing:)`), so
-    /// every door but the differences list moves the pane.
-    ///
-    /// Each argument is read by its label on the `EditorHandOffRun.run(` call, so the check is
-    /// about what is passed, not the layout. `paneRoot:` is what the act re-roots the pane under and
-    /// decides "inside the source" against, so only the left source's expanded root is right (`~`
-    /// is not a folder the pane can walk).
+    /// `handOffToEditor` runs the act with the window's own pieces, each read by its label, and never
+    /// moves the pane itself. `paneRoot:` must be the left source's expanded root: the act re-roots
+    /// under it, and `~` is not a folder the pane can walk.
     @Test func theAppRunsTheSharedActWithItsOwnPieces() throws {
         let body = try memberBody(
             "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {",
@@ -446,11 +420,8 @@ import FileExplorer
                 "handOffToEditor moves the pane itself — the variant's decision is bypassed")
     }
 
-    /// The differences list is the one `.staysPut` door; every other hand-off takes the default.
-    ///
-    /// Over the whole of `MacApp/` (``macAppSources()``), comments stripped and whitespace
-    /// normalised, so a `.staysPut` door added in any file is caught. Either spelling of the case
-    /// counts.
+    /// The differences list is the one `.staysPut` door, counted over all of `MacApp/`
+    /// (``macAppSources()``) in either spelling of the case.
     @Test func onlyTheDifferencesListLeavesThePane() throws {
         let app = CodeText(try macAppSources())
         let count = app.count(of: "pane: .staysPut") + app.count(of: "pane: EditorHandOffRun.Pane.staysPut")

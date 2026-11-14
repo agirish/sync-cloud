@@ -7,12 +7,10 @@ import FileExplorer
 
 /// Pointing a pane at a folder the Editor hand-off names.
 ///
-/// The prefix trap is why this is a named function. "Open in Edit" on a file deep in another
-/// source must decide whether it is inside the pane's root, and `hasPrefix` answers yes for a
-/// sibling that merely shares an opening, landing the pane somewhere real and wrong, which is
-/// worse than not moving it.
+/// "Open in Edit" must decide whether a file is inside the pane's root. `hasPrefix` answers yes
+/// for a sibling that merely shares an opening, landing the pane somewhere real and wrong, which
+/// is worse than not moving it.
 @Suite struct EditorHandOffTests {
-
     /// `(folder, root, expected)`, one row per case.
     @Test(arguments: [
         ("/Users/me/iCloud/Notes", "/Users/me/iCloud", "Notes"),
@@ -52,30 +50,22 @@ import FileExplorer
 /// Which rows it appears on is asserted inside `FileExplorer`, by `OpenInEditorVerbTests`, where
 /// `PairContentKind` (the table both the menu item and the editor's rail filter on) is visible.
 @Suite struct OpenInEditorMenuTests {
-
-    /// Every conformer answers the hand-off, and none inherits a silent no-op. The protocol's other
-    /// growth points (`handleChooseDestination`, the risky-name pair) have documented defaults
-    /// because their menu items are gated to hosts that implement them. This one is drawn on any
-    /// text row, so a default would be a menu item that quietly does nothing.
+    /// Every conformer answers the hand-off; none inherits a silent no-op. Unlike
+    /// `handleChooseDestination`, its item is drawn on any text row, so a default would be a menu
+    /// item that quietly does nothing.
     @Test func theHandOffIsARequirementRatherThanADefaultedMember() throws {
         let source = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileActionDelegate.swift")
         let body = CodeText(try declarationBody(of: "public protocol FileActionDelegate", in: source))
         #expect(body.contains("func handleOpenInEditor(_ path: String)"),
                 "the hand-off is no longer a protocol requirement — a conformer can now inherit a no-op")
-        // …and no default hides in an extension, below the protocol or above it: the requirement
-        // is the file's only declaration of it, in code.
+        // …and no default hides in an extension: the requirement is the file's only declaration.
         #expect(CodeText(source).count(of: "func handleOpenInEditor") == 1,
                 "a default implementation of the hand-off was added — conformers can stop answering")
     }
 
-    /// The delegate the app really wires forwards the path to its closure.
-    ///
-    /// `PaneActionDelegate` is the only conformer the app builds, and `handleOpenInEditor` is a
-    /// one-line forward, the shape that gets reviewed by eye and never run, so this drives the
-    /// production type rather than a recorder of its own.
-    ///
-    /// The forward takes no pane: the editor reads only the left pane, so re-rooting "the pane the
-    /// row was in" would move a pane the editor never draws while the rail lists the left one.
+    /// The app's real `PaneActionDelegate` forwards the path to its closure, driven as the
+    /// production type. The forward takes no pane: the editor reads only the left pane, so
+    /// re-rooting "the row's pane" would move a pane the editor never draws.
     @MainActor
     @Test func theDelegateForwardsThePathAndSaysNothingAboutWhichPane() {
         final class Box: @unchecked Sendable { var paths: [String] = [] }
@@ -91,15 +81,9 @@ import FileExplorer
                 "the delegate did not forward the paths it was handed")
     }
 
-    /// The two doors the app wires itself: the Info inspector and File ▸ Open in Edit.
-    ///
-    /// Their pure rules and mounted tests inject their own closures, so `open: { _ in }` at the
-    /// inspector's construction site, or a menu closure that does nothing, would leave every suite
-    /// green while the button or ⌘O did nothing. So the two construction sites are scanned.
-    ///
-    /// The predicate half matters as much as the action: `opensInEdit: true` in the menu, or
-    /// `isOffered: { _ in true }` in the inspector, would offer a PDF to a text editor, and the
-    /// resolver's own tests can't see it because they inject `opensInEdit` directly.
+    /// The Info inspector and File ▸ Open in Edit are wired to the real hand-off and predicate.
+    /// Other tests inject their own closures, so `open: { _ in }` here would stay green; and
+    /// `opensInEdit: true` or `isOffered: { _ in true }` would offer a PDF to a text editor.
     @Test func theInspectorAndTheFileMenuAreWiredToTheRealHandOff() throws {
         // Info lives in the pane now, built in `ContentView+PaneInfo.swift`.
         let content = sourceCodeOnly(try macAppFile("ContentView+PaneInfo.swift"))
@@ -128,13 +112,9 @@ import FileExplorer
                 "File ▸ Open in Edit is not wired to the delegate's hand-off")
     }
 
-    /// Compare's differences list: the fifth door, wired to the same hand-off.
-    ///
-    /// `DifferencesView` takes its editor as an optional closure defaulting to `nil` (as
-    /// `onQuickLook` does, and as package tests construct it), so only this argument at the app's
-    /// one construction site puts Open in Edit on a differences row. Dropping it compiles and draws
-    /// no editor items; `{ _ in }` draws items that do nothing. The drawn tests in
-    /// `DifferenceRowMenuDrawnTests` inject their own closure and see neither.
+    /// Compare's differences list is wired to the same hand-off. `DifferencesView`'s editor closure
+    /// defaults to `nil`, so dropping it here compiles and draws no items, and `{ _ in }` draws
+    /// dead ones; `DifferenceRowMenuDrawnTests` inject their own closure and see neither.
     @Test func theDifferencesListIsWiredToTheRealHandOff() throws {
         let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         // The construction's own argument list, not the rest of its first line, so a call broken
@@ -147,9 +127,8 @@ import FileExplorer
         // title two columns alike.
         #expect(differences.passes("paneNames", "paneNames"),
                 "the Differences table no longer takes the disambiguated pane names")
-        // `.staysPut`: the differences list opens the file without moving the left pane, which is
-        // half of the comparison the list shows. `EditorHandOffRunTests` measures what each
-        // variant does to a real pane.
+        // `.staysPut`: the left pane is half the comparison, so it must not move.
+        // `EditorHandOffRunTests` measures what each variant does to a real pane.
         #expect(differences.passes("onOpenInEditor", "{ handOffToEditor($0, pane: .staysPut) }"),
                 "the differences list's Open in Edit is not wired to the hand-off that leaves the pane where it is")
         // Exactly one construction, so the call read above is the one.
@@ -157,13 +136,9 @@ import FileExplorer
                 "a second DifferencesView construction appeared — scan it too")
     }
 
-    /// A duplicate copy's row menu reaches the real hand-off, through both hops.
-    ///
-    /// `DuplicateRowMenuTests` drives the card with its own recorder, which stays green when the
-    /// app's closure is `{ _ in }`. The card's parameter has no default, but the lens can pass nil,
-    /// and the lens's own parameter defaults to nil, so the app can forget outright. Both hops are
-    /// read: the app hands the lens `handOffToEditor`, and the lens hands the card what it was
-    /// given, deciding nothing on the way.
+    /// A duplicate copy's row menu reaches the real hand-off through both hops: app to lens, lens
+    /// to card, deciding nothing on the way. The lens's parameter defaults to nil and
+    /// `DuplicateRowMenuTests` uses its own recorder, so neither would catch a dropped closure.
     @Test func theDuplicateRowMenuIsWiredToTheRealHandOff() throws {
         let content = sourceCodeOnly(try macAppFile("ContentView.swift"))
         // The construction's own argument list, read by label.
@@ -189,12 +164,9 @@ import FileExplorer
 
 /// The Edit rail's row menu, wired to the app's real acts.
 ///
-/// `EditorRailRowMenuTests` in FileExplorer proves the menu's order, its words, that each item
-/// hands on the row's path, and that the workspace forwards its closures to the rail. It can't see
-/// what the app passes in: `onGetInfo: { _ in }` at the one construction site would draw the item
-/// and do nothing.
+/// `EditorRailRowMenuTests` in FileExplorer proves the menu itself and its forwarding; it can't see
+/// what the app passes in, where `{ _ in }` would draw an item that does nothing.
 @Suite struct EditorRailRowMenuWiringTests {
-
     /// The app's one `EditorWorkspaceView` construction, read by label.
     static func workspaceConstruction() throws -> CallArguments {
         let editor = try macAppFile("ContentView+Editor.swift")
@@ -229,9 +201,8 @@ import FileExplorer
                 "the rail row menu's Quick Look is not wired to the window's shared panel")
     }
 
-    /// Four more acts, wired to the app's own: Download to Edit's download (Browse's verb, then
-    /// open on arrival); the greying to the reveal's own reach; Rename and Delete to Browse's
-    /// handler (its prompt, its confirmation) on a node for the row's file.
+    /// Download goes to Edit's download, Rename and Delete to Browse's handler (its prompt, its
+    /// confirmation), and Reveal's greying to the reveal's own reach.
     @Test func downloadRenameDeleteAndTheGreyingAreWired() throws {
         let rail = try Self.railRowActions()
         #expect(rail.passes("download", "{ path in downloadFromEdit(path) }"),

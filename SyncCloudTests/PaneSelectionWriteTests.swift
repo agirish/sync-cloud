@@ -4,15 +4,12 @@ import Sync
 @testable import SyncCloud
 
 /// The order of a pane click's two halves. A click commits its own pane synchronously and clears
-/// the other pane a runloop turn later: clearing it synchronously reloads that pane's `List`
-/// mid-commit and drops the click. The deferred clear must not wipe a second click that lands in
-/// the other pane before it drains, or that click reads as ignored.
-///
-/// These drive `applySelectionWrite` with an explicit scheduler, so the interleaving is exact, not
-/// a race the test hopes to hit.
+/// the other a runloop turn later: clearing synchronously reloads that pane's `List` mid-commit
+/// and drops the click. The deferred clear must not wipe a second click that lands in the other
+/// pane before it drains, or that click reads as ignored. An explicit scheduler makes the
+/// interleaving exact, not a race the test hopes to hit.
 @MainActor
 @Suite struct PaneSelectionWriteTests {
-
     /// Stands in for `FileSyncManager`'s selection properties.
     private final class State: PaneSelectionState {
         var selectedLeftPaths: Set<String> = []
@@ -49,15 +46,14 @@ import Sync
         #expect(state.selectedLeftPaths == ["/left/a"])
         #expect(queue.blocks.count == 1)
 
-        // Click the right pane before that block drains, as when the main thread is busy rebuilding
-        // a Columns stack (and mirroring it onto the linked pane).
+        // Click the right pane before that block drains, as when the main thread is busy rebuilding a
+        // Columns stack.
         write(["/right/b"], isLeft: false, state, sequencer, queue)
         #expect(state.selectedRightPaths == ["/right/b"])
 
         queue.drain()
 
-        // The right click must survive: without the token guard, the left click's queued clear
-        // would write `[]` over it here.
+        // Without the token guard, the left click's queued clear would write `[]` over it here.
         #expect(state.selectedRightPaths == ["/right/b"],
                 "the earlier left-pane click's deferred clear wiped the right-pane click")
         // The invariant still holds: the newer click's own deferral cleared the left pane.
@@ -145,17 +141,16 @@ import Sync
     }
 }
 
-/// The pane half of the Space → Quick Look tie-break: a pane click must claim the surface token,
-/// or the Differences table keeps priority and Space previews its row while the user works in a
-/// pane. Driven through `applySelectionWrite`, which every pane selection write passes through.
+/// A pane click must claim the Space → Quick Look surface token, or the Differences table keeps
+/// priority and Space previews its row while the user works in a pane. Driven through
+/// `applySelectionWrite`, which every pane selection write passes through.
 @MainActor
 @Suite struct PaneSelectionSurfaceTokenTests {
-
     private final class State: PaneSelectionState {
         var selectedLeftPaths: Set<String> = []
         var selectedRightPaths: Set<String> = []
-        /// Counts writes, not just the final value: the token is `@Published` on the real manager
-        /// and the panes re-render off it, so a redundant write per click is a cost, not a detail.
+        /// Counts writes: the token is `@Published` and the panes re-render off it, so a redundant write
+        /// per click is a cost.
         private(set) var surfaceWrites = 0
         var lastSelectionSurface: SelectionSurface? = nil {
             didSet { surfaceWrites += 1 }
@@ -176,8 +171,8 @@ import Sync
         #expect(state.lastSelectionSurface == .pane)
     }
 
-    /// A clear means "not this any more", not "the panes now". Handing the token to a surface
-    /// holding nothing would point Space at an empty pane and make it dead.
+    /// A clear means "not this any more", not "the panes now": handing the token to an empty surface
+    /// would make Space dead.
     @Test func anEmptyWriteDoesNotClaimTheToken() {
         let state = State()
         state.lastSelectionSurface = .differences

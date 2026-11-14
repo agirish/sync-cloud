@@ -38,12 +38,9 @@ private struct ColumnProbeView: View {
     /// How many hosting views the column holds.
     private func hosts(in column: NSView) -> Int { column.subviews.filter { $0 is NSHostingView<AnyView> }.count }
 
-    /// The column is one slot, but SwiftUI builds it a new column view whenever it comes back: from
-    /// being tucked away over a narrow window, or when the surface style changes its frame. The dock
-    /// moves its one hosting view into whichever column view it is handed. Each move SwiftUI reports
-    /// as a disappearance and an appearance, which the panel treats as a move, so what lives in it
-    /// (the draft, a running voice) is built once. Mutation: the dock building a host per column view
-    /// must fail the state count.
+    /// SwiftUI builds the column a new view whenever it comes back (untucked, or restyled), and the
+    /// dock moves its one hosting view into it, so the draft and a running voice are built once.
+    /// Mutation: the dock building a host per column view must fail the state count.
     @Test func theHostMovesBetweenColumnViewsWithoutRebuilding() async throws {
         let window = offscreenWindow()
         let first = AskClaudeColumnView(frame: NSRect(x: 628, y: 0, width: 372, height: 760))

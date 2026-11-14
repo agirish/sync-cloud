@@ -47,11 +47,8 @@ import Testing
         #expect(SetupDraftStore.read(at: url) == nil)
     }
 
-    /// Absent and unreadable both answer `nil`, and only unreadable says so in the log.
-    ///
-    /// Absent is every launch before the user answers anything. Unreadable means answers they gave
-    /// are about to be asked for again, and this file is their only copy, so it earns a line in
-    /// `~/sync-cloud.log` naming the path.
+    /// Absent and unreadable both answer `nil`, and only unreadable logs a line naming the path:
+    /// answers the user gave are about to be asked for again, and this file was their only copy.
     ///
     /// Read from a capture opened before each read, since `Logger.shared` is process-wide and
     /// rolled; each window requires its own closing line, so one that saw nothing can't pass.

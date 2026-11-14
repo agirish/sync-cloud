@@ -5,19 +5,15 @@ import Foundation
 /// The auto-rescan refreshes the subject, not wherever the pane is standing.
 /// `autoRescanLensIfShowing` fires on every pane-folder change; aimed at the pane, browsing from a
 /// scoped `Legal` into another scanned folder would republish `filingSuggestions` with that
-/// folder's files, which the scope then filters to nothing, and To File empties unexplained.
-///
-/// `ContentView` has no seam to instantiate here, so the wiring is read from source, bounded by
-/// the declaration's closing brace, failing loudly if the declaration can't be found.
+/// folder's files, which the scope filters to nothing, and To File empties unexplained.
+/// `ContentView` can't be instantiated here, so the wiring is read from source.
 @Suite struct OrganizeScopeAutoRescanTests {
-
     @Test func theAutoRescanPrefersTheScopeOverThePane() throws {
         let source = try macAppFile("ContentView.swift")
         let body = try declarationBody(of: "func autoRescanLensIfShowing() {", in: source)
         #expect(body.contains("let target = organizeScope?.path ?? lensScanRootExpanded"),
                 "the auto-rescan is aimed at the pane again — browsing will replace a scoped queue")
-        // Both arms must use it: one left on the pane root breaks that lens alone, which is easy to
-        // miss.
+        // Both arms must use it: one left on the pane root breaks that lens alone, easy to miss.
         #expect(body.contains("autoRescanDuplicatesIfEligible(root: URL(fileURLWithPath: target)"))
         #expect(body.contains("folder: URL(fileURLWithPath: target)"))
         // And neither arm may still read the pane directly.
@@ -25,9 +21,8 @@ import Foundation
                 "an arm is still resolving the pane's folder as its scan target")
     }
 
-    /// The same rule for the scans the user starts by hand: `findDuplicatesAction` and
-    /// `findFilingSuggestionsAction`, behind every run control on the All screen. Aimed at the
-    /// pane, a Rescan scoped to `Legal` with the pane in `Photos/2024` would hash `Photos/2024`,
+    /// The same rule for the hand-started scans behind every run control on the All screen: aimed at
+    /// the pane, a Rescan scoped to `Legal` with the pane in `Photos/2024` would hash `Photos/2024`,
     /// replace the duplicate list, and report `Legal` clean.
     @Test func theManualScansPreferTheScopeOverThePaneToo() throws {
         let source = try macAppFile("ContentView.swift")
@@ -40,22 +35,17 @@ import Foundation
                                          in: source)
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
-        // File Into's folder is the taxonomy root: the source anchor unless the source is a folder
-        // or the user chose another, for the reason below.
+        // File Into's folder is the taxonomy root: the source anchor unless the source is a folder or
+        // the user chose another.
         #expect(filing.contains("let root = lensFilingDestinationRoot"))
     }
 
     @Test func theSourceAnchorIsStillTheTaxonomyRoot() throws {
         // The scope narrows what is scanned; destinations still anchor at the source, or a rule's
-        // "Home/Utilities/…" would nest under whatever subtree is scoped.
-        //
-        // The anchor (the landing folder), not the account root above it: destinations and
-        // taxonomies are relative to the documents folder, so anchoring at the root would repoint
-        // them all silently. `TODO`, the inbox default, can name a real folder at both levels of a
-        // OneDrive account. See `ContentView.lensProviderAnchorExpanded`.
-        //
-        // The root is File Into's folder, which for a cloud source with no choice made is the
-        // anchor, so the anchor rule lives in `filingDestinationRoot(forProviderId:)`, pinned here.
+        // "Home/Utilities/…" would nest under the scoped subtree. The anchor (the landing folder), not
+        // the account root: taxonomies are relative to the documents folder, and `TODO` can name a real
+        // folder at both levels of a OneDrive account. See `ContentView.lensProviderAnchorExpanded`; the
+        // rule lives in `filingDestinationRoot(forProviderId:)`, pinned here.
         let source = try macAppFile("ContentView.swift")
         let body = try declarationBody(of: "func autoRescanLensIfShowing() {", in: source)
         #expect(body.contains("let root = lensFilingDestinationRoot"))
@@ -68,9 +58,9 @@ import Foundation
         #expect(fileInto.contains("var lensFilingDestinationRoot: String { filingDestinationRoot(forProviderId: lensProviderId) }"))
     }
 
-    /// Every entry point that starts a filing scan files into File Into's folder, and says when
-    /// that tree isn't the source, so Names and Renames aren't answered about another tree. Row
-    /// menus resolve it from the row's anchor, not the focused pane's.
+    /// Every filing scan files into File Into's folder and says when that tree isn't the source, so
+    /// Names and Renames aren't answered about another tree. Row menus resolve it from the row's
+    /// anchor, not the focused pane's.
     @Test func everyFilingScanFilesIntoFileIntosFolder() throws {
         let source = try macAppFile("ContentView.swift")
         let manual = try declarationBody(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {", in: source)
@@ -84,14 +74,11 @@ import Foundation
         #expect(source.contains("fileInto: fileIntoChoice,"), "the lens is not handed File Into")
     }
 
-    /// The lens workspace is handed both folders, and each of its two questions gets the right one.
-    /// Given only the root, the rule editor would store `…/OneDrive-X/Documents/Invoices` as
-    /// `Documents/Invoices` and the preview would apply it at `…/Documents/Documents/Invoices`,
-    /// creating a folder and moving files into it. And `looseFileScanCovers`, comparing by
-    /// equality, would report a finished unscoped pass as never run.
-    ///
-    /// A source scan, because both values are plain strings: swapped, they compile and run and
-    /// produce wrong folders, not an error.
+    /// The lens workspace gets both folders, each to the right question. Given only the root, the rule
+    /// editor would store `…/OneDrive-X/Documents/Invoices` as `Documents/Invoices` and the preview
+    /// would create `…/Documents/Documents/Invoices` and move files into it; `looseFileScanCovers`
+    /// would report a finished unscoped pass as never run. Scanned: both are plain strings, so a swap
+    /// compiles and runs.
     @Test func theLensWorkspaceGetsTheAnchorAndTheRootSeparately() throws {
         let source = try macAppFile("ContentView.swift")
         // A `Comment` takes a literal, not a concatenation — kept on one line each.
@@ -101,8 +88,7 @@ import Foundation
                 "the scope lost the root that bounds it: a folder above the landing folder now normalizes to the global view")
     }
 
-    /// The other actions that anchor at the taxonomy, so swapping one back to
-    /// `lensProviderRootExpanded` fails here too.
+    /// The other taxonomy-anchored actions, so swapping one back to `lensProviderRootExpanded` fails.
     @Test func everyTaxonomyAnchoredActionUsesTheAnchor() throws {
         let source = try macAppFile("ContentView.swift")
         let survey = try declarationBody(of: "func updateFolderMemoryAction() {", in: source)

@@ -5,11 +5,8 @@ import FileExplorer
 
 /// The toolbar actually mounts the ⌘K pill, and mounts it wired to the palette.
 ///
-/// `CommandPaletteBarTests` and `WorkspaceBarMetricsTests` all stay green if the toolbar never
-/// draws the control, draws it with a hard-coded rung, or hangs a different action off it.
-/// `mainToolbar` is a `ToolbarContent` builder that cannot be instantiated and inspected, so this
-/// is a source scan: it names the file it reads and fails if it cannot be found, and each check
-/// asserts a string whose absence is exactly the regression guarded.
+/// The pill's own tests stay green if the toolbar never draws it, draws a hard-coded rung, or hangs
+/// a different action off it. `mainToolbar` can't be instantiated, so this is a source scan.
 @Suite struct ToolbarPaletteBarCallSiteTests {
 
     @Test func theToolbarDrawsThePillAndOpensThePaletteWithIt() throws {

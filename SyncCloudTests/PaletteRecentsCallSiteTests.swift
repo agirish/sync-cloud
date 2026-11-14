@@ -9,7 +9,6 @@ import Dashboard
 /// so the wiring is checked in source: name the file, fail if it can't be read, and assert strings
 /// whose absence is the regression.
 @Suite struct PaletteRecentsCallSiteTests {
-
     @Test func bothStoredListsAreResolvedBeforeTheyReachTheRouter() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         // The raw hand-off is the regression: it offers a row whose destination is not there.

@@ -145,7 +145,7 @@ import Sync
         var landed: [String: SettingValue] = [:]
         let undo = AskClaudeSettingsUndo()
         undo.read = { store.values[$0.id] }
-        // Each write waits for "discovery" to land.
+        // Each write lands at once; `landed` stands in for the rediscovered sources.
         undo.write = { key, value in landed[key.id] = value; return true }
         let card = UUID()
         let key = AskClaudeSettingsLedger.Key(id: "sources.name", target: nil)

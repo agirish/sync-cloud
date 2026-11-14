@@ -5,13 +5,11 @@ import UserNotifications
 import Settings
 import Sync
 
-/// Pins the background-notification path end to end, short of UNUserNotificationCenter: the gate,
-/// the titles, the request `postIfEnabled` builds (via the injected `post` seam), and that the app
-/// actually calls it. Without the call-site pin, deleting one line would ship the feature dead
-/// with every other test green.
+/// The background-notification path end to end, short of UNUserNotificationCenter: the gate, the
+/// titles, the request `postIfEnabled` builds (via the injected `post` seam), and that the app
+/// calls it at all.
 @MainActor
 @Suite struct OperationNotifierTests {
-
     @Test func testTitlesPerSeverity() {
         #expect(OperationNotifier.title(for: .success) == "Operation complete")
         #expect(OperationNotifier.title(for: .warning) == "Operation finished with warnings")
@@ -57,8 +55,7 @@ import Sync
         let now = Date()
         #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-1)),
                                            now: now) == "Copying 12 items")
-        // The same window as the app's own routing: a copy that ended 5 s before another message
-        // is not that message's run.
+        // As in the app's routing, a copy that ended 5 s earlier is not this message's run.
         #expect(OperationNotifier.runTitle(lastFinished: (title: "Copying 12 items", ended: now.addingTimeInterval(-5)),
                                            now: now) == nil)
         #expect(OperationNotifier.runTitle(lastFinished: nil, now: now) == nil)

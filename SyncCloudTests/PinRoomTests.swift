@@ -95,7 +95,7 @@ import Testing
     }
 
     /// The window feeds the rule the sidebar it brought back by hand and the rail's split as drawn,
-    /// a drag's value first. Before, neither reached it, and the rule read its defaults.
+    /// a drag's value first, not its defaults.
     @Test func theWindowFeedsTheRuleTheReopenedSidebarAndTheLiveRail() throws {
         let call = try CallArguments(of: "PaneLogic.PinRoomInput(", in: normalizedCode(macAppFile("ContentView+AskClaude.swift")))
         #expect(call.passes("sidebarReopenedByHand", "askClaudePinSidebarShown"))

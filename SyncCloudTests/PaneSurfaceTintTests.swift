@@ -2,21 +2,18 @@ import Foundation
 import Testing
 @testable import SyncCloud
 
-/// Every surface a pane owns takes the same accent wash. A pane is three views in one `VStack`
-/// (tab strip, header, file list) that read as one surface only because all three paint
-/// `contentSurface(hue:tint:)`. One without it shows as a pale stripe at a high Tint, and nothing
-/// else fails, since a missing wash just looks like the window behind it. Pinned for all three.
+/// Every surface a pane owns takes the same accent wash. The tab strip, header and file list read
+/// as one surface only because all three paint `contentSurface(hue:tint:)`; one without it shows as
+/// a pale stripe at a high Tint, and nothing else fails.
 @MainActor
 @Suite struct PaneSurfaceTintTests {
-
     private static let wash = ".contentSurface(hue: glassHue, tint: surfaceTint)"
 
     /// A file from the repo, comment-stripped.
     private static func codeFile(_ relativePath: String) throws -> String { sourceCodeOnly(try repoFile(relativePath)) }
 
-    /// The modifier chain on the `PaneTabStrip(...)` call, from its balanced closing parenthesis
-    /// to the next view in the stack. Bounded by `PaneHeader(`, the structural boundary, not a
-    /// character budget, which an unrelated edit can push past.
+    /// The modifier chain on the `PaneTabStrip(...)` call, bounded by the next view, `PaneHeader(`,
+    /// rather than a character budget an unrelated edit can push past.
     private static func stripModifiers(in source: String) throws -> String {
         let spans = PaneTabWiringTests.callSpans(of: "PaneTabStrip(", in: source)
         try #require(spans.count == 1,
@@ -30,9 +27,8 @@ import Testing
     // MARK: - The three surfaces
 
     @Test func theWashIsAppliedBeforeTheCardClips() throws {
-        // The wash must come before the card: applied after `surfaceCard` clips, it squares off
-        // the rounded corners (as `bottomSectionCard` documents). `contains` can't see order, so
-        // this compares positions.
+        // Applied after `surfaceCard` clips, the wash squares off the rounded corners
+        // (`bottomSectionCard`), so this compares positions.
         let chain = try Self.stripModifiers(in: try Self.codeFile("MacApp/ContentView.swift"))
         let wash = try #require(chain.range(of: Self.wash))
         let card = try #require(chain.range(of: ".paneCardIfNeeded("))
@@ -45,8 +41,7 @@ import Testing
     @Test func theHeaderTakesTheWash() throws {
         let source = try Self.codeFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
         let header = try declarationBody(of: "public struct PaneHeader: View {", in: source)
-        // The slice is the header's own body, not the whole file: the header's height pin anchors
-        // it, and the boundary really cut something.
+        // The slice is the header's own body: anchored on its height pin, and shorter than the file.
         try #require(header.contains(".frame(height: LiquidGlass.headerHeight)"),
                      "the slice does not contain the header's own height pin — it is not the right region")
         try #require(header.count < source.count,
@@ -56,8 +51,7 @@ import Testing
     }
 
     @Test func theFileListTakesTheWash() throws {
-        // Both presentations: Tree and Columns are separate branches, and washing only one would
-        // change the pane's colour when the view mode switches.
+        // Tree and Columns are separate branches; washing one would change colour on a mode switch.
         let source = try Self.codeFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         let count = source.components(separatedBy: Self.wash).count - 1
         #expect(count >= 2, "expected the Tree and Columns branches to be washed, found \(count)")

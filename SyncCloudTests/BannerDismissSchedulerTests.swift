@@ -132,7 +132,7 @@ private final class ManualSleeper: @unchecked Sendable {
         await waitUntil("the warning timer starts") { clock.pendingCount == 1 }
 
         // Asserted directly rather than inferred from elapsed time: the window asked for is the
-        // warning one, and it is longer than a success window.
+        // warning one.
         #expect(clock.requestedDelays == [Self.warningDelay])
         #expect(dismissCount == 0)
 
@@ -420,10 +420,8 @@ private final class ManualSleeper: @unchecked Sendable {
         scheduler.adoptExistingBanner(.success("Copied 2 files")) { dismissCount += 1 }
 
         // Asserted on the handle, which `startTimer` assigns synchronously: `requestedDelays` grows
-        // only when a spawned task runs, so it can't tell "no second window" from "one not yet
-        // scheduled". Deleting the idempotence half of the guard (`dismissTask == nil,
-        // currentDelay == nil`) must fail this: re-entering `bannerChanged` cancels the live timer
-        // and replaces the handle.
+        // only when a spawned task runs. Mutation: deleting the guard's idempotence half
+        // (`dismissTask == nil, currentDelay == nil`) must fail this.
         #expect(scheduler.currentTimerTask == running, "adopting must not replace the running timer")
         #expect(running?.isCancelled == false, "adopting must not cancel the window already counting down")
         #expect(clock.requestedDelays == [Self.successDelay], "adopting must not start a second window")

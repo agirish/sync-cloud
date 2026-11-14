@@ -8,13 +8,11 @@ import Testing
 
 /// ⌘+, ⌘− and ⌘0 while a PDF's pages have the keyboard: `PDFZoomVerbs` and `TextSizeMenuRoute`.
 ///
-/// Everywhere else the same chords are View ▸ Text Size, pinned by `TextMarkupMenuTests` and
-/// `AppChordTests`. This holds the fork: with the reader focused the keys zoom the PDF and the text
-/// size doesn't move; otherwise the reverse. Whether the pages have the keyboard is the page view's
-/// to say (`EditorPDFLayoutTests.theFocusIsThePagesOwnAndFollowsTheFirstResponder`).
+/// Everywhere else these chords are View ▸ Text Size (`TextMarkupMenuTests`, `AppChordTests`).
+/// With the reader focused they zoom the PDF and leave the text size; otherwise the reverse. Focus
+/// is the page view's to say (`EditorPDFLayoutTests.theFocusIsThePagesOwnAndFollowsTheFirstResponder`).
 @MainActor
 @Suite(.serialized) final class PDFZoomMenuTests {
-
     let folder = NSTemporaryDirectory() + "pdf-zoom-" + UUID().uuidString
     private let defaults = TestDefaults().defaults
 

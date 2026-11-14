@@ -32,12 +32,9 @@ import Sync
         #expect(first.folder == second.folder)
     }
 
-    /// Menu availability and the handler read one answer. `RestructureVerbResolver.resolve` owns
-    /// and tests the decision, but no test can call both sites (`ContentView` can't be built here,
-    /// and `carryOut` is private to another package's view). So this checks both pass the store
-    /// gate and the scaffolded set. It can't see a wrong value, only a site that skips one, which
-    /// would offer `Plan…` on a store the card withholds it for, or keep `Set Up Like Its Siblings`
-    /// enabled after its scaffold landed.
+    /// Menu availability and the handler read one answer from `RestructureVerbResolver.resolve`.
+    /// Neither site can be called here, so this checks both pass the store gate and the scaffolded
+    /// set: it can't see a wrong value, only a site that skips one.
     @Test func bothCallSitesAskTheResolverTheSameQuestion() throws {
         let menu = try macAppFile("ShortcutCommands.swift")
         let workspace = try repoFile("Modules/FileExplorer/Sources/FileExplorer/LensWorkspaceView.swift")

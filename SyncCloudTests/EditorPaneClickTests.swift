@@ -1,14 +1,10 @@
 import Testing
 @testable import SyncCloud
 
-/// In Edit the open source pane is the file list, so one click opens; plus the five guards that
-/// keep that from meaning anything else, one case each. The rule is
-/// `ContentView.paneSelectionOpens`, a pure function, because the observer that calls it hangs off
-/// `ContentView`'s body and can't be driven from a unit test. What the observer adds (arrow keys
-/// move the same selection; the path goes to `openInEditor`, not the re-rooting hand-off) is stated
-/// on the function.
+/// In Edit the open source pane is the file list, so one click opens, and the guards that keep it
+/// from meaning anything else, one case each. `ContentView.paneSelectionOpens` is pure because its
+/// observer hangs off `ContentView`'s body and can't be driven from a test.
 @Suite struct EditorPaneClickTests {
-
     private func opens(workspace: Workspace = .editor, paneHidden: Bool = false,
                        paths: Set<String> = ["/a/notes.md"], isDirectory: Bool? = false) -> String? {
         ContentView.paneSelectionOpens(workspace: workspace, paneHidden: paneHidden,

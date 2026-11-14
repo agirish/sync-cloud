@@ -4,21 +4,19 @@ import Sync
 import Testing
 import Foundation
 
-/// What Recents subtracts because the column already offers it: the host half of the rule in
-/// `FolderSidebarModelTests`. The rule, `FolderSidebarModel.rows`, is pure and tested where it
-/// lives. What it can't see is whether the map handed to it is keyed and spelled the way the
-/// recents are; get either wrong and nothing fails or logs (the silent no-op
-/// `FolderSidebarLandingsTests` also guards against).
+/// What Recents subtracts because the column already offers it: the host half of
+/// `FolderSidebarModel.rows`, which is tested where it lives. What it can't see is whether the map
+/// handed to it is keyed and spelled as the recents are; get either wrong and nothing fails or
+/// logs (the silent no-op `FolderSidebarLandingsTests` also guards against).
 @Suite struct FolderSidebarListedElsewhereTests {
-
     private func row(_ path: String, band: SidebarSourceRow.Band = .shortcut) -> SidebarSourceRow {
         SidebarSourceRow(id: path, name: (path as NSString).lastPathComponent, detail: nil,
                          symbol: "folder", absolutePath: path, band: band,
                          state: .unknown, isAvailable: true)
     }
 
-    /// The ordinary case: a Favorites place inside a source becomes that source's relative path,
-    /// which is the spelling a recent is stored under.
+    /// A Favorites place inside a source becomes that source's relative path, the spelling a recent
+    /// is stored under.
     @Test func aPlaceInsideASourceBecomesThatSourcesRelativePath() {
         let listed = ContentView.folderSidebarListedElsewhere(
             [row("/Users/x/Desktop"), row("/Users/x/Documents")],
@@ -26,27 +24,25 @@ import Foundation
         #expect(listed["/Users/x"] == ["Desktop", "Documents"])
     }
 
-    /// The root itself yields nothing. A Locations row is its source, so it relativizes to the empty
-    /// path, and a root is never a recent (`FolderJumpStore.recordVisit` refuses one), so there is
-    /// nothing to subtract. `""` in the set would be a member nothing reads.
+    /// The root itself yields nothing: it relativizes to the empty path, and a root is never a recent
+    /// (`FolderJumpStore.recordVisit` refuses one).
     @Test func aRowThatIsTheRootItselfContributesNothing() {
         let listed = ContentView.folderSidebarListedElsewhere(
             [row("/Users/x/Dropbox", band: .cloud)], roots: ["/Users/x/Dropbox"], links: [:])
         #expect(listed["/Users/x/Dropbox"] == nil)
     }
 
-    /// A place outside every source has no relative path and is absent: an external disk in
-    /// Locations says nothing about what is inside an iCloud account.
+    /// A place outside every source is absent: an external disk says nothing about what is inside an
+    /// iCloud account.
     @Test func aPlaceOutsideEverySourceIsNotListedUnderIt() {
         let listed = ContentView.folderSidebarListedElsewhere(
             [row("/Volumes/Backup", band: .device)], roots: ["/Users/x/Dropbox"], links: [:])
         #expect(listed.isEmpty)
     }
 
-    /// iCloud Drive's `Desktop` and `Documents` are links into the container, so the Favorites place
-    /// at `~/Documents` and the recent `Documents` under the iCloud root are one folder spelled two
-    /// ways that no prefix comparison relates. `PathBoundary.relativize` reads the links table; a
-    /// lexical-only version would subtract nothing and the duplicate row would stay.
+    /// iCloud Drive's `Desktop` and `Documents` are links into the container, so `~/Documents` and the
+    /// recent `Documents` under the iCloud root are one folder no prefix comparison relates.
+    /// `PathBoundary.relativize` reads the links table; a lexical-only version would subtract nothing.
     @Test func aLinkedFolderIsRelativizedThroughTheLinksTable() {
         let container = "/Users/x/Library/Mobile Documents/com~apple~CloudDocs"
         let links: PathBoundary.LinkedFolders = [container: ["Documents": "/Users/x/Documents"]]
@@ -58,8 +54,8 @@ import Foundation
         #expect(listed[container] == ["Documents"])
     }
 
-    /// Per root, and one path can be inside two roots: a source over the home folder and one over
-    /// `Sync` each get their own relative path for the place.
+    /// One path can be inside two roots: a source over home and one over `Sync` each get their own
+    /// relative path for the place.
     @Test func onePlaceCanBeListedUnderMoreThanOneRoot() {
         let listed = ContentView.folderSidebarListedElsewhere(
             [row("/Users/x/Sync/Shared")], roots: ["/Users/x", "/Users/x/Sync"], links: [:])
@@ -67,9 +63,8 @@ import Foundation
         #expect(listed["/Users/x/Sync"] == ["Shared"])
     }
 
-    /// A folder source keeps its `~` in Settings while recents are keyed on the expanded spelling.
-    /// The roots handed in are already `FolderJumpStore.key(forRoot:)`-normalised, so a row's tilde
-    /// is what must be expanded here; a raw `~/Desktop` matches no root and subtracts nothing.
+    /// A folder source keeps its `~` in Settings while recents are keyed on the expanded spelling,
+    /// so a row's tilde is expanded here; a raw `~/Desktop` matches no root and subtracts nothing.
     @Test func aRowsTildeIsExpandedBeforeItIsMatched() {
         let home = NSHomeDirectory()
         let listed = ContentView.folderSidebarListedElsewhere(
@@ -77,8 +72,7 @@ import Foundation
         #expect(listed[home] == ["Desktop"])
     }
 
-    /// No rows, or no sources: the empty map, which `FolderSidebarModel.rows` reads as "subtract
-    /// nothing". Both are real states; a first run has no folder sources.
+    /// No rows, or no sources (a first run has none): the empty map, read as "subtract nothing".
     @Test func nothingToMatchYieldsAnEmptyMap() {
         #expect(ContentView.folderSidebarListedElsewhere([], roots: ["/Users/x"], links: [:]).isEmpty)
         #expect(ContentView.folderSidebarListedElsewhere([row("/Users/x/Desktop")],

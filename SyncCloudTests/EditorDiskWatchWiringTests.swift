@@ -4,14 +4,10 @@ import FileExplorer
 @testable import SyncCloud
 
 /// The window half of the editor's disk watch, and the refreshes that keep the rail and panes
-/// current around it.
-///
-/// `ContentView` can't be built in a test, so the rules are extracted and run, and the call sites
-/// that connect them to the window are read: a rule one revert away from being unused is not
-/// covered by its own test.
+/// current around it. `ContentView` can't be built in a test, so the rules are extracted and run
+/// and their call sites read: a rule one revert away from unused is not covered by its own test.
 @MainActor
 @Suite struct EditorDiskWatchWiringTests {
-
     // MARK: A banner stops autosave; its going resumes it
 
     @Test func aBannerStopsAutosaveAndOnlyAnAgreeingDiskResumesIt() {
@@ -62,9 +58,7 @@ import FileExplorer
 
     /// Keep Mine… asks first, through every door: the banner, the ⌘S alert and the comparison
     /// sheet's foot all reach `applyDivergenceAnswer`'s `.saveAnyway` arm, which asks before the
-    /// write.
-    ///
-    /// Fails if `.saveAnyway` drops the consent or the banner's Keep Mine… goes straight to
+    /// write. Fails if `.saveAnyway` drops the consent or the banner goes straight to
     /// `writeEditorDocument`.
     @Test func keepMineAsksBeforeItWrites() throws {
         let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
@@ -96,15 +90,11 @@ import FileExplorer
         #expect(!EditorAlerts.isConfirmed(.alertSecondButtonReturn), "Cancel was read as consent")
     }
 
-    /// Keep Mine… replaces the version the user was asked about, and no later one.
-    ///
-    /// Stamped after the alert returns, a newer version a sync installed while the alert (or the
-    /// diff) was up would count as "agreed to" and be deleted as the backup, unexamined. So each
-    /// door stamps the disk when it puts the question (⌘S and autosave as they find the divergence,
-    /// the banner at the click, the diff as it opens) and carries that stamp to the write.
-    ///
-    /// Fails if the `.saveAnyway` arm stamps with `consentedTo: EditorFileStore.stamp(ofPath:
-    /// path)`, or any door drops its `seen:`.
+    /// Keep Mine… replaces the version the user was asked about, and no later one. Stamped after the
+    /// alert returns, a newer synced version would count as "agreed to" and be deleted as the backup
+    /// unexamined, so each door stamps the disk when it puts the question and carries that stamp to
+    /// the write. Fails if `.saveAnyway` stamps with `EditorFileStore.stamp(ofPath: path)`, or any
+    /// door drops its `seen:`.
     @Test func keepMineConsentsToTheVersionItAskedAbout() throws {
         let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
         let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
@@ -135,12 +125,9 @@ import FileExplorer
         #expect(foot.contains("path: review.path, explicit: review.explicit, seen: review.seen)"))
     }
 
-    /// A save that kept another version aside is a save, through every door. The store marks the
-    /// document saved and says where the other version went; the host must not read that as an
-    /// unchecked write and stop autosave.
-    ///
-    /// Fails if `writeEditorDocument` drops the `landed` catch or `.wroteKeepingAside` goes to a
-    /// stop.
+    /// A save that kept another version aside is a save, through every door: the host must not read
+    /// it as an unchecked write and stop autosave. Fails if `writeEditorDocument` drops the `landed`
+    /// catch or `.wroteKeepingAside` goes to a stop.
     @Test func aSaveThatKeptAnotherVersionAsideIsASave() throws {
         let write = try memberBody("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         let caught = try #require(write.range(
@@ -160,7 +147,7 @@ import FileExplorer
     }
 
     /// The sheet says ⌘Z brings the typing back only where it does: with the banner up, where Use
-    /// Disk Version is the undoable take.
+    /// Disk Version is undoable.
     @Test func theSheetIsToldWhetherTakingTheDiskIsUndoable() throws {
         let view = try macAppCode("ContentView.swift")
         let call = try CallArguments(of: "EditorDivergenceDiffOverlay(", in: normalizedCode(view))
@@ -207,9 +194,9 @@ import FileExplorer
         #expect(blocked.lowerBound < watch.lowerBound && watch.lowerBound < alert.lowerBound)
     }
 
-    /// The banner and the stop can't disagree for long: a blocked autosave the watch answers with
-    /// its banner re-latches the stop from it, and Compare latches it before reading it. A stop
-    /// cleared under a standing banner would leave Compare doing nothing and autosave free.
+    /// The banner and the stop can't disagree for long: a blocked autosave re-latches the stop from
+    /// the banner, and Compare latches it before reading it. A stop cleared under a standing banner
+    /// would leave Compare doing nothing and autosave free.
     @Test func theStopIsLatchedFromTheBannerWhereItIsRead() throws {
         let outcome = try memberBody("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)", inFile: "ContentView+Editor.swift")
         let asked = try #require(outcome.range(of: "case .asked:"))
@@ -243,9 +230,8 @@ import FileExplorer
     }
 
     /// ⌘S commits autosave's own landed write before it looks or asks: the call site for
-    /// `EditorAutosave.settleLandedWrite`, whose behaviour `EditorAutosaveSnapshotTests` measures
-    /// with a write held between its swap and its commit. The leave and quit flushes reach it
-    /// through `EditorAutosave.attempt`.
+    /// `EditorAutosave.settleLandedWrite` (measured by `EditorAutosaveSnapshotTests`). The leave and
+    /// quit flushes reach it through `EditorAutosave.attempt`.
     @Test func explicitSavesSettleAutosavesOwnWriteBeforeTheyAsk() throws {
         let save = try memberBody("func saveEditorDocument() -> Bool", inFile: "ContentView+Editor.swift")
         let settle = try #require(save.range(of: "if EditorAutosave.settleLandedWrite(into: editorDocument) {"))
@@ -257,9 +243,8 @@ import FileExplorer
                 "⌘S asks about the divergence before taking autosave's own write as saved")
     }
 
-    /// ⌘S on a clean document writes nothing, unless a stop stands, which ⌘S settles. The skip sits
-    /// after the divergence check, so a file that went or changed is still asked about, and stays
-    /// out of `writeEditorDocument`, which Keep Mine and Save Again write through.
+    /// ⌘S on a clean document writes nothing unless a stop stands. The skip sits after the divergence
+    /// check, so a gone or changed file is still asked about and stays out of `writeEditorDocument`.
     @Test func saveWithNothingChangedWritesNothing() throws {
         #expect(ContentView.saveHasNothingToWrite(isDirty: false, stop: nil))
         #expect(!ContentView.saveHasNothingToWrite(isDirty: true, stop: nil))

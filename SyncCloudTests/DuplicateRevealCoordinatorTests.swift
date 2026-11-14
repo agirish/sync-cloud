@@ -6,10 +6,8 @@ import Sync
 @testable import SyncCloud
 
 /// The app half of "Find duplicates of this": whether the results on screen already answer the
-/// question, and what the handoff does to the window.
-///
-/// "The workspace switched" is necessary but not sufficient: a switch that hands over no request
-/// lands the user on whatever Duplicates was showing, the failure this feature exists to avoid.
+/// question, and what the handoff does to the window. A switch that hands over no request lands
+/// the user on whatever Duplicates was showing, so the request is checked too.
 @MainActor
 @Suite struct DuplicateRevealCoordinatorTests {
 

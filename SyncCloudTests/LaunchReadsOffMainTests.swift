@@ -5,11 +5,9 @@ import Sync
 
 /// Two launch reads that would hold the first window, asked off the main thread. Item 4: whether
 /// Apple's on-device model is available, which can take seconds after a macOS update. Item 5: the
-/// survey date, which parses the whole corpus (about 5 MB) for one footnote on every launch with a
-/// profile.
+/// survey date, which parses the whole corpus (about 5 MB) for one footnote.
 @MainActor
 @Suite struct LaunchReadsOffMainTests {
-
     /// Whether each call ran on the main thread, in order.
     final class Calls: @unchecked Sendable {
         private let lock = NSLock()
@@ -101,9 +99,8 @@ import Sync
         #expect(manager.filingSurveyedAt == resurveyed)
     }
 
-    /// Reads that land out of order: only the latest attach's date is published. Three attaches, so
-    /// a count that restarted once a read landed would give the third the first's number and drop
-    /// the newest date.
+    /// Reads landing out of order: only the latest attach's date is published. Three attaches, so a
+    /// count that restarted once a read landed would give the third the first's number.
     @Test func onlyTheLatestAttachPublishesItsDate() async throws {
         let profiles = try scratchProfiles()
         defer { try? FileManager.default.removeItem(at: profiles.deletingLastPathComponent()) }
@@ -126,8 +123,8 @@ import Sync
         #expect(manager.filingSurveyedAt == Date(timeIntervalSince1970: 3_000))
     }
 
-    /// Attaching a different profile drops the old one's date at once, rather than showing it
-    /// under the new profile until the new read lands.
+    /// Attaching another profile drops the old date at once, rather than showing it until the new
+    /// read lands.
     @Test func switchingProfilesClearsTheOldDate() async throws {
         let a = try scratchProfiles(id: "a")
         let b = try scratchProfiles(id: "b")

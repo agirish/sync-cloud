@@ -3,20 +3,11 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// A file made with ⌘N appears in the pane, selected.
-///
-/// The open source pane is Edit's file list and the rail is withheld beside it, so refreshing only
-/// the rail would leave the pane listing the folder without the new file. So the pane is re-read
-/// (the path every file operation takes) and the new file selected once the re-read lists it, by
-/// the rule every door shares; its cases, ⌘N's among them, are `EditorPaneFollowsDocumentTests`.
-///
-/// Local-only, like every suite in this target: CI runs package tests alone.
-///
-/// `ContentView` can't be constructed in a test (its memberwise initializer is private; see
-/// `BrowseWorkspaceCallSiteTests`), so the wiring is pinned at the source level. Each check goes
-/// red if the line it names is deleted.
+/// A file made with ⌘N appears in the pane, selected. With the pane open it is Edit's only list (the
+/// rail is withheld), so the pane is re-read and the new file selected once listed, by the rule
+/// every door shares (`EditorPaneFollowsDocumentTests`). `ContentView` can't be built in a test, so
+/// the wiring is pinned in the source; each check fails if the line it names is deleted.
 @Suite struct EditorNewFilePaneWiringTests {
-
     /// ⌘N re-reads and selects in the pane, not only the rail. The rail refresh stays: collapsed,
     /// the rail is the list.
     @Test func creatingAFileShowsItInThePaneAsWellAsTheRail() throws {
@@ -34,9 +25,8 @@ import Sync
                 "the pane is asked to select the file before it is the open document")
     }
 
-    /// The re-read is targeted: the walks listing the file's folder are dropped and the epoch
-    /// bumped (`prepareReread`), then only the panes whose folder holds the file are reloaded,
-    /// compared only in Compare, not a whole-cache drop and a `.both` refresh with a full
+    /// The re-read is targeted: `prepareReread` drops the walks listing the file's folder, then only
+    /// the panes holding the file reload, compared only in Compare. Not a whole-cache drop and a full
     /// comparison scan on every ⌘N and export.
     @Test func theReReadIsTargetedAtThePaneThatShowsTheFile() throws {
         let show = try memberBody("func showCreatedFileInPane(_ path: String) {", inFile: "ContentView+Editor.swift")
@@ -64,11 +54,9 @@ import Sync
         }
     }
 
-    /// Which panes are re-read: each whose folder holds the file, deep, and neither for a file
-    /// saved outside both (an export to Downloads). The iCloud container's pane holds a file in
-    /// `~/Documents` through its link, and so does a pane above the container (synthetic tables).
-    /// A pane whose walk followed a folder link holds a file where the link leads, by its walk's
-    /// own record, since no prefix of the pane's folder names it.
+    /// Each pane whose folder holds the file, deep, is re-read, and neither for a file outside both.
+    /// A pane holds a file reached through the iCloud `Documents` link, or where a folder link its
+    /// walk followed leads (by the walk's own record).
     @Test func onlyThePanesThatHoldTheFileAreReRead() {
         func scope(_ path: String, left: String = "/a/Finance", right: String = "/b",
                    leftTargets: Set<String> = [], rightTargets: Set<String> = [],
@@ -120,9 +108,8 @@ import Sync
         let row = try #require(m.leftNodes(for: [t.appendingPathComponent("sub/x.txt").path]).first,
                                "premise: the pane does not list the file below the link under its resolved spelling")
         let written = ((row.id as NSString).deletingLastPathComponent as NSString).appendingPathComponent("new.md")
-        // Written before the rule is asked, as every caller asks after the write. The order
-        // matters: the resolver takes `/private` off a temp path only when the path exists, so for
-        // a file not there yet the spelling never meets the record.
+        // Written before the rule is asked, as callers do: the resolver takes `/private` off a temp
+        // path only when the path exists, so a file not there yet never meets the record.
         try Data().write(to: URL(fileURLWithPath: written))
         try #require(ContentView.panesHolding(written, leftFolder: r.path, rightFolder: other.path, links: [:]) == nil,
                      "premise: the pane's folder alone holds the file — nothing below is measured")

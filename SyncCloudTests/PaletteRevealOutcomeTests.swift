@@ -3,15 +3,11 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// The last thing between an accepted ⌘K route and nothing happening. `revealInSourcePane`'s two
-/// refusals should be unreachable, but the palette's index is a snapshot taken when it opened while
-/// the root read at ↩ is live, so a provider that changes under an open palette lands here. Each
-/// refusal must log, never return silently.
-///
-/// The rule is extracted because the caller is a method on a SwiftUI `View` with `@State`.
-/// `theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals` is the call-site half.
+/// The last step between an accepted ⌘K route and nothing happening. The palette's index is a
+/// snapshot from when it opened while the root read at ↩ is live, so a provider changing under an
+/// open palette reaches `revealInSourcePane`'s refusals, and each must log, never return silently.
+/// Extracted because the caller is a method on a SwiftUI `View` with `@State`.
 @Suite struct PaletteRevealOutcomeTests {
-
     private static let root = "/Users/x/Documents"
 
     @Test func aPathInsideTheRootBecomesTheRelativeFocus() {
@@ -19,34 +15,33 @@ import FileExplorer
                 == .focus(relativePath: "Clients/Legal"))
     }
 
-    /// The root itself is the pane's own top, which `focusOn("")` is how you say.
+    /// The root itself is the empty relative path, which is how `focusOn("")` names it.
     @Test func theRootItselfIsTheEmptyRelativePath() {
         #expect(ContentView.revealOutcome(for: Self.root, under: Self.root) == .focus(relativePath: ""))
     }
 
-    /// An empty root must never claim a path: an empty base prefixes every absolute path, so a pane
-    /// with no source would claim anything. `PathBoundary.relativize` guards this.
+    /// An empty root never claims a path: an empty base prefixes every absolute path.
+    /// `PathBoundary.relativize` guards this.
     @Test func noSourceIsRefusedRatherThanMatchingEverything() {
         #expect(ContentView.revealOutcome(for: "/anywhere", under: "") == .noSource)
     }
 
-    /// The reachable one: the pane moved to another source while the palette was up, so a row built
-    /// against the old root names a path the new one doesn't contain.
+    /// The reachable refusal: the pane moved to another source while the palette was up, so the row
+    /// names a path the new root doesn't contain.
     @Test func aPathOutsideTheRootNamesTheRootItIsNotIn() {
         #expect(ContentView.revealOutcome(for: "/Users/x/Dropbox/Legal", under: Self.root)
                 == .outsideSource(root: Self.root))
     }
 
-    /// A sibling whose name merely starts with the root isn't inside it: the prefix trap
-    /// `PathBoundary` closes, asserted here because this caller would hand the pane a garbage
-    /// relative path.
+    /// A sibling whose name merely starts with the root isn't inside it (the prefix trap
+    /// `PathBoundary` closes), or the pane would get a garbage relative path.
     @Test func aSiblingSharingThePrefixIsNotInside() {
         #expect(ContentView.revealOutcome(for: "/Users/x/DocumentsOld/Legal", under: Self.root)
                 == .outsideSource(root: Self.root))
     }
 
-    /// The call site goes through the rule and logs on both refusals. `MacApp/` is in no SPM
-    /// package, so this half is read as text.
+    /// The call site goes through the rule and logs on both refusals, read as text since `MacApp/` is
+    /// in no SPM package.
     @Test func theRevealGoesThroughTheRuleAndSaysSoOnBothRefusals() throws {
         let text = try macAppFile("CommandPaletteHost.swift")
         #expect(text.contains("switch Self.revealOutcome(for: absolutePath, under: root ?? lensProviderRootExpanded)"),

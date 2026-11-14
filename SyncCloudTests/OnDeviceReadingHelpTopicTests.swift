@@ -8,7 +8,6 @@ import Settings
 /// privacy claim, so the checks also pin that it still says what the switch beside the pointer
 /// implies, and still names the one exception.
 @Suite struct OnDeviceReadingHelpTopicTests {
-
     private static var topic: HelpBook.Topic? {
         HelpBook.allTopics.first { $0.id == SettingsHelpTopics.onDeviceReading }
     }
@@ -49,8 +48,7 @@ import Settings
                 "the article no longer says the key is the reader's own")
     }
 
-    /// The article says where the learned material lives, so the reader can act on it and delete
-    /// it.
+    /// The article says where the learned material lives, so the reader can delete it.
     @Test func theArticleSaysWhereItAllLives() throws {
         let text = try #require(Self.topic.map(Self.copy))
         #expect(text.contains("Application Support/SyncCloud/profiles"),

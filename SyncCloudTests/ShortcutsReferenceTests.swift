@@ -30,12 +30,8 @@ import Design
         }
     }
 
-    /// No chord is described by two rows in one group. `testActionsAreUniqueWithinEachGroup`
-    /// compares the prose, so the same pair listed twice in different words and order would pass
-    /// it, and `testEveryRegisteredChordHasAReferenceRow` asks only whether a chord has a row.
-    ///
-    /// Split on "/" so a row listing a pair is read as the pair; a range written with "–" (the
-    /// workspace digits) stays one token.
+    /// No chord is described by two rows in one group, whatever their prose. Split on "/" so a row
+    /// listing a pair is read as the pair; a range written with "–" stays one token.
     @Test func testNoChordIsListedTwiceWithinAGroup() {
         for group in ShortcutsReference.groups {
             let chords = group.items
@@ -48,13 +44,9 @@ import Design
         }
     }
 
-    /// Every chord in `AppChord.registry` has a row here. The registry is the list, so nothing
-    /// re-types the chords by hand.
-    ///
-    /// Whitespace-insensitive, because the reference spaces its keys for reading (`⇧⌘ N`) while a
-    /// chord renders tight (`⇧⌘N`). Matched by equality against each key a row lists, not by
-    /// substring: `⌘F` is a substring of `⇧⌘ F`, so a substring match would let the ⌘F row go
-    /// missing unnoticed.
+    /// Every chord in `AppChord.registry` has a row here, whitespace-insensitive (`⇧⌘ N` reads as
+    /// `⇧⌘N`). Matched by equality, not substring: `⌘F` is a substring of `⇧⌘ F`, so a substring
+    /// match would let the ⌘F row go missing unnoticed.
     @Test func testEveryRegisteredChordHasAReferenceRow() {
         let listed = Self.listedChordKeys()
         #expect(listed.count > 10, "the reference is implausibly short — this scan would be near-vacuous")

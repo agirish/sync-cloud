@@ -9,12 +9,9 @@ import Sync
 /// from running on the one machine that has none.
 @MainActor
 @Suite struct FilingArtifactsAttachTests {
-
-    /// The engine is told where profiles live even when there is no profile to attach; otherwise
-    /// setup's Learn fails with `no profiles directory was configured` before reading a folder.
-    ///
-    /// An empty folder of its own stands in for the fresh Mac: the default directory holds the
-    /// user's own profile on his Mac, which would take the other path and attach his data.
+    /// The engine learns where profiles live even with no profile to attach, or setup's Learn fails
+    /// before reading a folder. An empty folder stands in for the fresh Mac: the default directory
+    /// holds the user's real profile, which would take the other path and attach his data.
     @Test func aMachineWithNoProfileStillLearnsWhereProfilesLive() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("FilingArtifactsAttachTests-\(UUID().uuidString)")

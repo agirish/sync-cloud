@@ -7,16 +7,12 @@ import Sync
 import Dashboard
 @testable import SyncCloud
 
-/// What a brand mark measures when an AppKit-backed control draws it. A resizable image inside a
-/// menu label balloons to its native size, drawing the source's mark across the pane and pushing
-/// the nav bar off the row. **The brand assets live in `MacApp/Assets.xcassets`, which no SPM test
-/// target can see**: there `NSImage(named:)` is nil and `ProviderLogo` falls back to an SF Symbol,
-/// sized by font, so package snapshots measure a stand-in. So these live in the app target and
-/// measure `fittingSize`: the failure is a layout one, the label's ideal width, and needs no window
-/// or display.
+/// What a brand mark measures in an AppKit-backed menu label, where a resizable image balloons to
+/// its native size and pushes the nav bar off the row. The brand assets live in
+/// `MacApp/Assets.xcassets`, which no SPM test target can see (there `ProviderLogo` falls back to an
+/// SF Symbol), so these live in the app target and measure `fittingSize`, needing no window.
 @MainActor
 struct MenuLabelMarkTests {
-
     /// Without this the whole file is a statement about `folder.fill`. First, and loud.
     @Test func theBrandAssetsAreReachableFromThisTarget() {
         for name in ["googledrive", "icloud", "dropbox", "onedrive"] {
@@ -43,9 +39,8 @@ struct MenuLabelMarkTests {
                      onSelect: { _ in }, onManage: {}, onChooseFolder: nil, label: label)
     }
 
-    /// The mechanism, kept alive so the fix can't quietly stop mattering. These assets are 512pt on
-    /// the long edge, and a resizable image in an AppKit-drawn label draws at that whatever its
-    /// frame. Asserted as "at least ten times what it asked for", not an exact number, so
+    /// The mechanism, kept so the fix can't quietly stop mattering: a resizable 512pt asset in an
+    /// AppKit-drawn label ignores its frame. Asserted as "at least ten times what it asked for", so
     /// re-exporting the artwork doesn't fail it.
     @Test func aResizableMarkInsideAMenuLabelIgnoresItsFrame() {
         let asked: CGFloat = 15
@@ -73,13 +68,9 @@ struct MenuLabelMarkTests {
         #expect(before == after, "the catalog's shared image went from \(before) to \(after)")
     }
 
-    /// End to end: the header the app builds doesn't blow up. Built through `PaneHeader`, which
-    /// assembles the picker from a `CloudProvider`, so a header that stopped passing one can't stay
-    /// green. The bound is ideal width, not "fits a 250pt pane": a middle-truncating breadcrumb
-    /// wants about 260 here, while the mark at its native 512 pushes past 700. Turning
-    /// `inAppKitLabel` off in `PaneBreadcrumb.rootCrumb` must fail it. A narrow-pane render can't see
-    /// this (the row compresses instead of overflowing); whether the bar fits its pane is
-    /// `PaneBarLadderTests`.
+    /// End to end through `PaneHeader`: the header's ideal width stays near the breadcrumb's (~260),
+    /// not past 700. A narrow-pane render can't see this, since the row compresses; fitting the pane
+    /// is `PaneBarLadderTests`. Fails if `PaneBreadcrumb.rootCrumb` turns `inAppKitLabel` off.
     @Test func theHeaderCarryingASourcePickerDoesNotBlowUpTheRow() {
         let width = idealWidth(Self.header(relativePath: "Taxes/2026"))
         #expect(width < 400,

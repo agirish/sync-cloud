@@ -4,20 +4,14 @@ import AppKit
 import FileExplorer
 @testable import SyncCloud
 
-/// The autosave debounce, mounted.
-///
-/// The text lives on `EditorBuffer`, which `ContentView` isn't told about, so nothing above the
-/// modifier re-renders on a keystroke: the modifier's own `@ObservedObject` on the buffer must be
-/// what restarts the timer. If it isn't, autosave silently stops, with the header's dot lit and
-/// the file never written. Reading the code can't settle it (it is a claim about how SwiftUI
-/// installs a `DynamicProperty` on a `ViewModifier`), so it is mounted and measured.
-///
-/// The pump waits by the clock, which matters: `CFRunLoopRunInMode(_:_:true)` returns the moment
-/// one source is handled, so a hundred of them can finish in under a millisecond, long enough for
-/// a `.task` with no `await` and nowhere near long enough for one that sleeps.
+/// The autosave debounce, mounted. Nothing above the modifier re-renders on a keystroke (the text
+/// lives on `EditorBuffer`), so the modifier's own `@ObservedObject` must restart the timer, or
+/// autosave silently stops with the header's dot lit. Whether SwiftUI installs a `DynamicProperty`
+/// on a `ViewModifier` that way can't be read off the code, so it is mounted and measured. Waits go
+/// by the clock: `CFRunLoopRunInMode(_:_:true)` returns as soon as one source is handled, far too
+/// soon for a `.task` that sleeps.
 @MainActor
 @Suite(.serialized) struct EditorAutosaveDriverTests {
-
     /// Counts what the driver asked for.
     @MainActor
     final class Writes {
@@ -73,17 +67,11 @@ import FileExplorer
         return window
     }
 
-    /// One turn of the main run loop, with the main actor released.
-    ///
-    /// The `await` is the point, not the wait. A synchronous pump holds the main actor throughout,
-    /// so nothing SwiftUI or `Task.sleep` enqueued onto it can run, and every test here would fail
-    /// with correct code. Suspending lets the work under test happen.
-    ///
-    /// So it runs no run loop of its own either. A nested `CFRunLoopRunInMode` inside a main-actor
-    /// job is that synchronous pump in miniature: GCD doesn't drain the main queue from inside one
-    /// of its own callouts, so no main-actor job runs meanwhile, this suite's `.task` included, and
-    /// every other suite waits. Releasing the actor lets the app's own run loop lay the window out
-    /// and start the `.task`.
+    /// One turn of the main run loop, with the main actor released. The `await` is the point: a
+    /// synchronous pump, or a nested `CFRunLoopRunInMode` inside a main-actor job, holds the main
+    /// actor, and GCD doesn't drain the main queue from inside its own callout, so nothing SwiftUI or
+    /// `Task.sleep` enqueued runs (this suite's `.task` included) and every test fails with correct
+    /// code. Suspending lets the app's own run loop lay the window out and start the `.task`.
     private func turn(_ window: NSWindow) async {
         window.layoutIfNeeded()
         try? await Task.sleep(for: .milliseconds(5))
@@ -96,16 +84,11 @@ import FileExplorer
         while Date() < deadline { await turn(window) }
     }
 
-    /// Pumps until `condition` holds, or the ceiling is reached.
-    ///
-    /// A bounded wait, not a fixed sleep: suites run in parallel on a machine that is also the CI
-    /// runner, so a budget quick on an idle machine is a red on a busy one. This returns the
-    /// instant the thing happens and spends the ceiling only when it doesn't.
-    ///
-    /// Bounded by turns as well as seconds: at least `waitPollFloor`, the floor the target's
-    /// `waitUntil` uses. The driver's `.task` starting, then resuming after its sleep, are each a
-    /// job at the back of the FIFO main queue behind every other suite's main-actor work, which can
-    /// hold the main thread for seconds at a stretch. So the budget counts passes, not wall time.
+    /// Pumps until `condition` holds or the ceiling is reached, returning the instant it holds: a
+    /// fixed budget quick on an idle machine is a red on a loaded one. Bounded by turns as well as
+    /// seconds (at least `waitPollFloor`, as `waitUntil` uses): the driver's `.task` starting and
+    /// resuming are each a job at the back of the FIFO main queue, behind other suites' main-actor
+    /// work that can hold the main thread for seconds.
     @discardableResult
     private func wait(_ window: NSWindow, upTo seconds: Double = 10,
                       until condition: () -> Bool) async -> Bool {
@@ -146,9 +129,8 @@ import FileExplorer
         // Long enough that the quiet interval has passed many times over, on any machine.
         await pump(window, seconds: 0.5)
 
-        // A clean document schedules nothing: the control that makes the count below mean "the
-        // keystroke did it", not "the mount did it". Not load-sensitive: no amount of waiting
-        // writes a document with nothing to write.
+        // The control: a clean document schedules nothing, so the count below means "the
+        // keystroke did it". Not load-sensitive: no waiting writes a document with nothing to write.
         #expect(writes.count == 0, "a clean document was written on mount")
 
         document.text = "one\ntwo\n"
@@ -158,9 +140,8 @@ import FileExplorer
         withExtendedLifetime(window) {}
     }
 
-    /// A burst of typing writes once, at the end of it: the debounce, which is why the id is a
-    /// version counter rather than the text. A driver that woke on anything would pass the test
-    /// above and fail this one.
+    /// A burst of typing writes once, at the end of it, which is why the id is a version counter
+    /// rather than the text. Fails for a driver that writes on every change.
     @Test func aBurstOfTypingWritesOnceAtTheEndOfIt() async throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -176,9 +157,8 @@ import FileExplorer
             document.text = "one\n" + String(repeating: "x", count: index) + "\n"
             await pump(window, seconds: 0.02)
         }
-        // No mid-burst assertion: "nothing written yet" holds only while the burst is shorter than
-        // the quiet interval, which load can break. The final count isn't load-sensitive: a driver
-        // that wrote per keystroke lands on six whatever the machine is doing.
+        // No mid-burst assertion: load can stretch the burst past the quiet interval. The final
+        // count isn't load-sensitive: a per-keystroke driver lands on six whatever the load.
         await wait(window, upTo: 15) { writes.count >= 1 }
         #expect(writes.count == 1, "a burst of typing produced \(writes.count) writes, not one")
         withExtendedLifetime(window) {}
@@ -208,10 +188,9 @@ import FileExplorer
         }
     }
 
-    /// Typing whose debounce fired while a write was still out is written once that write commits.
-    /// The host turns the debounce away meanwhile, and with the version and path unchanged nothing
-    /// would restart the wait, leaving the last sentence unsaved for a crash to take. The commit
-    /// moves the stamp, which the debounce is keyed on.
+    /// Typing whose debounce was turned away while a write was out is written once that write
+    /// commits: the commit moves the stamp the debounce is keyed on. Otherwise nothing restarts the
+    /// wait and the last sentence stays unsaved for a crash to take.
     @Test func typingTurnedAwayWhileAWriteWasOutIsWrittenWhenItCommits() async throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }

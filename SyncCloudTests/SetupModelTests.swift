@@ -254,11 +254,8 @@ import Testing
         #expect(model.canWriteProfile)
     }
 
-    /// A reading that lands before Structure builds no preview; one that lands after it does.
-    ///
-    /// The rebuild is heavy main-actor work, and on You or People it would run under the user's
-    /// typing for a tree that arrival at Structure builds anyway. Past Structure it is the only
-    /// rebuild: Workspaces reads the loose-file routes.
+    /// A reading that lands before Structure builds no preview (heavy main-actor work under the
+    /// user's typing, for a tree arrival at Structure builds anyway); one that lands after it does.
     @Test(.timeLimit(.minutes(2)))
     func aReadingRebuildsThePreviewOnlyWhereItIsRead() async throws {
         let s = try Scratch("where", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
@@ -983,7 +980,7 @@ import Testing
         #expect(started == [walk.root])
     }
 
-    // MARK: - Review of the v6.1 Setup work, 2026-10-27
+    // MARK: - Learn twice, renaming yourself, and a roster added to after Save
 
     /// Learn pressed while the folder is still being read starts no second reading. Back to Learn
     /// mid-reading still says Learn, and nothing would cancel a second walk of the same tree.

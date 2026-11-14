@@ -11,7 +11,6 @@ import Sync
 /// on a lone tab, where the verb closes the window, so both directions are asserted.
 @MainActor
 @Suite struct PaneTabDelegateTests {
-
     private func delegate(syncManager: FileSyncManager, isLeft: Bool = true,
                           onOpenInNewTab: @escaping (FileNode) -> Void = { _ in }) -> PaneActionDelegate {
         paneDelegate(syncManager: syncManager, isLeft: isLeft, onOpenInNewTab: onOpenInNewTab)
@@ -21,9 +20,8 @@ import Sync
         PaneTab(providerId: "iCloud", relativePath: path)
     }
 
-    /// The downward direction: two tabs back to one, on the delegate built when there were two.
-    /// The test above already catches a count snapshotted at construction; what only this covers is
-    /// closing back down to one tab, the state where the wrong answer closes the window.
+    /// The answer is read live, not snapshotted at construction: up to two tabs and back down to
+    /// one on the same delegate, the state where a stale `true` closes the window.
     @Test func theAnswerFollowsTheStripRatherThanTheRenderItWasBuiltIn() {
         let manager = FileSyncManager.scratch()
         let d = delegate(syncManager: manager)
@@ -58,8 +56,7 @@ import Sync
         d.handleOpenInNewTab(FileNode(id: "/r/Notes.txt", name: "Notes.txt", isDirectory: false))
         #expect(opened.isEmpty, "a file was opened as a tab — a tab is a location")
 
-        // The control: a folder does reach the host, so the check above can't pass because the
-        // callback was never wired.
+        // The control: a folder does reach the host, so the callback is wired.
         d.handleOpenInNewTab(FileNode(id: "/r/Photos", name: "Photos", isDirectory: true))
         #expect(opened == ["/r/Photos"], "a folder no longer reaches the host's opener")
     }

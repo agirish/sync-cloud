@@ -1,27 +1,20 @@
 import Foundation
 import Testing
 
-/// The app's privacy claim, held to the source: a published promise, not a behaviour. Help ▸
-/// *Reading your documents* says SyncCloud has no server, collects no usage statistics, sends no
-/// crash reports, and sends nothing about the reader's files to anyone. An updater, analytics call
-/// or crash reporter would make that false with every other test green. The network surface must be
-/// exactly the allow-listed files behind the features the article names (Refine with Claude and Ask
-/// Claude, each with the user's own key). A source scan, since a behavioural test can't observe a
-/// call no driven path makes. Shipped sources only: tests may use `URLSession` to stub, and never
-/// ship.
+/// The app's privacy claim, held to the source. Help ▸ *Reading your documents* promises no server,
+/// no usage statistics, no crash reports, and nothing about the reader's files sent to anyone; an
+/// updater or analytics call would break it with every other test green. The network surface must
+/// be exactly the allow-listed files behind Refine with Claude and Ask Claude (each with the user's
+/// own key). A source scan of shipped sources only, since no driven path would make such a call.
 @Suite struct NoTelemetryTests {
-
     // MARK: Reading the shipped sources
 
     /// The repository root, located from this file, as `macAppDirectory()` is.
     private static func repositoryRoot() -> URL { macAppDirectory().deletingLastPathComponent() }
 
-    /// Every Swift file compiled into something a user installs, as (repo-relative path, text).
-    /// Directory-shaped exclusions: any component ending in `Tests` goes, taking every test target
-    /// at once, including this one, which names `URLSession` in a string literal. `.build`,
-    /// `DerivedData`, `.dd` and `.claude` are build and worktree debris, where a stale copy or
-    /// another branch's checkout could answer the question. Matched below the repository root only
-    /// (`componentsBelowRoot`).
+    /// Every Swift file compiled into something a user installs, as (repo-relative path, text). Any
+    /// component ending in `Tests` is excluded (this file names `URLSession` in a string), and so is
+    /// build and worktree debris, where a stale copy or another branch could answer the question.
     private static let shippedSources: [(path: String, text: String)] = {
         let root = repositoryRoot()
         let rootPath = root.standardizedFileURL.path
@@ -31,10 +24,9 @@ import Testing
             excludedComponents.contains(component) || component.hasSuffix("Tests")
         }
 
-        /// The components of `url` below the repository root, the only ones the exclusions may
-        /// read, or `nil` for a URL outside the root. Matching the whole absolute path would let the
-        /// checkout's own location answer: a worktree under `<repo>/.claude/worktrees/<name>` would
-        /// exclude every file and leave `shippedSources` empty.
+        /// The components of `url` below the repository root, or `nil` outside it. Matching the whole
+        /// path would let the checkout's location answer: a worktree under `<repo>/.claude/worktrees`
+        /// would exclude every file and leave `shippedSources` empty.
         func componentsBelowRoot(_ url: URL) -> [String]? {
             let full = url.standardizedFileURL.path
             guard full.hasPrefix(rootPath + "/") else { return nil }
@@ -62,13 +54,11 @@ import Testing
         return out.sorted { $0.0 < $1.0 }
     }()
 
-    /// The files behind *Refine with Claude*, plus Ask Claude's engine: SyncCloud's whole
-    /// network surface. Two post to `CloudFilingProtocol.endpoint` (`api.anthropic.com/v1/messages`);
-    /// the third checks a pasted key against `api.anthropic.com/v1/models` so Settings can say
-    /// whether it works. None is reachable without a key the user stored.
+    /// SyncCloud's whole network surface: two files post to `CloudFilingProtocol.endpoint`, and the
+    /// third checks a pasted key against `api.anthropic.com/v1/models`. None is reachable without a
+    /// key the user stored.
     private static let allowedNetworkFiles: Set<String> = [
-        // Refine's streamed request (TE335): Refine, Try Another and Refine Names. Help's account of
-        // Refine covers it.
+        // Refine's streamed request: Refine, Try Another and Refine Names.
         "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift",
         "Modules/Sync/Sources/Sync/AnthropicKeyCheck.swift",
         // Ask Claude, the toolbar chat. Help ▸ Reading your documents names it as the second feature
@@ -145,10 +135,8 @@ import Testing
         }
     }
 
-    /// The shipped app links no third-party code. `project.yml` is the app target's only package
-    /// list, and every entry is a `path:` to a module here. The repo's remote packages are pinned in
-    /// those modules' own manifests. A `url:` here would give the
-    /// app a dependency nobody in this repository reviews.
+    /// The app target links only local packages: every `project.yml` entry is a `path:`. A `url:`
+    /// would give the app a dependency nobody here reviews (the modules pin their own remote ones).
     @Test func theAppTargetLinksOnlyLocalPackages() throws {
         let yaml = try repoFile("project.yml")
         let packages = try #require(yaml.range(of: "\npackages:\n"),

@@ -12,7 +12,6 @@ import FileExplorer
 /// means every typed path answers "Not in any source", with every routing test still green.
 @MainActor
 @Suite struct GoToFolderCallSiteTests {
-
     private static func temporaryTree() throws -> URL {
         let base = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("synccloud-goto-\(UUID().uuidString)")
@@ -102,9 +101,8 @@ import FileExplorer
         let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("CommandPaletteState(index: index, pathProbe: Self.pathKind)"),
                 "the palette is built without a path probe — Go to Folder silently offers nothing, on every query")
-        // The source's root: a typed path is judged against the whole account, so the landing
-        // folder here would make every path above a source's documents tree answer "Not in any
-        // source".
+        // The source's root, not its landing folder: a typed path is judged against the whole
+        // account, so any path above a source's documents tree would answer "Not in any source".
         #expect(host.contains("root: (provider.rootPath as NSString).expandingTildeInPath)"),
                 "the sources reach the router with no path on them — every typed path answers \"Not in any source\"")
 
@@ -115,11 +113,9 @@ import FileExplorer
 
     // MARK: How often the disk is actually asked
 
-    /// An arrow key must not re-`stat` a path that hasn't changed. `rows` is read twice per change
-    /// (by `setQuery` to re-seat the selection, and by the SwiftUI body), so without the memo each
-    /// key would re-run the router and its disk question, which costs latency on a slow network
-    /// share. Driven through the controller the toolbar field drives, since the second read is the
-    /// view's and calling only `setQuery` would measure one call.
+    /// An arrow key must not re-`stat` an unchanged path, which costs latency on a slow network
+    /// share. `rows` is read twice per change (by `setQuery` and by the SwiftUI body), so this drives
+    /// the mounted controller; calling only `setQuery` would measure one read.
     @Test func movingTheHighlightDoesNotAskTheDiskAgain() async {
         final class Counter: @unchecked Sendable {
             var calls: [String] = []
@@ -129,9 +125,8 @@ import FileExplorer
             folders: ["Legal"], probe: { counter.calls.append($0); return .directory })
         defer { controller.dismiss(); host.orderOut(nil) }
 
-        // The view's read is made here rather than waited for: a sleep would pass for the wrong
-        // reason under load, when the body hadn't run yet and one call was recorded. `rows` is what
-        // the body reads, so reading it is what the body does.
+        // The view's read is made here rather than waited for: under load a sleep could end before
+        // the body ran, and one recorded call would pass for the wrong reason.
         controller.setQuery("/Users/x/Documents/Legal")
         _ = state.rows                                   // the view's read, made to happen
         let afterTyping = counter.calls.count
@@ -184,10 +179,9 @@ import FileExplorer
         for _ in 0..<3 { try? await Task.sleep(for: .milliseconds(30)) }
     }
 
-    /// A keystroke ranks the folders once, and an arrow key not at all. Ranking scores every
-    /// surveyed folder against the query (~16 ms over 3,000), and `rows` is read by `setQuery`, the
-    /// panel's body and every ↑ ↓. Driven through the controller and a mounted panel, so the body's
-    /// read is real.
+    /// A keystroke ranks the folders once, and an arrow key not at all: ranking scores every surveyed
+    /// folder (~16 ms over 3,000), and `rows` is read by `setQuery`, the body and every ↑ ↓. Mounted,
+    /// so the body's read is real.
     @Test func typingRanksOnceAndMovingRanksNothing() async {
         let (state, controller, host) = await mountedPalette(
             folders: ["Legal", "Legal/Contracts", "Taxes", "Taxes/2025", "Health"])
@@ -219,5 +213,4 @@ import FileExplorer
                     && !state.rows.contains { $0.title.contains("Legal") },
                 "the rows still answer the previous query")
     }
-
 }

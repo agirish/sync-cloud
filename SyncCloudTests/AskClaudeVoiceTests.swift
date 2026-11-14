@@ -10,13 +10,10 @@ import Sync
 // send it, then silence for as long as the turn lasts: the test host is SyncCloud.app, so a test
 // must never open the real microphone.
 
-/// A spoken clip, made afresh by each test that needs it.
-///
-/// Each is written under a name of its own and renamed into place. The folder is the user's temp
-/// folder, shared by every test process on this Mac, and the two voice suites run side by side in
-/// one. A clip removed and rewritten in place was missing or half-written for the two seconds `say`
-/// takes, and a test that read it then heard nothing until its wait ran out (flaky-tests.md, "A
-/// spoken clip another test was rewriting in place was missing or half-written when a turn read it").
+/// A spoken clip, made afresh by each test that needs it, written under a name of its own and
+/// renamed into place: the temp folder is shared by every test process on this Mac, and a clip
+/// rewritten in place is missing or half-written while `say` runs (flaky-tests.md, "A spoken clip
+/// another test was rewriting in place was missing or half-written when a turn read it").
 enum AskClaudeVoiceClips {
     static let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeVoiceTests", isDirectory: true)
 

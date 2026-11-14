@@ -6,12 +6,9 @@ import Testing
 @testable import SyncCloud
 
 /// No topic title needs more than two lines of the rail, at any text size. The rail is fixed at
-/// 220pt and doesn't widen with the card, so a title too long for it is too long at every card
-/// size. Other Help tests read the copy as data, where the string is whole, so only this render
-/// sees the rail. Two lines is the bar because the row wraps; a third would make a rail row taller
-/// than the article's own heading.
+/// 220pt, so a title too long for it is too long at every card size, and only this render sees
+/// it. A third line would make a rail row taller than the article's own heading.
 @Suite(.machinePinned(.layoutMetrics)) struct HelpRailFitTests {
-
     /// The height one line of the row's font takes at this size. Measured, not derived from a point
     /// size: `scaledFont` applies a knee curve, so line height isn't a percentage of a constant.
     @MainActor
@@ -34,8 +31,7 @@ import Testing
     @Test(arguments: [FontSize.small, .medium, .large, .extraLarge])
     func noTopicTitleNeedsMoreThanTwoRailLines(_ size: FontSize) throws {
         let one = lineHeight(scale: size.scale)
-        // Half a line of slack absorbs a laid-out height's rounding; three lines is 3× and can't
-        // hide under it.
+        // Half a line of slack absorbs rounding; three lines can't hide under it.
         let budget = one * 2.5
 
         for topic in HelpBook.allTopics {
@@ -50,7 +46,7 @@ import Testing
         }
     }
 
-    /// The control: a title nobody could fit in two lines must fail, or the measurement above is
+    /// The control: a title nobody could fit in two lines must fail, or the measurement is
     /// decoration. A laid-out height can quietly come back as one line for everything.
     @MainActor
     @Test func theRailMeasurementCanActuallyFail() {
@@ -63,13 +59,11 @@ import Testing
     }
 }
 
-/// The rail `HelpRailFitTests` measures is the rail the card draws: a source scan, which reads no
+/// The rail `HelpRailFitTests` measures is the rail the card draws: a source scan, reading no
 /// metrics, so unpinned.
 @Suite struct HelpRailSourceTests {
-
-    /// The rail the measurement uses is the rail the card draws; a budget from constants nobody
-    /// reads would measure an imaginary sidebar. A source scan, because `HelpView` can't be built in
-    /// a test.
+    /// The measured rail is the drawn one; a budget from constants nobody reads would measure an
+    /// imaginary sidebar. Scanned, because `HelpView` can't be built in a test.
     @Test func theMeasuredRailIsTheOneTheCardDraws() throws {
         let source = try macAppFile("HelpBook.swift")
         let body = try declarationBody(of: "var body: some View", in: sourceOfHelpView(source))
@@ -78,16 +72,16 @@ import Testing
         let row = try declarationBody(of: "private func topicRow", in: source)
         #expect(!row.contains("lineLimit"),
                 "the row limits its lines again — a title over the rail truncates rather than wraps")
-        // The face too: the height check measures a `Text` this file builds, so it is blind to the
-        // row changing font, and swapping `.callout` for `.body` would grow every title unseen.
+        // The face too: the height check measures a `Text` built here, so swapping `.callout` for
+        // `.body` in the row would grow every title unseen.
         #expect(row.contains(".scaledFont(.callout)"),
                 "the row's font moved — the fit measurement is now about a face nobody draws")
         #expect(row.contains(".fixedSize(horizontal: false, vertical: true)"),
                 "the row no longer lets its title take the height it needs")
     }
 
-    /// `HelpView`'s part of the file: `var body: some View` occurs in more than one type here, and
-    /// `declarationBody` needs its declaration to be unique in what it is given.
+    /// `HelpView`'s part of the file: `var body: some View` occurs in several types here, and
+    /// `declarationBody` needs a unique declaration.
     private func sourceOfHelpView(_ source: String) -> String {
         guard let start = source.range(of: "struct HelpView: View") else { return source }
         let rest = source[start.upperBound...]

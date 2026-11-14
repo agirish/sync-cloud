@@ -6,11 +6,9 @@ import Testing
 /// The hand-off between the two halves of setup: a walk writes a profile, and the answers the form
 /// collected before there was one land in the roster it creates.
 ///
-/// `SetupDraft` holds the You and People answers because a fresh machine has no `profiles/<id>/`
-/// to write `people.json` into; the walk mints it. The join, `FilingArtifacts.attach(to:)`,
-/// triggers no SwiftUI invalidation (the filing artifacts are plain `var`s), so a form that read
-/// its roster once would never see it, and the household would sit unread with nothing failing.
-/// Pinned here because the view cannot be driven from a test.
+/// A fresh machine has no `profiles/<id>/` until the walk mints it, so `SetupDraft` holds the
+/// answers. The join, `FilingArtifacts.attach(to:)`, triggers no SwiftUI invalidation, so a form
+/// that read its roster once would never see it, and the household would sit unread.
 @MainActor
 @Suite struct WalkHandoffTests {
 

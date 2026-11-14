@@ -6,7 +6,6 @@ import Dashboard
 
 /// "Add to Favorites" on a folder in a pane, one of the routes to the list the sidebar draws.
 @Suite struct PaneFolderFavoriteTests {
-
     private func place(_ path: String, isDirectory: Bool = true,
                        root: String = "/Users/x/Dropbox") -> (root: String, relativePath: String)? {
         PaneActionDelegate.favoritePlace(nodePath: path, isDirectory: isDirectory, paneRoot: root)

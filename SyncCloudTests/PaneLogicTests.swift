@@ -6,7 +6,6 @@ import Sync
 @testable import SyncCloud
 
 @Suite struct PaneLogicTests {
-
     // MARK: copyTargetName
 
     /// The opposite pane's provider, nil with no selection, and the side named when both panes
@@ -174,9 +173,8 @@ import Sync
     // MARK: relativeIgnoreTargets
 
     /// `(node ids, base path, the targets)`. Outside the base a path passes through; inside, the
-    /// base and its leading slash go. Only at a component boundary: "/root/ab" is not an ancestor
-    /// of "/root/abc/x", and a bare string prefix would alias a sibling root into a bogus relative
-    /// target ("c/x").
+    /// base and its slash go, only at a component boundary: a bare string prefix would turn
+    /// "/root/abc/x" under base "/root/ab" into the bogus target "c/x".
     @Test(arguments: [
         (["/root/docs/a.txt", "/root/docs/sub/b.txt"], "/root/docs", ["a.txt", "sub/b.txt"]),
         (["/elsewhere/c.txt"], "/root/docs", ["/elsewhere/c.txt"]),
@@ -187,10 +185,8 @@ import Sync
     }
 
     // MARK: ignoreBasePath — the base `relativeIgnoreTargets` is measured against
-    //
-    // `relativeIgnoreTargets` above is only as good as this base: a wrong one produces relative
-    // paths that miss the base, get stored verbatim, and hide the wrong files from every future
-    // comparison via the durable per-pair ignore store.
+    // A wrong base makes `relativeIgnoreTargets` miss, store paths verbatim in the durable
+    // per-pair ignore store, and hide the wrong files from every future comparison.
 
     @Test func testIgnoreBasePathAtAPaneRootIsTheExpandedRoot() {
         #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Left", rightRoot: "/Right",
@@ -232,10 +228,9 @@ import Sync
         #expect(targets == ["receipt.pdf", "sub/scan.png"])
     }
 
-    /// A focus on a folder the root only links to. The iCloud source focused on `Documents` would
-    /// compose `<iCloud Drive>/Documents` lexically while the walk's nodes are spelled
-    /// `~/Documents/…`, so nothing would be stripped and each ignore would be stored as a
-    /// pane-specific absolute path. `FileSyncManager.focusURL` resolves the same link.
+    /// A focus on a folder the root only links to resolves the link, as `FileSyncManager.focusURL`
+    /// does. Composed lexically, iCloud's `Documents` misses nodes spelled `~/Documents/…`, and each
+    /// ignore is stored as a pane-specific absolute path.
     @Test func testIgnoreBasePathResolvesAFocusOnALinkedFolder() {
         let links: PathBoundary.LinkedFolders = ["/iCloud": ["Documents": "/home/Documents"]]
         let base = PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/iCloud", rightRoot: "/Right",
@@ -244,8 +239,7 @@ import Sync
         #expect(base == "/home/Documents")
         #expect(PaneLogic.relativeIgnoreTargets(nodeIds: ["/home/Documents/Home/deed.pdf"],
                                                 basePath: base) == ["Home/deed.pdf"])
-        // A root the table doesn't name, and a linked name that isn't the first component, compose
-        // lexically.
+        // An unlisted root, or a linked name past the first component, composes lexically.
         #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Other", rightRoot: "/Right",
                                          leftRelativePath: "Documents", rightRelativePath: "",
                                          links: links) == "/Other/Documents")
@@ -409,10 +403,9 @@ import Sync
     }
 
     @Test func testReappearanceRunsOnlyPerWindowWiring() {
-        // A Dock-click reopen runs `onAppear` again mid-session, on the same view. It must NOT
-        // re-run the session steps: resetting showHiddenFiles would discard a mid-session
-        // toggle, and re-applying the distinct-pair selection would silently flip a right pane
-        // the user deliberately set to the same provider as the left.
+        // A Dock-click reopen runs `onAppear` again on the same view. Re-running the session steps
+        // would discard a mid-session showHiddenFiles toggle and flip a right pane the user set to
+        // the same provider as the left.
         #expect(PaneLogic.bootstrapSteps(isFirstAppearance: false) == [
             .createActionHandler,
             .rewireUndoManager,
@@ -510,8 +503,7 @@ import Sync
     }
 
     @Test func testEscapeInCompareModeStillGatesOnTheActionBarExactly() {
-        // In Compare, a selected path the action bar can't resolve to a node leaves Escape to
-        // bubble.
+        // In Compare, a selected path the action bar can't resolve to a node lets Escape bubble.
         #expect(PaneLogic.escapeClearsSelection(
             isSingleSource: false, hasActionBarSelection: true, paneHasSelection: true))
         #expect(!PaneLogic.escapeClearsSelection(

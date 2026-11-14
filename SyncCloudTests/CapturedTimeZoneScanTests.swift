@@ -1,14 +1,11 @@
 import Foundation
 import Testing
 
-/// No shipped source may hold a `DateFormatter` that captures the system time zone. One whose
-/// `timeZone` is never set takes the system zone the first time it formats and keeps it for the
-/// life of the process, so a `static let` formatter (static because building one per row is
-/// costly) goes on showing the old zone after a Date & Time change or a flight. Keyed on the
-/// constructor, since such formatters can have names that say nothing about formatting.
-///
-/// It lives in the app-target tests because no package can see another, and this question is
-/// repo-wide.
+/// No shipped source may hold a `DateFormatter` that captures the system time zone: one whose
+/// `timeZone` is never set keeps the zone of its first format for the life of the process, so a
+/// `static let` formatter goes on showing the old zone after a Date & Time change or a flight.
+/// Keyed on the constructor, since such formatters can have names that say nothing about
+/// formatting. In the app target because no package can see another, and the question is repo-wide.
 @Suite struct CapturedTimeZoneScanTests {
 
     /// Files permitted to construct a bare `DateFormatter`, each for a stated reason. Anything else

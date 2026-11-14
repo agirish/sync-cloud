@@ -10,7 +10,6 @@ import Testing
 /// `colorAt` returns them: Coral's deepened fill must be there under Coral and absent under Green.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct HelpAccentTests {
-
     private func render(hue: LiquidGlassHue, scheme: ColorScheme) throws -> NSBitmapImageRep {
         let size = CGSize(width: 820, height: 600)
         return try renderInSRGBWindow(HelpView(available: size, openAt: "browse-workspace", onClose: {})

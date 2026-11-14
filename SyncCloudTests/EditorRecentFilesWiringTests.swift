@@ -10,7 +10,6 @@ import FileExplorer
 /// the menu is read off the running app.
 @MainActor
 @Suite struct EditorRecentFilesWiringTests {
-
     /// Every way into Edit records through the one load, after it, and only where the caller asks.
     /// Dropping the `if recordsRecent` guard, recording before `EditorOpenRoute.load(`, or handing
     /// `recordOpen` another store must each fail it.

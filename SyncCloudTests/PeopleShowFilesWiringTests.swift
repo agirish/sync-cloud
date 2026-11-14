@@ -31,10 +31,8 @@ import Sync
     /// double-accept cancellation, the last-write-wins guard and the "no survey on this Mac"
     /// message. A path that set `personScope` by hand would skip all three.
     ///
-    /// A count, a canary rather than a proof. The five writes: two in `acceptPersonScope` (the
-    /// no-survey refusal and `.gathering`), two in its task body (`.ready` and the failure), and
-    /// one in `recordPersonVerdict`, which rewrites a scope already on screen. A sixth must justify
-    /// itself here.
+    /// A count, a canary rather than a proof: four writes in `acceptPersonScope` and its task, one
+    /// in `recordPersonVerdict`. A sixth must justify itself here.
     @Test func thereIsStillOnlyOneDoorOntoTheGather() throws {
         let content = try macAppFile("ContentView.swift")
         let code = sourceCodeOnly(content)

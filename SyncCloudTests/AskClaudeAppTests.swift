@@ -1754,7 +1754,6 @@ private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(receipt.screenText.hasPrefix("<screen>"))
     }
 
-
     // MARK: The on-device lane (TE338)
 
     /// A command run here shows the question and its step only, sends nothing, and Claude hears of
@@ -2953,8 +2952,8 @@ private struct SlowTransport: AskClaudeTransport {
         withExtendedLifetime(window) {}
     }
 
-    // The panel is a view in the main window now, not a window of its own: `AskClaudeColumnTests` covers
-    // the dock, and `OverlayHitTestSpikeTests` the clicks over the panes' tables.
+    // The dock is covered by `AskClaudeColumnTests`, and clicks over the panes' tables by
+    // `OverlayHitTestSpikeTests`.
 }
 
 /// Answers the first request with one read_text call and every later one with text.
@@ -4588,7 +4587,6 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 }
 
-/// Answers every call with one outcome, and keeps the tool names it was asked for.
 @MainActor
 /// A tool that runs until the question is stopped, then says it didn't get there, as a go-to's
 /// bounded wait does when its sleeps throw at once.
@@ -4601,6 +4599,7 @@ private final class WaitsForStop: AskClaudeToolRunning {
     }
 }
 
+/// Answers every call with one outcome, and keeps the tool names it was asked for.
 private final class RecordsCalls: AskClaudeToolRunning {
     let outcome: AskClaudeToolOutcome
     private(set) var calls: [String] = []

@@ -16,14 +16,9 @@ import FileExplorer
         }
     }
 
-    /// Browse is single-source, and deliberately gets no mode of its own. It has no lens, so the
-    /// loop above never reaches it.
-    ///
-    /// A dozen sites read `layoutMode == .singleSource` as "there is only one tree". A `.browse`
-    /// mode would make them all answer no: the difference index would stop being emptied, the row
-    /// menu would offer Copy to the other provider, ⌥-click would drive the hidden right pane, and
-    /// Escape would stop clearing the selection. Browse differs only in layout, `ContentLayout`'s
-    /// question.
+    /// Browse is single-source, with no mode of its own: a dozen sites read `.singleSource` as
+    /// "there is only one tree", and a `.browse` mode would have them offer Copy to the hidden pane,
+    /// drive it with ⌥-click and stop clearing the selection on Escape.
     @Test func testBrowseIsSingleSourceLikeTheLenses() {
         #expect(TopPaneVisibility.mode(for: .browse) == .singleSource)
         #expect(Workspace.browse.lens == nil, "Browse has no lens — this loop cannot cover it")
@@ -31,13 +26,9 @@ import FileExplorer
 
     // MARK: Defaults
 
-    /// Every workspace that shows files starts with its pane up, and Editor, which shows a
-    /// document, does not. The flat bar's rule (the source browser is in the same place on every
-    /// workspace) holds on first use only if the pane starts up.
-    ///
-    /// Editor's pane is for the rare session that browses to an unvisited folder; the ordinary one
-    /// opens a file from the rail and writes, and three columns before the text would be in the
-    /// way. Listed by name rather than derived, so changing this is a decision somebody writes down.
+    /// Every workspace that shows files starts with its pane up; Editor, which shows a document and
+    /// opens files from its rail, does not. Listed by name rather than derived, so changing this is
+    /// a decision somebody writes down.
     @Test func onlyTheEditorStartsWithItsPaneCollapsed() {
         let startCollapsed: Set<Workspace> = [.editor]
         for workspace in Workspace.allCases {
@@ -242,13 +233,9 @@ import FileExplorer
         #expect(!TopPaneVisibility.panesHidden(for: .filing, override: decoded[Workspace.filing.rawValue]))
     }
 
-    /// The memo answers about the string it was handed, not about the last one.
-    ///
-    /// `overrides(in:)` exists because `panesHiddenForCurrentTab` is read from many sites, several
-    /// per body pass, and each read would otherwise decode JSON. A one-entry memo can go wrong one
-    /// way: serving a previous string's answer, which shows as a stuck layout with the stored
-    /// value correct. Interleaved A → B → A, since only coming back to a value catches a memo that
-    /// never re-reads.
+    /// The one-entry memo answers about the string it was handed, not the last one; serving a
+    /// previous answer shows as a stuck layout with the stored value correct. A → B → A, since only
+    /// coming back to a value catches a memo that never re-reads.
     @MainActor
     @Test func theOverridesMemoFollowsTheStringItIsGiven() {
         let hidden = TopPaneVisibility.encodeOverrides([Workspace.filing.rawValue: true])

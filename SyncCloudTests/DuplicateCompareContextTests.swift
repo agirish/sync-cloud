@@ -3,13 +3,9 @@ import Foundation
 import Sync
 @testable import SyncCloud
 
-/// "Trash Right Copy" checks the copy it destroys.
-///
-/// The context carries the delete candidate's scan facts, not just its path, so the trash gate can
-/// check the dangerous half: the keeper is the file being kept, the candidate the one destroyed. A
-/// Compare review stays open, and meanwhile the provider can re-download the right copy or you can
-/// edit it. Unchecked, the button would trash the only instance of the new content; the same
-/// action from the Duplicates card refuses.
+/// "Trash Right Copy" checks the copy it destroys: the context carries the delete candidate's scan
+/// facts, not just its path, because during an open review the right copy can be re-downloaded or
+/// edited, and trashing it then would destroy the only instance of the new content.
 @Suite struct DuplicateCompareContextTests {
 
     /// The scenario, as the gate answers it. The right copy is re-downloaded during the review:

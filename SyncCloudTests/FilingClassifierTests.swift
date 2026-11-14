@@ -8,7 +8,6 @@ import Sync
 /// Models session depends on the machine (macOS 26 + Apple Intelligence), so no test asserts model
 /// output.
 @Suite struct FilingClassifierTests {
-
     private static func candidate(name: String, ext: String, year: String? = nil,
                                   snippet: String? = nil, excluded: [String] = []) -> FilingCandidateFile {
         FilingCandidateFile(filePath: "/tmp/loose/\(name)", fileName: name, ext: ext, year: year,
@@ -139,11 +138,9 @@ import Sync
         return (route, reported)
     }
 
-    /// The key question must not be asked unless the cloud toggle is on. In production it is
-    /// `AnthropicKeychain.hasKey`, a live Keychain query; evaluated eagerly, every Filing scan would
-    /// touch the Keychain with cloud Filing off, which on a locked or denied item logs a warning and
-    /// can raise an access prompt for a feature the user disabled. Counted, since the route alone is
-    /// the same either way.
+    /// The key is asked about only with the cloud toggle on. `AnthropicKeychain.hasKey` is a live
+    /// Keychain query, which on a locked item can raise an access prompt for a feature the user
+    /// turned off. Counted, since the route alone is the same either way.
     @Test func theKeychainIsNotQueriedWhileCloudFilingIsOff() {
         var keyQueries = 0
         func hasKey() -> Bool {
@@ -175,9 +172,8 @@ import Sync
         #expect(result.reported.isEmpty)
     }
 
-    /// The toggle is on but no key can be read (never entered, deleted, or a locked Keychain), so the
-    /// on-device model files the documents while the user believes Claude did. That must be logged
-    /// once, or the Activity Log can't tell it from a real cloud run.
+    /// Toggle on but no readable key: the on-device model files while the user believes Claude did,
+    /// so it is logged once, or the Activity Log can't tell it from a real cloud run.
     @Test func cloudFilingOnWithoutAKeyDowngradesAndSaysSoExactlyOnce() throws {
         let result = routed(cloudEnabled: true, hasCloudKey: false)
         #expect(result.route == .onDeviceCloudKeyUnavailable)
@@ -193,10 +189,8 @@ import Sync
 
     // MARK: Prompt budget
 
-    /// A prompt that doesn't fit is a budget to shrink, not a file to skip. The on-device model's
-    /// context window is small and shared with its output: a few hundred folders plus a
-    /// 1,200-character excerpt can overflow it, and a skipped file silently keeps its
-    /// filename-derived home.
+    /// A prompt that doesn't fit is a budget to shrink, not a file to skip: the on-device context
+    /// window is small, and a skipped file silently keeps its filename-derived home.
     @Test func eachRungOfTheLadderShrinksBothInputs() {
         let folders = (0..<400).map { "Folder\($0)" }.joined(separator: "\n")
         let file = Self.candidate(name: "DetailedBillApr2025.pdf", ext: "pdf",
@@ -222,9 +216,8 @@ import Sync
             budget: OnDeviceFilingClassifier.PromptBudget.ladder.last!).contains("Content excerpt"))
     }
 
-    /// The real message, verbatim from `~/sync-cloud.log`. Matched on text rather than a typed case
-    /// because the two are reported differently across OS updates, and a false positive costs only
-    /// one retry with a smaller prompt, against silently keeping a wrong home.
+    /// The real message, verbatim from `~/sync-cloud.log`. Matched on text, since the typed case
+    /// varies across OS updates and a false positive costs only one smaller retry.
     @Test func aContextOverflowIsToldApartFromAModelDeclining() {
         struct Fake: LocalizedError { let errorDescription: String? }
         #expect(OnDeviceFilingClassifier.isContextOverflow(

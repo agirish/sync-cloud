@@ -4,12 +4,10 @@ import Sync
 @testable import SyncCloud
 
 /// The app's own selection doesn't retire a Get Info target. A left-pane selection change clears
-/// the left pane's target (`infoTargets`) so its Info follows the selection. The owed pane selection is paid when the
-/// pane's tree publishes, possibly after the user used a rail row's Get Info on another file, and
-/// unmarked it would jump the inspector to the document. The payment is marked
-/// (`editorPaneSelectionPaid`) before it is written, and the clear reads the mark.
+/// the left pane's target so Info follows the selection, but the owed pane selection is paid later,
+/// when the tree publishes, perhaps after a rail row's Get Info on another file; unmarked, it would
+/// jump the inspector. So the payment is marked (`editorPaneSelectionPaid`) and the clear reads it.
 @Suite struct InfoTargetSurvivesTheAppsSelectionTests {
-
     @Test func theAppsOwnWriteKeepsTheTarget() {
         #expect(!ContentView.leftSelectionClearsInfoTarget(["/c/notes.md"], paidSelection: "/c/notes.md", otherPane: []))
     }
@@ -45,9 +43,8 @@ import Sync
                     .passes("paidSelection", "editorPaneSelectionPaid"))
     }
 
-    /// The right pane's half. Paying the debt clears the right pane, as a left-pane click would, and
-    /// unmarked that clear would retire a Get Info target used on a rail row while the debt waited.
-    /// The clear is marked; the user's own changes there still clear the target.
+    /// Paying the debt also clears the right pane; that clear is marked so it keeps the right
+    /// pane's Get Info target, while the user's own changes there still clear it.
     @Test func theAppsClearOfTheRightPaneKeepsTheTarget() {
         #expect(!ContentView.rightSelectionClearsInfoTarget([], clearWasPaid: true, otherPane: []))
         #expect(ContentView.rightSelectionClearsInfoTarget([], clearWasPaid: false, otherPane: []))
@@ -93,8 +90,7 @@ import Sync
         targets.clearAll()
         #expect(targets.path(isLeft: true) == nil && targets.path(isLeft: false) == nil)
 
-        // The window: each selection handler clears its own side, and Get Info aims the side that
-        // holds the path.
+        // Each selection handler clears its own side; Get Info aims the side holding the path.
         let left = try memberBody("func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
                                   inFile: "ContentView.swift")
         #expect(left.contains("infoTargets.clear(isLeft: true)") && !left.contains("isLeft: false"))
@@ -111,10 +107,9 @@ import Sync
         var lastSelectionSurface: SelectionSurface? = nil
     }
 
-    /// The whole chain: a click in one pane goes through `applySelectionWrite`, which clears the
-    /// other pane's selection a turn later, and each pane's change reaches its own rule as the
-    /// window's handlers pass it (the other pane's selection read live). The other pane's Get Info
-    /// target survives that clear; a click in the pane itself still retires it.
+    /// The whole chain: a click goes through `applySelectionWrite`, which clears the other pane's
+    /// selection a turn later. The other pane's Get Info target survives that clear; a click in the
+    /// pane itself still retires it.
     @MainActor @Test func aClickInTheOtherPaneKeepsThisPanesTarget() throws {
         let state = Selections(), sequencer = PaneSelectionSequencer()
         var queued: [() -> Void] = []

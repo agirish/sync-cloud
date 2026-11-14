@@ -282,11 +282,8 @@ import Testing
 
     // MARK: - The welcome copy
 
-    /// The welcome screen says what the sheet is going to ask before it asks it — for every screen
-    /// that asks something.
-    ///
-    /// Derived from `Screen.number`, so a numbered screen added without a line fails instead of
-    /// going unannounced. Screens that show rather than ask are left out on purpose.
+    /// The welcome screen announces every screen that asks something, derived from `Screen.number`
+    /// so a numbered screen added without a line fails.
     @Test func theWelcomeOutlineNamesEveryQuestionTheSheetAsks() {
         let announced = Set(SetupFlow.outline.map(\.screen))
         let asking = Set(SetupFlow.Screen.allCases.filter { $0.number != nil })

@@ -6,7 +6,6 @@ import Testing
 /// "latest ticket only" rule would drop every overtaken survey, so on a folder slower to list than
 /// the autosave gap the rail would stop updating while the user types.
 @MainActor @Suite struct EditorRailRefreshTicketTests {
-
     @Test func anOvertakenSurveyLandsWhenNothingNewerHas() {
         let tickets = RefreshCounter()
         let slow = tickets.take()

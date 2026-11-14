@@ -7,31 +7,28 @@ import Sync
 /// re-runs.
 @MainActor
 @Suite struct PaneSearchHostTests {
-
     // MARK: - Which pane ⌘F opens
 
     /// `(single source, explicit focus, the selected pane, ⌘F searches the left pane)`.
     @Test(arguments: [
-        // The pane holding the selection is where every pane-scoped affordance points (the action
-        // bar, the strong wash), so Find lands there too.
+        // Find lands where the selection is, as every pane-scoped affordance does.
         (false, nil, .left, true),
         (false, nil, .right, false),
-        // `activePane` is nil whenever nothing is selected, which is most of the time, so Find
-        // needs a floor; without one ⌘F would do nothing on a fresh window.
+        // `activePane` is nil whenever nothing is selected, so Find needs a floor or ⌘F would do
+        // nothing on a fresh window.
         (false, nil, nil, true),
-        // The rail is the left pane and the only one on screen: a right answer would open a field
-        // nobody can see, even when the hidden right pane holds a selection.
+        // The rail is the only pane on screen: a right answer would open a field nobody can see.
         (true, nil, .right, true),
         (true, nil, nil, true),
-        // Explicit focus (⌃⇥) outranks the selection fallback; the inputs disagree, since agreeing
-        // inputs can't tell which one the rule read.
+        // Explicit focus (⌃⇥) outranks the selection fallback; the inputs disagree so the test can
+        // tell which one the rule read.
         (false, .left, .right, true),
         (false, .right, .left, false),
         // Nothing selected anywhere: the fallback floors at the left pane, so explicit focus is
         // the only way to reach the right one.
         (false, .right, nil, false),
-        // A `focusedSide` left over from Compare must not survive into the rail, the only pane on
-        // screen: the rail's guard comes before the focus is consulted.
+        // A `focusedSide` left over from Compare must not survive into the rail: the rail's guard
+        // comes before focus.
         (true, .right, nil, true),
     ] as [(Bool, PaneTree.Side?, PaneLogic.ActivePane?, Bool)])
     func testFindSearchesThePaneInEffect(isSingleSource: Bool, focusedSide: PaneTree.Side?,
@@ -40,10 +37,9 @@ import Sync
                                             activePane: activePane) == searchesLeft)
     }
 
-    /// ⌃⇥ flips the pane in effect, not the stored value. With focus implicit (nil) the first press
-    /// moves off the fallback's pane; a stored `nil` has no opposite and the press would look dead
-    /// half the time. The last two fixtures put `focusedSide` and `activePane` in disagreement, so
-    /// a build that ignored `focusedSide` can't pass.
+    /// ⌃⇥ flips the pane in effect, not the stored value: a stored `nil` has no opposite, and the
+    /// press would look dead half the time. The last two fixtures put `focusedSide` and `activePane`
+    /// in disagreement, so ignoring `focusedSide` can't pass.
     @Test func testTheFocusSwitchFlipsTheEffectivePaneNotTheStoredOne() {
         #expect(PaneLogic.focusSwitchTarget(isSingleSource: false, focusedSide: nil, activePane: nil) == .right)
         #expect(PaneLogic.focusSwitchTarget(isSingleSource: false, focusedSide: nil, activePane: .right) == .left)
@@ -51,8 +47,8 @@ import Sync
         #expect(PaneLogic.focusSwitchTarget(isSingleSource: false, focusedSide: .left, activePane: .right) == .right)
     }
 
-    /// Pressing it twice returns to the start, making it a toggle, not a walk, including from the
-    /// implicit start state, where the first press materialises a stored side.
+    /// Pressing it twice returns to the start, including from the implicit start state, where the
+    /// first press materialises a stored side.
     @Test func testTwoFocusSwitchesReturnToTheStartingPane() {
         let first = PaneLogic.focusSwitchTarget(isSingleSource: false, focusedSide: nil, activePane: .left)
         let second = PaneLogic.focusSwitchTarget(isSingleSource: false, focusedSide: first, activePane: .left)
@@ -69,8 +65,8 @@ import Sync
     }
 
     /// An empty write is a deselect (Escape, the action bar's ✕, the cross-pane clear), not leaving
-    /// the pane; moving focus would drop the next ⌘F on the left pane after Escape. Each `current`
-    /// differs from what the clicked side would give, so ignoring the empty check can't pass.
+    /// the pane; moving focus would drop the next ⌘F on the left pane. Each `current` differs from
+    /// the clicked side, so ignoring the empty check can't pass.
     @Test func testDeselectingLeavesFocusWhereItWas() {
         #expect(PaneLogic.focusedSideAfterSelectionWrite([], isLeft: true, current: .right) == .right)
         #expect(PaneLogic.focusedSideAfterSelectionWrite([], isLeft: false, current: .left) == .left)
@@ -79,9 +75,8 @@ import Sync
 
     // MARK: - What a search run is for
 
-    /// A left/right mix-up would stamp the answer with the wrong side. `PaneSearchResults.==` reads
-    /// the side first, so the pane would re-render forever or never notice a change, and neither
-    /// symptom points back here.
+    /// Each pane stamps its own side. `PaneSearchResults.==` reads the side first, so a mix-up would
+    /// re-render the pane forever or never notice a change, neither pointing back here.
     @Test func testEachPaneStampsItsOwnSide() {
         #expect(PaneLogic.searchPlan(isLeft: true, isSingleSource: false, query: "tax").side == .left)
         #expect(PaneLogic.searchPlan(isLeft: false, isSingleSource: false, query: "tax").side == .right)
@@ -107,9 +102,9 @@ import Sync
                           tree: PaneTree(side: .left, version: 1, nodes: []), otherPaths: nil)
     }
 
-    /// A recomputation with the same query is a republish (a scan or copy moved a tree, not the
-    /// user) and must not bump the reveal nonce, or every background republish would steal the
-    /// selection (`PaneSearchRevealNonceTests`).
+    /// A same-query recomputation is a republish (a scan or copy moved a tree, not the user) and must
+    /// not bump the reveal nonce, or every background republish would steal the selection
+    /// (`PaneSearchRevealNonceTests`).
     @Test func testARepublishIsNotANewQuestion() {
         #expect(!PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
                                                  results: results("tax", generation: 2)))
@@ -126,7 +121,7 @@ import Sync
     }
 
     /// `PaneSearchResults` stores the normalized query, so a whitespace-only edit reaches this rule
-    /// as the same string; asserted so that ordering is named, not an accident.
+    /// as the same string.
     @Test func testAWhitespaceOnlyEditIsNotANewQuestion() {
         #expect(!PaneLogic.searchAsksNewQuestion(previous: results("tax", generation: 1),
                                                  results: results("  tax ", generation: 2)))
@@ -134,30 +129,28 @@ import Sync
 
     // MARK: - When a recomputation publishes nothing
 
-    /// A republish with nothing typed publishes nothing. Every tree publish re-keys the search
-    /// task, and results compare by generation, so a new generation for an empty query would
-    /// re-render the window and both panes with identical output.
+    /// A republish with nothing typed publishes nothing: results compare by generation, so a new
+    /// generation for an empty query would re-render the window and both panes for nothing.
     @Test func testAnEmptyQueryRepublishStaysIdle() {
         #expect(PaneLogic.searchStaysIdle(previous: .empty(side: .left), query: ""))
         #expect(PaneLogic.searchStaysIdle(previous: results("", generation: 4), query: ""))
         // Whitespace is no query either — `PaneSearchResults` stores it normalized to empty.
         #expect(PaneLogic.searchStaysIdle(previous: results("", generation: 4), query: "  "))
-        // The idle results would equal what is held but for the stamp, which is the re-render
-        // this rule saves.
+        // Idle results differ from what is held only by the stamp: that re-render is what this saves.
         #expect(results("", generation: 4) != results("", generation: 5))
     }
 
-    /// And it never swallows a real change: a typed query must run, and so must clearing one, or
-    /// the old hits stay drawn with nothing in the field.
+    /// It never swallows a real change: a typed query runs, and so does clearing one, or the old
+    /// hits stay drawn with nothing in the field.
     @Test func testAQueryOrItsClearingStillRuns() {
         #expect(!PaneLogic.searchStaysIdle(previous: .empty(side: .left), query: "tax"))
         #expect(!PaneLogic.searchStaysIdle(previous: results("tax", generation: 2), query: ""))
         #expect(!PaneLogic.searchStaysIdle(previous: results("tax", generation: 2), query: "tax"))
     }
 
-    /// The rule only saves the publish if it runs before the generation is bumped and the results
-    /// written. `recomputeSearch` is on `ContentView`, which a test can't mount, so its order is
-    /// read from source.
+    /// The idle check must run before the generation is bumped and the results written.
+    /// `recomputeSearch` is on `ContentView`, which a test can't mount, so its order is read from
+    /// source.
     @Test func testTheIdleCheckRunsBeforeAnythingIsPublished() throws {
         let source = try macAppFile("ContentView+PaneSearch.swift")
         let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
@@ -178,7 +171,7 @@ import Sync
     }
 
     /// The side annotation reads the other pane's tree before its type filter: a file that filter
-    /// hides is still on that side. Read from source for the same reason as above.
+    /// hides is still on that side. Read from source.
     @Test func testTheSideAnnotationReadsTheOtherPanesWholeFolder() throws {
         let source = try macAppFile("ContentView+PaneSearch.swift")
         let start = try #require(source.range(of: "func recomputeSearch(isLeft: Bool) async {"),
@@ -191,12 +184,10 @@ import Sync
 
     // MARK: - When the search re-runs
 
-    /// `.task(id:)` restarts exactly when this compares unequal, so this `==` is the definition of
-    /// "when does the search re-run". Each row changes one field from the first key: typing; a
-    /// republish (the field easy to leave out: results name paths in the tree published when they
-    /// ran, and a scan, delete or hidden-files toggle rebuilds it, so stale hits select a ghost);
-    /// the other pane's republish, since the side annotation is read from it; and the other pane,
-    /// whose query and counters are its own, so one pane's recomputation can't stand in for it.
+    /// `.task(id:)` restarts exactly when this compares unequal, so `==` defines when the search
+    /// re-runs. Each row changes one field: typing; a republish (a scan, delete or hidden-files toggle
+    /// rebuilds the tree, so stale hits would select a ghost); the other pane's republish, which the
+    /// side annotation reads; and the other pane itself, whose query and counters are its own.
     @Test(arguments: [
         PaneSearchRecomputeKey(isLeft: true, query: "ta", treeVersion: 1, otherTreeVersion: 1),
         PaneSearchRecomputeKey(isLeft: true, query: "tax", treeVersion: 2, otherTreeVersion: 1),

@@ -366,11 +366,8 @@ import Testing
         return (host.fittingSize.height, bytes ?? Data())
     }
 
-    /// The welcome card really draws the outline, not just the data behind it.
-    ///
-    /// `SetupFlowTests` checks the `SetupFlow.outline` table, which stays consistent whether or not
-    /// the card draws it. SwiftUI draws its own text, so an `NSTextField` sweep finds nothing; the
-    /// height is what an offscreen host can report, and a card that draws the rows is taller than
+    /// The welcome card really draws the outline, not just the table behind it. SwiftUI draws its
+    /// own text, so an `NSTextField` sweep finds nothing; a card that draws the rows is taller than
     /// one handed none.
     @Test func theWelcomeCardGrowsByTheOutlineItDraws() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
@@ -409,13 +406,9 @@ import Testing
                 "the card carries \(Int(slack))pt more than any bounded step needs — every one of them inherits that as dead space")
     }
 
-
-    /// Where Locations stops fitting. It draws a row per location and a user may add any number of
-    /// folders, so the question is when it outgrows the opening, not whether.
-    ///
-    /// Two-sided on purpose: a realistic Mac must fit, and the overflow count must stay findable,
-    /// so a list that clipped or a measurement that flatlined fails rather than passing as "fits at
-    /// every count".
+    /// Where Locations, a row per location, outgrows the opening. Two-sided: a realistic Mac must
+    /// fit, and the overflow count must stay findable, so a clipped list or a flatlined measurement
+    /// fails rather than passing as "fits at every count".
     @Test func sourcesOutgrowsTheOpeningEventually() async throws {
         let opening = (width: contentWidth, height: contentCeiling)
 
@@ -435,12 +428,8 @@ import Testing
                 "Sources scrolls at \(overflow) source(s) — that is not a long list, it is a row that got too tall")
     }
 
-    /// The People step grows with the household, and the measurement sees it.
-    ///
-    /// Every fit assertion is an upper bound, which an empty roster satisfies trivially, so "People
-    /// fits" means nothing until People is shown to grow. The same claim
-    /// `sourcesOutgrowsTheOpeningEventually` makes for Locations, the other list that grows with the
-    /// user's data.
+    /// The People step grows with the household, and the measurement sees it: every fit assertion is
+    /// an upper bound, which an empty roster satisfies trivially. The empty roster still fits.
     @Test func theMeasurementSeesTheRosterGrow() async throws {
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)

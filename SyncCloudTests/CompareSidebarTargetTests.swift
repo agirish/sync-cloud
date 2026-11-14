@@ -4,14 +4,9 @@ import Design
 import Testing
 import Foundation
 
-/// That Compare's sidebar says which pane it acts on, the condition for Compare having a sidebar
-/// at all: a wrong guess calls `focusOn`, which resets that pane's column stack, and navigation
-/// has no undo.
-///
-/// The side is `PaneLogic.focusedPaneIsLeft`, the same answer the action bar, the lens scans and
-/// the pane-scoped chords get, set by clicking the pane and shown by its accent border.
-///
-/// Scanned against the app's source because `ContentView` is a `View` with `@State` and can't be
+/// That Compare's sidebar says which pane it acts on: a wrong guess calls `focusOn`, which resets
+/// that pane's column stack, and navigation has no undo. The side is `PaneLogic.focusedPaneIsLeft`,
+/// the answer the action bar and the pane-scoped chords get. Scanned, since `ContentView` can't be
 /// instantiated here.
 @Suite struct CompareSidebarTargetTests {
 
@@ -30,11 +25,8 @@ import Foundation
                 "the target caption is no longer gated to Compare — the other three workspaces would carry a caption that disambiguates nothing")
     }
 
-    /// The side is the focused pane, and that is the one rule.
-    ///
-    /// Two tempting alternatives are refused by name: reading the selection (with nothing selected
-    /// that is always the left pane, so the right is unreachable), and a stored toggle of the
-    /// sidebar's own (a control that can disagree with everything else on screen).
+    /// The side is the focused pane, and that is the one rule: not the selection (with nothing
+    /// selected, always the left pane) and not a stored toggle of the sidebar's own.
     @Test func theSideIsTheFocusedPane() throws {
         let isLeft = try Self.body("var folderSidebarTargetIsLeft: Bool {")
         #expect(isLeft.contains("return focusedPane == .left"),
@@ -54,12 +46,9 @@ import Foundation
                 "the focused Compare side is consulted outside Compare")
     }
 
-    /// A context-menu side reaches every branch of a source row, including the awkward one.
-    ///
-    /// `openFolderSidebarSource` has three `.state` branches. If
-    /// `openFolderSidebarShortcutInsideItsOwner` (a shortcut whose folder lives inside another
-    /// source) read `folderSidebarTargetIsLeft` itself, "Open in Right Pane" on that kind of row
-    /// would silently open on the target side, in the one branch nobody thinks to try.
+    /// A context-menu side reaches every branch of a source row, including a shortcut whose folder
+    /// lives inside another source: reading `folderSidebarTargetIsLeft` there, "Open in Right Pane"
+    /// would silently open on the target side.
     @Test func theExplicitSideReachesEveryBranch() throws {
         let code = try Self.source()
         #expect(code.contains("func openFolderSidebarRow(_ row: FolderSidebarRow, inNewTab: Bool, side: Bool? = nil)"))
@@ -125,11 +114,8 @@ import Foundation
     }
 
     /// Compare has more slack than the lens workspaces, not less: two 250pt panes claim 500 of the
-    /// row against the rail-plus-panel's 560. Pinned because intuition says two panes are hungrier.
-    ///
-    /// Measured at 760, the app's floor, where the clamp bites. A clamp earns its test only at a
-    /// width where it bites: at 810 this one wouldn't (810 − 500 − 6 = 304, over the 280 maximum),
-    /// so don't move the fixture just to follow the floor.
+    /// row against the rail-plus-panel's 560. Measured at 760, where the clamp bites; at 810 it
+    /// wouldn't, so don't move the fixture just to follow the floor.
     @Test func compareIsRoomierAtTheFloorThanTheLensWorkspaces() {
         let compare = width(stored: FolderSidebarView.maxWidth, total: 760)
         let lens = PaneLogic.lensSidebarWidth(stored: FolderSidebarView.maxWidth, totalWidth: 760,

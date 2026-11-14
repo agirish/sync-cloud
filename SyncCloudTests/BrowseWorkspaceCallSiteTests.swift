@@ -3,20 +3,11 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// Browse's wiring inside `ContentView`, checked at the source level as
-/// `ToolbarPaletteBarCallSiteTests` and `LensScanRootTests` check theirs.
-///
-/// `ContentView` can't be instantiated because of its initializer, not its dependencies: its
-/// private stored properties make the synthesized memberwise initializer `private`, which
-/// `@testable` does not raise. Browse itself is not a view type but a `Workspace` case, a
-/// `ContentLayout` case and `browseLayout`; what it draws (`PaneHeader`, `FileTreeView`,
-/// `PersonView`) is render-tested in its own package, so this file checks only the wiring.
-///
-/// Every reader fails loudly on a missing or implausibly short file, and every assertion names a
-/// string whose absence is the regression. Several checks also assert the old shape is gone, since "the new call is present" stays
-/// true if both are left in. A check about one file's contents names that file; a check about a
-/// call site reads all of `MacApp/` (`macAppSources`), since which file a member sits in isn't
-/// pinned.
+/// Browse's wiring inside `ContentView`, checked at the source level: `ContentView`'s private
+/// stored properties make its memberwise initializer `private`, which `@testable` does not raise.
+/// What Browse draws is render-tested in its own package. Several checks also assert the old shape
+/// is gone, since "the new call is present" stays true if both are left in. A check about a call
+/// site reads all of `MacApp/` (`macAppSources`), since which file a member sits in isn't pinned.
 @Suite struct BrowseWorkspaceCallSiteTests {
 
     // MARK: The layout
@@ -43,14 +34,9 @@ import FileExplorer
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
     }
 
-    /// Nothing to collapse to: the header's collapse rung is nil in Browse, and `railSpine` (the
-    /// other control that reaches `togglePanesForCurrentTab`) is drawn by `singleSourceLayout`,
-    /// which Browse never takes. The gather's "Open" calls it only behind
-    /// `contentLayout == .singleCollapsed`, so Browse still writes no override.
-    ///
-    /// The rung is asked of `ContentLayout.hasCollapsibleRail`, a `switch` with no `default:`, so a
-    /// new full-window workspace is a compile error rather than silently inheriting a rung it has
-    /// no spine for. Pinned at both ends: the call site asks the layout; Browse's arm says no.
+    /// Nothing to collapse to: the header's collapse rung is nil in Browse. It is asked of
+    /// `ContentLayout.hasCollapsibleRail`, a `switch` with no `default:`, so a new full-window
+    /// workspace can't silently inherit a rung it has no spine for.
     @Test func testTheCollapseRungIsNotOfferedInBrowse() throws {
         let content = try macAppSources()
         #expect(content.contains("onCollapse: contentLayout.hasCollapsibleRail"),
@@ -71,11 +57,9 @@ import FileExplorer
         let content = try macAppSources()
         #expect(content.contains("let mode: PaneViewMode = resolvedViewMode(isLeft: isLeft)"))
         #expect(content.contains("viewMode: resolvedViewModeBinding(isLeft: isLeft)"))
-        // The two-way ternary belongs in exactly two places, the read and write resolvers; any
-        // other copy is a surface that won't see Browse. Counted over all of `MacApp/`, since a copy
-        // in another file is the same defect. The read resolver is `viewMode(in:isLeft:)`, which
-        // answers for any workspace and to which `resolvedViewMode` must delegate, so the count
-        // matches the ternary's tail, which both spellings share.
+        // The two-way ternary belongs in exactly two places, the read and write resolvers, across
+        // all of `MacApp/`; any other copy is a surface that won't see Browse. Matched on the tail
+        // both spellings share.
         let occurrences = sourceCodeOnly(content)
             .components(separatedBy: ".singleSource ? railViewMode").count - 1
         #expect(occurrences == 2,
@@ -189,11 +173,9 @@ import FileExplorer
 
     // MARK: A person gather has somewhere to land
 
-    /// Browse offers the gather, so Browse has to be able to show it. `paneColumn` hands every pane
-    /// header a `personOffer` and an `onAcceptPerson` in every workspace, so a card mounted only in
-    /// `bottomPaneView` would leave an accept in Browse sweeping the source with nothing on screen,
-    /// no ✕ and no Esc target. Checked as both layouts mounting one shared member, in two named
-    /// files: over all of `MacApp/`, one layout mounting it twice would pass.
+    /// Browse offers the gather, so Browse has to show it: a card mounted only in `bottomPaneView`
+    /// would leave an accept in Browse sweeping the source with nothing on screen. Checked in two
+    /// named files, since over all of `MacApp/` one layout mounting it twice would pass.
     @Test func testBothLayoutsMountThePersonGather() throws {
         let content = try macAppFile("ContentView.swift")
         let split = try macAppFile("ContentView+SplitLayout.swift")

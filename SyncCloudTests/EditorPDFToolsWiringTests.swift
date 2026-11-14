@@ -8,7 +8,6 @@ import FileExplorer
 /// isn't covered by its own test (testing law 5).
 @MainActor
 @Suite struct EditorPDFToolsWiringTests {
-
     /// Every route out of the PDF asks before a pending order or a running tool is lost, and asks
     /// first, before anything about the text document, which is empty while a PDF is open.
     @Test func everyRouteOutOfThePDFAsksFirst() throws {

@@ -7,11 +7,8 @@ import FileExplorer
 
 /// Only Edit's own pane dims anything, and the field that says so takes part in the pane's
 /// equality: the two claims Edit's dimming of unopenable rows rests on.
-///
-/// Local-only: an app-target suite CI doesn't run, so run it by hand.
 @MainActor
 @Suite struct PaneEditorRefusalDelegateTests {
-
     private func delegate(servesEditor: Bool,
                           syncManager: FileSyncManager, settings: SettingsManager) -> PaneActionDelegate {
         paneDelegate(syncManager: syncManager, settings: settings, isSingleSource: true, servesEditor: servesEditor)

@@ -9,7 +9,6 @@ import Testing
 /// items' bodies to the rules, as `theEditorVerbsAreResolvedThroughTheRule` does for the text menus.
 @MainActor
 @Suite struct PDFFindMenuTests {
-
     /// A record of what the verbs were asked to do.
     final class Calls {
         var shown = 0

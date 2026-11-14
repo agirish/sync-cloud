@@ -10,11 +10,9 @@ import Foundation
 /// The menu-bar chords' window-side plumbing: the destination-pick suspension, and the ⌘/
 /// window still showing the whole reference it exists to show.
 ///
-/// `.serialized` because of ⌘W's refusal line: four tests call `CloseTabCommand.run`, one with
-/// `.suspended`, which writes to the process-wide `Logger.shared`, so a sibling could write that
-/// line into the "an ordinary ⌘W says nothing" window of
-/// `aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot`. No other suite calls `run`, and the
-/// suite takes under a second.
+/// `.serialized` because `CloseTabCommand.run(.suspended)` writes to the process-wide
+/// `Logger.shared`, so a sibling could land that line in the "ordinary ⌘W says nothing" window of
+/// `aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot`.
 @MainActor
 @Suite(.serialized) struct ShortcutCommandsTests {
 
@@ -80,10 +78,9 @@ import Foundation
         )
     }
 
-    /// A long run silences exactly the chords whose buttons it greys. Not the suspension: the
-    /// window stays live for reading, so navigation, search, tabs, Quick Look, the clipboard and
-    /// Edit's own saves stay live, while what writes to the panes' files goes silent with its
-    /// button, so mouse and keyboard meet the same lock.
+    /// A long run silences exactly the chords whose buttons it greys: what writes to the panes'
+    /// files. Unlike the suspension, the window stays live for reading, so mouse and keyboard
+    /// meet the same lock.
     @Test func aLongRunSilencesTheWritingChordsAndOnlyThose() throws {
         let open = loadedPublisher(suspended: false, writesLocked: false)
         let locked = loadedPublisher(suspended: false, writesLocked: true)
@@ -123,10 +120,9 @@ import Foundation
                 "the chord publisher is no longer told when a run is going")
     }
 
-    /// Every `effective…` value is actually published. The suspension tests hold the rule and
-    /// can't see whether anything reads it: a deleted `.focusedSceneValue` line leaves them green
-    /// and the menu item permanently disabled. Derived from the source, so a new value is covered
-    /// as soon as it is added.
+    /// Every `effective…` value is actually published: a deleted `.focusedSceneValue` line leaves
+    /// the suspension tests green and the menu item permanently disabled. Derived from the source,
+    /// so a new value is covered as soon as it is added.
     @Test func everyEffectiveValueIsHandedToAFocusedSceneValue() throws {
         let source = try Self.publisherSource()
         let names = Self.effectiveValueNames(in: source)
@@ -139,10 +135,9 @@ import Foundation
         }
     }
 
-    /// What feeds `suspended:` at the call site, which the tests above can't see:
-    /// `loadedPublisher(suspended:)` injects the flag, so deleting `pendingDestination != nil` or
-    /// `showCommandPalette` from the expression would pass them all. Both terms are checked by
-    /// name, so reordering them or adding a third reason is not a failure.
+    /// What feeds `suspended:` at the call site, which the injected flag above can't see: both
+    /// `pendingDestination != nil` and `showCommandPalette` must stay in the expression, checked by
+    /// name so reordering them or adding a third reason is not a failure.
     @Test func bothReasonsToSuspendTheChordsSurviveInTheExpression() throws {
         let source = sourceCodeOnly(try Self.publisherSource())
         // Every `suspended:` line, not the first, which is the parameter declaration
@@ -272,9 +267,8 @@ import Foundation
     }
 
     /// ⌘F is published through the publisher, and nowhere else. Published from `ContentView.body`
-    /// it would never be suspended: under the destination picker it would open a search field that
-    /// takes the typing, ↩ and Esc meant for the pick. Both halves are asserted, since a second
-    /// publication could sit beside the right one.
+    /// it would never be suspended, and under the picker would open a search field that takes the
+    /// typing, ↩ and Esc meant for the pick.
     @Test func findInPaneIsPublishedOnlyThroughTheSuspendablePublisher() throws {
         let publisher = sourceCodeOnly(try Self.publisherSource())
         #expect(publisher.contains(".focusedSceneValue(\\.beginPaneSearch, effectiveBeginPaneSearch)"),
@@ -325,12 +319,9 @@ import Foundation
         #expect(closedWindow, "⌘W is dead on a window that publishes no tab — it is also its Close")
     }
 
-    /// The wiring the tests above can't see: `\.closeTab` is published from the three-state value,
-    /// not `effectiveCloseTab` directly. Publishing the plain optional would stop `.suspended`
-    /// reaching the item while they, calling the rule, still pass.
-    ///
-    /// `everyEffectiveValueIsHandedToAFocusedSceneValue` can't cover it either: `effectiveCloseTab`
-    /// reaches the scene through `closeTabAction`, so the resolver's own line satisfies that scan.
+    /// `\.closeTab` is published from the three-state value, not `effectiveCloseTab`: the plain
+    /// optional would stop `.suspended` reaching the item while the rule tests still pass, and the
+    /// resolver's own line satisfies `everyEffectiveValueIsHandedToAFocusedSceneValue`.
     @Test func theCloseTabValueIsPublishedThroughItsThreeStateForm() throws {
         let code = sourceCodeOnly(try Self.publisherSource())
         #expect(code.contains(".focusedSceneValue(\\.closeTab, closeTabAction)"),
@@ -339,10 +330,9 @@ import Foundation
                 "`closeTabAction` no longer resolves the suspension — ⌘W would fall through to the window again")
     }
 
-    /// The suspended refusal is the one state that greys the item out. The item reads
-    /// `isSuspended`, since ``CloseTabAction`` holds a closure and has no `==`. All three values
-    /// are asserted: a `nil` is an auxiliary window, where this item is File ▸ Close, and must not
-    /// disable.
+    /// Only the suspended refusal greys the item out (read through `isSuspended`, since
+    /// ``CloseTabAction`` holds a closure and has no `==`). A `nil` is an auxiliary window, where
+    /// this item is File ▸ Close, and must not disable.
     @Test func onlyTheSuspendedCloseActionReadsAsSuspended() {
         #expect(CloseTabAction.suspended.isSuspended)
         #expect(!CloseTabAction.closeTab({}).isSuspended)
@@ -351,12 +341,9 @@ import Foundation
         #expect(none?.isSuspended != true, "a window that publishes no tab reads as suspended")
     }
 
-    /// …and the item really is disabled by it, on the state rather than on `nil`. The menu item is
-    /// free never to read the rule above, so the modifier is pinned too, both ways: disabled on
-    /// `.suspended`, never on `nil`, which would take ⌘W out of the auxiliary windows.
-    ///
-    /// Source-level because a `Commands` body can't be mounted in a unit test: `CloseTabCommand`
-    /// reads a `@FocusedValue`, which needs a scene, a key window and a focus update.
+    /// …and the item really is disabled by it: on `.suspended`, never on `nil`, which would take ⌘W
+    /// out of the auxiliary windows. Source-level because `CloseTabCommand` reads a
+    /// `@FocusedValue`, which needs a scene, a key window and a focus update.
     @Test func theCloseItemIsDisabledWhileSuspendedAndOnlyThen() throws {
         let body = sourceCodeOnly(try Self.typeBody("struct CloseTabCommand: View {",
                                                    in: try Self.publisherSource()))
@@ -369,14 +356,9 @@ import Foundation
         #expect(body.contains("Self.run(close,"), "the item does not go through the tested rule")
     }
 
-    /// A refused ⌘W leaves a line, because a disabled item is one deleted modifier away. The
-    /// disable is what a person reads; the log is what a report is answered from, at `.info` since
-    /// `.debug` is dropped at Settings ▸ Advanced ▸ Info, as ⌘K's refusal does.
-    ///
-    /// The two states that aren't refusals are asserted silent too, or the line would mean
-    /// nothing. Both halves read a capture opened just before the call, since `Logger.shared` is
-    /// process-wide and rolled; each window requires its own closing line, and `.serialized` keeps
-    /// the window exclusive.
+    /// A refused ⌘W leaves a line at `.info` (`.debug` is dropped at the shipped level), and the two
+    /// other states stay silent, or the line would mean nothing. Each half reads a capture opened
+    /// just before its call, since `Logger.shared` is process-wide; `.serialized` keeps it exclusive.
     @Test func aSuspendedCloseSaysSoInTheLogAndTheOtherTwoStatesDoNot() async throws {
         let refusal = "⌘W ignored"
         /// Everything logged while `act` runs, read from a capture opened before it.
@@ -414,13 +396,9 @@ import Foundation
         return body
     }
 
-    /// The ambient panels cannot latch behind a destination pick. The latches are plain `Bool`s and
-    /// the picker renders in front, so setting one mid-pick would show nothing, then the panel the
-    /// instant the pick resolved. ⌘, and ⌘? live in the App scene and see none of this window's
-    /// state, so the refusal lives at the latch, and the toolbar buttons disable to match.
-    ///
-    /// Source-level because `ContentView`'s overlays need a live manager and a render pass; pinned
-    /// is that each latch has a guard that reads the picker.
+    /// The ambient panels cannot latch behind a destination pick: the picker renders in front, so a
+    /// latch set mid-pick would pop its panel the instant the pick resolved. ⌘, and ⌘? see none of
+    /// this window's state, so each latch's own guard reads the picker (source-level: no render).
     @Test func theAmbientPanelsRefuseToOpenDuringADestinationPick() throws {
         let content = try macAppFile("ContentView.swift")
         let code = sourceCodeOnly(content)

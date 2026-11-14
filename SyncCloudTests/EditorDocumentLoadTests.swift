@@ -4,22 +4,13 @@ import Events
 import FileExplorer
 @testable import SyncCloud
 
-/// The order `EditorDocumentLoad.run` keeps between the document and its undo stacks, the one
-/// property standing between a file switch and an `NSRangeException`.
-///
-/// `EditorUndoStoreTests` covers the store's own rules (one stack per path, a stack refused when
-/// its fingerprint no longer fits). This covers the sequence of those calls around replacing the
-/// buffer: `NSTextView` registers undo by character range in the buffer the edit was made against,
-/// so a stack reunited with the wrong buffer splices characters out of it or throws.
-///
-/// These run the shipped function, not a local copy of the calls, since `ContentView` can't be
-/// built in a test.
-///
-/// A class, for its `deinit`: Swift Testing makes one instance per test, so each test's files live
-/// in one folder the instance removes when it goes.
+/// The order `EditorDocumentLoad.run` keeps between the document and its undo stacks, which
+/// stands between a file switch and an `NSRangeException`: `NSTextView` registers undo by
+/// character range, so a stack reunited with the wrong buffer splices characters out or throws.
+/// The store's own rules are `EditorUndoStoreTests`. A class for its `deinit`: Swift Testing makes
+/// one instance per test, which removes its own folder.
 @MainActor
 @Suite final class EditorDocumentLoadTests {
-
     /// This test's files; removed with the instance.
     let folder = NSTemporaryDirectory() + "load-order-" + UUID().uuidString
 
@@ -44,11 +35,8 @@ import FileExplorer
 
     // MARK: The invariant
 
-    /// A round trip hands back the stack the document was left with.
-    ///
-    /// Fails if `remember(text:)` moves to after the buffer is replaced: the outgoing stack would
-    /// be filed against the incoming text, its fingerprint would agree with a buffer it was never
-    /// made against, and coming back would hand it over.
+    /// A round trip hands back the stack the document was left with. Fails if `remember(text:)`
+    /// moves after the buffer is replaced, which files the outgoing stack against the incoming text.
     @Test func aRoundTripReturnsTheStackTheDocumentWasLeftWith() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -88,11 +76,8 @@ import FileExplorer
         #expect(store.current.canUndo)
     }
 
-    /// The incoming stack is checked against what actually loaded, so a file that changed while it
-    /// was away doesn't get its old registrations back.
-    ///
-    /// The positive control for the round-trip test: it proves that one asserts the sequence keeps
-    /// the two in step, not that the store never refuses anything.
+    /// A file that changed while it was away doesn't get its old registrations back. The control for
+    /// ``aRoundTripReturnsTheStackTheDocumentWasLeftWith``: the store does refuse a stack.
     @Test func aStackIsRefusedWhenTheFileChangedWhileItWasAway() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -223,10 +208,9 @@ import FileExplorer
         #expect(document.buffer.source.textStorage.string == "alpha")
     }
 
-    /// The buffer follows the storage kept beside the stack, on the way in and back to the same
-    /// storage object on a round trip. Without it the text view shows the outgoing document's
-    /// storage beside the incoming document's stack. Fails if `run` drops
-    /// `document.buffer.follow(undoStore.source)`.
+    /// The buffer follows the storage kept beside the stack, back to the same object on a round
+    /// trip, or the text view shows the outgoing storage beside the incoming stack. Fails if `run`
+    /// drops `document.buffer.follow(undoStore.source)`.
     @Test func theBufferFollowsTheStorageKeptBesideTheStack() throws {
         let a = try file("a.md", "alpha")
         let b = try file("b.md", "bravo")
@@ -267,12 +251,9 @@ import FileExplorer
 
     // MARK: A word being composed (UND-5)
 
-    /// Every route out of a document ends a composition before anything reads the buffer: the
-    /// settle before every load and close, and the quit's flush. The buffer leaves a half-composed
-    /// word out while the storage holds it, so otherwise a switch would flush the file without the
-    /// word and the screen and document would disagree on return. The commit itself is tested in
-    /// `PlainTextEditorBridgeTests`; `ContentView` can't be built, so its call sites are read.
-    /// Fails if either `endComposition()` is removed.
+    /// The settle and the quit's flush end a composition before reading the buffer, which leaves a
+    /// half-composed word out while the storage holds it: the file would be saved without the word.
+    /// Fails if either `endComposition()` is removed (the commit itself: `PlainTextEditorBridgeTests`).
     @Test func leavingADocumentEndsTheCompositionFirst() throws {
         let settle = CodeText(try declarationBody(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool",
                                                   in: macAppCode("ContentView+Editor.swift")))

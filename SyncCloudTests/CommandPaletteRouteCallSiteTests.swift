@@ -4,21 +4,14 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// How the host applies a `PaletteRoute`.
-///
-/// `CommandPaletteTests` proves the routing table (a query in, a route out), but no suite can see
-/// what the app then does with the route: `runPaletteRoute` is a method on a SwiftUI `View` whose
-/// body owns a sync manager, a settings object and an `@AppStorage` pair. So this scans its source
-/// for the decisions that would go wrong silently. It fails if the file can't be read, and each
-/// check asserts the exact string whose absence is the regression.
+/// How the host applies a `PaletteRoute`. `CommandPaletteTests` proves the routing table; what the
+/// app then does with a route lives on a SwiftUI `View` no test can build, so this scans its source
+/// for the decisions that would go wrong silently.
 @Suite struct CommandPaletteRouteCallSiteTests {
 
-    /// The rail and the scope are written through `@AppStorage`, never `UserDefaults.standard`.
-    ///
-    /// `@AppStorage` can lose a standard-domain write outright, not just deliver it late, and
-    /// `LensWorkspaceView` holds both keys in `@AppStorage`. Written raw, a ⌘K route to "Organize ▸
-    /// Duplicates" could land on Organize and leave the rail where it was, intermittently and with
-    /// nothing logged.
+    /// The rail and the scope are written through `@AppStorage`, never `UserDefaults.standard`:
+    /// `@AppStorage` can lose a standard-domain write outright, so a ⌘K route could land on Organize
+    /// and leave the rail where it was, intermittently and with nothing logged.
     @Test func theRouteWritesOrganizesStateThroughAppStorage() throws {
         let code = try macAppCode("CommandPaletteHost.swift")
         for raw in ["UserDefaults.standard.set", "UserDefaults.standard.removeObject"] {
@@ -43,13 +36,9 @@ import Sync
 
     // MARK: One pane, asked once
 
-    /// The palette describes one pane, and must act on that same pane.
-    ///
-    /// `lensProviderRootExpanded` follows the focused pane in Compare, so with the right pane
-    /// focused every folder and recent row in the index is relative to the right provider's tree.
-    /// The reveal, the "The current source" mark and choosing a source must all follow that aim, or
-    /// a path from one provider's tree is opened in the other's. `paletteProviderId` names the rule
-    /// once.
+    /// The palette describes one pane, and must act on that same pane: with the right pane focused
+    /// in Compare the index is relative to the right provider's tree, so the reveal, "The current
+    /// source" and choosing a source must all follow that aim, stated once.
     @Test func thePaletteRevealsIntoThePaneItIndexed() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         #expect(host.contains("var aimedAtRight: Bool { lensTargetIsRight }"),
@@ -74,13 +63,9 @@ import Sync
                 "the aimed-pane rule is stated in more than one place again")
     }
 
-    /// The aim is read before the workspace moves.
-    ///
-    /// `lensProviderRootExpanded` and `lensTargetIsRight` follow the focused pane, and only Compare
-    /// has two, so after switching to Organize they give the left pane's answers. A scope from a
-    /// right-pane index resolved afterwards fails `OrganizeScope`, which writes `""` and silently
-    /// clears it: "organize legal" loses its folder. So the root, the scope and the reveal's pane
-    /// must each be bound above the move and passed below it, a shape rather than a spelling.
+    /// The aim is read before the workspace moves: after switching to Organize, the focused-pane
+    /// reads give the left pane's answers, and a right-pane scope resolved then is silently cleared.
+    /// So the root, the scope and the reveal's pane are each bound above the move.
     @Test func theOrganizeRouteResolvesItsScopeAgainstThePaneItCameFrom() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         // Comment-stripped, via the shared reader, because this function's own comments quote
@@ -99,11 +84,9 @@ import Sync
                                  "aimOrganize no longer routes the scope through the one owner")
         #expect(write.lowerBound < move.lowerBound,
                 "the scope is set after the workspace changes, so the owner resolves it against the wrong pane")
-        // Which pane, on the same terms as which root. `aimedAtRight` is computed over
-        // `layoutMode`, so `isLeft: !aimedAtRight` at the reveal is read after leaving Compare and
-        // answers `false` for a right-pane route. So the aim is bound before the move… The check
-        // pins the binding, not `let` or `var`: it is `var` because a confirmed pane swap moves
-        // the named provider to the left and the reveal has to follow it.
+        // Which pane, on the same terms: `aimedAtRight` read after leaving Compare answers `false`
+        // for a right-pane route, so the aim is bound before the move (a `var`, since a confirmed
+        // swap moves the named provider to the left)…
         let aim = try #require(body.range(of: "revealIntoLeft = !aimedAtRight"),
                                "aimOrganize no longer captures which pane the palette was aimed at")
         #expect(aim.lowerBound < move.lowerBound,
@@ -118,22 +101,14 @@ import Sync
 
     // MARK: The pane swap Organize needs, and what happens if it is declined
 
-    /// The three writes happen in one order, and Cancel happens before all of them.
+    /// The three writes happen in one order, and Cancel comes before all of them. Organize shows the
+    /// left pane, so a right-pane scope is offered a pane swap:
     ///
-    /// Organize is single-source and shows the left pane, so a scope from the right pane's tree
-    /// resolves to nil there: the chip and filter vanish and the folder is silently dropped. The
-    /// route offers to swap the panes instead, and the order is what makes that work:
-    ///
-    /// - Scope, then swap. `setOrganizeScope` resolves against the live
-    ///   `lensProviderRootExpanded`; after the swap it would measure against the tree the folder is
-    ///   not in and store `""`, the very clear the dialog exists to prevent.
-    /// - Swap, then move. `swapPanesAction` can refuse (bootstrap, file operations in flight), and
-    ///   a refusal after the move leaves the user in Organize on the wrong provider.
-    /// - Cancel touches nothing. The confirm comes before every write and its refusal returns, so
-    ///   declining writes no scope, swaps no pane and moves no workspace.
-    ///
-    /// Asserts positions and a `return`, not the statements' current spelling, which a test would
-    /// otherwise cement.
+    /// - Scope, then swap: after the swap `setOrganizeScope` would measure against the other tree
+    ///   and store `""`, the very clear the dialog exists to prevent.
+    /// - Swap, then move: `swapPanesAction` can refuse, and a refusal after the move leaves the
+    ///   user in Organize on the wrong provider.
+    /// - Cancel returns before every write.
     @Test func theOrganizePaneSwapIsOrderedAndCancellingItWritesNothing() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         let body = try declarationBody(of: "func aimOrganize(lens: OrganizeLens?, scope: String?) {",
@@ -173,10 +148,9 @@ import Sync
         }
     }
 
-    /// The dialog is not styled as a destruction. Swapping the panes deletes nothing and swapping
-    /// again puts them back; `confirmDestructive` paints the caution icon and marks its default
-    /// button `hasDestructiveAction`, macOS's "this cannot be undone" signal. Spent here, it stops
-    /// meaning anything on the alert that really moves files to the Trash.
+    /// The dialog is not styled as a destruction: a pane swap deletes nothing, and spending
+    /// `confirmDestructive`'s caution signal here dulls it on the alert that really moves files to
+    /// the Trash.
     @Test func thePaneSwapPromptIsNotDressedAsADestructiveAction() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         let code = sourceCodeOnly(host)
@@ -211,12 +185,8 @@ import Sync
 
     // MARK: Settings
 
-    /// The host offers every Settings tab by passing the whole derived list through.
-    ///
-    /// `SettingsTabDigestTests` covers the derivation in `Settings`; it can't see this line. A
-    /// hand-picked subset here (`[.general, .appearance]`, or a literal `PaletteSettingsTab` array)
-    /// compiles and makes the other tabs unreachable from ⌘K, with nothing failing or logged. So
-    /// the scan checks the list's source: `SettingsTab.digests`, mapped whole.
+    /// The host offers every Settings tab by passing the whole derived list through: a hand-picked
+    /// subset here compiles and makes the other tabs unreachable from ⌘K, with nothing failing.
     @Test func theHostOffersEverySettingsTab() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         let code = sourceCodeOnly(host)
@@ -226,13 +196,10 @@ import Sync
                 "the tab list is being filtered at the call site; a tab dropped here fails nothing")
     }
 
-    /// A tab route goes through `openSettings(on:)`, never `showSettings = true` plus a write.
-    ///
-    /// That function is the one door for Settings deep links, and its order matters: it presets
-    /// the tab before the latch, because the overlay renders `settingsTab` as it finds it and a
-    /// later preset shows the previous page for a frame. It also stashes the displaced tab so a
-    /// refused open puts it back. A route flipping the latch itself would do neither and look
-    /// right nearly every time.
+    /// A tab route goes through `openSettings(on:)`, never `showSettings = true` plus a write. That
+    /// door presets the tab before the latch (a later preset shows the previous page for a frame)
+    /// and puts the displaced tab back on a refused open; a hand-rolled latch looks right nearly
+    /// every time.
     @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         let code = sourceCodeOnly(host)
@@ -245,11 +212,8 @@ import Sync
                 "a second bare `showSettings = true` appeared — a deep link that skips the door")
     }
 
-    /// The open log counts the tabs, like the other three things the index carries.
-    ///
-    /// The counts say the index was built, not merely that something appeared over an empty one.
-    /// The tabs cross a package wall, so they go missing by the `map` handing over fewer, and with
-    /// no count an empty list and a full one log the same line.
+    /// The open log counts the tabs, like the other three things the index carries: they cross a
+    /// package wall, and with no count an empty list and a full one log the same line.
     @Test func theOpenLogReportsHowManySettingsTabsWereIndexed() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
         #expect(sourceCodeOnly(host).contains("index.settingsTabs.count) settings tabs"),

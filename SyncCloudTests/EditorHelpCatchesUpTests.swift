@@ -3,10 +3,8 @@ import Testing
 @testable import SyncCloud
 
 /// Help says what Edit does: the file list is never "the rail", and Edit's keys and controls are
-/// in the article. Each phrase is one the article must carry verbatim, so rewording one is a
-/// decision this test makes visible.
+/// in the article. Each phrase must appear verbatim, so rewording one is a visible decision.
 @Suite struct EditorHelpCatchesUpTests {
-
     /// Edit's article, or with `pdf` the PDF's, which carries the PDF lines.
     private static func editText(pdf: Bool = false) throws -> String {
         let topic = try #require(HelpBook.topic(id: pdf ? "pdf-workspace" : "editor-workspace"))

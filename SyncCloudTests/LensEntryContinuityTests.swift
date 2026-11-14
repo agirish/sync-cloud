@@ -4,16 +4,13 @@ import Testing
 import Foundation
 
 /// Entering a lens leaves the left pane where it is, and Compare still gets its comparisons.
-/// Browse, Organize's source rail and Compare's left pane are one pane over one folder, which keeps
-/// its folder across every switch, both ways; re-homing it on entry would lose the folder open in
-/// Browse. Every pane move compares; the one opt-out is Edit's re-read after its own write, whose
-/// debt Compare settles. `ContentView` can't be instantiated, so the wiring is read off its source,
-/// comments stripped, each check anchored on something that must be present.
+/// Browse, Organize's source rail and Compare's left pane are one pane that keeps its folder across
+/// every switch. Every pane move compares, except Edit's re-read after its own write, whose debt
+/// Compare settles. Read off `ContentView`'s source, each check anchored.
 @Suite struct LensEntryContinuityTests {
 
-    /// Entering a lens shows the rail and moves no pane. Anchored on the rail override, which the
-    /// function must still write, so the scan is aimed at the right body; then no pane move of any
-    /// kind may appear (a `focusOn`, or any other way of re-pointing the left pane).
+    /// Entering a lens shows the rail (the anchor) and moves no pane: no `focusOn`, nor any other
+    /// way of re-pointing the left pane.
     @Test func enteringALensLeavesTheLeftPaneWhereItIs() throws {
         let code = try macAppCode("ContentView.swift")
         let body = try memberBody("func presentLensRail(for workspace: Workspace) {", in: code)
@@ -35,9 +32,8 @@ import Foundation
                 "the refreshSubject handler no longer reloads the scope it was sent")
     }
 
-    /// Every caller compares but one: file operations, forced rescans, provider switches and
-    /// navigation reach `refreshAction` without naming `comparing`, which defaults to `true`. Edit's
-    /// re-read after a file it wrote is the one opt-out, and lives outside this file.
+    /// Every caller compares but one: `refreshAction`'s `comparing` defaults to `true`, and Edit's
+    /// re-read after its own write is the one opt-out.
     @Test func skippingTheComparisonIsOptInAtExactlyOneCallSite() throws {
         let code = try macAppCode("ContentView.swift")
         #expect(code.contains("comparing: Bool = true"),
@@ -51,9 +47,8 @@ import Foundation
                 "Edit opts out of the comparison somewhere else too")
     }
 
-    /// The debt is settled from `onChange(of: selectedWorkspace)`, not the bar's binding: every
-    /// programmatic switch (`show(_:)`, the duplicate-review handoff) assigns the workspace
-    /// directly, around the binding, and Compare is where those land.
+    /// The debt is settled from `onChange(of: selectedWorkspace)`, not the bar's binding, since
+    /// programmatic switches into Compare (`show(_:)`, the duplicate-review handoff) bypass it.
     @Test func theSettleRidesTheWorkspaceChangeNotTheBarBinding() throws {
         let code = try macAppCode("ContentView.swift")
         let binding = try memberBody("var workspaceSelection: Binding<Workspace> {", in: code)

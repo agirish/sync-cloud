@@ -4,14 +4,12 @@ import Sync
 import Testing
 import Foundation
 
-/// The sidebar refresh's cost: how often it runs, where its `stat`s run, and how often the volumes
-/// are walked. One Edit↔Organize switch fires `refreshFolderSidebarRows` two to four times, and each
-/// walk `stat`s every provider root, pin, recent, volume and place, a hundred or more `stat` chains
-/// with many sources. On the main actor, a sleeping external disk or a wedged network mount in any
-/// one of them would block the window. The walk is a `nonisolated static` taking its inputs, so most
-/// of this suite measures it rather than scanning source.
+/// The sidebar refresh's cost: how often it runs, where its `stat`s run, how often volumes are
+/// walked. One Edit↔Organize switch fires `refreshFolderSidebarRows` two to four times, each
+/// `stat`ing every root, pin, recent, volume and place; on the main actor a sleeping external
+/// disk or wedged network mount would block the window. The walk is a `nonisolated static`
+/// taking its inputs, so most of this suite measures it rather than scanning source.
 @Suite struct FolderSidebarRefreshCostTests {
-
     /// A provider root holding one folder that exists and none named `Gone`.
     private static func makeRoot() throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -30,10 +28,9 @@ import Foundation
             recents: [], favoriteOrder: [], favoritePlaces: [])
     }
 
-    /// The walk runs off the main actor, and it really is the walk. The `Task.detached` is the
-    /// assertion: calling `resolveFolderSidebarRows` from a non-isolated context compiles only while
-    /// it is `nonisolated`, and every blocking `stat` of a refresh is inside it. The row assertions
-    /// stop that being a compile-time claim about an empty function.
+    /// The walk runs off the main actor and really is the walk. The `Task.detached` call compiles
+    /// only while `resolveFolderSidebarRows` is `nonisolated`; the row assertions stop that being a
+    /// claim about an empty function.
     @Test func theWholeWalkResolvesOffTheMainActorAndStillChecksTheDisk() async throws {
         let root = try Self.makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -67,11 +64,10 @@ import Foundation
         #expect(favorites.allSatisfy { !$0.isAvailable })
     }
 
-    /// The mounted-volume walk happens once per mount event, not once per refresh: a
-    /// `resourceValues` read per volume can block under an unreachable network mount, and mounts
-    /// change only when macOS says so (the app subscribes to all four notifications). The cache is
-    /// poisoned with a volume the filesystem can't produce, so an answer naming it came from the
-    /// cache; the last two lines are the control.
+    /// The mounted-volume walk happens once per mount event, not per refresh: a per-volume
+    /// `resourceValues` read can block under an unreachable network mount, and mounts change only when
+    /// macOS says so. The cache is poisoned with a volume the filesystem can't produce, so an answer
+    /// naming it came from the cache; the last two lines are the control.
     @MainActor
     @Test func theVolumeWalkIsServedFromTheCacheUntilSomethingDropsIt() {
         defer { ContentView.forgetMountedVolumes() }
@@ -94,17 +90,15 @@ import Foundation
 
     // MARK: The parts of the refresh no test can reach
 
-    /// `ContentView` can't be instantiated, so the coalescing inside `refreshFolderSidebarRows` is
-    /// read off its source. Comments are stripped so prose explaining the mechanism can't stand in
-    /// for it.
+    /// `ContentView` can't be instantiated, so the coalescing in `refreshFolderSidebarRows` is read
+    /// off its source, comments stripped so prose can't stand in for code.
     private static func refreshBody() throws -> String {
         try declarationBody(of: "func refreshFolderSidebarRows() {", in: macAppFile("ContentView+FolderSidebar.swift"))
     }
 
-    /// One refresh per turn, and the ticket is checked twice: after the hop, which collapses the
-    /// calls one workspace switch fires into one walk; and after the walk returns, so an overtaken
-    /// answer isn't drawn over a newer one. Dropping either leaves a refresh that still works, but
-    /// costs more or is occasionally stale, and nothing else would notice.
+    /// One refresh per turn, with the ticket checked twice: after the hop, collapsing one switch's
+    /// calls into one walk; and after the walk, so an overtaken answer isn't drawn over a newer one.
+    /// Dropping either still works but costs more or is occasionally stale, and nothing else notices.
     @Test func theRefreshTakesATicketAndChecksItOnBothSidesOfTheWalk() throws {
         let body = try Self.refreshBody()
         #expect(body.contains("sidebarRefresh.ticket &+= 1"),
@@ -114,9 +108,8 @@ import Foundation
                 "the ticket is checked \(checks) time(s): it must be checked after the hop (which coalesces) AND after the walk returns (which drops an overtaken answer)")
     }
 
-    /// The on-screen guard comes first, before the ticket and before anything is read. The triggers
-    /// fire in every workspace, so scheduling work before asking whether the column is on screen
-    /// would pay for a walk in Compare with the sidebar switched off.
+    /// The on-screen guard comes before the ticket and any read: the triggers fire in every
+    /// workspace, so otherwise Compare with the sidebar off would pay for a walk.
     @Test func theOnScreenGuardStillPrecedesEverything() throws {
         let body = try Self.refreshBody()
         let guardIndex = try #require(body.range(of: "guard folderSidebarIsShowing else { return }"),
@@ -126,9 +119,8 @@ import Foundation
                 "work is scheduled before the column is known to be on screen")
     }
 
-    /// The disk work is handed to a detached task, not awaited on the main actor. An `async` member
-    /// of a main-actor type hops straight back, so the detach is what's under test, as
-    /// `EjectWiringTests.ejectingDoesNotRunOnTheMainActor` pins for the eject.
+    /// The disk work is detached, not awaited: an `async` member of a main-actor type hops straight
+    /// back to it (as `EjectWiringTests.ejectingDoesNotRunOnTheMainActor` pins for eject).
     @Test func theWalkIsDetachedRatherThanMerelyAwaited() throws {
         let body = try Self.refreshBody()
         #expect(body.contains("Task.detached(priority: .userInitiated)"),

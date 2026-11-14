@@ -5,11 +5,9 @@ import AppKit
 /// ↩ renames, and what must stay true about how it is wired.
 @MainActor
 @Suite struct PaneRenameChordTests {
-
-    /// **Never** register ↩ as a menu key equivalent: it outranks the field editor and every
-    /// default button, so it would take the key that commits the destination picker, the ⌘K field
-    /// and every sheet. Finder doesn't register it either. Scans all of `MacApp/`, since the damage
-    /// is the same wherever it is written.
+    /// **Never** register ↩ as a menu key equivalent: it outranks the field editor and every default
+    /// button, so it would take the key that commits the destination picker, the ⌘K field and every
+    /// sheet. Scans all of `MacApp/`, since the damage is the same wherever it is written.
     @Test func returnIsNotRegisteredAsAChordAnywhere() throws {
         let dir = macAppDirectory()
         let urls = try #require(try? FileManager.default.contentsOfDirectory(at: dir,
@@ -26,14 +24,11 @@ import AppKit
         }
     }
 
-    /// Wired where Space is, on the file list, focus-scoped, so it fires only while the list holds
-    /// focus and never while the caret is in a field. Asserted on where the handler sits and what
-    /// it calls, not its overload: which overload is right (it takes the keypad's Enter too) is
+    /// Wired where Space is, on the file list, focus-scoped, so it never fires while the caret is in
+    /// a field. Which overload is right (it takes keypad Enter too) is
     /// `thePanesRenameKeyTakesBothEnterKeycapsAndRefusesChords`'s question, in
-    /// `Modules/FileExplorer/Tests/FileExplorer/BareKeyEquivalentScanTests.swift`.
-    ///
-    /// These call-site scans run only in the app target, so a change checked with
-    /// `xcodebuild build` instead of `xcodebuild test` can break them unseen.
+    /// `Modules/FileExplorer/Tests/FileExplorer/BareKeyEquivalentScanTests.swift`. These scans run only
+    /// in the app target, so `xcodebuild build` alone can break them unseen.
     @Test func returnIsWiredOnTheFileListBesideSpace() throws {
         let content = try macAppFile("ContentView.swift")
         #expect(content.contains(".onKeyPress(.space) { paneQuickLook() }"),
@@ -59,8 +54,7 @@ import AppKit
     }
 
     /// The chord and the menu item run one closure: `paneRename()` reads
-    /// `shortcutPaneRowVerbs.rename`, as File ▸ Rename does, so they can't disagree about when a
-    /// rename is possible or what it renames.
+    /// `shortcutPaneRowVerbs.rename`, as File ▸ Rename does, so they can't disagree.
     @Test func theChordRunsTheMenuItemsOwnAction() throws {
         let body = try memberBody("func paneRename() -> KeyPress.Result {", inFile: "ContentView+PaneSearch.swift")
         #expect(body.contains("shortcutPaneRowVerbs.rename"),
@@ -70,14 +64,11 @@ import AppKit
                 "↩ swallows the key when a rename is not possible, so nothing else can have it")
     }
 
-    /// ↩ and Space are suspended while a surface owns the keyboard, like every mirrored menu chord.
-    /// `suspended:` on the focused-value publication silences only the menu items, and these are
-    /// `.onKeyPress` handlers reading `shortcutPaneRowVerbs` directly. Unguarded, ↩ under a
-    /// destination pick would rename the row and swallow the key the picker's default button needs.
-    ///
-    /// Focus scoping doesn't prevent it: a full-window SwiftUI overlay doesn't take key from the
-    /// `NSViewRepresentable` tables under it (why ⌘K is a window, `CommandPalettePanel.swift`).
-    /// Scanned at source, since both handlers are `ContentView` extension methods.
+    /// ↩ and Space are suspended while a surface owns the keyboard. `suspended:` silences only the
+    /// menu items, and these are `.onKeyPress` handlers; unguarded, ↩ under a destination pick would
+    /// rename the row and swallow the picker's default button key. Focus scoping doesn't prevent it:
+    /// a full-window SwiftUI overlay doesn't take key from the `NSViewRepresentable` tables under it
+    /// (why ⌘K is a window, `CommandPalettePanel.swift`).
     @Test func bothPaneKeyHandlersAskTheSuspensionRule() throws {
         let search = try macAppFile("ContentView+PaneSearch.swift")
         for handler in ["func paneRename()", "func paneQuickLook()"] {

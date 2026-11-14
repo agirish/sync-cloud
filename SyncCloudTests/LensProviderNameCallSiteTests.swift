@@ -7,7 +7,6 @@ import Foundation
 /// breadcrumb with every other test green. A source scan that fails loudly on an empty read and
 /// pins the whole expression, not its ingredients.
 @Suite struct LensProviderNameCallSiteTests {
-
     /// The lens workspaces show one source, so their name carries no pane suffix.
     @Test func theLensNameIsThePlainOne() throws {
         let body = try declarationBody(of: "var lensProviderName: String {", in: macAppFile("ContentView.swift"))

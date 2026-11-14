@@ -55,13 +55,9 @@ import AppKit
         #expect(!menuTitles(window).contains("Activity Log"), "the retired Activity Log window still has an item")
     }
 
-    /// Every chord the app declares is actually on a menu item. `AppChordTests` and
-    /// `ShortcutsReferenceTests` read the registry and the reference table, but neither knows
-    /// whether anything registers the chord; only the built menu does. A command `View` left with
-    /// no call site would leave a documented key answering nothing.
-    ///
-    /// Presence, not enabled state: most of these are `@FocusedValue` items that are correctly grey
-    /// with no window focused. An item that is not there at all is the failure.
+    /// Every chord the app declares is actually on a menu item; only the built menu knows, and a
+    /// command `View` with no call site leaves a documented key answering nothing. Presence, not
+    /// enabled state: most are `@FocusedValue` items, correctly grey with no window focused.
     @Test func everyDeclaredChordIsOnAMenuItem() throws {
         var registered: Set<String> = []
         func walk(_ menu: NSMenu) {
@@ -110,12 +106,9 @@ import AppKit
         chordKey(chord.appKitKeyEquivalent, chord.appKitModifierMask)
     }
 
-    /// View ▸ Sidebar is in the bar and carries ⌃⌘S; where the column cannot be drawn (collapsed
-    /// panes) the item is disabled rather than deleted. A menu item is built from a `Commands`
-    /// declaration whether or not it is wired, so only the built menu shows it registered.
-    ///
-    /// Both halves, because either alone can go missing: an item titled "Sidebar" that lost its key
-    /// equivalent passes a title check and leaves Finder's chord dead.
+    /// View ▸ Sidebar carries ⌃⌘S, and nothing else does; where the column cannot be drawn the item
+    /// is disabled rather than deleted. Read off the built menu, so an item that lost its key
+    /// equivalent fails.
     @Test func theSidebarSwitchIsInTheViewMenu() throws {
         let chorded = try menuItems(claiming: "s", modifiers: [.control, .command]).map(\.title)
         #expect(chorded == ["Sidebar"],
@@ -353,10 +346,8 @@ import AppKit
                                         opensInEdit: opensInEdit)
     }
 
-    /// File ▸ Open in Edit: one row, a file, and a file the editor opens. Each term is asserted by
-    /// removing it alone: a folder is what the row menu's own gate exists for, a multi-selection
-    /// would hand over whichever node came first, and a `.pdf` would open a document the editor
-    /// then refuses.
+    /// File ▸ Open in Edit: one row, a file, and a file the editor opens, each term asserted by
+    /// removing it alone. A multi-selection would hand over whichever node came first.
     @Test func openInEditNeedsASingleTextFile() {
         #expect(Self.resolve(count: 1, isDirectory: false, opensInEdit: true).openInEditor)
         #expect(!Self.resolve(count: 1, isDirectory: true, opensInEdit: true).openInEditor,

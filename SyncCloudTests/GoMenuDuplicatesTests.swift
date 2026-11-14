@@ -8,7 +8,6 @@ import AppKit
 /// read "Next Tab" without driving Browse into two tabs.
 @MainActor
 @Suite(.serialized) struct GoMenuDuplicatesTests {
-
     final class Target: NSObject {
         var fired = 0
         @objc func hit(_ sender: NSMenuItem) { fired += 1 }
@@ -82,11 +81,9 @@ import AppKit
         }
     }
 
-    /// The app's own Go menu carries the pair and the hook is installed: Previous Tab ⌃⇧⇥ sits hidden
-    /// under Previous Tab ⇧⌘[, both ⌃ items keep live keys, and retitling the live ⌃⇥ item to Next
-    /// Tab hides it at once, which only the launch-time observer can do. Read after any pending
-    /// SwiftUI update of Go, which clears the flag without a notification; otherwise whether the
-    /// update ran first depends on test order.
+    /// The app's Go menu hides Previous Tab ⌃⇧⇥ under its twin, both ⌃ items keep live keys, and
+    /// retitling ⌃⇥ to Next Tab hides it at once (the launch-time observer). Read after any pending
+    /// SwiftUI update of Go, which clears the flag without a notification, so test order can't matter.
     @Test func theAppsGoMenuCarriesThePairAndKeepsItCurrent() throws {
         let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
         go.delegate?.menuNeedsUpdate?(go)
@@ -100,8 +97,7 @@ import AppKit
         #expect(previousControl.title == "Previous Tab")
         #expect(go.index(of: previousControl) == go.index(of: previous) + 1, "⌃⇧⇥ is not beside its twin")
         #expect(previousControl.isHidden, "Previous Tab is drawn twice")
-        // One assertion per item, each naming its state, so a failure says which item lost its
-        // live key.
+        // One assertion per item, so a failure says which lost its live key.
         #expect(previousControl.allowsKeyEquivalentWhenHidden,
                 "⌃⇧⇥ \"\(previousControl.title)\" (hidden \(previousControl.isHidden)) has no live key while hidden")
         #expect(control.allowsKeyEquivalentWhenHidden,
@@ -115,11 +111,9 @@ import AppKit
         #expect(!control.isHidden)
     }
 
-    /// A flag SwiftUI clears is set again at once. SwiftUI's update of Go
-    /// (`PlatformItemList.Item.update`) writes `allowsKeyEquivalentWhenHidden = false` on each item
-    /// and posts no notification, and on the drawn ⌃⇥ item nothing else changes. Written here as
-    /// SwiftUI writes it, and on the hidden twin both before and after un-hiding it, so the hook
-    /// can't lean on SwiftUI's order.
+    /// A flag SwiftUI clears is set again at once: `PlatformItemList.Item.update` writes
+    /// `allowsKeyEquivalentWhenHidden = false` on each item with no notification. Cleared here
+    /// before and after un-hiding, so the hook can't lean on SwiftUI's order.
     @Test func aLiveKeySwiftUIClearsIsSetAgain() throws {
         let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
         let control = try #require(Self.find(.switchPaneFocus, in: go), "nothing in Go registers ⌃⇥")
@@ -141,10 +135,9 @@ import AppKit
                 "⌃⇧⇥ un-hidden, then cleared: hidden \(previousControl.isHidden), live \(previousControl.allowsKeyEquivalentWhenHidden)")
     }
 
-    /// The live Go menu's ⌃⇥ item, taken out and retitled Next Tab while out (so no notification the
-    /// hook watches has seen it), and the closure that puts everything back. The live item, not a
-    /// new one: the main menu clears the key of an item added with a chord another item already has,
-    /// so only re-adding the one ⌃⇥ item models a SwiftUI rebuild.
+    /// The live Go menu's ⌃⇥ item, taken out and retitled while out (unseen by the hook), and the
+    /// closure that puts it back. The live item, not a new one: the main menu clears the key of an
+    /// item added with a chord another item already has.
     private func detachedControlTab() throws -> (go: NSMenu, item: NSMenuItem, index: Int, restore: () -> Void) {
         let go = try #require(GoMenuDuplicates.goMenu, "the app has no Go menu — this check would be vacuous")
         let item = try #require(go.items.first {
@@ -163,11 +156,9 @@ import AppKit
         })
     }
 
-    /// An item SwiftUI adds to the live Go menu is hidden as it arrives: the `didAddItemNotification`
-    /// half of the hook, posted inside `insertItem`. SwiftUI rebuilds Go's items on a workspace
-    /// switch, and a rebuilt Next Tab ⌃⇥ is a new item no change notification names. The
-    /// `didBeginTrackingNotification` half has no test: every way of making a twin here has the add
-    /// or change notification hide it first.
+    /// A Next Tab ⌃⇥ added to the live Go menu (as SwiftUI rebuilds Go on a workspace switch) is
+    /// hidden on `didAddItemNotification`. The `didBeginTrackingNotification` half has no test: the
+    /// add or change notification always hides a twin first.
     @Test func aNextTabItemAddedToTheLiveGoMenuIsHidden() throws {
         let (go, item, index, restore) = try detachedControlTab()
         defer { restore() }

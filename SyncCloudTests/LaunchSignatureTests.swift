@@ -10,7 +10,6 @@ import Testing
 /// `CODE_SIGN_IDENTITY: "-"`); the others go through `classify`, which takes what
 /// `SecCodeCopySigningInformation` would report.
 @Suite struct LaunchSignatureTests {
-
     /// A made-up team: the repository is public, and the real one is not needed to test the branch.
     static let team = "ABCDE12345"
 

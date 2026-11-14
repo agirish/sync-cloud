@@ -10,9 +10,8 @@ import Sync
 /// Two decisions guard the slot: ``shouldStart`` when the second accept arrives, ``awaits`` when a
 /// sweep finishes and wants to write. The sweep's own cancellation is tested in `PersonFilesTests`.
 ///
-/// Not covered: `acceptPersonScope` needs a whole `ContentView` with a live `FileSyncManager`, so
-/// its composition (writing `.failed` when the profile is missing, checking `Task.isCancelled`
-/// beside `awaits`) rests on review. Every decision it makes is tested below.
+/// Not covered: `acceptPersonScope`'s composition, which needs a whole `ContentView`; every
+/// decision it makes is tested below.
 @Suite struct PersonGatherSupersedeTests {
 
     private static let daughter = Person(id: "daughter", displayName: "Daughter",
@@ -151,12 +150,9 @@ import Sync
         return bodies
     }
 
-    /// The gather clears on every workspace change, not only the bar's. `workspaceSelection` is the
-    /// bar's binding, which only the bar, ⌘1–⌘N and ⌘K go through; programmatic switches such as
-    /// `show(_:)`, `findFilingSuggestionsAction`, `buildStorageLensAction` and the duplicate
-    /// coordinators write `selectedWorkspace` directly. A clear in the setter would leave the gather
-    /// holding the lens slot after those, and the click would look dead. `onChange` sees every
-    /// writer. Source-level because `ContentView`'s state has no seam.
+    /// The gather clears on every workspace change, not only the bar's: programmatic switches write
+    /// `selectedWorkspace` directly, so a clear in the bar binding's setter would leave the gather
+    /// holding the lens slot. `onChange` sees every writer. Source-level: no seam.
     @Test func everyWorkspaceSwitchClearsTheGatherNotJustTheBars() throws {
         let content = try Self.contentView()
 
@@ -179,15 +175,9 @@ import Sync
                 "the bar's setter still clears the scope too")
     }
 
-    /// A provider switch clears the gather too, from the handler no early return can skip. The
-    /// gather is about the whole source, so a new provider leaves it listing a tree the window no
-    /// longer shows, and its "Open" can't match the new root and falls back to a Finder reveal.
-    /// `clearLensResultsForProviderSwitch()` can't reach it: the gather lives in `ContentView`'s
-    /// own `@State`.
-    ///
-    /// Each id has one handler that returns early (during provider discovery, and on a pane swap
-    /// via `pendingSwapProviderChanges`) and one that always runs. A swap moves the lens source to
-    /// the other provider like a manual pick, so the clear must sit in the one that always runs.
+    /// A provider switch clears the gather too, or it lists a tree the window no longer shows. Each
+    /// id has one handler that returns early (discovery, a pane swap) and one that always runs; a
+    /// swap moves the lens source like a manual pick, so the clear sits in the one that always runs.
     @Test func everyProviderSwitchClearsTheGatherWhicheverPaneMoved() throws {
         let content = try Self.contentView()
         for id in ["leftProviderId", "rightProviderId"] {

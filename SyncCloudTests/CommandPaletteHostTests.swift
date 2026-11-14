@@ -3,18 +3,10 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// `CommandPaletteHost.swift`'s own behaviour, as opposed to its wiring, which
-/// `CommandPaletteRouteCallSiteTests` pins as exact strings. This covers what those scans can't:
-///
-/// - `isMountedFolder` is run against a real disk. It is a `static func`, so a test can call it,
-///   unlike `runPaletteRoute`: `ContentView`'s private stored properties make its memberwise
-///   initializer `private`, which `@testable` cannot raise.
-/// - The two halves of the aimed-pane rule are compared to each other, so inverting
-///   `aimProvider`'s branches fails: a source chosen from ⌘K while the right pane is focused
-///   would point the left one at it.
-/// - The action switch is checked against `PaletteAction.allCases` at runtime, not a list typed
-///   here: `PaletteAction` is a public enum in another module, so a case can be added without
-///   touching the app target.
+/// `CommandPaletteHost.swift`'s own behaviour, beside the wiring `CommandPaletteRouteCallSiteTests`
+/// pins: `isMountedFolder` on a real disk, the two halves of the aimed-pane rule compared to each
+/// other, and the action switch checked against `PaletteAction.allCases`, a public enum in another
+/// module that can grow without touching the app target.
 @Suite struct CommandPaletteHostTests {
 
     // MARK: - isMountedFolder, against a real disk
@@ -45,10 +37,9 @@ import FileExplorer
                 "a path that does not exist reads as mounted")
     }
 
-    /// The path is tilde-expanded before the disk is asked. Settings accepts a hand-typed `~/…` and
-    /// validates it expanded, so without this a Location would be green in Settings and "Not
-    /// mounted" in the palette. `FileManager` resolves a bare `~` against the working directory, and
-    /// the middle check shows it doesn't exist there, so a true answer can only mean it expanded.
+    /// The path is tilde-expanded before the disk is asked, as Settings validates it, or a Location
+    /// is green in Settings and "Not mounted" here. A literal `~` doesn't exist in the working
+    /// directory, so a true answer can only mean it expanded.
     @Test func aTildePathIsExpandedBeforeTheDiskIsAsked() {
         #expect(ContentView.isMountedFolder(NSHomeDirectory()),
                 "the home directory itself reads as unmounted — the harness is broken, not the rule")
@@ -64,11 +55,9 @@ import FileExplorer
         try macAppFile("CommandPaletteHost.swift")
     }
 
-    /// The provider id named in a member's `aimedAtRight == true` branch. Positional and strict:
-    /// both members are written aimed-at-right first, so the first id is the pane that answers when
-    /// the right pane has focus. An equivalent rewrite with the condition inverted would fail
-    /// loudly, the safe direction to be wrong in. Nil when the body doesn't consult the aim or name
-    /// both panes, so the `#require` at the call site fails instead.
+    /// The provider id named in a member's `aimedAtRight == true` branch, read positionally (both are
+    /// written aimed-at-right first; an inverted rewrite fails loudly, the safe way to be wrong). Nil
+    /// when the body doesn't consult the aim or name both panes.
     static func paneNamedWhenAimedRight(_ body: String) -> String? {
         guard body.contains("aimedAtRight"),
               let left = body.range(of: "leftProviderId"),
@@ -98,10 +87,9 @@ import FileExplorer
 
     // MARK: - The pane-swap prompt's words
 
-    /// The dialog names the folder and both sources. It asks the user to rearrange their window,
-    /// which they can't answer without knowing which folder, which source it is in, and which one
-    /// Organize is about to show. The wording is a `static func` so it can be tested:
-    /// `NativeAlerts.confirmChange` ends in `runModal()`, which a test can't dismiss.
+    /// The dialog names the folder and both sources: the user can't answer a request to rearrange
+    /// their window without them. The wording is a `static func` because the alert ends in
+    /// `runModal()`, which a test can't dismiss.
     @Test func theSwapPromptNamesTheFolderAndBothSources() {
         let folder = "/Users/abhishek/Library/CloudStorage/Dropbox/Legal/Immigration"
         let prompt = ContentView.organizePaneSwapPrompt(folder: folder,
@@ -160,11 +148,8 @@ import FileExplorer
                 "a default arm would swallow a PaletteAction case added in FileExplorer")
     }
 
-    /// A lens-only route still moves the rail, because the scope guard sits after the lens write.
-    /// "Organize ▸ Duplicates" supplies no scope; with `guard let scope` hoisted above
-    /// `paletteRailLens = …`, ⌘K would land on Organize showing whichever lens was already selected.
-    ///
-    /// The lens is stored as given: every `OrganizeLens` is a rail item.
+    /// A lens-only route still moves the rail, because the scope guard sits after the lens write:
+    /// hoisted above it, "Organize ▸ Duplicates" would land on whichever lens was already selected.
     @Test func aLensWithoutAScopeStillMovesTheRail() throws {
         let host = try Self.host()
         // The shared comment-stripping reader, like every other body scan in this target.

@@ -5,14 +5,9 @@ import Foundation
 /// Which chords a layout may offer: the question `ContentLayout` answers for every pane-scoped
 /// shortcut.
 @Suite struct ContentLayoutRuleTests {
-
-    /// `drawsAPaneList` is what ⇧⌘N and ⇧⌘P consult before offering themselves. It gates a naming
-    /// row that opens *inside* a pane's file list and a preview column that lives beside one, so
-    /// the arrangements that draw neither must answer no.
-    ///
-    /// Six cases, listed by hand rather than derived, because the point is the per-case verdict: a
-    /// derived list would only restate the switch. Fails on `case .editorCollapsed: return true`,
-    /// which would put an invisible pane into a naming state the user can't dismiss.
+    /// ⇧⌘N and ⇧⌘P consult `drawsAPaneList`, so a layout that draws no pane list must answer no.
+    /// Fails on `case .editorCollapsed: return true`, which would put an invisible pane into a
+    /// naming state the user can't dismiss.
     @Test func aCollapsedRailDrawsNoPaneListWhicheverWorkspaceItBelongsTo() {
         let expected: [(ContentView.ContentLayout, Bool)] = [
             (.compareSplit, true),
@@ -30,9 +25,8 @@ import Foundation
         }
     }
 
-    /// The sibling member, and why both are asked of the layout rather than the workspace: the
-    /// collapse rung belongs to arrangements that have a spine to collapse to, which is not the
-    /// same set as those that draw a list. That difference is why there are two members.
+    /// `hasCollapsibleRail` is a different set from `drawsAPaneList`: it covers the layouts with a
+    /// spine to collapse to.
     @Test func theTwoLayoutQuestionsAreNotTheSameQuestion() {
         let expected: [(ContentView.ContentLayout, Bool)] = [
             (.compareSplit, false),
@@ -48,22 +42,14 @@ import Foundation
         }
     }
 
-    /// The launch refresh's completion must be tried before the bootstrap guard returns.
-    ///
-    /// `refreshAction` does nothing when a pane names a source `enabledProviders` hasn't published
-    /// yet, which is ordinary at launch (the ids are restored before discovery finishes). The
-    /// source's arrival finishes the load, in `onChange(of: settings.enabledProviders)`, which
-    /// returns early while the bootstrap guard is up. That guard is up for exactly the window the
-    /// pending flag is set in, so completing the refresh below it would never run, stranding the
-    /// flag and leaving the pane on whatever tree it had.
-    ///
-    /// `PaneProviderChange` keeps the same rule one handler over: consume before you test the
-    /// guard. A source scan because `ContentView` is a `View` with `@State` that nothing can
-    /// instantiate, with a positive control so a scan that stops finding the handler fails.
+    /// The launch refresh's completion is tried before the bootstrap guard returns. At launch a
+    /// pane can name a source `enabledProviders` hasn't published yet, so `refreshAction` does
+    /// nothing and its arrival must finish the load. The guard is up for exactly that window, so a
+    /// completion below it never runs and the pane keeps its old tree. (`PaneProviderChange` keeps
+    /// the same rule: consume before you test the guard.)
     @Test func theLaunchRefreshIsCompletedBeforeTheBootstrapGuardReturns() throws {
         let source = try macAppFile("ContentView.swift")
-        // The handler's own closure (``declarationBody(of:in:sourceLocation:)`` matches its
-        // braces), not a fixed window that a longer handler outgrows and a shorter one overruns.
+        // The handler's own closure, matched by its braces rather than a fixed window.
         let body = CodeText(try declarationBody(of: ".onChange(of: settings.enabledProviders) {", in: source))
         let completes = try #require(body.range(of: "launchRefreshPending, refreshAction()"),
                                      "the launch refresh is never completed when its sources arrive")

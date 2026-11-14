@@ -3,19 +3,11 @@ import Sync
 import Testing
 import Foundation
 
-/// The two places that re-point a pane at a different root, read off `ContentView`'s source.
-/// Both are `onChange` closures on a `View` with `@State`, so no test can call them. As in
-/// `FolderSidebarWiringTests`: read one named file, strip comments so prose can't satisfy a check,
-/// and require a known anchor so a scan that finds nothing fails.
-///
-/// - The polarity: both provider handlers are mirror images, so flipping one `isLeft` would
-///   re-home the pane the user didn't switch, with every package suite green. `PaneSideChoice`
-///   can't help, since `Sync` can't see `MacApp`.
-/// - The scope, spent twice: `paneRootEdits` says which pane's Location moved, and that answer
-///   must reach both `invalidateComparisonState(reloading:)` and the rescan. A tree dropped but not
-///   walked renders blank; walking a pane whose root didn't move is a needless re-walk.
+/// The two `onChange` closures that re-point a pane at a different root, read off `ContentView`'s
+/// source since no test can call them. Pins the polarity (a flipped `isLeft` re-homes the pane the
+/// user didn't switch, with every package suite green), and that `paneRootEdits`' scope reaches
+/// both the teardown and the rescan (a tree dropped but not walked renders blank).
 @Suite struct PaneRetargetWiringTests {
-
     private static func contentViewSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// The source between two markers. Both are `#require`d, so a rename that moves the region
@@ -69,9 +61,8 @@ import Foundation
                 "the Location edit is back to dropping BOTH panes' trees")
         #expect(!body.contains("refreshAction()"),
                 "the Location edit is back to re-walking BOTH panes")
-        // The scoped reload announces neither cause nor pane by itself, so the log line that does
-        // both is part of the wiring. `describedPanes` by name: `String(describing:)` yields a
-        // case name like `leftOnly`, meaningless in `~/sync-cloud.log`.
+        // The log line naming cause and panes is part of the wiring. `describedPanes`, since
+        // `String(describing:)` yields a case name like `leftOnly`, meaningless in the log.
         #expect(body.contains("Logger.shared.info("),
                 "a Location edit re-walks a pane and writes nothing to the log saying so")
         #expect(body.contains("edited.describedPanes"),

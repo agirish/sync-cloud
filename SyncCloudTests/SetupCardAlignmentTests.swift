@@ -158,14 +158,9 @@ import Testing
                 "the top bar's trailing control ends \(measured)pt from the card's edge; the ✕ on the card's \(SetupSheetMetrics.horizontalInset)pt inset would end at \(expected)pt")
     }
 
-    /// Every step in the crumb strip is readable, at every text size.
-    ///
-    /// The strip's gaps and capsule insets are fixed points inside a card whose width scales with
-    /// the type, so the small sizes are the risk: the card shrinks, the padding doesn't, and the
-    /// words truncate.
-    ///
-    /// Measured against the real top bar's budget: the card at this size, less its inset, the two
-    /// trailing controls and the `HStack`'s gaps.
+    /// Every step in the crumb strip is readable at every text size: the card shrinks with the type,
+    /// the strip's fixed padding doesn't. Measured against the real top bar's budget: the card less
+    /// its inset, the two trailing controls and the `HStack`'s gaps.
     @Test func theCrumbStripFitsTheTopBarAtEveryTextSize() throws {
         let window = CGSize(width: 1200, height: 740)
         // The widest set the strip can be asked to draw — every screen that gets a crumb.

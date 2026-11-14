@@ -131,7 +131,7 @@ import Design
         #expect(ran == ["editor", "file", "file"])
     }
 
-    // MARK: Preview's selected words (TE153)
+    // MARK: Preview's selected words
 
     /// SwiftUI's own selectable text, the view Preview draws, not a stand-in: the rule leans on how
     /// that private view answers `validateMenuItem(_:)`, no while nothing is selected and yes once

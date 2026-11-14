@@ -15,10 +15,9 @@ import FileExplorer
 /// and so are one decision, `styles(...)`; every assertion pays for a real pill.
 @Suite struct WorkspaceBarMetricsTests {
 
-    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 804, …)`, which
-    /// `.windowResizability(.contentMinSize)` makes a floor rather than a preference. One constant,
-    /// because "the floor" is a claim every test here makes, and a repeated literal can be left
-    /// behind when the window changes.
+    /// The narrowest window there is: `ContentView`'s `.frame(minWidth: 804, …)`, a floor under
+    /// `.windowResizability(.contentMinSize)`. One constant, so no literal is left behind when the
+    /// window changes.
     private static let windowFloor: CGFloat = 804
 
     /// The pill's two measured widths at a text scale, so every assertion below charges for the
@@ -54,10 +53,9 @@ import FileExplorer
         }
     }
 
-    /// The labels survive the narrowest window, beside a compact pill. A new segment or toolbar
-    /// control would push the threshold up through the floor; this fails naming the number rather
-    /// than letting a glyph-only floor return unannounced. The fix is a decision about the window
-    /// or the labels, never under-measuring the row, which is what folds it behind the chevron.
+    /// The labels survive the narrowest window, beside a compact pill. A new segment or control
+    /// that pushes the threshold through the floor fails here, naming the number; the fix is a
+    /// decision about the window or the labels, never under-measuring the row.
     @Test func testTheLabelsSurviveTheNarrowestWindow() {
         let widths = labelWidths()
         let search = searchWidths()
@@ -114,10 +112,8 @@ import FileExplorer
         }
     }
 
-    /// The order of the ladder, which is the whole design decision in it. The pill's word is the
-    /// cheapest thing on the row (the magnifier and the ⌘K key still say what it is), so it goes
-    /// first; the workspace labels are the primary navigation and go last. Nothing but this test
-    /// would notice the two swapping.
+    /// The ladder's order: the pill's word is the cheapest thing on the row (the magnifier and ⌘K
+    /// still say what it is), so it goes first; the workspace labels, the primary navigation, last.
     @Test func testThePillLosesItsWordBeforeTheBarLosesItsLabels() {
         let widths = labelWidths()
         let search = searchWidths()
@@ -138,12 +134,9 @@ import FileExplorer
         }
     }
 
-    /// The shipping bar never reaches the icon-only rung (with the field closed), at any legal
-    /// window width or text size, yet the rung is still live.
-    ///
-    /// It stays because it runs on every layout pass and answers `.iconOnly` for a wider bar, and
-    /// one more segment would bring it back into the shipping range. Both directions are asserted:
-    /// if the shipping bar ever sheds again, the first assertion fails and names the size.
+    /// The shipping bar never reaches the icon-only rung (field closed) at any legal width or text
+    /// size, yet the rung is still live: it answers `.iconOnly` for a wider bar, and one more
+    /// segment would bring it back into range.
     @Test func testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive() {
         // The shipping bar, at the floor, at the largest text the app offers: the hardest case.
         // It keeps its labels.
@@ -198,16 +191,11 @@ import FileExplorer
         #expect(atLarge.search == .compact)
     }
 
-    /// Every segment is one height, and `segmentChrome` is exact rather than approximate.
+    /// Every segment is one height, and `segmentChrome` is exact. The symbols render at different
+    /// sizes at one font size (`WorkspaceBarMetrics.glyphSide`), so unframed the selected capsule
+    /// would resize while sliding and a width guess would under-measure the bar.
     ///
-    /// The workspace symbols render at different sizes at one font size (see
-    /// `WorkspaceBarMetrics.glyphSide`), so without the glyph frame the segments differ in height.
-    /// The selected pill is a `Capsule` sized to its own segment inside a `matchedGeometryEffect`,
-    /// so it would change size while sliding, and a glyph-width guess in `segmentChrome` would
-    /// under-measure the bar, the direction that folds it behind the chevron.
-    ///
-    /// The test carries its own control: unframed must give more than one height, framed exactly
-    /// one. If the first stops finding a spread, the test says so rather than passing quietly.
+    /// Its own control: unframed must give more than one height, framed exactly one.
     @MainActor
     @Test func theBarDrawsEverySegmentAtOneHeight() {
         func segment(_ workspace: Workspace, framed: Bool, full: Bool) -> CGSize {
@@ -328,11 +316,9 @@ import FileExplorer
         #expect(styles(contentWidth: contentWidth + 1, labelWidths: widths, open: true).workspace == .full)
     }
 
-    /// At the window's own floor the field is still above its floor, so a field opened under 320pt
-    /// cannot happen in this app. The icon-only bar's width does not depend on text size, so the
-    /// narrowest window leaves the field over its floor at every size. The field floor's real job
-    /// is to decide when the labels shed; the branch that opens the field under it is defensive,
-    /// until another segment, a wider `reservedChrome` or a lower window minimum changes that.
+    /// At the window's floor the field is still above its own floor at every text size, so the
+    /// branch that opens it under 320pt is defensive; the field floor's real job is deciding when
+    /// the labels shed.
     @Test func testTheNarrowestWindowStillClearsTheFieldsFloor() throws {
         for size in FontSize.allCases {
             let resolved = styles(contentWidth: Self.windowFloor,
@@ -351,10 +337,8 @@ import FileExplorer
                 == .short)
     }
 
-    /// The shed is a band, and both of its edges are silent. Above it the field reaches its ceiling
-    /// with the labels up; below it the bar is icon-only at rest, so opening the field changes
-    /// nothing visible. Only in between does the row rearrange, which is what a person would notice
-    /// being wrong.
+    /// The shed is a band with two silent edges: above it the field reaches its ceiling with the
+    /// labels up; below it the bar is icon-only at rest. Only in between does the row rearrange.
     @Test func testTheShedIsABandWithTwoSilentEdges() {
         let widths = labelWidths()
         var band: [CGFloat] = []
@@ -412,7 +396,7 @@ import FileExplorer
         }
     }
 
-    // MARK: The progress capsule (TE205, TE206)
+    // MARK: The progress capsule
 
     /// The chevron guard, with the capsule on the row. A capsule folded behind the chevron is a run
     /// nobody can see or stop, so at every width and text size the row seats the capsule (at least

@@ -8,7 +8,6 @@ import Sync
 /// and Reduce Motion hides the countdown bar.
 @MainActor
 @Suite struct OperationBannerViewTests {
-
     private func view(isUndoable: Bool, canUndo: Bool) -> OperationBannerView {
         OperationBannerView(
             banner: OperationBanner(message: "Moved 2 items", severity: .success, log: .info, isUndoable: isUndoable),
@@ -17,10 +16,9 @@ import Sync
             onUndo: {}, onClose: {}, onHover: { _ in })
     }
 
-    /// Undo shows only when the outcome is a single undo step AND the stack still has it. All four
-    /// combinations, because the two false reasons fail differently in the app: `isUndoable` false
-    /// is a bulk outcome ⌘Z cannot honestly claim; `canUndo` false is an operation already undone
-    /// elsewhere, where the button would be dead.
+    /// Undo shows only when the outcome is a single undo step and the stack still has it.
+    /// `isUndoable` false is a bulk outcome ⌘Z can't honestly claim; `canUndo` false is an operation
+    /// already undone elsewhere, where the button would be dead.
     @Test(arguments: [(true, true, true), (true, false, false), (false, true, false), (false, false, false)])
     func undoShowsOnlyForAnUndoableOutcomeStillOnTheStack(isUndoable: Bool, canUndo: Bool, expected: Bool) {
         #expect(view(isUndoable: isUndoable, canUndo: canUndo).showsUndo == expected)
@@ -78,8 +76,7 @@ import Sync
                 "body no longer gates the Undo button on the tested rule")
         #expect(source.contains("if showsCountdown {"),
                 "body no longer gates the countdown bar on the tested rule")
-        // The raw conjunctions must not reappear inline, or the truth tables above stop describing
-        // the shipped gates. Matched as ingredient pairs, not one phrase, so a reordered
+        // No raw conjunction inline. Matched as ingredient pairs, so a reordered
         // `canUndo && banner.isUndoable` can't slip past.
         let lines = sourceCodeOnly(source).split(separator: "\n")
         let undoReinlines = lines.filter {
@@ -87,9 +84,8 @@ import Sync
         }
         #expect(undoReinlines.isEmpty,
                 "the Undo conjunction was re-inlined — the tested rule is a parallel copy again: \(undoReinlines)")
-        // Conditional lines only: the declaration, the static rule and the delegation all name
-        // reduceMotion legitimately. What must not exist is a branch on it outside the rule, such
-        // as `guard let seconds = autoDismissSeconds, !reduceMotion else`.
+        // Conditional lines only, since other lines name reduceMotion legitimately: no branch on it
+        // outside the rule, such as `guard let seconds = autoDismissSeconds, !reduceMotion else`.
         let countdownReinlines = lines.filter {
             ($0.contains("guard ") || $0.contains("if ")) && $0.contains("reduceMotion")
         }

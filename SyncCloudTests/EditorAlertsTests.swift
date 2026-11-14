@@ -5,18 +5,14 @@ import FileExplorer
 @testable import SyncCloud
 
 /// The editor's two modal questions, and above all the mapping from a button press to an answer.
-///
-/// Wrong wording gets noticed; a mapping that reads Cancel as consent discards work silently. The
-/// titles and the mapping are asserted together because reordering `unsavedButtonTitles` is the
-/// natural way to reword this dialog, and doing that alone would turn Cancel into Discard with
-/// nothing on screen to say so.
+/// A mapping that reads Cancel as consent discards work silently, and reordering
+/// `unsavedButtonTitles` alone would turn Cancel into Discard with nothing on screen to say so,
+/// so titles and mapping are asserted together.
 @Suite struct EditorAlertsTests {
-
     // MARK: Leaving a document with unsaved changes
 
-    /// The mapping, as a table over every response an `NSAlert` can hand back, including ones a
-    /// three-button alert never does: "everything else is Cancel" keeps a dismissed sheet from
-    /// discarding work.
+    /// The mapping over every response an `NSAlert` can hand back, including ones a three-button
+    /// alert never does: "everything else is Cancel" keeps a dismissed sheet from discarding work.
     @Test(arguments: [
         (NSApplication.ModalResponse.alertFirstButtonReturn, EditorAlerts.UnsavedAnswer.save),
         (.alertSecondButtonReturn, .cancel),
@@ -53,9 +49,9 @@ import FileExplorer
 
     // MARK: The file changed under the buffer
 
-    /// The titles are per divergence: a changed file gains a reload it can actually do. They follow
-    /// the banner's order, so Compare…, which writes nothing, is first and takes Return. A gone file
-    /// is offered the banner's Save Again.
+    /// The titles are per divergence: a changed file gains a reload; a gone file is offered the
+    /// banner's Save Again. They follow the banner's order, so Compare…, which writes nothing, is
+    /// first and takes Return.
     @Test func onlyTheFirstButtonConfirmsWritingOverAChangedFile() {
         #expect(EditorAlerts.divergenceButtonTitles(for: .missing) == ["Save Again", "Cancel"])
         #expect(EditorAlerts.divergenceButtonTitles(for: .changed)
@@ -68,9 +64,8 @@ import FileExplorer
         }
     }
 
-    /// One set of words for "the file changed on disk". The ⌘S alert, the banner and the
-    /// comparison sheet's foot read the same three verbs, pinned here as literals so a change to
-    /// the shared constants can't pass by agreeing with itself.
+    /// The ⌘S alert, the banner and the comparison sheet's foot read the same three verbs, pinned as
+    /// literals so a change to the shared constants can't pass by agreeing with itself.
     @Test func theAlertTheBannerAndTheSheetUseOneSetOfWords() {
         #expect(EditorDiskVerbs.compare == "Compare…")
         #expect(EditorDiskVerbs.keepMine == "Keep Mine…")
@@ -84,9 +79,8 @@ import FileExplorer
         #expect(!EditorAlerts.keepMineAsks(for: .missing))
     }
 
-    /// The two divergences get different sentences, which is the point of the enum. A file that is
-    /// simply gone was very likely filed or renamed by an Organize run in this window, and saving
-    /// would put a second copy back at the old path, so the prompt says so.
+    /// A gone file was very likely filed or renamed by an Organize run in this window, and saving
+    /// would put a second copy back at the old path, so its prompt says so.
     @Test func aMissingFileIsExplainedDifferentlyFromAChangedOne() {
         let changed = EditorAlerts.divergenceMessage(name: "a.md", divergence: .changed)
         let missing = EditorAlerts.divergenceMessage(name: "a.md", divergence: .missing)
@@ -108,18 +102,15 @@ import FileExplorer
 
 /// The quit guard's new branch: an unsaved editor buffer is the one thing ⌘Q could take with it.
 @Suite struct EditorQuitGuardTests {
-
     @Test func aCleanQuitIsStillAClearQuit() {
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: true,
                                                   hasUnsavedDocument: false)
                 == .allowNoActiveOperations)
     }
 
-    /// A file operation leads the question but doesn't replace it.
-    ///
-    /// A half-finished copy is the worse thing to interrupt, so its alert is the one shown. But its
-    /// "Quit Anyway" would otherwise terminate with no mention of typing to lose, so the unsaved
-    /// fact travels with the decision and one alert names both.
+    /// A file operation leads the question but doesn't replace it: a half-finished copy is the worse
+    /// thing to interrupt, but its "Quit Anyway" would otherwise terminate with no mention of typing
+    /// to lose, so one alert names both.
     @Test func aFileOperationInFlightLeadsButTheBufferIsStillNamed() {
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 2, warnBeforeQuit: true,
                                                   hasUnsavedDocument: true)
@@ -130,9 +121,7 @@ import FileExplorer
                 == .warn(activeOperations: 2, hasUnsavedDocument: false))
     }
 
-    /// Every cell of the truth table, so no combination goes unasked. Enumerating the whole table
-    /// makes "which combinations are covered?" a question the file answers, not one a reader
-    /// reconstructs from separately named tests.
+    /// Every cell of the truth table, so no combination goes unasked.
     @Test func everyCombinationOfTheThreeInputsHasAnAnswerThatMentionsWhatIsAtRisk() {
         for ops in [0, 3] {
             for warn in [true, false] {
@@ -163,9 +152,8 @@ import FileExplorer
         }
     }
 
-    /// Operations in flight with their warning off still ask about an unsaved document.
-    /// `.allowWithoutWarning` here would let ⌘Q terminate with no prompt and take the buffer with
-    /// it; switching off the operations warning says nothing about documents.
+    /// Operations in flight with their warning off still ask about an unsaved document: switching
+    /// that warning off says nothing about documents. Fails with `.allowWithoutWarning` here.
     @Test func operationsInFlightWithTheirWarningOffStillAsksAboutTheDocument() {
         #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 2, warnBeforeQuit: false,
                                                   hasUnsavedDocument: true)
@@ -178,10 +166,9 @@ import FileExplorer
 
     // MARK: Which version wins
 
-    /// A button's position becomes an answer only once you know which divergence it was built for.
     /// "Use Disk Version" is the second button for a changed file and doesn't exist for a gone one,
-    /// where the second button is Cancel. Reading the position without the case turns the safe
-    /// answer into the destructive one, so the mapping takes the divergence as an argument.
+    /// where the second button is Cancel. Reading the position without the divergence turns the safe
+    /// answer into the destructive one.
     @Test func theSameButtonPositionMeansDifferentThingsForTheTwoDivergences() {
         #expect(EditorAlerts.divergenceAnswer(for: .alertFirstButtonReturn, divergence: .changed)
                 == .showWhatChanged)
@@ -194,12 +181,9 @@ import FileExplorer
                 "the second button on a MISSING file is Cancel — reading it as reload would discard the buffer for a file there is nothing to reload from")
     }
 
-    /// The titles and the mapping read together, position by position, or the alert says one
-    /// thing and the code does another: the pairing `theTitleAndTheAnswerAgree…` makes for the
-    /// unsaved question.
-    ///
-    /// The positions come from `divergenceResponse(atButtonIndex:)`, not a literal list:
-    /// `NSApplication` names only three, and the alert has four buttons.
+    /// The titles and the mapping agree position by position, or the alert says one thing and the
+    /// code does another. Positions come from `divergenceResponse(atButtonIndex:)`: `NSApplication`
+    /// names only three, and the alert has four buttons.
     @Test func everyDivergenceButtonMapsToTheAnswerItsWordsPromise() {
         for divergence in [EditorFileStore.Divergence.changed, .missing] {
             let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
@@ -218,11 +202,8 @@ import FileExplorer
         }
     }
 
-    /// The positions this file reads are the ones AppKit really hands back.
-    ///
-    /// `NSApplication` names only the first three; a four-button alert's last is
-    /// `alertThirdButtonReturn + 1`, arithmetic no call site should do. This pins the helper
-    /// against the three constants that exist, so the fourth is the same rule extended.
+    /// The positions read here are AppKit's own: `NSApplication` names only three, and a four-button
+    /// alert's last is `alertThirdButtonReturn + 1`. Pins the helper against the three that exist.
     @Test func theButtonPositionsAreAppKitsOwnNumbering() {
         #expect(EditorAlerts.divergenceResponse(atButtonIndex: 0) == .alertFirstButtonReturn)
         #expect(EditorAlerts.divergenceResponse(atButtonIndex: 1) == .alertSecondButtonReturn)
@@ -231,11 +212,8 @@ import FileExplorer
                 == NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1)
     }
 
-    /// Neither destructive answer keeps Return, and the detour is not destructive.
-    ///
-    /// The alert strips Return and paints the destructive styling by asking this of every position.
-    /// "Compare…" writes and discards nothing, and styling it destructive would misread the one
-    /// safe way to look before deciding.
+    /// Neither destructive answer keeps Return, and the detour is not destructive: the alert strips
+    /// Return and paints destructive styling from this, and "Compare…" discards nothing.
     @Test func onlyTheAnswersThatDiscardSomethingAreDestructive() {
         #expect(EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive(for: .changed))
         #expect(EditorAlerts.DivergenceAnswer.reloadFromDisk.isDestructive(for: .changed))
@@ -244,8 +222,8 @@ import FileExplorer
         // Save Again discards nothing, so it is not destructive here or on the banner.
         #expect(!EditorAlerts.DivergenceAnswer.saveAnyway.isDestructive(for: .missing))
 
-        // Position by position, which is how the alert applies it: for a changed file exactly Use
-        // Disk Version and Keep Mine… are stripped, and for a missing one nothing.
+        // Position by position, as the alert applies it: for a changed file exactly Use Disk Version
+        // and Keep Mine… are stripped, and for a missing one nothing.
         for divergence in [EditorFileStore.Divergence.changed, .missing] {
             let titles = EditorAlerts.divergenceButtonTitles(for: divergence)
             let destructive = titles.indices.filter {
@@ -259,8 +237,7 @@ import FileExplorer
         }
     }
 
-    /// A file that is gone is offered neither the reload nor the diff: there is nothing at that
-    /// path to read, so a comparison's right-hand column would be empty.
+    /// A gone file is offered neither the reload nor the diff: there is nothing at that path to read.
     @Test func aMissingFileIsNotOfferedTheDiffEither() {
         // No position on a missing file answers `.showWhatChanged`, whatever AppKit returns.
         for index in 0..<6 {
@@ -297,12 +274,10 @@ import FileExplorer
                 == .allowNoActiveOperations)
     }
 
-    /// The guard follows the live document, taking the newest rather than the first.
-    ///
-    /// Unlike `adoptSyncManager`, which keeps the first manager because a re-run `App.init` offers
-    /// a throwaway `@StateObject`. The reference here is `weak` and there is one document, so
-    /// keeping the first would hold a stale one still alive mid-teardown, and the quit guard would
-    /// answer "nothing unsaved" about a document nobody can see, for the rest of the session.
+    /// The guard follows the live document, taking the newest rather than the first. Unlike
+    /// `adoptSyncManager` (where a re-run `App.init` offers a throwaway `@StateObject`), the reference
+    /// is `weak` and there is one document: keeping the first would hold a stale one mid-teardown,
+    /// and the quit guard would answer "nothing unsaved" about a document nobody can see.
     @MainActor
     @Test func theQuitGuardFollowsTheDocumentThatIsActuallyOpen() {
         SyncCloudAppDelegate.sharedEditorDocument = nil

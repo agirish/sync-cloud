@@ -6,23 +6,13 @@ import FileExplorer
 import Sync
 @testable import SyncCloud
 
-/// The palette panel against real windows. The palette is a child window holding only its list;
-/// the field it filters from is in the host window's toolbar, so the host keeps key and the field
-/// keeps the caret. Two rules close it:
+/// The palette panel against real windows: a child window holding only its list, while the host
+/// keeps key and its toolbar field keeps the caret. The host resigning key, or a mouse-down outside
+/// the panel and the Go-to field, closes it (`CommandPalettePanelController.clickDismissesThePalette`).
+/// Losing key is driven by posting the notification AppKit would post.
 ///
-/// - The host resigning key dismisses it: that covers another of this app's windows, and another
-///   app.
-/// - A mouse-down outside the panel dismisses it, except over the Go-to field, which is the
-///   palette's own control in the host's window.
-///   `CommandPalettePanelController.clickDismissesThePalette` carries that boundary in full.
-///
-/// AppKit's key machinery isn't tested here, since whether an `xcodebuild` host is frontmost
-/// depends on the machine. What is tested is the window class refusing key and the controller's
-/// reaction to losing it, driven by posting the notification AppKit would post.
-///
-/// `.serialized` because these build real windows, real child windows and the controller's app-wide
-/// event monitors, all process-wide state. Everything they order in is parked past every attached
-/// display; see `makeHost`.
+/// `.serialized` because these build real windows, child windows and app-wide event monitors, all
+/// process-wide state. Everything they order in is parked past every display; see `makeHost`.
 @MainActor
 @Suite(.serialized) struct CommandPalettePanelTests {
 
@@ -37,11 +27,8 @@ import Sync
     /// shows as an intermittent missing panel (`docs/flaky-tests.md`, "Five palette tests the
     /// fixture dismissed out from under itself").
     ///
-    /// Borderless, because `constrainFrameRect` pulls a visible titled window back onto a display;
-    /// a borderless one can be parked, as `DetailsWhereItLivesTests` in Dashboard parks its own. A
-    /// borderless window can't become key, so no test here reads the host's key state.
-    /// `theHostAndItsPanelStayOutOfSight` guards the user's screen and accepts either remedy: not
-    /// ordered in, or parked past every display.
+    /// Borderless, because `constrainFrameRect` pulls a visible titled window back onto a display; a
+    /// borderless one can be parked, and can't become key, so no test here reads the host's key state.
     private func makeHost() -> NSWindow {
         let host = NSWindow(contentRect: CGRect(origin: Self.offscreenOrigin(for: Self.hostSize),
                                                 size: Self.hostSize),
@@ -67,11 +54,8 @@ import Sync
         return CGPoint(x: bounds.minX - size.width - 2000, y: bounds.minY - size.height - 2000)
     }
 
-    /// Every dismissal, and where it came from. The window tests fail by reporting a missing object
-    /// (`childWindows → []`, `panel → nil`, `isPresented → false`), which is equally `present` never
-    /// attaching the panel, a real regression, and the panel being torn down afterwards. The
-    /// fixture owns `onDismiss`, so recording the activation state and the app's stack frames on
-    /// each call turns "no window" into a cause.
+    /// Every dismissal, with the activation state and the app's stack frames, so a test failing on a
+    /// missing panel says whether `present` never attached it or something tore it down after.
     @MainActor private final class DismissalWitness {
         private(set) var dismissals: [String] = []
 
@@ -86,11 +70,8 @@ import Sync
                 + frames)
         }
 
-        /// Read only into a failure message, so it can afford to be long. With no dismissal,
-        /// `presented` separates a panel never attached from one unparented behind the controller's
-        /// back. Ordering out a child detaches it from its parent, so anything that orders the panel
-        /// out without `dismiss()` gives the second reading; the message names that mechanism and
-        /// no particular trigger, since it can't know one.
+        /// For a failure message. With no dismissal, `presented` separates a panel never attached from
+        /// one unparented behind the controller's back, as ordering out a child does.
         func report(presented: Bool) -> String {
             guard dismissals.isEmpty else {
                 return "the palette was dismissed \(dismissals.count)× :\n        "
@@ -126,14 +107,9 @@ import Sync
 
     /// Presents the palette over `host`, and witnesses any dismissal the test did not ask for.
     ///
-    /// Production raises the panel with `orderFront`, and ordering a child front orders its parent
-    /// in too, so both windows are visible; they stay out of sight because the host is parked and
-    /// every anchor is measured from its frame (see `makeHost` for why nothing is ordered out).
-    ///
-    /// The default anchor must come from the host: the panel is placed under whatever the anchor
-    /// says, so an on-screen literal would put a live list over the desktop for every async test,
-    /// and `theHostAndItsPanelStayOutOfSight` never awaits placement, so it couldn't see that.
-    /// `onDismiss` is wrapped, as the only seam an ambient teardown can be seen from.
+    /// Ordering the child panel front orders its parent in too, so both stay out of sight only
+    /// because the host is parked and the default anchor is measured from its frame: an on-screen
+    /// literal would put a live list over the desktop.
     @discardableResult
     private func present(_ controller: CommandPalettePanelController, over host: NSWindow,
                          anchor: (() -> CGRect?)? = nil,
@@ -191,12 +167,9 @@ import Sync
         teardown(host, controller)
     }
 
-    /// Neither of the real windows this suite builds may appear on the user's screen. The panel is
-    /// checked as well as the host, since the controller orders it front itself. Each is checked
-    /// as "not ordered in, or parked past every display", so the guard is about the user's screen
-    /// and not about which remedy is in force. Both are visible today (ordering the panel front
-    /// orders the host in too), so the parking carries them. An on-screen origin in `makeHost` must
-    /// fail both halves.
+    /// Neither the host nor the panel the controller orders front may appear on the user's screen:
+    /// each is "not ordered in, or parked past every display". An on-screen origin in `makeHost`
+    /// must fail both halves.
     @Test func theHostAndItsPanelStayOutOfSight() throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
@@ -237,12 +210,9 @@ import Sync
         #expect(dismissed, "onDismiss did not fire, so the chord suspension stays stuck on")
     }
 
-    /// Every exit path runs `onDismiss` exactly once. Several things call `dismiss()` and two can
-    /// race (Esc arriving as key is already resigning), so a second call must be inert rather than
-    /// re-firing the callback that clears the chord suspension.
-    ///
-    /// Also the one place `DismissalWitness` is bound to an assertion: it is read only into failure
-    /// messages, so deleting `witness.record()` from `present` must fail this count.
+    /// Every exit path runs `onDismiss` exactly once. Two can race (Esc arriving as key is already
+    /// resigning), so a second call must be inert rather than re-fire the callback that clears the
+    /// chord suspension. Deleting `witness.record()` from `present` must fail this count.
     @Test func dismissIsIdempotentAndFiresItsCallbackOnce() {
         let host = makeHost()
         let controller = CommandPalettePanelController()
@@ -312,13 +282,9 @@ import Sync
         teardown(host, controller)
     }
 
-    /// The panel is the list and must not cover the window. A panel sized to the host claims hits
-    /// at the host's far corner, so every click over the app would dismiss the palette instead of
-    /// doing what the user meant. Click-away is the mouse monitor's job, and it returns the event.
-    ///
-    /// The mutation must be both halves: sizing the panel to `host.frame` alone is undone by
-    /// AppKit, since `NSHostingView` publishes the list's fixed ideal size (the placement tests
-    /// catch the wrong origin). Flexible content and a host-sized panel together must fail this.
+    /// The panel is the list and must not cover the window: sized to the host, it would claim every
+    /// click over the app. Mutation: flexible content and a host-sized panel together must fail
+    /// this (a host-sized panel alone is undone by `NSHostingView`'s fixed ideal size).
     @Test func thePanelCoversItsListAndNotTheWindowUnderIt() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
@@ -344,10 +310,8 @@ import Sync
 
     // MARK: Click-away
 
-    /// The click rule for another of this app's windows: Keyboard Shortcuts, Activity Log, Sync
-    /// History, an open panel. See `CommandPalettePanelController.clickDismissesThePalette` for the
-    /// whole boundary. No window is ordered in: the rule is object identity, which unordered windows
-    /// still have.
+    /// A click in another of this app's windows (Keyboard Shortcuts, Activity Log, an open panel)
+    /// dismisses. No window is ordered in: the rule is object identity, which unordered windows have.
     @Test func aClickInAnotherWindowDismissesThePalette() {
         let panel = scratchPanel()
         let other = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
@@ -363,15 +327,10 @@ import Sync
         #expect(C.clickDismissesThePalette(clickedWindow: nil, palette: panel, at: nil, field: nil))
     }
 
-    /// The rule is only worth anything if the monitor still installs it. `clickDismissesThePalette`
-    /// is pure and static, so the tests around this one pass with the whole `addMonitor(matching:)`
-    /// block deleted. `present` can't be driven with a synthesised `NSEvent`, so this scans the
-    /// call site, as `CommandPaletteRouteCallSiteTests` does.
-    ///
-    /// The block is bounded by balancing braces, so no indentation can move its end. The mask is
-    /// read off this monitor's own call, so a second monitor elsewhere can't stand in for a
-    /// narrowed one. Every `return` in the block is parsed and must be `event`, since
-    /// `return .none` swallows as surely as `return nil`.
+    /// The monitor still installs the click-away rule, which is pure and static, so the tests around
+    /// this one pass with the whole `addMonitor(matching:)` block deleted. Scanned, since `present`
+    /// can't be driven with a synthesised `NSEvent`. The mask is read off this monitor's own call,
+    /// and every `return` must be `event`: `return .none` swallows as surely as `return nil`.
     @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
         let source = maskedCode(try Self.panelSource())
         let block = try declarationBody(of: "addMonitor(matching: [.leftMouseDown", in: source)
@@ -412,8 +371,8 @@ import Sync
     /// cannot take key cannot resign it.
     @Test func theResignObserverWatchesTheHostRatherThanThePanel() throws {
         let source = maskedCode(try Self.panelSource())
-        // The registration's arguments, not its closure body: `braceBalancedBlock` starts at the
-        // first brace, which is the handler, and `object:` is named before it.
+        // The registration's arguments, not its closure body: a body reader starts at the first
+        // brace, which is the handler, and `object:` is named before it.
         let anchor = try #require(source.range(of: "resignObserver = NotificationCenter.default.addObserver"),
                                   "the resign observer is gone — nothing closes the palette when focus leaves")
         let call = String(source[anchor.lowerBound...].prefix(220))
@@ -440,12 +399,9 @@ import Sync
                 "dismiss() leaves stale tokens in the bag — the next dismiss() would remove them twice")
     }
 
-    /// Every `return <expr>` in a block, as the expression's text, in source order. A
-    /// `guard … else { return x }` counts, being a swallow just as a tail return is; a `return`
-    /// sharing its line with its own closure brace (`filter { w in return w.isVisible }`) does not.
-    /// Depth is computed from the current line only, so a `return` on its own line inside a
-    /// multi-line nested closure still counts: it can false-fail, never miss a swallow. Pass an
-    /// already-masked block.
+    /// Every `return <expr>` in an already-masked block, in source order. A `guard … else { return x }`
+    /// counts; a `return` sharing its line with its own closure brace does not. Depth is read per
+    /// line, so it can false-fail on a nested closure, never miss a swallow.
     static func returnedExpressions(in block: String) -> [String] {
         var expressions: [String] = []
         for line in block.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -483,10 +439,8 @@ import Sync
         return expressions
     }
 
-    /// Only `teardown` may order a window out. `theHostAndItsPanelStayOutOfSight` can't catch an
-    /// `orderOut` re-added to `present`, since a window never ordered in satisfies it too, and
-    /// every test would stay green until a run where a window holds key (see `makeHost`). Ordering
-    /// out at teardown, after the assertions, is right: it keeps these windows from accumulating.
+    /// Only `teardown` may order a window out: an `orderOut` re-added to `present` passes every other
+    /// test until a run where a window holds key (see `makeHost`).
     @Test func onlyTeardownEverOrdersAWindowOut() throws {
         let source = maskedCode(try Self.fixtureSource())
         let teardown = try declarationBody(of: "private func teardown(", in: source)
@@ -526,14 +480,9 @@ import Sync
                 "clicking the palette dismissed it — its own field and rows would be unusable")
     }
 
-    /// A click on the Go-to field must not close the palette it is typing into. The palette is two
-    /// objects, the panel and the field in the host's toolbar, so a click on the field is a click
-    /// on the host; treated as click-away, moving the caret or pressing the field's clear button
-    /// would dismiss the palette and wipe the query.
-    ///
-    /// Asked through the live presentation, because the field's rect exists only once the anchor
-    /// has landed. All three directions, since sparing everything is as broken as sparing nothing:
-    /// dropping the `field` clause must fail the first.
+    /// A click on the Go-to field, which is in the host's toolbar, must not close the palette it is
+    /// typing into. Asked through the live presentation, since the field's rect exists only once the
+    /// anchor lands. Dropping the `field` clause must fail the first of the three directions.
     @Test func aClickOnTheGoToFieldDoesNotCloseTheThingItIsTypingInto() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()
@@ -635,14 +584,9 @@ import Sync
                 "every retry was spent inside one runloop turn — ⌘K opens an empty panel with no list")
     }
 
-    /// A field that goes away takes its list off the screen, and brings it back. macOS folds a
-    /// toolbar item behind the overflow chevron when the window is narrow, `goToFieldItemView`
-    /// refuses a folded item's view, and the anchor answers nil; a list left at its last frame would
-    /// hang under nothing.
-    ///
-    /// Hidden rather than dismissed: a field on screen but not measurable through `host` (the
-    /// unverified full-screen case `goToFieldItemView` describes) would be closed too. Hiding is
-    /// reversible, which the second half asserts.
+    /// A field folded behind the toolbar's overflow chevron takes its list off the screen, and
+    /// brings it back: the anchor answers nil, and a list left at its last frame would hang under
+    /// nothing. Hidden, not dismissed, since a field merely unmeasurable would be closed too.
     @Test func aFieldThatGoesAwayTakesItsListOffTheScreen() async throws {
         let host = makeHost()
         let controller = CommandPalettePanelController()

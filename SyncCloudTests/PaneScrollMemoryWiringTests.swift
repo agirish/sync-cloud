@@ -7,7 +7,6 @@ import Foundation
 /// breaks nothing a test sees; every workspace switch would just put the columns back at their
 /// first. A source scan, as in `PaneColumnsGraftWiringTests`: `ContentView` can't be built here.
 @Suite struct PaneScrollMemoryWiringTests {
-
     @Test func everyPaneIsHandedTheWindowsScrollMemory() throws {
         let code = try PaneColumnsGraftWiringTests.appSource()
         #expect(code.contains("@State private var paneScrollMemory = PaneScrollMemory()"),

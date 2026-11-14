@@ -11,7 +11,6 @@ import FileExplorer
 /// call sites that connect them to the window and to ⌘Q are read.
 @MainActor
 @Suite struct EditorLeaveQuestionsTests {
-
     // MARK: TE148 — one title, one cause line
 
     @Test func theTitleSaysSaveWhereverTheQuestionComesFrom() {
@@ -121,10 +120,9 @@ import FileExplorer
         #expect(settled.lowerBound < flush.lowerBound, "the quit flush runs before the check, and is blocked by Edit's own write")
     }
 
-    /// A version kept beside the file by the quit's final save is said before quitting, since the
-    /// flush counts it as saved and nothing else would. Its own alert where ⌘Q would ask nothing; a
-    /// sentence in the file operations alert where that one is shown, so ⌘Q never asks twice. The
-    /// words are built; the call sites in `applicationShouldTerminate` are read.
+    /// A version the quit's final save kept beside the file is said before quitting, since the flush
+    /// counts it as saved: its own alert where ⌘Q would ask nothing, else a sentence in the file
+    /// operations alert, so ⌘Q never asks twice.
     @Test func quittingSaysWhereAVersionKeptAsideWent() throws {
         let clause = "a different version arrived while it was saving. That version was kept beside it as “Plan (other).md”."
         #expect(SyncCloudAppDelegate.keptAsideSentence(name: "Plan.md", clause: clause)

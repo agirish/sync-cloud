@@ -14,7 +14,6 @@ import Testing
 /// views only a running menu bar builds, so their wiring to the rules is read off the source.
 @MainActor
 @Suite struct PDFMenuBarTests {
-
     private static func file() throws -> NSMenu {
         try appMenu("File")
     }
@@ -89,10 +88,9 @@ import Testing
         }
     }
 
-    /// File ▸ Fill & Sign Tool's lines, chosen through AppKit, do what the palette's tools do: the
-    /// keyboard's way to a tool, which Return then places. Over a real open PDF, drawn by
-    /// `NSHostingMenu` as the menu bar draws it; the test host is the app, so its items fire. Its
-    /// lines and ticks are `EditorPDFFillKeyboardTests`'.
+    /// File ▸ Fill & Sign Tool's lines, chosen through AppKit over a real open PDF, arm what the
+    /// palette's tools arm. Drawn by `NSHostingMenu`; the test host is the app, so its items fire.
+    /// The lines and ticks themselves are `EditorPDFFillKeyboardTests`'.
     @Test func theToolMenuChoosesWhatThePaletteDoes() async throws {
         let folder = NSTemporaryDirectory() + "pdf-fill-tools-" + UUID().uuidString
         let store = TestDefaults()
@@ -144,10 +142,9 @@ import Testing
         #expect(fill.store.saved == [saved])
     }
 
-    /// Each line, chosen through AppKit, does what its control does: the toggle puts the header
-    /// button's toolbar up and down, and Save Filled Copy writes the copy the toolbar's save
-    /// writes. Over a real open PDF, drawn by `NSHostingMenu` as the menu bar draws it; the test host
-    /// is the app, so its items fire. The lines' greying is `EditorPDFFillSignTests`'.
+    /// Each line, chosen through AppKit over a real open PDF, does what its control does: the toggle
+    /// puts the toolbar up and down, and Save Filled Copy writes the toolbar save's copy. The test
+    /// host is the app, so `NSHostingMenu` items fire.
     @Test func fillAndSignsLinesDoWhatTheButtonAndTheSaveDo() async throws {
         let folder = NSTemporaryDirectory() + "pdf-fill-menu-" + UUID().uuidString
         let store = TestDefaults()

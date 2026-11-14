@@ -5,14 +5,12 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// What is open in Edit is the text document or a PDF, never both: `EditorOpenRoute`, run as the
-/// app runs it, against real files. The guarantee is the one the separate PDF model exists for:
-/// **no PDF can reach a text save path.** Every editor write needs the text document's path, and
-/// while a PDF is open that document is empty, so ⌘S, autosave, the settle and the quit flush have
-/// nothing to write.
+/// What is open in Edit is the text document or a PDF, never both: `EditorOpenRoute`, run against
+/// real files. No PDF can reach a text save path: every editor write needs the text document's
+/// path, and while a PDF is open that document is empty, so ⌘S, autosave, the settle and the quit
+/// flush have nothing to write.
 @MainActor
 @Suite(.serialized) final class EditorOpenRouteTests {
-
     let folder = NSTemporaryDirectory() + "open-route-" + UUID().uuidString
     var lines: [String] = []
     /// The PDF model's layout store: the test host's `.standard` is the user's live settings.
@@ -80,9 +78,8 @@ import FileExplorer
         #expect(lines.last == "Editor opened \(file) (PDF, 3 pages)")
     }
 
-    /// A small PDF handed in from outside (`Open With ▸ Other…`) opens as a PDF. The control shows
-    /// the text reader alone would open it read-only as garbled text; the hand-off, run with the
-    /// app's load, must not get there.
+    /// A small PDF handed in from outside (`Open With ▸ Other…`) opens as a PDF, though the text
+    /// reader alone would open it read-only as garbled text (the control).
     @Test func aSmallPDFFromOutsideNoLongerOpensAsText() async {
         let file = pdfFile("small.pdf", pages: 1)
         // The control: the text path, asked directly, does produce text for it.

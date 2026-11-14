@@ -6,12 +6,8 @@ import Foundation
 @testable import SyncCloud
 
 /// File ▸ Print… and File ▸ Export as PDF…: where they sit, when they are live, and what they act
-/// on.
-///
-/// The menu half is read off the running app, as `theFileMenuIsInTheRoadmapsOrder` is: the test
-/// host is the app, so `NSApp.mainMenu` is the menu AppKit built from the `.commands`. A
-/// `CommandGroup(replacing: .printItem)` in the wrong menu, or a second item claiming ⌘P, is
-/// invisible to a source scan.
+/// on. The menu half is read off the running app's `NSApp.mainMenu`, since an item in the wrong
+/// menu, or a second item claiming ⌘P, is invisible to a source scan.
 @MainActor
 @Suite struct DocumentPrintCommandTests {
 

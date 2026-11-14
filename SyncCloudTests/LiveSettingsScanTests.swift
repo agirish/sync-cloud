@@ -9,7 +9,6 @@ import Testing
 /// the call site says so. Like `SetupTestDraftScanTests`, these scans make every construction name
 /// what it uses; `FileSyncManager.scratch()` and `SettingsManager.scratch()` are the short forms.
 @Suite struct LiveSettingsScanTests {
-
     /// Every test file in this target, with its name.
     private static func files() throws -> [(name: String, source: String)] {
         let folder = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

@@ -2,15 +2,13 @@ import Testing
 import Foundation
 @testable import SyncCloud
 
-/// A new folder starts unfiltered. The filter and its field live on `ContentView` so a trip to
-/// Browse and back keeps them; without a reset, a filter typed in one folder would stay on in the
-/// next, which would look empty ("No files here match…"). The rule is
-/// `ContentView.railFilterClears`, pure; its call site is scanned, because the view that calls it
-/// can't be built in a unit test.
+/// A new folder starts unfiltered. The filter lives on `ContentView` so a trip to Browse and back
+/// keeps it; without a reset, a filter typed in one folder would make the next look empty. The
+/// rule `ContentView.railFilterClears` is pure; its call site is scanned, because the view can't
+/// be built in a unit test.
 @Suite struct EditorRailFilterResetTests {
-
-    /// Another folder clears; the same folder (the trip to Browse and back) keeps. Answering a
-    /// constant `false` or `true` must fail it.
+    /// Another folder clears; the same folder (a trip to Browse and back) keeps. Fails if it answers
+    /// a constant.
     @Test func onlyAnotherFolderClearsTheFilter() {
         #expect(ContentView.railFilterClears(listedFolder: "/c/Notes", folder: "/c/Travel"))
         #expect(!ContentView.railFilterClears(listedFolder: "/c/Notes", folder: "/c/Notes"),
@@ -19,9 +17,8 @@ import Foundation
                 "the first folder listed kept whatever was in the filter")
     }
 
-    /// The rule runs when Edit's folder changes and when Edit appears (for a folder changed from
-    /// another workspace, where the rail didn't exist). It clears the words and the field, then
-    /// remembers the folder.
+    /// The rule runs when Edit's folder changes and when Edit appears (the folder may have changed in
+    /// another workspace); it clears the words and the field, then remembers the folder.
     @Test func theRailNotesItsFolderOnArrivalAndOnEveryChange() throws {
         let editor = try macAppFile("ContentView+Editor.swift")
         let builder = CodeText(try declarationBody(

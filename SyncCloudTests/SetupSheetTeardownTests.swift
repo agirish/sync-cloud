@@ -17,9 +17,8 @@ import Testing
 /// post `willTerminateNotification` (it is SyncCloud.app, and every observer would hear it), so
 /// `SetupFlowTests.theSetupButtonsCallTheRulesTheModelTests` pins that observer by source.
 ///
-/// The two-minute limits are hang guards. Alone these take 3 s, but in a full app run they wait
-/// for the main actor, 51–59 s on green local runs ("A cfprefsd agent that has cached every
-/// scratch suite…" in docs/flaky-tests.md).
+/// The two-minute limits are hang guards: in a full app run these wait for the main actor for most
+/// of a minute ("A cfprefsd agent that has cached every scratch suite…" in docs/flaky-tests.md).
 @MainActor
 @Suite struct SetupSheetTeardownTests {
 

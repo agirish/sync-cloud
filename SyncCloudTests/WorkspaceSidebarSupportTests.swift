@@ -26,10 +26,10 @@ import Foundation
 ///
 /// Browse hands the sidebar the window minus one pane, so the stored width always fits. Organize
 /// puts it beside a rail (min 220) and a lens panel (min 340), leaving 194pt after the gutter and
-/// seam at the app's 760pt floor: the 180 default fits and the 280 maximum does not.
+/// seam at a 760pt window: the 180 default fits and the 280 maximum does not.
 ///
-/// The fixtures say 760, the window floor. Keep them where the clamp bites even if the floor
-/// rises: a fixture moved up until the clamp stops biting tests nothing.
+/// The fixtures say 760, below the 804pt window floor, on purpose: keep them where the clamp bites,
+/// since a fixture moved up until the clamp stops biting tests nothing.
 @Suite struct LensSidebarWidthTests {
 
     private let gutter = LiquidGlass.cardGutter

@@ -39,16 +39,10 @@ import Testing
                 == [.endGuidedReview, .clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
     }
 
-    /// A tab-driven source change never asks for `.undoProviderPin`, in any state.
-    ///
-    /// That effect repoints the sibling pane's provider and re-homes it onto the pre-review folder.
-    /// `adoptProviderForTab` must never have a pane re-homed under it, since the tab it applies
-    /// carries the navigation: the untouched pane would leave the folder its own tab names, and
-    /// `saveBrowseTabs` would write that over the tab for good, silently retargeting it to another
-    /// cloud.
-    ///
-    /// Every state, because the pin undo is reached from only one (review set, gone inactive) and
-    /// a test that missed it would pass on a reducer that still asked for it.
+    /// A tab-driven source change never asks for `.undoProviderPin`, in any state: re-homing the
+    /// sibling pane under `adoptProviderForTab` would leave the folder its own tab names, and
+    /// `saveBrowseTabs` would write that over the tab for good. Every state, since the pin undo is
+    /// reached from only one.
     @Test func aTabDrivenSourceChangeNeverRepointsTheSiblingPane() {
         for guided in [false, true] {
             for review in [false, true] {
@@ -139,10 +133,8 @@ import Testing
 
     // MARK: Every event, by construction
 
-    /// One value per case, and every payload combination of the branching `tabSwitched`. The enum
-    /// can't be `CaseIterable` (three cases carry payloads), so the completeness scan below keeps
-    /// this list total: a new case fails it until it is added here, which puts it under the
-    /// invariant loop.
+    /// One value per case, and every payload combination of `tabSwitched`. The enum can't be
+    /// `CaseIterable`, so the completeness scan below keeps this list total.
     private static let everyEvent: [CompareReviewEvent] = [
         .tabSwitched(toCompare: false, fromCompare: false),
         .tabSwitched(toCompare: false, fromCompare: true),

@@ -6,7 +6,6 @@ import Sync
 /// Where ⌘N makes a file when the pane's folder is no place for one: `EditorNewFileFolder`'s rule,
 /// then the wiring that takes the pane to Notes and makes the file there.
 @Suite struct EditorNewFileFolderTests {
-
     static let home = "/Users/tester"
 
     private func refusal(_ folder: String, home: String = Self.home) -> EditorNewFileFolder.Refusal? {
@@ -83,10 +82,9 @@ import Sync
         #expect(EditorNewFileFolder.refusal(of: "/Volumes/Disk", home: Self.home, isWritable: { _ in true }) == nil)
     }
 
-    /// Where a link leads counts: `/Volumes/Macintosh HD` is `/`, so its `Applications` is the
-    /// system's, writable for an admin, though the spelling sits under `/Volumes`. Resolved only
-    /// for a spelling that passes. Dropping the resolved check fails the first expectation;
-    /// resolving before the spelling check fails the second.
+    /// Where a link leads counts: `/Volumes/Macintosh HD/Applications` is the system's. Resolved
+    /// only for a spelling that passes. Fails on the first expectation without the resolved check,
+    /// and on the second if resolving comes before the spelling check.
     @Test func aLinkIntoASystemFolderIsNoPlaceForAFile() {
         let boot: (String) -> String = { $0.replacingOccurrences(of: "/Volumes/Macintosh HD", with: "") }
         #expect(EditorNewFileFolder.refusal(of: "/Volumes/Macintosh HD/Applications", home: Self.home,
@@ -131,10 +129,9 @@ import Sync
 
     // MARK: The wiring
 
-    /// ⌘N takes the pane to Notes before the row opens, and after the workspace switch, since
-    /// before it `editorFolder` would be read for the workspace being left. A Notes that couldn't be
-    /// made opens no row. Fails if the call moves above the switch, after `editorIsNaming = true`,
-    /// or out of its `guard`.
+    /// ⌘N takes the pane to Notes after the workspace switch (before it, `editorFolder` reads the
+    /// workspace being left) and before the row opens; a Notes that couldn't be made opens no row.
+    /// Fails if the call moves above the switch, after `editorIsNaming = true`, or out of its `guard`.
     @Test func theChordTakesThePaneToNotesBeforeTheRowOpens() throws {
         let chord = try memberBody("var shortcutNewTextFile: () -> Void", inFile: "ContentView+Editor.swift")
         let switchTo = try #require(chord.range(of: "selectedWorkspace = .editor"))
@@ -145,11 +142,9 @@ import Sync
         #expect(move.lowerBound < row.lowerBound, "the row opens before the pane reaches Notes")
     }
 
-    /// Notes is made, then the pane follows it by tab, and only when the pane's folder was refused.
-    /// A Notes made just now is re-read after the move: a tab on the pane's own source keeps its
-    /// scope, so the switch re-reads nothing, and a column for a folder no walk has seen would stay
-    /// blank, then be pruned, sending ⌘N's file to Documents. Fails without `guard let refusal`,
-    /// the make or the re-read, if the follow takes `paneFolder`, or if the re-read precedes it.
+    /// Only for a refused folder: Notes is made, the pane follows it by tab, then a Notes made just
+    /// now is re-read. A same-source tab switch re-reads nothing, so its unseen column would be
+    /// pruned and ⌘N's file sent to Documents. Fails if any step is dropped or reordered.
     @Test func thePaneFollowsNotesOnlyOnceItExists() throws {
         let take = try memberBody("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool", inFile: "ContentView+Editor.swift")
         #expect(take.contains("guard let refusal else { return true }"))
@@ -178,11 +173,9 @@ import Sync
         #expect(args.passes("newFileFolderName", "editorNewFileFolderName"))
     }
 
-    /// From Compare the pane stays half of the comparison; from Organize it keeps its source, as
-    /// every other way into Edit from there does (`ExternalOpen.pane`). Asked of the workspace being
-    /// left, so before the switch to Edit; the file still goes to Notes. Fails if the read moves
-    /// below the switch (it would always say Edit), Compare's arm follows, or the follow ignores
-    /// `.followsOnItsSource`.
+    /// From Compare the pane stays put; from Organize it keeps its source (`ExternalOpen.pane`); the
+    /// file still goes to Notes. Asked before the switch to Edit, or it would always say Edit.
+    /// Fails if Compare's arm follows, or the follow ignores `.followsOnItsSource`.
     @Test func fromCompareTheFileGoesToNotesAndThePaneStays() throws {
         let chord = try memberBody("var shortcutNewTextFile: () -> Void", inFile: "ContentView+Editor.swift")
         let ask = try #require(chord.range(of: "editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing, atLaunch: false)"),

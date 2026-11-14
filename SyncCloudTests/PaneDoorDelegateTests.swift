@@ -9,15 +9,13 @@ import Sync
 /// real delegate, through the existential every caller uses, and on the handlers themselves.
 @MainActor
 @Suite struct PaneDoorDelegateTests {
-
     private func delegate(syncManager: FileSyncManager, settings: SettingsManager) -> PaneActionDelegate {
         paneDelegate(syncManager: syncManager, settings: settings)
     }
 
-    /// The protocol's defaults offer nothing, so a conformer with no workspace behind it (every
-    /// test stub, every pane that isn't a real provider view) draws none of these items. Reached
-    /// through an existential, the call shape `FileTreeView` makes, because a member declared only
-    /// in a protocol extension dispatches statically.
+    /// The protocol's defaults offer nothing, so a conformer with no workspace behind it draws none
+    /// of these items. Reached through an existential, as `FileTreeView` calls it, since a member
+    /// declared only in a protocol extension dispatches statically.
     @Test func aDelegateWithNoWorkspaceOffersNoDoorThroughTheExistential() {
         struct Stub: FileActionDelegate {
             func handleRefresh() {}
@@ -64,23 +62,20 @@ import Sync
         #expect(asked.map(\.1) == [["/a/One.pdf", "/a/Two.pdf"], ["/a/One.pdf"]])
     }
 
-    /// The dispatch trap, through an existential. Every caller reaches the delegate through
-    /// `FileActionDelegate`, so a member declared only in the protocol extension dispatches
-    /// statically to the default and the conformer's override is never reached; the menu just
-    /// never draws the item. This keeps the member a protocol requirement.
+    /// The dispatch trap: callers reach the delegate as `FileActionDelegate`, so a member declared
+    /// only in the protocol extension dispatches statically to the default and the menu never draws
+    /// the item. This keeps the member a protocol requirement.
     @Test func theOrganizeDoorSurvivesTheExistential() {
         let concrete = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())
         let existential: FileActionDelegate = concrete
         #expect(existential.canOrganizeFolder,
                 "the real pane's answer did not survive the existential — the member is extension-only and dispatching to the default")
-        // A real pane does offer Find Duplicates too, so the stub test above can't pass by the
-        // items being gated off everywhere.
+        // Positive control for the stub test: a real pane offers Find Duplicates too.
         #expect(existential.canFindDuplicates)
     }
 
-    /// Files never reach the Organize handoff: "where do the loose files in here belong" means
-    /// nothing for a file. Asserted on the handler, not only the menu, so the guarantee travels
-    /// with the action, and in both directions, or the guard proves nothing.
+    /// Files never reach the Organize handoff, asserted on the handler so the guarantee travels with
+    /// the action, and in both directions, or the guard proves nothing.
     @Test func theOrganizeHandoffIgnoresFiles() {
         var asked: [String] = []
         let base = delegate(syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch())

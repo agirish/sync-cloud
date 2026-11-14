@@ -8,11 +8,8 @@ import FileExplorer
 
     // MARK: Reading a default from source
 
-    /// The workspace case named at the end of the one line matching `anchor` in `MacApp/<name>`.
-    /// Source-level because `ContentView` cannot be mounted (private stored properties make its
-    /// memberwise init private), and an `@AppStorage` default is not reachable from a test
-    /// otherwise. `SetupFlowTests.theWelcomeStripOpensWhereTheAppDoes` reads the first-run default
-    /// through it.
+    /// The workspace case named at the end of the one line matching `anchor` in `MacApp/<name>`:
+    /// an `@AppStorage` default on `ContentView`, which cannot be mounted, is reachable no other way.
     static func workspaceCase(inFile name: String, after anchor: String) throws -> String {
         let text = try macAppFile(name)
         let start = try #require(text.range(of: anchor),
@@ -48,11 +45,8 @@ import FileExplorer
     // MARK: The five-segment bar
 
     @Test func testTheBarIsFiveKindsOfPlace() {
-        // Browse shows one tree and proposes nothing, Compare holds two, Organize changes one, and
-        // Editor changes what is inside one file. Everything that moves a file inside a single
-        // tree on the app's suggestion is a lens inside Organize, so a new segment means something
-        // was promoted out of it. Editor is a segment, not a lens, because it writes a file's
-        // contents.
+        // Browse shows one tree, Compare holds two, Organize changes one, and Editor changes what is
+        // inside one file. Everything else that moves a file in one tree is a lens inside Organize.
         #expect(Workspace.allCases.count == 4)
         #expect(Workspace.allCases.map(\.title)
                 == ["Browse", "Compare", "Organize", "Edit"])

@@ -1,16 +1,11 @@
 import Testing
 import Foundation
 
-/// Where the pane says it is, at the call sites. `PaneCombinedPathTests` proves the rule
-/// (`FileSyncManager.paneLocation(isLeft:drawsColumns:)` and the four navigation entry points) but
-/// not that the header asks it: one reverted line in `ContentView.swift` would put the breadcrumb
-/// back on the bare scope+stack join with those tests green.
-///
-/// So a source scan, as in `TidyScanRootTests`: the read fails loudly on an empty haystack, and each
-/// check pins an argument whole, not its ingredients. A flipped `isLeft` is invisible to every
-/// behavioural test, since the manager never learns which pane the app meant.
+/// The call sites ask `FileSyncManager.paneLocation(isLeft:drawsColumns:)`, whose rule
+/// `PaneCombinedPathTests` proves; one reverted line would put the breadcrumb back on the bare
+/// scope+stack join with those tests green. Each check pins an argument whole: a flipped `isLeft`
+/// is invisible to every behavioural test.
 @Suite struct PaneLocationCallSiteTests {
-
     /// The header's path. `mode` is the resolved presentation, so a Tree pane reads out its scope
     /// and a Columns pane its scope joined with the open columns.
     @Test func theHeadersPathAsksForTheLocationThePresentationActuallyShows() throws {

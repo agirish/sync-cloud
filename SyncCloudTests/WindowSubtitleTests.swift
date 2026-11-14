@@ -141,7 +141,6 @@ import SwiftUI
     }
 }
 
-
 /// The wiring, read off `ContentView`'s source. The rule and the binder tests stay green if
 /// nothing mounts the binder: the window would keep the scene's bare "SyncCloud" unnoticed, a
 /// feature fully built, fully tested and not connected.

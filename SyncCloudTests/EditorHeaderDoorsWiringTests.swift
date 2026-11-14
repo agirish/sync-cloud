@@ -3,15 +3,11 @@ import Foundation
 import FileExplorer
 @testable import SyncCloud
 
-/// The app side of the header's ＋ and ×, and of File ▸ Close Document: what `ContentView` actually
-/// hands the buttons and the menu item.
-///
-/// `EditorHeaderDoorsTests` builds the view with closures of its own, so it can't see what the app
-/// passes: replacing the real closure with `{}` would leave that suite green. `ContentView` can't
-/// be built in a test (its memberwise initializer is private; see `BrowseWorkspaceCallSiteTests`),
-/// so the call site is scanned, with comments stripped and a positive control.
+/// What `ContentView` hands the header's ＋ and ×, and File ▸ Close Document. `EditorHeaderDoorsTests`
+/// builds the view with closures of its own, so a real closure replaced with `{}` leaves it green.
+/// `ContentView` can't be built in a test (see `BrowseWorkspaceCallSiteTests`), so the call site is
+/// scanned, comments stripped.
 @Suite struct EditorHeaderDoorsWiringTests {
-
     /// The ＋ is handed ⌘N's own closure, not a copy of its body, and not a closure that only sets
     /// `editorIsNaming`, which would open the row without taking focus. Fails with `{
     /// editorIsNaming = true }`, `nil`, or `{}` in its place.
@@ -21,10 +17,9 @@ import FileExplorer
                 "the header's ＋ is not handed ⌘N's closure — it can drift from what the chord does")
     }
 
-    /// What that closure does, so "the same as ⌘N" means something: it opens the naming row and
-    /// bumps the focus counter, so a ＋ pressed with the row already open still takes focus. Always
-    /// offered: with no folder the file goes to Notes (`EditorNewFileFolderTests`), so there is no
-    /// `nil` to grey the ＋ on.
+    /// ⌘N's closure opens the naming row and bumps the focus counter, so a ＋ pressed with the row
+    /// already open still takes focus. Never `nil`: with no folder the file goes to Notes
+    /// (`EditorNewFileFolderTests`).
     @Test func theNewFileChordOpensTheRowAndTakesFocus() throws {
         let body = try memberBody("var shortcutNewTextFile: () -> Void", inFile: "ContentView+Editor.swift")
         #expect(body.contains("editorIsNaming = true"), "⌘N no longer opens the naming row")
@@ -32,11 +27,9 @@ import FileExplorer
         #expect(!body.contains("return nil"), "⌘N is withheld again — a pane with no folder has Notes to go to")
     }
 
-    /// Every Edit layout mounts the same workspace builder, so the ＋ is in the header whether the
-    /// pane is open, the rail is drawn, or "Just the text" is on. `editorLayout` calls
-    /// `editorWorkspace(showsRail:)` once, in the row both states share: a second call would give
-    /// the workspace a second identity for a fold to rebuild, and a second route to
-    /// `EditorWorkspaceView` could forget the ＋.
+    /// Every Edit layout mounts the one workspace builder, once, so the ＋ is always in the header. A
+    /// second call would give the workspace a second identity for a fold to rebuild, and a second
+    /// `EditorWorkspaceView` route could forget the ＋.
     @Test func everyEditLayoutMountsTheOneBuilder() throws {
         let source = try macAppCode("ContentView+Editor.swift")
         let layout = try memberBody("func editorLayout(collapsed: Bool, geo: GeometryProxy)", in: source)
@@ -65,11 +58,9 @@ import FileExplorer
                 "the chord publisher is not handed shortcutCloseDocument")
     }
 
-    /// The close is handed the window's real pieces. `EditorDocumentCloseTests` runs the act with
-    /// pieces of its own, which proves nothing about these: the settle must be
-    /// `settleEditorDocument()` (the one place the unsaved-changes question is asked), the
-    /// selection the left pane's (the pane a click opens from), and the log the app's. Fails with
-    /// `settle: { true }`, `selectedRightPaths`, or `log: { _ in }`.
+    /// The close is handed the window's real pieces: `settleEditorDocument()` (where unsaved changes
+    /// are asked about), the left pane's selection (the pane a click opens from), and the app's log.
+    /// Fails with `settle: { true }`, `selectedRightPaths`, or `log: { _ in }`.
     @Test func theCloseIsHandedTheWindowsRealSettleSelectionAndLog() throws {
         let body = try memberBody("func closeEditorDocument()", inFile: "ContentView+Editor.swift")
         let close = try call("EditorDocumentClose.run(", in: body)
@@ -115,11 +106,9 @@ import FileExplorer
 
     // MARK: Expand (TE48)
 
-    /// The two hand-made doors out of Expand reach its record. Opening Edit's pane from its spine
-    /// ends Expand and spends what it owed; ⌃⌘S from the toolbar or View ▸ Sidebar lifts Expand's
-    /// hold on the sidebar rather than flipping a preference that is already on, and both doors
-    /// tick on what is drawn. Fails if the `paneOpenedByHand` or `sidebarShownByHand` call is
-    /// dropped, or either door is handed `browseSidebarVisible`.
+    /// Opening Edit's pane by hand ends Expand, and ⌃⌘S lifts Expand's hold on the sidebar rather than
+    /// flipping a preference already on; both tick on what is drawn. Fails if `paneOpenedByHand` or
+    /// `sidebarShownByHand` is dropped, or a door is handed `browseSidebarVisible`.
     @Test func theHandMadeDoorsOutOfExpandReachItsRecord() throws {
         let toggle = try memberBody("func togglePanesForCurrentTab()", in: try macAppCode("ContentView.swift"))
         // The stored fold, not the drawn one: the pin's fold is released first and never reaches Expand.
@@ -140,10 +129,8 @@ import FileExplorer
                 "View ▸ Sidebar ticks on, or writes, something other than what is drawn")
     }
 
-    /// The header's Expand button and Text ▸ Expand run the one toggle, offered by the one rule.
-    /// The button is handed `toggleJustTheText` (the internal name it kept), the menu's value runs
-    /// the same, and the value is gated on `EditorExpandSwitch.isOffered` with the window's
-    /// workspace, document and bit. Fails if the button is handed `{}`, the item flips
+    /// The header's Expand and Text ▸ Expand run `toggleJustTheText`, gated on
+    /// `EditorExpandSwitch.isOffered`. Fails if the button is handed `{}`, the item flips
     /// `editorRailHidden` directly (skipping the pane's collapse), or the gate is dropped.
     @Test func expandAndTextExpandRunTheOneToggleByTheOneRule() throws {
         let source = try macAppCode("ContentView+Editor.swift")
@@ -155,8 +142,8 @@ import FileExplorer
         // Text ▸ Go to Line…'s counter reaches the workspace that opens the field.
         #expect(try call("EditorWorkspaceView(", in: workspace).passes("goToLineRequest", "editorGoToLineRequest"),
                 "Text ▸ Go to Line… bumps a counter the workspace is never handed")
-        // "On" is the bit and the pane folded: a bit stored by an older build can sit beside an
-        // open pane, and must not light Files there.
+        // "On" is the bit and the pane folded: a stored bit can sit beside an open pane, and must
+        // not light Files there.
         let expanded = try memberBody("var editorIsExpanded: Bool", in: source)
         #expect(expanded.contains("editorRailHidden && panesHiddenForCurrentTab"),
                 "Expand reads as on without the pane being folded — lit Files beside an open pane")
@@ -185,9 +172,8 @@ import FileExplorer
         #expect(toggle.contains("expand.leave()") && toggle.contains("expand.enter(sidebarShowing: folderSidebarIsShowing)"),
                 "the toggle moves the bits itself rather than through EditorExpand")
         #expect(!toggle.contains("editorRailHidden ="), "the toggle flips the rail bit directly")
-        // The spine's list buttons are doors of their own: the list back, the pane left folded,
-        // through `EditorExpand` when Expand had it, and logged. The toggle's way out would reopen
-        // a pane Expand folded, and an open pane draws no list.
+        // The spine's list buttons bring the list back through `EditorExpand` with the pane left
+        // folded; the toggle would reopen a pane Expand folded, and an open pane draws no list.
         let spine = try macAppCode("ContentView+SplitLayout.swift")
         #expect(spine.contains("Button { runEditorRailRung(tab) } label: {"),
                 "the spine's list buttons do not run runEditorRailRung")
@@ -243,10 +229,9 @@ import FileExplorer
         #expect(!rung.contains("expand.leave()"), "the rung leaves Expand the header's way, reopening the pane")
     }
 
-    /// Offered where the header draws the button: in Edit, over any open document (a refused one
-    /// too, whose header still draws it), and on the empty page only while lit, as the way back to
-    /// the files. Never outside Edit. Without `isOn` the lit empty page loses its way back; without
-    /// the workspace Browse gains a ⌃⌘E.
+    /// Text ▸ Expand is offered where the header draws the button: in Edit over any open document
+    /// (a refused one too), and on the empty page only while lit. Fails without `isOn` (the lit
+    /// empty page loses its way back) or without the workspace (Browse gains a ⌃⌘E).
     @Test func textExpandIsOfferedWhereTheHeaderDrawsTheButton() {
         #expect(EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: true, isOn: false))
         #expect(EditorExpandSwitch.isOffered(workspace: .editor, hasDocument: true, isOn: true))
@@ -262,11 +247,9 @@ import FileExplorer
 
     // MARK: The load
 
-    /// `loadIntoEditor` runs the shared load, and is handed the window's real pieces.
-    ///
-    /// `EditorDocumentLoadTests` runs `EditorDocumentLoad.run` with a document and store of its
-    /// own, so it can't see what the app passes. A fresh `EditorUndoStore()` here would leave that
-    /// suite green while every file switch silently lost its undo history.
+    /// `loadIntoEditor` runs the shared load with the window's real pieces. A fresh
+    /// `EditorUndoStore()` would leave `EditorDocumentLoadTests` green while every file switch
+    /// silently lost its undo history.
     @Test func theLoadIsHandedTheWindowsRealDocumentAndUndoStore() throws {
         let body = try memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)", inFile: "ContentView+Editor.swift")
         // Through `EditorOpenRoute`, which sends a PDF to its own model and text to the shared load.

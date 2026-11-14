@@ -10,7 +10,6 @@ import Testing
 /// list is the list, so the marks are one per kind of location, not one per account.
 @MainActor
 @Suite struct LocationsWhyMarkTests {
-
     private func provider(_ id: String, _ display: String, _ image: String) -> CloudProvider {
         CloudProvider(id: id, displayName: display, imageName: image,
                       rootPath: "/tmp/\(id)", type: .googleDrive)
@@ -67,7 +66,6 @@ import Testing
 /// pixels show it isn't Dropbox's or OneDrive's logo.
 @MainActor
 @Suite struct LocationsWhyRenderTests {
-
     /// The panel with one mark, at the width the card gives it.
     private func render(_ mark: LocationsWhy.Mark) throws -> NSBitmapImageRep {
         let panel = LocationsWhy(hue: .blue, marks: [mark])
@@ -78,10 +76,9 @@ import Testing
         return try snapshot(host)
     }
 
-    /// Pixels where two renders of the same panel differ. Bytes first: in two bitmaps of one format,
-    /// matching bytes are the same colour, so a matching row is skipped whole and a matching pixel
-    /// singly. Other pixels are compared on the components `colorAt` gives, read once per distinct
-    /// value (`PixelMemo`), since `colorAt` on every pixel is slow on the main actor.
+    /// Pixels where two renders differ. Matching bytes in one format skip a row or pixel; the rest
+    /// compare `colorAt` components, read once per distinct value (`PixelMemo`), since `colorAt` on
+    /// every pixel is slow on the main actor.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         let components: (NSColor?) -> [CGFloat]? = { colour in
             colour.map { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] }
@@ -101,10 +98,9 @@ import Testing
         return count
     }
 
-    /// Two marks with the same name and different assets draw differently. Holding the name fixed
-    /// gives this teeth: different labels would differ on their own, while one shared symbol tinted
-    /// by `ProviderHue.classify` would be pixel-identical under one name. So any difference is the
-    /// asset.
+    /// Two marks with the same name and different assets draw differently. The name is held fixed
+    /// so any difference is the asset: one shared symbol tinted by `ProviderHue.classify` would be
+    /// pixel-identical under one name.
     @Test func aMarkIsTheProvidersOwnAssetRatherThanOneSharedSymbol() throws {
         let names = ["dropbox", "onedrive", "googledrive", "icloud"]
         var renders: [(String, NSBitmapImageRep)] = []
@@ -137,8 +133,7 @@ import Testing
         return host.fittingSize.height
     }
 
-    /// The four marks stay on one row, at every text size; wrapped, one would sit alone under a
-    /// heading. Every stop, because the column and the type scale together and must keep step,
+    /// The four marks stay on one row at every text size: the column and the type scale together,
     /// which 100% alone can't show.
     @Test func theMarkStripStaysOnOneRow() throws {
         for size in FontSize.allCases {
@@ -147,8 +142,7 @@ import Testing
             // follows the text scale. Mixing the two makes a ceiling wrong by a point.
             let geo = SetupSheetMetrics.chromeScale(scale)
             let height = stripHeight(LocationsWhy.fallback, scale: scale)
-            // One row of marks, with room for a label of up to two lines under them. A second row of
-            // marks adds another cap height, which is what this catches.
+            // One row of marks plus a label of up to two lines; a second row adds a cap height.
             let ceiling = LocationsWhy.MarkStrip.baseCapHeight * geo
                 + LocationsWhy.MarkStrip.baseGap * geo + lineHeight(scale) * 2 + 1
             #expect(height <= ceiling,
@@ -156,11 +150,9 @@ import Testing
         }
     }
 
-    /// No name is broken inside a word, at any text size; SwiftUI splits a word ("OneDri/ve") when a
-    /// cell is narrower than it. The tell is height: a name that fits takes one line, one that
-    /// doesn't takes one line per word, and a mid-word break takes a line more. One mark at a time,
-    /// in a cell as wide as the real strip gives it: the whole strip is as tall as its tallest cell,
-    /// so "Google Drive"'s two legitimate lines would hide the others' breaks.
+    /// No name is broken inside a word ("OneDri/ve"), which SwiftUI does in a too-narrow cell; the
+    /// tell is an extra line of height. One mark at a time, since the strip is as tall as its
+    /// tallest cell and "Google Drive"'s two real lines would hide the others' breaks.
     @Test func noNameIsBrokenInsideAWord() throws {
         for size in FontSize.allCases {
             let scale = size.scale
@@ -189,10 +181,8 @@ import Testing
         }
     }
 
-    /// No provider name has to shrink to fit. `minimumScaleFactor` is the floor under a
-    /// pathologically long word, not the mechanism: a name drawn smaller than those beside it looks
-    /// worse than a wrap. Every word must fit its cell whole, measured off the real panel column at
-    /// each text size.
+    /// No provider name has to shrink to fit: `minimumScaleFactor` is only a floor for a
+    /// pathologically long word. Every word must fit its cell whole at each text size.
     @Test func noProviderNameHasToShrinkToFit() throws {
         for size in FontSize.allCases {
             let scale = size.scale

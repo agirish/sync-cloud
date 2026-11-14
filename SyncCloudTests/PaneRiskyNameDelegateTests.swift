@@ -9,20 +9,14 @@ import Sync
 /// and the pane's equality, which fails silently.
 @MainActor
 @Suite struct PaneRiskyNameDelegateTests {
-
     private func delegate(syncManager: FileSyncManager, settings: SettingsManager,
                           keptNames: Set<String> = []) -> PaneActionDelegate {
         paneDelegate(syncManager: syncManager, settings: settings, keptNamesToken: keptNames)
     }
 
-    /// The staleness hazard, and why `keptNamesToken` is a stored property. The pane skips
-    /// re-rendering when its delegate says nothing it answers has changed, and keeping a name
-    /// changes only how rows with that name draw. Left out of `isEquivalent`, the dismissed badge
-    /// would stay on screen until something unrelated moved, as `ignoreStateToken` prevents for
-    /// ignores.
-    ///
-    /// A pair: the first case proves the token is compared, the second that the comparison isn't
-    /// always false, which would defeat the `Equatable` boundary's optimization.
+    /// `keptNamesToken` takes part in `isEquivalent`, or the pane skips the re-render and a dismissed
+    /// badge stays on screen until something unrelated moves. A pair: the token is compared, and the
+    /// comparison isn't always false, which would defeat the `Equatable` boundary.
     @Test func keepingANameMakesTheDelegateCompareUnequal() {
         let manager = FileSyncManager.scratch()
         let settings = SettingsManager.scratch()

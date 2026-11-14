@@ -6,9 +6,8 @@ import Sync
 /// Where the file pane goes when Edit opens a file: the tab already at its folder, or a new one.
 /// See ``EditorTabFollow``.
 @Suite struct EditorTabFollowTests {
-
     private static let a = UUID(), b = UUID(), c = UUID()
-    /// Relativizing by plain prefix, which is all these cases need; production passes
+    /// Plain-prefix relativizing is all these cases need; production passes
     /// `PaneLogic.relativePath(of:under:)`, which also follows iCloud Drive's links.
     private static func relative(_ folder: String, _ root: String) -> String? {
         if folder == root { return "" }
@@ -22,8 +21,7 @@ import Sync
     }
     private static let docs = EditorTabFollow.Tab(id: a, root: "/c", location: "Documents")
 
-    /// The same parent stays in the tab you are in. Only Edit's view of it may move (Tree vs
-    /// Columns).
+    /// The same parent stays in the tab you are in; only Edit's view of it may move.
     @Test func theFolderTheActiveTabIsAtStaysInIt() {
         #expect(Self.decide("/c/Documents", active: Self.docs) == .inPlace)
         // Case-folded, as the volumes are.
@@ -32,16 +30,16 @@ import Sync
         #expect(Self.decide("/c", active: .init(id: Self.a, root: "/c", location: "")) == .inPlace)
     }
 
-    /// A tab already at the folder is reused, on whichever source. Skipping the scan of the other
-    /// tabs must fail it.
+    /// A tab already at the folder is reused, on whichever source. Fails if the other tabs aren't
+    /// scanned.
     @Test func anOpenTabAtTheFolderIsSwitchedTo() {
         let others = [EditorTabFollow.Tab(id: Self.b, root: "/c", location: "Photos"),
                       EditorTabFollow.Tab(id: Self.c, root: "/d", location: "Work/Notes")]
         #expect(Self.decide("/d/Work/Notes", active: Self.docs, others: others) == .switchTo(Self.c))
     }
 
-    /// Anywhere else opens a new tab, a subfolder of the active tab included, since that is a
-    /// different parent. The tab you were in keeps its place rather than being re-rooted.
+    /// Anywhere else, a subfolder of the active tab included, opens a new tab; the tab you were in
+    /// keeps its place rather than being re-rooted.
     @Test func aDifferentFolderOpensANewTab() {
         let route = ExternalOpen.SourceRoute(providerId: "home", relativePath: "Projects/app")
         #expect(Self.decide("/Users/me/Projects/app", active: Self.docs, route: route) == .open(route))
@@ -54,10 +52,9 @@ import Sync
         #expect(Self.decide("/Volumes/Card", active: Self.docs) == .nowhere)
     }
 
-    /// A tab with no root (a source with no path) is never "at" anything; an empty base would claim
-    /// every folder. Its location is the one an empty base would produce
-    /// (`relative("/c/Photos", "")` is `c/Photos` here), so only the guard stops a match. Dropping
-    /// `!tab.root.isEmpty` must fail it.
+    /// A tab with no root is never "at" anything: an empty base would claim every folder. Its
+    /// location is what an empty base would produce, so only the guard stops a match. Fails if
+    /// `!tab.root.isEmpty` is dropped.
     @Test func aTabWithNoRootClaimsNothing() {
         let rootless = EditorTabFollow.Tab(id: Self.b, root: "", location: "c/Photos")
         #expect(Self.decide("/c/Photos", active: Self.docs, others: [rootless]) == .nowhere)
@@ -72,9 +69,9 @@ import Sync
     }
     private static let onC = EditorTabFollow.Tab(id: a, root: "/c", location: "Documents", providerId: "c")
 
-    /// A tab on another source is no candidate, even one already at the folder: switching to it
-    /// adopts that source, which resets the comparison or clears Organize's results. Dropping the
-    /// provider filter must fail it.
+    /// A tab on another source is no candidate, even at the folder: switching to it adopts that
+    /// source, which resets the comparison or clears Organize's results. Fails without the provider
+    /// filter.
     @Test func keepingTheSourceSkipsATabOnAnotherOne() {
         let elsewhere = EditorTabFollow.Tab(id: Self.b, root: "/d", location: "Notes", providerId: "d")
         let sameSource = EditorTabFollow.Tab(id: Self.c, root: "/c", location: "Photos", providerId: "c")
@@ -82,9 +79,9 @@ import Sync
         #expect(Self.keeping("/c/Photos", active: Self.onC, others: [elsewhere, sameSource]) == .switchTo(Self.c))
     }
 
-    /// A new tab opens on the pane's own source, never another, even where another owns the folder
-    /// more specifically; outside its root it opens nowhere and the pane stays. Falling through to
-    /// `route`, or dropping the root guard, must fail it.
+    /// A new tab opens on the pane's own source only, even where another owns the folder more
+    /// specifically; outside its root the pane stays. Fails if it falls through to `route` or drops
+    /// the root guard.
     @Test func keepingTheSourceOpensOnlyOnIt() {
         let owner = ExternalOpen.SourceRoute(providerId: "d", relativePath: "Notes")
         #expect(Self.keeping("/c/Documents/Notes", active: Self.onC, route: owner)
@@ -99,24 +96,22 @@ import Sync
     }
 
     /// Tree lists a tab's scope, so a tab at the folder by its column stack still has Edit on the
-    /// scope, and is re-rooted in place. Returning `false` must fail it.
+    /// scope, and is re-rooted in place. Fails if it returns `false`.
     @Test func treeShowingTheScopeIsRerootedAtTheFolder() {
         #expect(Self.needsReroot("/c/Documents/Notes", editShows: "/c/Documents"))
         // A pane Edit reads as no folder at all, under the same root.
         #expect(Self.needsReroot("/c/Documents/Notes", editShows: ""))
     }
 
-    /// Columns already shows the folder, case-folded as the volumes are. Comparing without folding
-    /// must fail it.
+    /// Columns already shows the folder, case-folded as the volumes are. Fails without folding.
     @Test func editAlreadyAtTheFolderIsLeftAlone() {
         #expect(!Self.needsReroot("/c/Documents/Notes", editShows: "/c/Documents/Notes"))
         #expect(!Self.needsReroot("/c/Documents/Notes", editShows: "/c/documents/notes"))
     }
 
-    /// A folder not under the live tab's root means the move didn't happen (a tab verb refused during
-    /// the launch bootstrap, or a tab dropped as unavailable), and re-rooting there would name a path
-    /// that doesn't exist. An empty root is no root. Dropping `!root.isEmpty`, or answering `true`
-    /// outside the root, must fail it.
+    /// A folder outside the live tab's root means the move didn't happen (a tab verb refused during
+    /// the launch bootstrap, or a tab dropped as unavailable); re-rooting would name a missing path.
+    /// Fails if `!root.isEmpty` is dropped or it answers `true` outside the root.
     @Test func aMoveThatDidNotHappenIsNotPapered() {
         #expect(!Self.needsReroot("/elsewhere/Notes", editShows: "/c/Documents"))
         #expect(!Self.needsReroot("/c/Documents/Notes", editShows: "/c/Documents", root: ""))
@@ -124,10 +119,9 @@ import Sync
 
     // MARK: The tab a follow opens
 
-    /// Rooted at the folder (the whole path its scope, no column stack), so the tab walks the folder
-    /// itself. Stacked under the pane's scope it would rely on that scope's walk reaching the folder,
-    /// which stops at 200,000 entries on a large source and would land the pane a folder short.
-    /// Cutting it through `PaneTabOpening.location` with the pane's scope must fail it.
+    /// Rooted at the folder, so the tab walks the folder itself. Stacked under the pane's scope it
+    /// would rely on that walk reaching the folder, which stops at 200,000 entries on a large source.
+    /// Fails if cut through `PaneTabOpening.location` with the pane's scope.
     @Test func aFollowedTabIsRootedAtItsFolder() {
         let tab = ContentView.tabAtRoute(.init(providerId: "home", relativePath: "Downloads/pm/a"), selecting: ["/h/x.md"])
         #expect(tab.providerId == "home" && tab.relativePath == "Downloads/pm/a")

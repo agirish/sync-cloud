@@ -4,19 +4,16 @@ import SwiftUI
 import Testing
 @testable import SyncCloud
 
-/// The Help card's resize rule. The card is centred in its overlay, so "add the translation to the
-/// width" is wrong by a factor of two, and reads as lag rather than a bug: the grip drifts at half
-/// the pointer's speed. `HelpView` can't be built in a test, so the rule is a type of its own
-/// rather than an untestable clamp inline.
+/// The Help card's resize rule. The card is centred, so adding the translation to the width is
+/// wrong by a factor of two and reads as lag: the grip drifts at half the pointer's speed.
+/// `HelpView` can't be built in a test, so the rule is a type of its own.
 @Suite struct HelpCardSizeTests {
-
     static let room = CGSize(width: 2000, height: 1400)
 
     // MARK: The doubling
 
-    /// `(grip, drag, size)` from 760×520. Dragging the trailing edge 10pt right moves that edge
-    /// 10pt right, which on a centred card is 20pt of width; the leading edge is the mirror, and
-    /// top against bottom the same; a corner moves both, each axis by its own translation.
+    /// `(grip, drag, size)` from 760×520. On a centred card a 10pt drag of an edge is 20pt of size;
+    /// opposite edges mirror; a corner moves each axis by its own translation.
     @Test(arguments: [
         (HelpCardGrip.trailing, CGSize(width: 10, height: 0), CGSize(width: 780, height: 520)),
         (.leading, CGSize(width: 10, height: 0), CGSize(width: 740, height: 520)),
@@ -29,8 +26,8 @@ import Testing
                                      grip: grip, within: Self.room) == expected)
     }
 
-    /// Every grip moves exactly the axes it names. A walk over `allCases`, not eight assertions, so
-    /// a ninth grip can't be added without an answer here.
+    /// Every grip moves exactly the axes it names, walked over `allCases` so a new grip needs an
+    /// answer here.
     @Test func everyGripMovesTheAxesItsNameClaims() {
         for grip in HelpCardGrip.allCases {
             let start = CGSize(width: 760, height: 520)
@@ -62,8 +59,8 @@ import Testing
         #expect(size == available)
     }
 
-    /// The first layout pass reports `.zero`, and clamping straight to it would collapse the card on
-    /// the frame it appears. Changing `max(minimum, available)` to plain `available` must fail it.
+    /// The first layout pass reports `.zero`; clamping to it would collapse the card on the frame it
+    /// appears. Fails if `max(minimum, available)` becomes plain `available`.
     @Test func aWindowThatHasNotBeenMeasuredYetDoesNotCollapseTheCard() {
         #expect(HelpCardSize.clamped(HelpCardSize.initial, within: .zero) == HelpCardSize.minimum)
     }
@@ -80,14 +77,13 @@ import Testing
         #expect(HelpCardSize.minimum.height < HelpCardSize.initial.height)
     }
 
-    /// The card opens at its long-standing default size, so resizing doesn't change the default
-    /// view.
+    /// The card opens at its long-standing default size.
     @Test func theCardStillOpensAtTheSizeItAlwaysHad() {
         #expect(HelpCardSize.initial == CGSize(width: 760, height: 520))
     }
 
-    /// The window's own floor can show the card's floor. A minimum larger than the smallest window
-    /// the app allows would make the clamp fight the window on every small display.
+    /// The card's floor fits the window's: a larger minimum would make the clamp fight the window on
+    /// every small display.
     @Test func theCardsFloorFitsTheWindowsFloor() throws {
         // The window's own `.frame(minWidth:minHeight:)`, read from `ContentView`, not a copy of it.
         let floors = argumentLists(of: "frame", in: sourceCodeOnly(try macAppFile("ContentView.swift")))
@@ -101,15 +97,15 @@ import Testing
 
     // MARK: The call site
 
-    /// The rule is the one the card actually uses; uncalled, this file would go on passing. Scanned,
-    /// because `HelpView` can't be constructed in a test.
+    /// The card actually uses the rule; uncalled, this file would go on passing. Scanned, because
+    /// `HelpView` can't be constructed in a test.
     @Test func theCardResolvesItsSizeThroughTheRule() throws {
         let source = try macAppFile("HelpBook.swift")
         let body = try declarationBody(of: "private var baseSize: CGSize", in: source)
         #expect(body.contains("HelpCardSize.clamped"),
                 "the card no longer resolves its size through the clamp")
-        // The drag has no second source of truth for where it started: a captured start can
-        // outlive an interrupted gesture.
+        // No second source of truth for where the drag started: a captured start can outlive an
+        // interrupted gesture.
         #expect(!source.contains("dragStart"),
                 "a drag-start is being captured again; base every drag on baseSize instead")
         let drag = try declarationBody(of: "private func apply(", in: source)
@@ -117,11 +113,10 @@ import Testing
                 "the drag no longer goes through the resize rule")
     }
 
-    /// The card really lays out at the size the rule gives it, in a live `NSHostingView`.
-    /// `fittingSize` is worthless against a `ScrollView`, and the card holds two, but the frame is
-    /// explicit, so this checks that the resolved size reaches `.frame(width:height:)` at all.
-    /// `defaultAppStorage` redirects the card's `@AppStorage` into a scratch suite: the test host is
-    /// the app, and would otherwise read and write the real preference.
+    /// The card lays out at the rule's size in a live `NSHostingView`. `fittingSize` is worthless
+    /// against a `ScrollView`, but the frame is explicit, so this checks the size reaches
+    /// `.frame(width:height:)`. `defaultAppStorage` points `@AppStorage` at a scratch suite: the test
+    /// host is the app and would otherwise read and write the real preference.
     @MainActor
     @Test(.machinePinned(.layoutMetrics)) func theCardLaysOutAtTheSizeTheRuleGivesIt() {
         let store = TestDefaults()

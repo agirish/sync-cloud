@@ -8,10 +8,8 @@ import Testing
 /// The Text and Markup menus, read off the running app, and the two rules under them that no menu
 /// can show: which way ⌘I goes, and which modes a file may be switched to.
 ///
-/// The test host is the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`
-/// declarations: the only place to read whether the two `CommandMenu`s landed in the intended
-/// order, whether the Info Inspector item precedes Markup ▸ Italic, and what each item's key
-/// equivalent came out as.
+/// The test host is the app, so `NSApp.mainMenu` is what AppKit built from the `.commands`: the
+/// only place to read the menus' order and what each item's key equivalent came out as.
 @MainActor
 @Suite struct TextMarkupMenuTests {
 
@@ -463,7 +461,6 @@ import Testing
         #expect(body.contains("goToLine: EditorWorkspaceView.offersGoToLine(drawn) ? { editorGoToLineRequest &+= 1 } : nil"),
                 "Text ▸ Go to Line… is not offered by the status line's rule, or does not open its field")
     }
-
 }
 
 /// Which modes Text ▸ Source / Preview / Split may set for a file.

@@ -3,13 +3,11 @@ import AppKit
 @testable import SyncCloud
 
 /// Where the Go-to field is, asked of a real toolbar. The anchor decides how wide the list draws,
-/// where it hangs, and whether a click on the field the user is typing into closes the palette.
-/// All three go wrong if it answers confidently about the wrong place, so the refusals matter as
-/// much as the measurement. `goToFieldItemView` needs `view.window === host`; `view.window != nil`
-/// would accept a view in another window and anchor somewhere plausible and wrong.
+/// where it hangs, and whether a click on the field closes the palette, so the refusals matter as
+/// much as the measurement. `goToFieldItemView` needs `view.window === host`; `!= nil` would
+/// accept a view in another window and anchor somewhere plausible and wrong.
 @MainActor
 @Suite struct GoToFieldAnchorTests {
-
     /// A toolbar with exactly one item, whose view the test owns and can put wherever it likes.
     private final class OneItem: NSObject, NSToolbarDelegate {
         static let id = NSToolbarItem.Identifier("gotofield")
@@ -25,8 +23,7 @@ import AppKit
         }
     }
 
-    /// A field wrapped in the container the toolbar item hosts, which is what the anchor measures:
-    /// the whole capsule, not the text field inside it.
+    /// The field in the container the toolbar item hosts: the anchor measures the whole capsule.
     private func itemView() -> NSView {
         let container = NSView(frame: CGRect(x: 10, y: 20, width: 200, height: 28))
         let field = NSTextField(string: "")
@@ -36,10 +33,10 @@ import AppKit
         return container
     }
 
-    /// Returns the delegate with the window because **`NSToolbar` holds its delegate weakly**;
-    /// dropping it leaves a toolbar with no items and every assertion failing for an unrelated
-    /// reason. Not parked off-display: a `.titled` window's frame is constrained onto a screen
-    /// whatever origin it gets (as in `CommandPalettePanelTests.makeHost`). Nothing is ordered in.
+    /// Returns the delegate too, because **`NSToolbar` holds its delegate weakly**; dropped, the
+    /// toolbar has no items and every assertion fails for an unrelated reason. Not parked off-display:
+    /// a `.titled` window's frame is constrained onto a screen (as in
+    /// `CommandPalettePanelTests.makeHost`). Nothing is ordered in.
     private func host(carrying view: NSView) -> (NSWindow, OneItem) {
         let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
                             styleMask: [.titled], backing: .buffered, defer: false)
@@ -66,10 +63,9 @@ import AppKit
                 == host.convertToScreen(view.convert(view.bounds, to: nil)))
     }
 
-    /// An item whose view isn't in the window is refused. macOS leaves that behind when it folds a
-    /// toolbar item behind the overflow chevron, and `convert(_:to: nil)` on such a view answers in
-    /// its own bounds: a plausible 200×28 at a window's corner the caller can't tell from a real
-    /// anchor. Removing the view from the hierarchy is the one deterministic way to reach that state.
+    /// An item view outside the window is refused. macOS leaves that behind when it folds an item
+    /// behind the overflow chevron, and `convert(_:to: nil)` then answers in its own bounds: a
+    /// plausible 200×28 at a window corner. Removing the view from the hierarchy reaches that state.
     @Test func anItemViewOutsideTheWindowIsRefusedRatherThanMeasured() {
         let view = itemView()
         let (host, delegate) = host(carrying: view)

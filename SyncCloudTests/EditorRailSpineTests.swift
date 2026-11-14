@@ -4,12 +4,10 @@ import FileExplorer
 import Design
 @testable import SyncCloud
 
-/// The spine's list buttons are Edit's alone, and each does what its lit state says. The rungs are
-/// `ContentView.spineRungs`, a pure function, and the buttons' rule is `EditorRailFold`, because
-/// `railSpine` reads property wrappers off a `ContentView` no unit test can construct. The drawn
-/// spine isn't covered here.
+/// The spine's list buttons are Edit's alone, and each does what its lit state says. Tested through
+/// the pure `ContentView.spineRungs` and `EditorRailFold`, since no unit test can construct a
+/// `ContentView`; the drawn spine isn't covered here.
 @Suite struct EditorRailSpineTests {
-
     /// The list is Edit's: a stray button in Organize's spine would be the first thing clicked.
     @Test func otherWorkspacesDrawOnlyThePaneRung() {
         for workspace in Workspace.allCases where workspace != .editor {
@@ -85,9 +83,8 @@ import Design
 
     // MARK: The hand fold beside Expand
 
-    /// Expand gives back a list folded by hand still folded, and an open one open. Expand moves only
-    /// its own bit and the hand fold is the other, so entering and leaving Expand lands where it
-    /// began.
+    /// Entering and leaving Expand gives back a list folded by hand still folded, and an open one
+    /// open: Expand moves only its own bit, not the hand fold.
     @Test(arguments: [false, true])
     func expandRoundTripsAListFoldedByHand(folded: Bool) {
         var expand = EditorExpand(railHidden: false, paneFolded: true,
@@ -122,10 +119,9 @@ import Design
         #expect(EditorRailFold.paneRungTitle(paneOpen: false, source: "iCloud").hasPrefix("Show the iCloud pane"))
     }
 
-    /// One width for the four columns, and one column for the pane by default. The pane's slot is
-    /// the column plus its card's gutter (none in Unified), as the rail's is. At the default width
-    /// that is under where Columns shows a second column, so the pane shows one with ‹ to walk back.
-    /// Raising `railWidth` past 280 must fail it.
+    /// The pane's slot is the rail's width plus its card's gutter, as the rail's is, which by
+    /// default is too narrow for a second Columns column, so the pane shows one with ‹ to walk back.
+    /// Fails if `railWidth` rises past 280.
     @Test func theOpenPaneIsTheListsWidthAndOneColumnWideByDefault() {
         for style in SurfaceStyle.allCases {
             let slot: CGFloat = ContentView.editorColumnSlot(EditorLayoutMetrics.railWidth, style: style)

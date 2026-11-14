@@ -5,17 +5,13 @@ import SwiftUI
 import Testing
 import Foundation
 
-/// The sidebar is a card, framed exactly as the Info inspector is. A flat column beside a floating
-/// card over glass would read as a missing frame, not Finder's idiom drawn smaller. These pin "framed
-/// the same way", not just "framed": two panels flanking one pane, each picking its own radius,
-/// hairline and gutter, agree only until someone edits one, the drift `bottomSectionCard` exists to
-/// stop. Scanned from the app's source, as in `SidebarPlaceRowTests`, because `ContentView` can't be
-/// instantiated here and a re-implementation could agree with itself while disagreeing with the app.
+/// The sidebar is a card framed exactly as the Info inspector is: a flat column beside a floating
+/// card would read as a missing frame. Two panels each picking their own radius, hairline and
+/// gutter agree only until someone edits one, the drift `bottomSectionCard` exists to stop.
+/// Scanned from source, as in `SidebarPlaceRowTests`, because `ContentView` can't be instantiated.
 @Suite struct FolderSidebarCardTests {
-
-    /// The same call, argument for argument, so a change of surface style, glass level, hue or tint
-    /// reaches both panels or neither. Comparing the call text catches the half-edit: a hue passed to
-    /// one and not the other shows only under a non-default setting.
+    /// The same call, argument for argument, so a style, glass, hue or tint change reaches both panels
+    /// or neither. A hue passed to one only shows under a non-default setting.
     @Test func theSidebarAndTheInspectorUseTheSameCall() throws {
         let sidebar = try #require(Self.cardCall(in: try macAppCode("ContentView+FolderSidebar.swift")),
                                    "no bottomSectionCard call found in the sidebar")
@@ -35,24 +31,22 @@ import Foundation
 
     // MARK: - The seam
 
-    /// The gutter draws the separation, so the seam draws nothing. With cards on both sides a rule
-    /// down the middle is a third edge between two already there, which is why the inspector's edge
-    /// isn't a `Divider` either.
+    /// The gutter draws the separation, so the seam draws nothing: with cards on both sides a rule
+    /// down the middle is a third edge. The inspector's edge isn't a `Divider` either.
     @Test func theSeamIsAClearStripRatherThanADivider() throws {
         let code = try macAppCode("ContentView+SplitLayout.swift")
         let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: code)
         #expect(!handle.contains("Divider()"),
                 "the sidebar seam draws a rule again, inside the card gutter")
-        // Matched on the named constant, `PaneLogic.sidebarSeamWidth`, which the lens and Compare
-        // rows also reserve. Matching a literal would fail for the naming and pass for a `Divider`
-        // spelled differently.
+        // Matched on `PaneLogic.sidebarSeamWidth`, which the lens and Compare rows also reserve; a
+        // literal would fail for the naming and pass for a `Divider` spelled differently.
         #expect(handle.contains("Color.clear.frame(width: PaneLogic.sidebarSeamWidth)"),
                 "the seam is no longer the clear strip the inspector's edge uses")
     }
 
-    /// The shared `ResizeHandle`, not a hand-rolled gesture. An `NSCursor.push()`/`pop()` pair in
-    /// `onHover` leaks a pushed cursor if the column hides mid-hover (⌃⌘S is one keystroke away), and
-    /// a hand-picked pointer drifts from the `.columnResize` every other seam shows.
+    /// The shared `ResizeHandle`, not a hand-rolled gesture: a `NSCursor.push()`/`pop()` pair in
+    /// `onHover` leaks a pushed cursor if the column hides mid-hover (⌃⌘S), and a hand-picked pointer
+    /// drifts from the `.columnResize` every other seam shows.
     @Test func theSeamUsesTheSharedResizeHandle() throws {
         let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try macAppCode("ContentView+SplitLayout.swift"))
         #expect(handle.contains("ResizeHandle("),
@@ -74,10 +68,9 @@ import Foundation
 
     // MARK: - Geometry
 
-    /// In Cards the card supplies its own half-gutter, so the column occupies `width + cardGutter`,
-    /// one full gutter to the pane card beside it, which insets itself by the other half: the seam is
-    /// a gap, not a butt joint. In Unified the column occupies exactly its width, flush against the
-    /// pane at a hairline. `LiquidGlass.gutter(style)` is what the sidebar's slot reserves.
+    /// In Cards the column occupies `width + cardGutter`, one full gutter to the pane card, which
+    /// insets itself by the other half: a gap, not a butt joint. In Unified it is exactly its width,
+    /// flush at a hairline. `LiquidGlass.gutter(style)` is what the sidebar's slot reserves.
     @Test @MainActor func theCardAddsExactlyOneGutter() {
         let bare = Color.clear.frame(width: FolderSidebarView.defaultWidth, height: 200)
         for style in SurfaceStyle.allCases {

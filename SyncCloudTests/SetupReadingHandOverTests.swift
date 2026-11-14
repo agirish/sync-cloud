@@ -120,7 +120,7 @@ import Testing
         return manager
     }
 
-    // MARK: - A second Save while the documents are read (review M4)
+    // MARK: - A second Save while the documents are read
 
     /// A second Save stops the reading, which carries on into the new profile from where it stood:
     /// two documents in at the Save, it opens only the other two. Left to run, it would write what
@@ -209,7 +209,7 @@ import Testing
         #expect(first == .handedOver, "the reading of the replaced profile came to \(first)")
     }
 
-    // MARK: - Look Again (review L2)
+    // MARK: - Look Again
 
     /// Look Again only counts; it promises a count, not a reading. The card's state picks the mode,
     /// and only an offer of no readable documents gets the count-only mode.

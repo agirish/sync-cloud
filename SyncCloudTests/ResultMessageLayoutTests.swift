@@ -10,7 +10,7 @@ import Sync
 /// edge or be truncated.
 ///
 /// Laid out, not pixel-sampled: the question is the width SwiftUI asks for, at each width a pane can
-/// have. Each render is also written to the temporary directory, for looking at.
+/// have.
 @MainActor
 @Suite(.serialized) struct ResultMessageLayoutTests {
 

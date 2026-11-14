@@ -183,9 +183,8 @@ import Design
     /// light glass white all but vanishes. `selectionLensLabelInk` gives it `.primary` there. Wash
     /// lenses are exempt: their labels are never white.
     ///
-    /// Counted per file (at least as many label inks as fill hosts), so one control's ink can't
-    /// vouch for a second fill lens beside it. A style passed by name instead of an inline `.fill(`
-    /// isn't seen; none is today.
+    /// Counted per file, so one control's ink can't vouch for a second fill lens beside it. A style
+    /// passed by name instead of an inline `.fill(` isn't seen.
     @Test func everyFillLensColoursItsLabelsForGlass() throws {
         var fillHosts = 0
         var missing: [String] = []

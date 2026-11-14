@@ -8,8 +8,6 @@ import Foundation
 /// empty folder and quietly show nothing.
 ///
 /// A scan, because `acceptPersonScope` needs a whole `ContentView` and can't be driven.
-/// `PersonGatherSupersedeTests` calls `ContentView.gatherOffMainActor` with `profileId:` given,
-/// so it can't see what the caller passes.
 @Suite struct PersonGatherProfileIdTests {
 
     /// The gather's id comes from the manager's directory-derived value, not the profile's field.

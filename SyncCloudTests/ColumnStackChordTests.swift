@@ -4,13 +4,9 @@ import Sync
 import FileExplorer
 @testable import SyncCloud
 
-/// ⌘↓ and ⌘↑, the column-stack chords. What they hold is the axis: a pane has two positions, the
-/// comparison scope, which reloads the tree and re-runs the scan, and the column stack, which costs
-/// nothing. Both rules return a `PaneBrowsePath` or `nil`, so no return value can express a scope
-/// move.
-///
-/// The `shortcut…` properties that call them live on `ContentView`, which can't be constructed in
-/// a test, so the rules live in `PaneLogic` where these tests can reach them.
+/// ⌘↓ and ⌘↑, the column-stack chords. They move the column stack, which costs nothing, never the
+/// comparison scope, which reloads the tree and re-runs the scan: both rules return a
+/// `PaneBrowsePath` or `nil`, so no return value can express a scope move.
 @Suite struct ColumnStackChordTests {
 
     private let root = "/r"
@@ -138,11 +134,9 @@ import FileExplorer
 
     // MARK: - The wiring, scanned
 
-    /// ⌘↑ must not be rewired into ⌘[, a change no behavioural test above would catch:
-    /// `enclosingFolderStack` would still be correct and tested, with no caller. So this reads the
-    /// source: `shortcutEnclosingFolder` must resolve its stack through
-    /// `PaneLogic.enclosingFolderStack` and never reach `canGoBack`/`goBack`, which would put a
-    /// rescan behind a chord that must never move the scope. The `#require`s are positive controls.
+    /// ⌘↑ must not be rewired into ⌘[, which no behavioural test above would catch:
+    /// `shortcutEnclosingFolder` resolves through `PaneLogic.enclosingFolderStack` and never reaches
+    /// `canGoBack`/`goBack`, which would put a rescan behind the chord.
     @Test func theEnclosingFolderChordIsNotWiredToTheFocusHistory() throws {
         let source = try ShortcutCommandsTests.publisherSource()
         let body = sourceCodeOnly(

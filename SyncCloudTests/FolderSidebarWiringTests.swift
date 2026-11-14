@@ -4,18 +4,14 @@ import Design
 import Testing
 import Foundation
 
-/// The sidebar's refresh triggers, read off `ContentView`'s source, since `ContentView` can't be
-/// instantiated in a test. `refreshFolderSidebarRows` returns early unless the column is on screen,
-/// so switching the sidebar on and arriving at Browse must themselves be triggers; without them the
-/// column shows whatever it last resolved, and an empty or stale list reads as "my pins are gone".
-/// The scan reads one named file, strips comments so prose can't satisfy it, and requires a known
-/// trigger so a scan that finds nothing fails.
+/// The sidebar's refresh triggers, read off `ContentView`'s source (it can't be instantiated in a
+/// test). `refreshFolderSidebarRows` returns early unless the column is on screen, so each way of
+/// showing it must be a trigger, or a stale list reads as "my pins are gone". Comments are stripped
+/// so prose can't satisfy the scan.
 @Suite struct FolderSidebarWiringTests {
-
-    /// Each trigger with the call it must make, matched as one string: `.onChange(of:
-    /// selectedWorkspace)` exists for other reasons too, so finding it proves nothing unless the
-    /// refresh is inside it. Every input `folderSidebarIsShowing` reads is one (Expand's hold in Edit
-    /// among them): anything that changed while the column was hidden stays dropped otherwise.
+    /// Every input `folderSidebarIsShowing` reads triggers the refresh, matched with its call as one
+    /// string: `.onChange(of: selectedWorkspace)` exists for other reasons too, so finding it alone
+    /// proves nothing.
     @Test(arguments: ["browseSidebarVisible", "selectedWorkspace", "leftProviderId",
                       "browseSidebarRecentsMode", "editorSidebarVisible", "panesHiddenForCurrentTab",
                       "folderSidebarHeldByExpand"])
@@ -43,7 +39,6 @@ import Foundation
 /// The chord, the menu item and the row travel together: one without the others documents a
 /// keystroke that does nothing, or ships one nobody can find.
 @Suite struct TheSidebarHasItsChordAndItsRow {
-
     /// Exactly one row names it, by chord: two rows for one switch is how a panel starts disagreeing
     /// with itself.
     @Test func exactlyOneShortcutsReferenceRowDescribesTheSidebar() {
@@ -66,7 +61,6 @@ import Foundation
 /// while it is hidden is dropped and nothing re-runs it when the column comes back. Each way of
 /// becoming visible must itself be a trigger, or the column shows a list resolved before it hid.
 @Suite struct SidebarRefreshTriggerTests {
-
     /// The row builder is handed the dragged order. `FolderSidebarModel.rows` applies it
     /// (`FavoriteOrderReachesTheRowsTests`), but the parameter defaults to empty, so dropping this
     /// argument draws an order nobody chose with the builder's own suite still green.
@@ -88,14 +82,11 @@ import Foundation
     }
 }
 
-/// The pane's "Add to Favorites" is a three-part seam, and two parts compile without the third.
-/// `FileTreeView` draws the item, `PaneActionDelegate` answers `canFavoriteFolder` /
-/// `isFolderFavorite` and forwards the tap, and `ContentView` supplies the closure that writes to
-/// `FolderJumpStore`. The closure is defaulted on the delegate, so dropping the line that passes it
-/// leaves an item that draws, enables and does nothing, with every other test green. Scanned,
-/// because `ContentView` can't be instantiated in a test.
+/// The pane's "Add to Favorites": `FileTreeView` draws it, `PaneActionDelegate` answers and
+/// forwards the tap, and `ContentView` supplies the closure that writes to `FolderJumpStore`. That
+/// closure is defaulted, so dropping it leaves an item that draws, enables and does nothing, with
+/// every other test green.
 @Suite struct PaneFavoriteWiringTests {
-
     @Test func contentViewSuppliesTheFavoriteClosureToEveryPaneDelegate() throws {
         let code = try macAppCode("ContentView.swift")
         #expect(code.contains("onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) }"),
@@ -114,11 +105,9 @@ import Foundation
                 "the containment rule is spelled a second time here — it belongs to favoritePlace alone")
     }
 
-    /// Every write to the Favorites places goes through the salvaging funnel, as a property of the
-    /// file, not of the verbs in it today. `SidebarFavoritePlaces.places(from:)` answers the standard
-    /// three for an unreadable value as for an untouched one, so encoding that straight back over the
-    /// key would destroy a value this build couldn't read. One named file, comments stripped, with a
-    /// required anchor so a scan that matches nothing fails.
+    /// Every write to the Favorites places goes through the salvaging funnel.
+    /// `SidebarFavoritePlaces.places(from:)` answers the standard three for an unreadable value, so
+    /// writing that straight back would destroy a value this build couldn't read.
     @Test func everyFavoritePlacesWriteGoesThroughTheFunnel() throws {
         let source = sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift"))
 
@@ -135,13 +124,11 @@ import Foundation
     }
 }
 
-/// Which pane a sidebar open asks about, read off the three handlers' bodies. All three route
-/// through `isLeft`, which the context menu can point at the non-target pane, so consulting the
-/// target's state (`folderSidebarRoot`, `folderSidebarProviderId`) would answer for the wrong pane
-/// exactly when `side` matters. One named file, comments stripped, each check scoped to its member
-/// so a spelling elsewhere can't answer for it, and anchored so a renamed member fails.
+/// Which pane a sidebar open asks about, read off the three handlers' bodies. All route through
+/// `isLeft`, which the context menu can point at the non-target pane, so reading the target's state
+/// (`folderSidebarRoot`, `folderSidebarProviderId`) would answer for the wrong pane. Each check is
+/// scoped to its member and anchored, so a renamed member fails.
 @Suite struct FolderSidebarOpenTargetingTests {
-
     /// `openFolderSidebarRow` asks the pane it is opening on: the source-switch guard compares the
     /// row's root with the `isLeft` pane's provider path, not `folderSidebarRoot`, which describes
     /// the target and would switch the wrong pane's source from the context menu.

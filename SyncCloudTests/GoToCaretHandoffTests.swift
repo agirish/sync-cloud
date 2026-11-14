@@ -2,13 +2,12 @@ import Testing
 import AppKit
 @testable import SyncCloud
 
-/// ⌘K borrows the caret; closing has to give it back. The Go-to field lives in the host window's
-/// toolbar, so opening it takes first responder from whatever the user was using. Unrestored, the
-/// window itself is left first responder and the file pane ignores arrow keys and type-select
-/// until clicked. The restore lives on the host, which sees the palette close while the caret is
-/// still in the field; by the field's own teardown AppKit has already dropped the field editor.
+/// ⌘K borrows the caret; closing gives it back. The Go-to field is in the window's toolbar, so
+/// opening it takes first responder; unrestored, the window is left first responder and the file
+/// pane ignores arrow keys and type-select until clicked. The restore lives on the host, which
+/// sees the close while the caret is still in the field; by the field's own teardown AppKit has
+/// already dropped the field editor.
 @Suite @MainActor struct GoToCaretHandoffTests {
-
     private func window() -> NSWindow {
         // Parked far off every display: this suite makes real windows, and none may appear over
         // whatever the user is doing.
@@ -18,10 +17,9 @@ import AppKit
         return w
     }
 
-    /// A view that can hold the caret as its own first responder, standing in for the pane's table.
-    /// Editable `NSTextField`s won't do: a window has one field editor shared by all its text fields,
-    /// so `window.firstResponder` is the same `NSTextView` whichever field is edited, and an identity
-    /// check on it would pass before and after any restore.
+    /// Holds the caret as its own first responder, standing in for the pane's table. Editable
+    /// `NSTextField`s won't do: a window shares one field editor, so `window.firstResponder` is the
+    /// same `NSTextView` whichever field is edited, and an identity check would always pass.
     private final class FocusTarget: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
@@ -49,8 +47,8 @@ import AppKit
                 "the caret was not handed back — the pane will not answer arrow keys until it is clicked")
     }
 
-    /// The refusal matters as much as the restore. Every close path runs this, including the one
-    /// where the user clicked into a pane to close the palette, which already says where focus goes.
+    /// The refusal matters as much as the restore: every close path runs this, including a click
+    /// into a pane, which already says where focus goes.
     @Test func aCaretTheUserHasAlreadyMovedIsLeftWhereTheyPutIt() throws {
         let host = window()
         let previous = focusable(host)
@@ -97,11 +95,9 @@ import AppKit
 
     // MARK: Who was holding it
 
-    /// A window has one field editor, so remembering the first responder remembers nothing. While
-    /// the user types in a pane's Find field the first responder is the shared `NSTextView`, which
-    /// ⌘K then re-binds to the Go-to field; restoring it would hand the caret to the object that
-    /// already has it, and the pane's field would never get it back. So the field being edited is
-    /// what is remembered.
+    /// A window has one field editor, so the field being edited is remembered, not the first
+    /// responder: ⌘K re-binds the shared `NSTextView` to the Go-to field, so restoring it would hand
+    /// the caret to the object that already has it, and a pane's Find field would never get it back.
     @Test func whatIsRememberedIsTheFieldBeingEditedAndNotTheSharedEditor() throws {
         let host = window()
         let paneField = NSTextField(string: "invoice")
@@ -136,8 +132,8 @@ import AppKit
                 "a pane holding the caret was resolved to something else")
     }
 
-    /// The two-argument form is what the close path calls, and it must route through the rule above
-    /// rather than carry a second copy (`CommandPaletteHost.swift`).
+    /// The close path's two-argument form routes through the rule above rather than a second copy
+    /// (`CommandPaletteHost.swift`).
     @Test func theClosePathCallsTheRuleRatherThanRepeatingIt() throws {
         let text = try macAppFile("CommandPaletteHost.swift")
         #expect(text.contains("Self.restoreCaret(to: caretWasWith, in: host)"),
