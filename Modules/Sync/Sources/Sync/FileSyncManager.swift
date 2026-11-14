@@ -1049,6 +1049,14 @@ public class FileSyncManager: ObservableObject {
     /// File Into of the last scan, which rules are scoped to and resolved against even when the
     /// scan walked a wider tree (``filingRoutedRoot``).
     var filingLastFileInto: String?
+    /// The last scan's account index and walked tree, for re-asks that place by account.
+    var filingAccountIndex: AccountIndex?
+    var filingAccountTaxonomy: [FileNode] = []
+    /// Members of a group card that couldn't be filed; the lens shows them as cards of their own.
+    @Published public internal(set) var filingGroupFailures: Set<String> = []
+    /// Page 1 facts of filed statements read to learn accounts named without digits, by path, with
+    /// the modification date they were read at. Session-long; nil facts mean nothing readable.
+    var filingAccountPageCache: [String: (modified: Date?, facts: DocumentFacts?)] = [:]
     /// True while ``downloadAndReadFiling(_:)`` is fetching and reading.
     @Published public internal(set) var isDownloadingFilingFiles = false
     /// Asks a file's provider to fetch it. The real download in the app; a test substitutes.

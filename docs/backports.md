@@ -15521,3 +15521,27 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s button=%s busy=%s\n' $l \
 |---|---|---|
 | `v6.x` / `v5.x` | The button, without its busy state | RECORDED — not owed |
 | `v4.x` / `v3.x` / `v2.x` | No Scaffolded button | CLOSED — does not apply |
+
+## Statements filed by the account number they print, one card per account (filing overhaul, landings B and C) — main only, recorded, not owed
+
+2026-11-14, for v7.2. On `main`, To File:
+- matches a statement to its account folder by the number page 1 prints for itself;
+- places and names it like that account's newest statements;
+- keeps the on-device model from picking folders for statements and tax forms;
+- shows one card per account folder, filed with one ⌘Z;
+- leaves behind statements the account already holds, matched by page text.
+
+Every line carries the on-device classifier, and with it the defect this mends for statements: a
+confident wrong folder for a statement (the dry run's 49 wrong Highs were all the model's). The
+account matching, placement and group cards that replace it are `main`'s alone.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s classifier=%s identity=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'MacApp/FilingClassifier.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AccountIdentity.swift')"; done
+# measured 2026-11-14, against origin: classifier=1 identity=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The classifier picking statement folders | RECORDED — not owed |

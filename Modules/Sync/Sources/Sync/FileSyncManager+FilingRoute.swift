@@ -456,16 +456,18 @@ extension FileSyncManager {
         // land on another's folder, and a scan with no text layer is exactly the file this is for.
         // After the page sample is recorded: the OCR text is what lets the rule attribute a file
         // whose name names nobody.
+        // The scan's account phase too: a statement whose page arrived late is placed like the rest.
+        let placed = applyingAccounts(to: outcome.suggestion, page: text)
         var refused = false
         let swept = FilingEngine.refusingCrossPersonHomes(
-            [outcome.suggestion], providerRoot: root,
+            [placed], providerRoot: root,
             profile: filingRoutingProfile, registry: filingPersonRegistry,
             identity: filingPersonIdentity, pageSamples: filingPageSamples,
             onVeto: { [weak self] refusal in
                 refused = true
                 self?.recordPersonVeto(refusal)
             })
-        guard outcome.routed, let best = swept.first?.best else { return (nil, refused) }
+        guard outcome.routed || placed.best?.account != nil, let best = swept.first?.best else { return (nil, refused) }
         return (best, false)
     }
 }

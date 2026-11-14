@@ -64,10 +64,22 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// "Try another" a name stored one level up would still say `04. Apr 2025.pdf` in a folder that
     /// numbers nothing.
     public let proposedName: String?
+    /// The account this home was matched to by the number the statement prints for itself
+    /// (``AccountIndex``); nil for every other kind of home. What groups a card with its siblings.
+    public let account: FilingAccount?
+    /// Where ``proposedName`` came from. Only a ``NameOrigin/planner`` name is re-derived against
+    /// the folder at filing time; a name copied from the account's own statements, or typed on the
+    /// card, lands as shown (a clash still gets " 2", which the card says beforehand).
+    public let nameOrigin: NameOrigin
+
+    public enum NameOrigin: String, Sendable, Equatable, Hashable { case planner, template, typed }
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil, fromSurvey: Bool = false) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil, fromSurvey: Bool = false,
+                account: FilingAccount? = nil, nameOrigin: NameOrigin = .planner) {
+        self.account = account
+        self.nameOrigin = nameOrigin
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
@@ -140,7 +152,9 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  fromAI: fromAI || other.fromAI,
                                  evidenceToken: winner.evidenceToken,
                                  neighborMatches: winner.neighborMatches,
-                                 proposedName: winner.proposedName, fromSurvey: winner.fromSurvey)
+                                 proposedName: winner.proposedName, fromSurvey: winner.fromSurvey,
+                                 account: winner.account ?? account ?? other.account,
+                                 nameOrigin: winner.nameOrigin)
     }
 
     /// A copy of this destination with its final folder renamed, for a new folder the user edits
@@ -160,7 +174,8 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],
                                  fromContent: fromContent, remembered: remembered, fromAI: fromAI,
                                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                                 proposedName: proposedName, fromSurvey: fromSurvey)
+                                 proposedName: proposedName, fromSurvey: fromSurvey,
+                                 account: account, nameOrigin: nameOrigin)
     }
 
     /// A copy of this destination at a different confidence, for capping a claim its evidence can't
@@ -170,15 +185,38 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
                           fromContent: fromContent, remembered: remembered, fromAI: fromAI,
                           evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                          proposedName: proposedName, fromSurvey: fromSurvey)
+                          proposedName: proposedName, fromSurvey: fromSurvey,
+                          account: account, nameOrigin: nameOrigin)
     }
 
     /// A copy of this destination carrying `name` as the rename it would apply.
-    public func naming(_ name: String?) -> FilingDestination {
+    public func naming(_ name: String?, origin: NameOrigin = .planner) -> FilingDestination {
         FilingDestination(path: path, confidence: confidence, reasons: reasons,
                           newSegments: newSegments, fromContent: fromContent,
                           remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
-                          neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey)
+                          neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey,
+                          account: account, nameOrigin: name == nil ? .planner : origin)
+    }
+}
+
+/// The account a statement was matched to: what a grouped card is about.
+public struct FilingAccount: Sendable, Equatable, Hashable {
+    /// The account folder, absolute.
+    public let root: String
+    /// The last four digits of the statement's own number, as printed.
+    public let ending: String
+    /// The institution folder's own name, for display (`Charles Schwab`).
+    public var institutionName: String = ""
+    /// The institution folder's name, lower-cased (`charles schwab`).
+    public let institution: String
+    /// The account folder sits under an archive.
+    public let archived: Bool
+    /// Statement, tax form or other, from page 1.
+    public let kind: DocumentFacts.Kind
+
+    public init(root: String, ending: String, institution: String, archived: Bool, kind: DocumentFacts.Kind) {
+        self.root = root; self.ending = ending; self.institution = institution
+        self.archived = archived; self.kind = kind
     }
 }
 
@@ -213,6 +251,9 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// File Into, when the scan walked a wider tree than it: only a home inside it may join the
     /// unseen batch. nil when the walk was File Into's own.
     public internal(set) var preferredRoot: String?
+    /// Another loose file this one is an identical copy of (same page text), when the inbox holds
+    /// both: one document, filed once (decision 11).
+    public internal(set) var duplicateOf: String?
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
@@ -236,6 +277,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public var isBatchEligible: Bool {
         best?.confidence == .high && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
             && (preferredRoot.map { root in best.map { PathBoundary.contains($0.path, under: root) } ?? false } ?? true)
+            && duplicateOf == nil
     }
 
     /// This card scanned against a wider tree than File Into, `fileInto`.
@@ -266,6 +308,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  sourceIdentity: sourceIdentity)
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
+        s.duplicateOf = duplicateOf
         return s
     }
 
@@ -277,6 +320,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  sourceIdentity: identity)
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
+        s.duplicateOf = duplicateOf
         return s
     }
 
@@ -294,6 +338,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  sourceIdentity: sourceIdentity)
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
+        s.duplicateOf = duplicateOf
         return s
     }
 
@@ -1181,6 +1226,8 @@ public enum FilingEngine {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
+            // So does the account a statement's own number names, at High.
+            if s.best?.account != nil, s.best?.confidence == .high { return s }
             guard let v = verdicts[s.filePath],
                   let rawDest = destination(from: v, providerRoot: providerRoot,
                                             existingRelative: existingRelative, fileName: s.fileName,

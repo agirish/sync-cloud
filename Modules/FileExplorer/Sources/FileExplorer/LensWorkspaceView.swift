@@ -223,6 +223,10 @@ public struct LensWorkspaceView: View {
     /// True once the user has filed a loose file since the current Filing scan finished, so the
     /// empty state can tell an earned "All filed" from "nothing was ever loose". Reset when a new
     /// scan starts (see `.onChange(of: isSuggestingFiles)`).
+    /// Files the user pulled out of a group card, shown as cards of their own until the next scan.
+    @State private var pulledOutOfGroups: Set<String> = []
+
+    /// See `LensWorkspaceSession.filedThisSession`.
     private var filedThisSession: Bool {
         get { session.filedThisSession }
         nonmutating set { session.filedThisSession = newValue }
@@ -4451,9 +4455,17 @@ public struct LensWorkspaceView: View {
                 // its header too.
                 ForEach(FilingSuggestionGrouping.sections(filing)) { section in
                     filingSectionHeader(section)
-                    ForEach(section.suggestions) { suggestion in
-                        filingCard(suggestion)
-                            .transition(cardRemoval)
+                    // Statements matched to the same account folder share one card.
+                    ForEach(FilingCardGrouping.items(section.suggestions,
+                                                     pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))) { item in
+                        switch item {
+                        case .single(let suggestion):
+                            filingCard(suggestion)
+                                .transition(cardRemoval)
+                        case .group(let group):
+                            filingGroupCard(group)
+                                .transition(cardRemoval)
+                        }
                     }
                 }
             }
@@ -4463,6 +4475,54 @@ public struct LensWorkspaceView: View {
             .designAnimation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
+        // A new scan's cards start grouped again.
+        .onChange(of: syncManager.isSuggestingFiles) { _, scanning in if scanning { pulledOutOfGroups = [] } }
+    }
+
+    private func filingGroupCard(_ group: FilingCardGroup) -> some View {
+        FilingGroupCard(
+            group: group,
+            densityMetrics: densityMetrics,
+            onFile: {
+                filedThisSession = true
+                Task { await syncManager.applyFilingGroup(group) }
+            },
+            onChooseFolder: { chooseFolder(forGroup: group) },
+            onPullOut: { s in withDesignAnimation(listSettle, reduceMotion: reduceMotion) { _ = pulledOutOfGroups.insert(s.id) } },
+            onTrashCopies: { copies in
+                Task {
+                    // To the Trash, with ⌘Z; the cards go with them.
+                    let outcome = await syncManager.deleteItems(at: copies.map(\.filePath))
+                    _ = outcome
+                    for c in copies where !FileManager.default.fileExists(atPath: c.filePath) {
+                        syncManager.dismissFilingSuggestion(c)
+                    }
+                }
+            }
+        )
+    }
+
+    /// Asks where a whole group goes, then files every member there under its own name.
+    private func chooseFolder(forGroup group: FilingCardGroup) {
+        guard let first = group.members.first else { return }
+        let root = [first.preferredRoot, first.providerRoot, providerAnchor].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+        guard !root.isEmpty else { return }
+        onRequestDestination(PendingDestination(
+            request: DestinationRequest(
+                sourcePaths: group.toFile.map(\.filePath),
+                firstItemName: first.fileName,
+                isMove: true,
+                providerRoot: root,
+                providerName: fileInto.flatMap { $0.path == root ? $0.label : nil }
+                    ?? ((providerName?.isEmpty == false) ? providerName! : "this provider"),
+                openAt: group.account.root
+            ),
+            onCommit: { destination in
+                filedThisSession = true
+                Task { await syncManager.applyFilingGroup(group, into: destination) }
+            },
+            onOther: { Self.runSystemFolderPanel(for: first.fileName, startingAt: group.account.root) }
+        ))
     }
 
     private func filingSectionHeader(_ section: FilingSuggestionSection) -> some View {

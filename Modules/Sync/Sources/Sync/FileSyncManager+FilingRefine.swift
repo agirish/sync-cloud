@@ -98,7 +98,10 @@ extension FileSyncManager {
         let hidden = claudeHiddenMatcher()
         var seen: Set<String> = []
         return scope.filter {
+            // A statement already matched to its account at High is settled: asking would pay
+            // for an answer the account match outranks.
             $0.providerRoot == root && $0.best?.remembered != true && !hidden.isHidden($0.filePath)
+                && !($0.best?.account != nil && $0.best?.confidence == .high)
                 && seen.insert($0.filePath).inserted
         }
     }

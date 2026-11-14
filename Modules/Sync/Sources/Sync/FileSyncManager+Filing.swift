@@ -418,6 +418,23 @@ extension FileSyncManager {
                                         options: scanOptions))
         }.value
         if Task.isCancelled { return }
+        // Every account folder in the walked tree, from folder and file names alone: what a
+        // statement's own number is matched against (``AccountIndex``).
+        let archiveProfile = filingRoutingProfile
+        let isArchived: @Sendable (String) -> Bool = { rel in
+            guard let entry = archiveProfile?.folders[rel] else { return false }
+            return entry.role == .archive || entry.axes["lifecycle"] == "archive"
+        }
+        let namedAccounts = await Task.detached(priority: .userInitiated) {
+            AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived)
+        }.value
+        let accountIndex = filingReadsContents && !looseFiles.isEmpty
+            ? await addingUnnamedAccounts(to: namedAccounts, taxonomy: walkedTaxonomy,
+                                          root: providerRoot.path, isArchived: isArchived)
+            : namedAccounts
+        if Task.isCancelled { return }
+        filingAccountIndex = accountIndex
+        filingAccountTaxonomy = taxonomy
         // Cache the taxonomy for single-file re-asks (Try another).
         filingLastProviderRoot = providerRoot.path
         filingLastFileInto = fileInto.path
@@ -485,17 +502,23 @@ extension FileSyncManager {
             // extra reads are bounded by what is being classified, and each file is read once.
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             let willClassify = filingUsesAI && filingClassifier != nil && !freePassWouldReachAPaidBackend
+            // Accounts to match: every file's page 1 is read, since a statement's own number is the
+            // strongest evidence there is and a confident name ("05. May 2026") says nothing.
             let readSet = willClassify
                 ? suggestions.filter { s in
                     !s.hasConfidentHome || (s.best?.remembered != true
                         && !options.ignoredNames.contains(s.fileName)
                         && s.size >= options.minFileSize)
                   }
-                : unsure
+                // With accounts to match, every PDF too (an image would be OCR'd for nothing).
+                : unsure + (accountIndex.isEmpty ? [] : suggestions.filter { s in
+                    s.hasConfidentHome && s.best?.remembered != true
+                        && (s.fileName as NSString).pathExtension.lowercased() == "pdf"
+                  })
             if !readSet.isEmpty {
                 enter(.readingContent(readSet.count))
                 let content: [String: Set<String>]
-                if filingRouterIndex != nil, let snippetExtractor = filingSnippetExtractor,
+                if filingRouterIndex != nil || !accountIndex.isEmpty, let snippetExtractor = filingSnippetExtractor,
                    let tokenize = filingTokensFromText {
                     routerSnippets = await Self.extractSnippets(for: readSet.map { $0.filePath },
                                                                using: snippetExtractor)
@@ -597,6 +620,29 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
+        // Phase 2.6: account identity. A statement printing one account's own number, from the bank
+        // that account sits under, goes to that account at High, placed and named like its newest
+        // statements. Only a rule the user wrote leads it.
+        var readFacts: [String: DocumentFacts] = [:]
+        if !accountIndex.isEmpty, !routerSnippets.isEmpty {
+            let snippets = routerSnippets
+            let walked = taxonomy
+            let root = providerRoot.path
+            let input = suggestions
+            let scannedFolder = folder.path
+            let (placed, facts) = await Task.detached(priority: .userInitiated) {
+                Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
+                                      root: root, scannedFolder: scannedFolder)
+            }.value
+            if Task.isCancelled { return }
+            suggestions = placed
+            readFacts = facts
+            let matched = placed.filter { $0.best?.account != nil }.count
+            if matched > 0 {
+                Logger.shared.info("Filing: \(matched) of \(placed.count) file(s) matched an account by the number on page 1")
+            }
+        }
+
         // What the classification phase reused, published with the results below rather than as it
         // happens, like `filingScanFolder`: a cancelled scan must not relabel the previous results.
         var cacheReuse: FilingCacheReuse?
@@ -615,8 +661,15 @@ extension FileSyncManager {
             // The suggestion engine's ignoredNames and minFileSize filters: otherwise ".DS_Store" and
             // co. would go into the paid request, taking slots against the classification cap and
             // pushing real files past it, for verdicts that are discarded anyway.
+            // The model reads; it doesn't pick folders for statements or tax forms. Those are
+            // placed by their account, the survey and rules (decision 5), so asking would only cost
+            // time and offer a confident wrong folder.
+            // Statements and tax forms whether or not they print a number (a checking statement
+            // with no account number on page 1 drew a confident "Apple Card" from it).
+            let readOnly = Set(readFacts.filter { $0.value.kind != .other }.keys)
+                .union(suggestions.filter { $0.best?.account != nil && $0.best?.confidence == .high }.map(\.filePath))
             let toClassify = looseFiles.filter {
-                !remembered.contains($0.id)
+                !readOnly.contains($0.id) && !remembered.contains($0.id)
                     && !options.ignoredNames.contains($0.name)
                     && ($0.fileSize ?? 0) >= options.minFileSize
             }
@@ -796,6 +849,12 @@ extension FileSyncManager {
         suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path,
                                                 excludingSubtree: scanHoldsFileInto ? nil : folder.path)
         if Task.isCancelled { return }
+        // And, for statements matched to an account, against that account's own files: no Duplicates
+        // scan has to have run, and a copy saved under the bank's own name still counts.
+        suggestions = await markingFiledInAccounts(suggestions, scannedFolder: folder.path)
+        // Then the names, so a statement already filed doesn't take a name from one that isn't.
+        suggestions = Self.reservingLandingNames(suggestions)
+        if Task.isCancelled { return }
         // Only homes inside File Into may join the unseen batch: the walk is wider than the place
         // he chose, and a move he never looked at must land where he asked things to go.
         if rerooted { suggestions = suggestions.map { $0.preferring(fileInto.path) } }
@@ -811,6 +870,7 @@ extension FileSyncManager {
         filingNotDownloaded = notDownloaded
         filingSubfolderOffer = subfolderOffer
         filingScanReadSubfolders = recursive
+        filingGroupFailures = []
         filingLastCacheReuse = cacheReuse
         // These results haven't been refined: the previous list's refine pass was about files no
         // longer on screen. Cleared in the same publish so the summary and its rows are never one
@@ -1603,7 +1663,7 @@ extension FileSyncManager {
         // Read from disk, not the scan's taxonomy: this runs long after the walk, on one folder the
         // user just chose, and one listing is cheaper than being wrong about a tree that moved on.
         let named = candidates.map { dest -> FilingDestination in
-            guard dest.newSegments.isEmpty else { return dest }
+            guard dest.newSegments.isEmpty, dest.nameOrigin == .planner else { return dest }
             return dest.naming(Self.liveIncomingName(
                 for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
                 profile: filingRoutingProfile, fileManager: fileManager))
@@ -1644,6 +1704,7 @@ extension FileSyncManager {
         filingScanFolder = nil
         filingSubfolderOffer = nil
         filingScanReadSubfolders = false
+        filingGroupFailures = []
         filingLastCacheReuse = nil
         filingLastRefine = nil
         filingLastRefineReport = nil
@@ -1694,7 +1755,7 @@ extension FileSyncManager {
 
     // MARK: Apply
 
-    private enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
+    enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
 
     /// The outcome of a single `applyFilingSuggestion`. `moved` vs `notNeeded` lets a caller act
     /// only on a real move (offering a learned rule, the remember-override prompt) without
@@ -1915,7 +1976,7 @@ extension FileSyncManager {
     }
 
     /// The move and list-drop. No undo registration: the caller registers, so a batch is one undo.
-    private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
+    func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
         let fm = fileManager
         let src = URL(fileURLWithPath: suggestion.filePath)
         let destFolder = URL(fileURLWithPath: destination.path)
@@ -1989,6 +2050,9 @@ extension FileSyncManager {
                 // now, since a folder gains files while a queue is open: the card decides whether,
                 // the disk decides which.
                 let landingName = destination.proposedName == nil ? suggestion.fileName
+                    // A name copied from the account's statements or typed on the card lands as
+                    // shown; only the planner's slot is re-derived against the folder now.
+                    : destination.nameOrigin != .planner ? (destination.proposedName ?? suggestion.fileName)
                     : (Self.liveIncomingName(
                         for: suggestion.fileName, destination: destFolder.path,
                         providerRoot: suggestion.providerRoot, profile: profile,
@@ -2076,7 +2140,7 @@ extension FileSyncManager {
 ///
 /// `@MainActor` because `FileSyncManager` is: the read, insert and `defer` remove each happen in
 /// one main-actor turn, which is what makes this a latch.
-@MainActor private var filingBatchInFlight: Set<ObjectIdentifier> = []
+@MainActor var filingBatchInFlight: Set<ObjectIdentifier> = []
 
 /// The lines a filing batch writes to the log: one per destination folder naming every file filed
 /// there and what chose its home, sorted, at most ``namesPerLine`` names a line, then the summary.

@@ -135,7 +135,8 @@ extension FileSyncManager {
             let named = suggestion.candidates.map { dest -> FilingDestination in
                 // A destination whose folders don't exist yet has no files and no convention to
                 // read, so it never proposes a rename.
-                guard dest.newSegments.isEmpty, !unlisted.contains(dest.path),
+                // A name the account's own statements gave it stands; the planner names the rest.
+                guard dest.nameOrigin == .planner, dest.newSegments.isEmpty, !unlisted.contains(dest.path),
                       let rel = FileSyncManager.relativePath(dest.path, under: rootPath)
                 else { return dest }
                 return dest.naming(incomingName(for: suggestion.fileName, into: dest.path,

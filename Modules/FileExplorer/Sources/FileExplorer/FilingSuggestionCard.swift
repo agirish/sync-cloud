@@ -90,6 +90,11 @@ struct FilingSuggestionCard: View {
                     // Never hidden by density, like the rename line: it says the tree already has
                     // this document, so "File here" would make a second copy.
                     if suggestion.isAlreadyFiled { alreadyFiledRow }
+                    if let twin = suggestion.duplicateOf {
+                        Label("A copy of “\((twin as NSString).lastPathComponent)” in this list — file that one", systemImage: "doc.on.doc")
+                            .scaledFont(.system(size: 11))
+                            .foregroundStyle(SemanticColor.caution)
+                    }
                     if isNotDownloaded { notDownloadedRow }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
