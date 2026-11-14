@@ -243,17 +243,7 @@ import Sync
         // nobody's real home, so `FolderSource.abbreviated` has nothing to fold.
         #expect(manager(defaults).folderSources.map(\.path)
                 == ["/Users/u/Projects", "/Users/u/Archive"])
-    }
-
-    /// Case-insensitive here too: on the default macOS volume these are one folder.
-    @MainActor
-    @Test func movingOntoAnotherSourcesFolderIsRefusedCaseInsensitively() async {
-        let defaults = TestDefaults()
-        let settings = manager(defaults)
-        let projects = settings.addFolderSource(path: "/Users/u/Projects")
-        let archive = settings.addFolderSource(path: "/Users/u/Archive")
-        await settings.discoverProviders()
-
+        // Case-insensitive too: on the default macOS volume these are one folder.
         #expect(settings.setPath("/users/u/projects/", for: archive)
                 == .refusedDuplicate(existingId: projects))
         #expect(settings.rootPath(for: archive) == "/Users/u/Archive")

@@ -39,18 +39,33 @@ import FileExplorerTestSupport
                 "the untinted chrome glyph measures \(String(format: "%.2f", measured)):1 — with the control this low, a low number for the tinted rung says more about the method than the tint")
     }
 
+    /// The probe reads a known colour back as itself. `colorAt` on an sRGB capture returns the sRGB
+    /// numbers tagged as calibrated RGB, so converting them `.usingColorSpace(.sRGB)` shifts every
+    /// reading and the WCAG ratios above with it.
+    @Test func theProbeReadsAKnownColourBackUnchanged() throws {
+        let size = CGSize(width: 20, height: 20)
+        let host = NSHostingView(rootView: Color(.sRGB, red: 0.2, green: 0.702, blue: 0.502)
+            .frame(width: size.width, height: size.height))
+        host.frame = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.colorSpace = .sRGB
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let p = try #require(rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 2))
+        #expect(abs(p.redComponent - 0.2) < 0.005 && abs(p.greenComponent - 0.702) < 0.005
+                && abs(p.blueComponent - 0.502) < 0.005, "read back as \(p)")
+    }
+
     // MARK: - Measurement
 
-    /// The bitmap rows the bar's controls occupy, taken from the drawn pills, not a fraction of the
-    /// header. Both searches pick an extreme pixel (the darkest non-red, the reddest), so a window
-    /// that caught a rung's title, which hangs below its pill, could measure a title stroke as a
-    /// glyph. Each pill gets a `_FocusRingView` at exactly its frame (the oracle
-    /// `PaneBarOverflowMenuTests` and `PaneBarLadderTests` use too), so this window is the pills and
-    /// nothing else.
-    private static func barRows(_ measured: RenderedHeader) -> Range<Int> { measured.barRows }
-
     /// A rendered header plus the rows its bar's controls occupy, from one layout pass so they
-    /// can't describe different renders.
+    /// can't describe different renders. The rows are taken from the drawn pills, not a fraction of
+    /// the header: both searches pick an extreme pixel, so a window that caught a rung's title,
+    /// which hangs below its pill, could measure a title stroke as a glyph. Each pill gets a
+    /// `_FocusRingView` at exactly its frame, so the band is the pills and nothing else.
     struct RenderedHeader {
         let rep: NSBitmapImageRep
         let barRows: Range<Int>
@@ -64,15 +79,15 @@ import FileExplorerTestSupport
         // The darkest non-red pixel on the bar's row: a plain chrome glyph.
         var best: (x: Int, y: Int, lum: Double)? = nil
         for x in 0..<rep.pixelsWide {
-            for y in barRows(measured) {
-                guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            for y in measured.barRows {
+                guard let p = rep.colorAt(x: x, y: y) else { continue }
                 if Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent)) > 0.08 { continue }
                 let l = luminance(p)
                 if l < (best?.lum ?? 1.0) { best = (x, y, l) }
             }
         }
         let b = try #require(best)
-        let glyph = rep.colorAt(x: b.x, y: b.y)!.usingColorSpace(.sRGB)!
+        let glyph = rep.colorAt(x: b.x, y: b.y)!
         return contrast(glyph, try fill(around: b.x, b.y, in: rep))
     }
 
@@ -80,7 +95,7 @@ import FileExplorerTestSupport
         var counts: [String: (Int, NSColor)] = [:]
         for x in max(0, cx - 18)...min(rep.pixelsWide - 1, cx + 18) {
             for y in max(0, cy - 18)...min(rep.pixelsHigh - 1, cy + 18) {
-                guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                guard let p = rep.colorAt(x: x, y: y) else { continue }
                 let key = String(format: "%.2f-%.2f-%.2f", Double(p.redComponent), Double(p.greenComponent), Double(p.blueComponent))
                 counts[key, default: (0, p)].0 += 1
             }
@@ -97,13 +112,13 @@ import FileExplorerTestSupport
         // The Delete cell, located by finding the reddest pixel on the bar's row.
         var best: (x: Int, y: Int, score: Double)? = nil
         for x in 0..<rep.pixelsWide {
-            for y in barRows(measured) {
-                guard let p = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            for y in measured.barRows {
+                guard let p = rep.colorAt(x: x, y: y) else { continue }
                 let score = Double(p.redComponent) - Double(max(p.greenComponent, p.blueComponent))
                 if score > (best?.score ?? 0.2) { best = (x, y, score) }
             }
         }
-        let glyph = try #require(best.map { rep.colorAt(x: $0.x, y: $0.y)!.usingColorSpace(.sRGB)! },
+        let glyph = try #require(best.map { rep.colorAt(x: $0.x, y: $0.y)! },
                                  "no red glyph pixel found in \(appearance.rawValue) — the Delete rung is not painting its ink")
         // The pill behind it: the most common colour in a square around the glyph pixel, which the
         // fill outnumbers the strokes in.
@@ -137,25 +152,18 @@ import FileExplorerTestSupport
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
             onDelete: {}, selectionCount: 3)
-        let host = NSHostingView(rootView: AnyView(
+        let rig = ProbeRig(AnyView(
             header
                 .defaultAppStorage(defaults)
                 .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
                 .frame(width: size.width, height: size.height)
                 .background(Color(nsColor: .windowBackgroundColor))
-        ))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
+        ), size: size)
+        rig.window.appearance = NSAppearance(named: appearance)
+        let rep = rig.capture()
+        let host = rig.host
 
-        // The bar's own band, from the drawn controls (see `barRows`). Rings are in points and the
+        // The bar's own band, from the drawn controls (see `RenderedHeader`). Rings are in points and the
         // bitmap in pixels, so the scale is measured off the two: a hard-coded 2 would halve the
         // window on a 1x display.
         let rings = FocusRings.frames(in: host)

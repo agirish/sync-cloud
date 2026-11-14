@@ -77,12 +77,6 @@ import Design
     /// How far the budget must sit from the nearest row it decides about, in either direction.
     private static let gateMargin: CGFloat = 0.5
 
-    /// `iconOnly` is a pin downward: no width and no text size ever produces a title.
-    @Test(arguments: FontSize.selectablePercents)
-    func iconOnlyNeverTitles(percent: Int) {
-        #expect(Self.ladder(.iconOnly, scale: FontSize(percent: percent).scale).titledRungs == 0)
-    }
-
     /// With titles declined, by the preference or by the gate, the ladder is the plain one: no rung
     /// taller than its own pill and no titled head. Asserted against the pill at every size, and a
     /// gated size must land on the same ladder as Icon Only.

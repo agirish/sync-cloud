@@ -57,14 +57,12 @@ import Events
         #expect(store.records.isEmpty)
     }
 
-    @Test func theViewTakesTheConfirmerAsASeam() {
-        // The initializer must keep accepting an injected answer, so the tests above cover what
-        // the shipping button does rather than a parallel code path.
-        let (store, url) = makeStore()
-        defer { try? FileManager.default.removeItem(at: url) }
-        let view = ActivityEventsView(store: store, center: ActivityCenter(), onUndoRun: { nil },
-                                      confirmClearHistory: { false })
-        _ = view.body
-        #expect(store.records.count == 1)
+    /// The button goes through `clearIfConfirmed` with the view's injected confirmer, so the tests
+    /// above cover what it does. SwiftUI can't tap the menu item, so this reads the source.
+    @Test func theClearButtonAsksThroughTheConfirmer() throws {
+        let view = try DashboardSource.read("ActivityEventsView.swift", codeOnly: true)
+        #expect(view.contains("Self.clearIfConfirmed(store: store, confirm: confirmClearHistory)"))
+        #expect(view.components(separatedBy: "store.clear()").count == 2,
+                "the only `store.clear()` must be the one inside `clearIfConfirmed`")
     }
 }

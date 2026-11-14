@@ -97,7 +97,7 @@ import FileExplorerTestSupport
                       defaults: UserDefaults, tabStrip: Bool = false,
                       railIsHidden: Bool = false) -> NSHostingView<AnyView> {
         let size = CGSize(width: paneWidth + editorWidth, height: height)
-        let host = NSHostingView(rootView: AnyView(
+        return ProbeRig(AnyView(
             HStack(spacing: 0) {
                 pane(style, tabStrip: tabStrip).frame(width: paneWidth)
                 workspace(document, style: .folderName, railIsHidden: railIsHidden,
@@ -107,14 +107,7 @@ import FileExplorerTestSupport
             .frame(width: size.width, height: size.height)
             .defaultAppStorage(defaults)
             .environment(\.appFontScale, scale)
-        ))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host
+        ), size: size).host
     }
 
     /// The top of the pane's list and of the document's text, in window coordinates. Each is the
@@ -149,43 +142,25 @@ import FileExplorerTestSupport
     }
 
     /// The text card starts where the list card does, in both surface styles, at every text size,
-    /// for Markdown and plain text. Dropping the header card's pinned height must fail every case;
-    /// giving `.unified` two cards must fail its half by a gutter.
+    /// for Markdown and plain text, and under the pane's tab strip. The strip pushes the pane's
+    /// toolbar card and list down by its slot (34pt, plus the gutter under its card in `.cards`);
+    /// the document column has no strip, so it must be told about the pane's. Dropping the header
+    /// card's pinned height must fail every case; giving `.unified` two cards must fail its half by
+    /// a gutter; leaving out the strip's gutter must fail `.cards`, and not passing its presence both.
     @Test func theTextStartsWhereTheListDoesAtEveryTextSize() throws {
         let markdown = try Self.document("Budget.md")
         let plain = try Self.document("Budget.txt")
         for style in [SurfaceStyle.cards, .unified] {
             let defaults = Self.defaults(style)
-            for doc in [markdown, plain] {
+            for (doc, strip) in [(markdown, false), (plain, false), (markdown, true)] {
                 for size in FontSize.allCases {
-                    let host = Self.mount(doc, style: style, scale: size.scale, defaults: defaults)
+                    let host = Self.mount(doc, style: style, scale: size.scale, defaults: defaults, tabStrip: strip)
                     let (list, text) = Self.tops(in: host)
                     let listTop = try #require(list, "no pane list mounted (\(style)) — vacuous")
                     let textTop = try #require(text, "no text view mounted (\(style)) — vacuous")
                     #expect(abs(listTop - textTop) < 0.51,
-                            "\(style), \(doc.name), \(size.percent)%: list at \(listTop), text at \(textTop)")
+                            "\(style), \(doc.name)\(strip ? ", tab strip" : ""), \(size.percent)%: list at \(listTop), text at \(textTop)")
                 }
-            }
-        }
-    }
-
-    /// With the pane's tab strip up, the text still starts where the list does. The strip pushes
-    /// the pane's toolbar card and list down by its slot (34pt, plus the gutter under its card in
-    /// `.cards`); the document column has no strip, so it must be told about the pane's. Both
-    /// styles, every text size. Leaving out the gutter must fail `.cards`; not passing the strip's
-    /// presence must fail both.
-    @Test func theTextStartsWhereTheListDoesUnderThePanesTabStrip() throws {
-        let markdown = try Self.document("Budget.md")
-        for style in [SurfaceStyle.cards, .unified] {
-            let defaults = Self.defaults(style)
-            for size in FontSize.allCases {
-                let host = Self.mount(markdown, style: style, scale: size.scale, defaults: defaults,
-                                      tabStrip: true)
-                let (list, text) = Self.tops(in: host)
-                let listTop = try #require(list, "no pane list mounted (\(style)) — vacuous")
-                let textTop = try #require(text, "no text view mounted (\(style)) — vacuous")
-                #expect(abs(listTop - textTop) < 0.51,
-                        "\(style), tab strip, \(size.percent)%: list at \(listTop), text at \(textTop)")
             }
         }
     }
@@ -235,15 +210,11 @@ import FileExplorerTestSupport
     @Test func theFormatBarIsTheTextCardsFirstContent() throws {
         let markdown = try Self.document("Budget.md")
         for style in [SurfaceStyle.cards, .unified] {
-            let off = Self.defaults(style)
             let on = Self.defaults(style, formatBar: true)
             for size in FontSize.allCases {
-                let (list, withoutBar) = Self.tops(in: Self.mount(markdown, style: style, scale: size.scale, defaults: off))
-                let (_, withBar) = Self.tops(in: Self.mount(markdown, style: style, scale: size.scale, defaults: on))
+                let (list, withBar) = Self.tops(in: Self.mount(markdown, style: style, scale: size.scale, defaults: on))
                 let listTop = try #require(list, "no pane list mounted (\(style)) — vacuous")
-                let plainTop = try #require(withoutBar, "no text view mounted (\(style)) — vacuous")
                 let barTop = try #require(withBar, "no text view mounted under the bar (\(style)) — vacuous")
-                #expect(abs(listTop - plainTop) < 0.51, "\(style), \(size.percent)%: the bar-less text starts off the list")
                 let bar = NSHostingView(rootView: AnyView(
                     EditorFormatBar(state: .none, accent: .blue, onVerb: { _ in },
                                     forcedRung: EditorFormatBar.ladder(showsLabels: true, inTable: false)[0])
@@ -257,14 +228,7 @@ import FileExplorerTestSupport
     private static func laidOutHeight<V: View>(_ view: V) -> CGFloat {
         // The bar on, so a bar moved into the header would grow the rows this measures.
         let defaults = defaults(.cards, formatBar: true)
-        let host = NSHostingView(rootView: AnyView(view.frame(width: editorWidth)
-                                                    .defaultAppStorage(defaults)))
-        host.frame = CGRect(x: 0, y: 0, width: editorWidth, height: 1_000)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize.height
+        return ProbeRig(AnyView(view.frame(width: editorWidth).defaultAppStorage(defaults)),
+                        size: CGSize(width: editorWidth, height: 1_000)).host.fittingSize.height
     }
 }

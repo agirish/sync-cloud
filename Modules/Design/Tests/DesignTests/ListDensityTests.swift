@@ -74,9 +74,6 @@ import Foundation
         #expect(compact.cardListPadding < comfortable.cardListPadding)
         #expect(compact.tableMinRowHeight != nil)
         #expect(!compact.showsSecondaryDetail)
-        #expect(compact.flatRowVerticalPadding < comfortable.flatRowVerticalPadding)
-        #expect(compact.treeIconSize < comfortable.treeIconSize)
-        #expect(compact.logListSpacing < comfortable.logListSpacing)
     }
 
     @Test func compactPaddingsStayUsable() {

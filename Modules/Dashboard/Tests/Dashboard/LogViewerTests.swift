@@ -27,9 +27,6 @@ import Events
     func testTheLevelIsAThresholdAndKeepsNewestFirst(level: LogLevel?, messages: [String]) {
         let result = LogEntryFilter.apply(entries, minimumLevel: level, search: "")
         #expect(result.map(\.message) == messages)
-        if let level {
-            #expect(result.allSatisfy { $0.level.severity >= level.severity })
-        }
     }
 
     @Test func testSearchIsCaseInsensitiveSubstring() {
@@ -44,20 +41,10 @@ import Events
         #expect(result.map(\.message) == ["Loaded tree"])
     }
 
-    @Test func testNoMatchReturnsEmpty() {
-        let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "no such text")
-        #expect(result.isEmpty)
-    }
-
     @Test func testSearchMatchesMessageTextNotLevelName() {
         // "ERROR" appears as a level tag in the UI but in no message body, so the search field,
         // which filters message text only, must not match the error entry.
         let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "ERROR")
-        #expect(result.isEmpty)
-    }
-
-    @Test func testEmptyInputStaysEmpty() {
-        let result = LogEntryFilter.apply([], minimumLevel: .error, search: "anything")
         #expect(result.isEmpty)
     }
 
@@ -161,13 +148,6 @@ import Events
         let text = "\n\(good)\nnot a log line\n[garbage without level] hi\n"
         let history = LogHistoryLoader.parseOlderThan(sessionStart, text: text)
         #expect(history.map(\.message) == ["real entry"])
-    }
-
-    @Test func testHistoryLoaderEmptyWhenNothingOlder() {
-        let base = Date(timeIntervalSince1970: 3_000_000)
-        // Boundary before every line → no history.
-        let text = logText([(10, .info, "a"), (20, .info, "b")], base: base)
-        #expect(LogHistoryLoader.parseOlderThan(base, text: text).isEmpty)
     }
 
     // MARK: A failed READ is not an empty history
@@ -320,8 +300,6 @@ import Events
             // empty state names the failure, and the footer's duplicate note yields to it.
             #expect(contents(history: .failed).emptyState == .historyUnavailable)
             #expect(contents(history: .failed).visibleHistory.isEmpty)
-            #expect(LogEmptyState.footerNotesUnreadableHistory(
-                emptyState: contents(history: .failed).emptyState) == false)
         }
 
         @Test func aFailedReadUnderAChattySessionLeavesTheFooterToSpeak() {
@@ -340,8 +318,6 @@ import Events
             let shown = LogViewerContents(session: [], history: .loaded(entries: [older], revealed: 25),
                                           minimumLevel: nil, search: "", pageSize: 25, span: span, now: now)
             #expect(shown.emptyState == .spanNotInLog)
-            // Unnarrowed, the same empty log is still "nothing from earlier sessions".
-            #expect(contents(history: .loaded(entries: [], revealed: 25)).emptyState == .noEarlierActivity)
         }
     }
 

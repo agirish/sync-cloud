@@ -80,7 +80,8 @@ func warnIfMigrationPending() {
 /// the un-bundled CLI's `.standard` is its own domain. Called at the top of each `run()`, never
 /// from `flushingLogToDisk`, which `CLIWiringTests` drives: an explicit suite is read even under a
 /// test runner (`Logger.persistedMinimumLevel(from:)`), so the wrapper would hand those tests his
-/// live level. `CLIWiringTests.everyCommandAdoptsTheAppsLogLevel` holds every verb to it.
+/// live level. `CLIWiringTests.everyCommandExitsThroughTheLogFlushAndErrorLadder` holds every
+/// verb to it.
 func adoptAppLogLevel(verb: String) {
     let level = UserDefaults(suiteName: SettingsManager.appSuiteName)
         .map { Logger.persistedMinimumLevel(from: $0) } ?? Logger.defaultMinimumLevel

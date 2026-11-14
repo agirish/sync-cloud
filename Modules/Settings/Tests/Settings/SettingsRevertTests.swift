@@ -10,16 +10,14 @@ import Sync
 @Suite struct SettingsRevertTests {
 
     @MainActor private struct Rig {
-        let name: String
-        let defaults: UserDefaults
+        let defaults: ScratchDefaults
         let log: SettingsChangeLog
         let url: URL
         let center = NotificationCenter()
 
         init(_ test: String) {
-            name = "SettingsRevertTests.\(test).\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: name)!
-            url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".json")
+            defaults = ScratchDefaults("SettingsRevertTests.\(test)")
+            url = FileManager.default.temporaryDirectory.appendingPathComponent(defaults.scratchSuiteName + ".json")
             log = SettingsChangeLog(fileURL: url)
         }
 
@@ -29,7 +27,7 @@ import Sync
         }
         var writer: SettingsWriter { SettingsWriter(defaults: defaults, settings: nil) }
 
-        func done() { wipeDefaultsSuite(name); try? FileManager.default.removeItem(at: url) }
+        func done() { try? FileManager.default.removeItem(at: url) }
     }
 
     private func themeToDark() -> SettingsChange {
@@ -115,7 +113,7 @@ import Sync
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Medical"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Work"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.name,
+        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.defaults.scratchSuiteName,
                                        cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
         settings.availableProviders = [CloudProvider(id: "Acct", displayName: "Dropbox", imageName: "cloud", rootPath: root.path,
                                                      openAt: "Work", type: .dropBox)]
@@ -138,7 +136,7 @@ import Sync
     /// it goes back to.
     @Test func aRevertLineNeverNamesASourceHiddenFromClaude() throws {
         let rig = Rig(#function); defer { rig.done() }
-        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.name,
+        let settings = SettingsManager(autoDiscover: false, userDefaults: rig.defaults, overridesDomainName: rig.defaults.scratchSuiteName,
                                        cloudStorageLister: { .read([]) }, pathValidator: { _ in true })
         settings.availableProviders = [CloudProvider(id: "folder:1", displayName: "Clinic", imageName: "folder",
                                                      rootPath: "/Users/me/Medical Records", type: .localFolder)]

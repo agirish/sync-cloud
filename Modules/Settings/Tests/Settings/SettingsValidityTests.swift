@@ -3,35 +3,6 @@ import Foundation
 @testable import Settings
 import Sync
 
-/// Mutable set of paths the injected validator reports as valid, simulating provider folders
-/// appearing and disappearing on disk between discovery passes.
-private final class ValidPaths: @unchecked Sendable {
-    private let lock = NSLock()
-    private var paths: Set<String>
-
-    init(_ paths: Set<String>) {
-        self.paths = paths
-    }
-
-    func insert(_ path: String) {
-        lock.lock()
-        paths.insert(path)
-        lock.unlock()
-    }
-
-    func remove(_ path: String) {
-        lock.lock()
-        paths.remove(path)
-        lock.unlock()
-    }
-
-    func contains(_ path: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return paths.contains(path)
-    }
-}
-
 private let root = URL(fileURLWithPath: "/Users/test/Library/CloudStorage")
 private func folder(_ name: String) -> URL { root.appendingPathComponent(name) }
 /// The Dropbox source's root, the account folder, which is what validity is asked about.
@@ -39,8 +10,8 @@ private func folder(_ name: String) -> URL { root.appendingPathComponent(name) }
 private let dropboxDocs = "/Users/test/Library/CloudStorage/Dropbox"
 
 @MainActor
-private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> SettingsManager {
-    test.manager(lister: { .read([folder("Dropbox")]) }, validator: { validPaths.contains($0) })
+private func makeSettings(_ test: TestDefaults, validPaths: Mutable<Set<String>>) -> SettingsManager {
+    test.manager(lister: { .read([folder("Dropbox")]) }, validator: { validPaths.value.contains($0) })
 }
 
 // MARK: - pathValidity: what the badge shows and when it is re-checked
@@ -53,14 +24,14 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testFolderDeletedExternallyFlipsInvalidOnRefreshDespiteUnchangedPath() async {
         let test = TestDefaults()
-        let validPaths = ValidPaths([dropboxDocs])
+        let validPaths = Mutable<Set<String>>([dropboxDocs])
         let settings = makeSettings(test, validPaths: validPaths)
 
         await settings.discoverProviders()
         let pathBefore = settings.rootPath(for: "Dropbox")
         #expect(settings.isPathValid(for: "Dropbox") == true)
 
-        validPaths.remove(dropboxDocs) // folder vanishes on disk; path string is untouched
+        validPaths.value.remove(dropboxDocs) // folder vanishes on disk; path string is untouched
         await settings.discoverProviders() // the user's "Refresh providers" gesture
         #expect(settings.rootPath(for: "Dropbox") == pathBefore)
         #expect(settings.isPathValid(for: "Dropbox") == false)
@@ -70,13 +41,13 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testFolderCreatedExternallyFlipsValidOnRefresh() async {
         let test = TestDefaults()
-        let validPaths = ValidPaths([])
+        let validPaths = Mutable<Set<String>>([])
         let settings = makeSettings(test, validPaths: validPaths)
 
         await settings.discoverProviders()
         #expect(settings.isPathValid(for: "Dropbox") == false)
 
-        validPaths.insert(dropboxDocs)
+        validPaths.value.insert(dropboxDocs)
         await settings.discoverProviders()
         #expect(settings.isPathValid(for: "Dropbox") == true)
     }
@@ -87,7 +58,7 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @Test func testPathOverrideAndResetRevalidateAgainstTheActivePath() async {
         let test = TestDefaults()
         let external = "/Volumes/External/Dropbox"
-        let validPaths = ValidPaths([external]) // default Documents folder does not exist
+        let validPaths = Mutable<Set<String>>([external]) // default Documents folder does not exist
         let settings = makeSettings(test, validPaths: validPaths)
 
         await settings.discoverProviders()
@@ -108,7 +79,7 @@ private func makeSettings(_ test: TestDefaults, validPaths: ValidPaths) -> Setti
     @MainActor
     @Test func testValidUnchangedPathStaysValidAcrossRefreshes() async {
         let test = TestDefaults()
-        let settings = makeSettings(test, validPaths: ValidPaths([dropboxDocs]))
+        let settings = makeSettings(test, validPaths: Mutable<Set<String>>([dropboxDocs]))
 
         await settings.discoverProviders()
         #expect(settings.isPathValid(for: "Dropbox") == true)

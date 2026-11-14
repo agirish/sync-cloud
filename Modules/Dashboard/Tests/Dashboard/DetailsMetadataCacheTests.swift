@@ -51,6 +51,8 @@ import Sync
         #expect(first.metadata?.path == "/vault/report.pdf")
         #expect(third.metadata?.size == "1 KB")
         #expect(third.icon != nil)
+        // A hit must not bump the generation, or every selection would restart the size walk.
+        #expect(cache.generation == 0)
     }
 
     @Test func scanCompletionInvalidatesButScanStartDoesNot() async {
@@ -83,6 +85,7 @@ import Sync
         // Switching back is a path change too: the cache holds a single entry.
         _ = await cache.load(for: "/vault/a.txt")
         #expect(loader.statCount == 3)
+        #expect(cache.generation == 0, "a path change bumped the generation")
     }
 
     @Test func invalidationSurfacesFreshLoaderValues() async {
@@ -122,19 +125,6 @@ import Sync
 
         cache.scanningChanged(false)
         #expect(cache.generation == 2)
-    }
-
-    /// Lookups (hits or path changes) must not bump the generation, or every selection change
-    /// would needlessly restart the directory-size walk twice.
-    @Test func lookupsDoNotBumpGeneration() async {
-        let loader = CountingLoader()
-        let cache = makeCache(loader: loader)
-
-        _ = await cache.load(for: "/vault/a.txt")
-        _ = await cache.load(for: "/vault/a.txt")
-        _ = await cache.load(for: "/vault/b.txt")
-
-        #expect(cache.generation == 0)
     }
 
     // MARK: The unreadable-item warning
@@ -341,11 +331,7 @@ import Sync
 
         // Yield, never block (these Tasks are main-actor isolated, so a blocking wait deadlocks
         // them), until both are parked inside the loader.
-        for _ in 0..<300 where loader.entered.count < 2 {
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(loader.entered.count == 2, "both loads should be in flight — otherwise this proves nothing")
+        await waitUntil("both loads in flight, or this proves nothing") { loader.entered.count == 2 }
 
         // The superseding load lands first, the superseded one last.
         loader.release("/vault/b.txt")
@@ -366,11 +352,7 @@ import Sync
         let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
 
         let inFlight = Task { await cache.load(for: "/vault/report.pdf") }
-        for _ in 0..<300 where loader.entered.isEmpty {
-            await Task.yield()
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(loader.entered.contains("/vault/report.pdf"), "the load never started")
+        await waitUntil("the load to start") { loader.entered.contains("/vault/report.pdf") }
 
         // A file operation completes while the stat is still out.
         cache.refreshOccurred()

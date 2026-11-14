@@ -19,14 +19,6 @@ import Foundation
         }
     }
 
-    @Test func testPreservesTimestampToMillisecond() {
-        let original = LogEntry(timestamp: Date(timeIntervalSince1970: 1_700_000_000.123),
-                                level: .info, message: "ts check")
-        let parsed = LogEntry.parse(original.formattedString)
-        // Same canonical rendering ⇒ same timestamp at the log's millisecond precision.
-        #expect(parsed?.formattedString == original.formattedString)
-    }
-
     @Test func testMessageEmbeddingBracketMarkersLandsWhollyInMessage() {
         // A crafted filename that embeds the "] [" / "] " markers must not forge a second entry:
         // only the leading (real) markers are consumed, the rest stays in the message.

@@ -10,9 +10,8 @@ import Sync
 @MainActor
 @Suite struct SettingsActionsTests {
 
-    private func scratch(_ test: String = #function) -> (String, UserDefaults) {
-        let name = "SettingsActionsTests.\(test).\(UUID().uuidString)"
-        return (name, UserDefaults(suiteName: name)!)
+    private func scratch(_ test: String = #function) -> ScratchDefaults {
+        ScratchDefaults("SettingsActionsTests.\(test)")
     }
 
     private func lookup(_ defaults: UserDefaults, _ settings: SettingsManager?) -> SettingsLookup {
@@ -42,7 +41,7 @@ import Sync
 
     /// Reset All keeps the limits, but names what else it would raise from the values now.
     @Test func resetAllNamesWhatItWouldRaise() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         defaults.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
         let actions = SettingsActions(settings: nil, sync: nil, lookup: lookup(defaults, nil))
         #expect(actions.resetAllRaises().contains { $0.hasPrefix("Model back to Sonnet") })
@@ -55,7 +54,7 @@ import Sync
     }
 
     @Test func aPressRunsSettingsOwnCode() async throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let sync = FileSyncManager()
         sync.keptNamesStore = KeptNamesStore(userDefaults: defaults)
         sync.keptNamesStore?.keep("Report .pdf")
@@ -72,7 +71,7 @@ import Sync
 
     /// Clear All asked about one pair of sources clears nothing once another pair is open.
     @Test func clearAllRefusesOnceThePairHasChanged() async throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let sync = FileSyncManager()
         let store = IgnoredItemsStore(userDefaults: defaults)
         sync.ignoredItemsStore = store

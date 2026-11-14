@@ -10,7 +10,7 @@ import Testing
 
     /// Comments stripped, as in every source scan here, so prose can't satisfy or fail it.
     static func source() throws -> String {
-        SettingsAsksBeforeRemovingTests.withoutComments(try settingsSource("SettingsView.swift", minLength: 3_000))
+        SourceComments.stripped(try settingsSource("SettingsView.swift", minLength: 3_000))
     }
 
     /// The account editor offers the door, gated on `canOpen` (absent, not disabled, when the

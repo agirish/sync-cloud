@@ -50,21 +50,7 @@ import Design
             .background(Color(red: 0.95, green: 0.95, blue: 0.96))
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: 90)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            fatalError("no bitmap rep")
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return ProbeRig(AnyView(subject), size: CGSize(width: width, height: 90)).capture()
     }
 
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {

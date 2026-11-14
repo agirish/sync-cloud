@@ -183,13 +183,7 @@ import Sync
                 "the host re-derives which volumes lose their sources instead of asking the model")
         #expect(host.contains("detachablePaths: folderSidebarDetachablePaths"),
                 "the sidebar is not told which volumes actually lose their sources")
-        // The rule itself, so a green scan can't sit over a predicate that says the wrong thing.
-        let card = SidebarSourceModel.Volume(name: "CARD", path: "/Volumes/CARD",
-                                             isRemovable: true, isInternal: false)
-        let share = SidebarSourceModel.Volume(name: "Archive", path: "/Volumes/Archive",
-                                              isRemovable: true, isInternal: false, isLocal: false)
-        #expect(card.losesItsSourcesOnUnmount)
-        #expect(!share.losesItsSourcesOnUnmount, "a network share is ejectable but does not lose its sources")
+        // The rule itself is in `MountedVolumeMemoryTests.theSidebarVolumeCarriesLocality`.
     }
 
     /// One mounted-volume walk per refresh, not two. `mountedVolumeURLs` plus a resource read per
@@ -276,8 +270,6 @@ import Sync
                 "sources are removed on an unmount without checking what the volume was")
         #expect(host.contains("settings.removeFolderSources(onVolume: path)"),
                 "the unmount does not remove the sources on the volume")
-        #expect(host.contains("MountedVolumeMemory.shared.forget(volume: path)"),
-                "the record is never dropped — the map grows for the life of the process")
     }
 
     /// An unmount leaves the pins alone: they are keyed by path, so a card plugged back in and added

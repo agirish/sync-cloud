@@ -74,17 +74,6 @@ import Design
         }
     }
 
-    /// The badge is the recent's disambiguator, so it stays: it already says which source.
-    @Test func aRecentKeepsItsSourceBadge() {
-        let rows = FolderSidebarModel.rows(
-            sources: [Self.source("/iCloud", "iCloud", ["Health"]),
-                      Self.source("/Dropbox", "Dropbox", [])],
-            recents: [Self.visit("/Dropbox", "Documents")])
-        let recents = FolderSidebarModel.rows(rows, in: .recents)
-        #expect(recents.map(\.sourceName) == ["Dropbox"])
-        #expect(recents.map(\.detail) == [nil])
-    }
-
     /// The other direction, which keeps every row from growing a second line: a name nothing else
     /// shares needs no disambiguation.
     @Test func aNameNothingSharesShowsNoParent() {
@@ -569,28 +558,13 @@ import Design
 /// where a click lands. A wrong guess resets that pane's column stack, and navigation has no undo.
 @Suite struct SidebarTargetTests {
 
-    /// The side is the whole label. Comparing a source against itself is ordinary, so a provider
-    /// name can't separate the two panes; see `theHeaderNamesTheSide`.
-    @Test func theSideSeparatesTwoPanesOnOneProvider() {
-        #expect(SidebarTarget(targetsRight: false) != SidebarTarget(targetsRight: true),
-                "the two panes are indistinguishable — the side must separate them")
-        #expect(SidebarTarget.label(targetsRight: false) == "Left")
-        #expect(SidebarTarget.label(targetsRight: true) == "Right")
-    }
-
-    /// The header names the side, not a source. The rows come from every enabled source
+    /// The header names the side, not a source: comparing a source against itself is ordinary, so a
+    /// provider name can't separate the panes. The rows come from every enabled source
     /// (`refreshFolderSidebarRows`), so naming one would falsely scope them to it; the side is the
     /// only thing true of every row.
     @Test func theHeaderNamesTheSide() {
         #expect(SidebarTarget(targetsRight: false).openingDescription == "Opens on Left")
         #expect(SidebarTarget(targetsRight: true).openingDescription == "Opens on Right")
-    }
-
-    /// The two sides must not describe themselves identically: the line exists to separate them,
-    /// and two panes on one source is ordinary.
-    @Test func theTwoSidesDescribeThemselvesDifferently() {
-        #expect(SidebarTarget(targetsRight: false).openingDescription
-                    != SidebarTarget(targetsRight: true).openingDescription)
     }
 
     /// The glyph is a side indicator, not a direction: both panes sit to the right of this column,

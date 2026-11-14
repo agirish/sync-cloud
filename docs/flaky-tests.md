@@ -380,8 +380,8 @@ does nothing for it.
 
 *Conditional, wall-clock-bounded, still unfixed.* These are the real residual:
 
-- `ExpandingSearchFieldTests.becomesEditingText` — in **Design**, not FileExplorer. A sweep that
-  greps only `Modules/FileExplorer` will not see it.
+- ~~`ExpandingSearchFieldTests.becomesEditingText`~~ — in **Design**, not FileExplorer; now waits
+  through `LayoutPumpWait.pump(_ window:)`.
 - ~~`HeaderLadderTests.settle(_:atRows:)`, `SectionRowHeightTests` and
   `DifferencesTableIdentityTests.settle(_:atRows:)`~~ and
   ~~`DifferencesTableIdentityTests.wait(for:timeout:)`~~ — **all four migrated 2026-08-04.** They
@@ -505,6 +505,7 @@ Fixed with `pollFloor = 50` on the suite's own helper, the same number and reaso
 ways: with the deadline set to **zero** the whole suite still passes, so the floor alone carries it;
 with `ShortcutRevealTracker.publish()` made a no-op the wait fails naming **803 polls**, which is
 what "genuinely disproved" looks like next to the starved 4.
+The suite now waits through `LayoutPumpWait.poll`, which carries the same floor.
 
 **The inventory above was built by a layout-shaped grep, and is blind to this whole family.** It
 filters `while Date() < deadline` on a following `layoutIfNeeded`, so it cannot see a condition wait
@@ -681,6 +682,7 @@ and left the absence check vacuous. It is now counted in polls. Mutation-tested:
 still fails "ran 4 provider discoveries", idle (3/3) and under the hogs; a removal that runs no
 discovery fails at the wait after 1,380 polls; with the deadline set to zero the floor alone
 passes, 3/3.
+The helper now waits through `LayoutPumpWait.poll`, which is `@MainActor` with the same floor.
 
 **A count that lands two hops after its request, 2026-10-27 — FIXED.**
 `EditorContentSearchModelTests.aNewQuestionEndsTheRunningSearch` failed in CI run 40614524397

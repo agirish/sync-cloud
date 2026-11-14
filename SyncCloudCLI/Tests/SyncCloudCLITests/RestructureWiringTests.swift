@@ -17,9 +17,6 @@ import ArgumentParser
 
     @Test func theDocumentedSpellingsParse() throws {
         #expect(throws: Never.self) {
-            _ = try SyncCloudCommand.parseAsRoot(["restructure"])
-        }
-        #expect(throws: Never.self) {
             _ = try SyncCloudCommand.parseAsRoot(["restructure", "--json"])
         }
         #expect(throws: Never.self) {

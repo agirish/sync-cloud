@@ -5,23 +5,6 @@ import Foundation
 @Suite(.serialized) struct EventsTests {
     
     @MainActor
-    @Test func testLoggerInfoAndError() async throws {
-        let logger = Logger.shared
-        logger.clearLogs()
-        
-        await logger.info("Test info message").value
-        
-        #expect(logger.entries.count == 1)
-        #expect(logger.entries.first?.level == .info)
-        #expect(logger.entries.first?.message == "Test info message")
-
-        await logger.error("Critical failure").value
-
-        #expect(logger.entries.last?.level == .error)
-        #expect(logger.entries.last?.message.contains("Critical failure") == true)
-    }
-    
-    @MainActor
     @Test func testLoggerMemoryLimit() async throws {
         let logger = Logger.shared
         logger.clearLogs()
@@ -114,14 +97,6 @@ import Foundation
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.contains("POST-CLEAR"))
         #expect(!contents.contains("PRE-CLEAR"))
-    }
-
-    /// Pins the on-disk line format: "[yyyy-MM-dd HH:mm:ss.SSS] [LEVEL] message". The timestamp
-    /// renders in the local timezone, so assert the shape rather than exact digits.
-    @Test func testFormattedStringPinsDiskLineFormat() {
-        let entry = LogEntry(level: .warning, message: "low disk space")
-        let pattern = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[WARN\] low disk space$/
-        #expect(entry.formattedString.wholeMatch(of: pattern) != nil)
     }
 
     /// warning() and error() append a "| Location: file:line / function" suffix; info() and

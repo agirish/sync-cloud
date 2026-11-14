@@ -60,37 +60,24 @@ import Foundation
         #expect(out.map(\.relativePath) == ["Ancient", "Unknown"])
     }
 
-    /// An all-undated store, the state after upgrading, still lists everything; its order makes no
-    /// claim about recency.
-    @Test func anAllUndatedStoreStillListsEverything() {
-        let out = FolderJumpStore.mostRecentAcrossRoots(
-            recents: ["/b": [visit("Two", nil)], "/a": [visit("One", nil)]],
-            favorites: [:], limit: 8)
-        #expect(Set(out.map(\.relativePath)) == ["One", "Two"])
-    }
-
     // MARK: - Stability
 
     /// The order must be the same on every launch. Dictionary iteration order varies between
-    /// processes, and leaning on it would reshuffle Recents for no visible reason.
+    /// processes, and leaning on it would reshuffle Recents for no visible reason. Undated entries
+    /// follow their roots' sorted order; with five roots, hash order matches it in 1 run of 120.
     @Test func theOrderDoesNotDependOnDictionaryIteration() {
-        let recents = ["/z": [visit("Zed", nil)], "/a": [visit("Ay", nil)], "/m": [visit("Em", nil)]]
-        let answers = Set((0..<40).map { _ in
-            FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8)
-                .map(\.relativePath).joined(separator: ">")
-        })
-        #expect(answers.count == 1, "the order varies between runs: \(answers)")
+        let recents = ["/e": [visit("E", nil)], "/d": [visit("D", nil)], "/c": [visit("C", nil)],
+                       "/b": [visit("B", nil)], "/a": [visit("A", nil)]]
+        let out = FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8)
+        #expect(out.map(\.relativePath) == ["A", "B", "C", "D", "E"])
     }
 
     /// Two visits sharing a date break their tie on root then path, because `sorted(by:)` is not a
     /// stable sort in Swift and would otherwise be free to swap them run to run.
     @Test func visitsSharingADateBreakTheirTieReproducibly() {
         let recents = ["/b": [visit("Same", 50)], "/a": [visit("Same", 50)]]
-        let answers = Set((0..<40).map { _ in
-            FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8)
-                .map(\.root).joined(separator: ">")
-        })
-        #expect(answers == ["/a>/b"], "same-date visits are not ordered reproducibly: \(answers)")
+        #expect(FolderJumpStore.mostRecentAcrossRoots(recents: recents, favorites: [:], limit: 8).map(\.root)
+                == ["/a", "/b"])
     }
 
     // MARK: - What it excludes and how far it goes

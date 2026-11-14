@@ -333,7 +333,7 @@ import Testing
     /// driven, since a SwiftUI control's action can't be reached from a test; this connects the
     /// shipping control to the decisions tested above.
     @Test func everyControlGoesThroughItsGate() throws {
-        func source(_ name: String) throws -> String { Self.withoutComments(try settingsSource(name)) }
+        func source(_ name: String) throws -> String { SourceComments.stripped(try settingsSource(name)) }
         func count(_ needle: String, in text: String) -> Int { text.components(separatedBy: needle).count - 1 }
         let settings = try source("SettingsView.swift")
         let prompt = try source("RemovalPrompt.swift")
@@ -383,29 +383,11 @@ import Testing
                 "Hidden from Claude's Remove no longer asks")
     }
 
-    /// The source with every `//` comment removed, whole-line and trailing, so a call named in a
-    /// comment can't stand in for the call. String literals are respected.
-    nonisolated static func withoutComments(_ text: String) -> String {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
-            var inString = false
-            var previous: Character = " "
-            for index in line.indices {
-                let character = line[index]
-                if character == "\"" && previous != "\\" { inString.toggle() }
-                if !inString, character == "/", previous == "/" {
-                    return line[..<line.index(before: index)]
-                }
-                previous = character
-            }
-            return line
-        }.joined(separator: "\n")
-    }
-
     // MARK: Past chats (TE306)
 
     private func pastChats() throws -> (AskClaudePastChatsSettings, AskClaudePastChatFiles, UserDefaults) {
         let files = AskClaudePastChatFiles(folder: FileManager.default.temporaryDirectory.appendingPathComponent("PastChats-\(UUID().uuidString)"))
-        let d = UserDefaults(suiteName: "SettingsAsksBeforeRemovingTests.pastChats-\(UUID().uuidString)")!
+        let d = ScratchDefaults("SettingsAsksBeforeRemovingTests.pastChats")
         let now = Date(timeIntervalSince1970: 1_793_000_000)
         try files.write(Data("{}".utf8), id: UUID(), lastAsked: now.addingTimeInterval(-20 * 86_400))
         try files.write(Data("{}".utf8), id: UUID(), lastAsked: now)
@@ -438,7 +420,7 @@ import Testing
     }
 
     @Test func commentsAreStrippedAndStringsKept() {
-        let stripped = Self.withoutComments("""
+        let stripped = SourceComments.stripped("""
             a() // b()
             // c()
             let url = "http://x" // d()

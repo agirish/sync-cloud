@@ -107,15 +107,14 @@ import Testing
 
     /// Only a floor's own tests may lower a floor. The override lets them check the loop's shape in
     /// five turns; any other suite that lowers it looks faster locally and goes red on a loaded
-    /// runner. Scans every package's tests, since the floors live in four places
-    /// (`ShortcutRevealTrackerTests` owns Design's), with comment lines ignored.
+    /// runner. Scans every package's tests, since every package waits through
+    /// it, with comment lines ignored.
     @Test func theFloorIsOnlyLoweredByItsOwnTests() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()   // …/Modules
         // Each of these IS a floor's own test — the only category allowed to lower one.
-        let permitted: Set<String> = ["LayoutPumpWaitTests.swift", "LayoutPumpWaitPollTests.swift",
-                                      "ShortcutRevealTrackerTests.swift"]
+        let permitted: Set<String> = ["LayoutPumpWaitTests.swift", "LayoutPumpWaitPollTests.swift"]
         var scanned = 0
         var offenders: [String] = []
         var permittedSeen: Set<String> = []

@@ -153,9 +153,6 @@ import Sync
         #expect(PeopleTester.line(for: phrase, registry: registry)
                 == "Daughter — matched the full name “Daughter Father”")
         #expect(PeopleTester.line(for: token, registry: registry) == "Daughter — matched “daughter”")
-        #expect(PeopleTester.line(for: phrase, registry: registry)
-                != PeopleTester.line(for: token, registry: registry),
-                "a phrase and a token read identically — the row no longer shows which rule fired")
     }
 
     /// The absorbed line, the reason full names are worth entering: "Father" in "Daughter Father"

@@ -95,14 +95,6 @@ import Design
     }
 
     @Test(.machinePinned(.pixelSampling))
-    func theSourceLensLandsOnTheCurrentPlace() throws {
-        let view = Self.sidebar(folder: "", source: "loc1")
-        let markers = Self.boxes(Self.render(view, appearance: .today), Self.isWash)
-        #expect(markers.count == 1, "the fixture should wash exactly one row")
-        Self.expectSame(markers, Self.boxes(Self.render(view, appearance: Self.probe), Pixel.lensProbe))
-    }
-
-    @Test(.machinePinned(.pixelSampling))
     func aPlaceAndAFolderCanBothBeCurrent() throws {
         // The reason there are two lenses: one could only ever mark one of these rows.
         let view = Self.sidebar(folder: "Archive", source: "loc2")
@@ -111,48 +103,46 @@ import Design
         Self.expectSame(markers, Self.boxes(Self.render(view, appearance: Self.probe), Pixel.lensProbe))
     }
 
-    /// A dimmed current row's lens dims with it. A place that stopped answering is drawn at 0.45;
-    /// the wash sits inside the row and fades with it, but the lens is drawn by the host outside the
-    /// row, so the host must be told. Read as the probe's face at the row's place: full magenta when
-    /// available, faded toward white when not.
-    @Test(.machinePinned(.pixelSampling))
-    func aDimmedPlacesLensDimsWithIt() throws {
-        let live = Self.render(Self.sidebar(folder: "", source: "loc1"), appearance: Self.probe)
-        let lens = try #require(Self.boxes(live, Pixel.lensProbe).first, "no lens on the available place")
-        let dimmed = Self.render(Self.sidebar(folder: "", source: "loc1", unavailable: [1]), appearance: Self.probe)
-        #expect(Self.boxes(dimmed, Pixel.lensProbe).isEmpty, "the unavailable place's lens is full strength")
-        // Not gone: faded. 0.45 of the probe over white is about (255, 169, 255).
-        let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
-        #expect(face.0 > 240 && face.2 > 240 && (140...200).contains(face.1),
-                "the unavailable place's lens reads \(face), not the probe at 0.45")
+    /// A dimmed current row's lens dims with it: on `dimmed` there is no full-strength lens, but the
+    /// probe faded toward white at the place `live` drew it, its green in `green`.
+    static func expectFadedLens(live: NSBitmapImageRep, dimmed: NSBitmapImageRep, green: ClosedRange<UInt8>,
+                                _ what: String, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        let lens = try #require(boxes(live, Pixel.lensProbe).first, "no lens on \(what)", sourceLocation: sourceLocation)
+        #expect(boxes(dimmed, Pixel.lensProbe).isEmpty, "\(what)'s lens is full strength", sourceLocation: sourceLocation)
+        let face = Pixel.at(dimmed, width: canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
+        #expect(face.0 > 240 && face.2 > 240 && green.contains(face.1),
+                "\(what)'s lens reads \(face), not a faded probe", sourceLocation: sourceLocation)
     }
 
-    /// The other dimming the lens must follow: a folder that cannot be opened, at 0.4. Read the
-    /// same way — a faded probe at the row's own place, never the full one.
+    /// A place that stopped answering is drawn at 0.45; the wash sits inside the row and fades with
+    /// it, but the lens is drawn by the host outside the row, so the host must be told. 0.45 of the
+    /// probe over white is about (255, 169, 255).
+    @Test(.machinePinned(.pixelSampling))
+    func aDimmedPlacesLensDimsWithIt() throws {
+        try Self.expectFadedLens(
+            live: Self.render(Self.sidebar(folder: "", source: "loc1"), appearance: Self.probe),
+            dimmed: Self.render(Self.sidebar(folder: "", source: "loc1", unavailable: [1]), appearance: Self.probe),
+            green: 140...200, "the unavailable place")
+    }
+
+    /// A folder that cannot be opened is drawn at 0.4: about (255, 153, 255).
     @Test(.machinePinned(.pixelSampling))
     func anUnopenableFoldersLensDimsWithIt() throws {
-        let live = Self.render(Self.sidebar(folder: "Work", source: ""), appearance: Self.probe)
-        let lens = try #require(Self.boxes(live, Pixel.lensProbe).first, "no lens on the open folder")
-        let dimmed = Self.render(Self.sidebar(folder: "Work", source: "", foldersAvailable: false), appearance: Self.probe)
-        #expect(Self.boxes(dimmed, Pixel.lensProbe).isEmpty, "the unopenable folder's lens is full strength")
-        // 0.4 of the probe over white is about (255, 153, 255).
-        let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
-        #expect(face.0 > 240 && face.2 > 240 && (130...180).contains(face.1),
-                "the unopenable folder's lens reads \(face), not the probe at 0.4")
+        try Self.expectFadedLens(
+            live: Self.render(Self.sidebar(folder: "Work", source: ""), appearance: Self.probe),
+            dimmed: Self.render(Self.sidebar(folder: "Work", source: "", foldersAvailable: false), appearance: Self.probe),
+            green: 130...180, "the unopenable folder")
     }
 
     /// A favourited place dims its lens too. A cloud account or disk in Favorites is drawn there,
     /// not in Locations, so the lens's dimming must look in Favorites as well.
     @Test(.machinePinned(.pixelSampling))
     func aFavouritedPlaceThatStoppedAnsweringDimsItsLens() throws {
-        let live = Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: true)),
-                               appearance: Self.probe)
-        let lens = try #require(Self.boxes(live, Pixel.lensProbe).first, "no lens on the favourited place")
-        let dimmed = Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: false)),
-                                 appearance: Self.probe)
-        #expect(Self.boxes(dimmed, Pixel.lensProbe).isEmpty, "the favourited place's lens is full strength")
-        let face = Pixel.at(dimmed, width: Self.canvas.width, CGPoint(x: lens.minX + 4, y: lens.midY))
-        #expect(face.0 > 240 && face.2 > 240 && (140...200).contains(face.1),
-                "the favourited place's lens reads \(face), not the probe at 0.45")
+        try Self.expectFadedLens(
+            live: Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: true)),
+                              appearance: Self.probe),
+            dimmed: Self.render(Self.sidebar(folder: "", source: "fav", shortcuts: Self.favouritePlace(available: false)),
+                                appearance: Self.probe),
+            green: 140...200, "the favourited place")
     }
 }

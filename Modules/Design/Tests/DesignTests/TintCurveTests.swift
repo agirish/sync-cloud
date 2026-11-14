@@ -21,9 +21,10 @@ struct TintCurveTests {
 
     @Test func theBackgroundKeepsAQuarterOfItsHueAtZero() {
         // Not zero: the accent picker has to keep meaning something at the bottom of the slider.
+        // But faint: Tint 0 must not leave the background at anything like full strength.
         #expect(LiquidGlass.backgroundHueStrength(forTint: 0) == LiquidGlass.tintFloor)
         #expect(LiquidGlass.tintFloor > 0)
-        #expect(LiquidGlass.tintFloor < 0.5)
+        #expect(LiquidGlass.tintFloor <= 0.3)
     }
 
     @Test func theSurfaceWashStartsAtNothing() {
@@ -32,31 +33,21 @@ struct TintCurveTests {
         #expect(LiquidGlass.tintRamp(0) == 0)
     }
 
-    @Test func zeroIsMuchFainterThanItUsedToBe() {
-        // Tint 0 must make the background faint, not leave it at full strength. Stated as a ratio
-        // rather than a colour because the constants it multiplies are free to change.
-        #expect(LiquidGlass.backgroundHueStrength(forTint: 0) <= 0.3)
-    }
-
     // MARK: - Shape
 
-    @Test func theRampIsMonotonicAndInRange() {
-        var previous = -1.0
-        for step in 0...100 {
-            let value = LiquidGlass.tintRamp(Double(step) / 100.0)
-            #expect(value > previous, "tint \(step)% went backwards")
-            #expect((0.0...1.0).contains(value))
-            previous = value
-        }
-    }
-
-    @Test func theBackgroundStrengthIsMonotonicAndInRange() {
-        var previous = -1.0
-        for step in 0...100 {
-            let value = LiquidGlass.backgroundHueStrength(forTint: Double(step) / 100.0)
-            #expect(value > previous, "tint \(step)% went backwards")
-            #expect((0.0...1.0).contains(value))
-            previous = value
+    @Test func bothCurvesAreMonotonicAndInRange() {
+        let curves: [(String, (Double) -> Double)] = [
+            ("ramp", LiquidGlass.tintRamp),
+            ("background", { LiquidGlass.backgroundHueStrength(forTint: $0) }),
+        ]
+        for (name, curve) in curves {
+            var previous = -1.0
+            for step in 0...100 {
+                let value = curve(Double(step) / 100.0)
+                #expect(value > previous, "\(name): tint \(step)% went backwards")
+                #expect((0.0...1.0).contains(value))
+                previous = value
+            }
         }
     }
 

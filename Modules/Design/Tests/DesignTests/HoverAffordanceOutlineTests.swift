@@ -52,19 +52,7 @@ let outlineCases: [(name: String, shape: HoverAffordanceShape)] = [
     /// hair differently in the antialiased fringe. 0.02 is far below what a real shape change makes,
     /// which the last test here measures at hundreds of pixels.
     func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        #expect(a.pixelsWide == b.pixelsWide && a.pixelsHigh == b.pixelsHigh)
-        var count = 0
-        for x in 0..<min(a.pixelsWide, b.pixelsWide) {
-            for y in 0..<min(a.pixelsHigh, b.pixelsHigh) {
-                guard let p = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      let q = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let delta = max(abs(p.redComponent - q.redComponent),
-                                max(abs(p.greenComponent - q.greenComponent),
-                                    abs(p.blueComponent - q.blueComponent)))
-                if delta > 0.02 { count += 1 }
-            }
-        }
-        return count
+        Pixel.differing(a, b, sRGB: true)
     }
 
     /// Black, so a missed pixel is the largest difference the comparison can register rather than

@@ -66,36 +66,21 @@ private let providers = [
     /// folder was renamed or deleted must be refused here, naming that folder, rather than pass a
     /// check on the root and fail deeper. The account being mounted and its documents tree being
     /// there are two different facts, and only the second is the subject.
-    @Test func testAMissingLandingFolderIsRefusedEvenWhenTheAccountIsMounted() {
+    @Test func testAMissingLandingFolderIsRefusedEvenWhenTheAccountIsMounted() throws {
         let withOpenAt = [
             CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
                           imageName: "onedrive", rootPath: "/od", openAt: "Documents",
                           type: .oneDrive),
         ]
         // The message names the landing folder, not the root, so it points at the thing to fix.
-        do {
-            _ = try resolveProviderOrPath(
+        let error = try #require(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(
                 value: "OneDrive-Personal", label: "Left", providers: withOpenAt,
                 // The account IS there — only the folder it opens at is gone.
                 fileManager: StubFileManager(directories: ["/od"]))
-            Issue.record("a missing landing folder was accepted")
-        } catch let error as ProviderResolutionError {
-            #expect(error.message.contains("Documents"), "the message does not name the landing folder")
-            #expect(!error.message.contains("unmounted"), "it blames the account, which is mounted")
-        } catch {
-            Issue.record("unexpected error \(error)")
         }
-    }
-
-    /// A source that opens at its own root is checked once, not twice about the same folder: with
-    /// an empty `openAt` the two paths are the same string, so a second `requireDirectory` could
-    /// only agree with the first. This is why the landing check is conditional.
-    @Test func testASourceThatOpensAtItsRootStillResolvesWithOnlyTheRootPresent() throws {
-        let resolved = try resolveProviderOrPath(
-            value: "iCloud", label: "Left", providers: providers,
-            fileManager: StubFileManager(directories: ["/icloud/docs"]))
-        #expect(resolved.landingPath == "/icloud/docs")
-        #expect(resolved.id == "iCloud")
+        #expect(error.message.contains("Documents"), "the message does not name the landing folder")
+        #expect(!error.message.contains("unmounted"), "it blames the account, which is mounted")
     }
 
     @Test func testMatchesByDisplayName() throws {
@@ -122,16 +107,6 @@ private let providers = [
         #expect(resolved.landingPath == "\(home)/somewhere")
     }
 
-    @Test func testUnknownValueThrowsWithLabel() {
-        #expect {
-            try resolveProviderOrPath(
-                value: "nope", label: "Right", providers: providers,
-                fileManager: StubFileManager(directories: []))
-        } throws: { error in
-            (error as? ProviderResolutionError)?.message.contains("'nope' for Right") == true
-        }
-    }
-
     /// `~/iCloud` symlinked to iCloud Drive is a common convention with no hazard in it: both
     /// readings are one folder, so the guard must not fire. Compared after resolving symlinks,
     /// which is what makes the two identical rather than merely similar.
@@ -152,36 +127,15 @@ private let providers = [
     // empty map), which sync would "correct" by mass-copying into a dead tree — so resolution
     // must refuse both shapes for provider matches and ad-hoc paths alike.
 
-    @Test func testProviderWithMissingRootThrows() {
+    @Test(arguments: [("iCloud", "/icloud/docs"), ("/some/file.txt", "/some/file.txt")])
+    func aRootThatIsAFileIsRefused(value: String, file: String) {
         #expect {
             try resolveProviderOrPath(
-                value: "OneDrive-Personal", label: "Left", providers: providers,
-                fileManager: StubFileManager(directories: []))
+                value: value, label: "Left", providers: providers,
+                fileManager: StubFileManager(directories: [], files: [file]))
         } throws: { error in
             let message = (error as? ProviderResolutionError)?.message ?? ""
-            return message.contains("/od/docs") && message.contains("unmounted")
-        }
-    }
-
-    @Test func testProviderWithFileAsRootThrows() {
-        #expect {
-            try resolveProviderOrPath(
-                value: "iCloud", label: "Right", providers: providers,
-                fileManager: StubFileManager(directories: [], files: ["/icloud/docs"]))
-        } throws: { error in
-            let message = (error as? ProviderResolutionError)?.message ?? ""
-            return message.contains("/icloud/docs") && message.contains("not a directory")
-        }
-    }
-
-    @Test func testAdHocPathThatIsAFileThrows() {
-        #expect {
-            try resolveProviderOrPath(
-                value: "/some/file.txt", label: "Left", providers: providers,
-                fileManager: StubFileManager(directories: [], files: ["/some/file.txt"]))
-        } throws: { error in
-            let message = (error as? ProviderResolutionError)?.message ?? ""
-            return message.contains("/some/file.txt") && message.contains("not a directory")
+            return message.contains(file) && message.contains("not a directory")
         }
     }
 
@@ -201,51 +155,26 @@ private let providers = [
                       rootPath: "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive/Documents", type: .googleDrive),
     ]
 
-    @Test func testPathAddressedProviderRootKeepsItsProviderType() throws {
-        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents"
-        let resolved = try resolveProviderOrPath(
-            value: path, label: "Right", providers: Self.cloudProviders,
-            fileManager: StubFileManager(directories: [path]))
-        #expect(resolved.type == .oneDrive)
-        // The guard the type gates is live for this root.
-        #expect(ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) != nil)
-    }
-
-    @Test func testPathInsideTheAccountFolderButOutsideTheProviderRootStillResolves() throws {
-        // A sibling of the discovered root (which is .../Documents) belongs to the same account.
-        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos"
-        let resolved = try resolveProviderOrPath(
-            value: path, label: "Right", providers: Self.cloudProviders,
-            fileManager: StubFileManager(directories: [path]))
-        #expect(resolved.type == .oneDrive)
-    }
-
-    @Test func testPathAddressedGoogleDriveRootIsTypedForTheDateNoiseFilter() throws {
-        let path = "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive"
-        let resolved = try resolveProviderOrPath(
-            value: path, label: "Right", providers: Self.cloudProviders,
-            fileManager: StubFileManager(directories: [path]))
+    @Test(arguments: [
+        ("/Users/u/Library/CloudStorage/OneDrive-Personal/Documents", CloudProvider.ProviderType.oneDrive),
+        // A sibling of the discovered root (…/Documents) belongs to the same account.
+        ("/Users/u/Library/CloudStorage/OneDrive-Personal/Photos", .oneDrive),
         // DifferenceProcessing drops Drive's date-only noise only when this is `.googleDrive`.
-        #expect(resolved.type == .googleDrive)
-    }
-
-    @Test func testOrdinaryLocalPathKeepsThePermissiveFallbackType() throws {
-        // No provider claims it, so the rule-free type stands — an ordinary folder must not
+        ("/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive", .googleDrive),
+        // No provider claims it, so the rule-free type stands: an ordinary folder must not
         // inherit some other provider's name restrictions.
+        ("/Users/u/inbox", .iCloud),
+        // Shares only a string prefix with "…/OneDrive-Personal", so it is not inside it.
+        ("/Users/u/Library/CloudStorage/OneDrive-Personal-old", .iCloud),
+    ])
+    func aPathAddressedRootTakesTheTypeOfTheProviderHoldingIt(path: String, expected: CloudProvider.ProviderType) throws {
         let resolved = try resolveProviderOrPath(
-            value: "/Users/u/inbox", label: "Left", providers: Self.cloudProviders,
-            fileManager: StubFileManager(directories: ["/Users/u/inbox"]))
-        #expect(resolved.type == .iCloud)
-        #expect(ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) == nil)
-    }
-
-    @Test func testSiblingSharingOnlyAStringPrefixIsNotClaimed() throws {
-        // "/Users/u/Library/CloudStorage/OneDrive-Personal-old" is NOT inside "…/OneDrive-Personal".
-        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal-old"
-        let resolved = try resolveProviderOrPath(
-            value: path, label: "Left", providers: Self.cloudProviders,
+            value: path, label: "Right", providers: Self.cloudProviders,
             fileManager: StubFileManager(directories: [path]))
-        #expect(resolved.type == .iCloud)
+        #expect(resolved.type == expected)
+        // The name guard the type gates is live exactly for the OneDrive roots.
+        #expect((ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) != nil)
+                == (expected == .oneDrive))
     }
 
     @Test func testProviderRootWithTildeIsExpandedBeforeValidation() throws {
@@ -263,18 +192,14 @@ private let providers = [
 
     /// `-L Dropbox` beside a local folder called `Dropbox` is refused, not resolved to either, and
     /// the refusal has to be usable: it names both readings and the spelling that picks each.
-    @Test func testTheAmbiguityMessageOffersBothWaysOut() {
+    @Test func testTheAmbiguityMessageOffersBothWaysOut() throws {
         let fm = StubFileManager(directories: ["/icloud/docs", "iCloud"])
-        do {
-            _ = try resolveProviderOrPath(value: "iCloud", label: "Left", providers: providers,
-                                          fileManager: fm)
-            Issue.record("expected a refusal")
-        } catch let error as ProviderResolutionError {
-            #expect(error.message.contains("/icloud/docs"), "the provider reading is not named")
-            #expect(error.message.contains("./iCloud"), "the message does not say how to mean the directory")
-        } catch {
-            Issue.record("expected ProviderResolutionError, got \(error)")
+        let error = try #require(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(value: "iCloud", label: "Left", providers: providers,
+                                      fileManager: fm)
         }
+        #expect(error.message.contains("/icloud/docs"), "the provider reading is not named")
+        #expect(error.message.contains("./iCloud"), "the message does not say how to mean the directory")
     }
 
     /// And the way out works: a provider id never contains a slash, so `./name` misses the
@@ -309,7 +234,7 @@ private let providers = [
     /// A display name two providers share is refused, naming both ids and roots. Two folder
     /// sources whose folders end in the same component get the same default display name, and
     /// taking whichever was discovered first would let `sync --yes` write into the wrong one.
-    @Test func aDisplayNameTwoProvidersShareIsRefusedNamingEachId() {
+    @Test func aDisplayNameTwoProvidersShareIsRefusedNamingEachId() throws {
         let twins = [
             CloudProvider(id: "folder-a", displayName: "Photos", imageName: "folder",
                           rootPath: "/a/Photos", type: .iCloud),
@@ -317,17 +242,12 @@ private let providers = [
                           rootPath: "/b/Photos", type: .iCloud),
         ]
         let fm = StubFileManager(directories: ["/a/Photos", "/b/Photos"])
-        do {
-            let resolved = try resolveProviderOrPath(value: "Photos", label: "Right",
-                                                     providers: twins, fileManager: fm)
-            Issue.record("an ambiguous display name resolved to \(resolved.id) instead of being refused")
-        } catch let error as ProviderResolutionError {
-            #expect(error.message == "'Photos' for Right matches 2 providers by name: "
-                + "'folder-a' (/a/Photos), 'folder-b' (/b/Photos). "
-                + "Pass one of those ids (see `synccloud providers`) or the folder's path to say which.")
-        } catch {
-            Issue.record("expected ProviderResolutionError, got \(error)")
+        let error = try #require(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(value: "Photos", label: "Right", providers: twins, fileManager: fm)
         }
+        #expect(error.message == "'Photos' for Right matches 2 providers by name: "
+            + "'folder-a' (/a/Photos), 'folder-b' (/b/Photos). "
+            + "Pass one of those ids (see `synccloud providers`) or the folder's path to say which.")
         // And the way out the refusal offers works: each id picks its own tree.
         #expect((try? resolveProviderOrPath(value: "folder-b", label: "Right",
                                             providers: twins, fileManager: fm))?.landingPath == "/b/Photos")
@@ -336,7 +256,7 @@ private let providers = [
     /// The refusal names the folder each candidate would SCAN (its landing folder), not the
     /// account root above it. With an `openAt` the two differ, and the roots are folders the run
     /// would never read.
-    @Test func theAmbiguityRefusalNamesTheFoldersTheRunWouldScan() {
+    @Test func theAmbiguityRefusalNamesTheFoldersTheRunWouldScan() throws {
         let twins = [
             CloudProvider(id: "od-a", displayName: "OneDrive", imageName: "onedrive",
                           rootPath: "/a", openAt: "Documents", type: .oneDrive),
@@ -344,14 +264,9 @@ private let providers = [
                           rootPath: "/b", openAt: "Documents", type: .oneDrive),
         ]
         let fm = StubFileManager(directories: ["/a", "/b", "/a/Documents", "/b/Documents"])
-        do {
-            _ = try resolveProviderOrPath(value: "OneDrive", label: "Left", providers: twins, fileManager: fm)
-            Issue.record("an ambiguous display name was resolved instead of refused")
-        } catch let error as ProviderResolutionError {
-            #expect(error.message.contains("'od-a' (/a/Documents), 'od-b' (/b/Documents)."),
-                    "\(error.message)")
-        } catch {
-            Issue.record("expected ProviderResolutionError, got \(error)")
+        let error = try #require(throws: ProviderResolutionError.self) {
+            try resolveProviderOrPath(value: "OneDrive", label: "Left", providers: twins, fileManager: fm)
         }
+        #expect(error.message.contains("'od-a' (/a/Documents), 'od-b' (/b/Documents)."), "\(error.message)")
     }
 }

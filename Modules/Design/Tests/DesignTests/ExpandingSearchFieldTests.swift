@@ -42,7 +42,7 @@ private final class RevealBox: ObservableObject {
         #expect(caret.held,
                 """
                 the revealed field must hold the caret — no second click \
-                (gave up after \(caret.passes) passes)
+                (gave up after \(caret.pumps) passes)
                 """)
     }
 
@@ -56,7 +56,7 @@ private final class RevealBox: ObservableObject {
         try await Task.sleep(for: .milliseconds(100))
         withAnimation(ExpandingSearch.animation) { box.isExpanded = true }
         let caret = await Self.becomesEditingText(window)
-        #expect(caret.held, "the revealed field must hold the caret in Frosted too (gave up after \(caret.passes) passes)")
+        #expect(caret.held, "the revealed field must hold the caret in Frosted too (gave up after \(caret.pumps) passes)")
     }
 
     // MARK: The field's layout
@@ -110,41 +110,6 @@ private final class RevealBox: ObservableObject {
         #expect(expanded == false)
     }
 
-    // MARK: The floor itself
-
-    /// The floor outlives an expired deadline: with the deadline already spent, a condition that
-    /// never holds is still evaluated `pumpFloor` times. The sweep in `docs/flaky-tests.md` ("Fixed
-    /// pumps and fixed sleeps") finds only unfloored loops and can't see a floor deleted from this
-    /// one, so this test is what guards it.
-    ///
-    /// Drives `pumpUntil`, not `becomesEditingText`: the caret can arrive on the first pass, and a
-    /// condition already true would pass with the floor at zero.
-    @Test func theFloorOutlivesAnExpiredDeadline() async {
-        let window = Self.host(EmptyView())
-        var evaluated = 0
-        let outcome = await Self.pumpUntil(window, timeout: 0) {
-            evaluated += 1
-            return false
-        }
-        #expect(outcome.held == false, "the condition never holds — the wait must say so")
-        #expect(evaluated >= Self.passesDemanded,
-                """
-                the deadline was spent before the first pass, so only the floor can carry this — \
-                the condition was evaluated \(evaluated) times against a demand of \
-                \(Self.passesDemanded)
-                """)
-    }
-
-    /// Pins the production floor's value. The case above doesn't compare against `pumpFloor`,
-    /// since a demand derived from it would drop to zero with the floor and pass against a wait
-    /// with no floor at all.
-    @Test func theProductionFloorIsFifty() {
-        #expect(Self.pumpFloor == 50,
-                "the floor every real wait here uses is now \(Self.pumpFloor) — see docs/flaky-tests.md mechanism 2")
-        #expect(Self.passesDemanded <= Self.pumpFloor,
-                "the demand above must be reachable within the floor, or it measures the deadline")
-    }
-
     // MARK: Fixtures
 
     /// Mounts a view in an off-screen key window and lets AppKit lay it out.
@@ -169,44 +134,12 @@ private final class RevealBox: ObservableObject {
         return responder.isKind(of: NSTextView.self)
     }
 
-    /// Ten times what a starved run was measured to need, so the floor carries this wait on its
-    /// own. Same number and reason as `LayoutPumpWait.pumpFloor`; this wait polls a window's first
-    /// responder, not a hosting view's layout, so it keeps its own loop.
-    private static let pumpFloor = 50
-
-    /// What `theFloorOutlivesAnExpiredDeadline` demands. A literal, not derived from `pumpFloor`,
-    /// so zeroing the floor can't zero the expectation with it.
-    private static let passesDemanded = 25
-
-    /// Pumps `window`'s layout until `condition` holds, or until both the deadline has passed and
-    /// `pumpFloor` passes have been made.
-    ///
-    /// Seconds alone are the wrong bound: this waits on main-actor turns, which a congested host
-    /// delivers at no fixed rate, so a longer ceiling buys nothing (`docs/flaky-tests.md`, "Fixed
-    /// pumps and fixed sleeps"). The floor is the bound that means something. It takes no `floor:`
-    /// argument, so nothing here can lower it.
-    ///
-    /// Returns the pass count too: a wait that gave up after a handful of passes was starved, one
-    /// after a thousand was disproved, and elapsed time can't tell them apart.
-    private static func pumpUntil(_ window: NSWindow, timeout: TimeInterval,
-                                  _ condition: () -> Bool) async -> (held: Bool, passes: Int) {
-        var passes = 0
-        let deadline = Date().addingTimeInterval(timeout)
-        while passes < pumpFloor || Date() < deadline {
-            passes += 1
-            window.layoutIfNeeded()
-            if condition() { return (true, passes) }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        return (condition(), passes + 1)
-    }
-
     /// Polls until a text editor holds first responder, pumping layout each pass so AppKit can
     /// finish standing up the field editor. 15s matches the ceiling the FileExplorer mounted
     /// suites use for a loaded run of the whole test host.
     private static func becomesEditingText(_ window: NSWindow,
-                                           timeout: TimeInterval = 15) async -> (held: Bool, passes: Int) {
-        await pumpUntil(window, timeout: timeout) { isEditingText(window) }
+                                           timeout: TimeInterval = 15) async -> (held: Bool, pumps: Int) {
+        await LayoutPumpWait.pump(window, upTo: timeout) { isEditingText(window) }
     }
 }
 

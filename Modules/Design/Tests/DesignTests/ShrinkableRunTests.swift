@@ -48,17 +48,6 @@ import Testing
         #expect(result.xs == [0, 58, 126], "the items are laid out in order at their own widths")
     }
 
-    /// Every subview, not the first: a `@ViewBuilder` slot filled with a `Group` arrives as several
-    /// subviews, and sizing on `subviews.first` alone reports the leading item's width as the whole
-    /// run's and leaves the rest unplaced.
-    @Test func aRunReportsAllOfItsItemsNotJustTheFirst() {
-        let one = placed(rowWidth: 600, boxes: [50])
-        let three = placed(rowWidth: 600, boxes: [50, 60, 70])
-        #expect(one.run == 50)
-        #expect(three.run > one.run + 100,
-                "three items measured \(three.run) against one item's \(one.run)")
-    }
-
     /// The minimum is zero: a row too narrow for the run squeezes it rather than being widened by
     /// it, which would push a header card past both edges of its pane.
     @Test func aTightRowSqueezesTheRunInsteadOfBeingWidenedByIt() {

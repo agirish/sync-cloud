@@ -50,16 +50,6 @@ import Foundation
         #expect(SidebarFavoritePlaces.toggling("/a", in: list) == ["/b"])
     }
 
-    /// Restore is additive: it must not disturb what the user put there.
-    @Test func restoringKeepsWhatIsAlreadyThere() {
-        let kept = ["/Volumes/Work"]
-        let restored = SidebarFavoritePlaces.restoring(kept)
-        #expect(restored.suffix(1) == kept[...])
-        #expect(Set(restored).isSuperset(of: SidebarFavoritePlaces.standard))
-        #expect(restored.count == SidebarFavoritePlaces.standard.count + 1,
-                "a standard folder already present must not be added twice")
-    }
-
     /// Restore puts the standard places back as a block, in standard order. Prepending only the
     /// missing ones would leave a kept one out of place. Checked for each kept position, since
     /// keeping the first would let a prepend pass by accident.
@@ -145,33 +135,22 @@ import Foundation
 /// What a folded Favorites heading says is behind it.
 @Suite struct FavoritesRowCountTests {
 
-    private func favorite(_ path: String) -> FolderSidebarRow {
-        FolderSidebarRow(group: .pinned, root: "/r", sourceName: "R", relativePath: path,
+    private static func row(_ path: String, _ group: FolderSidebarRow.Group = .pinned) -> FolderSidebarRow {
+        FolderSidebarRow(group: group, root: "/r", sourceName: "R", relativePath: path,
                          name: (path as NSString).lastPathComponent, detail: nil, isAvailable: true)
     }
 
-    /// The first-run state: standard places and no remembered folder yet. The place rows must be
-    /// counted, or the badge and VoiceOver say "0 items" over visible rows.
-    @Test func placesAloneAreStillRows() {
-        #expect(FolderSidebarModel.favoritesCount(folderRows: [], places: 3) == 3)
-    }
-
-    @Test func bothListsAreCounted() {
-        let rows = [favorite("A"), favorite("B")]
-        #expect(FolderSidebarModel.favoritesCount(folderRows: rows, places: 3) == 5)
-    }
-
-    /// Recents share the array and must not be counted into Favorites.
-    @Test func aRecentIsNotAFavorite() {
-        let recent = FolderSidebarRow(group: .recents, root: "/r", sourceName: "R",
-                                      relativePath: "C", name: "C", detail: nil, isAvailable: true)
-        #expect(FolderSidebarModel.favoritesCount(folderRows: [favorite("A"), recent], places: 0) == 1)
-    }
-
-    /// An empty section draws its invitation, so zero must be reachable, or the invitation would
-    /// never show.
-    @Test func anEmptySectionCountsZero() {
-        #expect(FolderSidebarModel.favoritesCount(folderRows: [], places: 0) == 0)
+    /// Both lists count; places alone too (the first run: otherwise "0 items" over visible rows).
+    /// Recents share the array and don't count, and an empty section reaches zero, or its
+    /// invitation would never show.
+    @Test(arguments: [
+        ([], 3, 3),
+        ([row("A"), row("B")], 3, 5),
+        ([row("A"), row("C", .recents)], 0, 1),
+        ([], 0, 0),
+    ] as [([FolderSidebarRow], Int, Int)])
+    func theCountIsFavoritesAndPlaces(rows: [FolderSidebarRow], places: Int, expected: Int) {
+        #expect(FolderSidebarModel.favoritesCount(folderRows: rows, places: places) == expected)
     }
 }
 

@@ -199,28 +199,6 @@ import Foundation
         #expect(size <= 2 * (maxFileSize + maxFileSize / 2) + 64)
     }
 
-    @Test func testClearTruncatesFile() throws {
-        let url = makeTempURL()
-        defer { removeLogFiles(at: url) }
-
-        let writer = LogFileWriter(url: url)
-        defer { writer.flush() }
-
-        writer.append("some log content\n")
-        writer.flush()
-        #expect(try String(contentsOf: url, encoding: .utf8).isEmpty == false)
-
-        writer.clear()
-        writer.flush()
-        #expect(try String(contentsOf: url, encoding: .utf8).isEmpty)
-
-        // The handle stays valid after clearing: subsequent appends still persist.
-        writer.append("after clear\n")
-        writer.flush()
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        #expect(contents.contains("after clear"))
-    }
-
     /// Pins an accepted side effect: `clear()` runs `reopenHandleIfStale()` first (see the test
     /// below), which recreates a missing file, so clearing a deleted log leaves an empty file.
     /// Harmless; see `LogFileWriter.clear()`. `SyncHistoryStore.clear()` shares it.

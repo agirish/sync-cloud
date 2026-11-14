@@ -21,7 +21,7 @@ enum SettingsSheetMetrics {
     /// 15–30pt inside its opening (Appearance ▸ Look, under its strip), so a copy edit can't push it
     /// into scrolling and no dead air builds up. When that page grows, raise this deliberately;
     /// when it is trimmed, lower this. Never widen the bound. Keep it under the ~692pt a 1280×800
-    /// display's window clamps the sheet to (`theClampedOpeningFitsTheSmallerTextSizesOnly`).
+    /// display's window clamps the sheet to (`theClampedOpeningFitsEveryTextSize`).
     ///
     /// 648pt until TE332 split the tabs into pages and cut the captions to a line: the tallest page
     /// then had 158pt to spare.

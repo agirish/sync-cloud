@@ -45,28 +45,12 @@ import Testing
         return offscreenBitmap(AnyView(subject), size: Self.canvas)
     }
 
-    /// Pixels differing by more than a hair between two renders of the same canvas. Every pixel,
-    /// not a grid: a keycap is a small object and the point of this count is to notice it.
-    private func pixelsDiffering(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) -> Int {
-        var differing = 0
-        for y in 0..<min(lhs.pixelsHigh, rhs.pixelsHigh) {
-            for x in 0..<min(lhs.pixelsWide, rhs.pixelsWide) {
-                guard let a = lhs.colorAt(x: x, y: y), let b = rhs.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(a.redComponent - b.redComponent),
-                                max(abs(a.greenComponent - b.greenComponent),
-                                    abs(a.blueComponent - b.blueComponent)))
-                if delta > 0.02 { differing += 1 }
-            }
-        }
-        return differing
-    }
-
     // MARK: Zero layout shift
 
     /// A badged control is the same size whether the reveal is on or off, so nothing moves under a
     /// settled pointer. Measured by `fittingSize`, so it fails if the overlay becomes, say, an
     /// `HStack`.
-    @Test(.machinePinned(.pixelSampling)) func aBadgedControlIsTheSameSizeInBothStates() {
+    @Test func aBadgedControlIsTheSameSizeInBothStates() {
         for subject in Self.subjects() {
             let off = hosted(subject.view.shortcutKeycap("⇧⌘→"),
                              revealed: false).fittingSize
@@ -78,7 +62,7 @@ import Testing
 
     /// ...and the modifier costs the control nothing even to adopt: an unbadged control and a
     /// badged one at rest measure the same, so wiring a keycap onto a bar cannot reflow it.
-    @Test(.machinePinned(.pixelSampling)) func adoptingTheBadgeDoesNotChangeARestingControl() {
+    @Test func adoptingTheBadgeDoesNotChangeARestingControl() {
         for subject in Self.subjects() {
             let bare = hosted(subject.view, revealed: false).fittingSize
             let badged = hosted(subject.view.shortcutKeycap("⇧⌘→"),
@@ -88,7 +72,7 @@ import Testing
     }
 
     /// A long shortcut must not be the exception. `⇧⌘→` is the widest string any adopter passes.
-    @Test(.machinePinned(.pixelSampling)) func aWideKeycapStillCostsTheControlNothing() {
+    @Test func aWideKeycapStillCostsTheControlNothing() {
         let view = Button("Review 12") {}.buttonStyle(.actionBar(.outline, tint: Self.tint, onTint: .white))
         let narrow = hosted(view.shortcutKeycap("↩"), revealed: true).fittingSize
         let wide = hosted(view.shortcutKeycap("⇧⌘→"), revealed: true).fittingSize
@@ -108,7 +92,7 @@ import Testing
                 Issue.record("\(subject.name): no bitmap rep")
                 continue
             }
-            let changed = pixelsDiffering(off, on)
+            let changed = Pixel.differing(off, on)
             // A keycap here is roughly 22×14 points, ~1200 pixels at 2x. 200 sits far below a real
             // badge and far above what an anti-aliasing difference could account for.
             #expect(changed > 200,
@@ -126,7 +110,7 @@ import Testing
                 Issue.record("\(subject.name): no bitmap rep")
                 continue
             }
-            let changed = pixelsDiffering(bare, badged)
+            let changed = Pixel.differing(bare, badged)
             #expect(changed == 0, "\(subject.name): \(changed) pixels differ at rest")
         }
     }
@@ -146,7 +130,7 @@ import Testing
                 Issue.record("\(subject.name): no bitmap rep")
                 continue
             }
-            #expect(pixelsDiffering(off, on) == 0,
+            #expect(Pixel.differing(off, on) == 0,
                     "\(subject.name): a disabled control painted a keycap during the reveal")
         }
     }
@@ -163,7 +147,7 @@ import Testing
               let on = render(wrongOrder, revealed: true) else {
             Issue.record("no bitmap rep"); return
         }
-        #expect(pixelsDiffering(off, on) > 200,
+        #expect(Pixel.differing(off, on) > 200,
                 "the ordering rule is no longer load-bearing: if the modifier now sees through `.disabled` from outside, drop the ordering note from the doc comment")
     }
 
@@ -180,7 +164,7 @@ import Testing
                 Issue.record("\(subject.name): no bitmap rep")
                 continue
             }
-            #expect(pixelsDiffering(off, on) == 0,
+            #expect(Pixel.differing(off, on) == 0,
                     "\(subject.name): a control with no chord painted a keycap during the reveal")
         }
     }
@@ -274,10 +258,10 @@ import Testing
         }
         // Vacuity guard: two blank canvases would satisfy the comparison below too. `.actionBar`
         // dims a disabled control rather than hiding it, so something must be there to compare.
-        #expect(pixelsDiffering(a, blank) > 200,
+        #expect(Pixel.differing(a, blank) > 200,
                 "\(weight): the disabled control painted nothing — the comparison below is vacuous")
-        #expect(pixelsDiffering(a, b) == 0,
-                "\(weight): the reorder changed \(pixelsDiffering(a, b)) pixels of the disabled control")
+        #expect(Pixel.differing(a, b) == 0,
+                "\(weight): the reorder changed \(Pixel.differing(a, b)) pixels of the disabled control")
     }
 
     // MARK: Contrast

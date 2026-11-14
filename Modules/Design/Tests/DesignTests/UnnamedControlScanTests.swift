@@ -28,7 +28,7 @@ import Testing
     /// dropped and a trailing `//` is cut where it stands outside a string literal.
     private static func chain(in lines: [String], from start: Int) -> String {
         let base = lines[start].prefix { $0 == " " }.count
-        var code = [AccentFillScanTests.codeOnly(lines[start])]
+        var code = [SourceComments.codeOnly(lines[start])]
         var end = start + 1
         while end < lines.count {
             let raw = lines[end]
@@ -41,7 +41,7 @@ import Testing
             let continues = trimmed.hasPrefix(".") || trimmed.hasPrefix("}")
                 || trimmed.hasPrefix(")") || trimmed.hasPrefix("]")
             if ind <= base && !continues { break }
-            code.append(AccentFillScanTests.codeOnly(raw))
+            code.append(SourceComments.codeOnly(raw))
             end += 1
         }
         return code.joined(separator: "\n")
@@ -135,7 +135,7 @@ import Testing
         #expect(!block.contains("accessibilityLabel"),
                 "a comment's mention of accessibilityLabel counted as the control's name")
         // A `//` inside a string survives the cut.
-        #expect(AccentFillScanTests.codeOnly(#".help("See https://example.com") // note"#) == #".help("See https://example.com") "#)
+        #expect(SourceComments.codeOnly(#".help("See https://example.com") // note"#) == #".help("See https://example.com") "#)
     }
 
     /// A switch with an empty title must be named some other way. `Toggle("")` with its label

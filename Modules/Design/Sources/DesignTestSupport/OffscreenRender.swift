@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// `view` drawn at `size` in a borderless window that is never ordered in or made key, read back as
-/// a bitmap: the render-and-read rig the pixel suites in this target share. The window is held
+/// a bitmap: the render-and-read rig the pixel suites in every UI test target share. The window is held
 /// until the capture, or the appearance and colour space stop applying.
 ///
 /// - `appearance`: the window's, or nil to leave it unset.
@@ -12,7 +12,7 @@ import SwiftUI
 ///   controls that finish drawing a turn later.
 /// - `close`: close the window once captured.
 @MainActor
-func offscreenBitmap<V: View>(_ view: V, size: CGSize, appearance: NSAppearance.Name? = .aqua,
+public func offscreenBitmap<V: View>(_ view: V, size: CGSize, appearance: NSAppearance.Name? = .aqua,
                               sRGB: Bool = true, layoutPasses: Int = 1, settle: TimeInterval = 0,
                               close: Bool = false) -> NSBitmapImageRep? {
     let host = NSHostingView(rootView: view)

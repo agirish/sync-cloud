@@ -26,33 +26,13 @@ import Testing
         return (ShortcutRevealTracker(now: { clock.now }), clock)
     }
 
-    /// The fewest polls this wait makes before it may give up, however little of its deadline is
-    /// left. Same number and reason as `LayoutPumpWait.pumpFloor` in the Dashboard and FileExplorer
-    /// test targets: a deadline is in seconds, what this waits for arrives on main-actor turns, and
-    /// under full-suite load a few seconds can buy only a handful of polls
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
-    private static let pollFloor = 50
-
-    /// Bounded, and fails on expiry naming the call site, so a regression can't hang the suite. It
-    /// gives up only once the deadline has passed and `pollFloor` polls have been made. The poll
-    /// count goes in the message: a wait that gave up after 4 was starved, one after 50 disproved.
-    ///
-    /// Only the floor's own case below overrides `floor`, since it asserts a shape that doesn't
-    /// depend on the floor's size and a poll can cost seconds on a saturated CI main actor. Every
-    /// real wait here takes the default.
+    /// Bounded by `LayoutPumpWait.poll` and its floor; fails naming the call site, with the poll
+    /// count: a wait that gave up after 4 was starved, one after 50 disproved.
     private func waitUntil(_ what: Comment,
-                           timeout: TimeInterval = 5,
-                           floor: Int = ShortcutRevealTrackerTests.pollFloor,
                            sourceLocation: SourceLocation = #_sourceLocation,
                            _ condition: () -> Bool) async {
-        var polls = 0
-        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while polls < floor || ContinuousClock.now < deadline {
-            polls += 1
-            if condition() { return }
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(condition(), "\(what.rawValue) — still false after \(polls) polls",
+        let wait = await LayoutPumpWait.poll(upTo: 5, until: condition)
+        #expect(wait.held, "\(what.rawValue) — still false after \(wait.passes) polls",
                 sourceLocation: sourceLocation)
     }
 
@@ -137,48 +117,6 @@ import Testing
         // ...and it still actually arrives.
         clock.advance(by: hold / 2)
         await waitUntil("the reveal lands on the original deadline") { tracker.isActive }
-    }
-
-    // MARK: The floor itself
-
-    /// How many polls the case below demands. A literal, not derived from the floor: a demand that
-    /// moved with the floor would shrink with it and let the case pass vacuously.
-    private static let pollsDemanded = 3
-
-    /// The floor the case below runs against: five, not the production fifty. A literal, like
-    /// ``pollsDemanded``, so it can't move with the floor.
-    private static let testFloor = 5
-
-    /// The demand must be reachable within the floor. The only case that catches a floor lowered to
-    /// just under the demand: the post-deadline `#expect` evaluates the condition once more, so a
-    /// floor of N gives N + 1 evaluations.
-    @Test func theDemandUsedByTheFloorCaseSitsBelowTheFloor() {
-        #expect(Self.pollsDemanded < Self.testFloor,
-                "\(Self.pollsDemanded) polls is not reachable within a floor of \(Self.testFloor) — the floor case below would be measuring the deadline")
-    }
-
-    /// Pins the production floor at fifty, which the case below can't see. Fifty is the figure
-    /// measured in `docs/flaky-tests.md` ("Fixed pumps and fixed sleeps"), the same as
-    /// `LayoutPumpWait.pumpFloor`, because main-actor turns are what starve either way.
-    @Test func theProductionPollFloorIsStillFifty() {
-        #expect(Self.pollFloor == 50,
-                "the floor every real wait here uses is now \(Self.pollFloor) — see docs/flaky-tests.md mechanism 2")
-        #expect(Self.testFloor < Self.pollFloor, "the test floor is no longer the cheaper one")
-    }
-
-    /// The floor outlives an expired deadline. The failure it prevents shows only under load, but
-    /// the guarantee is deterministic, so it is tested with a counter and a spent deadline. Each of
-    /// the repo's four floors has a test like this (`LayoutPumpWait.pumpFloor`, both
-    /// `waitPollFloor` copies). `waitUntil` records its own failure if it gives up.
-    @Test func theFloorOutlivesAnExpiredDeadline() async {
-        var polls = 0
-        await waitUntil("a condition needing \(Self.pollsDemanded) polls never held",
-                        timeout: 0, floor: Self.testFloor) {
-            polls += 1
-            return polls >= Self.pollsDemanded
-        }
-        #expect(polls >= Self.pollsDemanded,
-                "the condition was evaluated only \(polls) times against a floor of \(Self.testFloor)")
     }
 
     /// Nothing armed, nothing scheduled: the timer is torn down rather than left to fire into a

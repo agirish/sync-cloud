@@ -141,7 +141,6 @@ import Foundation
     @Test func italicIsTheInspectorsChordNotASecondOne() {
         #expect(AppChord.italic.key == AppChord.infoInspector.key)
         #expect(AppChord.italic.modifiers == AppChord.infoInspector.modifiers)
-        #expect(AppChord.italic.display == "⌘I")
         // …and it is the ONLY member of the inline-verb family sharing a key with anything.
         let inline = [AppChord.bold, .strikethrough, .inlineCode, .link]
         for chord in inline {

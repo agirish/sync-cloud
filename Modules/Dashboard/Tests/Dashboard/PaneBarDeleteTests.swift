@@ -22,14 +22,10 @@ import Design
     }
 
     /// …and one that passes a handler does, or a gate that always says no would look the same as a
-    /// control never wired.
-    @Test func testAHeaderWithAHandlerOffersDelete() {
+    /// control never wired. An empty selection disables the rung, it doesn't remove it: a control
+    /// that vanished would reflow the bar on every click in the tree.
+    @Test func testAHeaderWithAHandlerOffersDeleteEvenWithNothingSelected() {
         #expect(Self.header(onDelete: {}).availableItems.contains(.delete))
-    }
-
-    /// An empty selection disables the rung, it doesn't remove it: a control that vanished would
-    /// reflow the bar on every click in the tree.
-    @Test func testAnEmptySelectionStillOffersTheItem() {
         #expect(Self.header(onDelete: {}, selectionCount: 0).availableItems.contains(.delete))
     }
 

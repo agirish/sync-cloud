@@ -11,24 +11,6 @@ import Foundation
 /// turns the report into an in-memory warning entry.
 @Suite struct LogDiskWriteFailureTests {
 
-    /// Collects the writer's callbacks, which arrive on the writer's own background queue.
-    private final class FailureCollector: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: [String] = []
-
-        func record(_ reason: String) {
-            lock.lock()
-            storage.append(reason)
-            lock.unlock()
-        }
-
-        var reasons: [String] {
-            lock.lock()
-            defer { lock.unlock() }
-            return storage
-        }
-    }
-
     /// A path in a directory that doesn't exist, so both write paths fail: no handle can open, and
     /// the fallback's atomic write has no directory. An unwritable file isn't enough, since an
     /// atomic replace needs only directory permission.
@@ -40,8 +22,8 @@ import Foundation
 
     @Test func testAFailedDiskWriteIsReportedOnceNotPerLine() {
         let url = makeUnwritableURL()
-        let collector = FailureCollector()
-        let writer = LogFileWriter(url: url, onWriteFailure: { collector.record($0) })
+        let collector = FailureSpy()
+        let writer = LogFileWriter(url: url, onWriteFailure: { collector.append($0) })
 
         writer.append("first\n")
         writer.append("second\n")
@@ -51,8 +33,8 @@ import Foundation
         // The control: the writes really did fail, so the assertions below test the signal.
         #expect(!FileManager.default.fileExists(atPath: url.path))
         // Exactly one: three failing lines must not cost three reports.
-        #expect(collector.reasons.count == 1)
-        #expect(collector.reasons.first?.isEmpty == false)
+        #expect(collector.lines.count == 1)
+        #expect(collector.lines.first?.isEmpty == false)
     }
 
     @Test func testAHealthyWriterNeverReportsAFailure() throws {
@@ -60,14 +42,14 @@ import Foundation
             .appendingPathComponent("LogWriteOK-\(UUID().uuidString).log")
         defer { removeLogFiles(at: url) }
 
-        let collector = FailureCollector()
-        let writer = LogFileWriter(url: url, onWriteFailure: { collector.record($0) })
+        let collector = FailureSpy()
+        let writer = LogFileWriter(url: url, onWriteFailure: { collector.append($0) })
         defer { writer.flush() }
         writer.append("a line\n")
         writer.flush()
 
         #expect(try String(contentsOf: url, encoding: .utf8) == "a line\n")
-        #expect(collector.reasons.isEmpty)
+        #expect(collector.lines.isEmpty)
     }
 
     /// The trim's atomic write of the surviving tail can fail for the same reasons an append can,
@@ -88,15 +70,15 @@ import Foundation
             .write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
 
-        let collector = FailureCollector()
-        let writer = LogFileWriter(url: url, maxFileSize: 1024, onWriteFailure: { collector.record($0) })
+        let collector = FailureSpy()
+        let writer = LogFileWriter(url: url, maxFileSize: 1024, onWriteFailure: { collector.append($0) })
         defer { writer.flush() }
         writer.flush()
 
         // Still oversized, proof the trim really failed, and the failure was reported.
         let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
         #expect((size ?? 0) > 1024)
-        #expect(collector.reasons.count == 1)
+        #expect(collector.lines.count == 1)
     }
 
     // MARK: The latch re-arms
@@ -114,39 +96,39 @@ import Foundation
         let (directory, url) = makeSwitchableLogURL()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let failures = FailureCollector()
-        let recoveries = FailureCollector()
+        let failures = FailureSpy()
+        let recoveries = FailureSpy()
         let writer = LogFileWriter(url: url,
-                                   onWriteFailure: { failures.record($0) },
-                                   onWriteRecovered: { recoveries.record("recovered") })
+                                   onWriteFailure: { failures.append($0) },
+                                   onWriteRecovered: { recoveries.append("recovered") })
         defer { writer.flush() }
 
         // Broken: no directory, so neither the handle nor the fallback can write.
         writer.append("lost\n")
         writer.flush()
-        #expect(failures.reasons.count == 1)
-        #expect(recoveries.reasons.isEmpty)
+        #expect(failures.lines.count == 1)
+        #expect(recoveries.lines.isEmpty)
 
         // Healed.
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         writer.append("kept\n")
         writer.flush()
         #expect(try String(contentsOf: url, encoding: .utf8).contains("kept"))
-        #expect(recoveries.reasons.count == 1)
+        #expect(recoveries.lines.count == 1)
 
         // Broken again: this second failure must be reported too, since the first notice lives in
         // memory only and may be gone by now. Fails if the latch never re-arms.
         try FileManager.default.removeItem(at: directory)
         writer.append("lost again\n")
         writer.flush()
-        #expect(failures.reasons.count == 2)
+        #expect(failures.lines.count == 2)
 
         // Still rate-limited within a failure run.
         writer.append("lost too\n")
         writer.append("and again\n")
         writer.flush()
-        #expect(failures.reasons.count == 2)
-        #expect(recoveries.reasons.count == 1)
+        #expect(failures.lines.count == 2)
+        #expect(recoveries.lines.count == 1)
     }
 
     @Test func testClearRearmsTheFailureReportWithoutClaimingARecovery() throws {
@@ -154,11 +136,11 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let failures = FailureCollector()
-        let recoveries = FailureCollector()
+        let failures = FailureSpy()
+        let recoveries = FailureSpy()
         let writer = LogFileWriter(url: url,
-                                   onWriteFailure: { failures.record($0) },
-                                   onWriteRecovered: { recoveries.record("recovered") })
+                                   onWriteFailure: { failures.append($0) },
+                                   onWriteRecovered: { recoveries.append("recovered") })
         defer { writer.flush() }
         writer.append("healthy\n")
         writer.flush()
@@ -168,21 +150,21 @@ import Foundation
         try FileManager.default.removeItem(at: directory)
         writer.append("lost\n")
         writer.flush()
-        #expect(failures.reasons.count == 1)
+        #expect(failures.lines.count == 1)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         writer.clear()
         writer.flush()
         // A successful truncate doesn't prove lines will land, and the notice a recovery would
         // pair with is gone, so the clear re-arms silently.
-        #expect(recoveries.reasons.isEmpty)
+        #expect(recoveries.lines.isEmpty)
 
         // Break it again: the re-armed report must fire, or the window could never again say the
         // log isn't being written.
         try FileManager.default.removeItem(at: directory)
         writer.append("lost after clear\n")
         writer.flush()
-        #expect(failures.reasons.count == 2)
+        #expect(failures.lines.count == 2)
     }
 
     @Test func testAFailedClearIsReportedThroughTheSameSignal() {
@@ -190,15 +172,15 @@ import Foundation
         // wrong with the file. A clear that silently fails leaves the history on disk while the
         // window says it is gone. Fails if the fallback's error is swallowed.
         let url = makeUnwritableURL()
-        let failures = FailureCollector()
-        let writer = LogFileWriter(url: url, onWriteFailure: { failures.record($0) })
+        let failures = FailureSpy()
+        let writer = LogFileWriter(url: url, onWriteFailure: { failures.append($0) })
 
         writer.clear()
         writer.flush()
 
         #expect(!FileManager.default.fileExists(atPath: url.path))   // the clear really did fail
-        #expect(failures.reasons.count == 1)
-        #expect(failures.reasons.first?.isEmpty == false)
+        #expect(failures.lines.count == 1)
+        #expect(failures.lines.first?.isEmpty == false)
     }
 
     /// The product-level half: a `Logger` whose file can't be written says so once in the entries
@@ -218,12 +200,7 @@ import Foundation
 
         // The notice is enqueued from the writer's background queue, so it reaches `entries` on a
         // later main-actor hop than the awaited info lines.
-        var waits = 0
-        while notices().isEmpty && waits < 200 {
-            try await Task.sleep(nanoseconds: 10_000_000)
-            waits += 1
-        }
-        #expect(notices().count == 1)
+        #expect(await LayoutPumpWait.poll(upTo: 2) { notices().count == 1 }.held)
         #expect(notices().first?.message.contains(url.lastPathComponent) == true)
 
         // Drain once more, then confirm the count is still one: further failing lines must not add
@@ -252,30 +229,20 @@ import Foundation
         func recoveries() -> [LogEntry] {
             logger.entries.filter { $0.level == .info && $0.message.contains("is being written again") }
         }
-        /// The notices arrive a main-actor hop behind the awaited log lines, so each assertion
-        /// waits for its count rather than reading once and racing.
-        func wait(for condition: @MainActor () -> Bool) async throws -> Bool {
-            var waits = 0
-            while !condition() && waits < 200 {
-                try await Task.sleep(nanoseconds: 10_000_000)
-                waits += 1
-            }
-            return condition()
-        }
-
+        // The notices arrive a main-actor hop behind the awaited lines, so each count is polled.
         await logger.info("while broken").value
         logger.flushToDisk()
-        #expect(try await wait { notices().count == 1 })
+        #expect(await LayoutPumpWait.poll(upTo: 2) { notices().count == 1 }.held)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         await logger.info("after the volume came back").value
         logger.flushToDisk()
-        #expect(try await wait { recoveries().count == 1 })
+        #expect(await LayoutPumpWait.poll(upTo: 2) { recoveries().count == 1 }.held)
 
         try FileManager.default.removeItem(at: directory)
         await logger.info("broken again").value
         logger.flushToDisk()
-        #expect(try await wait { notices().count == 2 })
+        #expect(await LayoutPumpWait.poll(upTo: 2) { notices().count == 2 }.held)
 
         // And the rate limit still holds inside the second run.
         await logger.info("still broken").value

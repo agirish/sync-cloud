@@ -148,9 +148,9 @@ attempt at this note counted 20.
 `SYNCCLOUD_SKIP_MACHINE_PINNED` selects what to exclude: `all`, or a
 comma-separated list of reasons. **Unset runs everything**, so nobody working on
 the recording machine needs to know it exists. An unrecognised value excludes
-nothing — it fails safe, running more rather than silently skipping. The one
-XCTest holdout, `HoverTintRenderTests`, opts into the same gate via
-`XCTSkipIf`, since traits are a Swift Testing feature.
+nothing — it fails safe, running more rather than silently skipping. An XCTest
+suite opts into the same gate via `XCTSkipIf(MachinePinnedGate.isExcluded(…))`,
+since traits are a Swift Testing feature.
 
 **Why a marker and not a name.** This replaced `--skip SnapshotTests`, which
 selected by *type name* and therefore missed twelve equally machine-pinned

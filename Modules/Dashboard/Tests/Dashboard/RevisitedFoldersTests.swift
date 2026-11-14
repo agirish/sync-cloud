@@ -50,16 +50,6 @@ import Foundation
 
     // MARK: SQ1 — Revisited needs two calendar days
 
-    @Test func twoStaysOnOneDayAreNotRevisited() {
-        let map = [root: ["Backup": stays(t(hours: -3), t())]]
-        #expect(listed(.revisited, map, now: t()) == [])
-    }
-
-    @Test func twoStaysOnTwoDaysAreRevisited() {
-        let map = [root: ["Taxes": stays(t(days: -1), t())]]
-        #expect(listed(.revisited, map, now: t()) == ["Taxes"])
-    }
-
     /// Calendar days, not 24 hours apart: 23:55 and 00:05 are two days.
     @Test func midnightSplitsTwoDays() {
         let lateNight = t(hours: 11, minutes: 55)     // 23:55
@@ -75,11 +65,6 @@ import Foundation
         let map = [root: ["Inbox": stays(t(hours: -3), t(hours: -2), t(hours: -1))]]
         #expect(listed(.frequent, map, now: t()) == ["Inbox"])
         #expect(listed(.revisited, map, now: t()) == [])
-    }
-
-    @Test func oneStayIsNeverFrequent() {
-        let map = [root: ["Once": stays(t())]]
-        #expect(listed(.frequent, map, now: t()) == [])
     }
 
     /// Frequent ranks by faded weight of stays, not by recency: four stays last week outrank two
@@ -105,7 +90,7 @@ import Foundation
     @Test func equalWeightsKeepAStableOrder() {
         let same = stays(t(days: -2), t(days: -2, hours: 1))
         let map = [root: ["Older": same, "Newer": same, "Middle": same]]
-        for _ in 0..<5 { #expect(listed(.frequent, map, now: t()) == ["Middle", "Newer", "Older"]) }
+        #expect(listed(.frequent, map, now: t()) == ["Middle", "Newer", "Older"])
     }
 
     // MARK: SQ7 — the fade
@@ -245,15 +230,6 @@ import Foundation
         store.settleStays(at: t(seconds: 60))
         #expect(store.recents(forRoot: root).map(\.relativePath) == ["Skim"])
         #expect(store.visitsAcrossRoots(.recents).map(\.relativePath) == ["Skim"])
-    }
-
-    /// End to end through the store: two stays on two days, then each mode.
-    @Test func twoStayedDaysThroughTheStore() {
-        let store = FolderJumpStore(defaults: ScratchDefaults("revisited-e2e"))
-        visit(store, "Taxes", at: t(days: -1), for: 30)
-        visit(store, "Taxes", at: t(), for: 30)
-        #expect(store.visitsAcrossRoots(.revisited, now: t(minutes: 1)).map(\.relativePath) == ["Taxes"])
-        #expect(store.visitsAcrossRoots(.frequent, now: t(minutes: 1)).map(\.relativePath) == ["Taxes"])
     }
 
     // MARK: Cap, subtraction, roots

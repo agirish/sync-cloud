@@ -39,18 +39,7 @@ import Design
             .frame(width: Self.canvas.width, height: Self.canvas.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(column))
-        host.frame = CGRect(origin: .zero, size: Self.canvas)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = NSColorSpace.sRGB
-        window.contentView = host
-        for _ in 0..<3 { host.layoutSubtreeIfNeeded() }
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return ProbeRig(AnyView(column), size: Self.canvas).capture()
     }
 
     /// The scanlines on which two renders differ, top to bottom.

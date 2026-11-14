@@ -16,17 +16,20 @@ import Testing
 
     /// Every call site's size, in both appearances, since an appearance-driven presentation could
     /// measure one way in light and another in dark.
+    /// A brand name and an SF Symbol (a folder source's mark) take the same outer frame.
     @Test func measuresItsDeclaredSizeInEitherAppearance() {
-        for size in [CGFloat(16), 26, 28] {
-            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-                #expect(laidOutSize(size: size, appearance: appearance)
-                        == CGSize(width: size, height: size))
+        for name in ["icloud", "folder.fill"] {
+            for size in [CGFloat(16), 26, 28] {
+                for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                    #expect(laidOutSize(name, size: size, appearance: appearance)
+                            == CGSize(width: size, height: size), "\(name) at \(size)")
+                }
             }
         }
     }
 
-    private func laidOutSize(size: CGFloat, appearance: NSAppearance.Name) -> CGSize {
-        let host = NSHostingView(rootView: AnyView(ProviderLogo("icloud", size: size)))
+    private func laidOutSize(_ name: String, size: CGFloat, appearance: NSAppearance.Name) -> CGSize {
+        let host = NSHostingView(rootView: AnyView(ProviderLogo(name, size: size)))
         host.appearance = NSAppearance(named: appearance)
         host.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],

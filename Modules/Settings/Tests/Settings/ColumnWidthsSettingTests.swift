@@ -55,20 +55,23 @@ import SwiftUI
         let control = try #require(
             segmentedControls(in: host).first { $0.segmentCount == 2 && $0.label(forSegment: 1) == "All columns" },
             "no segmented control offering All columns — the setting moved, or the scan cannot see it")
-        func choose(_ segment: Int) async {
+        func choose(_ segment: Int, _ mode: ColumnResizeMode) async {
             control.selectedSegment = segment
             _ = control.sendAction(control.action, to: control.target)
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            let wait = await LayoutPumpWait.poll(upTo: 2) {
+                test.defaults.string(forKey: ColumnResizeMode.defaultsKey) == mode.rawValue
+            }
+            #expect(wait.held, "choosing \(mode) never reached the setting after \(wait.passes) passes")
         }
         func stored() -> ColumnWidthOverrides? {
             test.defaults.string(forKey: PaneViewMode.columnWidthOverridesDefaultsKey)
                 .flatMap(ColumnWidthOverrides.init(rawValue:))
         }
 
-        await choose(0)
+        await choose(0, .eachColumn)
         #expect(stored() == sized, "choosing Each column released the columns sized on their own")
 
-        await choose(1)
+        await choose(1, .allColumns)
         #expect(test.defaults.string(forKey: ColumnResizeMode.defaultsKey) == ColumnResizeMode.allColumns.rawValue,
                 "the control's action did not reach the setting — the rest of this test measures nothing")
         #expect(stored()?.widths.isEmpty == true,
@@ -106,10 +109,8 @@ import SwiftUI
 
         control.selectedSegment = 1
         _ = control.sendAction(control.action, to: control.target)
-        for _ in 0..<10 {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            host.layoutSubtreeIfNeeded()
-        }
+        let wait = await LayoutPumpWait.pump(host, upTo: 2) { !asked.isEmpty && picker()?.selectedSegment == 0 }
+        #expect(wait.held, "the declined choice never settled after \(wait.pumps) pumps")
 
         #expect(asked == [2], "All columns did not ask about the two columns sized on their own: \(asked)")
         #expect(writes == 0, "a declined All columns wrote the settings back \(writes) time(s)")

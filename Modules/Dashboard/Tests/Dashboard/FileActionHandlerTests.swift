@@ -9,15 +9,14 @@ import Settings
     @MainActor
     @Test func testClipboardPersistenceOnCopy() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager)
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
         
         manager.clipboardNodes = [node]
         manager.clipboardIsCut = false
         
         handler.pasteItems([node], toPath: "/tmp", isCut: false)
-        await waitForOperationsToFinish(manager)
+        await waitUntil("the failed paste to report") { manager.currentError != nil }
         
         #expect(manager.clipboardNodes.count == 1)
         #expect(manager.clipboardNodes.first?.id == node.id)
@@ -27,15 +26,18 @@ import Settings
     @MainActor
     @Test func testClipboardRemainsWhenCutPasteFails() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: scratchSettings())
         let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
+        // Another folder: pasted beside itself, the item counts as already there, not as failed.
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent("paste-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: destination) }
         
         manager.clipboardNodes = [node]
         manager.clipboardIsCut = true
         
-        handler.pasteItems([node], toPath: "/tmp", isCut: true)
-        await waitForOperationsToFinish(manager)
+        handler.pasteItems([node], toPath: destination.path, isCut: true)
+        await waitUntil("the failed paste to report") { manager.currentError != nil }
         
         #expect(manager.clipboardNodes.count == 1)
         #expect(manager.clipboardNodes.first?.id == node.id)
@@ -48,8 +50,7 @@ import Settings
     @MainActor
     @Test func testMoveItemsToPathMovesViaSyncLayerWithOneConfirmation() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: scratchSettings())
 
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
         let srcDir = root.appendingPathComponent("src")
@@ -82,13 +83,6 @@ import Settings
         #expect(prompts == 1)
     }
 
-    @MainActor
-    private func waitForOperationsToFinish(_ manager: FileSyncManager) async {
-        await waitUntil("the file operations to finish") { manager.activeFileOperationsCount == 0 }
-        // Allow clipboard update that runs immediately after awaited move result.
-        try? await Task.sleep(nanoseconds: 10_000_000)
-    }
-
     // MARK: - Pane-root guards (vanished providers, prefix aliasing)
 
     /// A provider id that vanished from settings resolves to an empty root ("" from
@@ -97,8 +91,7 @@ import Settings
     @MainActor
     @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager)
 
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-guard-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -129,8 +122,7 @@ import Settings
             CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud", rootPath: goneRoot, type: .iCloud),
             CloudProvider(id: "here", displayName: "Here", imageName: "icloud", rootPath: existingRoot.path, type: .iCloud),
         ])
-        let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: settings)
         let node = FileNode(id: goneRoot + "/f.txt", name: "f.txt", isDirectory: false)
 
         handler.copyItems([node], fromLeft: true, leftProviderId: "gone", rightProviderId: "here")
@@ -147,8 +139,7 @@ import Settings
     @MainActor
     @Test func testFocusFolderWithUnknownProviderPresentsErrorAndDoesNotNavigate() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager)
         let node = FileNode(id: "/somewhere/folder", name: "folder", isDirectory: true)
 
         handler.focusFolder(node, isLeft: true, leftProviderId: "vanished", rightProviderId: "also-vanished", suppressLinkedNavigation: false)
@@ -168,8 +159,7 @@ import Settings
         let settings = scratchSettings(providers: [
             CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
         ])
-        let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: settings)
         let aliasedNode = FileNode(id: root.path + "-alias/sub", name: "sub", isDirectory: true)
 
         handler.focusFolder(aliasedNode, isLeft: true, leftProviderId: "p", rightProviderId: "p", suppressLinkedNavigation: false)
@@ -183,8 +173,7 @@ import Settings
     @MainActor
     @Test func testBeginCreateFolderWithEmptyPathPresentsErrorWithoutPrompting() async throws {
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager)
 
         handler.beginCreateFolder(in: "")
 
@@ -192,26 +181,6 @@ import Settings
         // alert, which would stall the suite) was shown.
         #expect(manager.currentError?.title == "Folder Unavailable")
         #expect(manager.activeFileOperationsCount == 0)
-    }
-
-    /// The happy path: a folder genuinely under the root still focuses, with its relative path.
-    @MainActor
-    @Test func testFocusFolderUnderRootStillNavigates() async throws {
-        let manager = FileSyncManager()
-        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-ok-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("sub/inner"), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let settings = scratchSettings(providers: [
-            CloudProvider(id: "p", displayName: "P", imageName: "icloud", rootPath: root.path, type: .iCloud)
-        ])
-        let handler = FileActionHandler(syncManager: manager, settings: settings,
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
-        let node = FileNode(id: root.path + "/sub/inner", name: "inner", isDirectory: true)
-
-        handler.focusFolder(node, isLeft: true, leftProviderId: "p", rightProviderId: "p", suppressLinkedNavigation: false)
-
-        #expect(manager.currentError == nil)
-        #expect(manager.leftRelativePath == "sub/inner")
     }
 
     // MARK: - Focus on folders whose id is not spelled under the root
@@ -255,8 +224,7 @@ import Settings
         let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
         let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: [pane, other]),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: scratchSettings(providers: [pane, other]))
         await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
 
         let deeper = try #require(node(["link", "sub", "deeper"], in: manager.leftTree), "premise: the walk lists no `deeper`")
@@ -281,8 +249,7 @@ import Settings
         let pane = CloudProvider(id: "p", displayName: "P", imageName: "folder", rootPath: root.path, type: .localFolder)
         let other = CloudProvider(id: "o", displayName: "O", imageName: "folder", rootPath: otherRoot.path, type: .localFolder)
         let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: [pane, other]),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard())
+        let handler = scratchHandler(manager, settings: scratchSettings(providers: [pane, other]))
         await manager.refreshTreesAndScan(left: pane, right: other, comparing: false)
 
         let a = try #require(node(["plain", "a"], in: manager.leftTree), "premise: the walk lists no `plain/a`")

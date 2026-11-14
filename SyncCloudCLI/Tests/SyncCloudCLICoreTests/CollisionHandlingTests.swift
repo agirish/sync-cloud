@@ -131,6 +131,7 @@ import Testing
         let clean = syncSummary(tally: tally(copied: 2), strategy: .skip)
         #expect(!clean.exitNonzero, "the control: a run that copied everything exits 0")
         #expect(clean.stderrLines.isEmpty)
+        #expect(clean.stdoutLines.count == 1, "nothing skipped, so no skip explanation")
 
         let cases: [(SkipReason, String)] = [
             (.collision, "1 file(s) already existed at the destination and were not synced; exiting with a non-zero status."),
@@ -146,11 +147,6 @@ import Testing
             #expect(s.stderrLines == [line], "\(reason)")
             #expect(s.stdoutLines.first == "Sync complete. Copied: 2, Skipped: 1, Failed: 0.")
         }
-    }
-
-    @Test func testNoSkipExplanationWhenNothingSkipped() {
-        let s = syncSummary(tally: tally(copied: 1), strategy: .skip)
-        #expect(s.stdoutLines.count == 1)
     }
 
     /// Golden snapshot of the full summary for one mixed run: copies (some replacing), collision

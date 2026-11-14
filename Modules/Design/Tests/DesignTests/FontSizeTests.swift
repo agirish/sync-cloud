@@ -231,16 +231,10 @@ import Testing
         // `max(base * scale, floor)`.
         #expect(FontSize.scaledPointSize(8, scale: 0.9) == 8)
         #expect(FontSize.scaledPointSize(4, scale: 0.9) == 4)
-        for base in [CGFloat(4), 8, 9, 10, 11, 13] {
-            let small = FontSize.scaledPointSize(base, scale: FontSize.small.scale)
-            #expect(small <= base, "Small must never enlarge \(base)pt")
-        }
-    }
-
-    @Test func noAppFontEverShrinksBelowTheFloorAtTheSmallestSize() {
-        // Sweep every point size the app actually uses.
+        // Every point size the app uses: Small never enlarges one, nor shrinks it below the floor.
         for base in [CGFloat(4), 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 22, 26, 30, 40, 54] {
             let small = FontSize.scaledPointSize(base, scale: FontSize.small.scale)
+            #expect(small <= base, "Small must never enlarge \(base)pt")
             #expect(small >= min(base, FontSize.legibilityFloor))
         }
     }

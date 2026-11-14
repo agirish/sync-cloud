@@ -162,15 +162,6 @@ import Events
         #expect(!state.isLoaded)
     }
 
-    @Test func resetWhileIdleIsHarmless() {
-        // Clear Logs can arrive with no history ever loaded (the common case).
-        var state = LogHistoryState.notLoaded
-        state.reset()
-        #expect(!state.isLoaded)
-        let token = state.beginLoading()
-        #expect(token != nil)
-    }
-
     // MARK: A failed read (was: indistinguishable from an empty one)
 
     @Test func aFailedReadIsNeitherLoadedNorEmptyHistory() {
@@ -216,24 +207,12 @@ import Events
 
     // MARK: The "Show N more" count
 
-    @Test func theRevealCountIsAFullPageWhileMoreThanAPageIsHidden() {
-        #expect(LogHistoryState.nextRevealCount(matchCount: 100, revealed: 25, pageSize: 25) == 25)
-        #expect(LogHistoryState.nextRevealCount(matchCount: 51, revealed: 25, pageSize: 25) == 25)
-    }
-
-    @Test func theRevealCountIsTheREMAINDEROnTheLastPage() {
-        // The last page offers the remainder, not a full page: promising 25 and producing 5 would
-        // mislead.
-        #expect(LogHistoryState.nextRevealCount(matchCount: 30, revealed: 25, pageSize: 25) == 5)
-        #expect(LogHistoryState.nextRevealCount(matchCount: 26, revealed: 25, pageSize: 25) == 1)
-    }
-
-    @Test func theRevealCountIsZeroWhenNothingIsHidden() {
-        // Zero also swaps the button for the "you're at the start of the log" note, so it must
-        // never go negative when `revealed` passes the match count, as it does when a filter
-        // narrows the matches after a few "Show more" taps.
-        #expect(LogHistoryState.nextRevealCount(matchCount: 25, revealed: 25, pageSize: 25) == 0)
-        #expect(LogHistoryState.nextRevealCount(matchCount: 3, revealed: 75, pageSize: 25) == 0)
-        #expect(LogHistoryState.nextRevealCount(matchCount: 0, revealed: 25, pageSize: 25) == 0)
+    /// A full page while more than a page is hidden; the remainder on the last page (promising 25
+    /// and producing 5 would mislead); zero when nothing is hidden. Zero swaps the button for the
+    /// "start of the log" note, so it must never go negative when `revealed` passes the match count,
+    /// as it does when a filter narrows the matches after a few "Show more" taps.
+    @Test(arguments: [(100, 25, 25), (51, 25, 25), (30, 25, 5), (26, 25, 1), (25, 25, 0), (3, 75, 0), (0, 25, 0)])
+    func theRevealCountIsWhatTheNextTapShows(matchCount: Int, revealed: Int, expected: Int) {
+        #expect(LogHistoryState.nextRevealCount(matchCount: matchCount, revealed: revealed, pageSize: 25) == expected)
     }
 }

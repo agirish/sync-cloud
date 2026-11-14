@@ -93,10 +93,10 @@ import FileExplorerTestSupport
 
     /// The rendered header, plus the row the bar was drawn on.
     private struct Probe {
-        let host: NSHostingView<AnyView>
-        let window: NSWindow
+        let rig: ProbeRig<AnyView>
         let rep: NSBitmapImageRep
         let barRowY: CGFloat
+        @MainActor var host: NSHostingView<AnyView> { rig.host }
     }
 
     private static let box = CGSize(width: 700, height: 96)
@@ -114,23 +114,13 @@ import FileExplorerTestSupport
         let defaults = ScratchDefaults("PaneBarOverflowMenuTests")
         defaults.set(arrangement.encoded, forKey: PaneBar.arrangementKey)
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
-        let host = NSHostingView(rootView: AnyView(
+        let rig = ProbeRig(AnyView(
             header()
                 .defaultAppStorage(defaults)
                 .frame(width: box.width, height: box.height)
                 .background(Color(nsColor: .windowBackgroundColor))
-        ))
-        host.frame = CGRect(origin: .zero, size: box)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return Probe(host: host, window: window, rep: rep, barRowY: barRowY(of: host))
+        ), size: box)
+        return Probe(rig: rig, rep: rig.capture(), barRowY: barRowY(of: rig.host))
     }
 
     /// Which row of the header the bar is on, read off the controls rather than guessed from ink.

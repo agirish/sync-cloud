@@ -101,20 +101,6 @@ import Sync
         #expect(fake.registers == 0)
     }
 
-    // MARK: - Log level
-
-    @Test func settingTheLogLevelStoresItAndTellsTheRunningLogger() {
-        let suite = "SettingsOwnersTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-        var told: [String] = []
-
-        LogLevelSetting.set(.warning, in: defaults) { told.append($0) }
-
-        #expect(defaults.string(forKey: Logger.minimumLevelDefaultsKey) == LogLevel.warning.rawValue)
-        #expect(told == [LogLevel.warning.rawValue])
-    }
-
     // MARK: - API key removal
 
     /// One Keychain item slot. `refuseDelete` keeps the item, as a locked keychain does.

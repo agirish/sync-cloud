@@ -195,7 +195,7 @@ import Testing
         let text = try #require(try? String(contentsOf: Self.modules.appendingPathComponent(relative), encoding: .utf8),
                                 "cannot read \(relative) — the checks below would be vacuous")
         try #require(text.count > 1_000, "\(relative) is implausibly short")
-        return SettingsAsksBeforeRemovingTests.withoutComments(text)
+        return SourceComments.stripped(text)
     }
 
     @Test func everyNewControlReachesWhatItSets() throws {

@@ -27,20 +27,15 @@ import Settings
         (9, 7, true, false, .none),
         // Nothing anywhere: the menu item and the row action withhold themselves.
         (3, nil, false, false, .none),
+        // Owning the pasteboard with an emptied list (every cut item moved) falls through rather
+        // than claiming an in-app paste of nothing.
+        (7, 7, false, true, .system),
+        (7, 7, false, false, .none),
     ] as [(Int, Int?, Bool, Bool, ClipboardSource)])
     func aPasteMeansTheClipboardTheSequenceLeft(system: Int, own: Int?, inApp: Bool, files: Bool,
                                                 expected: ClipboardSource) {
         #expect(ClipboardSource.resolve(systemChangeCount: system, ownChangeCount: own,
                                         hasInAppItems: inApp, systemHasFiles: files) == expected)
-    }
-
-    /// A matching count with an emptied list (every cut item moved) falls through rather than
-    /// claiming an in-app paste of nothing.
-    @Test func owningThePasteboardWithAnEmptiedListIsNotAnInAppPaste() {
-        #expect(ClipboardSource.resolve(systemChangeCount: 7, ownChangeCount: 7,
-                                        hasInAppItems: false, systemHasFiles: true) == .system)
-        #expect(ClipboardSource.resolve(systemChangeCount: 7, ownChangeCount: 7,
-                                        hasInAppItems: false, systemHasFiles: false) == .none)
     }
 }
 
@@ -48,18 +43,6 @@ import Settings
 /// `NSPasteboard.general`, so a run never clobbers the developer's real clipboard.
 @MainActor
 @Suite struct SystemClipboardTests {
-
-    @Test func writtenFilesComeBackAsFileURLs() throws {
-        let dir = try tempDir("bridge")
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let file = dir.appendingPathComponent("report.pdf")
-        try Data("x".utf8).write(to: file)
-
-        let board = scratchPasteboard("roundtrip")
-        let count = SystemClipboard.write(paths: [file.path], to: board)
-        #expect(count == board.changeCount)
-        #expect(SystemClipboard.fileURLs(from: board).map(\.path) == [file.path])
-    }
 
     /// A web address on the pasteboard reads back as an `NSURL` unless the read is constrained to
     /// file URLs — and would then be handed to the copy engine as a file to copy.
@@ -174,6 +157,13 @@ import Settings
         }
     }
 
+    /// A handler writing to `board`, on scratch settings and defaults.
+    private func rig(_ board: NSPasteboard) -> (FileSyncManager, FileActionHandler) {
+        let manager = FileSyncManager()
+        return (manager, FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
+                                           defaults: ScratchDefaults("FileActionHandler"), pasteboard: board))
+    }
+
     /// Waits for the operation bookkeeping to drain, then one settle; the same contract as
     /// `FileActionHandlerOperationTests.waitForOperationsToFinish`. Safe only because every caller
     /// waits for the operation's own outcome first. A fixed iteration count would give up silently
@@ -195,9 +185,7 @@ import Settings
         try Data("x".utf8).write(to: file)
 
         let pasteboard = scratchPasteboard("out")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "report.pdf", isDirectory: false)],
                                       isCut: false)
 
@@ -215,9 +203,7 @@ import Settings
         try Data("x".utf8).write(to: file)
 
         let pasteboard = scratchPasteboard("cut")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "moved.txt", isDirectory: false)],
                                       isCut: true)
 
@@ -242,9 +228,7 @@ import Settings
         // the in-app list and test the wrong branch.
         SystemClipboard.write(paths: [file.path], to: pasteboard)
 
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         #expect(manager.clipboardNodes.isEmpty, "the fixture must exercise the system branch")
 
         handler.pasteClipboard(toPath: destination.path)
@@ -271,9 +255,7 @@ import Settings
         try Data("hello".utf8).write(to: file)
 
         let pasteboard = scratchPasteboard("own-dst")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "cut-me.txt", isDirectory: false)],
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
@@ -299,9 +281,7 @@ import Settings
         SystemClipboard.write(paths: [file.path], to: pasteboard)
         let before = pasteboard.changeCount
 
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([], isCut: false)
 
         #expect(pasteboard.changeCount == before, "an empty copy wrote to the pasteboard")
@@ -323,9 +303,7 @@ import Settings
         try Data("x".utf8).write(to: file)
 
         let pasteboard = scratchPasteboard("stale-dst")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "gone.txt", isDirectory: false)],
                                       isCut: true)
         handler.pasteClipboard(toPath: destination.path)
@@ -364,9 +342,7 @@ import Settings
         try Data("x".utf8).write(to: theirFile)
 
         let pasteboard = scratchPasteboard("owned-theirs")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "mine.txt", isDirectory: false)],
                                       isCut: true)
         // Somebody else copies, so the app no longer owns the board, but the in-app list still
@@ -395,9 +371,7 @@ import Settings
         try Data("x".utf8).write(to: file)
 
         let pasteboard = scratchPasteboard("text-dst")
-        let manager = FileSyncManager()
-        let handler = FileActionHandler(syncManager: manager, settings: scratchSettings(providers: []),
-                                        defaults: ScratchDefaults("FileActionHandler"), pasteboard: pasteboard)
+        let (manager, handler) = rig(pasteboard)
         handler.handleCopyToClipboard([FileNode(id: file.path, name: "not-this.txt", isDirectory: false)],
                                       isCut: false)
         // Somebody else copies text.

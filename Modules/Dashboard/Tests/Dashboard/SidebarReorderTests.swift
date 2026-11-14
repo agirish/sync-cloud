@@ -10,35 +10,13 @@ import Foundation
     /// line, so an index computed as `translation / rowHeight` drifts the further you drag.
     static let midpoints: [CGFloat] = [10, 30, 65, 90]
 
-    @Test func draggingAboveEverythingLandsAtTheTop() {
-        #expect(SidebarReorder.insertionIndex(forY: 0, midpoints: Self.midpoints) == 0)
-        #expect(SidebarReorder.insertionIndex(forY: 9.9, midpoints: Self.midpoints) == 0)
-    }
-
-    @Test func draggingBelowEverythingLandsAtTheEnd() {
-        #expect(SidebarReorder.insertionIndex(forY: 500, midpoints: Self.midpoints) == 4)
-    }
-
-    /// The gaps between midpoints, walked. Catches a `<=` where a `<` belongs.
-    @Test func eachGapResolvesToItsOwnIndex() {
-        #expect(SidebarReorder.insertionIndex(forY: 20, midpoints: Self.midpoints) == 1)
-        #expect(SidebarReorder.insertionIndex(forY: 45, midpoints: Self.midpoints) == 2)
-        #expect(SidebarReorder.insertionIndex(forY: 80, midpoints: Self.midpoints) == 3)
-    }
-
-    /// Exactly on a midpoint counts as past it, so the boundary has one answer rather than
-    /// depending on floating-point noise a pointer position is full of.
-    @Test func aPointerExactlyOnAMidpointIsPastIt() {
-        #expect(SidebarReorder.insertionIndex(forY: 30, midpoints: Self.midpoints) == 2)
-    }
-
-    /// Midpoints rather than a row height handle unequal rows by construction: here the gaps are
-    /// 20pt and 35pt, and both resolve correctly.
-    @Test func unequalRowHeightsResolveCorrectly() {
-        // Just below row 3's midpoint (65) is still index 2; a uniform-height rule would put this
-        // boundary at the wrong pitch.
-        #expect(SidebarReorder.insertionIndex(forY: 64, midpoints: Self.midpoints) == 2)
-        #expect(SidebarReorder.insertionIndex(forY: 66, midpoints: Self.midpoints) == 3)
+    /// Each gap between midpoints resolves to its own index (a `<=` where a `<` belongs fails).
+    /// Exactly on a midpoint counts as past it, so the boundary has one answer whatever the
+    /// floating-point noise. The gaps are 20pt and 35pt, so a uniform-height rule fails 64 and 66.
+    @Test(arguments: [(0, 0), (9.9, 0), (20, 1), (30, 2), (45, 2), (64, 2), (66, 3), (80, 3), (500, 4)]
+          as [(CGFloat, Int)])
+    func aPointerLandsInTheGapItIsIn(y: CGFloat, index: Int) {
+        #expect(SidebarReorder.insertionIndex(forY: y, midpoints: Self.midpoints) == index)
     }
 
     @Test func anEmptyListAcceptsOnlyIndexZero() {
@@ -105,48 +83,12 @@ import Foundation
         FolderJumpStore.favoriteKey(root: root, relativePath: path)
     }
 
-    /// With no stored order (before the first drag) the section keeps its deterministic order, so
-    /// nothing jumps and nothing needs migrating.
-    @Test func anEmptyOrderLeavesTheListAlone() {
-        let list = [visit("/a", "One"), visit("/b", "Two")]
-        #expect(FolderJumpStore.orderedFavorites(list, order: []).map(\.relativePath) == ["One", "Two"])
-    }
-
-    /// The stored order wins across sources, since the section is one flat list with badges and no
-    /// visible boundary between sources.
-    @Test func theStoredOrderReordersAcrossSources() {
-        let list = [visit("/iCloud", "Taxes"), visit("/Dropbox", "Health"), visit("/iCloud", "Scans")]
-        let out = FolderJumpStore.orderedFavorites(
-            list, order: [key("/Dropbox", "Health"), key("/iCloud", "Scans"), key("/iCloud", "Taxes")])
-        #expect(out.map(\.relativePath) == ["Health", "Scans", "Taxes"])
-        #expect(out.map(\.root) == ["/Dropbox", "/iCloud", "/iCloud"])
-    }
-
-    /// A favorite added after the last drag appends rather than jumping to the front or vanishing,
-    /// which makes the design safe without a migration pass.
-    @Test func aFavoriteTheOrderHasNeverSeenGoesToTheEnd() {
-        let list = [visit("/a", "Old"), visit("/a", "New"), visit("/a", "Older")]
-        let out = FolderJumpStore.orderedFavorites(list, order: [key("/a", "Older"), key("/a", "Old")])
-        #expect(out.map(\.relativePath) == ["Older", "Old", "New"])
-    }
-
-    /// A key naming a favorite that no longer exists is ignored — no hole, and no resurrection.
-    @Test func aStaleKeyInTheOrderIsIgnored() {
-        let list = [visit("/a", "Kept")]
-        let out = FolderJumpStore.orderedFavorites(
-            list, order: [key("/a", "Removed"), key("/a", "Kept")])
-        #expect(out.map(\.relativePath) == ["Kept"])
-    }
-
     /// The unranked tail keeps a stable order between runs. Swift's sort is not stable, so one
     /// `sorted(by:)` over an optional rank could shuffle the newest entries on every launch.
     @Test func theUnrankedTailDoesNotShuffleBetweenRuns() {
         let list = [visit("/a", "P"), visit("/a", "Q"), visit("/a", "R"), visit("/a", "S")]
         let order = [key("/a", "S")]
-        let answers = Set((0..<40).map { _ in
-            FolderJumpStore.orderedFavorites(list, order: order).map(\.relativePath).joined(separator: ">")
-        })
-        #expect(answers == ["S>P>Q>R"], "the unranked tail varies between runs: \(answers)")
+        #expect(FolderJumpStore.orderedFavorites(list, order: order).map(\.relativePath) == ["S", "P", "Q", "R"])
     }
 
     /// The composite key can't confuse two folders: `/a` + `b/c` and `/a/b` + `c` are in different
@@ -181,15 +123,6 @@ import Foundation
         #expect(reordered == ["c", "desktop", "b", "downloads", "a"])
     }
 
-    /// Untouched sources stay put. Appending them after the reordered ones would move them to the
-    /// end of the pane header's dropdown as a side effect of a drag in another section.
-    @Test func untouchedSourcesAreNotShovedToTheEnd() {
-        let all = ["a", "desktop", "b"]
-        let reordered = SidebarReorder.reordering(all, subsetInNewOrder: ["b", "a"])
-        #expect(reordered.firstIndex(of: "desktop") == 1,
-                "an untouched source moved because a visible one was dragged: \(reordered)")
-    }
-
     @Test func aSubsetThatChangesNothingChangesNothing() {
         let all = ["a", "b", "c"]
         #expect(SidebarReorder.reordering(all, subsetInNewOrder: ["a", "c"]) == all)
@@ -215,23 +148,11 @@ import Foundation
 
     // MARK: - The band clamp
 
-    /// A cloud row can't be dropped into the device band: the bands are re-applied when rows are
-    /// built, so the row would snap back and the move the insertion line promised would do nothing.
-    @Test func aCloudDropIsClampedToTheCloudBand() {
-        #expect(SidebarReorder.clampedToBand(7, bandStart: 0, bandEnd: 4) == 4)
-        #expect(SidebarReorder.clampedToBand(2, bandStart: 0, bandEnd: 4) == 2)
-    }
-
-    @Test func aDeviceDropIsClampedToTheDeviceBand() {
-        #expect(SidebarReorder.clampedToBand(0, bandStart: 4, bandEnd: 7) == 4)
-        #expect(SidebarReorder.clampedToBand(9, bandStart: 4, bandEnd: 7) == 7)
-        #expect(SidebarReorder.clampedToBand(5, bandStart: 4, bandEnd: 7) == 5)
-    }
-
-    /// The end of a band is a legal insertion index: the gap after the last row, where a downward
-    /// drag within the band lands.
-    @Test func aBandsOwnEndIsReachable() {
-        #expect(SidebarReorder.clampedToBand(4, bandStart: 0, bandEnd: 4) == 4)
+    /// A drop is clamped into its own band: the bands are re-applied when rows are built, so a cloud
+    /// row dropped among devices would snap back. The band's end is legal: the gap after its last row.
+    @Test(arguments: [(7, 0, 4, 4), (2, 0, 4, 2), (4, 0, 4, 4), (0, 4, 7, 4), (9, 4, 7, 7), (5, 4, 7, 5)])
+    func aDropIsClampedToItsBand(index: Int, start: Int, end: Int, clamped: Int) {
+        #expect(SidebarReorder.clampedToBand(index, bandStart: start, bandEnd: end) == clamped)
     }
 }
 

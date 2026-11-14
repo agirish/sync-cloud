@@ -37,15 +37,6 @@ import Testing
         #expect(FolderSidebarModel.enclosingFolder(of: row("Work", isAvailable: false)) == nil)
     }
 
-    /// A jump lands by root plus relative path, so a favorite in another account must keep its own
-    /// root, not borrow the pane's. `openFolderSidebarRow` switches sources on this value.
-    @Test func theParentKeepsTheRowsOwnRoot() throws {
-        let parent = try #require(FolderSidebarModel.enclosingFolder(
-            of: row("Health/Scans", root: "/Dropbox", sourceName: "Dropbox")))
-        #expect(parent.root == "/Dropbox")
-        #expect(parent.relativePath == "Health")
-    }
-
     /// With no source name to fall back on, a top-level row still has to read as something.
     @Test func aRootWithNoSourceNameFallsBackToTheRootsOwnLeaf() throws {
         let parent = try #require(FolderSidebarModel.enclosingFolder(

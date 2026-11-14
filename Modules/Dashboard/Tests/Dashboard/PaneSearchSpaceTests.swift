@@ -22,11 +22,24 @@ import SwiftUI
     }
 
     /// A header with an open field, wrapped in an ancestor `.onKeyPress(.space)` like a pane-wide
-    /// Quick Look handler.
+    /// Quick Look handler when `ancestorHandler`, bare otherwise. Bare means no modifier at all: a
+    /// handler answering `.ignored` would still change the routing.
     private struct Harness: View {
         @ObservedObject var box: Box
+        var ancestorHandler = true
 
         var body: some View {
+            if ancestorHandler {
+                header.onKeyPress(.space) {
+                    box.ancestorSawSpace = true
+                    return .handled
+                }
+            } else {
+                header
+            }
+        }
+
+        private var header: some View {
             PaneHeader(
                 title: "Left", provider: nil, rootPath: "/root", relativePath: "",
                 canGoBack: false, canGoForward: false,
@@ -34,10 +47,6 @@ import SwiftUI
                 sortOption: .constant(.name), showHiddenFiles: .constant(false),
                 searchText: Binding(get: { box.query }, set: { box.query = $0 }),
                 searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
-            .onKeyPress(.space) {
-                box.ancestorSawSpace = true
-                return .handled
-            }
         }
     }
 
@@ -107,15 +116,7 @@ import SwiftUI
     @Test("With no handler above it, the field takes the space")
     func theBareFieldKeepsItsSpace() async {
         let box = Box()
-        let host = NSHostingView(rootView:
-            PaneHeader(
-                title: "Left", provider: nil, rootPath: "/root", relativePath: "",
-                canGoBack: false, canGoForward: false,
-                onBack: {}, onForward: {}, onNavigate: { _ in }, onNavigateBoth: { _ in },
-                sortOption: .constant(.name), showHiddenFiles: .constant(false),
-                searchText: Binding(get: { box.query }, set: { box.query = $0 }),
-                searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
-            .frame(width: 560))
+        let host = NSHostingView(rootView: Harness(box: box, ancestorHandler: false).frame(width: 560))
         let window = Self.unseenWindow(hosting: host)
 
         let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }

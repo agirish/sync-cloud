@@ -23,14 +23,6 @@ import EventsTestSupport
     private static let withoutDelete = PaneBarArrangement(
         PaneBarArrangement.default.items.filter { $0 != .delete })
 
-    /// Guards the fixtures: every message below is quoted as a literal, so a changed default would
-    /// make them wrong in a way nothing else catches.
-    @Test func testTheFixturesMatchTheShippedDefault() {
-        #expect(PaneBarArrangement.default.encoded == Self.defaultEncoded)
-        #expect(Self.withoutDelete.encoded ==
-                "viewMode,collapse,backForward,scan,info,newFolder,sort,hiddenFiles,typeFilter,search")
-    }
-
     /// Removing a control says what went and what is left, which answers "what does my bar look
     /// like now" for someone who finds a button missing.
     @Test func testRemovingAControlNamesItAndTheBarItLeftBehind() {

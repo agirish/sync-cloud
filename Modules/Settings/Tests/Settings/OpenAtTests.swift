@@ -217,7 +217,7 @@ struct OpenAtTests {
         let end = try #require(tail.range(of: "\n    }"), "cannot find the end of selectOpenAtDirectory")
         // Comments stripped first: the function names `provider.landingPath` in prose to say what
         // it doesn't do, and a raw scan would fail on that mention.
-        let body = SettingsAsksBeforeRemovingTests.withoutComments(String(tail[..<end.lowerBound]))
+        let body = SourceComments.stripped(String(tail[..<end.lowerBound]))
 
         #expect(body.contains("settings.landingPath(for: provider.id)"),
                 "the panel is seeded from somewhere other than the manager's reachable landing folder")

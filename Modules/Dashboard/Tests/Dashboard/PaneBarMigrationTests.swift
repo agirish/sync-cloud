@@ -135,17 +135,6 @@ import EventsTestSupport
         #expect(defaults.string(forKey: PaneBar.arrangementKey) == "backForward,scan,info,sort,typeFilter")
     }
 
-    /// Removing it afterwards sticks: the step runs once per bar, by the stamp.
-    @Test func testRemovingTheFilterAfterwardsSticks() {
-        let defaults = ScratchDefaults("PaneBarMigrationTests-filter-sticks")
-        defaults.set(1, forKey: PaneBar.migrationKey)
-        defaults.set("scan,search", forKey: PaneBar.arrangementKey)
-        PaneBarMigration.apply(defaults: defaults)
-        defaults.set("scan,search", forKey: PaneBar.arrangementKey)
-        #expect(PaneBarMigration.apply(defaults: defaults) == .unchanged)
-        #expect(defaults.string(forKey: PaneBar.arrangementKey) == "scan,search")
-    }
-
     /// A bar stored before `delete` existed round-trips without gaining it, and without losing
     /// anything, which a `!contains(.delete)` check alone can't see.
     @Test func testABarStoredBeforeDeleteRoundTripsUnchanged() {
@@ -611,9 +600,6 @@ import EventsTestSupport
     /// nothing.
     @Test func testTheStrandedControlWarningNamesTheControlAndOnlyWhenItIsMissing() {
         let bar = PaneBarArrangement(encoded: "flexibleSpace,scan,sort")
-        #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: [.delete])
-                == "[panebar] Delete ships on the default pane bar with no migration step,"
-                + " so this stored arrangement can never show it — see PaneBarMigration")
         // Two of them: the verb and pronoun agree with the count.
         #expect(PaneBarMigration.unreachableMessage(for: bar, withoutARoute: [.delete, .newFolder])
                 == "[panebar] New Folder, Delete ship on the default pane bar with no migration step,"

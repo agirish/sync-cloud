@@ -74,17 +74,7 @@ import Testing
             .frame(width: size.width, height: size.height)
             .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
 
-        let host = NSHostingView(rootView: AnyView(scene))
-        host.appearance = NSAppearance(named: appearance)
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return .nan }
-        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let rep = offscreenBitmap(scene, size: size, appearance: appearance, sRGB: false) else { return .nan }
 
         let scale = Double(rep.pixelsWide) / Double(size.width)
         var best = 0.0

@@ -10,19 +10,9 @@ import Testing
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentSwatchGridTests {
 
     private func render(_ grid: AccentSwatchGrid) -> (NSBitmapImageRep, CGSize) {
-        let host = NSHostingView(rootView: grid.environment(\.colorScheme, .light))
-        let size = host.fittingSize
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.contentView = nil
-        return (rep, size)
+        let view = grid.environment(\.colorScheme, .light)
+        let size = NSHostingView(rootView: view).fittingSize
+        return (offscreenBitmap(view, size: size)!, size)
     }
 
     /// The pixel at a point, re-tagged sRGB rather than converted (see `AccentPreviewTests.paint`).

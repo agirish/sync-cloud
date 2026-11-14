@@ -149,9 +149,7 @@ import Sync
     }
 
     @Test func settingsManagersDefaultsAreTheCatalogs() {
-        let suite = "SettingsCatalogTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("SettingsCatalogTests")
         let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
         let read: [String: SettingValue] = [
             "general.sortPanesBy": .string(manager.defaultSortOption.rawValue),

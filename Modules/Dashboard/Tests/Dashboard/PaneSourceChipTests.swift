@@ -31,14 +31,9 @@ import Design
     /// added in SwiftUI (`Text(Image(...))`, `Image(nsImage:)`) renders nothing in an AppKit-drawn
     /// label, so it can't stand in.
     private func trailPopUps(_ view: some View, width: CGFloat) -> [(frame: CGRect, button: NSPopUpButton)] {
-        let host = NSHostingView(rootView: AnyView(
-            view.frame(width: width, height: LiquidGlass.headerHeight)))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: LiquidGlass.headerHeight)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
+        let rig = ProbeRig(AnyView(view.frame(width: width, height: LiquidGlass.headerHeight)),
+                           size: CGSize(width: width, height: LiquidGlass.headerHeight))
+        let host = rig.host
         var found: [(frame: CGRect, button: NSPopUpButton)] = []
         func walk(_ v: NSView) {
             if let button = v as? NSPopUpButton {
@@ -101,16 +96,10 @@ import Design
         let quickJump = try #require(menus.last, "the trail drew no quick-jump menu to compare against")
         #expect(chip.height >= quickJump.height,
                 "the chip is \(chip.height)pt tall against the quick-jump menu's \(quickJump.height)pt on the same row")
-    }
-
-    /// The chip, the pane's identity element, is no smaller than the bar's controls above it.
-    /// Pinned against `PaneNavMetrics.pill`, not a literal, so it holds if the bar is resized.
-    ///
-    /// The padding is added, not measured: the wash and hairline are drawn outside the `Menu`,
-    /// because a `.background` inside an AppKit-drawn label never paints, so the `NSPopUpButton`'s
-    /// frame is the label alone. Only the sum of label and `SourceChip.vertical` is asserted.
-    @Test(.machinePinned(.pixelSampling)) func theChipIsAtLeastAsTallAsTheBarControlsAboveIt() throws {
-        let chip = try #require(trailMenus(Self.header("iCloud Drive"), width: 560).first)
+        // The chip, the pane's identity element, is no smaller than the bar's controls above it,
+        // pinned against `PaneNavMetrics.pill`. The padding is added, not measured: the wash and
+        // hairline are drawn outside the `Menu` (a `.background` inside an AppKit-drawn label never
+        // paints), so the `NSPopUpButton`'s frame is the label alone.
         let drawn = chip.height + 2 * SourceChip.vertical
         let barControl = PaneNavMetrics.pill(.regular).height
         #expect(drawn >= barControl,

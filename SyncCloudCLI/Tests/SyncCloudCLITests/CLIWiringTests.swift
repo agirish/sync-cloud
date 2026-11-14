@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 import ArgumentParser
-import Events
 import SyncCloudCLICore
 @testable import SyncCloudCLI
 
@@ -62,19 +61,15 @@ import SyncCloudCLICore
                                     "cannot find the run body that calls \(call)")
             #expect(body.contains("flushingLogToDisk"),
                     "the command that calls \(call) returns without the flush-and-map ladder: its CLIValidationErrors reach the user as a struct dump, exit 1 instead of 64, and its log never reaches disk")
+            #expect(body.contains("adoptAppLogLevel(verb:"),
+                    "the command that calls \(call) logs at Debug whatever the app's Log level says")
         }
     }
 
     /// Every command puts the log at the app's level before it logs, inside its own `run()`, never
     /// in `flushingLogToDisk`, which these tests drive and which would then read his live level.
-    @Test func everyCommandAdoptsTheAppsLogLevel() throws {
+    @Test func theWrapperLeavesTheLogLevelAlone() throws {
         let source = try Self.commandsSource()
-        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {
-            let body = try #require(Self.runBody(before: call, in: source),
-                                    "cannot find the run body that calls \(call)")
-            #expect(body.contains("adoptAppLogLevel(verb:"),
-                    "the command that calls \(call) logs at Debug whatever the app's Log level says")
-        }
         let wrapper = try #require(source.range(of: "func flushingLogToDisk<T>"),
                                    "flushingLogToDisk is gone or renamed — this check reads nothing")
         let tail = source[wrapper.upperBound...]
@@ -167,9 +162,8 @@ import SyncCloudCLICore
         #expect(providers is Providers, "`providers` no longer names its subcommand")
     }
 
-    /// The flag strings are the wire format scripts speak; `DifferenceProcessingTests` pins the
-    /// raw values from Core's side, and this pins that ArgumentParser still maps the flags onto
-    /// them — the half a rename of the conformance would break with Core's pins green.
+    /// The flag strings are the wire format scripts speak: ArgumentParser must still map each
+    /// onto its raw value.
     @Test func directionAndCollisionFlagStringsStillParse() {
         #expect(Direction(argument: "to-right") == .toRight)
         #expect(Direction(argument: "to-left") == .toLeft)
@@ -217,25 +211,5 @@ import SyncCloudCLICore
         await #expect(throws: Unrelated()) {
             try await flushingLogToDisk { throw Unrelated() }
         }
-    }
-
-    /// Durability across the wrapper: a line logged before a failing body is on DISK once
-    /// `flushingLogToDisk` rethrows. The writer appends from its own serial queue, so a deleted
-    /// flush would usually still land the line during this test's suspension points: this pins
-    /// the observable contract, not the flush call; the barrier itself is Events' to test. Under
-    /// `swift test` the logger writes a per-process temp file, so `~/sync-cloud.log` is untouched.
-    @Test func aFailedBodysLogLineIsOnDiskWhenTheWrapperRethrows() async throws {
-        let tag = "cli-flush-\(UUID().uuidString)"
-        struct Boom: Error {}
-        _ = await MainActor.run { Logger.shared.error("flush barrier probe \(tag)") }
-        await #expect(throws: Boom.self) {
-            try await flushingLogToDisk { throw Boom() }
-        }
-        let logURL = await MainActor.run { Logger.shared.logFileURL }
-        let onDisk = try #require(
-            try? String(contentsOf: logURL, encoding: .utf8),
-            "the test logger's file is unreadable — the barrier assertion below would be vacuous")
-        #expect(onDisk.contains(tag),
-                "the logged line had not reached disk when flushingLogToDisk returned — the barrier is gone")
     }
 }

@@ -30,8 +30,9 @@ import Events
         let url = try makeLogFile()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        // Sanity: the file really does hold a history line before anything drains.
-        #expect(LogHistoryLoader.loadOlderThan(boundary, fileURL: url).loadedEntries?.count == 1)
+        // The control: without a drain the same read sees the history line, so the empty result
+        // below comes from the drain alone.
+        #expect(LogHistoryLoader.loadOlderThanDrainingWriter(boundary, fileURL: url) {}.loadedEntries?.count == 1)
 
         // `drainWriter` stands in for the enqueued Clear Logs truncate landing.
         var drained = false
@@ -43,15 +44,5 @@ import Events
         #expect(drained, "the writer barrier must be run, not skipped")
         // `loadedEntries`, not a bare count, so a read failure can't pass as the post-clear empty.
         #expect(parsed.loadedEntries?.isEmpty == true, "a load after Clear Logs must not resurrect the cleared rows")
-    }
-
-    @Test func testTheSameReadWithoutDrainingWouldSeeTheStaleRows() throws {
-        // The control: the pre-clear file parses to a non-empty history, so the empty result above
-        // comes from the drain alone.
-        let url = try makeLogFile()
-        defer { try? FileManager.default.removeItem(at: url) }
-
-        let withoutDraining = LogHistoryLoader.loadOlderThanDrainingWriter(boundary, fileURL: url) {}
-        #expect(withoutDraining.loadedEntries?.count == 1)
     }
 }

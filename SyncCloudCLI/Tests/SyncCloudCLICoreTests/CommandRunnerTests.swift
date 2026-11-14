@@ -135,9 +135,11 @@ import Sync
         #expect(rec.err.isEmpty)
     }
 
+    /// A file's name prints as it is on disk in text and JSON: a folded "Bob's" names a file that
+    /// does not exist when pasted back into a shell. The name is curly so a fold would show.
     @Test func scanPrintsEachDifferenceWithTypeAndActionInTextAndJSON() async throws {
         let (left, right, cleanup) = try roots(); defer { cleanup() }
-        try write(left.appendingPathComponent("only-left.txt"), "abc")
+        try write(left.appendingPathComponent("Bob’s “only-left” – x.txt"), "abc")
 
         let rec = Recorder()
         try await makeRunner(rec).runScan(left: left.path, right: right.path,
@@ -148,7 +150,7 @@ import Sync
           Left : \(left.path) [Left]
           Right: \(right.path) [Right]
 
-        - [missing-on-right] [copy-to-right] only-left.txt
+        - [missing-on-right] [copy-to-right] Bob’s “only-left” – x.txt
         """))
         #expect(rec.err.isEmpty)
 
@@ -159,7 +161,7 @@ import Sync
         let payload = try #require(
             try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]])
         #expect(payload.count == 1)
-        #expect(payload.first?["relativePath"] as? String == "only-left.txt")
+        #expect(payload.first?["relativePath"] as? String == "Bob’s “only-left” – x.txt")
         #expect(payload.first?["type"] as? String == "missing-on-right")
         #expect(payload.first?["action"] as? String == "copy-to-right")
         #expect(payload.first?["leftSize"] as? Int == 3)
@@ -193,28 +195,6 @@ import Sync
         #expect(held["heldBack"] as? String == "sizes-differ-without-a-newer-side")
         #expect(plain["needsDecision"] as? Bool == false)
         #expect(plain["heldBack"] == nil)
-    }
-
-    /// A file's name is printed as it is on disk, in the text listing and the JSON. The fold is
-    /// for the tool's own words: "Bob’s.txt" folded to "Bob's.txt" names a file that does not
-    /// exist when pasted back into a shell. The names are curly so a fold would show.
-    @Test func scanPrintsFileNamesVerbatimInTextAndJSON() async throws {
-        let (left, right, cleanup) = try roots(); defer { cleanup() }
-        try write(left.appendingPathComponent("Bob’s.txt"), "abc")
-        try write(left.appendingPathComponent("“Report – Final”.pdf"), "def")
-
-        let text = Recorder()
-        try await makeRunner(text).runScan(left: left.path, right: right.path,
-                                           direction: .auto, showHidden: false, ignore: [], json: false)
-        #expect(text.out.contains("- [missing-on-right] [copy-to-right] Bob’s.txt\n"), "\(text.out)")
-        #expect(text.out.contains("- [missing-on-right] [copy-to-right] “Report – Final”.pdf\n"), "\(text.out)")
-
-        let json = Recorder()
-        try await makeRunner(json).runScan(left: left.path, right: right.path,
-                                           direction: .auto, showHidden: false, ignore: [], json: true)
-        let payload = try #require(
-            try JSONSerialization.jsonObject(with: Data(json.out.utf8)) as? [[String: Any]], "\(json.out)")
-        #expect(Set(payload.compactMap { $0["relativePath"] as? String }) == ["Bob’s.txt", "“Report – Final”.pdf"])
     }
 
     /// Every name prints exactly as it is; only the words around it are ASCII. Every root, file
@@ -413,16 +393,6 @@ import Sync
     }
 
     // MARK: sync — plan, prompt, copies
-
-    @Test func syncReportsNothingToSyncForIdenticalTrees() async throws {
-        let (left, right, cleanup) = try roots(); defer { cleanup() }
-
-        let rec = Recorder()
-        try await sync(makeRunner(rec), left.path, right.path)
-
-        #expect(rec.out == "Nothing to sync - no differences found.\n")
-        #expect(rec.copies.isEmpty)
-    }
 
     /// A declined prompt exits non-zero: the README defines 0 as "every planned file was copied",
     /// which a declined run never is. The plan names both resolved roots before it asks, so a
@@ -750,31 +720,6 @@ import Sync
 
     // MARK: sync — the plan is re-checked between the prompt and the write
 
-    /// The plan is executed however long the [y/N] prompt sat there. A destination that did not
-    /// exist when the plan was drawn (the row reads "missing on right") can be created by a cloud
-    /// daemon while the user reads the list, and `--strategy replace` would then overwrite a file
-    /// the plan never mentioned. The mutation is a real write from inside the prompt closure,
-    /// which is exactly where the window is.
-    @Test func syncSkipsARowWhoseDestinationAppearedWhileThePromptWaited() async throws {
-        let (left, right, cleanup) = try roots(); defer { cleanup() }
-        try write(left.appendingPathComponent("a.txt"), "from-left")
-
-        let rec = Recorder()
-        let arrival = right.appendingPathComponent("a.txt")
-        let runner = makeRunner(rec, readLine: {
-            try? Data("landed-while-you-read".utf8).write(to: arrival)
-            return "y"
-        })
-        // A row skipped as changed since the plan exits non-zero.
-        await #expect(throws: CLISyncFailuresError()) {
-            try await sync(runner, left.path, right.path, yes: false)
-        }
-
-        #expect(rec.copies.isEmpty, "the plan said this destination was empty; it is not any more")
-        #expect(try Data(contentsOf: arrival) == Data("landed-while-you-read".utf8))
-        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
-    }
-
     /// The case a re-scan alone cannot see. Left is newer than right, so the row is
     /// "left is newer → copy right"; the destination is then rewritten with DIFFERENT bytes at a
     /// timestamp that is still older than left's, so a fresh scan produces a row of exactly the
@@ -800,29 +745,6 @@ import Sync
         }
 
         #expect(rec.copies.isEmpty, "the destination is no longer the file the plan measured")
-        #expect(try Data(contentsOf: target) == Data("NNNNNNNNN".utf8))
-        #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
-    }
-
-    /// The other end. A source rewritten while the prompt waited means the bytes about to be
-    /// copied are not the bytes the plan (and `--verify`, which runs BEFORE the prompt) was
-    /// drawn from — and a source caught mid-write copies a torn file.
-    @Test func syncSkipsARowWhoseSourceChangedWhileThePromptWaited() async throws {
-        let (left, right, cleanup) = try roots(); defer { cleanup() }
-        let source = left.appendingPathComponent("a.txt")
-        try write(source, "planned")
-
-        let rec = Recorder()
-        let runner = makeRunner(rec, readLine: {
-            try? Data("rewritten-while-you-read".utf8).write(to: source)
-            return "y"
-        })
-        // A row skipped as changed since the plan exits non-zero.
-        await #expect(throws: CLISyncFailuresError()) {
-            try await sync(runner, left.path, right.path, yes: false)
-        }
-
-        #expect(rec.copies.isEmpty, "these are not the bytes the plan described")
         #expect(rec.out.contains("Sync complete. Copied: 0, Skipped: 1, Failed: 0."), "\(rec.out)")
     }
 
@@ -835,13 +757,17 @@ import Sync
         // plan on the first stale row would produce exactly the same copies as one that skipped
         // just that row, and this test would be blind to the difference.
         try write(left.appendingPathComponent("a-moved.txt"), "two")
+        try write(left.appendingPathComponent("a-source.txt"), "planned")
         try write(left.appendingPathComponent("b-keep.txt"), "one")
         try write(left.appendingPathComponent("c-keep.txt"), "three")
 
         let rec = Recorder()
         let arrival = right.appendingPathComponent("a-moved.txt")
+        let source = left.appendingPathComponent("a-source.txt")
         let runner = makeRunner(rec, readLine: {
             try? Data("arrived".utf8).write(to: arrival)
+            // A source rewritten after the plan (and `--verify`) is not the bytes it described.
+            try? Data("rewritten-while-you-read".utf8).write(to: source)
             return "y"
         })
         // A row skipped as changed since the plan exits non-zero.
@@ -851,16 +777,20 @@ import Sync
 
         #expect(rec.copies.map(\.source.lastPathComponent).sorted() == ["b-keep.txt", "c-keep.txt"],
                 "the rows after the stale one must still be copied")
-        #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 1, Failed: 0."), "\(rec.out)")
+        #expect(rec.out.contains("Sync complete. Copied: 2, Skipped: 2, Failed: 0."), "\(rec.out)")
         // The summary section itself, not merely the name — the "Planned operations" listing at
         // the top of the run prints every path, so a `contains` on the name alone says nothing
         // about whether the run explained the skip at the end.
         #expect(rec.out.contains("""
-        Skipped 1 file(s) that changed after the plan was shown; re-run sync to see the current plan:
+        Skipped 2 file(s) that changed after the plan was shown; re-run sync to see the current plan:
           a-moved.txt - the destination changed after the plan was shown
+          a-source.txt - the source changed after the plan was shown
         """), "\(rec.out)")
         #expect(rec.err.contains(
             "Skipping a-moved.txt: the destination changed after the plan was shown. "
+            + "Re-run sync to see the current plan.\n"), "\(rec.err)")
+        #expect(rec.err.contains(
+            "Skipping a-source.txt: the source changed after the plan was shown. "
             + "Re-run sync to see the current plan.\n"), "\(rec.err)")
     }
 

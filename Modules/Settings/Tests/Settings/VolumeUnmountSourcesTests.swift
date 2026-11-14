@@ -132,22 +132,15 @@ import Sync
     /// machine the removal's pass may not have started yet, and a count taken before the work
     /// runs is wrong, not small, so this fails loudly instead.
     ///
-    /// Polled on the main actor and floored in polls ("Fixed pumps and fixed sleeps" in
-    /// `docs/flaky-tests.md`). Each pass starts as a main-actor `Task`, so it waits on main-actor
-    /// turns, and each poll here spends one: the floor guarantees `pollFloor` of them however few
-    /// the clock allows. Polled off the main actor, the loop could spend the whole deadline while
-    /// the passes sat queued. The poll count goes in the failure, because it is the diagnosis.
+    /// Polled on the main actor through `LayoutPumpWait.poll` ("Fixed pumps and fixed sleeps" in
+    /// `docs/flaky-tests.md`): each pass starts as a main-actor `Task`, so each poll must spend a
+    /// main-actor turn, or the loop could spend the whole deadline while the passes sat queued.
     @MainActor
     private static func countAfter(_ counter: CallCounter, reaching target: Int,
                                    sourceLocation: SourceLocation = #_sourceLocation) async throws -> Int {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(20))
-        var polls = 0
-        while counter.count < target, polls < Self.pollFloor || ContinuousClock.now < deadline {
-            polls += 1
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        try #require(counter.count >= target,
-                     "only \(counter.count) of \(target) provider discoveries had run after \(polls) polls",
+        let wait = await LayoutPumpWait.poll(upTo: 20) { counter.count >= target }
+        try #require(wait.held,
+                     "only \(counter.count) of \(target) provider discoveries had run after \(wait.passes) polls",
                      sourceLocation: sourceLocation)
         // Then quiet: nothing more may arrive, or an extra pass would go uncounted. Counted in
         // polls, not cut short by the deadline above, so a run starved through the first loop
@@ -162,11 +155,6 @@ import Sync
         }
         return counter.count
     }
-
-    /// The fewest polls `countAfter` makes before it may give up: the number, and the reason, of
-    /// `waitPollFloor` in `Modules/Sync/Tests/Sync/TestSupport.swift`, which this target can't
-    /// import.
-    private static let pollFloor = 50
 
     @MainActor
     @Test func unmountingAVolumeWithNoSourcesChangesNothing() {

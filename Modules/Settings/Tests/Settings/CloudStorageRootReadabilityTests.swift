@@ -198,14 +198,3 @@ import Sync
         #expect(ids.contains("Dropbox"), "and the account must still be there: \(ids)")
     }
 }
-
-/// One mutable value reachable from the `@Sendable` lister closure.
-private final class Mutable<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: T
-    init(_ value: T) { storage = value }
-    var value: T {
-        get { lock.lock(); defer { lock.unlock() }; return storage }
-        set { lock.lock(); storage = newValue; lock.unlock() }
-    }
-}

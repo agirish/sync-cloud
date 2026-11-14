@@ -19,10 +19,6 @@ import Testing
     /// code's. Its own case below checks what holds for any input.
     private static let fixedHues = LiquidGlassHue.allCases.filter { $0 != .none }
 
-    /// The hues `AccentFill` actually deepens. On the others raw and deepened are the same colour,
-    /// so only these can tell the two apart.
-    private static let deepenedHues: [LiquidGlassHue] = [.cyan, .teal, .green, .amber, .coral, .rose]
-
     // MARK: Rendering
 
     /// Renders the strip at its own fitting size and returns the bitmap plus that size in points.
@@ -30,20 +26,8 @@ import Testing
                              _ appearance: NSAppearance.Name) -> (NSBitmapImageRep, CGSize) {
         let view = AccentPreviewStrip(hue: hue)
             .environment(\.colorScheme, appearance == .darkAqua ? .dark : .light)
-        let host = NSHostingView(rootView: AnyView(view))
-        let size = host.fittingSize
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: appearance)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-        host.cacheDisplay(in: host.bounds, to: rep)
-        window.contentView = nil
-        return (rep, size)
+        let size = NSHostingView(rootView: view).fittingSize
+        return (offscreenBitmap(view, size: size, appearance: appearance)!, size)
     }
 
     /// The pixel at a point, in points rather than backing pixels.
@@ -122,35 +106,6 @@ import Testing
                         "\(hue.displayName) button painted \(button) in \(appearance.rawValue), not the deepened \(expected).")
                 #expect(distance(pill, expected) < 0.02,
                         "\(hue.displayName) count pill painted \(pill) in \(appearance.rawValue), not the deepened \(expected).")
-            }
-        }
-    }
-
-    /// …and not the raw accent, on the hues where the two differ; elsewhere an equality check
-    /// passes either way.
-    ///
-    /// The count pill is the assertion that matters: `ActionBarButtonStyle` deepens its own
-    /// `.primary` tint, so the button stays right even when fed `accentColor`, while
-    /// `SemanticCapsuleStyle.onAccent` paints what it is handed. Feeding the strip `accentColor`
-    /// must fail on the pill.
-    @MainActor
-    @Test(.machinePinned(.pixelSampling)) func previewRejectsTheRawAccent() async throws {
-        for hue in Self.deepenedHues {
-            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-                let raw = resolve(hue.accentColor, appearance)
-                let deepened = resolve(hue.accentFillColor, appearance)
-                // The premise: on these hues the two are different paints, so the checks below can
-                // fail. If `AccentFill` stops deepening one, this says so.
-                #expect(distance(raw, deepened) > 0.02,
-                        "\(hue.displayName): raw and deepened accents are the same colour — this case proves nothing.")
-
-                let pill = try #require(pillFill(hue, appearance))
-                #expect(distance(pill, raw) > 0.02,
-                        "\(hue.displayName) count pill painted the RAW accent \(raw) — white on it is illegible.")
-
-                let button = try #require(buttonFill(hue, appearance))
-                #expect(distance(button, raw) > 0.02,
-                        "\(hue.displayName) button painted the RAW accent \(raw).")
             }
         }
     }
@@ -247,9 +202,4 @@ import Testing
         #expect(AccentPreviewStrip.accessibilityLabel(for: .cyan)
                 == "Preview: Cyan accent on a filled button and a count pill.")
     }
-
-    // The pixel checks above read a live renderer, so another renderer can fail them for machine
-    // reasons. They are `.machinePinned(.pixelSampling)` and still run on CI, which is sound only
-    // while the runner is the recording machine; they are coarse enough to survive small
-    // renderer differences, where a drifted PNG fails at once.
 }

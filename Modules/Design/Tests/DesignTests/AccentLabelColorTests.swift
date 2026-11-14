@@ -28,10 +28,12 @@ import SwiftUI
         #expect(AccentLabel.relativeLuminance(red: 0, green: 0, blue: 0) == 0)
     }
 
-    @Test func theOnFillPairingSurvivesAnUnconvertibleColor() {
-        // `onFillLabel` converts to sRGB before measuring; a colour that can't convert must fall
-        // back to white rather than trapping.
-        #expect(SwiftUI.Color.onFillLabel(Color(nsColor: .textBackgroundColor)) != nil)
+    @Test func theOnFillPairingSurvivesAnUnconvertibleColor() throws {
+        // `onFillLabel` converts to sRGB before measuring; a colour that can't convert (a pattern)
+        // must fall back to white rather than trapping.
+        let pattern = Color(nsColor: NSColor(patternImage: NSImage(size: NSSize(width: 1, height: 1))))
+        try #require(NSColor(pattern).usingColorSpace(.sRGB) == nil, "the pattern converts: the fallback is not reached")
+        #expect(SwiftUI.Color.onFillLabel(pattern) == .white)
     }
 
     @Test func fillLabelSplitsOnTheFillsOwnLuminance() {

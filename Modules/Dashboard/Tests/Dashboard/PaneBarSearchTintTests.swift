@@ -89,27 +89,9 @@ import FileExplorerTestSupport
             searchIsExpanded: canSearch ? .constant(expanded) : nil)
     }
 
-    private static func rendered(expanded: Bool, query: String, canSearch: Bool = true) throws -> NSBitmapImageRep {
-        let defaults = ScratchDefaults("PaneBarSearchTintTests-render")
-        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
-        let size = CGSize(width: Self.renderWidth, height: LiquidGlass.headerHeight)
-        let host = NSHostingView(rootView: AnyView(
-            header(expanded: expanded, query: query, canSearch: canSearch)
-                .defaultAppStorage(defaults)
-                .frame(width: size.width, height: size.height)
-                .background(Color(nsColor: .windowBackgroundColor))
-        ))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+    /// The same 700-point, pinned-arrangement, aqua render `PaneBarDeleteTests` measures.
+    private static func rendered(expanded: Bool, query: String) throws -> NSBitmapImageRep {
+        try PaneBarDeleteTests.rendered(header(expanded: expanded, query: query))
     }
 
     /// Pixels that depart from the background at all over the bar's row, the upper half of the

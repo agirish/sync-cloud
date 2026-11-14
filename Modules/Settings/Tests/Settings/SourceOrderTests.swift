@@ -17,31 +17,24 @@ import Sync
          provider("drive-emp", "Drive"), provider("onedrive", "OneDrive")]
     }
 
-    /// No stored order (every install before the first drag) means discovery order, untouched,
-    /// which makes the feature safe without a migration or a seed.
-    @Test func anEmptyOrderLeavesDiscoveryOrderAlone() {
-        #expect(SettingsManager.inUserOrder(discovered, order: []).map(\.id)
-                == ["icloud", "dropbox", "drive-emp", "onedrive"])
-    }
-
-    @Test func theStoredOrderWins() {
-        let out = SettingsManager.inUserOrder(
-            discovered, order: ["onedrive", "drive-emp", "dropbox", "icloud"])
-        #expect(out.map(\.id) == ["onedrive", "drive-emp", "dropbox", "icloud"])
-    }
-
-    /// A newly connected account appends rather than jumping to the front, where a user would
-    /// least expect it. Fails if unranked ids get a default rank of 0.
-    @Test func anAccountTheOrderHasNeverSeenGoesToTheEnd() {
-        let out = SettingsManager.inUserOrder(discovered, order: ["onedrive", "icloud"])
-        #expect(out.map(\.id) == ["onedrive", "icloud", "dropbox", "drive-emp"])
-    }
-
-    /// An id naming a source that is gone (an account signed out, a folder source removed) is
-    /// ignored rather than leaving a hole.
-    @Test func aStaleIdInTheOrderIsIgnored() {
-        let out = SettingsManager.inUserOrder(discovered, order: ["ghost", "dropbox"])
-        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-emp", "onedrive"])
+    /// The stored order wins; ids it names that are gone are ignored, and a duplicated id keeps
+    /// its first place, so nothing leaves a hole or drops a provider.
+    @Test(arguments: [
+        // No stored order (every install before the first drag) is discovery order, untouched,
+        // which makes the feature safe without a migration or a seed.
+        ([], ["icloud", "dropbox", "drive-emp", "onedrive"]),
+        (["onedrive", "drive-emp", "dropbox", "icloud"], ["onedrive", "drive-emp", "dropbox", "icloud"]),
+        // A newly connected account appends rather than jumping to the front, where a user would
+        // least expect it. Fails if unranked ids get a default rank of 0.
+        (["onedrive", "icloud"], ["onedrive", "icloud", "dropbox", "drive-emp"]),
+        (["ghost", "dropbox"], ["dropbox", "icloud", "drive-emp", "onedrive"]),
+        (["dropbox", "dropbox", "icloud"], ["dropbox", "icloud", "drive-emp", "onedrive"]),
+        // The sequence it already has changes nothing, so `discoverProviders`' no-op guard
+        // publishes nothing.
+        (["icloud", "dropbox", "drive-emp", "onedrive"], ["icloud", "dropbox", "drive-emp", "onedrive"]),
+    ] as [([String], [String])])
+    func theOrderIsApplied(_ order: [String], _ expected: [String]) {
+        #expect(SettingsManager.inUserOrder(discovered, order: order).map(\.id) == expected)
     }
 
     /// The unnamed tail keeps a stable order between launches. Swift's sort is not stable, so a
@@ -52,21 +45,6 @@ import Sync
         })
         #expect(answers == ["onedrive>icloud>dropbox>drive-emp"],
                 "the unnamed tail varies between runs: \(answers)")
-    }
-
-    /// A duplicated id does not drop a provider or crash: first occurrence wins, which is the only
-    /// answer that keeps the output the same length as the input.
-    @Test func aDuplicatedIdIsTolerated() {
-        let out = SettingsManager.inUserOrder(discovered, order: ["dropbox", "dropbox", "icloud"])
-        #expect(out.map(\.id) == ["dropbox", "icloud", "drive-emp", "onedrive"])
-        #expect(out.count == discovered.count)
-    }
-
-    /// An order naming every id in the sequence it already has changes nothing, so the no-op guard
-    /// in `discoverProviders` publishes nothing.
-    @Test func anOrderMatchingTheCurrentSequenceIsTheIdentity() {
-        let out = SettingsManager.inUserOrder(discovered, order: discovered.map(\.id))
-        #expect(out.map(\.id) == discovered.map(\.id))
     }
 
     /// Ordering is a permutation: nothing is added, nothing is lost, whatever the stored order says.

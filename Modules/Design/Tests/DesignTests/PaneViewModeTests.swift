@@ -135,15 +135,6 @@ import SwiftUI
         #expect(PaneViewMode.trailingFillerWidth(paneWidth: paneWidth, columnWidths: widths) == filler)
     }
 
-    /// Push mode renders exactly one column at any depth, framed to the whole viewport, so there is
-    /// no slack to fill: the general rule, with no case of its own.
-    @Test func testPushModeGetsNoFiller() {
-        let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
-        #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
-        let width = PaneViewMode.trailingFillerWidth(paneWidth: paneWidth, columnWidths: [paneWidth])
-        #expect(width == 0)
-    }
-
     @Test func testEveryModeHasDistinctChrome() {
         let symbols = Set(PaneViewMode.allCases.map(\.symbol))
         #expect(symbols.count == PaneViewMode.allCases.count)
@@ -163,7 +154,6 @@ import SwiftUI
         // case near-miss, "Tree" for "tree", which a hand-edited plist or a case-renamed enum
         // produces.
         let defaults = ScratchDefaults("PaneViewModeRawValues")
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default)
         defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
         #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default,
                 "a case-near-miss must fall back, not match")

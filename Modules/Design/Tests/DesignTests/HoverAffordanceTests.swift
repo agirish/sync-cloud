@@ -53,7 +53,7 @@ final class HoverAffordanceTests: XCTestCase {
     }
 
     func testOnlyFloatingVariantsLift() {
-        // Lift implies a shadow to sit above, and only two variants are meant to leave the plane.
+        // Lift implies a shadow: only filled, circular and chrome float above the plane.
         for variant in allVariants {
             let hover = HoverAffordanceMetrics.resolve(variant: variant, phase: .hover)
             let floats = (variant == .filled || variant == .circular || variant == .chrome)

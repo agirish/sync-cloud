@@ -129,7 +129,7 @@ import Testing
         for url in try AccentFillScanTests.appSources() {
             let code = try String(contentsOf: url, encoding: .utf8)
                 .split(separator: "\n", omittingEmptySubsequences: false)
-                .map { AccentFillScanTests.codeOnly($0) }
+                .map { SourceComments.codeOnly($0) }
             scanned += 1
             let returns = code.filter { line in
                 let compact = line.replacingOccurrences(of: " ", with: "")

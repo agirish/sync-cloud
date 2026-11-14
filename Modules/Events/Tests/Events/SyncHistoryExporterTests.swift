@@ -115,13 +115,11 @@ import Foundation
         let csvQuote = SyncHistoryExporter.csv([recordWithQuote])
         // The field is quoted and the inner quote doubled.
         #expect(csvQuote.contains("\"/src/say \"\"hi\"\".txt\""))
-    }
 
-    @Test func testCSVDoesNotQuotePlainFields() {
-        let csv = SyncHistoryExporter.csv([sampleRecord(source: "/plain/path.txt")])
         // A plain path is emitted without surrounding quotes.
-        #expect(csv.contains("/plain/path.txt"))
-        #expect(!csv.contains("\"/plain/path.txt\""))
+        let csvPlain = SyncHistoryExporter.csv([sampleRecord(source: "/plain/path.txt")])
+        #expect(csvPlain.contains("/plain/path.txt"))
+        #expect(!csvPlain.contains("\"/plain/path.txt\""))
     }
 
     @Test func testJSONRoundTrips() throws {

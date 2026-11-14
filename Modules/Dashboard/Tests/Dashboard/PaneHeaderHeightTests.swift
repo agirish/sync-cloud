@@ -44,7 +44,7 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
 
     /// No provider at all: the state with the least content, so the likeliest to shrink.
     @Test func sparseStateHoldsHeight() {
-        #expect(laidOutHeight(Self.headerNoProvider(), width: 560) == LiquidGlass.headerHeight)
+        #expect(laidOutHeight(Self.header(providerName: nil), width: 560) == LiquidGlass.headerHeight)
     }
 
     /// The line itself: the pane header's bottom edge, in the pane's coordinates, is the card inset
@@ -60,16 +60,16 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// the ladder folds them into ⋯ rather than letting the row grow.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
     func aFullBarCostsNoHeight(width: CGFloat) {
-        #expect(laidOutHeight(Self.paneHeader(), width: width) == LiquidGlass.headerHeight)
+        #expect(laidOutHeight(Self.header(mode: .columns, newFolder: true), width: width) == LiquidGlass.headerHeight)
     }
 
     /// Both modes draw the same controls. The second half keeps that from being vacuous: a header
     /// with no view-mode switch draws strictly fewer, so "equal" means both drew the switch, not
     /// that both lost it.
     @Test func bothModesDrawTheSameControls() {
-        let columns = Self.buttonCount(Self.paneHeader(mode: .columns), width: 560)
-        let tree = Self.buttonCount(Self.paneHeader(mode: .tree), width: 560)
-        let noSwitch = Self.buttonCount(Self.paneHeaderWithoutViewMode(), width: 560)
+        let columns = Self.buttonCount(Self.header(mode: .columns, newFolder: true), width: 560)
+        let tree = Self.buttonCount(Self.header(mode: .tree, newFolder: true), width: 560)
+        let noSwitch = Self.buttonCount(Self.header(newFolder: true), width: 560)
         #expect(columns == tree)
         #expect(tree > noSwitch)
     }
@@ -92,48 +92,20 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         return FocusRings.count(in: host)
     }
 
-    /// A pane header carrying the view-mode switch.
-    private static func paneHeader(mode: PaneViewMode = .columns) -> PaneHeader {
+    /// A header identical in every argument but these: `providerName` nil drops the provider,
+    /// `mode` adds the view-mode switch, `newFolder` the New Folder control.
+    private static func header(providerName: String? = "iCloud Drive", mode: PaneViewMode? = nil,
+                               newFolder: Bool = false) -> PaneHeader {
         PaneHeader(
             title: "Left",
-            provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
-                                    rootPath: "/Users/test/iCloud", type: .iCloud),
+            provider: providerName.map {
+                CloudProvider(id: "icloud", displayName: $0, imageName: "icloud-logo",
+                              rootPath: "/Users/test/iCloud", type: .iCloud)
+            },
             rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-            viewMode: .constant(mode), onNewFolder: {})
-    }
-
-    /// The same header with no view-mode switch, identical in every other argument, so the
-    /// difference in control count is the switch alone.
-    private static func paneHeaderWithoutViewMode() -> PaneHeader {
-        PaneHeader(
-            title: "Left",
-            provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
-                                    rootPath: "/Users/test/iCloud", type: .iCloud),
-            rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
-            canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
-            onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-            onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-            onNewFolder: {})
-    }
-
-    private static func headerNoProvider() -> PaneHeader {
-        PaneHeader(title: "Left", provider: nil, rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
-                   canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
-                   onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-                   onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false))
-    }
-
-    private static func header(providerName: String) -> PaneHeader {
-        PaneHeader(
-            title: "Left",
-            provider: CloudProvider(id: "icloud", displayName: providerName, imageName: "icloud-logo",
-                                    rootPath: "/Users/test/iCloud", type: .iCloud),
-            rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
-            canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
-            onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-            onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false))
+            viewMode: mode.map { .constant($0) }, onNewFolder: newFolder ? {} : nil)
     }
 }

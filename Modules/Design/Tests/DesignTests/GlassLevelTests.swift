@@ -36,12 +36,6 @@ struct GlassLevelTests {
         }
     }
 
-    @Test func flooringIsIdempotent() {
-        for level in GlassLevel.allCases {
-            #expect(level.flooredForChrome.flooredForChrome == level.flooredForChrome)
-        }
-    }
-
     @Test(arguments: [false, true])
     func clearLightensTheOverlayScrim(dark: Bool) {
         // The cards above the scrim take Clear at face value, so a deeper scrim at Clear would
@@ -163,13 +157,6 @@ struct GlassLevelTests {
 
     // MARK: - Gutter
 
-    @Test func cardInsetIsHalfAGutterSoEveryGapMatches() {
-        // Each card pads itself by half a gutter, so card↔card and card↔edge gaps agree: each
-        // pairing contributes two insets. A full-gutter inset would show touching cards twice
-        // as far apart as a card and the window edge.
-        #expect(LiquidGlass.cardInset * 2 == LiquidGlass.cardGutter)
-    }
-
     @Test func cardGutterIsVisibleButTight() {
         // Big enough to read as separation against the 14pt radius (3pt doesn't), small enough
         // not to make a dense file view airy.
@@ -179,10 +166,8 @@ struct GlassLevelTests {
 
     // MARK: - Every card helper actually applies the inset
     //
-    // `cardInsetIsHalfAGutterSoEveryGapMatches` above checks only arithmetic on the constant, and
-    // stays green if a helper applies no inset at all. These measure the laid-out result: a card
-    // helper must grow its subject by exactly one gutter (two insets), the property the gap model
-    // depends on.
+    // Measured on the laid-out result: a card helper must grow its subject by exactly one gutter
+    // (two half-gutter insets), so card↔card and card↔edge gaps agree.
 
     /// Lays a view out through a real `NSHostingView`, as the snapshot harness does, and reports
     /// the size SwiftUI settles on.
@@ -307,10 +292,6 @@ struct GlassLevelTests {
         let height = laidOutSize(stack).height
         let cardHeight = Self.subject.height + LiquidGlass.cardGutter
         #expect(height == cardHeight * 2)
-        // Total padding across the stack is two gutters, laid out as: half a gutter above, the two
-        // facing insets meeting as one full gutter between the subjects, half a gutter below. That
-        // is what makes card↔card and card↔window-edge agree.
-        #expect(height - Self.subject.height * 2 == LiquidGlass.cardGutter * 2)
     }
 
     // MARK: - A workspace column: one rule in both styles

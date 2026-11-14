@@ -45,23 +45,18 @@ import SwiftUI
                 "Info shares the columns' width key, which the decision (MU) ruled out")
     }
 
-    @Test func offIsOffAtAnyWidth() {
+    /// Off is off at any width; on, a wide pane gets a column and a narrow one a drawer. A wider Info
+    /// needs a wider pane to be a column: at 450 the line is 750.
+    @Test func aPaneGetsAColumnOrADrawerByItsWidth() {
         for width in [0, 250, 600, 1400] as [CGFloat] {
             #expect(PaneInfo.presentation(isOn: false, paneWidth: width, previous: .column) == .off)
         }
-    }
-
-    @Test func aWidePaneGetsAColumnAndANarrowOneADrawer() {
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 1089, previous: nil) == .column)
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 599, previous: nil) == .drawer)
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 600, previous: nil) == .column)
-    }
-
-    /// A wider Info needs a wider pane to be a column: at 450 the line is 750.
-    @Test func theLineMovesWithInfosWidth() {
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 749, previous: nil, infoWidth: 450) == .drawer)
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 750, previous: nil, infoWidth: 450) == .column)
-        #expect(PaneInfo.presentation(isOn: true, paneWidth: 520, previous: nil, infoWidth: 200) == .column)
+        let d = PaneInfo.defaultWidth
+        for (width, info, expected) in [(1089, d, PaneInfo.Presentation.column), (599, d, .drawer), (600, d, .column),
+                                        (749, 450, .drawer), (750, 450, .column), (520, 200, .column)] as [(CGFloat, CGFloat, PaneInfo.Presentation)] {
+            #expect(PaneInfo.presentation(isOn: true, paneWidth: width, previous: nil, infoWidth: info) == expected,
+                    "\(width)pt pane, \(info)pt Info")
+        }
     }
 
     /// A pane sitting on the line does not flip with every point: a drawer becomes a column only 40pt

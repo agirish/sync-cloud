@@ -14,18 +14,8 @@ import Design
     private static let box = CGSize(width: 120, height: 60)
 
     private func bitmap<V: View>(_ view: V) -> NSBitmapImageRep? {
-        let host = NSHostingView(rootView: AnyView(
-            view.frame(width: Self.box.width, height: Self.box.height).background(Color.white)
-        ))
-        host.frame = CGRect(origin: .zero, size: Self.box)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        ProbeRig(AnyView(view.frame(width: Self.box.width, height: Self.box.height).background(Color.white)),
+                 size: Self.box).capture()
     }
 
     /// Bounding box of everything the view actually paints, in points.

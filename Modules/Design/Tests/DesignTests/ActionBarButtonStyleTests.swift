@@ -10,10 +10,23 @@ import SwiftUI
         // Primary is the only full-strength fill; quiet is a wash; outline has none. Narrow the gap
         // and the bar becomes three capsules of one weight.
         #expect(ActionBarWeight.primary.fillOpacity == 1)
-        #expect(ActionBarWeight.quiet.fillOpacity == PillVariant.fillOpacity)
         #expect(ActionBarWeight.outline.fillOpacity == 0)
         #expect(ActionBarWeight.primary.fillOpacity > ActionBarWeight.quiet.fillOpacity)
         #expect(ActionBarWeight.quiet.fillOpacity > ActionBarWeight.outline.fillOpacity)
+        // Tinting the outline's border would make it read as a third coloured weight next to quiet.
+        #expect(ActionBarWeight.outline.strokesInInk)
+        #expect(!ActionBarWeight.primary.strokesInInk)
+        // A stroke over a full-strength fill only muddies its edge.
+        #expect(ActionBarWeight.primary.strokeOpacity == 0)
+        // The tinted weights have something to ring and lift; outline has only a wash to offer.
+        #expect(ActionBarWeight.primary.hoverVariant == .filled)
+        #expect(ActionBarWeight.quiet.hoverVariant == .filled)
+        #expect(ActionBarWeight.outline.hoverVariant == .segment)
+        // A weight that rested invisible would be a button found by clicking where one might be.
+        for weight in ActionBarWeight.allCases {
+            #expect(weight.fillOpacity > 0 || weight.strokeOpacity > 0,
+                    "\(weight) rests with nothing drawn")
+        }
     }
 
     @Test func testQuietWeightIsThePillRecipeInButtonForm() {
@@ -25,42 +38,11 @@ import SwiftUI
         #expect(!ActionBarWeight.quiet.strokesInInk)
     }
 
-    @Test func testOnlyOutlineStrokesInNeutralInk() {
-        // Tinting the outline's border would make it read as a third coloured weight next to quiet.
-        #expect(ActionBarWeight.outline.strokesInInk)
-        #expect(!ActionBarWeight.primary.strokesInInk)
-        #expect(!ActionBarWeight.quiet.strokesInInk)
-    }
-
-    @Test func testPrimaryCarriesNoRestingHairline() {
-        // A stroke over a full-strength fill only muddies its edge.
-        #expect(ActionBarWeight.primary.strokeOpacity == 0)
-    }
-
-    @Test func testHoverVariantMatchesWhetherTheWeightHasAFill() {
-        // The tinted weights have something to ring and lift; outline has only a wash to offer.
-        #expect(ActionBarWeight.primary.hoverVariant == .filled)
-        #expect(ActionBarWeight.quiet.hoverVariant == .filled)
-        #expect(ActionBarWeight.outline.hoverVariant == .segment)
-    }
-
-    @Test func testEveryWeightRestsWithSomeVisibleEdgeOrFill() {
-        // A weight that rested completely invisible would be a button you find by clicking where
-        // one might be, which HoverAffordance exists to prevent.
-        for weight in ActionBarWeight.allCases {
-            #expect(weight.fillOpacity > 0 || weight.strokeOpacity > 0,
-                    "\(weight) rests with nothing drawn")
-        }
-    }
-
-    @Test func testIconOnlyControlIsSquareAndThereforeCircular() {
+    @Test func testMetrics() {
         // The capsule clip turns a square into a circle; the ⋯ and the collapsed filter rely on it
         // to sit in the row without reading as a stubby pill.
         #expect(ActionBarMetrics.height > 0)
         #expect(ActionBarMetrics.horizontalPadding < ActionBarMetrics.height)
-    }
-
-    @Test func testDividerIsShorterThanTheControlsItSeparates() {
         // A full-height rule reads as a border around a group rather than a seam between two.
         #expect(ActionBarMetrics.dividerHeight < ActionBarMetrics.height)
     }

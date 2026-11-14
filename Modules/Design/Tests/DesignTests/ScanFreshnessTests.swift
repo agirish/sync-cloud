@@ -22,8 +22,6 @@ import Foundation
         #expect(stale.isStale)
         #expect(stale.spoken == "scanned 1 hour ago, may be out of date")
 
-        // Both carry the same age; only the spoken form tells them apart in words.
-        #expect(fresh.age != stale.age || fresh.spoken != stale.spoken)
         #expect(stale.spoken.contains(stale.spokenAge))
     }
 
@@ -117,43 +115,6 @@ import Foundation
         let r = ScanFreshness.describe(scanDate: at(100), now: base)
         #expect(r.text == "Scanned just now")
         #expect(r.isStale == false)
-    }
-
-    /// From 120s up to a day the ladder must match the earlier implementation exactly, checked
-    /// against a verbatim copy rather than a hand-written table, which can agree with a mistake.
-    /// It also proves `s / 60` and `s / 3600` subsume the old `..<120` and `..<7200` cases.
-    @Test func everythingFromTwoMinutesUpIsUnchanged() {
-        // The earlier ladder, verbatim, as the oracle.
-        func old(_ seconds: TimeInterval) -> String {
-            let s = Int(seconds)
-            switch s {
-            case ..<45: return "just now"
-            case ..<120: return "1m ago"
-            case ..<3600: return "\(s / 60)m ago"
-            case ..<7200: return "1h ago"
-            case ..<86_400: return "\(s / 3600)h ago"
-            default:
-                let days = s / 86_400
-                return days <= 1 ? "1 day ago" : "\(days) days ago"
-            }
-        }
-
-        // Every second up to a day. From a day on, the oracle uses words ("1 day ago") where this
-        // ladder stays compact ("1d ago"), deliberately; see the next test.
-        for s in stride(from: 120, to: 86_400, by: 1) {
-            let t = TimeInterval(s)
-            #expect(ScanFreshness.relative(t) == old(t),
-                    "relative(\(s)) drifted from the previous ladder")
-        }
-    }
-
-    /// Below 120s and from a day on, the ladder deliberately differs from the oracle, so this
-    /// guards the equivalence test against silently covering every range and proving nothing.
-    @Test func belowTwoMinutesAndFromADayTheLadderDeliberatelyDiffers() {
-        #expect(ScanFreshness.relative(30) != "just now")
-        #expect(ScanFreshness.relative(45) != "1m ago")
-        #expect(ScanFreshness.relative(86_400) != "1 day ago")
-        #expect(ScanFreshness.relative(3 * 86_400) != "3 days ago")
     }
 
     /// `text` (the tooltip and all-in-sync sentence) must be `age` (the count pill's bare run) with

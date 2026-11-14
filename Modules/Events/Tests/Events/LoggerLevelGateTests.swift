@@ -71,6 +71,7 @@ import Foundation
         defer { wipeDefaultsSuite(suite) }
 
         #expect(Logger.persistedMinimumLevel(from: defaults) == .info)
+        #expect(Logger.defaultMinimumLevel == .info)
         defaults.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)
         #expect(Logger.persistedMinimumLevel(from: defaults) == .warning)
         defaults.set("NONSENSE", forKey: Logger.minimumLevelDefaultsKey)
@@ -93,26 +94,6 @@ import Foundation
 
         #expect(Logger.persistedMinimumLevel(from: ambient, ambient: ambient) == .debug,
                 "a test host inherited the machine's log level and would drop every debug line")
-    }
-
-    /// An explicit suite is still read, so what the Settings UI writes stays testable: the
-    /// override is on the ambient default only.
-    @Test func anExplicitSuiteIsStillHonouredUnderATestRunner() throws {
-        let name = "LoggerLevelGateTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(name) }
-        let suite = try #require(UserDefaults(suiteName: name))
-        suite.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)
-
-        #expect(Logger.persistedMinimumLevel(from: suite) == .warning)
-    }
-
-    /// An explicit suite with nothing stored falls back to the shipped default, Info.
-    @Test func anExplicitSuiteWithNothingStoredIsInfo() throws {
-        let name = "LoggerLevelGateTests-\(UUID().uuidString)"
-        defer { wipeDefaultsSuite(name) }
-        let suite = try #require(UserDefaults(suiteName: name))
-        #expect(Logger.persistedMinimumLevel(from: suite) == .info)
-        #expect(Logger.defaultMinimumLevel == .info)
     }
 
     // MARK: - The level-change line

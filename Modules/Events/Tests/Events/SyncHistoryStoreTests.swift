@@ -74,24 +74,6 @@ import Foundation
         #expect(store.lastRunId == runB)
     }
 
-    @Test func testInMemoryCapTrimsOldestRecords() throws {
-        let url = makeTempURL()
-        defer { removeLogFiles(at: url) }
-
-        let store = SyncHistoryStore(fileURL: url)
-        defer { store.flushToDisk() }
-        // One batch past the 5000 cap: the single oldest record must be dropped, newest kept.
-        let batch = (0..<5001).map { i in
-            record(runId: UUID(), source: "/src/item-\(i).txt")
-        }
-        store.appendBatch(batch)
-
-        #expect(store.records.count == 5000)
-        // The very first (oldest) record is gone; the last is retained.
-        #expect(store.records.first?.sourcePath == "/src/item-1.txt")
-        #expect(store.records.last?.sourcePath == "/src/item-5000.txt")
-    }
-
     /// A run the cap cuts is named, so Activity's Events says its count is only what is kept; a run
     /// it leaves whole is not, and a clear forgets them.
     @Test func theCapNamesTheRunsItCut() throws {
@@ -103,6 +85,9 @@ import Foundation
         let whole = UUID()
         store.appendBatch((0..<4_999).map { record(runId: cut, source: "/src/a-\($0).txt") })
         store.appendBatch((0..<2).map { record(runId: whole, source: "/src/b-\($0).txt") })
+        #expect(store.records.count == 5000)
+        #expect(store.records.first?.sourcePath == "/src/a-1.txt")
+        #expect(store.records.last?.sourcePath == "/src/b-1.txt")
         #expect(store.trimmedRunIds == [cut])
         store.clear()
         #expect(store.trimmedRunIds.isEmpty)
@@ -168,12 +153,6 @@ import Foundation
             timestamp: Date(timeIntervalSinceReferenceDate: .infinity),
             action: .delete,
             sourcePath: source)
-    }
-
-    /// The premise of the two tests below: the record really is un-encodable, so a green result
-    /// there can't come from a batch that quietly encoded fine.
-    @Test func testTheUnencodableFixtureReallyFailsToEncode() {
-        #expect((try? JSONEncoder().encode(unencodableRecord(runId: UUID(), source: "/src/x"))) == nil)
     }
 
     /// A record that can't be encoded is dropped, since persistence must never fail the file
@@ -275,8 +254,8 @@ private final class ReportSpy {
 
 }
 
-/// Collects the store's write-failure reports, from the writer's queue.
-private final class FailureSpy: @unchecked Sendable {
+/// Collects write-failure reports, which arrive on the writer's background queue.
+final class FailureSpy: @unchecked Sendable {
     private let lock = NSLock()
     private var collected: [String] = []
     func append(_ line: String) { lock.lock(); collected.append(line); lock.unlock() }

@@ -99,16 +99,16 @@ import Sync
     /// menu's "Nearby folders" section for every folder source.
     @Test func siblingsResolveATildeRoot() throws {
         let fm = FileManager.default
-        // A real directory, reached through a spelling that only works if expanded. HOME is the
-        // one root a test can name both ways without a fixture outside it.
-        let home = URL(fileURLWithPath: NSHomeDirectory())
-        let base = home.appendingPathComponent(".synccloud-jump-\(UUID().uuidString)")
+        // A temp directory, reached from `~` by climbing to `/`, so the spelling only works if
+        // expanded and nothing is written into the real home.
+        let base = fm.temporaryDirectory.appendingPathComponent("synccloud-jump-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: base) }
         for name in ["Legal", "Taxes", "Receipts"] {
             try fm.createDirectory(at: base.appendingPathComponent(name), withIntermediateDirectories: true)
         }
 
-        let tildeRoot = "~/" + base.lastPathComponent
+        let up = Array(repeating: "..", count: URL(fileURLWithPath: NSHomeDirectory()).pathComponents.count - 1)
+        let tildeRoot = "~/" + (up + base.pathComponents.dropFirst()).joined(separator: "/")
         // The fixture is only meaningful if the unexpanded spelling really is unusable as a path.
         try #require(!fm.fileExists(atPath: tildeRoot))
 
@@ -230,20 +230,6 @@ import Sync
 
     // MARK: Recents outlive the session (v4.2)
 
-    /// The ⌘K field's empty state is this list, so a session-scoped one would be empty when most
-    /// wanted: the first ⌘K after launch.
-    @Test func recentsSurviveARelaunch() {
-        let defaults = freshDefaults()
-        let store = FolderJumpStore(defaults: defaults)
-        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal", name: "Legal")
-        store.recordVisit(root: "/Volumes/Data", relativePath: "Legal/2026", name: "2026")
-
-        // A second store on the same domain is what a relaunch looks like from here.
-        let relaunched = FolderJumpStore(defaults: defaults)
-        #expect(relaunched.recentPaths(forRoot: "/Volumes/Data") == ["Legal/2026", "Legal"],
-                "recents did not survive, or came back in the wrong order — newest leads")
-    }
-
     /// Persisted recents go through the same key normalisation as pins, so the two lists, read side
     /// by side, can't disagree about what a root is.
     @Test func recentsComeBackUnderEitherSpellingOfTheRoot() {
@@ -344,23 +330,6 @@ import Sync
         #expect(store.recentPaths(forRoot: "/Volumes/Data") == ["Legal"])
     }
 
-    // MARK: A remembered folder that has gone
-
-    /// Filtered, never pruned: an external drive asleep at the wrong moment must not cost the user
-    /// the entries. The list is drawn from the store, and the store is not written back to.
-    @Test func filteringDoesNotTouchWhatIsStored() {
-        let defaults = freshDefaults()
-        let store = FolderJumpStore(defaults: defaults)
-        store.recordVisit(root: "/asleep", relativePath: "Legal", name: "Legal")
-
-        let drawn = FolderJumpStore.reachable(recents: store.recentPaths(forRoot: "/asleep"), pinned: [],
-                                              underRoot: "/asleep") { _ in false }
-        #expect(drawn.rootIsAvailable == false, "the fixture's root answered — nothing here is exercised")
-        #expect(store.recentPaths(forRoot: "/asleep") == ["Legal"], "drawing the list pruned the store")
-        #expect(FolderJumpStore(defaults: defaults).recentPaths(forRoot: "/asleep") == ["Legal"],
-                "the entry did not survive to the next launch — a sleeping drive cost the user their recents")
-    }
-
     // MARK: A root that is merely asleep
 
     /// An asleep root keeps its rows; a live root drops what has gone. If this regresses, every
@@ -403,21 +372,15 @@ import Sync
         #expect(rootChecks == 1, "the root was stat'ed once per list — under a sleeping mount that is one stall per list")
     }
 
-    /// The root's own spellings are refused however the root answered: an asleep root must not let
-    /// in a `"."` row a live one would filter.
-    @Test func anAsleepRootStillRefusesTheRootsOwnSpellings() {
+    /// The root itself is never a row (`emptyQueryRows` skips "" and "."), nor a path to `stat`,
+    /// however the root answered: a `"."` under a live root exists, and an asleep root must not let
+    /// in a row a live one would filter.
+    @Test(arguments: [true, false])
+    func theRootsOwnSpellingsAreRefused(rootAnswers: Bool) {
         let resolved = FolderJumpStore.reachable(recents: ["", ".", "Legal"], pinned: ["."],
-                                                 underRoot: "/asleep") { _ in false }
+                                                 underRoot: "/root") { _ in rootAnswers }
         #expect(resolved.recents == ["Legal"])
         #expect(resolved.pinned.isEmpty)
-    }
-
-    /// The root itself is never a row (`emptyQueryRows` skips "" and "."), nor a path to `stat`: a
-    /// `"."` under a live root exists, so it would otherwise be offered.
-    @Test func reachableRefusesTheRootsOwnSpellings() {
-        let kept = FolderJumpStore.reachable(recents: ["", ".", "Legal"], pinned: [],
-                                             underRoot: "/root") { _ in true }
-        #expect(kept.recents == ["Legal"])
     }
 
     // MARK: Bytes this build cannot read

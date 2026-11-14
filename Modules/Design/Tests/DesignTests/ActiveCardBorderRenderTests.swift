@@ -25,18 +25,7 @@ import Testing
 
     /// Pixels that differ between two renders by more than sampling noise.
     private func pixelsDiffering(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        var count = 0
-        for x in 0..<a.pixelsWide {
-            for y in 0..<a.pixelsHigh {
-                guard let p = a.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      let q = b.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                if abs(p.redComponent - q.redComponent) > 0.02
-                    || abs(p.greenComponent - q.greenComponent) > 0.02
-                    || abs(p.blueComponent - q.blueComponent) > 0.02 { count += 1 }
-            }
-        }
-        return count
+        Pixel.differing(a, b, sRGB: true)
     }
 
     /// It paints. The border is quiet by design (45% of the accent at 1.5pt), and quiet is one edit

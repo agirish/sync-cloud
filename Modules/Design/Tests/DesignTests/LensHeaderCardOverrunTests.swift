@@ -81,11 +81,7 @@ import Testing
         }
         .frame(width: canvas.width, height: canvas.height)
 
-        let host = NSHostingView(rootView: AnyView(subject))
-        host.frame = CGRect(origin: .zero, size: canvas)
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return -1 }
-        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let rep = offscreenBitmap(subject, size: canvas, appearance: nil, sRGB: false) else { return -1 }
 
         // The band the card was given, in pixels of the representation.
         let scale = CGFloat(rep.pixelsWide) / canvas.width

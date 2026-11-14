@@ -208,3 +208,29 @@ public enum Pixel {
             && abs(a.minY - b.minY) <= tolerance && abs(a.maxY - b.maxY) <= tolerance
     }
 }
+
+public extension Pixel {
+    /// Pixels where `a` and `b` differ by more than `tolerance` (0...1) on any channel, read
+    /// through `colorAt`; -1 when either is missing or the sizes differ, so a broken harness can't
+    /// read as "identical". `sRGB` converts each colour first; `alpha` counts the alpha channel too,
+    /// for partial-alpha ink over a transparent ground.
+    static func differing(_ a: NSBitmapImageRep?, _ b: NSBitmapImageRep?, tolerance: CGFloat = 0.02,
+                          sRGB: Bool = false, alpha: Bool = false) -> Int {
+        guard let a, let b, a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
+        var count = 0
+        for x in 0..<a.pixelsWide {
+            for y in 0..<a.pixelsHigh {
+                guard var p = a.colorAt(x: x, y: y), var q = b.colorAt(x: x, y: y) else { continue }
+                if sRGB {
+                    guard let p2 = p.usingColorSpace(.sRGB), let q2 = q.usingColorSpace(.sRGB) else { continue }
+                    (p, q) = (p2, q2)
+                }
+                var delta = max(abs(p.redComponent - q.redComponent), abs(p.greenComponent - q.greenComponent),
+                                abs(p.blueComponent - q.blueComponent))
+                if alpha { delta = max(delta, abs(p.alphaComponent - q.alphaComponent)) }
+                if delta > tolerance { count += 1 }
+            }
+        }
+        return count
+    }
+}

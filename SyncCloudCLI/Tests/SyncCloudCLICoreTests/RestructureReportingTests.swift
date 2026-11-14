@@ -35,8 +35,9 @@ import Foundation
     }
 
     @Test func theReportReadsTheActiveProfileWhereTheAppWould() throws {
-        let output = try RestructureReporting.report(
-            profilesDirectory: makeProfilesDirectory())
+        let dir = try makeProfilesDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let output = try RestructureReporting.report(profilesDirectory: dir)
         #expect(output.profileId == "t")
         #expect(output.folderCount == 7)
         let backlog = try #require(output.findings.first { $0.kind == "backlog" })
@@ -50,11 +51,13 @@ import Foundation
         let empty = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-restructure-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
         #expect(throws: RestructureReporting.Failure.noActiveProfile(directory: empty.path)) {
             try RestructureReporting.report(profilesDirectory: empty)
         }
 
         let dir = try makeProfilesDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try FileManager.default.removeItem(at: dir.appendingPathComponent("t/folder-profile.json"))
         #expect(throws: RestructureReporting.Failure.unreadableProfile(id: "t",
                                                                        directory: dir.path)) {
@@ -65,7 +68,9 @@ import Foundation
     /// The JSON format is a public surface: scripts parse it, so this test IS the format. A key
     /// that disappears from here disappeared from someone's pipeline.
     @Test func theJSONFormatIsStableAndSorted() throws {
-        let output = try RestructureReporting.report(profilesDirectory: makeProfilesDirectory())
+        let dir = try makeProfilesDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let output = try RestructureReporting.report(profilesDirectory: dir)
         let json = try RestructureReporting.renderJSON(output)
         #expect(json.contains("\"schemaVersion\" : 1"))
         #expect(json.contains("\"kind\" : \"backlog\""))
@@ -78,7 +83,9 @@ import Foundation
     }
 
     @Test func theTextRenderingSummarisesWithoutDumpingPaths() throws {
-        let output = try RestructureReporting.report(profilesDirectory: makeProfilesDirectory())
+        let dir = try makeProfilesDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let output = try RestructureReporting.report(profilesDirectory: dir)
         let text = RestructureReporting.renderText(output)
         #expect(text.contains("[backlog] Dental/2025"))
         #expect(text.contains("scaffold Claims"))

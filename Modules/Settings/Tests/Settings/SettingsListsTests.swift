@@ -9,15 +9,13 @@ import Sync
 @Suite struct SettingsListsTests {
 
     @MainActor private struct Rig {
-        let name: String
-        let defaults: UserDefaults
+        let defaults: ScratchDefaults
         let settings: SettingsManager
         let sync: FileSyncManager
         var lists: SettingsLists { SettingsLists(settings: settings, sync: sync, defaults: defaults) }
 
         init(_ test: String) {
-            name = "SettingsListsTests.\(test).\(UUID().uuidString)"
-            defaults = UserDefaults(suiteName: name)!
+            defaults = ScratchDefaults("SettingsListsTests.\(test)")
             settings = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
             sync = FileSyncManager()
             sync.ignoredItemsStore = IgnoredItemsStore(userDefaults: defaults)
@@ -26,7 +24,7 @@ import Sync
     }
 
     @Test func aPatternGoesInAsSettingsAddsIt() {
-        let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
+        let rig = Rig(#function)
         let lists = rig.lists
         #expect(lists.add("sync.ignorePatterns", "  ~$*  ") == .done)
         #expect(rig.settings.ignorePatterns.contains("~$*"))
@@ -39,7 +37,7 @@ import Sync
     }
 
     @Test func keptNamesAndHiddenFoldersGoThroughTheirOwners() {
-        let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
+        let rig = Rig(#function)
         let lists = rig.lists
         #expect(lists.add("organize.keptNames", "Report .pdf") == .done)
         #expect(rig.sync.keptNamesStore?.isKept("Report .pdf") == true)
@@ -55,7 +53,7 @@ import Sync
     /// An ignored item belongs to the pair it was edited under: under another, it can't be told
     /// whether it is in, so its Undo or Revert can't ignore a path in the wrong comparison.
     @Test func anIgnoredItemKeepsToItsPairOfSources() throws {
-        let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
+        let rig = Rig(#function)
         let store = try #require(rig.sync.ignoredItemsStore)
         store.activate(pairKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
         let lists = rig.lists
@@ -75,7 +73,7 @@ import Sync
     /// An item already there is refused, so nothing records an edit that changed nothing, and Undo
     /// of such a "hide" can't unhide a folder that was hidden all along.
     @Test func addingWhatIsAlreadyThereIsRefused() {
-        let rig = Rig(#function); defer { wipeDefaultsSuite(rig.name) }
+        let rig = Rig(#function)
         let lists = rig.lists
         #expect(lists.add("intelligence.hidden", "/Users/me/Taxes") == .done)
         #expect(lists.add("intelligence.hidden", "/Users/me/Taxes/") == .refused("That folder is already hidden from Claude."))

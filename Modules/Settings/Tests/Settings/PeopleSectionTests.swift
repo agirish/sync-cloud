@@ -237,13 +237,9 @@ import Testing
     private func ink(_ view: some View, width: CGFloat) -> Int {
         let subject = view.frame(width: width)
             .background(Color(nsColor: .windowBackgroundColor))
-        let host = NSHostingView(rootView: subject)
-        host.appearance = NSAppearance(named: .aqua)
-        host.frame = CGRect(origin: .zero,
-                            size: CGSize(width: width, height: max(1, host.fittingSize.height)))
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let height = max(1, NSHostingView(rootView: subject).fittingSize.height)
+        guard let rep = offscreenBitmap(subject, size: CGSize(width: width, height: height),
+                                        sRGB: false) else { return 0 }
         guard let background = rep.colorAt(x: 0, y: 0) else { return 0 }
         var painted = 0
         for y in stride(from: 0, to: rep.pixelsHigh, by: 1) {

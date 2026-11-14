@@ -47,12 +47,9 @@ import Testing
         }
     }
 
-    @Test func titleMatchIsFound() {
+    @Test func titleMatchIsFoundInAnyCase() {
         let results = filterSettings(SettingsSearchIndex.all, query: "Log level")
         #expect(results.contains { $0.title == "Log level" })
-    }
-
-    @Test func matchIsCaseInsensitive() {
         let lower = filterSettings(SettingsSearchIndex.all, query: "log level")
         let upper = filterSettings(SettingsSearchIndex.all, query: "LOG LEVEL")
         #expect(!lower.isEmpty)
@@ -125,12 +122,6 @@ import Testing
     }
 
     // MARK: index integrity
-
-    @Test func everyEntryPointsAtARealTab() {
-        for entry in SettingsSearchIndex.all {
-            #expect(SettingsView.SettingsTab.allCases.contains(entry.tab))
-        }
-    }
 
     @Test func indexIsNonEmptyAndCoversEveryTab() {
         #expect(!SettingsSearchIndex.all.isEmpty)

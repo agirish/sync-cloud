@@ -55,13 +55,4 @@ import Sync
         manager.selectedLeftPaths = ["/left/a.txt"]
         #expect(sidebar(manager, followsRight: false, overridePath: "/elsewhere/x.txt").activePath == "/elsewhere/x.txt")
     }
-
-    /// Off, the panel is the shared one it was: the left pane first, unless the right is followed.
-    @Test func withoutTheFlagNothingChanges() {
-        let manager = FileSyncManager()
-        manager.selectedLeftPaths = ["/left/a.txt"]
-        manager.selectedRightPaths = ["/right/b.txt"]
-        #expect(sidebar(manager, followsRight: false, ownPaneOnly: false).activePath == "/left/a.txt")
-        #expect(sidebar(manager, followsRight: true, ownPaneOnly: false).activePath == "/right/b.txt")
-    }
 }

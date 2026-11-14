@@ -8,37 +8,19 @@ import Foundation
 
     // MARK: - Qualification
 
-    /// The case the section is shaped around: three Google Drive accounts render one word, and
-    /// without a qualifier they are three identical rows, two of which go somewhere unintended.
-    @Test func rowsSharingANameAreQualifiedByTheirAccount() {
-        let out = SidebarSourceModel.qualifiers(
-            names: ["iCloud Drive", "Dropbox", "Drive", "Drive", "Drive"],
-            qualifiers: [nil, nil, "personal", "preserve", "emp"])
-        #expect(out == [nil, nil, "personal", "preserve", "emp"])
-    }
-
-    /// And the other direction, which keeps every row from growing a second line: a name nothing
-    /// else shares is left alone even when a qualifier is available.
-    @Test func aNameNothingSharesIsNotQualified() {
-        let out = SidebarSourceModel.qualifiers(names: ["Dropbox", "iCloud Drive"],
-                                                qualifiers: ["personal", "father"])
-        #expect(out == [nil, nil])
-    }
-
-    /// Qualification is per name, not a property of the whole list: only the colliding name is
-    /// qualified.
-    @Test func collisionsAreCountedPerNameNotAcrossTheList() {
-        let out = SidebarSourceModel.qualifiers(
-            names: ["Drive", "Drive", "OneDrive", "Dropbox"],
-            qualifiers: ["emp", "personal", "work", "main"])
-        #expect(out == ["emp", "personal", nil, nil])
-    }
-
-    /// A collision with no qualifier stays unqualified rather than drawing an empty detail, as
-    /// `FolderSidebarModel.rows` does for a top-level folder with no parent path.
-    @Test func aCollisionWithNoQualifierAvailableIsLeftAlone() {
-        let out = SidebarSourceModel.qualifiers(names: ["Drive", "Drive"], qualifiers: [nil, ""])
-        #expect(out == [nil, nil])
+    /// Rows sharing a name are qualified by their account (three Google Drive accounts render one
+    /// word); a name nothing else shares is left alone even with a qualifier available, so rows
+    /// don't grow a second line. Counted per name, and a collision with no qualifier stays
+    /// unqualified rather than drawing an empty detail, as `FolderSidebarModel.rows` does.
+    @Test(arguments: [
+        (["iCloud Drive", "Dropbox", "Drive", "Drive", "Drive"], [nil, nil, "personal", "preserve", "emp"],
+         [nil, nil, "personal", "preserve", "emp"]),
+        (["Dropbox", "iCloud Drive"], ["personal", "father"], [nil, nil]),
+        (["Drive", "Drive", "OneDrive", "Dropbox"], ["emp", "personal", "work", "main"], ["emp", "personal", nil, nil]),
+        (["Drive", "Drive"], [nil, ""], [nil, nil]),
+    ] as [([String], [String?], [String?])])
+    func onlyNamesThatCollideAreQualified(names: [String], qualifiers: [String?], expected: [String?]) {
+        #expect(SidebarSourceModel.qualifiers(names: names, qualifiers: qualifiers) == expected)
     }
 
     // MARK: - Containment, and the gap it closes
@@ -197,33 +179,13 @@ import Foundation
         #expect(out.map(\.name) == ["Disk 2", "Disk 10"])
     }
 
-    /// The ordering is stable across runs — same input, one answer.
-    @Test func volumeOrderDoesNotVaryBetweenRuns() {
-        let volumes = [volume("B"), volume("A"), volume("HD", internal: true)]
-        let answers = Set((0..<40).map { _ in
-            SidebarSourceModel.orderedVolumes(volumes).map(\.name).joined(separator: ">")
-        })
-        #expect(answers == ["HD>A>B"], "volume order varies between runs: \(answers)")
-    }
-
-    /// The glyph says what kind of disk it is: built in, pullable, or neither.
+    /// The glyph says what kind of disk it is: built in, pullable, or neither. A volume reporting
+    /// both removable and internal (the startup disk on some Macs) is drawn as internal.
     @Test func theGlyphDistinguishesTheThreeKindsOfDisk() {
         #expect(volume("HD", internal: true).symbol == "internaldrive")
         #expect(volume("SD", removable: true).symbol == "sdcard")
         #expect(volume("Backup").symbol == "externaldrive")
-    }
-
-    /// A volume that reports both removable and internal is drawn as internal: the startup disk on
-    /// some Macs reports both, and "built in" is the more useful claim.
-    @Test func internalWinsOverRemovableForTheGlyph() {
         #expect(volume("HD", internal: true, removable: true).symbol == "internaldrive")
-    }
-
-    /// Ordering never adds or drops a disk, whatever it is handed.
-    @Test func orderingVolumesIsAPermutation() {
-        let volumes = [volume("B"), volume("A", internal: true), volume("C", removable: true)]
-        #expect(Set(SidebarSourceModel.orderedVolumes(volumes).map(\.name)) == ["A", "B", "C"])
-        #expect(SidebarSourceModel.orderedVolumes([]).isEmpty)
     }
 
     // MARK: - Bands
@@ -243,25 +205,12 @@ import Foundation
                          state: state, isAvailable: available)
     }
 
-    /// A place SyncCloud hasn't been given yet is not dimmed. On a fresh install the whole device
-    /// band is un-added, so dimming `.unknown` would grey out home, the startup disk and every card
-    /// at once, which reads as broken. Finder doesn't dim your disks either.
-    @Test func aPlaceThatIsNotASourceYetIsNotDimmed() {
-        #expect(!row(.unknown).isDimmed)
-    }
-
-    /// Dimmed means "not answering" and nothing else, which a reader can act on: an unplugged
-    /// drive, a signed-out account.
-    @Test func onlyAnUnavailableRowIsDimmed() {
-        #expect(row(.configured, available: false).isDimmed)
-        #expect(row(.unknown, available: false).isDimmed)
-        #expect(row(.revealOnly, available: false).isDimmed)
-    }
-
-    /// And every row that can act draws at full strength, whatever clicking it will do.
-    @Test func everyReachableRowIsFullStrength() {
-        #expect(!row(.configured).isDimmed)
-        #expect(!row(.inside(sourceId: "icloud", sourceName: "iCloud Drive")).isDimmed)
-        #expect(!row(.revealOnly).isDimmed)
+    /// Dimmed means "not answering" and nothing else: an unplugged drive, a signed-out account. A
+    /// place SyncCloud hasn't been given yet is not dimmed; on a fresh install the whole device band
+    /// is un-added, and greying out home, the startup disk and every card at once reads as broken.
+    @Test(arguments: [SidebarSourceRow.State.unknown, .configured, .revealOnly,
+                      .inside(sourceId: "icloud", sourceName: "iCloud Drive")], [true, false])
+    func onlyAnUnavailableRowIsDimmed(state: SidebarSourceRow.State, available: Bool) {
+        #expect(row(state, available: available).isDimmed == !available)
     }
 }

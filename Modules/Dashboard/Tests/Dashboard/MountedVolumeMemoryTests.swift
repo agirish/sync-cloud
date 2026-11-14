@@ -14,27 +14,17 @@ import Sync
 
     private static let card = MountedVolumeMemory.Facts(isRemovable: true, isLocal: true)
     private static let share = MountedVolumeMemory.Facts(isRemovable: true, isLocal: false)
-    private static let bootDisk = MountedVolumeMemory.Facts(isRemovable: false, isLocal: true)
 
-    @Test func aLocalRemovableVolumeIsDetachable() {
+    /// A local removable volume is detachable. A network share ejects (Finder gives it an eject
+    /// arrow), so a removable-or-ejectable test alone would read a Wi-Fi drop as a pulled card; a
+    /// share comes back, and its sources must still be there when it does.
+    @Test(arguments: [(MountedVolumeMemory.Facts(isRemovable: true, isLocal: true), "/Volumes/CARD", true),
+                      (MountedVolumeMemory.Facts(isRemovable: true, isLocal: false), "/Volumes/Archive", false),
+                      (MountedVolumeMemory.Facts(isRemovable: false, isLocal: true), "/", false)])
+    func onlyALocalRemovableVolumeIsDetachable(facts: MountedVolumeMemory.Facts, volume: String, detachable: Bool) {
         let m = memory()
-        m.record(Self.card, forVolume: "/Volumes/CARD")
-        #expect(m.isDetachable(volume: "/Volumes/CARD"))
-    }
-
-    /// A network share ejects (Finder gives it an eject arrow), so a removable-or-ejectable test
-    /// alone would read a Wi-Fi drop as a pulled card. A share comes back, and its sources must
-    /// still be there when it does.
-    @Test func aNetworkShareIsNotDetachableEvenThoughItEjects() {
-        let m = memory()
-        m.record(Self.share, forVolume: "/Volumes/Archive")
-        #expect(!m.isDetachable(volume: "/Volumes/Archive"))
-    }
-
-    @Test func anInternalDiskIsNotDetachable() {
-        let m = memory()
-        m.record(Self.bootDisk, forVolume: "/")
-        #expect(!m.isDetachable(volume: "/"))
+        m.record(facts, forVolume: volume)
+        #expect(m.isDetachable(volume: volume) == detachable)
     }
 
     /// Unknown means leave it alone. A volume never seen mounted (the app launched after it went, or
@@ -85,7 +75,8 @@ import Sync
 
     /// The sidebar's `Volume` feeds this, so it must carry locality through. `isLocal` defaults to
     /// `true`, the safe direction since removability must still agree, so a fixture that says
-    /// nothing looks like a card instead of silently exempting itself.
+    /// nothing looks like a card instead of silently exempting itself. Its own rule, which the
+    /// unmount dialog asks (`EjectWiringTests`), agrees.
     @Test func theSidebarVolumeCarriesLocality() {
         let card = SidebarSourceModel.Volume(name: "CARD", path: "/Volumes/CARD",
                                              isRemovable: true, isInternal: false)
@@ -93,5 +84,7 @@ import Sync
         let share = SidebarSourceModel.Volume(name: "Archive", path: "/Volumes/Archive",
                                               isRemovable: true, isInternal: false, isLocal: false)
         #expect(!share.isLocal)
+        #expect(card.losesItsSourcesOnUnmount)
+        #expect(!share.losesItsSourcesOnUnmount, "a network share is ejectable but does not lose its sources")
     }
 }

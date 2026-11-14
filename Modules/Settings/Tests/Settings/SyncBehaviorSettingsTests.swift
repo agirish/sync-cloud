@@ -236,7 +236,7 @@ import Sync
         let question = AdvancedSettingsTab.resetAllQuestion(raising: ["Model back to Sonnet"])
         #expect(question == AdvancedSettingsTab.resetAllExplanation + "\n\nThis also raises what Claude may do: Model back to Sonnet.")
         #expect(AdvancedSettingsTab.resetAllQuestion(raising: []) == AdvancedSettingsTab.resetAllExplanation)
-        let text = SettingsAsksBeforeRemovingTests.withoutComments(try settingsSource("SettingsView.swift"))
+        let text = SourceComments.stripped(try settingsSource("SettingsView.swift"))
         #expect(text.contains("alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())"),
                 "Settings' Reset All alert doesn't name what it raises")
         #expect(text.contains(".resetAllRaises()\n"), "Settings never hands Advanced what Reset All raises")

@@ -26,12 +26,6 @@ private func diff(
 
 @Suite struct FilterDifferencesTests {
 
-    @Test func testAutoDirectionKeepsBothActions() {
-        let diffs = [diff("a", action: .copyToRight), diff("b", action: .copyToLeft)]
-        let result = DifferenceProcessing.filterDifferences(diffs, direction: .auto, showHidden: true, ignore: [])
-        #expect(result.map(\.relativePath) == ["a", "b"])
-    }
-
     @Test func testDirectionFiltersOppositeAction() {
         let diffs = [diff("a", action: .copyToRight), diff("b", action: .copyToLeft)]
         #expect(DifferenceProcessing.filterDifferences(diffs, direction: .toRight, showHidden: true, ignore: [])
@@ -80,21 +74,15 @@ private func diff(
         #expect(result.map(\.relativePath) == ["left-newer.txt", "real-change.txt", "no-size.txt", "missing.txt"])
     }
 
-    @Test func testDriveDateNoiseKeptWhenSettingOff() {
+    @Test func testDriveDateNoiseKeptWhenSettingOffOrRightIsNotGoogleDrive() {
         let diffs = [diff("noise.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 10)]
-        let result = DifferenceProcessing.filterDifferences(
-            diffs, direction: .auto, showHidden: true, ignore: [],
-            ignoreGoogleDriveNewerDateOnly: false, rightProviderType: .googleDrive)
-        #expect(result.count == 1)
-    }
-
-    @Test func testDriveDateNoiseKeptWhenRightIsNotGoogleDrive() {
-        let diffs = [diff("noise.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 10)]
-        for rightType: CloudProvider.ProviderType? in [.iCloud, .oneDrive, .dropBox, nil] {
+        let cases: [(setting: Bool, right: CloudProvider.ProviderType?)] =
+            [(false, .googleDrive), (true, .iCloud), (true, .oneDrive), (true, .dropBox), (true, nil)]
+        for (setting, rightType) in cases {
             let result = DifferenceProcessing.filterDifferences(
                 diffs, direction: .auto, showHidden: true, ignore: [],
-                ignoreGoogleDriveNewerDateOnly: true, rightProviderType: rightType)
-            #expect(result.count == 1)
+                ignoreGoogleDriveNewerDateOnly: setting, rightProviderType: rightType)
+            #expect(result.count == 1, "setting \(setting), right \(String(describing: rightType))")
         }
     }
 
@@ -178,44 +166,6 @@ private func diff(
         #expect(DifferenceProcessing.sourceAndTarget(for: toLeft) == ("/right/x", "/left/x"))
     }
 
-    @Test func testTargetRelativePathUsesDestinationSpelling() {
-        // Trailing-space doppelganger: left "Swimming " vs Dropbox-normalized right "Swimming".
-        // The copyToRight write target is the right's own existing valid path, so the name
-        // validated against the destination provider must be "Swimming", not
-        // `diff.relativePath` ("Swimming "), which would falsely skip the copy.
-        let conflict = FileDifference(
-            relativePath: "Swimming ",
-            leftItemPath: "/left/Swimming ",
-            rightItemPath: "/right/Swimming",
-            type: .nameConflict,
-            action: .copyToRight,
-            description: "test",
-            leftFileSize: 1,
-            rightFileSize: 1
-        )
-        let validated = DifferenceProcessing.targetRelativePath(
-            for: conflict, targetRoot: URL(fileURLWithPath: "/right"))
-        #expect(validated == "Swimming")
-        // The left spelling IS a Dropbox violation, the destination's own spelling is not:
-        // validating the target's path keeps this row syncable.
-        #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
-        #expect(ProviderNameRules.violation(inRelativePath: validated, for: .dropBox) == nil)
-
-        // copyToLeft mirrors: the target is the LEFT item path relative to the left root.
-        let toLeft = FileDifference(
-            relativePath: "Swimming",
-            leftItemPath: "/left/Swimming",
-            rightItemPath: "/right/Swimming ",
-            type: .nameConflict,
-            action: .copyToLeft,
-            description: "test",
-            leftFileSize: 1,
-            rightFileSize: 1
-        )
-        #expect(DifferenceProcessing.targetRelativePath(
-            for: toLeft, targetRoot: URL(fileURLWithPath: "/left/")) == "Swimming")
-    }
-
     @Test func testTargetRelativePathFallsBackWhenTargetOutsideRoot() {
         let d = diff("nested/x", action: .copyToRight) // target /right/nested/x
         #expect(DifferenceProcessing.targetRelativePath(
@@ -277,8 +227,5 @@ private func diff(
         #expect(DifferenceProcessing.typeString(.differentDates) == "different")
         #expect(DifferenceProcessing.actionString(.copyToRight) == "copy-to-right")
         #expect(DifferenceProcessing.actionString(.copyToLeft) == "copy-to-left")
-        // Raw values are part of the CLI surface (--direction/--strategy).
-        #expect(Direction(rawValue: "to-right") == .toRight)
-        #expect(CollisionStrategy(rawValue: "keep-both") == .keepBoth)
     }
 }

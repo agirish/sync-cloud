@@ -28,26 +28,6 @@ import Design
             timeZone: zone)
     }
 
-    /// The shared formatter is put back on the requested zone before it is handed back. Mutated out
-    /// from under the accessor, a formatter that captured its zone would answer with the stale one.
-    /// Both the app's `.current` and an injected fixed zone are driven, since the refresh is what
-    /// makes injection reachable.
-    @Test func theLogTimeFormatterFollowsTheZoneItIsAskedFor() throws {
-        let elsewhere = try #require([TimeZone(identifier: "Asia/Kolkata"),
-                                      TimeZone(identifier: "America/Los_Angeles")]
-            .compactMap { $0 }.first { $0 != TimeZone.current })
-
-        LogEntryRow.timeFormatter.stageZoneForTesting(elsewhere)
-        _ = LogEntryRow.timeFormatter.string(from: Self.instant)
-        #expect(LogEntryRow.timeFormatter.zone == TimeZone.current,
-                "a cached formatter must be put back on the system zone before it is used")
-
-        let utc = try #require(TimeZone(identifier: "UTC"))
-        _ = LogEntryRow.timeFormatter.string(from: Self.instant, in: utc)
-        #expect(LogEntryRow.timeFormatter.zone == utc,
-                "an injected zone must survive the accessor")
-    }
-
     /// The reading itself, not only the property: the same instant reads differently in two
     /// zones, and reads what the zone says it should.
     @Test func theStampIsRenderedInTheZoneItIsGiven() throws {

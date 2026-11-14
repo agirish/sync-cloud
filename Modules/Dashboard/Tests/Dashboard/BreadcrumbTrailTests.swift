@@ -72,17 +72,11 @@ import Testing
 
     // MARK: - rootDisplayName(forRootPath:)
 
-    @Test func testRootNameIsLastPathComponent() {
-        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/Users/me/Documents") == "Documents")
-    }
-
-    @Test func testRootNameIgnoresTrailingSlash() {
-        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/Users/me/Dropbox/") == "Dropbox")
-    }
-
-    @Test func testRootNameFallsBackForBareOrEmptyPaths() {
-        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/") == "Root")
-        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "") == "Root")
+    /// The last path component, a trailing slash ignored; a bare or empty path falls back to "Root".
+    @Test(arguments: [("/Users/me/Documents", "Documents"), ("/Users/me/Dropbox/", "Dropbox"),
+                      ("/", "Root"), ("", "Root")])
+    func testTheRootIsNamedByItsLastComponent(path: String, name: String) {
+        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: path) == name)
     }
 
     // MARK: - compactItems(for:) — Edit's narrow pane (asked 2026-10-17)

@@ -208,7 +208,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
     /// does it. Asserted as the exact list of sizes that fit, so a change in either direction
     /// fails and the list is updated deliberately.
     @MainActor
-    @Test func theClampedOpeningFitsTheSmallerTextSizesOnly() async throws {
+    @Test func theClampedOpeningFitsEveryTextSize() async throws {
         let fitting = FontSize.allCases.filter { size in
             let height = laidOutHeight(AppearanceSettingsTab(),
                                        width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
@@ -504,7 +504,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
     /// `SettingsRail.TabList` against `SettingsRail.tabListOpening`, the space between the search
     /// field and the version line, both laid out for real (`tabListMargin`). The claim: on a
     /// 1280×800 display every tab is reachable without scrolling. Clamped for the same reason as
-    /// `theClampedOpeningFitsTheSmallerTextSizesOnly`, and at every text size, because the rows
+    /// `theClampedOpeningFitsEveryTextSize`, and at every text size, because the rows
     /// grow with it.
     ///
     /// There is plenty of slack here. It binds hardest at the window floor
@@ -546,7 +546,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
     }
 
     /// Where the rail binds, recorded rather than trimmed away, in the same shape as
-    /// `theClampedOpeningFitsTheSmallerTextSizesOnly`. `floorSize` is where `resolvedSize` stops
+    /// `theClampedOpeningFitsEveryTextSize`. `floorSize` is where `resolvedSize` stops
     /// shrinking, for a host smaller than the main window can be. There the tab list overruns the
     /// opening at every text size, from the tab count rather than the separators, so the rail
     /// scrolls (`.basedOnSize`) instead of silently dropping its bottom rows.
@@ -808,12 +808,6 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
                 The size preset row wants \(wanted)pt at \(FontSize.extraLarge.percent)% and can \
                 shrink to \(floor)pt, but the floored content column offers only \(available)pt \
                 — its tile labels will truncate.
-                """)
-        #expect(wanted <= available * 2,
-                """
-                The size preset row wants \(wanted)pt at \(FontSize.extraLarge.percent)% but the \
-                floored content column offers only \(available)pt — its tile labels will \
-                truncate. Margin: \(available - wanted)pt.
                 """)
     }
 

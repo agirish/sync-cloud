@@ -17,7 +17,7 @@ import Events
     /// The row's pill reads the record's label, not the action's, so a permanent delete still
     /// says "Delete". A row's body never runs offscreen in a test, so this reads the code.
     @Test func aRowsPillUsesTheRecordsOwnLabel() throws {
-        let code = try DashboardSource.read("ActivityEventsView.swift")
+        let code = try DashboardSource.read("ActivityEventsView.swift", codeOnly: true)
         #expect(code.contains("Pill(.mini, tint: actionColor, text: record.actionLabel)"))
         #expect(!code.contains("record.action.label"), "a row labels by the action, so a permanent delete reads Move to Trash")
     }

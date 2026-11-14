@@ -37,19 +37,8 @@ import Events
         return control.string(from: date)
     }
 
-    /// The shared formatter is put back on the system zone before it is handed back. Mutated out
-    /// from under the accessor, a formatter that captured its zone would answer with the stale one.
-    @Test func theSyncHistoryStampFollowsTheSystemZone() throws {
-        let away = try Self.elsewhere()
-        SyncHistoryRow.timeFormatter.stageZoneForTesting(away)
-        _ = SyncHistoryRow.timeFormatter.string(from: Self.instant)
-
-        #expect(SyncHistoryRow.timeFormatter.zone == TimeZone.current,
-                "a cached formatter must be put back on the system zone before it is used")
-    }
-
     /// The call-site half: the string the row draws. Catches `timeString` using the cached
-    /// formatter directly, bypassing the accessor the test above checks.
+    /// formatter directly, bypassing the accessor (`ZoneRefreshedFormatter`, tested in Design).
     @Test func theRowsStampIsRenderedInTheSystemZone() throws {
         let away = try Self.elsewhere()
         let stale = { () -> String in
@@ -80,7 +69,7 @@ import Events
         #expect(SyncHistoryRow.previousDateText(match) == "was " + SyncHistoryRow.timeString(previous))
         #expect(SyncHistoryRow.previousDateText(SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/l/a.txt")) == nil)
 
-        let source = try DashboardSource.read("ActivityEventsView.swift")
+        let source = try DashboardSource.read("ActivityEventsView.swift", codeOnly: true)
         #expect(source.contains("if let previous = Self.previousDateText(record) {"), "the row no longer draws the previous date")
     }
 }

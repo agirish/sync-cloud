@@ -109,9 +109,7 @@ import Foundation
     }
 
     @Test func rememberWritesThePlacesPageAndNothingForATab() {
-        let suite = "SubTabMemoryTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = ScratchDefaults("SubTabMemoryTests")
         SettingsSubTabMemory.remember(SettingsPlace(.general), in: defaults)
         #expect(defaults.string(forKey: SettingsSubTabMemory.defaultsKey) == nil)
         SettingsSubTabMemory.remember(SettingsPlace(.oneWaySync), in: defaults)

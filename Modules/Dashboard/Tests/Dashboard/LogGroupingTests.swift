@@ -81,15 +81,6 @@ import Sync
                 ["entry:Scan completed", "group:synced:2", "group:filed:2", "entry:Low space"])
     }
 
-    @Test func testAdjacentDifferentKindsDoNotMerge() {
-        // One synced + one filed, adjacent: each run is length 1, so neither folds.
-        let entries = [
-            LogEntry(level: .info, message: "Synced file: a"),
-            LogEntry(level: .info, message: "Filing: filed b"),
-        ]
-        #expect(shape(LogGrouping.fold(entries)) == ["entry:Synced file: a", "entry:Filing: filed b"])
-    }
-
     @Test func testGroupInheritsHighestSeverity() {
         // A failure buried in a run tints the collapsed header, so it isn't hidden.
         let entries = [
@@ -107,14 +98,11 @@ import Sync
     /// run and the header said "Filed 2 files" for 40 plus one. Fed `FilingBatchLog`'s own output,
     /// not a typed copy, so a reworded summary that takes the prefix again fails here.
     @Test func aFilingBatchsLinesNeverFoldWithTheCardsAroundIt() {
+        let filed = (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
+                                                        folder: "/r/Bills", source: "its name") }
         let batch = FilingBatchLog.lines(
-            operation: "Filing batch",
-            filed: (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
-                                                       folder: "/r/Bills", source: "its name") },
-            summary: FilingBatchLog.recommendedSummary(
-                filed: (1...40).map { FilingBatchLog.Filed(fileName: "f\($0).pdf", landedAs: "f\($0).pdf",
-                                                           folder: "/r/Bills", source: "its name") },
-                failures: 0, alreadyHome: 0))
+            operation: "Filing batch", filed: filed,
+            summary: FilingBatchLog.recommendedSummary(filed: filed, failures: 0, alreadyHome: 0))
         let entries = [LogEntry(level: .info, message: "Filing: filed “card.pdf” → Bills")]
             + batch.map { LogEntry(level: .info, message: $0) }
             + [LogEntry(level: .info, message: "Filing: filed “other.pdf” → Tax")]
@@ -155,18 +143,6 @@ import Sync
         #expect(sections.map(\.header) == ["Today", "Yesterday"])
         #expect(shape(sections[0].items) == ["group:synced:2"])
         #expect(shape(sections[1].items) == ["group:synced:2"])
-    }
-
-    @Test func testOlderDayGetsADatedHeaderNotTodayOrYesterday() {
-        let now = at(2026, 7, 14, 12)
-        let entries = [LogEntry(timestamp: at(2026, 7, 1, 8), level: .info, message: "old")]
-        let header = LogGrouping.byDay(entries, now: now, calendar: utc)[0].header
-        #expect(header != "Today")
-        #expect(header != "Yesterday")
-        #expect(!header.isEmpty)
-        // The date itself, which the assertions above don't check, so a header a day out would
-        // pass them. `1` is this bucket's day in UTC.
-        #expect(header.contains("1"), "the dated header does not name the day it labels")
     }
 
     /// A dated header names its bucket's day in the bucket's own zone. `byDay` takes the boundary

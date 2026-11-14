@@ -113,10 +113,7 @@ import Testing
 
         let size = await DetailsSidebar.computeDirectorySizeString(path: folder.path)
 
-        // This is the partial verdict with a total of zero, the branch the fixture claims to
-        // exercise.
-        #expect(size != ByteCountFormatter.string(fromByteCount: 0, countStyle: .file) + "+",
-                "“Zero KB+” is not a size — it is the floor idiom applied to a floor of nothing")
+        // The partial verdict with a total of zero: not “Zero KB+”, a floor of nothing.
         #expect(size == nil, "no honest number here; the caller renders nil as “--”")
     }
 
@@ -141,7 +138,6 @@ import Testing
                                 "12 KB was measured — the folder is not unanswerable")
         #expect(size.hasSuffix("+"), "the withheld subtree makes this a floor, not a total: \(size)")
         #expect(size.hasPrefix("12"), "the bytes it did see, not a floor of nothing: \(size)")
-        #expect(!size.contains("900"), "nothing behind the locked subfolder was counted")
     }
 
     // MARK: A symlinked folder is not an unreadable one

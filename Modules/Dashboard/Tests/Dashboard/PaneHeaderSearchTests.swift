@@ -51,16 +51,11 @@ import Sync
     /// `PaneHeaderHeightTests` pins the header to `LiquidGlass.headerHeight`, which lines the pane's
     /// header↔list boundary up with the lens header card. The field takes the bar's row rather than
     /// adding one, so the height holds open or closed, and at the narrow width too.
-    @Test("The header keeps its rung with the field closed", .machinePinned(.layoutMetrics))
-    func theClosedHeaderKeepsItsHeight() {
+    @Test("The header keeps its rung with the field closed or open", .machinePinned(.layoutMetrics))
+    func theHeaderKeepsItsHeightOpenOrClosed() {
         let box = Box()
         #expect(Self.laidOutHeight(Self.header(box), width: 560) == LiquidGlass.headerHeight)
         #expect(Self.laidOutHeight(Self.header(box), width: 250) == LiquidGlass.headerHeight)
-    }
-
-    @Test("…and with the field open, which is the row it took", .machinePinned(.layoutMetrics))
-    func theOpenHeaderKeepsItsHeight() {
-        let box = Box()
         box.isExpanded = true
         #expect(Self.laidOutHeight(Self.header(box, summary: "2 of 7"), width: 560) == LiquidGlass.headerHeight)
         #expect(Self.laidOutHeight(Self.header(box, summary: "No matches"), width: 250) == LiquidGlass.headerHeight)
@@ -171,6 +166,20 @@ import Sync
         plain.dismissSearch()   // must not trap
     }
 
+    /// The ink in the controls band of an open "2 of 7" field, 900 points wide: the band starts at the
+    /// end of the laid-out text editor, as in `anEmptyFieldStillHasAWayOut`. -1 if the field never
+    /// revealed.
+    private static func controlsInk(matchCount: Int, canAdvance: Bool) async -> Int {
+        let box = Box()
+        box.isExpanded = true
+        box.query = "tax"
+        let window = mount(header(box, summary: "2 of 7", matchCount: matchCount, canAdvance: canAdvance), width: 900)
+        let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
+        guard shown.held, let editor = FieldEditor.find(in: window), let host = window.contentView else { return -1 }
+        let text = editor.convert(editor.bounds, to: host)
+        return ink(in: NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height), of: host)
+    }
+
     /// Pixels appreciably darker than the field's own surface, inside `rect` (view coordinates).
     private static func ink(in rect: NSRect, of host: NSView) -> Int {
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return 0 }
@@ -203,21 +212,6 @@ import Sync
             searchIsExpanded: Binding(get: { box.isExpanded }, set: { box.isExpanded = $0 }))
     }
 
-    /// A stored arrangement may lack the magnifier, and ⋯ offers only controls the bar places, so
-    /// the customize sheet's palette must be able to give it back. Otherwise removing Search would
-    /// be a one-way door.
-    @Test("A stored arrangement without Search does not hide it in ⋯, and the palette can add it")
-    func searchIsRecoverableFromAStoredBar() {
-        let box = Box()
-        let stored = PaneBarArrangement(encoded: "flexibleSpace,backForward,scan,sort")
-        #expect(!stored.items.contains(.search))
-        let plan = PaneBarLayout.plan(arrangement: stored,
-                                      available: Self.searchingHeader(box).availableItems,
-                                      depth: 0)
-        #expect(!plan.overflow.contains(.search), "the magnifier is back to living invisibly in ⋯")
-        #expect(PaneBarCustomizeSheet.palette.contains(.search))
-    }
-
     // MARK: - Walking from the field
 
     /// ↩ and ⇧↩ both arrive as `onSubmit`; the direction is the modifier state at that moment. The
@@ -229,14 +223,8 @@ import Sync
             let box = Box()
             box.isExpanded = true
             box.query = "tax"
-            let host = NSHostingView(rootView:
-                Self.header(box, summary: "1 of 3")
-                    .environment(\.paneSearchSubmitModifiers, modifiers)
-                    .frame(width: 560))
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 120),
-                                  styleMask: [.titled], backing: .buffered, defer: false)
-            window.contentView = host
-            window.layoutIfNeeded()
+            let window = Self.mount(Self.header(box, summary: "1 of 3")
+                                        .environment(\.paneSearchSubmitModifiers, modifiers), width: 560)
 
             // The field claims focus one Task hop after it appears, and only a focused field submits.
             let focused = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
@@ -260,29 +248,12 @@ import Sync
     /// pass with no arrows drawn.
     @Test("The counter comes with buttons to move it", .machinePinned(.pixelSampling))
     func theFieldDrawsWalkButtons() async {
-        let width: CGFloat = 900
-        func trailingInk(canAdvance: Bool) async -> (ink: Int, shown: Bool) {
-            let box = Box()
-            box.isExpanded = true
-            box.query = "tax"
-            let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: 7,
-                                                canAdvance: canAdvance), width: width)
-            let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
-            guard shown.held, let editor = FieldEditor.find(in: window), let host = window.contentView
-            else { return (0, false) }
-            // The controls band, from the end of the text editor, located from the laid-out editor
-            // as in `anEmptyFieldStillHasAWayOut`.
-            let text = editor.convert(editor.bounds, to: host)
-            let band = NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height)
-            return (Self.ink(in: band, of: host), true)
-        }
-
-        let with = await trailingInk(canAdvance: true)
-        let without = await trailingInk(canAdvance: false)
-        #expect(with.shown && without.shown, "both fields should have revealed")
-        #expect(without.ink > 0, "the control band reads zero even for the counter and ✕ — it is aimed wrong")
-        #expect(with.ink > without.ink + 20,
-                "the walk buttons paint nothing: \(with.ink) vs \(without.ink) with them withheld")
+        let with = await Self.controlsInk(matchCount: 7, canAdvance: true)
+        let without = await Self.controlsInk(matchCount: 7, canAdvance: false)
+        #expect(with >= 0 && without >= 0, "both fields should have revealed")
+        #expect(without > 0, "the control band reads zero even for the counter and ✕ — it is aimed wrong")
+        #expect(with > without + 20,
+                "the walk buttons paint nothing: \(with) vs \(without) with them withheld")
     }
 
     /// …and they go dim when there is nowhere to walk; live-looking arrows on "No matches" promise
@@ -290,23 +261,8 @@ import Sync
     /// the count.
     @Test("With no hits the buttons are visibly disabled", .machinePinned(.pixelSampling))
     func theButtonsDimWithNothingToWalk() async {
-        let width: CGFloat = 900
-        func trailingInk(matchCount: Int) async -> Int {
-            let box = Box()
-            box.isExpanded = true
-            box.query = "tax"
-            let window = Self.mount(Self.header(box, summary: "2 of 7", matchCount: matchCount),
-                                    width: width)
-            let shown = await LayoutPumpWait.pump(window, upTo: 5) { FieldEditor.find(in: window) != nil }
-            guard shown.held, let editor = FieldEditor.find(in: window), let host = window.contentView
-            else { return -1 }
-            let text = editor.convert(editor.bounds, to: host)
-            return Self.ink(in: NSRect(x: text.maxX, y: 0, width: 130, height: host.bounds.height),
-                            of: host)
-        }
-
-        let live = await trailingInk(matchCount: 7)
-        let dead = await trailingInk(matchCount: 0)
+        let live = await Self.controlsInk(matchCount: 7, canAdvance: true)
+        let dead = await Self.controlsInk(matchCount: 0, canAdvance: true)
         #expect(live >= 0 && dead >= 0, "both fields should have revealed")
         #expect(dead < live, "the buttons look identical with 0 hits and with 7: \(dead) vs \(live)")
     }

@@ -45,24 +45,15 @@ import Foundation
     @Test func confirmingClearsTheEntriesAndTheFile() async {
         let (logger, url) = await makeLogger()
         defer { removeLogFiles(at: url) }
+        var entriesWhenAsked = -1
 
-        let cleared = logger.clearIfConfirmed { true }
+        let cleared = logger.clearIfConfirmed { entriesWhenAsked = logger.entries.count; return true }
         logger.flushToDisk()
 
+        #expect(entriesWhenAsked == 1, "the question must come before anything is removed")
         #expect(cleared)
         #expect(logger.entries.isEmpty)
         #expect(bytesOnDisk(url) == 0)
-    }
-
-    @Test func theQuestionComesBeforeAnythingIsRemoved() async {
-        let (logger, url) = await makeLogger()
-        defer { removeLogFiles(at: url) }
-        var entriesWhenAsked = -1
-
-        logger.clearIfConfirmed { entriesWhenAsked = logger.entries.count; return true }
-
-        #expect(entriesWhenAsked == 1)
-        #expect(logger.entries.isEmpty)
     }
 
     /// Escape cancels Clear Log. Its Cancel answers Return, which takes Escape from it, so the

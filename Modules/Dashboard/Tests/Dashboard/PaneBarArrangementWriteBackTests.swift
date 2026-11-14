@@ -36,9 +36,7 @@ import Foundation
     /// The other production writer: `PaneBarMigration.apply` re-encodes a stored bar to add a
     /// shipped control, and must not strip a foreign token while it does.
     @Test func theMigrationRewriteCarriesTheTokenToo() {
-        let suite = "panebar-writeback-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("panebar-writeback")
         defaults.set("flexibleSpace,scan,futureControl", forKey: PaneBar.arrangementKey)
 
         PaneBarMigration.apply(defaults: defaults)

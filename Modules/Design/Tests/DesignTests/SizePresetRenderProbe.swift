@@ -100,24 +100,9 @@ import AppKit
         return count
     }
 
-    /// Returns -1 when it couldn't compare at all, not 0, so a broken harness can't read as
-    /// "identical".
+    /// Alpha counts: text and borders at partial alpha over a transparent ground carry no RGB
+    /// difference in the bitmap.
     private static func differingPixels(_ a: NSBitmapImageRep?, _ b: NSBitmapImageRep?) -> Int {
-        guard let a, let b else { return -1 }
-        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return -1 }
-        var count = 0
-        for x in 0..<a.pixelsWide {
-            for y in 0..<a.pixelsHigh {
-                guard let p = a.colorAt(x: x, y: y), let q = b.colorAt(x: x, y: y) else { continue }
-                let delta = max(abs(p.redComponent - q.redComponent),
-                                max(abs(p.greenComponent - q.greenComponent),
-                                    max(abs(p.blueComponent - q.blueComponent),
-                                        // Alpha counts: text and borders at partial alpha over a
-                                        // transparent ground carry no RGB difference in the bitmap.
-                                        abs(p.alphaComponent - q.alphaComponent))))
-                if delta > 0.03 { count += 1 }
-            }
-        }
-        return count
+        Pixel.differing(a, b, tolerance: 0.03, alpha: true)
     }
 }

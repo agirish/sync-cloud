@@ -7,45 +7,21 @@ import Testing
 /// (including the uppercase glyphs used when the underlying execute bit is unset).
 @Suite struct PermissionFormattingTests {
 
-    @Test func commonFileModes() {
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o755, isDirectory: false) == "-rwxr-xr-x (755)")
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o644, isDirectory: false) == "-rw-r--r-- (644)")
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o600, isDirectory: false) == "-rw------- (600)")
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o777, isDirectory: false) == "-rwxrwxrwx (777)")
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o000, isDirectory: false) == "---------- (000)")
-    }
-
-    @Test func directoryLeadingCharVersusFile() {
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o755, isDirectory: true) == "drwxr-xr-x (755)")
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o755, isDirectory: false) == "-rwxr-xr-x (755)")
-        // A wide-open directory is a common real-world case (e.g. /tmp without sticky).
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o777, isDirectory: true) == "drwxrwxrwx (777)")
-    }
-
-    @Test func setuidRendersInOwnerExecuteSlot() {
-        // Execute bit set → lowercase `s`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o4755, isDirectory: false) == "-rwsr-xr-x (4755)")
-        // Execute bit unset → uppercase `S`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o4655, isDirectory: false) == "-rwSr-xr-x (4655)")
-    }
-
-    @Test func setgidRendersInGroupExecuteSlot() {
-        // Execute bit set → lowercase `s`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o2755, isDirectory: false) == "-rwxr-sr-x (2755)")
-        // Execute bit unset → uppercase `S`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o2745, isDirectory: false) == "-rwxr-Sr-x (2745)")
-    }
-
-    @Test func stickyBitRendersInOtherExecuteSlot() {
-        // Classic sticky /tmp directory: execute bit set → lowercase `t`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o1777, isDirectory: true) == "drwxrwxrwt (1777)")
-        // Execute bit unset → uppercase `T`.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o1666, isDirectory: false) == "-rw-rw-rwT (1666)")
-    }
-
-    @Test func bitsAboveTheStandardMaskAreIgnored() {
-        // Anything outside 0o7777 (e.g. the file-type bits stat can carry) must not leak
-        // into the output; masking keeps it to the permission + special bits.
-        #expect(DetailsSidebar.symbolicPermissions(mode: 0o100644, isDirectory: false) == "-rw-r--r-- (644)")
+    @Test(arguments: [
+        // Common modes, and the leading `d` for a directory.
+        (0o755, false, "-rwxr-xr-x (755)"), (0o644, false, "-rw-r--r-- (644)"),
+        (0o600, false, "-rw------- (600)"), (0o777, false, "-rwxrwxrwx (777)"),
+        (0o000, false, "---------- (000)"), (0o755, true, "drwxr-xr-x (755)"),
+        (0o777, true, "drwxrwxrwx (777)"),
+        // setuid, setgid and sticky take the owner, group and other execute slots: lowercase over
+        // a set execute bit, uppercase over an unset one.
+        (0o4755, false, "-rwsr-xr-x (4755)"), (0o4655, false, "-rwSr-xr-x (4655)"),
+        (0o2755, false, "-rwxr-sr-x (2755)"), (0o2745, false, "-rwxr-Sr-x (2745)"),
+        (0o1777, true, "drwxrwxrwt (1777)"), (0o1666, false, "-rw-rw-rwT (1666)"),
+        // Bits outside 0o7777 (the file-type bits stat can carry) don't leak into the output.
+        (0o100644, false, "-rw-r--r-- (644)"),
+    ] as [(Int, Bool, String)])
+    func aModeReadsAsLsWritesIt(mode: Int, isDirectory: Bool, expected: String) {
+        #expect(DetailsSidebar.symbolicPermissions(mode: mode, isDirectory: isDirectory) == expected)
     }
 }

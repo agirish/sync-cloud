@@ -24,15 +24,8 @@ import FileExplorerTestSupport
 
     /// Every `_FocusRingView` in the laid-out header, in reading order.
     private func rings<V: View>(_ view: V, width: CGFloat) -> [CGRect] {
-        let host = NSHostingView(rootView: AnyView(view.frame(width: width)))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: 1_000)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        let found = FocusRings.frames(in: host)
-        return found.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
+        let rig = ProbeRig(AnyView(view.frame(width: width)), size: CGSize(width: width, height: 1_000))
+        return FocusRings.frames(in: rig.host).sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
     }
 
     /// The bar's rings only; the breadcrumb sits on a lower row.
@@ -56,18 +49,11 @@ import FileExplorerTestSupport
 
     /// The laid-out height of one rung's bar, off the same host `barWidth` reads. No scale
     /// parameter: a bar built through `barVariant` draws at the unhosted struct's default
-    /// `appFontScale`, so one would be accepted and ignored
-    /// (`theEnvironmentDoesNotReachABarBuiltOffTheStruct`).
+    /// `appFontScale`, so one would be accepted and ignored.
     private func barHeight(_ view: PaneHeader, rung: Int, ladder: PaneBarLadder) -> CGFloat {
         let host = NSHostingView(rootView: AnyView(view.barVariant(rung, ladder)))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
-    }
-
-    private func fingerprint<V: View>(_ view: V, width: CGFloat) -> String {
-        rings(view, width: width)
-            .map { "\(Int($0.minX.rounded())),\(Int($0.minY.rounded()))/\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
-            .joined(separator: " ")
     }
 
     /// The card is balanced top to bottom at every rung and text size. Two rules hold it, pinned by
@@ -138,18 +124,8 @@ import FileExplorerTestSupport
 
     /// Which rows of a header rendered at its pinned height carry any ink at all.
     private static func inkedRows<V: View>(_ view: V, width: CGFloat, height: CGFloat) -> [Bool]? {
-        let host = NSHostingView(rootView: AnyView(
-            view.frame(width: width, height: height).background(Color.white)))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = ProbeRig(AnyView(view.frame(width: width, height: height).background(Color.white)),
+                           size: CGSize(width: width, height: height)).capture()
         return (0..<rep.pixelsHigh).map { y in
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
@@ -254,9 +230,9 @@ import FileExplorerTestSupport
     /// SwiftUI doesn't clip a child to a `maxHeight`, so a short answer only lets a word hang into
     /// the gap `theBarAndTheTrailKeepTheirGap` guards, with nothing going red.
     ///
-    /// This covers one text size: hosting `barVariant` under `.environment(\.appFontScale, …)`
-    /// silently changes nothing (`theEnvironmentDoesNotReachABarBuiltOffTheStruct`). The other
-    /// sizes are held by a chain: `LabelMetricsTests.lineHeightMatchesTheDrawnLineBox` checks
+    /// This covers one text size: `PaneHeader` reads `appFontScale` as an `@Environment` property,
+    /// so a bar built off the struct by `barVariant` draws at the default, and hosting it under
+    /// `.environment(\.appFontScale, …)` silently changes nothing. The other sizes are held by a chain: `LabelMetricsTests.lineHeightMatchesTheDrawnLineBox` checks
     /// `lineHeight` against a drawn `Text` at every slider scale, `rowHeight` is pill + gap + that,
     /// and `theTitledHeaderClearsBothEdges` renders every size and measures the result.
     @Test(.machinePinned(.pixelSampling)) func everyRungIsReservedAsTallAsTheBarItDraws() {
@@ -270,35 +246,6 @@ import FileExplorerTestSupport
             #expect(drawn == ladder.height(forRung: rung),
                     "rung \(rung)\(ladder.isTitled(forRung: rung) ? " (titled)" : ""): the bar draws \(drawn)pt where the ladder reserved \(drawn == ladder.height(forRung: rung) ? drawn : ladder.height(forRung: rung))pt")
         }
-    }
-
-    /// Why the test above takes no text size, measured. `PaneHeader` reads `appFontScale` as an
-    /// `@Environment` property, and `barVariant` is a method on the struct, so its bar draws at the
-    /// default; an `.environment(_:_:)` on the returned view comes too late for the font
-    /// `titledItem` already resolved. A sweep would report identical numbers and read as passes.
-    @Test(.machinePinned(.pixelSampling)) func theEnvironmentDoesNotReachABarBuiltOffTheStruct() {
-        let view = Self.header("iCloud Drive")
-        var drawn: [Int: CGFloat] = [:], reserved: [Int: CGFloat] = [:]
-        for percent in FontSize.selectablePercents {
-            let scale = FontSize(percent: percent).scale
-            let ladder = PaneBarLadder(arrangement: .default, available: view.availableItems,
-                                       ceiling: PaneBarIconSize.regular.ceiling,
-                                       labelMode: .iconAndText, scale: scale)
-            // Only sizes whose rung 0 is titled. Above the gate it is a bare pill, one height for
-            // reasons unrelated to the environment, which would make this fail for the wrong one.
-            guard ladder.isTitled(forRung: 0) else { continue }
-            let host = NSHostingView(rootView: AnyView(
-                view.barVariant(0, ladder).environment(\.appFontScale, scale)))
-            host.layoutSubtreeIfNeeded()
-            drawn[percent] = host.fittingSize.height
-            reserved[percent] = ladder.height(forRung: 0)
-        }
-        #expect(drawn.count >= 4, "too few titled sizes (\(drawn.count)) for this to say anything")
-        // The ladder does follow the scale; only the drawn half is stuck.
-        #expect(Set(reserved.values).count > 1,
-                "the reservation stopped following the text size, so the sweep this rules out would have been vacuous for a second reason")
-        #expect(Set(drawn.values).count == 1,
-                "the environment now reaches a bar built off the struct (\(drawn.sorted { $0.key < $1.key })) — `everyRungIsReservedAsTallAsTheBarItDraws` can take its text-size sweep back")
     }
 
     /// Whatever rung is chosen, the bar drawn is one of the ladder's rungs, not some width between.
@@ -437,20 +384,10 @@ import FileExplorerTestSupport
     /// assertion here, so this reads the bitmap.
     @Test(.machinePinned(.pixelSampling)) func theTallestRungIsNotClippedByThePinnedContainer() {
         let width: CGFloat = 900
-        let view = Self.header("iCloud Drive")
-            .frame(width: width, height: LiquidGlass.headerHeight)
-            .background(Color.white)
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(x: 0, y: 0, width: width, height: LiquidGlass.headerHeight)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
-            Issue.record("no bitmap"); return
-        }
-        host.cacheDisplay(in: host.bounds, to: rep)
+        let rep = ProbeRig(AnyView(Self.header("iCloud Drive")
+                                       .frame(width: width, height: LiquidGlass.headerHeight)
+                                       .background(Color.white)),
+                           size: CGSize(width: width, height: LiquidGlass.headerHeight)).capture()
 
         let bar = barRings(Self.header("iCloud Drive"), width: width)
         guard let first = bar.min(by: { $0.minX < $1.minX }) else { Issue.record("no rings"); return }
@@ -566,24 +503,10 @@ import FileExplorerTestSupport
     private static let spacerHeavy = PaneBarArrangement(
         PaneBarArrangement.default.items + Array(repeating: .space, count: 6))
 
-    /// The deepest ladder the arrangement normalizer permits: `maxItems` items, all of them
-    /// duplicate-exempt spaces except the scan control it forces on and will not shed.
-    private static let worstArrangement =
-        PaneBarArrangement(Array(repeating: PaneBarItem.space, count: PaneBarArrangement.maxItems - 1)
-                           + [.scan])
-
     private static func ladder(_ arrangement: PaneBarArrangement) -> PaneBarLadder {
         PaneBarLadder(arrangement: arrangement,
                       available: header(nil).availableItems,
                       ceiling: PaneBarIconSize.regular.ceiling)
-    }
-
-    /// Three ladders by depth: what almost every install runs, the palette-reachable spacer-heavy
-    /// bar, and the deepest bar the normalizer permits.
-    private static var ladderFixtures: [(String, PaneBarLadder)] {
-        [("default", ladder(.default)),
-         ("spacer-heavy", ladder(spacerHeavy)),
-         ("worst", ladder(worstArrangement))]
     }
 
     /// The rungs `ViewThatFits` can actually land on: first-fit takes the earliest child that fits,

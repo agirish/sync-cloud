@@ -10,44 +10,19 @@ import SwiftUI
 
     // MARK: - Classification
 
-    @Test func testICloudWinsOverDriveSubstring() {
-        // "iCloud Drive" contains "drive", so iCloud must be checked first.
-        #expect(ProviderHue.classify("iCloud Drive") == .iCloud)
-        #expect(ProviderHue.classify("iCloud") == .iCloud)
-    }
-
-    @Test func testDropboxWinsOverBoxSubstring() {
-        // "Dropbox" contains "box", so Dropbox must be checked before Box.
-        #expect(ProviderHue.classify("Dropbox") == .dropbox)
-        #expect(ProviderHue.classify("My Dropbox") == .dropbox)
-    }
-
-    @Test func testOneDriveWinsOverDriveSubstring() {
-        // "OneDrive" contains "drive", so OneDrive must be checked before Drive.
-        #expect(ProviderHue.classify("OneDrive") == .oneDrive)
-        #expect(ProviderHue.classify("OneDrive — Work") == .oneDrive)
-    }
-
-    @Test func testGoogleDriveAndBareDriveClassifyAsDrive() {
-        #expect(ProviderHue.classify("Google Drive") == .googleDrive)
-        #expect(ProviderHue.classify("Drive") == .googleDrive)
-    }
-
-    @Test func testBoxClassifies() {
-        #expect(ProviderHue.classify("Box") == .box)
-    }
-
-    @Test func testClassificationIsCaseInsensitive() {
-        #expect(ProviderHue.classify("DROPBOX") == .dropbox)
-        #expect(ProviderHue.classify("icloud drive") == .iCloud)
-        #expect(ProviderHue.classify("GOOGLE DRIVE") == .googleDrive)
-    }
-
-    @Test func testUnrecognizedNamesFallBackToNeutral() {
-        // Custom/local providers keep the user's app accent instead of a made-up brand hue.
-        #expect(ProviderHue.classify("NAS") == .neutral)
-        #expect(ProviderHue.classify("Backup") == .neutral)
-        #expect(ProviderHue.classify("") == .neutral)
+    /// The substring-order traps, case, and the neutral fallback for custom and local providers,
+    /// which keep the user's app accent instead of a made-up brand hue.
+    @Test(arguments: [
+        ("iCloud Drive", ProviderHue.iCloud), ("iCloud", .iCloud),       // iCloud before "drive"
+        ("Dropbox", .dropbox), ("My Dropbox", .dropbox),                 // Dropbox before "box"
+        ("OneDrive", .oneDrive), ("OneDrive — Work", .oneDrive),         // OneDrive before "drive"
+        ("Google Drive", .googleDrive), ("Drive", .googleDrive),
+        ("Box", .box),
+        ("DROPBOX", .dropbox), ("icloud drive", .iCloud), ("GOOGLE DRIVE", .googleDrive),
+        ("NAS", .neutral), ("Backup", .neutral), ("", .neutral),
+    ])
+    func testClassification(_ name: String, _ hue: ProviderHue) {
+        #expect(ProviderHue.classify(name) == hue)
     }
 
     // MARK: - Hues

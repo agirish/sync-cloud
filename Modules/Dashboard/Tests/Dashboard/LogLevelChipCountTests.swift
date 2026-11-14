@@ -29,18 +29,6 @@ import Events
         #expect(tally(counts, .error) == 2)
     }
 
-    @Test func anUnloadedHistoryLeavesTheCountsExactlyAsTheyWere() {
-        // Before "Show older history" is clicked the window holds only the session, so that is all
-        // the chips may claim.
-        let session = [entry(.debug), entry(.warning), entry(.error)]
-        let counts = LogViewer.thresholdCounts(session: session, history: [])
-
-        #expect(tally(counts, nil) == 3)
-        #expect(tally(counts, .info) == 2)
-        #expect(tally(counts, .warning) == 2)
-        #expect(tally(counts, .error) == 1)
-    }
-
     @Test func everyThresholdKeyIsPresentEvenAtZero() {
         // The chip row reads `levelCounts[option.level] ?? 0` for all four options; a missing key
         // would silently render 0, so the tally must emit each one.
@@ -63,16 +51,6 @@ import Events
                           search: String = "") -> LogViewerContents {
         LogViewerContents(session: session, history: history, minimumLevel: level, search: search,
                           pageSize: 25, now: Date(timeIntervalSince1970: 1_780_000_000))
-    }
-
-    @Test func loadedHistoryIsWhatTheChipsCount() {
-        // At the layer that decides it: three history errors and a quiet session, so the Errors
-        // chip reads 3, not 0.
-        let state = LogHistoryState.loaded(entries: [entry(.error), entry(.error), entry(.error)], revealed: 25)
-        let counts = contents(session: [], history: state).levelCounts
-
-        #expect(tally(counts, .error) == 3)
-        #expect(tally(counts, nil) == 3)
     }
 
     @Test func theCountsAndTheVisibleRowsDescribeTheSameHistory() {

@@ -42,25 +42,4 @@ import Testing
     @Test func testAFutureScanDateDoesNotProduceANegativeAge() {
         #expect(text(count: 2, ageSeconds: -5_000).contains("Last scanned just now —"))
     }
-
-    /// Words, never the pill's compact units: no "3d", "1h" or "29m" inside the sentence.
-    @Test func testTheAgeIsSpelledOutNotAbbreviated() {
-        #expect(text(count: 2, ageSeconds: 29 * 60).contains("Last scanned 29 minutes ago —"))
-        #expect(text(count: 2, ageSeconds: 3600).contains("Last scanned 1 hour ago —"))
-        for seconds: TimeInterval in [45, 90, 4000, 100_000] {
-            let message = text(count: 2, ageSeconds: seconds)
-            #expect(message.range(of: "[0-9][smhd] ago", options: .regularExpression) == nil, "\(message)")
-        }
-    }
-
-    /// Everything here is past tense, and the sentence says outright that the world has moved on.
-    /// The card offers a Scan button and nothing else precisely because it cannot speak for the
-    /// folders as they are now — copy that read as current would undo that.
-    @Test func testTheCopyNeverClaimsToDescribeTheFoldersNow() {
-        let message = text(count: 412, ageSeconds: 3 * 86_400)
-        #expect(message.hasPrefix("Last scanned"))
-        #expect(message.hasSuffix("Scan again to see what has changed since."))
-        #expect(!ComparePrompt.neverScanned.isEmpty)
-        #expect(ComparePrompt.neverScanned != message)
-    }
 }

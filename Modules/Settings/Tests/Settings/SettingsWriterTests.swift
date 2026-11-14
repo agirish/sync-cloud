@@ -38,8 +38,8 @@ import EventsTestSupport
     /// The log says who changed a setting: an Undo or a Revert of Claude's change goes through
     /// this writer too and is not Claude's doing. A refused write leaves a line as well.
     @Test func eachWriteIsLoggedWithItsCauseAndARefusalToo() async {
-        let (name, defaults) = scratch()
-        defer { UserDefaults().removePersistentDomain(forName: name) }
+        let defaults = scratch()
+        let name = defaults.scratchSuiteName
         let w = writer(defaults, nil, Calls())
         let log = LogCapture()
         #expect(w.write("appearance.theme", .string(AppearanceMode.dark.rawValue), cause: .revert) == .done)
@@ -56,13 +56,12 @@ import EventsTestSupport
                 "\(lines)")
     }
 
-    private func scratch(_ test: String = #function) -> (String, UserDefaults) {
-        let name = "SettingsWriterTests.\(test).\(UUID().uuidString)"
-        return (name, UserDefaults(suiteName: name)!)
+    private func scratch(_ test: String = #function) -> ScratchDefaults {
+        ScratchDefaults("SettingsWriterTests.\(test)")
     }
 
     @Test func aManagedSettingIsSetOnTheManager() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let manager = self.manager(on: defaults)
         let outcome = writer(defaults, manager, Calls()).write("sync.dateTolerance", .double(0))
         #expect(outcome == .done)
@@ -71,7 +70,7 @@ import EventsTestSupport
     }
 
     @Test func aStoredKeyIsWrittenAndAValueThatIsntAChoiceIsRefused() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let w = writer(defaults, nil, Calls())
         #expect(w.write("appearance.theme", .string(AppearanceMode.dark.rawValue)) == .done)
         #expect(defaults.string(forKey: LiquidGlass.appearanceModeKey) == AppearanceMode.dark.rawValue)
@@ -81,7 +80,7 @@ import EventsTestSupport
     }
 
     @Test func turningNotificationsOnAsksMacOSAndReportsADenial() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let calls = Calls()
         writer(defaults, nil, calls, permissionDenied: true).write("general.notifyInBackground", .bool(true))
         #expect(defaults.bool(forKey: GeneralSettings.notifyOnBackgroundCompletionKey))
@@ -92,7 +91,7 @@ import EventsTestSupport
     }
 
     @Test func theLogLevelTellsTheRunningLogger() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let calls = Calls()
         writer(defaults, nil, calls).write("advanced.logLevel", .string(LogLevel.warning.rawValue))
         #expect(calls.logLevels == [LogLevel.warning.rawValue])
@@ -100,7 +99,7 @@ import EventsTestSupport
     }
 
     @Test func allColumnsAsksBeforeErasingWidthsAndCancelWritesNothing() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         var overrides = ColumnWidthOverrides()
         overrides.widths[1] = 200
         overrides.widths[3] = 140
@@ -117,7 +116,7 @@ import EventsTestSupport
     /// Settings writes the widths only when they change; so does a card, or every window's
     /// columns hear a change that isn't one.
     @Test func widthsAreWrittenOnlyWhenTheyChange() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let w = writer(defaults, nil, Calls())
         #expect(w.write("readability.columnWidths", .string(ColumnResizeMode.allColumns.rawValue)) == .done)
         #expect(w.write("readability.columnWidths", .string(ColumnResizeMode.eachColumn.rawValue)) == .done)
@@ -137,12 +136,12 @@ import EventsTestSupport
     }
 
     @Test func aSourcesNameAndOpenAtAreSetAsSettingsSetsThem() throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("SettingsWriterTests-\(UUID().uuidString)")
         let inside = root.appendingPathComponent("Work")
         try FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let manager = sources(name, defaults, root: root.path)
+        let manager = sources(defaults.scratchSuiteName, defaults, root: root.path)
         let w = writer(defaults, manager, Calls())
 
         #expect(w.write("sources.name", .string("Dropbox (Work)"), target: "Acct") == .done)
@@ -172,7 +171,7 @@ import EventsTestSupport
     /// What Settings shows disabled, a card can't change either; and a card is never
     /// offered for a setting the writer can't set.
     @Test func aSettingWhoseSwitchIsOffIsRefused() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         defaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
         let w = writer(defaults, nil, Calls())
         let refused = w.write("intelligence.reuseSuggestions", .bool(false))
@@ -188,7 +187,7 @@ import EventsTestSupport
     /// Tint depends on Accent color, which is off at None, not at a switch's Off: Settings disables
     /// Tint there, and a card or Claude can't change it either.
     @Test func tintCantChangeWhileAccentColorIsNone() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         defaults.set(LiquidGlassHue.none.rawValue, forKey: LiquidGlass.hueKey)
         let w = writer(defaults, nil, Calls())
         #expect(w.write("appearance.tint", .double(0.5)) == .refused("Accent color is None, so Tint can’t change. Change it first."))
@@ -202,7 +201,7 @@ import EventsTestSupport
     @Test func everySettingACardCanHoldIsWritten() throws {
         for entry in SettingsCatalog.all where SettingsWriter.canWrite(entry) {
             guard case .appStorage = entry.storage, let base = entry.defaultValue else { continue }
-            let (name, defaults) = scratch("\(#function).\(entry.id)"); defer { wipeDefaultsSuite(name) }
+            let defaults = scratch("\(#function).\(entry.id)")
             let outcome = writer(defaults, manager(on: defaults), Calls()).write(entry.id, base)
             if case .refused(let why) = outcome { #expect(!why.contains("can’t be changed from a card"), "\(entry.id): \(why)") }
         }
@@ -218,14 +217,14 @@ import EventsTestSupport
     }
 
     @Test func launchAtLoginGoesToTheLoginItem() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let calls = Calls()
         writer(defaults, nil, calls).write("general.launchAtLogin", .bool(true))
         #expect(calls.login == [true])
     }
 
     @Test func aSourceThatIsntThereIsRefused() {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         let w = writer(defaults, manager(on: defaults), Calls())
         #expect(w.write("sources.enabled", .bool(false), target: "nope") == .refused("There’s no source nope."))
         #expect(w.write("sources.enabled", .bool(false)) == .refused("Say which source."))

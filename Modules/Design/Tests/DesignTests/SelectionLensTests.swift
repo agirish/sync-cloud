@@ -278,10 +278,8 @@ import SwiftUI
     }
 
     @Test func eachKindOfMoveSettlesOnItsOwnClock() {
-        // Grown by `appearDuration`, melted by `meltDuration`, travelled by `travelDuration`, the
-        // longest, which every leg in the layer runs for.
-        #expect(SelectionLensMotion.frame(from: nil, to: right, elapsed: SelectionLensMotion.appearDuration)?.rect == right)
-        #expect(SelectionLensMotion.frame(from: left, to: nil, elapsed: SelectionLensMotion.meltDuration) == nil)
+        // Grown by `appearDuration`, melted by `meltDuration` (both pinned above), travelled by
+        // `travelDuration`, the longest, which every leg in the layer runs for.
         #expect(SelectionLensMotion.travelDuration >= SelectionLensMotion.appearDuration)
         #expect(SelectionLensMotion.travelDuration >= SelectionLensMotion.meltDuration)
     }

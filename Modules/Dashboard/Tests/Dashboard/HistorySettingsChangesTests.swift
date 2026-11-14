@@ -70,10 +70,9 @@ import Sync
     /// Revert's "Show to Claude again?" asks as Settings' Remove and the card do, with Cancel the
     /// default; a Revert that only raises asks as a change, Return confirming.
     @Test func showingAFolderToClaudeAgainAsksAsSettingsDoes() {
-        let name = "HistorySettingsChangesTests.\(#function).\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".json")
-        defer { wipeDefaultsSuite(name); try? FileManager.default.removeItem(at: url) }
+        let defaults = ScratchDefaults("HistorySettingsChangesTests")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(defaults.scratchSuiteName + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
         let log = SettingsChangeLog(fileURL: url)
         let lookup = SettingsLookup(defaults: defaults, settings: nil, keyIsSaved: { false }, hiddenCount: { 0 },
                                     isHidden: { _ in false }, loginItemIsOn: { false })

@@ -8,9 +8,8 @@ import Sync
 @MainActor
 @Suite struct ClaudeSettingRuleTests {
 
-    private func scratch(_ test: String = #function) -> (String, UserDefaults) {
-        let name = "ClaudeSettingRuleTests.\(test).\(UUID().uuidString)"
-        return (name, UserDefaults(suiteName: name)!)
+    private func scratch(_ test: String = #function) -> ScratchDefaults {
+        ScratchDefaults("ClaudeSettingRuleTests.\(test)")
     }
 
     private func refusal(_ id: String, _ from: SettingValue?, _ to: SettingValue, _ defaults: UserDefaults) throws -> String? {
@@ -18,21 +17,21 @@ import Sync
     }
 
     @Test func lookAndFeelChangesEitherWay() throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         #expect(try refusal("appearance.theme", .string("system"), .string("dark"), defaults) == nil)
         #expect(try refusal("readability.textSize", .int(110), .int(100), defaults) == nil)
         #expect(try refusal("readability.textSize", .int(100), .int(110), defaults) == nil)
     }
 
     @Test func onlyTheirClickChangesASuggestedSetting() throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         #expect(try refusal("sync.confirmTransfer", .bool(true), .bool(false), defaults) != nil)
         #expect(try refusal("intelligence.askClaudeModel", .string(AskClaudeModels.opus.id),
                             .string(AskClaudeModels.haiku.id), defaults) != nil)
     }
 
     @Test func reachGoesOnlyDown() throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(10), defaults) == nil)
         #expect(try refusal("intelligence.monthlyLimit", .double(25), .double(50), defaults) != nil)
         // 0 is No limit, the highest there is: from it any limit lowers, and to it never does.
@@ -42,7 +41,7 @@ import Sync
     }
 
     @Test func aLimitNeverGoesToWhatsAlreadySpent() throws {
-        let (name, defaults) = scratch(); defer { wipeDefaultsSuite(name) }
+        let defaults = scratch()
         // The chat's and Organize's spend are one total, so the limit can't go to what both have spent.
         AskClaudeSpend.record(4, in: defaults)
         AskClaudeSpend.recordOrganize(6, in: defaults)

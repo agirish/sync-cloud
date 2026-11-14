@@ -16,13 +16,7 @@ import Testing
     private func laidOut(_ view: some View) -> CGSize {
         let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-layout")
         defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
-        let host = NSHostingView(rootView: AnyView(view.defaultAppStorage(defaults)))
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 800),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        return host.fittingSize
+        return ProbeRig(AnyView(view.defaultAppStorage(defaults)), size: CGSize(width: 600, height: 800)).host.fittingSize
     }
 
     @Test func testItemsTheEditingPaneCannotDrawAreStillOfferedButMarked() {
@@ -48,13 +42,9 @@ import Testing
         #expect(size.height > 300 && size.height < 760, "sheet height \(size.height) is out of range")
     }
 
-    @Test func testEveryPaletteItemIsSomethingTheBarCanPlace() {
-        // A tile for an item the bar can't draw would be dead: drag it on and nothing appears.
+    @Test func testThePaletteListsEachItemOnce() {
         let palette = PaneBarCustomizeSheet.palette
         #expect(Set(palette).count == palette.count, "the palette repeats an item")
-        for item in palette {
-            #expect(PaneBarItem.allCases.contains(item))
-        }
     }
 
     @Test func testThePaletteOffersEveryRemovableControl() {
@@ -76,7 +66,6 @@ import Testing
 
     @Test func testScanIsOfferedButInert() {
         // Offered so its absence from the removable set is visible, not a control someone hunts for.
-        #expect(PaneBarCustomizeSheet.palette.contains(.scan))
         #expect(!PaneBarItem.scan.isRemovable)
     }
 

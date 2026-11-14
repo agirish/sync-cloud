@@ -353,24 +353,9 @@ import Testing
     /// Each line through `codeOnly`, and every run of whitespace collapsed, so a call wrapped over
     /// lines reads as one.
     static func stripComments(_ source: String) -> String {
-        source.components(separatedBy: "\n").map { codeOnly($0) }
+        source.components(separatedBy: "\n").map { SourceComments.codeOnly($0) }
         .joined(separator: " ")
         .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-    }
-
-    /// `line` without its `//` comment, whole or trailing. A `//` inside a string literal (a URL's
-    /// `https://`) is kept, so a call named in a comment can't stand in for the call. Shared by
-    /// every source scan in this target.
-    static func codeOnly(_ line: some StringProtocol) -> String {
-        var inString = false
-        var previous: Character = " "
-        for index in line.indices {
-            let character = line[index]
-            if character == "\"" && previous != "\\" { inString.toggle() }
-            if !inString, character == "/", previous == "/" { return String(line[..<line.index(before: index)]) }
-            previous = character
-        }
-        return String(line)
     }
 
     private static func snippet(_ text: [Character], _ from: Int, _ to: Int) -> String {
@@ -697,6 +682,7 @@ import Testing
         ("DocumentPDF.swift", "NSHostingView(rootView: root)", "a document laid out for printing — no controls"),
         ("PaneColumnsView.swift", "NSHostingView(rootView: VStack", "column rows measured offscreen, never shown"),
         ("ProbeRig.swift", "NSHostingView(rootView: root)", "the test-only render rig, which paints what each test hands it"),
+        ("OffscreenRender.swift", "NSHostingView(rootView: view)", "the test-only bitmap rig, which paints what each test hands it"),
     ]
 
     /// A presentation that rightly sets no accent, named with why: nothing in it fills with one.

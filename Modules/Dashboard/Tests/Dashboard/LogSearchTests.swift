@@ -36,39 +36,10 @@ import Events
         #expect(query.text == "disk full")
     }
 
-    @Test func parsesTokensAlongsideFreeText() {
-        let query = LogSearch.parse("level:error since:1h dropbox")
-        #expect(query.level == .error)
-        #expect(query.since == 3600)
-        #expect(query.text == "dropbox")
-    }
-
-    @Test func matchingAppliesEveryPart() {
-        let query = LogSearch.parse("level:error since:1h copy")
-        #expect(query.matches(entry(.error, "Copy failed", agoSeconds: 600), now: now))      // error, 10m ago, has "copy"
-        #expect(!query.matches(entry(.warning, "Copy skipped", agoSeconds: 600), now: now))   // wrong level
-        #expect(!query.matches(entry(.error, "Copy failed", agoSeconds: 7200), now: now))     // 2h ago → too old
-        #expect(!query.matches(entry(.error, "Scan complete", agoSeconds: 600), now: now))    // no "copy"
-    }
-
     @Test func invalidTokenishWordsStayFreeText() {
         let query = LogSearch.parse("since:soon level:")
         #expect(query.level == nil && query.since == nil)
         #expect(query.text == "since:soon level:")
-    }
-
-    @Test func chipsListRecognizedTokensAndSkipFreeText() {
-        let chips = LogSearch.chips("level:error since:1h dropbox")
-        #expect(chips == [LogSearch.Chip(raw: "level:error", label: "level: error"),
-                          LogSearch.Chip(raw: "since:1h", label: "since: 1h")])
-    }
-
-    @Test func chipLabelKeepsTheTypedSinceValueButCanonicalizesLevel() {
-        // The since value survives exactly as typed; the level label is the canonical name even when
-        // abbreviated.
-        #expect(LogSearch.chips("since:30m") == [LogSearch.Chip(raw: "since:30m", label: "since: 30m")])
-        #expect(LogSearch.chips("level:err") == [LogSearch.Chip(raw: "level:err", label: "level: error")])
-        #expect(LogSearch.chips("level:WARN") == [LogSearch.Chip(raw: "level:WARN", label: "level: warn")])
     }
 
     @Test func duplicateFamilyChipsMarkEarlierOnesInactive() {

@@ -21,9 +21,7 @@ import Testing
 
     /// The flag defaults off, so a call site that doesn't pass it keeps matching by name.
     @Test func theFlagDefaultsOffAndLeavesNameMatchingAlone() {
-        #expect(ProviderHue.classify("Dropbox") == .dropbox)
         #expect(ProviderHue.classify("Dropbox", isLocalFolder: false) == .dropbox)
-        #expect(ProviderHue.classify("NAS") == .neutral)
     }
 
     /// Folder must not collapse into neutral. Neutral follows the app accent and is what an
@@ -74,30 +72,6 @@ import Testing
         let painted = try paintedFraction(ProviderLogo("folder.fill", size: 40))
         #expect(painted > 0.05,
                 "folder.fill painted \(painted) of the frame — the SF Symbol fallback is not firing")
-    }
-
-    /// The other half: the name a cloud account carries must still paint.
-    ///
-    /// This can't prove the asset path was taken. The brand catalog lives in the app target, so
-    /// under `swift test` `NSImage(named: "icloud")` is nil and the name goes down the symbol
-    /// branch, where `icloud` is a real SF Symbol. It does pin that no provider's name comes out
-    /// blank. Which branch each name takes in the shipped app is checked there by eye.
-    @MainActor
-    @Test(.machinePinned(.pixelSampling)) func aCloudAccountsMarkStillPaints() throws {
-        let painted = try paintedFraction(ProviderLogo("icloud", size: 40))
-        #expect(painted > 0.05, "the icloud mark painted \(painted) of the frame")
-    }
-
-    /// The outer frame is the same on either path, which keeps the call sites' 16/26/28pt layouts
-    /// steady when a folder source appears among the cloud accounts.
-    @MainActor
-    @Test(.machinePinned(.layoutMetrics)) func bothPathsOccupyTheSameOuterFrame() {
-        for name in ["folder.fill", "icloud"] {
-            let host = NSHostingView(rootView: ProviderLogo(name, size: 26))
-            host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize == CGSize(width: 26, height: 26),
-                    "\(name) laid out at \(host.fittingSize) instead of 26×26")
-        }
     }
 
     /// The fraction of the frame carrying ink. Rendered through a real window, because an

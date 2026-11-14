@@ -38,11 +38,4 @@ import Design
         #expect(pitch == FolderSidebarView.rowHeight + 2,
                 "the pitch (\(pitch)) is not rowHeight (\(FolderSidebarView.rowHeight)) plus the 2pt row gap — something else is setting the row's height")
     }
-
-    /// A one-line row must not be taller than the floor. If a label's line height exceeded it, the
-    /// floor would stop deciding and changing it would do nothing.
-    @Test func theFloorIsWhatDecidesAOneLineRowsHeight() {
-        #expect(FolderSidebarView.rowHeight > ScaledFont.system(size: 13).pointSize(scale: 1) * 1.6,
-                "a 13pt label's line box is within reach of the row floor — the floor may no longer be what sets the height")
-    }
 }

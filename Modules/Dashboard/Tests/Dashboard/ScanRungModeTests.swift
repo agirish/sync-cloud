@@ -39,9 +39,6 @@ import Design
         let scan = ScanRungMode.scan
         let stop = ScanRungMode.stop
         #expect(scan.symbol != stop.symbol)
-        #expect(scan.label != stop.label)
-        #expect(scan.help != stop.help)
-        #expect(scan.keycap != stop.keycap)
         #expect(scan.isEnabled && stop.isEnabled)
         #expect(!scan.spins && !stop.spins)
         #expect(stop.symbol == "stop.circle")

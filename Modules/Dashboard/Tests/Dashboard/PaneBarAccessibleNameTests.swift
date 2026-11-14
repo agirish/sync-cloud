@@ -15,7 +15,7 @@ import Testing
                         "Sort", "Search this pane", "More pane options", "Hidden files"]
 
     @Test func everyIconOnlyPaneBarRungHasAName() throws {
-        let source = try DashboardSource.read("DashboardViews.swift", atLeast: 5000)
+        let source = try DashboardSource.read("DashboardViews.swift", codeOnly: true, atLeast: 5000)
         for name in Self.names {
             #expect(source.contains(".accessibilityLabel(\"\(name)\")"),
                     "the pane-bar rung named “\(name)” lost its accessible name")
@@ -26,7 +26,7 @@ import Testing
     /// accessibility value too. Label plus value is the shape `ContentView+SplitLayout`'s link
     /// toggle uses.
     @Test func theHiddenFilesToggleAnnouncesItsState() throws {
-        let source = try DashboardSource.read("DashboardViews.swift", atLeast: 5000)
+        let source = try DashboardSource.read("DashboardViews.swift", codeOnly: true, atLeast: 5000)
         #expect(source.contains("""
                 .accessibilityValue(showHiddenFiles ? "Shown" : "Hidden")
                 """.trimmingCharacters(in: .whitespaces)),
