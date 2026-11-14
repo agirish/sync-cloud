@@ -339,7 +339,7 @@ extension FileSyncManager {
                     filePath: s.filePath, modificationDate: s.modificationDate, size: s.size,
                     model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                     excludedRelativePaths: excludedByFile[s.filePath] ?? [],
-                    artifacts: artifacts,
+                    artifacts: filingVerdictArtifacts(artifacts),
                     pageSent: downloadsBeforeAsking && pageGoes(s, ticked: options.pagesFromAskEachTime)) else {
                     misses.append(s)
                     continue
@@ -444,9 +444,11 @@ extension FileSyncManager {
                                                    index: index,
                                                    excluding: Set(excludedByFile[s.filePath] ?? []),
                                                    limit: 8)
-                    let ranking = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
+                    let reranked = FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
                         peerNames(root + "/" + relative)
                     }
+                    // File Into's folders lead, as they led the scan's ranking.
+                    let ranking = Self.preferring(reranked, under: filingPreferredSubtree)
                     return (s.filePath, ranking.candidates.map(\.relativePath).filter(shown))
                 })
             }

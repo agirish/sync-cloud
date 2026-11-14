@@ -66,6 +66,8 @@ public enum FilingRouter {
     static let yearInNameWeight = 3.0
     static let yearInBodyWeight = 2.0
     static let identifierBoost = 4.0
+    /// As much as a year: a file naming its month belongs in that month's slot, not beside it.
+    static let monthFitWeight = 3.0
 
     /// How much of a document the router reads: **page 1, 400 characters**, the sampling rule
     /// ``FilingMemory`` records and the one every weight here was tuned under. Enforced here, not
@@ -83,6 +85,8 @@ public enum FilingRouter {
         let pathTokens: [String: Set<String>]
         let anchorTokens: [String: Set<String>]
         let yearKey: [String: String]
+        /// Folder → the month it is a slot for (`05. May 2024` → 5), from its own name.
+        let monthSlot: [String: Int]
         let roleBonus: [String: Double]
         let children: [String: [String]]
         let personTokens: Set<String>
@@ -146,6 +150,7 @@ public enum FilingRouter {
         var pathTokens: [String: Set<String>] = [:]
         var anchorTokens: [String: Set<String>] = [:]
         var yearKey: [String: String] = [:]
+        var monthSlot: [String: Int] = [:]
         var roleBonus: [String: Double] = [:]
         var children: [String: [String]] = [:]
         var foldersByPathToken: [String: [String]] = [:]
@@ -154,6 +159,16 @@ public enum FilingRouter {
         for f in allowed {
             let pt = FilingRouter.pathTokens(of: f)
             pathTokens[f] = pt
+            if let base = f.split(separator: "/").last.map(String.init),
+               let m = FilingPeriod.monthSlot(ofFolderNamed: base) {
+                monthSlot[f] = m
+                // A slot names its year (`05. May 2024`) even outside a year folder, so the year
+                // axis reaches and judges it.
+                if profile?.folders[f]?.yearKey == nil,
+                   let y = base.split(whereSeparator: { !$0.isNumber }).first(where: { FilingRouter.isYearToken(String($0)) }) {
+                    yearKey[f] = String(y)
+                }
+            }
             let entry = profile?.folders[f]
             let at = Set((entry?.anchors ?? []).flatMap { tokenize($0) })
             anchorTokens[f] = at
@@ -190,7 +205,7 @@ public enum FilingRouter {
         }
         return Index(byAnchor: byAnchor, byIdHash: byIdHash, docs: docs, destinations: allowed,
                      pathTokens: pathTokens, anchorTokens: anchorTokens, yearKey: yearKey,
-                     roleBonus: roleBonus, children: children,
+                     monthSlot: monthSlot, roleBonus: roleBonus, children: children,
                      personTokens: profile?.personTokens ?? [], folderPerson: folderPerson,
                      registry: registry, salt: memory?.salt ?? "",
                      foldersByPathToken: foldersByPathToken, foldersByYear: foldersByYear,
@@ -206,7 +221,11 @@ public enum FilingRouter {
                             excluding: Set<String> = [], limit: Int = 5) -> Ranking {
         guard !index.isEmpty else { return .empty }
         let stem = (fileName as NSString).deletingPathExtension
-        let nameTokens = Set(tokenize(stem))
+        // Months and ordinals say when, not what (`05. May 2026`): kept out of the name evidence,
+        // as a year is kept out of the category, unless the word names a person in this tree.
+        let periodWords = FilingPeriod.periodTokens(inStem: stem, keeping: index.personTokens)
+        let nameTokens = Set(tokenize(stem)).subtracting(periodWords)
+        let fileMonth = FilingPeriod.month(inFileName: fileName)
         // The sample this scorer was measured on (``contentSampleChars``); whatever the caller
         // hands over, only this much is scored.
         let sample = contentSnippet.map { String($0.prefix(contentSampleChars)) }
@@ -233,6 +252,8 @@ public enum FilingRouter {
                     content[folder, default: 0] += weight * identifierBoost
                 }
             }
+            // A month word on the page is a date, not a topic: it reaches no folder's anchors.
+            if FilingPeriod.isMonthWord(token), !index.personTokens.contains(token) { continue }
             for (folder, weight) in index.byAnchor[token] ?? [] {
                 content[folder, default: 0] += weight
             }
@@ -324,6 +345,11 @@ public enum FilingRouter {
             if let year = index.yearKey[folder] {
                 if !yearsInName.isEmpty { s += yearInNameWeight * yearFit(year, yearsInName) }
                 if !yearsInBody.isEmpty { s += yearInBodyWeight * yearFit(year, yearsInBody) }
+                // A month slot is the year's member for that month: the right month confirms, a
+                // different one rules the slot out the way a wrong year does.
+                if let slot = index.monthSlot[folder], let fileMonth {
+                    s += slot == fileMonth ? monthFitWeight : -yearInNameWeight
+                }
             } else if s == 0, personDelta == 0 {
                 continue
             }

@@ -102,7 +102,8 @@ extension FileSyncManager {
             looseFiles: [file], learned: FilingEngine.LearnedTaxonomy(profiles: [], existingPaths: existing),
             providerRoot: root, contentTokens: filingTokensFromText.map { [live.filePath: $0(text)] } ?? [:],
             automations: automationRules, registry: filingPersonRegistry, identity: filingPersonIdentity,
-            automationSnippets: [live.filePath: text], rejectedByFile: rejected.isEmpty ? [:] : [live.filePath: rejected])
+            automationSnippets: [live.filePath: text], rejectedByFile: rejected.isEmpty ? [:] : [live.filePath: rejected],
+            ruleRoot: filingLastFileInto)
         return suggested.first?.candidates.first { $0.remembered }
     }
 

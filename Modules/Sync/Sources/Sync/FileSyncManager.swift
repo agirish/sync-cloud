@@ -1032,6 +1032,23 @@ public class FileSyncManager: ObservableObject {
     /// cloud Downloads onto the disk. The cards say "placed by name", and
     /// ``downloadAndReadFiling(_:)`` fetches them when asked.
     public internal(set) var filingNotDownloaded: Set<String> = []
+    /// "N files in M subfolders. Scan them?", set by a scan of an inbox whose files sit below it.
+    /// See ``FilingSubfolderOffer``.
+    @Published public internal(set) var filingSubfolderOffer: FilingSubfolderOffer?
+    /// Folders scanned with their subfolders this session; persisted alongside in
+    /// ``filingRecursiveFoldersKey`` when a store is injected.
+    var filingRecursiveFolders: Set<String> = []
+    /// Folders whose subfolder offer was turned down this session.
+    var filingDeclinedSubfolderFolders: Set<String> = []
+    /// Whether the scan behind the current suggestions read its folder's subfolders too.
+    @Published public internal(set) var filingScanReadSubfolders = false
+    /// The survey root the last scan walked in place of File Into, when it walked a wider tree;
+    /// nil when it walked File Into itself. Verdict-cache keys carry it, so an answer recorded
+    /// against one root is never replayed against another.
+    var filingRoutedRoot: String?
+    /// File Into of the last scan, which rules are scoped to and resolved against even when the
+    /// scan walked a wider tree (``filingRoutedRoot``).
+    var filingLastFileInto: String?
     /// True while ``downloadAndReadFiling(_:)`` is fetching and reading.
     @Published public internal(set) var isDownloadingFilingFiles = false
     /// Asks a file's provider to fetch it. The real download in the app; a test substitutes.

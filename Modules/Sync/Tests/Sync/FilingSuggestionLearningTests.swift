@@ -55,9 +55,10 @@ import Testing
     // MARK: GS — one shared word is a lead, not a home
 
     @Test func oneSharedFolderWordIsMediumAndNeverBatched() throws {
-        let sep = try #require(Self.card("Duplicate Files Report - Sep 2026.md")?.best)
-        #expect(sep.path.hasSuffix("H-1B Policy Posts – Sep 2025"))
-        #expect(sep.confidence == .medium, "“sep” alone made this High")
+        // "Sep" is a month, a period, not a topic: it no longer reaches the folder at all.
+        let sep = Self.card("Duplicate Files Report - Sep 2026.md")
+        #expect(!(sep?.candidates ?? []).contains { $0.path.hasSuffix("H-1B Policy Posts – Sep 2025") },
+                "“sep” alone used to make this a home")
         let india = try #require(Self.card("FedEx invoice - India courier .pdf"))
         let medical = try #require(india.candidates.first { $0.path.hasSuffix("Health/Medical/India") })
         #expect(medical.confidence == .medium, "“india” alone made this High")

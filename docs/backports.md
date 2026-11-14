@@ -15476,3 +15476,30 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s plan=%s scorecard=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## A statements inbox files against the whole survey (filing overhaul, landing A) — main only, recorded, not owed
+
+2026-11-13, for v7.2. On `main`, To File:
+- offers to scan an inbox's subfolders;
+- walks the whole surveyed tree when File Into is a subfolder of it, with File Into kept as a
+  preference and rules still scoped to it;
+- treats month words and `05.` prefixes as periods.
+
+Two of those mend defects, and the lines whose router exists carry them:
+- a survey whose keys never match a subfolder File Into;
+- "May" scored as a topic word.
+
+The survey-in-use resolution, the subfolder offer and the File Into preference are `main`'s alone.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s survey=%s router=%s months=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingSurveyInUse.swift')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingRouter.swift 2>/dev/null | grep -c 'static func rank')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/FilingEngine.swift 2>/dev/null | grep -c 'isMonthWord')"; done
+# measured 2026-11-13, against origin: router=1 on v6.x/v5.x/v4.x, 0 on v3.x/v2.x; survey=0 and months=0 everywhere
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The router, so month words as topics | RECORDED — not owed |
+| `v3.x` / `v2.x` | No router | CLOSED — does not apply |

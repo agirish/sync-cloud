@@ -104,7 +104,7 @@ extension FileSyncManager {
         _ suggestions: [FilingSuggestion], index: FilingRouter.Index,
         snippets: [String: String], providerRoot: String,
         rejectedByFile: [String: Set<String>] = [:], chunk: Int = 25,
-        peerNames: ((String) -> [String])? = nil
+        peerNames: ((String) -> [String])? = nil, preferring preferredSubtree: String? = nil
     ) async -> (suggestions: [FilingSuggestion], routed: Int, shortlists: [String: [String]]) {
         var out: [FilingSuggestion] = []
         out.reserveCapacity(suggestions.count)
@@ -119,7 +119,8 @@ extension FileSyncManager {
             }
             let outcome = Self.route(s, index: index, snippets: snippets,
                                      providerRoot: providerRoot,
-                                     rejectedByFile: rejectedByFile, peerNames: peerNames)
+                                     rejectedByFile: rejectedByFile, peerNames: peerNames,
+                                     preferring: preferredSubtree)
             out.append(outcome.suggestion)
             if outcome.routed { routed += 1 }
             if !outcome.shortlist.isEmpty { shortlists[s.filePath] = outcome.shortlist }
@@ -159,7 +160,7 @@ extension FileSyncManager {
     nonisolated static func route(
         _ s: FilingSuggestion, index: FilingRouter.Index, snippets: [String: String],
         providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8,
-        peerNames: ((String) -> [String])? = nil
+        peerNames: ((String) -> [String])? = nil, preferring preferredSubtree: String? = nil
     ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
         if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
         // Rejections are recorded as absolute paths and the router answers in relative ones, so
@@ -177,11 +178,14 @@ extension FileSyncManager {
         // can separate; without this line the lookup is built and passed and nothing uses it.
         // The router speaks in paths relative to the provider root and the lookup lists real
         // directories, so the join adapts between the two (see `peerNameLookup`).
-        let ranking = peerNames.map { namesIn in
+        let reranked = peerNames.map { namesIn in
             FilingRouter.rerankedByPeerNames(ranked, fileName: s.fileName) { relative in
                 namesIn(providerRoot + "/" + relative)
             }
         } ?? ranked
+        // File Into, when the walk is wider: its folders lead unless the router is sure elsewhere,
+        // the rule Ask Claude applies to a place named in the chat, so the two agree.
+        let ranking = preferring(reranked, under: preferredSubtree)
         let shortlist = ranking.candidates.map(\.relativePath)
         guard let best = ranking.best else { return (s, false, shortlist) }
         let confidence = ranking.confidence
@@ -443,7 +447,7 @@ extension FileSyncManager {
         // answer differently about the same file in the case peer names exist for.
         let outcome = Self.route(blank, index: index, snippets: [live.filePath: text],
                                  providerRoot: root, rejectedByFile: rejectedByFile,
-                                 peerNames: peerNameLookup())
+                                 peerNames: peerNameLookup(), preferring: filingPreferredSubtree)
         // The scan recorded nothing for this file, having no text. Now it has, so a rule offered
         // after filing it keys on what the OCR found, not a filename like `Son - eOCI.pdf`.
         filingPageSamples[live.filePath] = String(text.prefix(FilingRouter.contentSampleChars))

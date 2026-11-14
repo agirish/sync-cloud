@@ -245,6 +245,18 @@ extension FileSyncManager {
             return
         }
         let fileManager = fm ?? self.fileManager
+        // File Into is a preference, not a fence: when it lies inside the survey's tree, the scan
+        // walks and ranks against the whole surveyed tree, so the survey's profile and memory (keyed
+        // from its root) apply, and homes inside File Into win ties. Rules stay scoped to and resolved
+        // against File Into, exactly as before. Outside any survey, nothing changes.
+        let routing = filingRouting(forFileInto: providerRoot)
+        let fileInto = routing.fileInto
+        let providerRoot = routing.root
+        let rerooted = providerRoot.path != fileInto.path
+        let preferredSubtree = rerooted ? Self.relativePath(fileInto.path, under: providerRoot.path) : nil
+        // The scanned folder holding File Into (a scan of `~/Documents`, of a provider's root):
+        // its tree is the destinations, so it is neither pruned nor a source to keep homes out of.
+        let scanHoldsFileInto = PathBoundary.contains(fileInto.path, under: folder.path)
         // Ask the provider's own volume how it folds case, so the engine's "already in this folder"
         // test agrees with what `performFiling` will do on that disk. Callers that pin the option
         // themselves (tests) keep their answer.
@@ -275,9 +287,39 @@ extension FileSyncManager {
             endScan(\.filingScanLifecycle)
         }
 
-        // Loose files: the direct files sitting in the picked folder, not its subfolders.
-        let looseTree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
-        let looseFiles = looseTree.filter { !$0.isDirectory }
+        // Loose files: the direct files sitting in the picked folder, or, once the user took the
+        // subfolder offer for it, every file below it (packages stay whole and unread).
+        let recursive = filingScansSubfolders(folder.path)
+            && Self.subfolderOfferEligible(folder: folder.path, profile: filingFolderProfile, fileInto: fileInto.path)
+        let looseFiles: [FileNode]
+        if recursive {
+            // Budgeted like the taxonomy walk, with the same preflight past it.
+            let probe = NodeBudget(wholeTreeProbeBudget)
+            var below = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager,
+                                             maxDepth: nil, budget: probe)
+            if probe.didStopADescent {
+                let preflight = LargeWalkPreflight(pass: .filing, rootPath: folder.path, probeLimit: probe.limit)
+                guard largeWalkConfirmer(preflight) else {
+                    Logger.shared.info("Filing: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries with its subfolders — not scanned")
+                    return
+                }
+                below = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+            }
+            let walked = below
+            let ignored = options.ignoredNames
+            looseFiles = await Task.detached(priority: .userInitiated) {
+                Self.filesBelow(walked, ignoring: ignored, isPackage: Self.isPackageDirectory)
+            }.value
+        } else {
+            looseFiles = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
+                .filter { !$0.isDirectory }
+        }
+        if Task.isCancelled { return }
+        // Not recursive: say what sits below, for an inbox, so an empty-looking TODO can offer it.
+        // Counted against what the scan will actually offer, so a `.DS_Store` isn't a loose file.
+        let subfolderOffer = recursive ? nil
+            : await subfolderOffer(for: folder, looseFiles: looseFiles.filter { Self.isFilable($0, options: options) }.count,
+                                   fileInto: fileInto, options: options, fileManager: fileManager)
         if Task.isCancelled { return }
         // Which of them are only in the cloud: the extractor won't open those, so their cards are
         // placed by name and say so. Published with the results below.
@@ -307,17 +349,25 @@ extension FileSyncManager {
         // Names, on the pass that is already here. This walk covers the whole provider, so folding
         // the check in loses no coverage, only a trip. Published before the suggestions so the
         // finding is on screen as soon as it is known, not after classification.
+        // The tree findings describe File Into's source, so a wider walk answers them from File
+        // Into's own part of it.
+        let findingsTree = rerooted ? Self.children(at: fileInto.path, in: taxonomy) : taxonomy
         if reportsTreeFindings, let nameProvider {
-            await detectRiskyNames(in: taxonomy, root: providerRoot, provider: nameProvider)
+            await detectRiskyNames(in: findingsTree, root: fileInto, provider: nameProvider)
             if Task.isCancelled { return }
         }
 
         // The rename backlog, on the same walk for the same reason. `RenamePlanner` is pure and reads
         // the folder profile, not the disk, so this costs one traversal of a tree already in memory.
         if reportsTreeFindings {
-            await detectRenamePlans(in: taxonomy, root: providerRoot)
+            await detectRenamePlans(in: findingsTree, root: fileInto)
             if Task.isCancelled { return }
         }
+
+        // Never a destination: the folder being filed from, when it lies inside the walked tree
+        // (`~/Documents/TODO` inside `~/Documents`), or its own folder names would match its files.
+        // After the tree findings, which describe the whole tree, the inbox included.
+        if !scanHoldsFileInto { taxonomy = Self.pruning(folder.path, from: taxonomy) }
 
         // The user's rules steer the suggestions. Automations are the one rule system.
         ensureAutomationRulesLoaded()
@@ -329,7 +379,8 @@ extension FileSyncManager {
         // So a rule that matches a file in the lens preview matches it here, at no cost when no rule
         // reads content.
         var automationSnippets: [String: String] = [:]
-        let actingRules = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot.path) }
+        let actingRules = AutomationRuleSet.eligible(automations)
+            .narrowed { $0.acts(in: fileInto.path) || $0.acts(in: providerRoot.path) }
         if filingReadsContents, let extractor = filingSnippetExtractor, actingRules.readsContent {
             let candidates = looseFiles.filter { file in
                 let facts = FilingEngine.automationFacts(for: file, registry: filingPersonRegistry,
@@ -369,8 +420,14 @@ extension FileSyncManager {
         if Task.isCancelled { return }
         // Cache the taxonomy for single-file re-asks (Try another).
         filingLastProviderRoot = providerRoot.path
+        filingLastFileInto = fileInto.path
+        filingRoutedRoot = rerooted ? providerRoot.path : nil
         filingLastNameProvider = nameProvider
-        filingLastTaxonomyFolders = taxonomyFolders
+        // The model's fallback menu is capped to the shallowest folders: with a wider walk, File
+        // Into's own come first, or its deeper folders would be cut for the survey's shallow ones.
+        filingLastTaxonomyFolders = preferredSubtree.map { sub in
+            Self.preferringSubtree(sub, in: taxonomyFolders, all: existingFolders)
+        } ?? taxonomyFolders
         // Uncapped set for new-vs-existing marking on a re-ask (the main path's limit: .max).
         filingLastExistingFolders = existingFolders
         // The router reasons over the uncapped folder set: the classifier's cap bounds token cost,
@@ -392,7 +449,7 @@ extension FileSyncManager {
                                  providerName: providerName,
                                  automationSnippets: snippetsForRules, now: scanClock,
                                  rejectedByFile: rejections, rejectedWords: rejectedWords,
-                                 options: scanOptions)
+                                 options: scanOptions, ruleRoot: fileInto.path)
         }.value
         if Task.isCancelled { return }
         // What each card is about, recorded once phase 1 has built the cards, after the walk and
@@ -487,7 +544,8 @@ extension FileSyncManager {
                                              providerName: providerName,
                                              automationSnippets: snippetsForRules, now: scanClock,
                                              rejectedByFile: rejections,
-                                             rejectedWords: rejectedWords, options: scanOptions)
+                                             rejectedWords: rejectedWords, options: scanOptions,
+                                             ruleRoot: fileInto.path)
                     }.value
                         // The identity too: `suggest` builds cards without one, and a card without
                         // one is filed with no "changed since the scan" check.
@@ -524,7 +582,7 @@ extension FileSyncManager {
                 let (routed, count, shortlists) = await applyRoutesYielding(
                     suggestions, index: routerIndex, snippets: routerSnippets,
                     providerRoot: providerRoot.path, rejectedByFile: rejectedByFile,
-                    peerNames: peerNameLookup())
+                    peerNames: peerNameLookup(), preferring: preferredSubtree)
                 if Task.isCancelled { return }
                 suggestions = routed
                 routerShortlists = shortlists
@@ -600,7 +658,7 @@ extension FileSyncManager {
                             filePath: f.id, modificationDate: f.modificationDate, size: f.fileSize,
                             model: identity, promptVersion: CloudFilingProtocol.promptVersion,
                             excludedRelativePaths: excludedByFile[f.id] ?? [],
-                            artifacts: artifacts) else {
+                            artifacts: filingVerdictArtifacts(artifacts)) else {
                             misses.append(f)
                             continue
                         }
@@ -649,7 +707,7 @@ extension FileSyncManager {
                 let menu = FilingEngine.classifierFolders(
                     preferred: Self.preferredFolders(for: files, shortlists: routerShortlists,
                                                      in: suggestions, providerRoot: providerRoot.path),
-                    fallback: taxonomyFolders)
+                    fallback: filingLastTaxonomyFolders)
 
                 var verdicts = cachedVerdicts
                 var classifiedCount = 0
@@ -728,8 +786,19 @@ extension FileSyncManager {
         // Which of these the tree already holds: after the naming pass, since "already filed in X"
         // is about the document, not the name it would land under, and before the publish so the
         // queue never shows a duplicate as ordinary for a frame.
-        suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path)
+        // Nothing is filed into the folder it came from, by any pass (a rule, a model answer).
+        if !scanHoldsFileInto {
+            suggestions = suggestions.map { s in
+                let kept = s.candidates.filter { !PathBoundary.contains($0.path, under: folder.path) }
+                return kept.count == s.candidates.count ? s : s.replacingCandidates(kept)
+            }
+        }
+        suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path,
+                                                excludingSubtree: scanHoldsFileInto ? nil : folder.path)
         if Task.isCancelled { return }
+        // Only homes inside File Into may join the unseen batch: the walk is wider than the place
+        // he chose, and a move he never looked at must land where he asked things to go.
+        if rerooted { suggestions = suggestions.map { $0.preferring(fileInto.path) } }
         self.publishFilingSuggestions(suggestions)   // single publish
         published = true
         // Published with the results, not at scan start: the folder labels what's on screen, and a
@@ -740,6 +809,8 @@ extension FileSyncManager {
         // to what the scorer was measured on, not what the extractor returned (`filingPageSamples`).
         filingPageSamples = pageSamples
         filingNotDownloaded = notDownloaded
+        filingSubfolderOffer = subfolderOffer
+        filingScanReadSubfolders = recursive
         filingLastCacheReuse = cacheReuse
         // These results haven't been refined: the previous list's refine pass was about files no
         // longer on screen. Cleared in the same publish so the summary and its rows are never one
@@ -750,6 +821,12 @@ extension FileSyncManager {
         // Remembered only on completion: the auto-rescan consent is "the user scanned exactly
         // this before", and a cancelled or stopped scan is not that.
         rememberLensScanTarget(folder.path, forKey: Self.lastFilingScanFolderKey)
+        if recursive {
+            Logger.shared.info("Filing: read \(folder.lastPathComponent) with its subfolders "
+                + "(\(looseFiles.count) file(s))")
+        } else if let subfolderOffer {
+            Logger.shared.info("Filing: \(folder.lastPathComponent) holds \(subfolderOffer.summary); offering to scan them")
+        }
         let homed = suggestions.filter { $0.hasConfidentHome }.count
         let steered = suggestions.filter { $0.best?.remembered == true }.count
         Logger.shared.info("Filing: scanned \(folder.lastPathComponent) — \(suggestions.count) loose file(s), "
@@ -1565,6 +1642,8 @@ extension FileSyncManager {
         // still claim N folders with `filingLastProviderRoot`, which its chip names, cleared below.
         clearRenamePlans()
         filingScanFolder = nil
+        filingSubfolderOffer = nil
+        filingScanReadSubfolders = false
         filingLastCacheReuse = nil
         filingLastRefine = nil
         filingLastRefineReport = nil
@@ -1573,6 +1652,8 @@ extension FileSyncManager {
         // Storage's restore does after `clearStorageLens()`.
         filingAutoRescanAttempted = nil
         filingLastProviderRoot = nil
+        filingLastFileInto = nil
+        filingRoutedRoot = nil
         filingLastNameProvider = nil
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []

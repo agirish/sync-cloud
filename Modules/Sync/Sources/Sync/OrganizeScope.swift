@@ -273,10 +273,13 @@ public enum OrganizeScopeFilter {
     ///
     /// Hence equality, decided through ``PathBoundary`` rather than `==` so a trailing slash on
     /// `scannedFolder` can't make the same folder read as two.
-    public static func looseFileScanCovers(subject: String?, scannedFolder: String?) -> Bool {
+    public static func looseFileScanCovers(subject: String?, scannedFolder: String?,
+                                           readSubfolders: Bool = false) -> Bool {
         guard let subject, !subject.isEmpty else { return scannedFolder != nil }
         guard let scannedFolder else { return false }
-        return PathBoundary.relativize(subject, under: scannedFolder) == ""
+        // A scan that read the subfolders covers every folder below it too.
+        guard let relative = PathBoundary.relativize(subject, under: scannedFolder) else { return false }
+        return relative.isEmpty || readSubfolders
     }
 
     // MARK: To File / Names / Renames — the item is under the scope

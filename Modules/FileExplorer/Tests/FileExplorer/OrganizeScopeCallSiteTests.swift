@@ -478,8 +478,10 @@ import Sync
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private var inboxShortcut: OrganizeOverview.InboxShortcut? {",
                                  in: view)
-        #expect(body.contains("OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned)"),
+        #expect(body.contains("OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned,"),
                 "the inbox offer decides coverage by ancestry, so a scan above the inbox claims a zero it never counted")
+        #expect(body.contains("readSubfolders: syncManager.filingScanReadSubfolders"),
+                "a scan that read the subfolders covers an inbox below it, and only that one")
         #expect(!SourceText.codeOnly(body).contains("PathBoundary.contains(inbox, under:"),
                 "the ancestry test is still in this member")
         #expect(body.contains("let loose = covered"),
@@ -662,15 +664,20 @@ import Sync
     }
 
     /// The pass-shape claim the gate above rests on, checked against the code that makes it true:
-    /// if the loose-file walk stops being one level deep, or the name and rename detectors stop
+    /// if the loose-file walk stops being one level deep (it reads subfolders only where the user took
+    /// that offer, which coverage knows through `filingScanReadSubfolders`), or the name and rename detectors stop
     /// being handed the provider root, the predicates chosen next door are wrong and this says so.
     @Test func theOverviewsCoverageRulesMatchTheScansTheyDescribe() throws {
         let filing = try SourceText.sync("FileSyncManager+Filing.swift")
         #expect(filing.contains("buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)"),
                 "the loose-file walk is no longer one level deep — To File's equality rule may be wrong now")
-        #expect(filing.contains("detectRiskyNames(in: taxonomy, root: providerRoot"),
+        // Names and renames read File Into's whole tree: the walk itself when it is File Into's, or
+        // File Into's part of a wider walk of the survey.
+        #expect(filing.contains("let findingsTree = rerooted ? Self.children(at: fileInto.path, in: taxonomy) : taxonomy"),
+                "the findings no longer read File Into's whole tree — they may need a coverage gate now")
+        #expect(filing.contains("detectRiskyNames(in: findingsTree, root: fileInto"),
                 "names are no longer scanned provider-wide — they may need a coverage gate now")
-        #expect(filing.contains("detectRenamePlans(in: taxonomy, root: providerRoot"),
+        #expect(filing.contains("detectRenamePlans(in: findingsTree, root: fileInto"),
                 "rename plans are no longer scanned provider-wide — they may need a coverage gate now")
     }
 }

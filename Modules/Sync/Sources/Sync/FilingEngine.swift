@@ -210,6 +210,9 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// filing scorecard can tell a kept first pick from a changed one. Set at publish, and again
     /// when the app itself answers anew (Refine, Download and Read, Undo Refine).
     public internal(set) var firstOffer: FilingScorecard.Offer?
+    /// File Into, when the scan walked a wider tree than it: only a home inside it may join the
+    /// unseen batch. nil when the walk was File Into's own.
+    public internal(set) var preferredRoot: String?
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
@@ -232,6 +235,14 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// High 85%, and only High is safe to move unseen.
     public var isBatchEligible: Bool {
         best?.confidence == .high && best?.fromContent == false && best?.fromAI == false && !isAlreadyFiled
+            && (preferredRoot.map { root in best.map { PathBoundary.contains($0.path, under: root) } ?? false } ?? true)
+    }
+
+    /// This card scanned against a wider tree than File Into, `fileInto`.
+    public func preferring(_ fileInto: String) -> FilingSuggestion {
+        var s = self
+        s.preferredRoot = fileInto
+        return s
     }
 
     public init(filePath: String, fileName: String, size: Int, modificationDate: Date?,
@@ -254,6 +265,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  providerRoot: providerRoot, alreadyFiledAt: folders,
                                  sourceIdentity: sourceIdentity)
         s.firstOffer = firstOffer
+        s.preferredRoot = preferredRoot
         return s
     }
 
@@ -264,6 +276,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
                                  sourceIdentity: identity)
         s.firstOffer = firstOffer
+        s.preferredRoot = preferredRoot
         return s
     }
 
@@ -280,6 +293,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
                                  providerRoot: providerRoot, alreadyFiledAt: alreadyFiledAt,
                                  sourceIdentity: sourceIdentity)
         s.firstOffer = firstOffer
+        s.preferredRoot = preferredRoot
         return s
     }
 
@@ -411,17 +425,28 @@ public enum FilingEngine {
         now: Date = Date(),
         rejectedByFile: [String: Set<String>] = [:],
         rejectedWords: [String: Set<String>] = [:],
-        options: FilingOptions = .init()
+        options: FilingOptions = .init(),
+        /// Where rules act and resolve, and built-in rules (`Receipts/<year>`) root their folders:
+        /// File Into. nil means `providerRoot`, as for a scan that walks File Into itself.
+        ruleRoot: String? = nil
     ) -> [FilingSuggestion] {
+        let ruleRoot = ruleRoot ?? providerRoot
         let profiles = learned.profiles
         let existingPaths = learned.existingPaths
+        // Month words that name someone in this household (April, June) keep their meaning.
+        let keptPeriodWords = Set((registry?.people ?? []).flatMap { person in
+            person.nameForms.flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init) }
+        }.filter { FilingPeriod.isMonthWord($0) })
         // Folders that already file by year (a parent of some `…/2024`), once per scan.
         let filesByYear = Set(existingPaths.compactMap { path -> String? in
             isYear((path as NSString).lastPathComponent) ? (path as NSString).deletingLastPathComponent : nil
         })
         // Which rules may act doesn't depend on the file, so it is decided once per scan. A rule
         // taught for another survey's tree is inert here, as an absolute one is.
-        let actingAutomations = AutomationRuleSet.eligible(automations).narrowed { $0.acts(in: providerRoot) }
+        // A rule acts where it was made: File Into for a hand-made or To File rule, and the walked
+        // survey root too for one taught in Ask Claude (its `surveyRoot`), each resolved there.
+        let actingAutomations = AutomationRuleSet.eligible(automations)
+            .narrowed { $0.acts(in: ruleRoot) || $0.acts(in: providerRoot) }
 
         return looseFiles.compactMap { file -> FilingSuggestion? in
             guard !file.isDirectory else { return nil }
@@ -442,16 +467,17 @@ public enum FilingEngine {
             candidates += automationCandidates(automations: actingAutomations, file: file,
                                                contentTokens: content,
                                                snippet: automationSnippets[file.id],
-                                               providerRoot: providerRoot, providerName: providerName,
+                                               providerRoot: ruleRoot, walkedRoot: providerRoot,
+                                               providerName: providerName,
                                                existingPaths: existingPaths, now: now,
                                                registry: registry, identity: identity)
             candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                              profiles: profiles, rejectedWords: rejectedWords,
-                                             words: wordGroups(file.name))
+                                             words: wordGroups(file.name), keptPeriodWords: keptPeriodWords)
             candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                          nameLower: file.name.lowercased(), ext: ext, year: year,
                                          profiles: profiles, existingPaths: existingPaths,
-                                         filesByYear: filesByYear, providerRoot: providerRoot)
+                                         filesByYear: filesByYear, providerRoot: ruleRoot)
 
             // A file already in a suggested folder shouldn't be told to move to where it is.
             // Case-folded on a case-insensitive volume, where a differently cased destination names
@@ -523,7 +549,8 @@ public enum FilingEngine {
     private static func taxonomyCandidates(tokens: Set<String>, nameTokens: Set<String>,
                                            contentTokens: Set<String>, profiles: [FolderProfile],
                                            rejectedWords: [String: Set<String>] = [:],
-                                           words: [Set<String>] = []) -> [FilingDestination] {
+                                           words: [Set<String>] = [],
+                                           keptPeriodWords: Set<String> = []) -> [FilingDestination] {
         guard !tokens.isEmpty else { return [] }
         var out: [FilingDestination] = []
         for p in profiles {
@@ -533,8 +560,9 @@ public enum FilingEngine {
             // never make a `.high`, batch-eligible home (or the blind batch would move
             // "2024-tax-return.pdf" into whichever `…/2024` sorts first). Only non-year hits carry
             // category strength; the year still shows in the reason.
-            let categoryNameHits = nameHits.filter { !isYear($0) }
-            let categoryContentHits = contentHits.filter { !isYear($0) }
+            // Months and ordinals likewise: "May" names which month, not what the file is about.
+            let categoryNameHits = nameHits.filter { !isYear($0) && !(FilingPeriod.isMonthWord($0) && !keptPeriodWords.contains($0)) }
+            let categoryContentHits = contentHits.filter { !isYear($0) && !(FilingPeriod.isMonthWord($0) && !keptPeriodWords.contains($0)) }
             let score = categoryNameHits.count * 3 + categoryContentHits.count
             guard score >= 3 else { continue }   // a real folder-name hit, or ≥3 content hits
             let hitSet = nameHits.union(contentHits)
@@ -582,7 +610,8 @@ public enum FilingEngine {
     /// the already-narrowed ``AutomationRuleSet``, since eligibility doesn't depend on the file.
     private static func automationCandidates(
         automations: AutomationRuleSet, file: FileNode, contentTokens: Set<String>, snippet: String?,
-        providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date,
+        providerRoot ruleRoot: String, walkedRoot: String? = nil, providerName: String?,
+        existingPaths: Set<String>, now: Date,
         registry: PersonRegistry?, identity: PersonIdentityIndex?
     ) -> [FilingDestination] {
         guard !automations.isEmpty else { return [] }
@@ -597,6 +626,10 @@ public enum FilingEngine {
         var out: [FilingDestination] = []
         for rule in automations.rules {
             guard AutomationEvaluator.matches(rule, facts, now: now) else { continue }
+            // Resolved against the tree the rule belongs to (see `actingAutomations`).
+            let providerRoot = walkedRoot.flatMap { walked in
+                rule.surveyRoot.map { SourceSurveyStore.sameFolder($0, walked) } == true ? walked : nil
+            } ?? ruleRoot
             guard let placed = ruleDestination(rule, facts: facts, providerRoot: providerRoot,
                                                providerName: providerName, now: now,
                                                children: { parent in childNames(of: parent, providerRoot: providerRoot, existingPaths: existingPaths) })

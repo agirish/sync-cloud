@@ -15,7 +15,7 @@ extension FileSyncManager {
     /// on disk. A PDF is parsed once and cached under the duplicate scan's
     /// `(path, mtime, size, file number, ctime)` key, so a rescan of an untouched inbox parses nothing.
     func markingAlreadyFiled(_ suggestions: [FilingSuggestion],
-                             providerRoot: String) async -> [FilingSuggestion] {
+                             providerRoot: String, excludingSubtree source: String? = nil) async -> [FilingSuggestion] {
         guard !suggestions.isEmpty, filingReadsContents else { return suggestions }
         // Injected, never defaulted (see `contentIndexDirectory`): nil is a no-op, not a fallback
         // to the real home directory.
@@ -64,8 +64,12 @@ extension FileSyncManager {
             // it is in the index once a duplicate scan has run over the inbox.
             let own = String(((s.filePath as NSString).deletingLastPathComponent + "/")
                 .dropFirst(providerRoot.count + 1).dropLast())
+            // And the whole folder scanned, when it was read with its subfolders: a copy in a
+            // sibling inbox folder is another loose file, not a filed one.
+            let sourceRelative = source.flatMap { Self.relativePath($0, under: providerRoot) }
             let elsewhere = identityIndex.folders(holding: id, excluding: own,
                                                   providerRoot: providerRoot, existsOnDisk: existsOnDisk)
+                .filter { folder in sourceRelative.map { !FileSyncManager.isAtOrUnder(folder, $0) } ?? true }
             guard !elsewhere.isEmpty else { return s }
             marked += 1
             return s.alreadyFiled(at: elsewhere)

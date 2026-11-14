@@ -936,6 +936,17 @@ public struct LensWorkspaceView: View {
                     .padding(.horizontal, sectionInset + 12)
                     .padding(.top, stripGap)
             }
+            if effectiveLens == .filing, organizeLens == .toFile, !syncManager.isSuggestingFiles,
+               let strip = FilingSubfolderStrip.Content(offer: syncManager.filingSubfolderOffer,
+                                                        readSubfolders: syncManager.filingScanReadSubfolders,
+                                                        folderName: filingFolderName) {
+                FilingSubfolderStrip(content: strip, accent: glassHue.accentColor,
+                                     onScan: scanFilingSubfolders,
+                                     onDecline: { syncManager.declineFilingSubfolderOffer() },
+                                     onOnlyThisFolder: scanFilingFolderOnly)
+                    .padding(.horizontal, sectionInset + 12)
+                    .padding(.top, stripGap)
+            }
             if showSourcePicker { sourceBar }
             lensBody(rows: rows, counts: counts, scopeFolders: scopeFolders)
         }
@@ -1592,7 +1603,8 @@ public struct LensWorkspaceView: View {
     func passCoverage(for scope: OrganizeScope?) -> (filing: Bool, duplicates: Bool) {
         let subject = scope?.path ?? providerAnchor
         return (filing: OrganizeScopeFilter.looseFileScanCovers(
-                    subject: subject, scannedFolder: syncManager.filingScanFolder),
+                    subject: subject, scannedFolder: syncManager.filingScanFolder,
+                    readSubfolders: syncManager.filingScanReadSubfolders),
                 duplicates: OrganizeScopeFilter.scanCovers(
                     subject: subject, scannedRoot: syncManager.duplicateScanRoot))
     }
@@ -3545,7 +3557,8 @@ public struct LensWorkspaceView: View {
         // Equality, not ancestry: `looseFileScanCovers`. The filing scan enumerates one folder's
         // direct files, so a scan of any folder above the inbox says nothing about it.
         let scanned = syncManager.filingScanFolder
-        let covered = OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned)
+        let covered = OrganizeScopeFilter.looseFileScanCovers(subject: inbox, scannedFolder: scanned,
+                                                              readSubfolders: syncManager.filingScanReadSubfolders)
         let loose = covered
             ? syncManager.filingSuggestions.count { PathBoundary.contains($0.filePath, under: inbox) }
             : nil
@@ -4416,7 +4429,7 @@ public struct LensWorkspaceView: View {
     /// the next scan would resolve to `Documents/Documents/Family/Shweta` and create.
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            providerRoot: String?, modificationDate: Date?) {
-        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: providerRoot)
+        let rel = syncManager.ruleDestination(forFiledFolder: destinationPath, scannedRoot: providerRoot)
         // The file's own date lets a destination ending in a year generalise to `{year}` rather
         // than freezing the example's year.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
@@ -4611,6 +4624,17 @@ public struct LensWorkspaceView: View {
                 message: "You set aside every suggestion in \(filingFolderName). Scan again to look afresh, or add more files first.",
                 secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
+        } else if let offer = syncManager.filingSubfolderOffer, !offer.hasLooseFiles {
+            // Nothing loose here, but files wait in subfolders (an inbox like TODO/Finance/…).
+            EmptyStateView(
+                icon: FilingGlyph.nothingLoose,
+                tint: .secondary,
+                title: FilingSubfolderText.emptyTitle(folderName: filingFolderName),
+                message: FilingSubfolderText.emptyMessage(offer),
+                primary: .init(FilingSubfolderText.scanButton(offer), systemImage: "doc.text.magnifyingglass",
+                               help: FilingSubfolderText.help, handler: scanFilingSubfolders),
+                secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+            )
         } else {
             // Neutral: the scan found nothing loose to begin with.
             EmptyStateView(
@@ -4621,6 +4645,19 @@ public struct LensWorkspaceView: View {
                 secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
         }
+    }
+
+    /// Takes the subfolder offer and scans again, now with the subfolders.
+    private func scanFilingSubfolders() {
+        syncManager.acceptFilingSubfolderOffer()
+        onFindFilingSuggestions()
+    }
+
+    /// Back to the folder's own files only, and scans again.
+    private func scanFilingFolderOnly() {
+        guard let folder = syncManager.filingScanFolder else { return }
+        syncManager.setFilingScansSubfolders(false, for: folder)
+        onFindFilingSuggestions()
     }
 
     private var filingFolderName: String {
@@ -4702,7 +4739,9 @@ public struct LensWorkspaceView: View {
         // The card's own root first: the tree the scan filed this file against. It is the source's
         // anchor except when File Into points elsewhere (loose files in Home ▸ Downloads filed
         // into iCloud Documents), where browsing Home would miss the suggestion's folders.
-        let root = [suggestion.providerRoot, providerAnchor]
+        // File Into before the wider tree the scan walked: the picker opens where he asked things
+        // to go, and its column is named after it.
+        let root = [suggestion.preferredRoot, suggestion.providerRoot, providerAnchor]
             .compactMap { $0 }
             .first { !$0.isEmpty } ?? ""
         let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,
