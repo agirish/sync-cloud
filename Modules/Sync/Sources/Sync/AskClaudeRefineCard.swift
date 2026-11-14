@@ -449,7 +449,6 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
         public var title: String
         public var detail: String?
         public var info: String
-        public var checked: Bool
     }
 
     public var ok: OKBlock? {
@@ -459,7 +458,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             let one = plan.waitingForPage == 1
             return .init(title: one ? "Send its first page" : "Send their first pages",
                          detail: plan.tickGainCostUSD.map { Self.priceWords($0) }.map { $0.prefix(1).uppercased() + $0.dropFirst() },
-                         info: "Up to 800 characters of text from each first page, once, for this pass only.", checked: plan.ticked)
+                         info: "Up to 800 characters of text from each first page, once, for this pass only.")
         }
         let n = plan.ticked ? plan.pagesAskEachTime : plan.pagesWaiting
         guard n > 0 else { return nil }
@@ -472,8 +471,7 @@ public struct AskClaudeRefineCard: Codable, Equatable, Sendable {
             detail = gain.map { "Adds first pages · " + $0 } ?? "Adds first pages"
         }
         return .init(title: "Send first pages for \(n) more \(Self.files(n))", detail: detail,
-                     info: "Their folders aren’t shared with Claude, so a first page goes only if you tick this. It counts for this pass only.",
-                     checked: plan.ticked)
+                     info: "Their folders aren’t shared with Claude, so a first page goes only if you tick this. It counts for this pass only.")
     }
 
     /// When nothing can go until the tick: what is wrong, in a few words, and why behind its ⓘ.

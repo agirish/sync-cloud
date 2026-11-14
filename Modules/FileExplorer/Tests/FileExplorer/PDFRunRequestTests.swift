@@ -100,7 +100,6 @@ import FileExplorerTestSupport
         #expect(result?.outcome == .wrote, "\(whole): \(String(describing: result))")
         #expect(result?.written.map(\.path) == [copy], "\(whole): \(String(describing: result?.written))")
         #expect(result?.written.first?.stamp == stamp(copy), "\(whole): the stamp is not the written file's")
-        #expect(result?.written.first?.source == file)
         #expect(result?.written.first?.pageCount == whole.pagesInCopy, "\(whole)")
         #expect(result?.message.hasPrefix("Saved “\((copy as NSString).lastPathComponent)”") == true,
                 "\(whole): \(result?.message ?? "no message")")
@@ -389,7 +388,7 @@ import FileExplorerTestSupport
         let result = await run(model, [note], expecting: [note: EditorFileStore.stamp(ofPath: note)!])
         let pdf = path("Trip.pdf")
         #expect(result?.outcome == .wrote, "\(String(describing: result))")
-        #expect(result?.written == [PDFWrittenFile(source: note, path: pdf, stamp: EditorFileStore.stamp(ofPath: pdf)!,
+        #expect(result?.written == [PDFWrittenFile(path: pdf, stamp: EditorFileStore.stamp(ofPath: pdf)!,
                                                    bytes: (try? Data(contentsOf: URL(fileURLWithPath: pdf)).count) ?? -1,
                                                    pageCount: 1)])
         #expect(result?.message == "Saved “Trip.pdf” · 1 page")

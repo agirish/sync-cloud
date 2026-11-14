@@ -132,14 +132,6 @@ public struct PaneTab: Identifiable, Equatable, Sendable {
     public var combinedRelativePath: String {
         PathBoundary.joinRelative(relativePath, browsePath.relativePath)
     }
-
-    /// The chip's label: the leaf folder's own name, or the source's name at the root, where a
-    /// chip reading "/" or "" couldn't be told from another (⌘T at the root opens a second one).
-    public func displayName(providerName: String) -> String {
-        let combined = combinedRelativePath
-        guard !combined.isEmpty else { return providerName }
-        return (combined as NSString).lastPathComponent
-    }
 }
 
 /// One pane's tabs, and which of them is live.

@@ -163,14 +163,6 @@ import Sync
         #expect(!StorageSearch.parse("kind:image").matches(entry("notes.txt", bytes: 1)))
     }
 
-    /// Every lens's ✕ removes the exact word it names, all occurrences — the shared `TokenQuery`
-    /// semantics, so a chip can't look dead.
-    @Test func chipRemovalStripsTheExactWord() {
-        #expect(FilingSearch.removing("to:Invoices >5mb", word: "to:Invoices") == ">5mb")
-        #expect(AutomationSearch.removing("is:enabled kind:pdf", word: "is:enabled") == "kind:pdf")
-        #expect(StorageSearch.removing(">100mb kind:mov", word: ">100mb") == "kind:mov")
-    }
-
     /// Last-wins dimming within a family: two `is:` words mean the last one, and the earlier chip
     /// reads as superseded. The `kind:` half is pinned by `DuplicateSearchTests` and
     /// `DifferenceSearchTests`.

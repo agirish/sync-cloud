@@ -31,13 +31,6 @@ import Testing
         #expect(byID.values.allSatisfy { $0 > 0 })
     }
 
-    @Test func theModelNamesAreTheMenusNames() {
-        #expect(FilingSpendFormat.model("claude-opus-5-5") == "Opus 5.5")
-        #expect(FilingSpendFormat.model("claude-sonnet-5-5") == "Sonnet 5.5")
-        #expect(FilingSpendFormat.model("claude-haiku-5-5") == "Haiku 5.5")
-        #expect(FilingSpendFormat.model("claude-opus-5") == "Opus", "an older id keeps its family name")
-    }
-
     // MARK: The chat's model and the one limit
 
     private func manager(spend: Double = 0, limit: Double? = nil, model: String? = nil) -> FileSyncManager {

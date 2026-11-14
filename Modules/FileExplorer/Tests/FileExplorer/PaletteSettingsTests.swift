@@ -45,9 +45,6 @@ import Testing
         #expect(route("glass") == .settings(tab: "appearance/look"))
         #expect(route("row spacing") == .settings(tab: "appearance/textAndSpacing"))
         #expect(route("appearance") == .settings(tab: "appearance"))
-        // A word with no page (a one-page tab, or a word the map lacks) opens the tab.
-        #expect(paged.routeID(matchedThrough: "nothing here") == "appearance")
-        #expect(paged.routeID(matchedThrough: nil) == "appearance")
     }
 
     // MARK: The word that started this

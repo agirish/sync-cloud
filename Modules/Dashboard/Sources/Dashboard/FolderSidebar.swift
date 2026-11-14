@@ -149,7 +149,7 @@ public enum FolderSidebarModel {
         let claimed = sources.flatMap { source in
             source.favorites.map {
                 RememberedVisit(root: source.root, relativePath: $0,
-                                name: leaf(of: $0), visitedAt: nil)
+                                name: leaf(of: $0))
             }
         }
         for favorite in FolderJumpStore.orderedFavorites(claimed, order: favoriteOrder) {

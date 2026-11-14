@@ -1531,8 +1531,8 @@ struct ProviderSettingsSection: View {
     /// Whether the path configuration is showing. The header line is always there.
     @Binding var isExpanded: Bool
     @EnvironmentObject var settings: SettingsManager
-    // A value type, not a bare String: Reset, focus-blur commit and the discovery refresh all move
-    // it, and a wrong Reset would leave the field blank. See `ProviderPathDraft`.
+    // A value type, not a bare String: focus-blur commit and the discovery refresh both move it.
+    // See `ProviderPathDraft`.
     @State private var pathDraft = ProviderPathDraft()
     @State private var draftName: String = ""
     // Both editable fields share one commit model: Return or focus-loss commits,
@@ -1969,8 +1969,7 @@ enum ProviderFieldEdit {
 }
 
 /// The Location field's draft text, modeled as a value so its lifecycle — adopting an external
-/// discovery change, and repopulating after "Reset" — is decided in one testable place instead of
-/// inline in three SwiftUI closures.
+/// discovery change — is decided in one testable place instead of inline in SwiftUI closures.
 ///
 /// **Never blank the draft and wait for `onChange(of: provider.rootPath)` to refill it.** That
 /// fires only when the path changes, and resetting a source with no override changes nothing, so
@@ -1979,43 +1978,18 @@ struct ProviderPathDraft: Equatable {
     /// The text currently in the field. A plain `var` because the `TextField` binds straight to it.
     var value: String = ""
 
-    /// What "Reset" put in the field, held until the rediscovery it started lands, or nil. Stored
-    /// as the text, not a bool: typing is invisible to this type, so comparing is the only way to
-    /// tell "still what Reset left" from "typed over since". See `reset(toEffective:)`.
-    private var textAwaitingReset: String?
-
     /// The row appeared: start on the provider's effective (default or overridden) path.
     mutating func adopt(_ path: String) {
         value = path
-        textAwaitingReset = nil
     }
 
     /// An external change to the published path landed (a discovery/refresh pass). Adopt it only
     /// when the user isn't actively editing this field — otherwise a concurrent
     /// `discoverProviders()` would silently discard their uncommitted draft.
-    ///
-    /// The exception is the rediscovery the user's own "Reset" started. Clicking a macOS button
-    /// doesn't blur the field, so it arrives with `isEditing: true`; declining it would let the
-    /// next blur re-commit the cleared override (see `reset(toEffective:)`). It applies only while
-    /// the field still shows exactly what Reset left, so a user typing a new path keeps it.
     mutating func adoptExternalChange(to updated: String, isEditing: Bool) {
-        let isResetLanding = textAwaitingReset == value
-        guard !isEditing || isResetLanding else { return }
-        textAwaitingReset = nil
+        guard !isEditing else { return }
         guard value != updated else { return }
         value = updated
-    }
-
-    /// "Reset" was pressed. Echo the provider's effective path rather than blanking the field:
-    /// with no override it already is the default and no refresh is coming; with one,
-    /// `adoptExternalChange` replaces it when the async rediscovery lands.
-    ///
-    /// Remembering the echoed text is what makes Reset stick. `SettingsManager.resetPath`
-    /// rediscovers asynchronously, so the echo is still the old override; if the correction were
-    /// declined as mid-edit, the next blur would commit the override straight back.
-    mutating func reset(toEffective path: String) {
-        value = path
-        textAwaitingReset = path
     }
 }
 
@@ -2091,11 +2065,7 @@ enum SettingsPickerOptions {
         return "\(trimmed(((fraction * 100) * 100).rounded() / 100))%"
     }
 
-    static func budgetLabel(_ usd: Double) -> String {
-        usd > 0 ? "$\(trimmed(usd))" : "Off (no limit)"
-    }
-
-    // MARK: - The five numeric pickers
+    // MARK: - The three numeric pickers
 
     static func dateTolerance(including stored: Double) -> [SettingsPickerOption<Double>] {
         including(stored: stored, in: rows([0, 1, 2, 5, 60], dateToleranceLabel), label: dateToleranceLabel)
@@ -2107,14 +2077,6 @@ enum SettingsPickerOptions {
 
     static func overlapThreshold(including stored: Double) -> [SettingsPickerOption<Double>] {
         including(stored: stored, in: rows([0.5, 0.6, 0.7, 0.8, 0.9], percentLabel), label: percentLabel)
-    }
-
-    static func monthlyBudget(including stored: Double) -> [SettingsPickerOption<Double>] {
-        including(stored: stored, in: rows([0, 1, 5, 10, 25, 50], budgetLabel), label: budgetLabel)
-    }
-
-    static func totalBudget(including stored: Double) -> [SettingsPickerOption<Double>] {
-        including(stored: stored, in: rows([0, 5, 10, 25, 50, 100], budgetLabel), label: budgetLabel)
     }
 
     private static func rows<Value: Hashable>(

@@ -55,19 +55,15 @@ import Testing
         #expect(userText.contains("avoid: Archive/Old, Misc"))
     }
 
-    @Test func parseVerdictsMapsIndicesBackToFilePaths() throws {
+    @Test func placementsMapIndicesBackToFilePaths() throws {
         let files = [file("/root/a/Geico.pdf"), file("/root/a/scan.pdf"), file("/root/a/junk.bin", ext: "bin")]
-        let json = """
-        {"type":"message","content":[
-          {"type":"tool_use","name":"file_placements","input":{"placements":[
-            {"index":0,"folder":"Finance/Insurance","confidence":92,"reason":"Auto insurance policy"},
-            {"index":1,"folder":"none","confidence":10,"reason":"Unclear"},
-            {"index":2,"folder":"  ","confidence":0,"reason":"x"}
-          ]}}
-        ]}
-        """.data(using: .utf8)!
+        let placements: [[String: Any]] = [
+            ["index": 0, "folder": "Finance/Insurance", "confidence": 92, "reason": "Auto insurance policy"],
+            ["index": 1, "folder": "none", "confidence": 10, "reason": "Unclear"],
+            ["index": 2, "folder": "  ", "confidence": 0, "reason": "x"],
+        ]
 
-        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(responseData: json, files: files))
+        let verdicts = CloudFilingProtocol.verdicts(fromPlacements: placements, files: files)
         #expect(verdicts.count == 1)                                   // "none" and blank are dropped
         let geico = try #require(verdicts["/root/a/Geico.pdf"])
         #expect(geico.relativePath == "Finance/Insurance")
@@ -75,34 +71,11 @@ import Testing
         #expect(geico.reason == "Auto insurance policy")
     }
 
-    @Test func parseVerdictsReturnsNilOnErrorOrJunk() {
+    @Test func placementsIgnoreOutOfRangeIndices() {
         let files = [file("/root/a/x.pdf")]
-        let error = #"{"type":"error","error":{"type":"authentication_error","message":"bad key"}}"#.data(using: .utf8)!
-        #expect(CloudFilingProtocol.parseVerdicts(responseData: error, files: files) == nil)      // API error → fall back
-        #expect(CloudFilingProtocol.parseVerdicts(responseData: Data("nonsense".utf8), files: files) == nil)
-        // A message with no tool_use block is unreadable → nil (fall back), not an empty success.
-        let noTool = #"{"type":"message","content":[{"type":"text","text":"hi"}]}"#.data(using: .utf8)!
-        #expect(CloudFilingProtocol.parseVerdicts(responseData: noTool, files: files) == nil)
-    }
-
-    @Test func parseVerdictsIgnoresOutOfRangeIndices() throws {
-        let files = [file("/root/a/x.pdf")]
-        let json = #"{"type":"message","content":[{"type":"tool_use","name":"file_placements","input":{"placements":[{"index":5,"folder":"Documents","confidence":80,"reason":"x"}]}}]}"#.data(using: .utf8)!
-        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(responseData: json, files: files))
+        let placements: [[String: Any]] = [["index": 5, "folder": "Documents", "confidence": 80, "reason": "x"]]
+        let verdicts = CloudFilingProtocol.verdicts(fromPlacements: placements, files: files)
         #expect(verdicts.isEmpty)                                      // index 5 has no file → skipped
-    }
-
-    // MARK: Usage / cost logging
-
-    @Test func parseUsageAndStopReason() throws {
-        let json = #"{"type":"message","stop_reason":"tool_use","usage":{"input_tokens":800,"output_tokens":300,"cache_creation_input_tokens":100,"cache_read_input_tokens":2500},"content":[]}"#.data(using: .utf8)!
-        let usage = try #require(CloudFilingProtocol.parseUsage(responseData: json))
-        #expect(usage.inputTokens == 800)
-        #expect(usage.outputTokens == 300)
-        #expect(usage.cacheCreationTokens == 100)
-        #expect(usage.cacheReadTokens == 2500)
-        #expect(usage.totalInputTokens == 3400)
-        #expect(CloudFilingProtocol.stopReason(responseData: json) == "tool_use")
     }
 
     // MARK: Model selection
@@ -136,19 +109,6 @@ import Testing
         #expect(CloudFilingProtocol.selectableModels.contains(CloudFilingProtocol.defaultModel))
     }
 
-    @Test func estimatedCostAccountsForCacheRatesAndModel() throws {
-        let usage = CloudFilingProtocol.Usage(inputTokens: 10_000, outputTokens: 2_000,
-                                              cacheCreationTokens: 1_000, cacheReadTokens: 5_000)
-        // Opus $5/$25: 0.05 (in) + 0.0025 (cache-read ×0.1) + 0.00625 (cache-write ×1.25) + 0.05 (out)
-        let opus = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-opus-5", usage: usage))
-        #expect(abs(opus - 0.10875) < 1e-6)
-        // Haiku $1/$5 is dramatically cheaper on the same usage.
-        let haiku = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-haiku-4-5", usage: usage))
-        #expect(haiku < opus / 4)
-        // Unknown model → no estimate rather than a wrong one.
-        #expect(CloudFilingProtocol.estimatedCostUSD(model: "gpt-9", usage: usage) == nil)
-    }
-
     @Test func sonnetIsPricedByGeneration() throws {
         // The Sonnet Settings offers is Sonnet 5, at $2/$10 — not the family's older $3/$15.
         let sonnet5 = try #require(CloudFilingProtocol.pricing(for: "claude-sonnet-5"))
@@ -156,11 +116,6 @@ import Testing
         // A hand-set older Sonnet keeps its own rate.
         let sonnet46 = try #require(CloudFilingProtocol.pricing(for: "claude-sonnet-4-6"))
         #expect(sonnet46.input == 3 && sonnet46.output == 15)
-        // Same usage as above: 0.02 (in) + 0.001 (cache-read) + 0.0025 (cache-write) + 0.02 (out).
-        let usage = CloudFilingProtocol.Usage(inputTokens: 10_000, outputTokens: 2_000,
-                                              cacheCreationTokens: 1_000, cacheReadTokens: 5_000)
-        let cost = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-sonnet-5", usage: usage))
-        #expect(abs(cost - 0.0435) < 1e-6)
     }
 
     // MARK: Pre-call estimate (spend guardrails)

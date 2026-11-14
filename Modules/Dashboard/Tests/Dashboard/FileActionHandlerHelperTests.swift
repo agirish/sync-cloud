@@ -4,8 +4,8 @@ import Sync
 import Settings
 @testable import Dashboard
 
-/// Coverage for FileActionHandler's pure string logic: relative-path derivation in focusFolder,
-/// provider root matching (incl. the "/" prefix boundary), and AppleScript escaping.
+/// Coverage for FileActionHandler's pure string logic: relative-path derivation in focusFolder
+/// and provider root matching (incl. the "/" prefix boundary).
 @Suite struct FileActionHandlerHelperTests {
 
     /// Which panes a drill into a left-pane folder moves. Unlinked (a fresh scratch suite's default),
@@ -59,12 +59,5 @@ import Settings
         #expect(handler.providerDisplayName(forPath: "\(root)/sub/file.txt") == "iCloud")
         // A sibling that only shares the root as a string prefix must not match (the "/" boundary).
         #expect(handler.providerDisplayName(forPath: "\(root)Extra") == "the other pane")
-    }
-
-    @MainActor
-    @Test func testEscapeForAppleScriptEscapesBackslashThenQuote() {
-        // Backslash must be escaped before the quote, else the quote's backslash gets doubled.
-        #expect(FileActionHandler.escapeForAppleScript(#"a"b\c"#) == #"a\"b\\c"#)
-        #expect(FileActionHandler.escapeForAppleScript("plain") == "plain")
     }
 }

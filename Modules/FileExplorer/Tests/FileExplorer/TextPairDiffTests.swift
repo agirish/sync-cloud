@@ -292,34 +292,21 @@ import Testing
 
     // MARK: The intra-line pass
 
-    /// One word changed in a long line has to be findable. A character-level diff of a reflowed
-    /// sentence marks nearly everything, which is visually the same as marking nothing.
-    @Test func onlyTheChangedWordIsMarked() {
-        let (left, right) = TextPairDiff.segments("Total due: $4,120.00 by 15 March",
-                                                  "Total due: $9,999.00 by 15 March")
-        #expect(left.filter(\.changed).map(\.text) == ["$4,120.00 "])
-        #expect(right.filter(\.changed).map(\.text) == ["$9,999.00 "])
-    }
-
     /// The runs reconstruct the line exactly. A pane drawing its own reassembly would show text the
     /// file doesn't contain (a space collapsed, an indent lost) on a surface whose claim is
     /// fidelity.
-    @Test func theSegmentsJoinBackToTheOriginalLine() {
+    @Test func theSegmentsJoinBackToTheOriginalLine() throws {
         let line = "    let total  =   4   // trailing"
-        let (left, _) = TextPairDiff.segments(line, "different")
+        let row = try #require(TextPairDiff.make(left: [line], right: ["different"]).rows.first)
+        let left = try #require(row.leftSegments)
         #expect(left.map(\.text).joined() == line)
     }
 
     /// Adjacent changed words collapse into one highlight rather than five touching ones.
-    @Test func adjacentChangedWordsMergeIntoOneRun() {
-        let (_, right) = TextPairDiff.segments("a b c d", "a X Y d")
+    @Test func adjacentChangedWordsMergeIntoOneRun() throws {
+        let row = try #require(TextPairDiff.make(left: ["a b c d"], right: ["a X Y d"]).rows.first)
+        let right = try #require(row.rightSegments)
         #expect(right.filter(\.changed).count == 1, "\(right)")
-    }
-
-    @Test func anUnchangedLineHasNoMarkedRuns() {
-        let (left, right) = TextPairDiff.segments("same line", "same line")
-        #expect(left.allSatisfy { !$0.changed })
-        #expect(right.allSatisfy { !$0.changed })
     }
 
     // MARK: Stepping between changes
@@ -412,6 +399,7 @@ import Testing
                                      right: ["Total due: $9,999.00 by 15 March"])
         #expect(diff.coarseRows == 0)
         let row = try #require(diff.rows.first)
+        #expect(try #require(row.leftSegments).filter(\.changed).map(\.text) == ["$4,120.00 "])
         let marked = try #require(row.rightSegments).filter(\.changed).map(\.text)
         #expect(marked == ["$9,999.00 "])
     }

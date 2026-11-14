@@ -129,7 +129,6 @@ import Foundation
     @Test func hidingTheSidebarRestoresTheOriginalSplit() {
         let r = row(total: 1200, sidebar: 180, shows: false, fraction: 0.4)
         #expect(r.sidebarSlot == 0)
-        #expect(r.sidebarWidth == 0, "a hidden sidebar still reports a width")
         #expect(r.splitWidth == 1200)
         #expect(r.railWidth == 480)
         #expect(r.workspaceWidth == 720)

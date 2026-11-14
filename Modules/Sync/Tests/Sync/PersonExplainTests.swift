@@ -106,7 +106,6 @@ import Testing
         let ravi = try #require(overview.unclaimed.first)
         #expect(ravi.name == "Ravi", "the offer must propose the spelling the tree uses")
         #expect(ravi.folders == 2)
-        #expect(ravi.documents == 7)
         #expect(ravi.exampleFolder == "Family/Ravi", "the shallowest folder is the recognisable one")
         #expect(overview.claimedFolders == 1)
         #expect(overview.claimedDocuments == 3)

@@ -76,7 +76,7 @@ import Foundation
 
     private func visit(_ root: String, _ path: String) -> RememberedVisit {
         RememberedVisit(root: root, relativePath: path,
-                        name: (path as NSString).lastPathComponent, visitedAt: nil)
+                        name: (path as NSString).lastPathComponent)
     }
 
     private func key(_ root: String, _ path: String) -> String {
@@ -207,7 +207,7 @@ import Foundation
     /// were there, and a key naming one must not move it.
     @Test func theSequenceDoesNotReachRecents() {
         let visits = ["First", "Second"].map {
-            RememberedVisit(root: "/iCloud", relativePath: $0, name: $0, visitedAt: nil)
+            RememberedVisit(root: "/iCloud", relativePath: $0, name: $0)
         }
         let rows = FolderSidebarModel.rows(
             sources: [source("/iCloud", [])], recents: visits,

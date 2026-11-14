@@ -154,7 +154,7 @@ import Testing
         #expect(AskClaudeSuggestions.Memory.load(defaults) == .init())
         let memory = AskClaudeSuggestions.Memory(seen: ["downloads:iCloud › Downloads": .init(since: now, putAwayAt: 6)],
                                                  off: [.compare])
-        memory.save(defaults)
+        defaults.set(try JSONEncoder().encode(memory), forKey: AskClaudeSuggestions.memoryKey)
         #expect(AskClaudeSuggestions.Memory.load(defaults) == memory)
     }
 }

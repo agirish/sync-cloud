@@ -3,8 +3,8 @@ import Foundation
 import Events
 @testable import Dashboard
 
-/// Coverage for LogEntryFilter.apply: the level filter, case-insensitive search and newest-first
-/// ordering behind the Activity Log. Outside the view body, so it is testable without @State.
+/// Coverage for LogEntryFilter.matches: the level filter and case-insensitive search behind the
+/// Activity Log. Outside the view body, so it is testable without @State.
 @Suite struct LogViewerTests {
 
     private let entries: [LogEntry] = [
@@ -15,35 +15,35 @@ import Events
         LogEntry(level: .info, message: "Loaded tree"),
     ]
 
-    /// The level filter is a threshold, not an exact match, and keeps newest first: no level keeps
-    /// all, reversed; "Warnings & above" keeps warnings and errors; "Info & above" hides only
-    /// debug; errors keeps errors.
+    /// The level filter is a threshold, not an exact match, and keeps input order: no level keeps
+    /// all; "Warnings & above" keeps warnings and errors; "Info & above" hides only debug; errors
+    /// keeps errors.
     @Test(arguments: [
-        (nil, ["Loaded tree", "Low space", "Disk FULL", "Walking tree", "Started up"]),
-        (.warning, ["Low space", "Disk FULL"]),
-        (.info, ["Loaded tree", "Low space", "Disk FULL", "Started up"]),
+        (nil, ["Started up", "Walking tree", "Disk FULL", "Low space", "Loaded tree"]),
+        (.warning, ["Disk FULL", "Low space"]),
+        (.info, ["Started up", "Disk FULL", "Low space", "Loaded tree"]),
         (.error, ["Disk FULL"]),
     ] as [(LogLevel?, [String])])
-    func testTheLevelIsAThresholdAndKeepsNewestFirst(level: LogLevel?, messages: [String]) {
-        let result = LogEntryFilter.apply(entries, minimumLevel: level, search: "")
+    func testTheLevelIsAThresholdAndKeepsInputOrder(level: LogLevel?, messages: [String]) {
+        let result = LogEntryFilter.matches(entries, minimumLevel: level, search: "")
         #expect(result.map(\.message) == messages)
     }
 
     @Test func testSearchIsCaseInsensitiveSubstring() {
-        let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "full")
+        let result = LogEntryFilter.matches(entries, minimumLevel: nil, search: "full")
         #expect(result.map(\.message) == ["Disk FULL"])
     }
 
     @Test func testLevelAndSearchCombine() {
         // Threshold .info excludes the debug entry, and "tree" narrows to one info entry.
-        let result = LogEntryFilter.apply(entries, minimumLevel: .info, search: "TREE")
+        let result = LogEntryFilter.matches(entries, minimumLevel: .info, search: "TREE")
         #expect(result.map(\.message) == ["Loaded tree"])
     }
 
     @Test func testSearchMatchesMessageTextNotLevelName() {
         // "ERROR" appears as a level tag in the UI but in no message body, so the search field,
         // which filters message text only, must not match the error entry.
-        let result = LogEntryFilter.apply(entries, minimumLevel: nil, search: "ERROR")
+        let result = LogEntryFilter.matches(entries, minimumLevel: nil, search: "ERROR")
         #expect(result.isEmpty)
     }
 

@@ -181,11 +181,6 @@ public struct AskClaudeStreamAccumulator: Sendable {
             return AskClaudeToolCall(id: id, name: name, input: block["input"] ?? .object([:]))
         }
     }
-
-    /// The visible text of this turn, joined.
-    public var text: String {
-        content.compactMap { $0["type"]?.stringValue == "text" ? $0["text"]?.stringValue : nil }.joined()
-    }
 }
 
 /// One `tool_use` block, as the tool runner needs it.

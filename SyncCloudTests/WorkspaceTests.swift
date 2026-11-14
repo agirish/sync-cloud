@@ -65,48 +65,11 @@ import FileExplorer
         #expect(!symbols.contains(""))
     }
 
-    // MARK: Programmatic navigation needs BOTH halves
-
-    @Test func testALensDestinationCarriesTheRailItemNotJustTheWorkspace() {
-        // The workspace alone is not enough: "Find duplicates of this" names one of the lenses
-        // inside Organize, and a caller that set only the workspace would land on the overview
-        // and lose the request.
-        #expect(Workspace.destination(for: .duplicates)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .duplicates))
-        #expect(Workspace.destination(for: .filing)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .toFile))
-        #expect(Workspace.destination(for: .automations)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .rules))
-        // Storage is a rail item like the rest, so "Analyze this folder's storage" from ⌘K lands
-        // on the lens.
-        #expect(Workspace.destination(for: .storage)
-                == WorkspaceSelection(workspace: .filing, organizeLens: .storage))
-    }
+    // MARK: Lens slots
 
     @Test func testEveryLensResolvesToSomewhereReachable() {
-        // No lens may resolve to a workspace that cannot show it.
-        for lens in WorkspaceLensKind.allCases {
-            let slot = Workspace.destination(for: lens).workspace.lens
-            #expect(slot != nil, "\(lens.rawValue) resolves to a workspace with no lens slot")
-        }
         #expect(Workspace.filing.lens == .filing)
-        // Organize is the only workspace with a lens slot; every `WorkspaceLensKind` reaches it
-        // through the rail, which is what the loop above checks.
+        // Organize is the only workspace with a lens slot.
         #expect(Workspace.allCases.filter { $0.lens != nil } == [.filing])
-    }
-
-    /// Every destination the bridge can mint is a rail item, so no destination can write a lens
-    /// the rail does not draw into the stored selection.
-    @Test func testEveryLensDestinationLandsOnARailItem() {
-        for kind in WorkspaceLensKind.allCases {
-            let destination = Workspace.destination(for: kind)
-            guard let lens = destination.organizeLens else {
-                #expect(kind == .storage, "\(kind.rawValue) minted no rail item")
-                continue
-            }
-            #expect(destination.workspace == .filing)
-            #expect(OrganizeLens.railItems.contains(lens),
-                    "\(kind.rawValue) mints \(lens.title), which the rail does not draw")
-        }
     }
 }

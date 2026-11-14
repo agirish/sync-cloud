@@ -25,18 +25,6 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One-line explanation shown under the Settings picker.
-    public var detail: String {
-        switch self {
-        case .system:
-            return "Follow the macOS Appearance setting, including its automatic light/dark schedule."
-        case .light:
-            return "Always use the light appearance, even when macOS is set to dark."
-        case .dark:
-            return "Always use the dark appearance, even when macOS is set to light."
-        }
-    }
-
     /// The appearance to pin `NSApplication` to. `nil` is how AppKit spells "inherit the system",
     /// so `.system` must assign it rather than skip the write, or Dark → System keeps the override.
     public var nsAppearance: NSAppearance? {

@@ -517,7 +517,7 @@ public enum RenamePlanner {
             // `positionalOrdinals` ranks only the months it sees, so a shifted file could land on
             // such a row's slot, and `withoutCollisions` wouldn't catch it because the names
             // differ. Slot 0 is exempt: the summary slot sits outside the ranking by design.
-            let unrankable = summaries.filter { $0.parsed.ordinal != 0 }
+            let unrankable = summaries.filter { !$0.parsed.isSummarySlot }
             let shifts = !placements.isEmpty && unrankable.isEmpty && dated.contains {
                 ordinals[$0.key] != $0.parsed.ordinal
             }

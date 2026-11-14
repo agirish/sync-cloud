@@ -20,15 +20,18 @@ import Testing
         #expect(Array(ordered.prefix(3)) == ["f3", "f47", "f1"])
         #expect(Array(ordered[3...4]) == ["f0", "f2"])
         #expect(ordered[5] == "f4" && ordered.count == 60, "files not read keep their order, after those read")
-        let page = AskClaudeLooseFiles.page(all, from: 0, shown: [], ahead: ahead)
-        #expect(page.files.first?.name == "f3" && page.files.map(\.name).contains("f47") && page.total == 60)
+        let rest = AskClaudeLooseFiles.unshown(all, from: 0, shown: [])
+        let page = AskClaudeLooseFiles.sureFirst(rest, path: \.path, ahead: ahead).prefix(AskClaudeLooseFiles.perCard)
+        #expect(page.first?.name == "f3" && page.map(\.name).contains("f47") && rest.count == 60)
     }
 
     /// Nothing read ahead: the newest first.
     @Test func withNothingReadAheadTheCardHoldsTheNewest() {
         let all = files(25)
         #expect(AskClaudeLooseFiles.sureFirst(all, path: \.path, ahead: [:]).map(\.name) == all.map(\.name))
-        #expect(AskClaudeLooseFiles.page(all, from: 0, shown: []).files.map(\.name) == (0..<10).map { "f\($0)" })
+        let rest = AskClaudeLooseFiles.unshown(all, from: 0, shown: [])
+        #expect(AskClaudeLooseFiles.sureFirst(rest, path: \.path, ahead: [:]).prefix(AskClaudeLooseFiles.perCard).map(\.name)
+                == (0..<10).map { "f\($0)" })
     }
 
     /// More sure files than a card holds: the rest lead the next card.
@@ -36,12 +39,16 @@ import Testing
         let all = files(40)
         var ahead: [String: AskClaudeLooseFiles.Ahead] = [:]
         for i in 0..<40 { ahead["/d/f\(i)"] = i % 3 == 0 ? .sure : .check }
-        let first = AskClaudeLooseFiles.page(all, from: 0, shown: [], ahead: ahead)
+        let card = { (from: Int, shown: Set<String>) in
+            Array(AskClaudeLooseFiles.sureFirst(AskClaudeLooseFiles.unshown(all, from: from, shown: shown),
+                                                path: \.path, ahead: ahead).prefix(AskClaudeLooseFiles.perCard))
+        }
+        let first = card(0, [])
         let sure = (0..<40).filter { $0 % 3 == 0 }.map { "f\($0)" }
-        #expect(first.files.map(\.name) == Array(sure.prefix(10)))
-        let second = AskClaudeLooseFiles.page(all, from: 10, shown: Set(first.files.map(\.path)), ahead: ahead)
-        #expect(Array(second.files.map(\.name).prefix(4)) == Array(sure.dropFirst(10)))
-        #expect(second.files[4].name == "f1", "then the newest to check")
+        #expect(first.map(\.name) == Array(sure.prefix(10)))
+        let second = card(10, Set(first.map(\.path)))
+        #expect(Array(second.map(\.name).prefix(4)) == Array(sure.dropFirst(10)))
+        #expect(second[4].name == "f1", "then the newest to check")
     }
 
     /// From 0 is a fresh ask: every file, those shown before included.

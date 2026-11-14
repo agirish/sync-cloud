@@ -69,13 +69,6 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// stay shared; only the presentation is per surface.
     public static let browseDefaultsKey = "paneViewModeBrowse"
 
-    /// Reads a pane's stored mode, falling back to the default for an absent or unrecognised value.
-    public static func stored(isLeft: Bool, in defaults: UserDefaults = .standard) -> PaneViewMode {
-        guard let raw = defaults.string(forKey: defaultsKey(isLeft: isLeft)),
-              let mode = PaneViewMode(rawValue: raw) else { return .default }
-        return mode
-    }
-
     // MARK: - Layout
 
     /// Width one column takes, and the floor and ceiling the resize drag clamps to.

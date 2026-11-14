@@ -403,15 +403,6 @@ extension FileSyncManager {
                              banner: "Undo couldn’t remove “\(name)” — it looks busy; try again", run: run, on: target)
     }
 
-    /// The byte size of the regular file at `url`, or nil for a folder or an unreadable or missing
-    /// item. Drives no guard; it isn't an identity, since nil conflates three cases and size misses
-    /// a same-length rewrite. Kept only for `ItemIdentityTests`; delete it with those expectations.
-    nonisolated static func fileSizeSnapshot(at url: URL, fileManager fm: FileManaging) -> Int? {
-        guard let attrs = try? fm.attributesOfItem(atPath: url.path) else { return nil }
-        if (attrs[.type] as? FileAttributeType) == .typeDirectory { return nil }
-        return (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
-    }
-
     /// Every path a move in `batch` renamed away, keyed by its old path: `liveLocation`'s lookup
     /// table. Build it once per batch, not per item: rebuilt per item, registering an undo is
     /// quadratic on the main actor, and a bulk move can hand over thousands of items.
@@ -453,15 +444,6 @@ extension FileSyncManager {
         guard fm.fileExists(atPath: destination.path),
               !fm.fileExists(atPath: rewritten.path) else { return rewritten }
         return destination
-    }
-
-    /// One-shot convenience over `renameMap(for:)` + `liveLocation(of:throughRenames:fileManager:)`.
-    /// Never call this in a loop over the batch — that is the quadratic shape `renameMap(for:)`
-    /// exists to keep out of `registerMoveUndo(items:)`.
-    nonisolated static func liveLocation(
-        of destination: URL, afterBatch batch: [MoveItemState], fileManager fm: FileManaging
-    ) -> URL {
-        liveLocation(of: destination, throughRenames: renameMap(for: batch), fileManager: fm)
     }
 
     /// How many frames `resolveRenamedDirectory` may take before it gives up: one per path

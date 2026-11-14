@@ -15,26 +15,17 @@ import SwiftUI
 
     @Test func testColumnsIsTheDefault() {
         #expect(PaneViewMode.default == .columns)
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults()) == .columns)
-        #expect(PaneViewMode.stored(isLeft: false, in: defaults()) == .columns)
     }
 
     /// Per-pane by decision: one side can be a deep tree while the other is flat.
     @Test func testEachPaneStoresItsOwnMode() {
-        let d = defaults()
-        d.set(PaneViewMode.tree.rawValue, forKey: PaneViewMode.defaultsKey(isLeft: true))
-
-        #expect(PaneViewMode.stored(isLeft: true, in: d) == .tree)
-        #expect(PaneViewMode.stored(isLeft: false, in: d) == .columns, "the sibling pane is unaffected")
         #expect(PaneViewMode.defaultsKey(isLeft: true) != PaneViewMode.defaultsKey(isLeft: false))
     }
 
     /// A value written by a newer build (or corrupted) must fall back rather than crash or render
     /// an empty pane.
     @Test func testUnrecognisedValueFallsBackToTheDefault() {
-        let d = defaults()
-        d.set("gallery", forKey: PaneViewMode.defaultsKey(isLeft: true))
-        #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns)
+        #expect(PaneViewMode(rawValue: "gallery") == nil)
     }
 
     /// The single-source rail stores separately from both comparison panes. It shares the left
@@ -44,12 +35,7 @@ import SwiftUI
         #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: true))
         #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: false))
 
-        let d = defaults()
-        d.set(PaneViewMode.tree.rawValue, forKey: PaneViewMode.railDefaultsKey)
-        #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns, "the left pane is unaffected")
-        #expect(PaneViewMode.stored(isLeft: false, in: d) == .columns, "the right pane is unaffected")
-
-        // …and the reverse: a comparison pane's choice must not reach the rail's key.
+        // A comparison pane's choice must not reach the rail's key.
         let e = defaults()
         e.set(PaneViewMode.tree.rawValue, forKey: PaneViewMode.defaultsKey(isLeft: true))
         #expect(e.string(forKey: PaneViewMode.railDefaultsKey) == nil)
@@ -140,18 +126,9 @@ import SwiftUI
     /// The raw values are a wire format: three defaults keys store them. A `.tree.rawValue` round
     /// trip passes across any rename while the rename silently restacks every user's panes, so the
     /// literals are the pin.
-    @Test func testRawValuesAreStableAndAnUnknownStoredValueFallsBack() {
+    @Test func testRawValuesAreStable() {
         #expect(PaneViewMode.tree.rawValue == "tree")
         #expect(PaneViewMode.columns.rawValue == "columns")
         #expect(PaneViewMode.allCases == [.tree, .columns])
-
-        // The case near-miss, "Tree" for "tree", from a hand-edited plist or a case-renamed enum,
-        // falls back as `stored(isLeft:in:)` documents.
-        let defaults = ScratchDefaults("PaneViewModeRawValues")
-        defaults.set("Tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .default,
-                "a case-near-miss must fall back, not match")
-        defaults.set("tree", forKey: PaneViewMode.defaultsKey(isLeft: true))
-        #expect(PaneViewMode.stored(isLeft: true, in: defaults) == .tree)
     }
 }

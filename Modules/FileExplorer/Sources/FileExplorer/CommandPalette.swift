@@ -266,13 +266,8 @@ public struct PaletteSettingsTab: Equatable, Sendable {
         self.pageOrder = pageOrder
     }
 
-    /// The route for a row matched through `word`: the tab, and the word's page where it has one,
-    /// as `tab/page` — the form `PaletteRoute.settings(tab:)` carries across the package wall.
-    func routeID(matchedThrough word: String?) -> String {
-        guard let word, let page = pages[word.lowercased()]?.first else { return id }
-        return routeID(page: page)
-    }
-
+    /// The tab, and the page where there is one, as `tab/page` — the form
+    /// `PaletteRoute.settings(tab:)` carries across the package wall.
     func routeID(page: String?) -> String {
         page.map { "\(id)/\($0)" } ?? id
     }

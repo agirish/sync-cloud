@@ -64,13 +64,10 @@ struct AppearanceModeTests {
         #expect(AppearanceMode.allCases == [.system, .light, .dark])
     }
 
-    @Test func everyModeHasAnAccurateLabelAndDetail() {
+    @Test func everyModeHasAnAccurateLabel() {
         #expect(AppearanceMode.system.displayName == "System")
         #expect(AppearanceMode.light.displayName == "Light")
         #expect(AppearanceMode.dark.displayName == "Dark")
-        for mode in AppearanceMode.allCases {
-            #expect(!mode.detail.isEmpty)
-        }
     }
 
     /// The theme is orthogonal to the material and shape controls — it shares no defaults key

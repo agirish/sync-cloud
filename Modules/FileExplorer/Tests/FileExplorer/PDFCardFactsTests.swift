@@ -238,7 +238,6 @@ extension PDFFixtures {
     /// Extract, and every page refused for Delete.
     @Test func readsTypedPagesAsEditDoes() throws {
         #expect(try PDFCardPages.parse("3–5, 1", extract: true, pageCount: 8).get() == [2, 3, 4, 0])
-        #expect(PDFCardPages.label([2, 3, 4, 0]) == "3–5, 1")
         if case .failure(let problem) = PDFCardPages.parse("1-3", extract: false, pageCount: 3) {
             #expect(!problem.sentence.isEmpty)
         } else {

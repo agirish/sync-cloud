@@ -28,7 +28,7 @@ import Testing
 
     /// Somebody the tree files for whom the roster doesn't know: the gap the section exists for.
     private static let ravi = PeopleOverview.UnclaimedPerson(
-        name: "Ravi", folders: 2, documents: 9, exampleFolder: "Family/Ravi")
+        name: "Ravi", folders: 2, exampleFolder: "Family/Ravi")
 
     // MARK: Harness
 
@@ -162,7 +162,7 @@ import Testing
         let two = PeopleOverview(
             claimedFolders: 12, claimedDocuments: 140,
             unclaimed: [Self.ravi,
-                        PeopleOverview.UnclaimedPerson(name: "Kavya", folders: 1, documents: 3,
+                        PeopleOverview.UnclaimedPerson(name: "Kavya", folders: 1,
                                                        exampleFolder: "School/Kavya")],
             peopleWithNoFolders: [])
         let first = cautionInk(Self.row(one))

@@ -4,8 +4,8 @@ import Foundation
 // MARK: - Modes
 
 /// How the two sides are shown against each other. `1`–`4` pick them by position in the list the
-/// surface is offering (see `digit(in:)`), which is derived from the pair's kind, so a digit can't
-/// reach a segment that isn't on screen.
+/// surface is offering (see `forDigit(_:in:)`), which is derived from the pair's kind, so a digit
+/// can't reach a segment that isn't on screen.
 enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
     /// Both pages, side by side. The only mode a kind with no raster gets.
     case sideBySide
@@ -38,13 +38,6 @@ enum ComparePairMode: String, CaseIterable, Identifiable, Equatable {
         case .difference: return "square.on.square.dashed"
         case .textDiff: return "text.alignleft"
         }
-    }
-
-    /// The mode's position in the list the surface is offering, not in the declaration. A text pair
-    /// offers two modes, so `2` there must mean the second of those, or the keyboard reaches a
-    /// segment that isn't on screen.
-    func digit(in available: [ComparePairMode]) -> Int? {
-        available.firstIndex(of: self).map { $0 + 1 }
     }
 
     /// The mode a digit selects out of what is offered, or nil for a digit past the end.

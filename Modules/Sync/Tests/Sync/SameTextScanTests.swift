@@ -36,7 +36,6 @@ import Testing
         #expect(group.isRecommendedForBatch == false)
         // It must not inflate the headline, which promises exactly what "Apply recommended" does.
         #expect(manager.duplicateSummary.reclaimableBytes == 0)
-        #expect(manager.duplicateSummary.needsReviewCount == 1)
 
         // The call-site half of `isRecommendedForBatch`. The group property is pinned in
         // DuplicateFinderSameTextTests; this is the check that the manager's batch actually

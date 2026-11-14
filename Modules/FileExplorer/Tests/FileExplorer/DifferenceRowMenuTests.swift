@@ -105,10 +105,10 @@ import Sync
     }
 
     /// A folder is refused on the scan's folder fact, not its name. Named like a text file on
-    /// purpose: `EditableText.isText` says yes to `notes.md`, so a fixture called `Notes` would be
+    /// purpose: `EditableText.opensInEdit` says yes to `notes.md`, so a fixture called `Notes` would be
     /// refused by its extension and pass with the folder rule deleted.
     @Test func aFolderRowOffersTheEditorOnNeitherSideEvenWhenNamedLikeText() {
-        #expect(EditableText.isText(path: "/icloud/docs/notes.md"),
+        #expect(EditableText.opensInEdit(path: "/icloud/docs/notes.md"),
                 "the premise: the fixture's name alone would be offered")
         #expect(DifferenceRowMenu.editableSides(for: textRow(.missingOnRight, enclosedItemCount: 3,
                                                              leftIsDirectory: true),

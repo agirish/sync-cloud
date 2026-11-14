@@ -261,7 +261,7 @@ import Foundation
     @Test func favoritingTheDiskTakesItBackOutOfLocations() throws {
         let split = ContentView.splitFolderSidebarPlaceRows(
             [], volumes: [Self.disk],
-            favoritePlaces: SidebarFavoritePlaces.standard + [SidebarSourceModel.startupDiskPath],
+            favoritePlaces: SidebarFavoritePlaces.standard + ["/"],
             links: [:])
         #expect(split.locations.map(\.name) == ["Trash"])
         #expect(split.shortcuts.last?.name == "Macintosh HD")

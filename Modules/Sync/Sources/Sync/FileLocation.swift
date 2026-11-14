@@ -178,15 +178,6 @@ public enum FileLocation {
             case .cloudOnly(let name): return "\(name) only"
             }
         }
-
-        /// Whether the content is on this Mac, for the inspector's "On this Mac" row, so the
-        /// verdict follows from a fact shown above it.
-        public var isOnThisMac: Bool {
-            switch self {
-            case .thisMacOnly, .thisMacAndCloud: return true
-            case .cloudOnly: return false
-            }
-        }
     }
 
     /// Containment crossed with materialization, or nil when there is nothing honest to say.

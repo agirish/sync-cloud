@@ -31,14 +31,12 @@ public struct PeopleOverview: Sendable, Equatable {
         /// The axis value exactly as the survey recorded it: the spelling to offer as a name.
         public let name: String
         public let folders: Int
-        public let documents: Int
         /// One folder, so the offer can show what it is talking about rather than asserting a count.
         public let exampleFolder: String
 
-        public init(name: String, folders: Int, documents: Int, exampleFolder: String) {
+        public init(name: String, folders: Int, exampleFolder: String) {
             self.name = name
             self.folders = folders
-            self.documents = documents
             self.exampleFolder = exampleFolder
         }
     }
@@ -53,7 +51,6 @@ public struct PeopleOverview: Sendable, Equatable {
         var claimedDocuments = 0
         var withFolders: Set<String> = []
         var unknownFolders: [String: Int] = [:]
-        var unknownDocs: [String: Int] = [:]
         var unknownExample: [String: String] = [:]
 
         for (path, entry) in profile.folders {
@@ -67,7 +64,6 @@ public struct PeopleOverview: Sendable, Equatable {
                 // Grouped by the axis value as written: the offer proposes that spelling as a
                 // name, and normalising it would propose something the tree doesn't say.
                 unknownFolders[axis, default: 0] += 1
-                unknownDocs[axis, default: 0] += docs
                 if let existing = unknownExample[axis] {
                     // The shallowest folder is the most recognisable one to show.
                     if path.split(separator: "/").count < existing.split(separator: "/").count {
@@ -84,7 +80,6 @@ public struct PeopleOverview: Sendable, Equatable {
         var unclaimed: [UnclaimedPerson] = []
         for (name, count) in unknownFolders {
             unclaimed.append(UnclaimedPerson(name: name, folders: count,
-                                             documents: unknownDocs[name] ?? 0,
                                              exampleFolder: unknownExample[name] ?? ""))
         }
         unclaimed.sort { a, b in

@@ -75,7 +75,7 @@ extension HandBuiltRefineSuites {
         #expect(goes[1].count == "2" && goes[1].text == "first pages" && goes[1].info != nil)
         #expect(goes.last?.text == "folder names" && goes.last?.action == .customize, "the folder list is a visible line with Customize…")
         let ok = try #require(card.ok)
-        #expect(ok.title == "Send first pages for 2 more files" && !ok.checked)
+        #expect(ok.title == "Send first pages for 2 more files")
         #expect(ok.info == "Their folders aren’t shared with Claude, so a first page goes only if you tick this. It counts for this pass only.")
         #expect(card.monthLine.hasPrefix("Opus 5.5 · ") && card.monthLine.contains("of $25 this month"))
         #expect(card.sendTitle.hasPrefix("Send 4 files · ") && card.canSend)
@@ -93,7 +93,7 @@ extension HandBuiltRefineSuites {
 
         let ticked = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(pagesFromAskEachTime: true)))
         let on = AskClaudeRefineCard(sourceName: "Cloud Drive", plan: ticked)
-        #expect(on.ok?.checked == true && on.ok?.detail == "Included in the price below")
+        #expect(on.ok?.detail == "Included in the price below")
         #expect(on.sendTitle.hasPrefix("Send 3 files"), "ticking brings the waiting file in")
     }
 
@@ -109,7 +109,7 @@ extension HandBuiltRefineSuites {
         #expect(note.info == "Its suggested folder came from reading its first page, and its folder isn’t shared with Claude, so Claude hasn’t seen that page.")
         #expect(card.waitingNames == ["mystery-0.pdf"])
         let ok = try #require(card.ok)
-        #expect(ok.title == "Send its first page" && !ok.checked && ok.info == "Up to 800 characters of text from each first page, once, for this pass only.")
+        #expect(ok.title == "Send its first page" && ok.info == "Up to 800 characters of text from each first page, once, for this pass only.")
         #expect(card.tickHint == "Tick the box to send this file.")
         #expect(card.sendTitle == "Send 0 files" && !card.canSend, "Send is off, and the card says what turns it on")
         #expect(card.goesLines.isEmpty)

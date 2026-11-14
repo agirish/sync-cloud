@@ -53,7 +53,6 @@ import Testing
     /// The order is the point: if they ever meet, the elevation language has collapsed.
     @Test func anOverlayReadsAsHigherThanACard() {
         #expect(LiquidGlass.overlayShadow.radius > LiquidGlass.cardShadow.radius)
-        #expect(LiquidGlass.cardShadow.radius > LiquidGlass.subtleShadow.radius)
     }
 
     /// `.overlayPanelShadow()` must change nothing but the shadow: a shadow takes no part in

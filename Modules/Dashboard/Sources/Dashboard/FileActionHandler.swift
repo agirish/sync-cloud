@@ -6,7 +6,7 @@ import Events
 import Design
 
 /// Handles file and folder actions from the UI (copy, move, delete, rename, focus, paste).
-/// Coordinates between `FileSyncManager`, `SettingsManager`, and system APIs (Finder, alerts).
+/// Coordinates between `FileSyncManager`, `SettingsManager`, and system APIs (pasteboard, alerts).
 @MainActor
 public class FileActionHandler {
     private let syncManager: FileSyncManager
@@ -18,9 +18,6 @@ public class FileActionHandler {
     /// reason as `defaults`: a test on the real one would clobber the user's clipboard, and could
     /// paste whatever happens to be on it.
     public let pasteboard: NSPasteboard
-    /// Runs an AppleScript source, returning the error dictionary on failure (nil on success).
-    /// Injectable so tests can capture the script instead of driving the real Finder.
-    private let appleScriptRunner: (String) -> NSDictionary?
     /// The modal prompts and confirmation behind rename / new-folder / delete. They default to
     /// the real `NativeAlerts`; tests substitute closures because the real ones block on NSAlert.
     private let renamePrompter: (_ currentName: String, _ validate: (String) -> String?) -> String?
@@ -32,7 +29,6 @@ public class FileActionHandler {
         settings: SettingsManager,
         defaults: UserDefaults,
         pasteboard: NSPasteboard,
-        appleScriptRunner: ((String) -> NSDictionary?)? = nil,
         renamePrompter: @escaping (_ currentName: String, _ validate: (String) -> String?) -> String? =
             { NativeAlerts.promptForRename(currentName: $0, validate: $1) },
         newFolderPrompter: @escaping (_ validate: (String) -> String?) -> String? =
@@ -44,23 +40,9 @@ public class FileActionHandler {
         self.settings = settings
         self.defaults = defaults
         self.pasteboard = pasteboard
-        // nil → the real NSAppleScript runner (an internal symbol can't appear as a public
-        // init's default argument directly).
-        self.appleScriptRunner = appleScriptRunner ?? Self.executeAppleScript
         self.renamePrompter = renamePrompter
         self.newFolderPrompter = newFolderPrompter
         self.deleteConfirmer = deleteConfirmer
-    }
-
-    /// The production AppleScript runner behind `appleScriptRunner`: executes via `NSAppleScript`
-    /// and surfaces the error dictionary (nil when the script compiled and ran cleanly).
-    /// `nonisolated` only so it can be a default argument; `openGetInfo` still calls it on the
-    /// main actor.
-    nonisolated static func executeAppleScript(_ source: String) -> NSDictionary? {
-        guard let appleScript = NSAppleScript(source: source) else { return nil }
-        var error: NSDictionary?
-        appleScript.executeAndReturnError(&error)
-        return error
     }
     
     // MARK: - The run lock
@@ -135,24 +117,6 @@ public class FileActionHandler {
                                   right: isLeft ? sibling : relPath)
         } else {
             syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
-        }
-    }
-    
-    // MARK: - Native Actions
-    
-    /// Triggers native macOS 'Get Info' window using AppleScript.
-    public func openGetInfo(for path: String) {
-        let escapedPath = Self.escapeForAppleScript(path)
-        let script = """
-        tell application "Finder"
-            activate
-            open information window of (POSIX file "\(escapedPath)" as alias)
-        end tell
-        """
-        if let err = appleScriptRunner(script) {
-            // A failed Finder "Get Info" is a cosmetic dead-end (nothing is left in a bad
-            // state), so it's a warning, not an app-level error.
-            Logger.shared.warning("Failed to open Get Info: \(err)")
         }
     }
     
@@ -354,13 +318,6 @@ public class FileActionHandler {
         }
     }
 
-    // Internal (not private) so its escaping order can be unit-tested; only used by openGetInfo.
-    static func escapeForAppleScript(_ raw: String) -> String {
-        raw
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-    }
-    
     private func providerDisplayName(forProviderId id: String) -> String {
         settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "the other pane"
     }

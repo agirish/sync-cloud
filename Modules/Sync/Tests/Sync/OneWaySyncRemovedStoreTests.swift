@@ -130,9 +130,8 @@ import Testing
         func names(_ items: [OneWaySyncRemovedItem]) -> [String] { items.map { OneWaySyncPath.name($0.path) } }
         #expect(names(store.itemsToEmpty(.oldestFirst)) == ["old.pdf", "middle.pdf", "new.pdf"])
         #expect(names(store.itemsToEmpty(.largestFirst)) == ["new.pdf", "old.pdf", "middle.pdf"])
-        #expect(names(store.items(removedBefore: OneWayDiskWorld.day0.addingTimeInterval(-30 * 86_400))) == ["old.pdf"])
 
-        let emptied = store.empty(store.items(removedBefore: OneWayDiskWorld.day0.addingTimeInterval(-5 * 86_400)))
+        let emptied = store.empty(Array(store.itemsToEmpty(.oldestFirst).prefix(2)))
         #expect(names(emptied.emptied) == ["old.pdf", "middle.pdf"])
         #expect(emptied.bytes == 11)
         #expect(names(store.items()) == ["new.pdf"])

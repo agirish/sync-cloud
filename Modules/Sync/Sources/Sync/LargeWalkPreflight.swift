@@ -10,7 +10,6 @@ public struct LargeWalkPreflight: Sendable, Equatable {
     public enum Pass: String, Sendable, CaseIterable {
         case storageLens
         case duplicates
-        case rename
         case filing
 
         /// A name for the prompt, in the workspace's own words: nothing in the UI says "storage lens".
@@ -18,7 +17,6 @@ public struct LargeWalkPreflight: Sendable, Equatable {
             switch self {
             case .storageLens: return "Storage"
             case .duplicates: return "Find Duplicates"
-            case .rename: return "Rename"
             case .filing: return "Filing"
             }
         }
@@ -29,7 +27,7 @@ public struct LargeWalkPreflight: Sendable, Equatable {
         public var readsFileContents: Bool {
             switch self {
             case .duplicates, .filing: return true
-            case .storageLens, .rename: return false
+            case .storageLens: return false
             }
         }
     }

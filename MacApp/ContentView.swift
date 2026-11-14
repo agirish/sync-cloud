@@ -3277,8 +3277,7 @@ struct ContentView: View {
         guard !root.isEmpty else { return }
         Logger.shared.info("Storage: requested for \(root)")
         // Both halves: setting the workspace alone would land on Organize's overview and quietly
-        // lose the request, the failure `Workspace.destination(for:)` exists to prevent for
-        // programmatic callers.
+        // lose the request.
         selectedWorkspace = .filing
         selectedOrganizeLens = .storage
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))

@@ -189,9 +189,12 @@ import FileExplorer
     /// the document column is squeezed under its floor at the window minimum.
     @Test func theCollapsedEditRowFitsTheLensClamp() {
         let spineSlot = PaneLogic.railSpineWidth + LiquidGlass.cardGutter
+        // The rail and its card, then the document's floor with its own card.
+        let workspace = EditorLayoutMetrics.railWidth + LiquidGlass.cardGutter
+            + EditorLayoutMetrics.minDocumentOnlyWidth
         let reserved = PaneLogic.minRailWidth + PaneLogic.minLensWorkspaceWidth
-        #expect(spineSlot + EditorLayoutMetrics.minWorkspaceWidth <= reserved,
-                "Edit's collapsed row needs \(spineSlot + EditorLayoutMetrics.minWorkspaceWidth)pt; the clamp leaves \(reserved)")
+        #expect(spineSlot + workspace <= reserved,
+                "Edit's collapsed row needs \(spineSlot + workspace)pt; the clamp leaves \(reserved)")
     }
 
     @Test func testOverrideWinsOnEveryWorkspace() {

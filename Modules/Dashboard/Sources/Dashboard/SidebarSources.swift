@@ -128,16 +128,6 @@ public enum SidebarSourceModel {
     public static let homeEntry: (name: String, symbol: String, path: String) =
         (NSUserName(), "house", NSHomeDirectory())
 
-    /// The startup disk, by path only.
-    ///
-    /// The mounted-volume walk already builds its row, with its name (`Macintosh HD` or whatever
-    /// the user renamed it) and its `internaldrive` glyph, so naming it here would go stale on a
-    /// rename. It isn't in ``SidebarFavoritePlaces/standard``: it heads Locations' device band
-    /// (`orderedVolumes(_:)`). This path is what a favorite of the disk is matched against.
-    ///
-    /// `/` is the boot volume by definition, so this needs no lookup and can't fail to resolve.
-    public static let startupDiskPath = "/"
-
     /// The Trash, last in Locations and the one row that never becomes a source.
     public static let trashEntry: (name: String, symbol: String, path: String) =
         ("Trash", "trash", NSHomeDirectory() + "/.Trash")

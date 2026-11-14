@@ -4,16 +4,13 @@ import Foundation
 /// of the file the writer created, so whoever asked can later tell that file from one that has
 /// replaced or changed it (an Ask Claude card's Undo).
 public struct PDFWrittenFile: Equatable, Sendable {
-    /// The file it was made from — the first input, for a run over several.
-    public var source: String
     public var path: String
     public var stamp: EditorFileStore.Stamp
     public var bytes: Int
     /// The copy's pages, where the run knows them.
     public var pageCount: Int?
 
-    public init(source: String, path: String, stamp: EditorFileStore.Stamp, bytes: Int, pageCount: Int? = nil) {
-        self.source = source
+    public init(path: String, stamp: EditorFileStore.Stamp, bytes: Int, pageCount: Int? = nil) {
         self.path = path
         self.stamp = stamp
         self.bytes = bytes

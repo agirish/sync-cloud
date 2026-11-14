@@ -133,15 +133,6 @@ import SwiftUI
         #expect(SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .small, density: .comfortable))
                 < SizePresetSpecimen.barHeight(for: SizePreset(fontSize: .extraLarge, density: .comfortable)))
     }
-
-    /// Compact's caption has to say the size-and-date line disappears, because nobody choosing
-    /// from the word "Compact" alone would guess it.
-    @Test func theCompactCaptionAdmitsWhatItHides() {
-        let detail = ListDensity.compact.detail.lowercased()
-        #expect(detail.contains("hides") || detail.contains("hidden"), "\(ListDensity.compact.detail)")
-        #expect(detail.contains("date"), "\(ListDensity.compact.detail)")
-        #expect(ListDensity.comfortable.detail.lowercased().contains("date"))
-    }
 }
 
 private extension SizePreset {

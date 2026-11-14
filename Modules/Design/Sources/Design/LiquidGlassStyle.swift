@@ -182,18 +182,6 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One-line explanation shown under the Settings picker.
-    public var detail: String {
-        switch self {
-        case .clear:
-            return "Glass with no frost — the window’s background reads through every surface."
-        case .frosted:
-            return "Standard Liquid Glass: translucent and blurred, with content on top staying legible."
-        case .solid:
-            return "Opaque panels for maximum readability, with no translucency."
-        }
-    }
-
     /// The level overlay cards render at: surfaces over dense app content rather than the window's
     /// own background (Settings, Help, first run, the operation banner). Clear glass over text is
     /// two layers of text competing, so `.clear` resolves to `.frosted` and the others pass
@@ -432,16 +420,6 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
         case .cards: return "Cards"
         }
     }
-
-    /// One-line explanation shown under the Settings picker.
-    public var detail: String {
-        switch self {
-        case .unified:
-            return "Everything in the window reads as one surface, divided by hairlines."
-        case .cards:
-            return "Each area of the window floats as its own card on the background."
-        }
-    }
 }
 
 public enum LiquidGlass {
@@ -507,8 +485,6 @@ public enum LiquidGlass {
 
     /// Soft shadow for glass cards to add depth without heaviness.
     public static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))
-    /// Lighter shadow for inline elements.
-    public static let subtleShadow = (color: Color.black.opacity(0.04), radius: CGFloat(6), x: CGFloat(0), y: CGFloat(2))
     /// The deep shadow a panel floating over a dimmed window casts, a step above `cardShadow`,
     /// which lifts a card off the window's own background. Apply it with `.overlayPanelShadow()`
     /// rather than reading the members; every caller wants the whole recipe.

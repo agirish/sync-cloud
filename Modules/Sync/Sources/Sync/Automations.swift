@@ -150,22 +150,11 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             return "mentions any of " + cleaned.map { "“\($0)”" }.joined(separator: ", ")
         case .personIs(let id):
             // The id, not a display name: this type has no roster. The editor and rule list
-            // substitute the name (`summary(resolvingPeople:)`).
+            // substitute the name (`automationConditionChipText(_:people:)`).
             return "is \(id.isEmpty ? "…" : id)’s document"
         case .unrecognized(let name, _):
             return "\(name) (from a newer version)"
         }
-    }
-
-    /// The same sentence with person ids replaced by the roster's names: "is Daughter's document".
-    /// Falls back to the id for an unknown person, so a rule pointing at a deleted person stays
-    /// visible rather than blank.
-    public func summary(resolvingPeople registry: PersonRegistry?) -> String {
-        guard case .personIs(let id) = self, let registry else { return summary }
-        guard let person = registry.people.first(where: { $0.id == id }) else {
-            return "is \(id)’s document (not on your People list)"
-        }
-        return "is \(person.displayName)’s document"
     }
 
     /// Whether the condition is fully specified (a blank glob / term / zero threshold is a

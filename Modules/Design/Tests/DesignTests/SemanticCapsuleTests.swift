@@ -36,18 +36,6 @@ import Testing
         }
     }
 
-    @Test func testEveryFamilyKeepsItsDotVisibleInBothAppearances() {
-        // 3:1, the floor for non-text indicators. The obvious "system orange" fails it on a light
-        // amber fill, which is why the light dots are darker than they look.
-        for family in SemanticCapsuleFamily.allCases {
-            for scheme in [ColorScheme.light, .dark] {
-                let style = SemanticCapsuleStyle.of(family, scheme)
-                let ratio = contrast(style.dot, style.fill)
-                #expect(ratio >= 3.0, "\(family)/\(scheme) dot is \(ratio):1 on its own fill")
-            }
-        }
-    }
-
     /// The differences count pill nests a semantic capsule inside its accent capsule: the age run,
     /// `.attention` when the scan is stale and `.neutral` while one runs. That fill can't carry the
     /// boundary against an accent on its own, which is why `StatPill.detailStyle` rings the run.
@@ -77,71 +65,12 @@ import Testing
         }
     }
 
-    @Test func testTheDotIsTheMostColorfulMemberOfItsFamily() {
-        // The smallest element gets the strongest hue, having the least area to show it. Measured
-        // as chroma (max − min), not HSV saturation: the near-black brown dark fill has a higher
-        // HSV saturation than the bright orange dot, though the eye sees the opposite.
-        func chroma(_ color: Color) -> CGFloat {
-            guard let c = NSColor(color).usingColorSpace(.sRGB) else { return 0 }
-            let channels = [c.redComponent, c.greenComponent, c.blueComponent]
-            guard let high = channels.max(), let low = channels.min() else { return 0 }
-            return high - low
-        }
-        for scheme in [ColorScheme.light, .dark] {
-            let style = SemanticCapsuleStyle.of(.attention, scheme)
-            #expect(chroma(style.dot) > chroma(style.fill))
-            #expect(chroma(style.dot) >= chroma(style.content))
-        }
-    }
-
-    /// The `onAccent` path's dot is legible by its ring, the fill's paired label colour. Runs over
-    /// every named hue, since the pill follows the hue.
-    @MainActor
-    @Test func testTheRingedDotStaysBoundedOnEveryAccentHue() throws {
-        for hue in LiquidGlassHue.allCases where hue != .none {
-            // `.none` is the system accent, a dynamic color with no fixed value to measure.
-            // `accentFillColor` matches the call site.
-            let style = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor, label: hue.onAccentLabelColor)
-            let ring = try #require(style.dotRing, "\(hue) accent capsule shipped an unringed dot")
-            let ratio = contrast(ring, style.fill)
-            #expect(ratio >= 3.0, "\(hue) dot ring is \(ratio):1 on its own accent fill")
-        }
-    }
-
-    /// Why the ring exists: no terracotta colour clears 3:1 on the Green accent fill, and white
-    /// carries no attention signal. If a re-tune lets a warm dot stand alone this fails and the
-    /// ring becomes removable.
-    @MainActor
-    @Test func testNoWarmDotColorCouldClearTheFloorOnTheGreenAccentFill() {
-        let fill = LiquidGlassHue.green.accentFillColor
-        for candidate in [SemanticCapsuleStyle.attentionDotOnAccent,
-                          SemanticCapsuleStyle.of(.attention, .light).dot,
-                          Color(red: 0.95, green: 0.77, blue: 0.66)] {   // pale peach
-            #expect(contrast(candidate, fill) < 3.0)
-        }
-        #expect(contrast(.white, fill) >= 3.0)
-    }
-
-    /// The structural half of the rule `StatPill` branches on: a ring iff the fill is an accent.
-    /// A flat family that grew one would draw a boundary its dot doesn't need; an accent capsule
-    /// that lost one would drop below the floor the test above measures.
-    @MainActor
-    @Test func testOnlyTheAccentCapsuleCarriesARing() {
-        for family in SemanticCapsuleFamily.allCases {
-            for scheme in [ColorScheme.light, .dark] {
-                #expect(SemanticCapsuleStyle.of(family, scheme).dotRing == nil)
-            }
-        }
-        #expect(SemanticCapsuleStyle.onAccent(fill: .green, label: .black).dotRing != nil)
-    }
-
     @Test func testFamiliesAreDistinguishableFromEachOther() {
         // Attention must not read as neutral at a glance, in either appearance.
         for scheme in [ColorScheme.light, .dark] {
             let attention = SemanticCapsuleStyle.of(.attention, scheme)
             let neutral = SemanticCapsuleStyle.of(.neutral, scheme)
             #expect(attention.fill != neutral.fill)
-            #expect(attention.dot != neutral.dot)
         }
     }
 }

@@ -19,8 +19,7 @@ import Design
             sources: [.init(root: Self.root, name: Self.rootName,
                             favorites: favorites, isAvailable: isAvailable)],
             recents: recents.map { RememberedVisit(root: Self.root, relativePath: $0,
-                                                   name: ($0 as NSString).lastPathComponent,
-                                                   visitedAt: nil) })
+                                                   name: ($0 as NSString).lastPathComponent) })
     }
 
     /// Favorites are curated and recents a rolling eight, so favorites go first; the order within
@@ -119,7 +118,7 @@ import Design
 
     private static func visit(_ root: String, _ path: String) -> RememberedVisit {
         RememberedVisit(root: root, relativePath: path,
-                        name: (path as NSString).lastPathComponent, visitedAt: nil)
+                        name: (path as NSString).lastPathComponent)
     }
 
     /// The same relative path under two sources is two folders, and both survive the `ForEach`;
@@ -365,7 +364,7 @@ import Design
                             isAvailable: remembered.rootIsAvailable)],
             recents: remembered.recents.map {
                 RememberedVisit(root: "/iCloud", relativePath: $0,
-                                name: ($0 as NSString).lastPathComponent, visitedAt: nil)
+                                name: ($0 as NSString).lastPathComponent)
             })
     }
 

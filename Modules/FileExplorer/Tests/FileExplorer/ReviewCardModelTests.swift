@@ -44,7 +44,6 @@ import Sync
         let model = ReviewCardModel.make(
             difference: diff(leftSize: 2000, rightSize: 1000),
             facts: facts(), paneNames: paneNames, isMove: false)
-        #expect(model.isReplace)
         #expect(model.directionText == "Local → iCloud")
         #expect(model.directionDetail == "replaces existing")
         #expect(model.sourceLabel == "Copying from Local")
@@ -67,7 +66,6 @@ import Sync
         let model = ReviewCardModel.make(
             difference: diff(type: .missingOnRight, leftSize: 500, enclosedItemCount: 34),
             facts: facts(), paneNames: paneNames, isMove: false)
-        #expect(!model.isReplace)
         #expect(model.directionDetail == "new")
         #expect(model.newItemText == "New on iCloud — nothing replaced. Includes 34 items.")
         #expect(model.destinationLabel == nil)

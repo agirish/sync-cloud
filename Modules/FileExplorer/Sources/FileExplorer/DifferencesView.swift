@@ -496,7 +496,7 @@ public struct DifferencesView: View {
     ///
     /// The whole capsule stays the accent, because a pale warning capsule reads as disabled on a
     /// control that must look clickable. The run is a filled capsule with a ring, not a tinted
-    /// word: on a saturated accent nothing coloured clears 3:1 (`SemanticCapsuleStyle.dotRing`).
+    /// word: on a saturated accent nothing coloured clears 3:1.
     ///
     /// Staleness comes from the clock plus the folder watcher's changed-on-disk flags. Any further
     /// change signal should add to these, never replace them: missing a change under-warns, which

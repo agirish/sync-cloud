@@ -58,7 +58,4 @@ public struct ComparePick: Equatable, Sendable {
             counterpartIsInOtherPane: true, clickedPaneIsLeft: inLeftPane,
             leftPaneName: leftPaneName, rightPaneName: rightPaneName))
     }
-
-    /// Whether `path` is the armed row — what a row asks to decide if it wears the marker.
-    public func marks(_ path: String) -> Bool { path == armed.id }
 }

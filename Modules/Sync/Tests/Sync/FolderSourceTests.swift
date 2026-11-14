@@ -240,11 +240,4 @@ import Testing
         #expect(FolderSource.defaultDisplayName(forPath: NSHomeDirectory()) { _ in "WRONG" } == "Home folder")
         #expect(FolderSource.defaultDisplayName(forPath: "~") { _ in "WRONG" } == "Home folder")
     }
-
-    /// The name reaches the tab: a tab at a provider root wears the source's name, which is how
-    /// one bad name shows up in four places.
-    @Test func aTabAtTheRootWearsTheSourcesName() {
-        let tab = PaneTab(providerId: "folder-src", relativePath: "")
-        #expect(tab.displayName(providerName: "Macintosh HD") == "Macintosh HD")
-    }
 }

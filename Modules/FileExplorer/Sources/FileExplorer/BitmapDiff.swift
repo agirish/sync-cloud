@@ -27,15 +27,10 @@ struct BitmapDiffResult: Equatable {
     /// Touching cells, diagonals included, merge into connected components, and each component's
     /// bounding box is one region.
     let changedRects: [CGRect]
-    /// True when the two images had different pixel dimensions and one was rescaled to compare.
-    /// Disclosed, because a rescale resamples, so "0.4% differ" from a mismatched pair isn't the
-    /// same claim as from a matched pair.
-    let sizesDiffer: Bool
     /// The alignment applied before comparing, or nil where none was (``PageRegistration``).
-    /// Disclosed for `sizesDiffer`'s reason, and more so: a reader told two scans line up when the
-    /// app quietly rotated one has been told something false about their documents. Nil covers
-    /// both "not attempted" and "attempted and refused", which read the same on screen: the pages
-    /// were compared as they are.
+    /// Disclosed, because a reader told two scans line up when the app quietly rotated one has been
+    /// told something false about their documents. Nil covers both "not attempted" and "attempted
+    /// and refused", which read the same on screen: the pages were compared as they are.
     var registration: PageRegistration? = nil
 
     var isIdentical: Bool { changedFraction == 0 }
@@ -83,7 +78,6 @@ enum BitmapDiff {
         let width = min(left.width, right.width)
         let height = min(left.height, right.height)
         guard width > 0, height > 0 else { return (nil, nil) }
-        let sizesDiffer = left.width != right.width || left.height != right.height
         guard let a = normalized(left, width: width, height: height),
               let b = normalized(right, width: width, height: height) else { return (nil, nil) }
 
@@ -130,7 +124,7 @@ enum BitmapDiff {
         let rects = regions(touched: touched, cells: cells, rows: rows,
                             width: width, height: height)
         let result = BitmapDiffResult(changedFraction: Double(changed) / Double(width * height),
-                                      changedRects: rects, sizesDiffer: sizesDiffer)
+                                      changedRects: rects)
         return (result, outBytes == nil ? nil : out?.makeImage())
     }
 
@@ -207,8 +201,7 @@ enum BitmapDiff {
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
         ctx.interpolationQuality = .high
-        // Drawn into the full rect, which rescales a mismatched side; reported through
-        // `sizesDiffer`, not hidden.
+        // Drawn into the full rect, which rescales a mismatched side.
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         let stride = ctx.bytesPerRow
         return Raster(context: ctx,

@@ -167,11 +167,6 @@ public enum AskClaudeSuggestions {
                   let memory = try? JSONDecoder().decode(Memory.self, from: data) else { return Memory() }
             return memory
         }
-
-        public func save(_ defaults: UserDefaults) {
-            guard let data = try? JSONEncoder().encode(self) else { return }
-            defaults.set(data, forKey: memoryKey)
-        }
     }
 
     public static func isEnabled(_ defaults: UserDefaults) -> Bool {

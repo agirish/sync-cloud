@@ -22,18 +22,6 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// One-line explanation shown under the Settings control. It says what compact costs: it hides
-    /// each file's size and date (`showsSecondaryDetail`), which nobody would guess from the word.
-    public var detail: String {
-        switch self {
-        case .comfortable:
-            return "Comfortable keeps the standard row height, and shows each file’s size and date in Tree view."
-        case .compact:
-            return "Compact fits more rows on screen — file panes, the Compare table, Organize and "
-                + "Storage, and Activity’s Events and Log — and hides the size-and-date line to do it."
-        }
-    }
-
     /// The row measurements for this density. Comfortable's values are the app's original
     /// constants, so it renders pixel-identical to the look before the setting existed
     /// (`ListDensityTests`).

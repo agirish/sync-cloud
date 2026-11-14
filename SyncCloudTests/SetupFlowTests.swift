@@ -179,15 +179,6 @@ import Testing
         #expect(SetupFlow.crumbs.count == SetupFlow.Screen.allCases.count - 2)
     }
 
-    /// Four screens can be skipped. Locations and Countries are right if left alone, so a Skip
-    /// there would be a second Continue; Structure is the screen that writes.
-    @Test func theSkippableScreensAreTheOnesWithSomethingToRefuse() {
-        let skippable = SetupFlow.Screen.allCases.filter(\.isSkippable)
-        #expect(skippable == [.learn, .you, .people, .appearance])
-        #expect(!SetupFlow.Screen.structure.isSkippable)
-        #expect(!SetupFlow.Screen.locations.isSkippable)
-    }
-
     @Test func everyScreenHasItsOwnName() {
         for screen in SetupFlow.Screen.allCases {
             #expect(!screen.displayName.isEmpty)

@@ -280,8 +280,8 @@ enum SaveAsPDFSummary {
     /// A request's ending as data, with the banner's own words.
     static func result(_ ending: SaveAsPDFBanner, paths: [String], saved: [Saved], failed: [Failed]) -> PDFRunResult {
         let written = saved.compactMap { one -> PDFWrittenFile? in
-            guard let source = one.source, let stamp = one.stamp else { return nil }
-            return PDFWrittenFile(source: source, path: one.copy, stamp: stamp, bytes: one.bytes ?? 0,
+            guard one.source != nil, let stamp = one.stamp else { return nil }
+            return PDFWrittenFile(path: one.copy, stamp: stamp, bytes: one.bytes ?? 0,
                                   pageCount: one.pageCount)
         }
         let done = Set(saved.compactMap(\.source))

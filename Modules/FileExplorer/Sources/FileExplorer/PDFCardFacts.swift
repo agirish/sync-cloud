@@ -198,9 +198,6 @@ public enum PDFCardPages {
         guard let pages = read.pages else { return .failure(PDFCardPagesProblem(sentence: read.caption)) }
         return .success(pages)
     }
-
-    /// One-based, runs collapsed: [2, 3, 4, 0] → "3–5, 1".
-    public static func label(_ pages: [Int]) -> String { EditorPDFCopyName.runs(pages, dash: "–") }
 }
 
 public struct PDFCardPagesProblem: Error, Equatable, Sendable {

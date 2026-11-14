@@ -122,8 +122,6 @@ enum AppCopyScan {
         let data = "written into a file the app reads back, never shown"
         let dateFormat = "a date format's quoted literal: 'T' is syntax"
         return [
-            .init(file: "Modules/Dashboard/Sources/Dashboard/FileActionHandler.swift", contains: "tell application \"Finder\"",
-                  reason: "AppleScript source, run and never shown"),
             .init(file: "MacApp/AskClaude/AskClaudeDisk.swift", contains: "kMDItemFSName",
                   reason: "Spotlight query syntax, sent to the index and never shown"),
             .init(file: "MacApp/AskClaude/AskClaudeReading.swift", contains: "kMDItemTextContent",

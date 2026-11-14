@@ -274,17 +274,6 @@ enum PaneLogic {
             if case .armPick = self { return "Compare with…" }
             return "Compare"
         }
-
-        /// The two files, where this offer is a pair; `nil` for a folder scan.
-        ///
-        /// What ⇧⌘C reads, as a value rather than a `guard case` at its call site: the item must
-        /// stay disabled for a folder, and a `guard let` written where `guard case .filePair` was
-        /// meant would run the pair viewer on a folder. As a value, that is testable without a
-        /// window.
-        var filePair: (FileNode, FileNode)? {
-            if case .filePair(let a, let b) = self { return (a, b) }
-            return nil
-        }
     }
 
     /// ``CompareOffer`` for a pane selection. A file pair keeps the selection's order, the order
@@ -718,8 +707,6 @@ enum PaneLogic {
         /// difference: invisible by eye, so it needs the arithmetic. Browse doesn't show it because
         /// the stack beside its sidebar is flexible.
         let sidebarSlot: CGFloat
-        /// The width handed to the sidebar column itself.
-        let sidebarWidth: CGFloat
         let railWidth: CGFloat
         let workspaceWidth: CGFloat
         /// The room the rail and the workspace divide, what `railFraction` is a fraction of, so it
@@ -745,7 +732,6 @@ enum PaneLogic {
         let split = totalWidth - slot
         let rail = split * CGFloat(fraction)
         return LensRow(sidebarSlot: slot,
-                       sidebarWidth: showsSidebar ? sidebarWidth : 0,
                        railWidth: rail,
                        workspaceWidth: split - rail,
                        splitWidth: split)

@@ -136,29 +136,6 @@ import Testing
                 "a declined scan reported completion — an empty 'no duplicates' over a tree it refused to read")
     }
 
-    /// Rename, declined, reports no risky names. The fixture plants a name the detector flags
-    /// (`NameNormalizerTests` pins the zero-width space for iCloud), so an empty list is the
-    /// decline, not a clean tree.
-    @MainActor
-    @Test func decliningTheRenameWalkReportsNoRiskyNames() async throws {
-        let root = try fixture(files: 12)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try writeBytes(root.appendingPathComponent("photo\u{200B}.jpg"), bytes: 8)
-
-        let manager = FileSyncManager()
-        manager.wholeTreeProbeBudget = 4
-        var seen: LargeWalkPreflight?
-        manager.largeWalkConfirmer = { seen = $0; return false }
-        await manager.scanNames(root: root, provider: .iCloud)
-
-        let p = try #require(seen, "the rename pass never asked — its walk ran unbounded, or unprobed")
-        #expect(p.pass == .rename)
-        #expect(manager.riskyNames.isEmpty,
-                "a declined scan reported risky names — found in the probe's partial tree, which reads as 'these are all of them'")
-        #expect(!manager.nameScanLifecycle.hasCompleted,
-                "a declined scan reported completion, which is indistinguishable from a clean tree")
-    }
-
     /// Filing, declined, publishes nothing: no suggestions, and no risky names either, since
     /// `detectRiskyNames` runs on the taxonomy the gate protects.
     @MainActor
@@ -256,9 +233,8 @@ import Testing
     @Test func eachPassNamesItselfInTheUsersVocabulary() {
         #expect(LargeWalkPreflight.Pass.storageLens.title == "Storage")
         #expect(LargeWalkPreflight.Pass.duplicates.title == "Find Duplicates")
-        #expect(LargeWalkPreflight.Pass.rename.title == "Rename")
         #expect(LargeWalkPreflight.Pass.filing.title == "Filing")
-        #expect(LargeWalkPreflight.Pass.allCases.count == 4,
+        #expect(LargeWalkPreflight.Pass.allCases.count == 3,
                 "a pass was added or removed — check that every whole-tree walk still asks before it runs")
     }
 
@@ -269,7 +245,6 @@ import Testing
         #expect(LargeWalkPreflight.Pass.duplicates.readsFileContents)
         #expect(LargeWalkPreflight.Pass.filing.readsFileContents)
         #expect(!LargeWalkPreflight.Pass.storageLens.readsFileContents)
-        #expect(!LargeWalkPreflight.Pass.rename.readsFileContents)
     }
 
     // MARK: - The probe's own question

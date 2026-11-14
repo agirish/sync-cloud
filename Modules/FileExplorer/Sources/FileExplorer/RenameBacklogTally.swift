@@ -7,8 +7,8 @@ import Sync
 /// matches the list beside it. But nothing renames a folder: this says what that number costs in
 /// files, e.g. `1,240 renames · 44 to name · 16 to reshuffle · 1,180 to pad · 6 left alone`.
 ///
-/// The words are `RenamePassLens.summary`'s, so the header and the folder rows read as one
-/// measurement. Pure, so the arithmetic is testable without mounting anything.
+/// The header and the folder rows take their words from here, so they read as one measurement.
+/// Pure, so the arithmetic is testable without mounting anything.
 struct RenameBacklogTally: Equatable {
     /// Every rename the listed plans propose. The headline: this is what "apply all" would do.
     let renames: Int
@@ -48,7 +48,6 @@ struct RenameBacklogTally: Equatable {
     /// subordinate to its total.
     ///
     /// Empty when there is nothing to break down, so the caller draws no dangling separator.
-    /// ``claim`` is the never-silent form.
     var breakdown: String {
         (stepParts + (skipped > 0 ? ["\(skipped.formatted()) left alone"] : []))
             .joined(separator: " · ")
@@ -59,7 +58,7 @@ struct RenameBacklogTally: Equatable {
     /// widest and a rigid tenant.
     ///
     /// - It drops the skips: the header prefixes the rename total, and a skipped file is not among
-    ///   those renames. The folder rows keep them (``claim``).
+    ///   those renames. The folder rows keep them (``breakdown``).
     /// - With both rare kinds present it folds them into one "to name or reshuffle" clause; with
     ///   one, it names that one exactly.
     ///
@@ -79,14 +78,5 @@ struct RenameBacklogTally: Equatable {
         // explains the zero, so they come back.
         if parts.isEmpty && skipped > 0 { parts.append("\(skipped.formatted()) left alone") }
         return parts.joined(separator: " · ")
-    }
-
-    /// One folder's own claim, under its name in the backlog list. ``breakdown``, except that it
-    /// always says something: a plan of nothing but skips would otherwise read as a clean folder,
-    /// when the pass looked and declined. Same words, order and separator as the header.
-    var claim: String {
-        var s = stepParts.isEmpty ? "nothing to do" : stepParts.joined(separator: " · ")
-        if skipped > 0 { s += " · \(skipped.formatted()) left alone" }
-        return s
     }
 }

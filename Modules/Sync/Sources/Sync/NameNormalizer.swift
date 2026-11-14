@@ -156,14 +156,6 @@ public enum NameNormalizer {
         return String(scalars).precomposedStringWithCanonicalMapping
     }
 
-    /// True when `name` carries a fixable invisible hazard the provider rules don't name: a hidden
-    /// zero-width character or a non-standard space. Canonical `!=`, as in
-    /// ``evaluate(name:relativePath:absolutePath:isDirectory:provider:)``, so a merely decomposed
-    /// name answers false.
-    public static func hasInvisibleHazard(_ name: String) -> Bool {
-        cleanInvisible(name) != name
-    }
-
     /// The specific human phrase for an invisible hazard, most-actionable first.
     static func invisibleReason(_ name: String) -> String {
         if name.unicodeScalars.contains(where: { zeroWidthScalars.contains($0) }) {

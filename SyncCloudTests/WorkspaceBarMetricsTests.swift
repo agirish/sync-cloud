@@ -101,14 +101,14 @@ import FileExplorer
             let resolved = styles(contentWidth: Self.windowFloor,
                                   labelWidths: labelWidths(scale: size.scale), scale: size.scale)
             #expect(resolved.workspace == .full,
-                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.displayName) — the narrowest window is glyphs again at this size")
+                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.percent)% — the narrowest window is glyphs again at this size")
             // The pill splits instead: spelled out at Small and Default, compact at the two larger
             // sizes. The cheap word goes first and the navigation labels never go. Asserted per
             // size, because a flat answer could be right by accident and hide a split.
             let expectedPill: CommandPaletteBarStyle =
                 (size == .large || size == .extraLarge) ? .compact : .full
             #expect(resolved.search == expectedPill,
-                    "at the floor the ⌘K pill is \(resolved.search) at \(size.displayName), expected \(expectedPill)")
+                    "at the floor the ⌘K pill is \(resolved.search) at \(size.percent)%, expected \(expectedPill)")
         }
     }
 
@@ -151,7 +151,7 @@ import FileExplorer
             let widths = labelWidths(scale: size.scale)
             for width in stride(from: Self.windowFloor, through: 2400.0, by: 5.0) {
                 #expect(styles(contentWidth: width, labelWidths: widths, scale: size.scale).workspace == .full,
-                        "at \(width)pt and \(size.displayName) the shipping bar is glyphs — the rung is reachable again")
+                        "at \(width)pt and \(size.percent)% the shipping bar is glyphs — the rung is reachable again")
             }
         }
 
@@ -326,7 +326,7 @@ import FileExplorer
             let width = try #require(resolved.field?.width)
             #expect(resolved.workspace == .iconOnly)
             #expect(width >= GoToFieldMetrics.floorWidth,
-                    "at the window floor / \(size.displayName) the field opens at \(width), under its own floor")
+                    "at the window floor / \(size.percent)% the field opens at \(width), under its own floor")
         }
     }
 
@@ -381,7 +381,7 @@ import FileExplorer
                 let spent = bar + (resolved.field?.width ?? 0)
                 let available = contentWidth - WorkspaceBarMetrics.reservedChrome
                 #expect(spent <= available,
-                        "at \(contentWidth)pt / \(size.displayName) the row spends \(spent) of \(available)")
+                        "at \(contentWidth)pt / \(size.percent)% the row spends \(spent) of \(available)")
                 #expect((resolved.field?.width ?? 0) <= GoToFieldMetrics.ceilingWidth)
             }
         }
@@ -409,7 +409,7 @@ import FileExplorer
                 for open in [false, true] {
                     let resolved = styles(contentWidth: contentWidth, labelWidths: widths,
                                           scale: size.scale, open: open, run: true)
-                    let run = try? #require(resolved.run, "no capsule at \(contentWidth)pt / \(size.displayName)")
+                    let run = try? #require(resolved.run, "no capsule at \(contentWidth)pt / \(size.percent)%")
                     guard let run else { continue }
                     let bar = resolved.workspace == .full
                         ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
@@ -419,7 +419,7 @@ import FileExplorer
                     let spent = bar + pill + WorkspaceBarMetrics.capsuleWidth(run)
                     let available = contentWidth - WorkspaceBarMetrics.reservedChrome
                     #expect(spent <= available,
-                            "at \(contentWidth)pt / \(size.displayName)\(open ? " (field open)" : "") the row spends \(spent) of \(available)")
+                            "at \(contentWidth)pt / \(size.percent)%\(open ? " (field open)" : "") the row spends \(spent) of \(available)")
                 }
             }
         }

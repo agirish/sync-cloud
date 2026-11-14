@@ -148,32 +148,6 @@ import EventsTestSupport
         #expect(reread.schemaVersion == 7, "a newer schema was relabelled as this build's own")
     }
 
-    /// Clearing withdraws what recording would have replaced. `record` supersedes across key kinds
-    /// at one recorded path, since a fingerprint-keyed and a path-keyed verdict on one document are
-    /// one answer given twice. Matching the exact key only, `clear` would silently do nothing for
-    /// the documents the durable key exists for.
-    @MainActor @Test func clearingWithdrawsAVerdictStoredUnderTheOtherKindOfKey() throws {
-        let (store, dir) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        // Recorded durably, by fingerprint, at a known path.
-        store.record(personId: "daughter", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
-        #expect(store.tags.count == 1)
-
-        // The caller has the path, which is all the People queue ever has for a row.
-        store.clear(personId: "daughter", key: .path("a.pdf"), path: "a.pdf")
-        #expect(store.tags.isEmpty, "the verdict survived a withdrawal aimed at the same document")
-    }
-
-    /// And it stays narrow: another person's verdict at the same path is untouched.
-    @MainActor @Test func clearingLeavesAnotherPersonsVerdictAlone() throws {
-        let (store, dir) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "daughter", key: .fingerprint("fp-1"), verdict: .confirmed, path: "a.pdf")
-        store.record(personId: "son", key: .fingerprint("fp-1"), verdict: .rejected, path: "a.pdf")
-        store.clear(personId: "daughter", key: .path("a.pdf"), path: "a.pdf")
-        #expect(store.tags.map(\.personId) == ["son"])
-    }
-
     /// An unrecognized verdict from a newer build goes back to disk exactly as it arrived.
     /// Rewriting `"maybe"` as `"rejected"`, or dropping it, would destroy the newer build's data
     /// while looking like it worked.
@@ -246,17 +220,6 @@ import EventsTestSupport
         let reopened = PersonTagStore(directory: dir, profileId: "p")
         #expect(reopened.index.verdict(personId: "daughter", path: "a.pdf", fingerprint: "fp")
                 == .rejected)
-    }
-
-    /// Withdrawing puts the document back in front of the channels: the undo for a misclick, and
-    /// the only way a row returns to the queue.
-    @MainActor @Test func clearingAVerdictPutsTheRowBack() throws {
-        let (store, dir) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        store.record(personId: "daughter", key: .path("a.pdf"), verdict: .rejected, path: "a.pdf")
-        store.clear(personId: "daughter", key: .path("a.pdf"))
-        #expect(store.tags.isEmpty)
-        #expect(store.index.verdict(personId: "daughter", path: "a.pdf") == nil)
     }
 
     // MARK: - Finding a verdict again
@@ -747,49 +710,4 @@ import EventsTestSupport
         #expect(reread.tags.map(\.personId) == ["son"])
     }
 
-    /// The same rule for `clear`: a withdrawal is a save like any other, so while the guard is
-    /// armed and the set-aside keeps failing it lives only in memory, and its line must say so.
-    @Test func aRefusedWithdrawalIsSaidOutLoudInTheLine() async throws {
-        let log = LogCapture()
-        let dir = try makeDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("p/person-tags.json")
-        try Data("{ not json — and the rename will keep failing".utf8).write(to: url)
-
-        let fm = MoveBlockedFileManager()
-        fm.movesToRefuse = 99                                       // persistence never recovers
-        let store = PersonTagStore(directory: dir, profileId: "p", fileManager: fm)
-        let path = "withdrawal-\(UUID().uuidString).pdf"
-        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
-        store.clear(personId: "son", key: .path(path))
-        #expect(store.tags.isEmpty, "the withdrawal did not take effect in memory")
-
-        let entry = try #require(await log.entries.last {
-            $0.message.hasPrefix("People: withdrew the verdict on \(path)")
-        }, "the withdrawal line was not logged at all")
-        #expect(entry.message.contains("NOT saved"),
-                "a refused save logged a durable-looking withdrawal: \(entry.message)")
-        #expect(store.savedRevision == 0, "a refused save bumped the saved-revision signal")
-    }
-
-    /// The counterpart: a withdrawal that reached disk keeps the line unqualified.
-    @Test func aLandedWithdrawalKeepsTheLineUnqualified() async throws {
-        let log = LogCapture()
-        let dir = try makeDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let store = PersonTagStore(directory: dir, profileId: "p")
-        let path = "withdrawal-\(UUID().uuidString).pdf"
-        store.record(personId: "son", key: .path(path), verdict: .confirmed, path: path)
-        store.clear(personId: "son", key: .path(path))
-
-        let entry = try #require(await log.entries.last {
-            $0.message.hasPrefix("People: withdrew the verdict on \(path)")
-        })
-        #expect(!entry.message.contains("NOT saved"),
-                "a landed withdrawal was reported as memory-only: \(entry.message)")
-        let reread = try JSONDecoder().decode(PersonTagFile.self,
-                                              from: try Data(contentsOf: store.fileURL))
-        #expect(reread.tags.isEmpty, "the withdrawal did not reach disk")
-    }
 }

@@ -363,17 +363,11 @@ import Events
 
     // MARK: Names
 
-    @Test func aTabIsNamedForItsLeafFolder() {
+    /// The chip is named for the last component of this path.
+    @Test func aTabsPathJoinsItsScopeAndColumns() {
         let deep = PaneTab(providerId: "iCloud", relativePath: "Finance",
                            browsePath: PaneBrowsePath(relativePath: "US/2024"))
         #expect(deep.combinedRelativePath == "Finance/US/2024")
-        #expect(deep.displayName(providerName: "iCloud Drive") == "2024")
-    }
-
-    /// At the root there is no folder to name, and an unnamed chip can't be told from another; ⌘T
-    /// creates exactly that state.
-    @Test func aTabAtTheRootWearsItsSourcesName() {
-        #expect(PaneTab(providerId: "iCloud").displayName(providerName: "iCloud Drive") == "iCloud Drive")
     }
 
     /// The two positions a tab carries must agree. `applyTab` publishes the pane's path from the

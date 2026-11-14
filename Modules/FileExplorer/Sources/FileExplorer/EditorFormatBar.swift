@@ -186,10 +186,6 @@ struct EditorFormatBar: View, Equatable {
     /// The menu's heading group: Heading 1–3 and Body. The bar draws it as the Body menu.
     static let headingVerbs: [MarkupVerb] = menuGroups.first { $0.allSatisfy { isHeading($0) } } ?? []
 
-    /// The menu's table run: every menu draws it as one Table submenu; the bar draws one Table
-    /// button where it starts, and the editing items in the Table capsule.
-    static let tableVerbs: [MarkupVerb] = MarkupVerb.menuOrder.compactMap { $0 }.filter(\.isTable)
-
     /// What stands for the table run among the bar's buttons: where the Table button sits, and what
     /// its group's folded menu lists. A plain button that inserts a table or makes one from the
     /// selected lines (``tableVerb(in:)``).
@@ -204,12 +200,6 @@ struct EditorFormatBar: View, Equatable {
             buttons.append(verb.isTable ? tableMenuStandIn : verb)
         }
         return buttons
-    }
-
-    /// The bar's whole reading order, headings first and the table run where its button is, which
-    /// the parity test holds against the menu.
-    static var barOrder: [MarkupVerb] {
-        headingVerbs + groups.flatMap { $0 }.flatMap { $0 == tableMenuStandIn ? tableVerbs : [$0] }
     }
 
     /// The Table capsule's items: the table run but its first section, which makes tables; this

@@ -144,16 +144,6 @@ import Foundation
         #expect(child?.relativePath == "Photos:/bad?.jpg")
     }
 
-    // MARK: hasInvisibleHazard helper
-
-    @Test func hasInvisibleHazardDetectsFixableHidden() {
-        #expect(NameNormalizer.hasInvisibleHazard("plain.txt") == false)
-        #expect(NameNormalizer.hasInvisibleHazard("zero\u{200D}width") == true)
-        #expect(NameNormalizer.hasInvisibleHazard("no\u{00A0}break") == true)
-        // A pure NFC/NFD difference isn't a fixable hazard on macOS (the same name to APFS).
-        #expect(NameNormalizer.hasInvisibleHazard("cafe\u{0301}") == false)
-    }
-
     // MARK: Engine — never overwrite on collision (keep both)
 
     @MainActor
@@ -170,7 +160,8 @@ import Foundation
         try writeBytes(riskyURL, bytes: 222)
 
         let manager = FileSyncManager()
-        await manager.scanNames(root: root, provider: .iCloud)
+        await manager.detectRiskyNames(in: await FileSyncManager.buildTree(url: root, sortOption: .name),
+                                       root: root, provider: .iCloud)
 
         // Only the zero-width name is risky.
         #expect(manager.riskyNames.count == 1)

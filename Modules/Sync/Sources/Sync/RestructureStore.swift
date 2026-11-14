@@ -280,13 +280,6 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    public func removeAnswer(for key: RestructureKey) {
-        guard answers[key] != nil else { return }
-        answers[key] = nil
-        Logger.shared.info("Restructure: answer removed for \(key.findingId)")
-        save()
-    }
-
     // MARK: - Drafts
 
     public func draft(for key: RestructureKey) -> DraftRecord? { drafts[key] }

@@ -258,14 +258,6 @@ struct FileLocationTests {
                 == "Work OneDrive only")
     }
 
-    /// The supporting fact the inspector shows above the verdict has to agree with it, or the row
-    /// would say the content is here above a fact saying it is not.
-    @Test func theVerdictAgreesWithTheFactAboveIt() {
-        #expect(FileLocation.Verdict.thisMacOnly.isOnThisMac)
-        #expect(FileLocation.Verdict.thisMacAndCloud(providerName: "iCloud").isOnThisMac)
-        #expect(FileLocation.Verdict.cloudOnly(providerName: "iCloud").isOnThisMac == false)
-    }
-
     // MARK: The containment half is syscall-free
 
     /// A folder is said to be where it is — in a source's folder or outside every one — and never

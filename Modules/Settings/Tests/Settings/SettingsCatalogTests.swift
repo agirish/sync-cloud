@@ -98,7 +98,7 @@ import Sync
     /// A catalog entry on a paged tab names its page, as the search index's rows do.
     @Test func everyEntryOnAPagedTabNamesItsPage() {
         for entry in SettingsCatalog.all {
-            #expect(entry.tab.subTabs.isEmpty == (entry.place.subTab == nil), "\(entry.id) at \(entry.place.name)")
+            #expect(entry.place.tab.subTabs.isEmpty == (entry.place.subTab == nil), "\(entry.id) at \(entry.place.name)")
         }
     }
 
@@ -204,7 +204,7 @@ import Sync
     @Test func onlyLookAndFeelIsDirect() {
         let direct = SettingsCatalog.all.filter { $0.tier == .direct }
         for entry in direct {
-            #expect(entry.tab == .appearance || entry.id == "general.sortPanesBy",
+            #expect(entry.place.tab == .appearance || entry.id == "general.sortPanesBy",
                     "\(entry.id) is Direct but isn't look and feel")
         }
     }

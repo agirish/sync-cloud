@@ -44,10 +44,11 @@ import Testing
 
     // MARK: The parse
 
-    private static func response(_ proposals: [[String: Any]]) -> Data {
-        try! JSONSerialization.data(withJSONObject: [
-            "content": [["type": "tool_use", "input": ["proposals": proposals]]],
-        ])
+    /// One proposal call carrying `proposals`, as a streamed answer collects it.
+    private static func calls(_ proposals: [[String: Any]]) -> [AskClaudeToolCall] {
+        let data = try! JSONSerialization.data(withJSONObject: ["proposals": proposals])
+        return [AskClaudeToolCall(id: "a", name: MappingRefineProtocol.toolName,
+                                  input: try! JSONDecoder().decode(JSONFragment.self, from: data))]
     }
 
     /// The three verdicts round-trip; a hallucinated source, an unknown verdict and a propose with
@@ -55,7 +56,7 @@ import Testing
     @Test func theParseKeepsTheAskedAndDropsTheInvented() throws {
         let rows = Self.request().rows
         let parsed = try #require(MappingRefineProtocol.parseProposals(
-            responseData: Self.response([
+            toolCalls: Self.calls([
                 ["source": "Petition", "verdict": "propose", "target": "Application",
                  "why": "H-4 is filed on I-539, an application"],
                 ["source": "Approval", "verdict": "declined", "target": "",
@@ -72,10 +73,13 @@ import Testing
                                   why: "nothing given says what Approval holds"),
         ])
 
+        // A call to another tool, or one with no proposals, gives nothing to apply.
+        let elsewhere = Self.calls([["source": "Petition", "verdict": "keep", "target": "", "why": "w"]]).map {
+            AskClaudeToolCall(id: $0.id, name: "something_else", input: $0.input)
+        }
+        #expect(MappingRefineProtocol.parseProposals(toolCalls: elsewhere, rows: rows) == nil)
         #expect(MappingRefineProtocol.parseProposals(
-            responseData: Data("not json".utf8), rows: rows) == nil)
-        #expect(MappingRefineProtocol.parseProposals(
-            responseData: try JSONSerialization.data(withJSONObject: ["type": "error"]),
+            toolCalls: [AskClaudeToolCall(id: "b", name: MappingRefineProtocol.toolName, input: .object([:]))],
             rows: rows) == nil)
     }
 
@@ -111,7 +115,7 @@ import Testing
         let rows = [RestructureMapping.Row(source: "Petition"),
                     RestructureMapping.Row(source: "Claims")]
         let parsed = try #require(MappingRefineProtocol.parseProposals(
-            responseData: Self.response([
+            toolCalls: Self.calls([
                 ["source": "Petition", "verdict": "propose", "target": "Application", "why": "w1"],
                 ["source": "Petition", "verdict": "propose", "target": "Filing", "why": "w2"],
                 ["source": "claims", "verdict": "propose", "target": "claims", "why": "w3"],
@@ -130,7 +134,7 @@ import Testing
     @Test func aMalformedFirstAnswerDoesNotSwallowTheValidSecond() throws {
         let rows = [RestructureMapping.Row(source: "Petition")]
         let parsed = try #require(MappingRefineProtocol.parseProposals(
-            responseData: Self.response([
+            toolCalls: Self.calls([
                 ["source": "Petition", "verdict": "propose", "target": "  ", "why": "stumble"],
                 ["source": "Petition", "verdict": "propose", "target": "Application",
                  "why": "recovered"],

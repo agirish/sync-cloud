@@ -7,8 +7,8 @@ import Testing
 ///
 /// The header's chip counts folders (the unit the planner decides and the manager applies), and
 /// nothing renames a folder, so the readout beside it is the only place the user learns what gets
-/// renamed. These pin the arithmetic over many plans and the wording, which is shared with
-/// `RenamePassLens.summary` so the header can't summarise the same plans differently.
+/// renamed. These pin the arithmetic over many plans and the wording, which the folder rows share
+/// so the header can't summarise the same plans differently.
 @Suite struct RenameBacklogTallyTests {
 
     private func plan(named: Int = 0, reshuffled: Int = 0, padded: Int = 0, skips: Int = 0,
@@ -68,23 +68,11 @@ import Testing
         #expect(RenameBacklogTally([plan(padded: 9, skips: 1)]).breakdown == "9 to pad · 1 left alone")
     }
 
-    @Test("A folder's row and the header above it speak with one voice")
-    func theRowDelegatesToTheTally() {
-        // `RenamePassLens.summary` delegates to this type. Asserted through the lens's entry point
-        // so the delegation is pinned: a copy re-inlined into the lens would pass every other test.
-        let p = plan(named: 1, reshuffled: 3, padded: 0)
-        #expect(RenamePassLens.summary(p) == RenameBacklogTally([p]).breakdown)
-        #expect(RenamePassLens.summary(p) == "1 to name · 3 to reshuffle")
-    }
-
     @Test("A plan of nothing but skips still says something")
     func nothingToDoIsStillSaid() {
-        // The one place `claim` and `breakdown` diverge: a row showing the empty breakdown would
-        // read as a clean folder when the pass looked and declined. The header draws nothing.
+        // An empty breakdown would read as a clean folder when the pass looked and declined.
         let p = plan(skips: 2)
-        #expect(RenameBacklogTally([p]).claim == "nothing to do · 2 left alone")
         #expect(RenameBacklogTally([p]).breakdown == "2 left alone")
-        #expect(RenamePassLens.summary(p) == "nothing to do · 2 left alone")
     }
 
     // MARK: headerBreakdown — the header's shorter form of the same words
@@ -93,7 +81,7 @@ import Testing
     func theHeaderBreakdownIsShorterInTheSameWords() {
         let p = plan(named: 7, reshuffled: 6, padded: 628, skips: 2)
         let tally = RenameBacklogTally([p])
-        // The folder rows' string, pinned equal to `RenamePassLens.summary`, is unchanged.
+        // The folder rows' string is unchanged.
         #expect(tally.breakdown == "7 to name · 6 to reshuffle · 628 to pad · 2 left alone")
         // Rare and consequential first, bulk last (`stepParts`' order), so the few worth a second
         // look aren't buried behind the bulk.

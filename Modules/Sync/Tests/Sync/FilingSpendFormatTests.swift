@@ -12,20 +12,6 @@ import Testing
         #expect(FilingSpendFormat.cost(0.01) == "~$0.01")
     }
 
-    @Test func tokensAbbreviateAtAThousand() {
-        #expect(FilingSpendFormat.tokens(999) == "999 tok")
-        #expect(FilingSpendFormat.tokens(4700) == "4.7k tok")
-    }
-
-    @Test func modelNamesComeFromAskClaudesOptionsThenTheIdsFamily() {
-        let option = AskClaudeModels.options[0]
-        #expect(FilingSpendFormat.model(option.id) == option.name)
-        #expect(FilingSpendFormat.model("claude-haiku-9") == "Haiku")
-        #expect(FilingSpendFormat.model("claude-sonnet-9") == "Sonnet")
-        #expect(FilingSpendFormat.model("claude-opus-9") == "Opus")
-        #expect(FilingSpendFormat.model("mystery-1") == "mystery-1", "an unknown id is shown as it is")
-    }
-
     /// The unit round-trips, and its absence decodes as nil. An older entry must not throw: a throw
     /// would read as an unreadable record, and the migration would then leave it for the next launch.
     @Test func theUnitRoundTripsAndItsAbsenceDecodesQuietly() throws {

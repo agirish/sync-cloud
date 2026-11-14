@@ -338,7 +338,7 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
                 if case .success(let (_, count)) = merged, count > 0 { pages = count }
                 let copyName = (landed.path as NSString).lastPathComponent
                 Logger.shared.info("\(writer) combined \(inputs.count) PDFs into \(copyName) — \(pages) pages")
-                self.written.append(PDFWrittenFile(source: first, path: landed.path, stamp: landed.stamp, bytes: data.count,
+                self.written.append(PDFWrittenFile(path: landed.path, stamp: landed.stamp, bytes: data.count,
                                               pageCount: pages))
                 host.didWrite(landed.path)
                 var message = "Saved “\(copyName)” — \(SaveAsPDFSummary.pages(pages)) from \(inputs.count) PDFs"

@@ -107,12 +107,6 @@ public struct FontSize: Hashable, Identifiable, Sendable {
         }
     }
 
-    /// What the control shows: the percentage, with the preset name when there is one.
-    public var displayName: String {
-        guard let presetName else { return "\(percent)%" }
-        return "\(percent)% · \(presetName)"
-    }
-
     /// Multiplier applied at and below the `knee`; above it growth is damped and then clamped
     /// (see `scaledPointSize(_:scale:)`), so this is a small-text boost, not a uniform zoom.
     ///

@@ -508,7 +508,7 @@ import Foundation
         #expect(EditorFileStore.completedName("notes.markdown") == "notes.markdown")
         // And every name it completes is one Edit opens, which is the point of the rule.
         for typed in ["Notes v1.2", "Q3.final", "photo.png", "notes.txt", "plan"] {
-            #expect(EditableText.isText(path: "/f/" + EditorFileStore.completedName(typed)),
+            #expect(PairContentKind.classify(path: "/f/" + EditorFileStore.completedName(typed)) == .text,
                     "“\(typed)” would make a file Edit does not open")
         }
     }

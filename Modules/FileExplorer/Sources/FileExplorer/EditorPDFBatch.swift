@@ -286,7 +286,7 @@ public final class EditorPDFBatch: ObservableObject, Identifiable {
                 return .failed("Couldn’t write the copy — \(error.localizedDescription)")
             case .success(let landed):
                 let copy = landed.path
-                self.written.append(PDFWrittenFile(source: path, path: copy, stamp: landed.stamp, bytes: data.count))
+                self.written.append(PDFWrittenFile(path: copy, stamp: landed.stamp, bytes: data.count))
                 if unrestricted { unrestrictedCopies += 1 }
                 let sizes: String? = if case .compress = tool {
                     EditorPDFTools.sizes(before: before, after: data.count)

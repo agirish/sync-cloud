@@ -105,18 +105,6 @@ enum SetupFlow {
             default: return true
             }
         }
-
-        /// Whether this screen offers a Skip.
-        ///
-        /// Locations and Countries have no Skip because their answer is already correct if left
-        /// alone — every location on, the likely countries ticked — so a Skip would be a second
-        /// spelling of Continue. Structure has none because it is the screen that writes.
-        var isSkippable: Bool {
-            switch self {
-            case .learn, .you, .people, .appearance: return true
-            default: return false
-            }
-        }
     }
 
     /// The screens the crumb strip draws: everything between Welcome and Summary.

@@ -20,7 +20,12 @@ import EventsTestSupport
     /// verb, moving Quote to the lists, or moving the table run to the end each fails a line.
     @Test func theBarHoldsTheMarkupMenusVerbsInItsGroupsAndOrder() throws {
         let menu = MarkupVerb.menuOrder.compactMap { $0 }
-        let bar = EditorFormatBar.barOrder
+        let tableRun = Array(MarkupVerb.tableSections.joined())
+        // The bar's whole reading order: the Body menu, then each capsule, the table run where its
+        // button is.
+        let bar = EditorFormatBar.headingVerbs + EditorFormatBar.groups.flatMap { $0 }.flatMap {
+            $0 == EditorFormatBar.tableMenuStandIn ? tableRun : [$0]
+        }
         #expect(bar.count == menu.count && Set(bar) == Set(menu),
                 "the bar holds \(bar.map(\.title)), the menu \(menu.map(\.title))")
         let menuGroups = MarkupVerb.menuOrder.split(separator: nil).map { Array($0.compactMap { $0 }) }
@@ -32,7 +37,7 @@ import EventsTestSupport
         let firstTable = menu.firstIndex { $0.isTable }
         let first = try #require(firstTable, "the menu holds no table verb")
         let run = Array(menu[first...].prefix { $0.isTable })
-        #expect(run == Array(MarkupVerb.tableSections.joined()) && EditorFormatBar.tableVerbs == run,
+        #expect(run == tableRun,
                 "the table verbs are not one run in the Table submenu's order")
         #expect(menu.filter(\.isTable).count == run.count, "a table verb sits outside the run")
         // The bar reads as the menu does, headings moved to the front.
@@ -45,11 +50,11 @@ import EventsTestSupport
             ["Inline Code", "Code Block", "Block Quote"],
             ["Link", "Insert Table", "Divider"],
         ])
-        #expect(EditorFormatBar.tableVerbs.map(\.title) == [
+        #expect(tableRun.map(\.title) == [
             "Insert Table", "Make Table from Selection", "Add Row Above", "Add Row Below",
             "Add Column Left", "Add Column Right", "Delete Row", "Delete Column", "Format Table",
         ])
-        #expect(EditorFormatBar.tableEditVerbs.map(\.title) == Array(EditorFormatBar.tableVerbs.map(\.title).dropFirst(2)),
+        #expect(EditorFormatBar.tableEditVerbs.map(\.title) == Array(tableRun.map(\.title).dropFirst(2)),
                 "the Table capsule's items are not the run less the two that make tables")
         #expect(EditorFormatBar.headingVerbs.map(\.title) == ["Heading 1", "Heading 2", "Heading 3", "Body"])
     }

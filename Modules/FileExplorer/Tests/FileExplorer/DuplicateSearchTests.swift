@@ -56,19 +56,6 @@ import Sync
         #expect(DuplicateSearch.chips("contract kind:").isEmpty)
     }
 
-    @Test func removingDropsOnlyTheChipWordVerbatim() {
-        #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: "kind:pdf") == ">5mb contract")
-        #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: ">5mb") == "kind:pdf contract")
-    }
-
-    @Test func removingDropsEveryOccurrenceOfTheWord() {
-        // Chips are keyed by raw text, so ✕ clears every occurrence of the word. In
-        // `kind:pdf kind:png kind:pdf`, removing only the first pdf would leave the effective
-        // (last-wins) filter unchanged, and the ✕ would look dead.
-        #expect(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf") == "kind:png")
-        #expect(DuplicateSearch.parse(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf")).kind == "png")
-    }
-
     /// One composite query exercising every token family (`kind:` twice, the second the `image`
     /// alias, plus both size comparators), multi-word free text and a superseded token, pinning
     /// `parse` and `chips()` together so the two can't drift apart. Any change to tokenizing, the

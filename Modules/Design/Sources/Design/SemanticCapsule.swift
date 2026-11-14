@@ -10,7 +10,7 @@ public enum SemanticCapsuleFamily: String, CaseIterable, Sendable {
     case neutral
 }
 
-/// The three colors a semantic capsule is built from, for one family and appearance.
+/// The two colors a semantic capsule is built from, for one family and appearance.
 ///
 /// Semantic colors, not the app accent, and flat fills, not tinted glass: an accent-tinted glass
 /// capsule over the accent-washed pane header renders lighter than its own backdrop and strands its
@@ -26,27 +26,13 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
     /// The capsule fill.
     public let fill: Color
     /// Label and glyphs. In a semantic family, label colour (black in light, white in dark): the
-    /// family's colour is the fill and the dot, and the words don't carry it a second time. On the
-    /// accent path, the fill's paired label.
+    /// family's colour is the fill, and the words don't carry it a second time. On the accent
+    /// path, the fill's paired label.
     public let content: Color
-    /// The status dot: the most colorful member of the family, since it is the smallest element.
-    /// Colorful means chroma, not HSV saturation: the dark fill is a near-black brown whose HSV
-    /// saturation exceeds the bright dot's (`SemanticCapsuleTests`).
-    public let dot: Color
-    /// A ring drawn around the dot, or nil for no ring.
-    ///
-    /// Non-nil only on the `onAccent(fill:label:)` path, where it is load-bearing: on a saturated
-    /// accent fill no coloured dot clears the 3:1 floor for a non-text indicator. The accents sit
-    /// mid-luminance (a bare terracotta dot measures 1.01:1 to 1.69:1 across them, and even white
-    /// reaches only 2.7:1 on Green), so the ring carries the separation. It is the fill's own label
-    /// colour, hence at least 3:1 against it, and the dot only has to carry the hue.
-    public let dotRing: Color?
 
-    public init(fill: Color, content: Color, dot: Color, dotRing: Color? = nil) {
+    public init(fill: Color, content: Color) {
         self.fill = fill
         self.content = content
-        self.dot = dot
-        self.dotRing = dotRing
     }
 
     public static func of(_ family: SemanticCapsuleFamily, _ scheme: ColorScheme) -> SemanticCapsuleStyle {
@@ -55,31 +41,24 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
         case .attention:
             return dark
                 ? SemanticCapsuleStyle(fill: rgb(0.22, 0.11, 0.07),
-                                       content: labelInk(dark: true),
-                                       dot: rgb(0.95, 0.45, 0.25))
+                                       content: labelInk(dark: true))
                 : SemanticCapsuleStyle(fill: rgb(0.97, 0.90, 0.86),
-                                       content: labelInk(dark: false),
-                                       // Deliberately darker than "system orange": at that
-                                       // saturation the dot measured 2.3:1 on its own fill and
-                                       // failed the 3:1 floor for non-text indicators.
-                                       dot: rgb(0.73, 0.29, 0.13))
+                                       content: labelInk(dark: false))
         case .neutral:
             return dark
                 ? SemanticCapsuleStyle(fill: rgb(0.16, 0.18, 0.23),
-                                       content: labelInk(dark: true),
-                                       dot: rgb(0.55, 0.60, 0.71))
+                                       content: labelInk(dark: true))
                 : SemanticCapsuleStyle(fill: rgb(0.86, 0.89, 0.95),
-                                       content: labelInk(dark: false),
-                                       dot: rgb(0.36, 0.43, 0.57))
+                                       content: labelInk(dark: false))
         }
     }
 
-    /// A capsule that wears the app's accent hue instead of a semantic family, with an attention
-    /// dot on top: the differences count pill's treatment.
+    /// A capsule that wears the app's accent hue instead of a semantic family: the differences
+    /// count pill's treatment.
     ///
     /// The trade: an accent capsule is hue-dependent, so unlike `.attention` it can't carry meaning
     /// by colour. In exchange it reads as a control, which the pill needs and a pale wash can't
-    /// give. The dot keeps the "wants your attention" signal, so it stays terracotta with a ring.
+    /// give.
     ///
     /// - Parameters:
     ///   - fill: the accent fill, from `LiquidGlassHue.accentFillColor`: the deepened accent, not
@@ -87,16 +66,8 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
     ///     opinion about which hue is in play.
     ///   - label: its paired label colour, from `LiquidGlassHue.onAccentLabelColor`.
     public static func onAccent(fill: Color, label: Color) -> SemanticCapsuleStyle {
-        SemanticCapsuleStyle(fill: fill, content: label, dot: attentionDotOnAccent, dotRing: label)
+        SemanticCapsuleStyle(fill: fill, content: label)
     }
-
-    /// The attention dot on a saturated accent fill: brighter than the `.attention` family's own
-    /// dot, which is tuned for that family's pale cream and would read as a mud spot on emerald.
-    /// One family, valued for the backdrop it lands on, as the light and dark variants are.
-    ///
-    /// Appearance-independent: the accent fill is this dot's background, so light/dark mode never
-    /// enters into it (as with `Color.onFillLabel(_:)`).
-    public static let attentionDotOnAccent = rgb(0.89, 0.38, 0.17)
 
     /// A family capsule's words: label colour for the appearance, as plain colours rather than
     /// `.primary` so the style stays a value its tests can measure without a view.

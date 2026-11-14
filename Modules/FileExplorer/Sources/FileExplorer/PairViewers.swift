@@ -27,8 +27,6 @@ final class SyncLatch {
         body()
         return true
     }
-
-    var isMirroring: Bool { mirroring }
 }
 
 // MARK: - PDF pair

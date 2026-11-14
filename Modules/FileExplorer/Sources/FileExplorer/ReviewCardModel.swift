@@ -47,7 +47,6 @@ struct ReviewCardModel: Equatable {
     var directionText: String
     /// The chip's qualifier: "replaces existing" or "new".
     var directionDetail: String
-    var isReplace: Bool
     /// The primary button's verb: "Copy" or "Move".
     var primaryVerb: String
     /// "Copying from Local" / "Moving from Local".
@@ -107,7 +106,6 @@ struct ReviewCardModel: Equatable {
             parentPath: difference.parentPath,
             directionText: "\(sourceName) → \(destinationName)",
             directionDetail: isReplace ? "replaces existing" : "new",
-            isReplace: isReplace,
             primaryVerb: isMove ? "Move" : "Copy",
             sourceLabel: "\(isMove ? "Moving" : "Copying") from \(sourceName)",
             destinationLabel: isReplace ? "Replaces on \(destinationName)" : nil,

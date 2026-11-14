@@ -287,11 +287,6 @@ public struct OneWaySyncRemovedStore: Sendable {
         }
     }
 
-    /// The items removed before `date`.
-    public func items(removedBefore date: Date) -> [OneWaySyncRemovedItem] {
-        items().filter { $0.origin.removedAt < Int64(date.timeIntervalSince1970) }
-    }
-
     public struct Emptied: Equatable, Sendable {
         public var emptied: [OneWaySyncRemovedItem] = []
         public var failed: [OneWaySyncRemovedItem] = []

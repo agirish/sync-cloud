@@ -18,8 +18,8 @@ extension LogLevel {
     }
 }
 
-/// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
-/// case-insensitive search, and newest-first ordering are unit-testable without `@State`.
+/// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter and
+/// case-insensitive search are unit-testable without `@State`.
 enum LogEntryFilter {
     /// Filters to entries at or above `minimumLevel`, then by the search query, keeping input order.
     /// Shared by the session list and the loaded history so one Level/Search setting governs the
@@ -35,12 +35,6 @@ enum LogEntryFilter {
             if let minimumLevel, entry.level.severity < minimumLevel.severity { return false }
             return query.matches(entry, now: now)
         }
-    }
-
-    /// ``matches(_:minimumLevel:search:)`` newest-first, the session list's order (its entries are
-    /// stored oldest-first, as logged).
-    static func apply(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String) -> [LogEntry] {
-        matches(entries, minimumLevel: minimumLevel, search: search).reversed()
     }
 }
 

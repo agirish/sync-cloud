@@ -108,51 +108,46 @@ import Testing
                  "reason": .string("because"), "createsNewFolder": creates])
     }
 
+    /// The verdicts a streamed answer's tool calls give, read the way Refine reads them.
+    private static func verdicts(_ calls: [AskClaudeToolCall]) -> [String: FilingVerdict] {
+        CloudFilingProtocol.verdicts(fromPlacements: CloudFilingProtocol.placements(toolCalls: calls, unfinished: []),
+                                     files: files)
+    }
+
     /// A model that picks its tool can call it more than once. Every placement call counts, and the
     /// first call alone would drop the rest.
-    @Test func everyPlacementCallIsRead() throws {
+    @Test func everyPlacementCallIsRead() {
         let calls = [Self.call([Self.placement(.integer(0), "Work/Invoices/2026")]),
                      Self.call([Self.placement(.integer(1), "Photos/2026")])]
-        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(toolCalls: calls, files: Self.files))
+        let verdicts = Self.verdicts(calls)
         #expect(verdicts["/a/Invoice.pdf"]?.relativePath == "Work/Invoices/2026")
         #expect(verdicts["/a/IMG_1.jpg"]?.relativePath == "Photos/2026")
     }
 
     /// Without `strict` the schema isn't enforced, so a number can arrive as text or with a decimal.
-    @Test func looselyWrittenNumbersAndBooleansStillRead() throws {
+    @Test func looselyWrittenNumbersAndBooleansStillRead() {
         let calls = [Self.call([
             Self.placement(.string("0"), "Work/Invoices/2026", confidence: .string("91"), creates: .string("false")),
             Self.placement(.number(1.0), "Photos/New", confidence: .number(72.6), creates: .string("True")),
         ])]
-        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(toolCalls: calls, files: Self.files))
+        let verdicts = Self.verdicts(calls)
         #expect(verdicts["/a/Invoice.pdf"] != nil)
         #expect(verdicts["/a/IMG_1.jpg"]?.proposesNewFolder == true)
         #expect(verdicts["/a/IMG_1.jpg"]?.confidence == FilingVerdict.confidence(fromScore: 73))
     }
 
-    @Test func noPlacementCallIsNilAndAnEmptyOneIsEmpty() {
-        #expect(CloudFilingProtocol.parseVerdicts(toolCalls: [], files: Self.files) == nil)
-        let other = AskClaudeToolCall(id: "x", name: "something_else", input: .object([:]))
-        #expect(CloudFilingProtocol.parseVerdicts(toolCalls: [other], files: Self.files) == nil)
-        #expect(CloudFilingProtocol.parseVerdicts(toolCalls: [Self.call([])], files: Self.files)?.isEmpty == true)
+    /// Placements in a call to another tool are not read.
+    @Test func aCallToAnotherToolPlacesNothing() {
+        let other = AskClaudeToolCall(id: "x", name: "something_else",
+                                      input: .object(["placements": .array([Self.placement(.integer(0), "Work")])]))
+        #expect(Self.verdicts([other]).isEmpty)
     }
 
-    @Test func aPlacementOutsideTheListOrNamedNoneIsDropped() throws {
+    @Test func aPlacementOutsideTheListOrNamedNoneIsDropped() {
         let calls = [Self.call([Self.placement(.integer(7), "Work"), Self.placement(.integer(0), "none"),
                                 Self.placement(.integer(-1), "Work"), Self.placement(.integer(2), "Photos/2026")])]
-        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(toolCalls: calls, files: Self.files))
+        let verdicts = Self.verdicts(calls)
         #expect(Set(verdicts.keys) == ["/a/notes"])
-    }
-
-    @Test func theResponseDataParserReadsEveryCallToo() throws {
-        let response: [String: Any] = ["content": [
-            ["type": "tool_use", "id": "a", "name": "file_placements",
-             "input": ["placements": [["index": 0, "folder": "Work/Invoices/2026", "confidence": 90, "reason": "r", "createsNewFolder": false]]]],
-            ["type": "tool_use", "id": "b", "name": "file_placements",
-             "input": ["placements": [["index": 1, "folder": "Photos/2026", "confidence": 90, "reason": "r", "createsNewFolder": false]]]],
-        ]]
-        let data = try JSONSerialization.data(withJSONObject: response)
-        #expect(CloudFilingProtocol.parseVerdicts(responseData: data, files: Self.files)?.count == 2)
     }
 
     // MARK: Folder names

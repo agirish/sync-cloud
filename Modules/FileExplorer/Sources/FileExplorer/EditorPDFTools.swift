@@ -730,7 +730,7 @@ public final class EditorPDFTools: ObservableObject {
                                    + Self.commentsLogClause(comments, fellBack: note != nil))
                 wroteNote = note
                 if case .success(let landed) = written {
-                    lastWrite = PDFWrittenFile(source: path, path: copy, stamp: landed.stamp, bytes: data.count,
+                    lastWrite = PDFWrittenFile(path: copy, stamp: landed.stamp, bytes: data.count,
                                                // A file locked to open has no count until it is unlocked.
                                                pageCount: pageCount > 0 ? tool.pagesInCopy(of: pageCount) : nil)
                 }

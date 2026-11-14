@@ -7,8 +7,8 @@ import Settings
 @testable import Dashboard
 
 /// Coverage for FileActionHandler's real operations (clipboard and paste routes, pane-to-pane
-/// moves, delete, rename, new folder, Get Info) through the constructor-injected seams: prompts,
-/// delete confirmation, AppleScript runner. File I/O runs in real temp directories. Waits poll for
+/// moves, delete, rename, new folder) through the constructor-injected seams: prompts and
+/// delete confirmation. File I/O runs in real temp directories. Waits poll for
 /// the effect on disk or on the manager, because the operation counter's 0 means both "not
 /// started" and "finished" under a contended main actor.
 @Suite struct FileActionHandlerOperationTests {
@@ -651,51 +651,5 @@ import Settings
         }
 
         await expectTheManagersFileManagerLanded(landed, recorder, manager)
-    }
-
-    // MARK: - Get Info
-
-    @MainActor
-    @Test func testOpenGetInfoBuildsFinderScriptWithEscapedPath() {
-        var capturedScript: String? = nil
-        let handler = FileActionHandler(
-            syncManager: FileSyncManager(),
-            settings: scratchSettings(providers: []),
-                defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard(),
-            appleScriptRunner: { script in
-                capturedScript = script
-                return nil // success
-            }
-        )
-
-        handler.openGetInfo(for: #"/tmp/we"ird\name.txt"#)
-
-        let script = capturedScript ?? ""
-        #expect(script.contains(#"tell application "Finder""#))
-        #expect(script.contains("open information window"))
-        // The POSIX path is embedded with AppleScript escaping (backslash first, then quote).
-        #expect(script.contains(#"POSIX file "/tmp/we\"ird\\name.txt""#))
-    }
-
-    /// The failure branch only logs (a failed Get Info is cosmetic): no error, no banner.
-    @MainActor
-    @Test func testOpenGetInfoScriptFailureIsSwallowed() {
-        let manager = FileSyncManager()
-        var runnerCalls = 0
-        let handler = FileActionHandler(
-            syncManager: manager,
-            settings: scratchSettings(providers: []),
-                defaults: ScratchDefaults("FileActionHandler"), pasteboard: scratchPasteboard(),
-            appleScriptRunner: { _ in
-                runnerCalls += 1
-                return ["NSAppleScriptErrorMessage": "Finder got an error"] as NSDictionary
-            }
-        )
-
-        handler.openGetInfo(for: "/tmp/somewhere.txt")
-
-        #expect(runnerCalls == 1)
-        #expect(manager.currentError == nil)
-        #expect(manager.banner == nil)
     }
 }

@@ -16,7 +16,7 @@ import Foundation
             NSHomeDirectory() + "/Documents",
             NSHomeDirectory() + "/Downloads",
         ])
-        #expect(!SidebarFavoritePlaces.standard.contains(SidebarSourceModel.startupDiskPath),
+        #expect(!SidebarFavoritePlaces.standard.contains("/"),
                 "the startup disk is back in the default Favorites — it belongs in Locations' device band, above any card and the Trash")
         #expect(!SidebarFavoritePlaces.isMissingStandard(SidebarFavoritePlaces.standard),
                 "Restore Standard Places would be offered forever on an untouched install")

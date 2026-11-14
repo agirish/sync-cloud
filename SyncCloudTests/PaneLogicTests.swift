@@ -566,23 +566,6 @@ import Sync
                 "two folders offered a file pair — the folder case is ONE folder, scanned against the other pane")
     }
 
-    /// ⇧⌘C reads `filePair`, and a folder must not answer it. The chord opens the two-column
-    /// viewer; a folder selection is the button's two-folder scan. A `guard let` where
-    /// `guard case .filePair` was meant would hand the pair viewer a directory.
-    @Test func onlyAPairAnswersTheChordsRead() throws {
-        let folder = node("/root/Contracts", isDirectory: true)
-        #expect(PaneLogic.CompareOffer.folderScan(folder).filePair == nil,
-                "a folder scan handed out two files, so ⇧⌘C would open a folder in the pair viewer")
-
-        #expect(PaneLogic.CompareOffer.armPick(node("/root/a.pdf")).filePair == nil,
-                "an armed pick handed out a pair, so ⇧⌘C would open a viewer on one file twice")
-
-        let a = node("/root/a.pdf"), b = node("/root/b.pdf")
-        let pair = try #require(PaneLogic.CompareOffer.filePair(a, b).filePair,
-                                "a file pair withheld its two files, so ⇧⌘C would never enable")
-        #expect(pair.0 == a && pair.1 == b, "the pair came back reordered")
-    }
-
     // MARK: escapeAction — the pick wins, and the selection survives for a second press
 
     /// An armed pick takes esc ahead of the selection, in every state the selection can be in.

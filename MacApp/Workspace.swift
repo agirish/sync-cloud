@@ -116,32 +116,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .filing: return .filing
         }
     }
-
-    /// Where a programmatic caller naming a lens should land: the workspace and, inside Organize,
-    /// which rail item to select. A caller that set only the workspace would land on the overview
-    /// and lose the request, such as "Find duplicates of this" from a Compare row.
-    static func destination(for lens: WorkspaceLensKind) -> WorkspaceSelection {
-        guard let organizeLens = OrganizeLens(lens) else {
-            // Unreachable today: every `WorkspaceLensKind` bridges to a rail item, but
-            // `OrganizeLens.init(_:)` stays failable for one added without. Organize's overview is
-            // the answer for a lens the rail cannot name. Never Browse, which would drop a pointed
-            // request.
-            return WorkspaceSelection(workspace: .filing, organizeLens: nil)
-        }
-        // Every case `OrganizeLens.init(_:)` can answer is a rail item — pinned by
-        // `OrganizeLensFoldTests.theRailDrawsEveryLens` — so a destination minted here is
-        // always something the rail can select.
-        return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
-    }
-}
-
-/// A complete place to be: the workspace, and — inside Organize — which lens.
-///
-/// `nil` for `organizeLens` means Organize's overview, the rail's unselected state rather than
-/// a rail item of its own.
-struct WorkspaceSelection: Equatable {
-    var workspace: Workspace
-    var organizeLens: OrganizeLens?
 }
 
 // MARK: - Storage

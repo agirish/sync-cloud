@@ -300,8 +300,10 @@ struct TextPairDiff: Equatable {
         return (number(left), number(right))
     }
 
-    /// The intra-line pass, if the budget can still pay for it; otherwise `(nil, nil)`, which
-    /// renders the row changed with no word runs. Priced before tokenising
+    /// The intra-line pass, if the budget can still pay for it: which words of a changed line
+    /// changed. Words, not characters: a character diff of a reflowed sentence marks nearly
+    /// everything. Whitespace rides inside the runs so the two sides still line up. Otherwise
+    /// `(nil, nil)`, which renders the row changed with no word runs. Priced before tokenising
     /// (``maxWordsForIntraLine``), then bounded by the walk's own ceiling, so the budget is charged
     /// the work actually done.
     private static func segmentsWithinBudget(_ left: String, _ right: String,
@@ -335,24 +337,6 @@ struct TextPairDiff: Equatable {
         return rows == 1
             ? "One line was too long to compare word by word — it is marked whole."
             : "\(rows) lines were too long to compare word by word — they are marked whole."
-    }
-
-    /// The intra-line pass: which words of a changed line changed. Words, not characters: a
-    /// character diff of a reflowed sentence marks nearly everything. Whitespace rides inside the
-    /// runs so the two sides still line up.
-    static func segments(_ left: String, _ right: String) -> ([Segment], [Segment]) {
-        segments(leftWords: words(left), rightWords: words(right))
-    }
-
-    /// The same pass over lines already tokenised. Unbounded, so only for callers that have
-    /// bounded the input.
-    static func segments(leftWords lw: [String], rightWords rw: [String])
-        -> ([Segment], [Segment]) {
-        let ids = interned(lw, rw)
-        var walker = LineDiffWalker(a: ids.left, b: ids.right, maxWork: .max,
-                                    isCancelled: { false })
-        _ = walker.run()
-        return (merge(lw, marked: walker.removed), merge(rw, marked: walker.inserted))
     }
 
     /// Splits into words plus the whitespace that follows each, so joining the runs reproduces the

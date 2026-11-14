@@ -12,14 +12,12 @@ import Testing
 
     // MARK: Modes
 
-    /// A mode's digit and its place among the offered modes are one fact; writing the mapping
-    /// twice lets a keyboard hint and its key disagree.
+    /// A mode's digit is its place among the offered modes, counted from 1.
     @Test func everyModesDigitRoundTripsWithinWhatIsOffered() {
         for kind in PairContentKind.allCases {
             let offered = ComparePairMode.available(for: kind)
-            for mode in offered {
-                let digit = try? #require(mode.digit(in: offered))
-                #expect(ComparePairMode.forDigit(digit ?? 0, in: offered) == mode, "\(kind)")
+            for (index, mode) in offered.enumerated() {
+                #expect(ComparePairMode.forDigit(index + 1, in: offered) == mode, "\(kind)")
             }
             #expect(ComparePairMode.forDigit(0, in: offered) == nil)
             #expect(ComparePairMode.forDigit(offered.count + 1, in: offered) == nil)
@@ -111,10 +109,8 @@ import Testing
     /// `BitmapDiff.compare` returns nil rather than a zero result.
     @Test func anUnbuiltRasterIsNotAMatch() {
         #expect(PageDiffState.from(nil) == .unrenderable)
-        #expect(PageDiffState.from(BitmapDiffResult(changedFraction: 0, changedRects: [],
-                                                    sizesDiffer: false)) == .same)
-        #expect(PageDiffState.from(BitmapDiffResult(changedFraction: 0.2, changedRects: [],
-                                                    sizesDiffer: false)) == .changed(fraction: 0.2))
+        #expect(PageDiffState.from(BitmapDiffResult(changedFraction: 0, changedRects: [])) == .same)
+        #expect(PageDiffState.from(BitmapDiffResult(changedFraction: 0.2, changedRects: [])) == .changed(fraction: 0.2))
     }
 
     /// A pending page draws no dot, not a grey one. A grey dot reads as "checked, unremarkable"
@@ -366,7 +362,6 @@ import Testing
         var hops = 0
         for _ in 0..<3 { latch.mirror { hops += 1 } }
         #expect(hops == 3)
-        #expect(!latch.isMirroring)
     }
 
     // MARK: The zoom has to survive a mode switch

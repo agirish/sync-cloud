@@ -364,7 +364,8 @@ import Testing
         }
 
         let manager = FileSyncManager()
-        await manager.scanNames(root: lockedRoot, provider: .dropBox)
+        await manager.detectRiskyNames(in: await FileSyncManager.buildTree(url: lockedRoot, sortOption: .name),
+                                       root: lockedRoot, provider: .dropBox)
 
         #expect(manager.riskyNames.isEmpty,
                 "an unreadable root must not offer itself for renaming: \(manager.riskyNames.map(\.currentName))")

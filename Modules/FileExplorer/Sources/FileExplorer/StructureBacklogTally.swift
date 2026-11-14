@@ -8,7 +8,7 @@ import Sync
 /// are short and actionable; Renames summarises in its blurb, as this does.
 ///
 /// The words are ``RestructureLens/kindLabel(_:)``'s, the tag each finding wears inside the lens,
-/// as ``RenameBacklogTally`` uses `RenamePassLens.summary`'s. `theBreakdownQuotesTheLensesOwnTags`
+/// as ``RenameBacklogTally``'s are the Renames rows' own. `theBreakdownQuotesTheLensesOwnTags`
 /// keeps the two from drifting.
 struct StructureBacklogTally {
 

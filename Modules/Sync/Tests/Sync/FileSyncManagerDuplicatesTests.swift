@@ -181,8 +181,6 @@ import Combine
         let s = manager.duplicateSummary
         #expect(s.groupCount == 4)
         #expect(s.reclaimableBytes == 100)   // identical only — versions/overlapping don't inflate it
-        #expect(s.redundantCopyCount == 1)   // only the identical group's redundant copy
-        #expect(s.needsReviewCount == 1)     // the same-text group
     }
 
     @MainActor
@@ -1582,7 +1580,7 @@ import Combine
     }
 
     @MainActor
-    @Test func aGroupWithNoRemovalStaysUntilDismissed() async throws {
+    @Test func aGroupWithNoRemovalStays() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
 
@@ -1594,9 +1592,6 @@ import Combine
         await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.duplicateGroups.count == 1)
-
-        manager.dismissDuplicateGroup(group)
-        #expect(manager.duplicateGroups.isEmpty)
     }
 }
 

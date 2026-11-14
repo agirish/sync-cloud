@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Pins `ItemIdentity`, the drift check that `fileSizeSnapshot`'s `Int?` can't be: its nil means
-/// directory, missing and unreadable alike, so an `if let` guard skips the check instead of
+/// Pins `ItemIdentity`, the drift check a file size can't be: a size is nil for a directory, a
+/// missing and an unreadable item alike, so an `if let` guard skips the check instead of
 /// refusing. The two properties that matter: a directory gets a real identity, and an unreadable
 /// item gets `.indeterminate`, never anything a caller could mistake for `.unchanged`.
 @Suite struct ItemIdentityTests {
@@ -15,16 +15,12 @@ import Testing
 
     // MARK: What the old snapshot could not answer
 
-    @Test func aDirectoryGetsARealIdentityWhereTheSizeSnapshotGaveNil() throws {
+    @Test func aDirectoryGetsARealIdentity() throws {
         let base = try makeCanonicalTempRoot(prefix: "IdentityDir")
         defer { try? FileManager.default.removeItem(at: base) }
         let folder = base.appendingPathComponent("folder")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("a".utf8).write(to: folder.appendingPathComponent("one.txt"))
-
-        // The size snapshot on the same folder, for contrast.
-        #expect(FileSyncManager.fileSizeSnapshot(at: folder, fileManager: FileManager.default) == nil,
-                "the size snapshot answers nil for a directory — which is why the guard skipped")
 
         let identity = ItemIdentity.snapshot(at: folder, fileManager: FileManager.default)
 
@@ -67,8 +63,6 @@ import Testing
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)],
                                               ofItemAtPath: file.path)
 
-        #expect(FileSyncManager.fileSizeSnapshot(at: file, fileManager: FileManager.default) == 4,
-                "size alone cannot see this edit")
         #expect(recorded.drift(at: file, fileManager: FileManager.default) == .changed)
     }
 

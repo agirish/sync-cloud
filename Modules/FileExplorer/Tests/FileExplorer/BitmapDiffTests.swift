@@ -31,7 +31,6 @@ import Testing
         let result = try #require(BitmapDiff.compare(a, b))
         #expect(result.isIdentical)
         #expect(result.changedRects.isEmpty)
-        #expect(result.sizesDiffer == false)
     }
 
     /// One region changed, and the rects name where, not the whole page.
@@ -98,29 +97,26 @@ import Testing
         #expect(result.changedFraction > 0.99)
     }
 
-    /// Mismatched sizes rescale to a common raster and say so: a resampled figure is a weaker
-    /// claim than a matched pair's, and the viewer must be able to disclose that.
-    @Test func mismatchedSizesRescaleAndAreDisclosed() throws {
+    /// Mismatched sizes rescale to a common raster and are still compared.
+    @Test func mismatchedSizesRescaleToACommonRaster() throws {
         let a = try Self.image(width: 64, height: 64, fill: CGRect(x: 0, y: 0, width: 64, height: 64))
         let b = try Self.image(width: 32, height: 32, fill: CGRect(x: 0, y: 0, width: 32, height: 32))
         let result = try #require(BitmapDiff.compare(a, b))
-        #expect(result.sizesDiffer)
         // Same picture at two scales: it still reads as unchanged, which is the useful answer.
         #expect(result.changedFraction < 0.02, "\(result.changedFraction)")
     }
 
-    /// A one-pixel side is degenerate but still compared, and says the sizes differed. The `nil`
+    /// A one-pixel side is degenerate but still compared. The `nil`
     /// that `analyse` keeps for a zero-sized side is unreachable from here: a `CGImage` is never
     /// 0×0, and `cropping(to:)` an empty rect returns no image at all, so there is no input to
     /// test it with.
-    @Test func aOnePixelSideIsStillComparedAndDisclosed() throws {
+    @Test func aOnePixelSideIsStillCompared() throws {
         let a = try Self.image(width: 8, height: 8)
         let ctx = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
                                          bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
         let tiny = try #require(ctx.makeImage())
-        let result = try #require(BitmapDiff.compare(a, tiny), "a 1×1 side was refused")
-        #expect(result.sizesDiffer)
+        _ = try #require(BitmapDiff.compare(a, tiny), "a 1×1 side was refused")
         #expect(a.cropping(to: .zero) == nil, "an empty crop now makes an image — the zero-sized case is reachable and wants its own test")
     }
 

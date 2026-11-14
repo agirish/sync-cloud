@@ -402,13 +402,6 @@ struct RenamePassLens: View {
             .padding(.bottom, 4)
     }
 
-    /// One folder's one-line claim, which is ``RenameBacklogTally/claim``. It says both halves, so
-    /// "8 renames" over a plan that also skipped two files doesn't read as a folder of eight.
-    /// Static so the wording is testable without mounting anything.
-    static func summary(_ plan: RenamePlan) -> String {
-        RenameBacklogTally([plan]).claim
-    }
-
     /// A file the pass deliberately did not touch, listed with its reason, because "why is that one
     /// still called `9829custbill…`" is the first question this feature invites.
     @ViewBuilder

@@ -69,7 +69,6 @@ import Testing
         let result = await manager(profiles: profiles).deriveFolderProfile(root: root,
                                                                           jurisdictionValues: ["US"])
         let report = try #require(try? result.get())
-        #expect(report.jurisdictions == ["US"])
 
         let written = try #require(FilingProfileStore.profile(id: report.profileId, in: profiles))
         #expect(written.folders["Finance/US"]?.axes["jurisdiction"] == "US")

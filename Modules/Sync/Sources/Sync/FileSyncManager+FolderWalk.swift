@@ -22,8 +22,6 @@ extension FileSyncManager {
         /// re-point away from a hand-built profile, so the new one lands on disk unread, and the
         /// report says so.
         public let becameActive: Bool
-        /// The jurisdiction values the profile was built with, as confirmed by the user.
-        public let jurisdictions: [String]
         /// A sentence for Setup to show when this folder's earlier Restructure history could not
         /// be taken up, so the user knows why it is missing. Nil when there is nothing to say.
         public var historyNotice: String? = nil
@@ -261,7 +259,6 @@ extension FileSyncManager {
                                       profileId: profileId,
                                       root: recordedRoot,
                                       becameActive: becameActive,
-                                      jurisdictions: jurisdictionValues.sorted(),
                                       historyNotice: historyNotice)
         if becameActive {
             Logger.shared.info("Folder walk wrote profile '\(profileId)' — "

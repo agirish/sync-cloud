@@ -819,7 +819,8 @@ import Events
 
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
-        await manager.scanNames(root: root, provider: .iCloud)
+        await manager.detectRiskyNames(in: await FileSyncManager.buildTree(url: root, sortOption: .name),
+                                       root: root, provider: .iCloud)
         #expect(manager.riskyNames.count == 2,
                 "expected both the folder and the file to be flagged, got \(manager.riskyNames.map(\.currentName))",
                 sourceLocation: sourceLocation)
@@ -1018,4 +1019,15 @@ import Events
     }
 
     private func url(_ p: String) -> URL { URL(fileURLWithPath: p) }
+}
+
+extension FileSyncManager {
+    /// One-shot convenience over `renameMap(for:)` + `liveLocation(of:throughRenames:fileManager:)`,
+    /// for tests that ask about one destination. Never call this in a loop over the batch — that is
+    /// the quadratic shape `renameMap(for:)` exists to keep out of `registerMoveUndo(items:)`.
+    nonisolated static func liveLocation(
+        of destination: URL, afterBatch batch: [MoveItemState], fileManager fm: FileManaging
+    ) -> URL {
+        liveLocation(of: destination, throughRenames: renameMap(for: batch), fileManager: fm)
+    }
 }

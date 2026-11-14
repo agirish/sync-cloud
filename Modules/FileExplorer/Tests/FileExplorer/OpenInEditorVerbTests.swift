@@ -14,23 +14,23 @@ import FileExplorerTestSupport
 @MainActor
 @Suite struct OpenInEditorVerbTests {
 
-    /// The public predicate the doors outside this package ask, over the whole table.
-    /// `PairContentKind` is internal, so the Info inspector and the File menu gate their Open in
-    /// Edit on `EditableText.isText`, and it must accept exactly what the row menu's gate accepts.
+    /// The text kind the doors outside this package rest on, over the whole table: the Info
+    /// inspector and the File menu gate their Open in Edit on `EditableText.opensInEdit`, whose
+    /// text half must accept exactly what the table lists.
     /// It loops over `textExtensions`, not a hand-written sample (unlike
     /// `theRailListsTheTextFilesAndPDFsAndOnlyThose`), because the claim is that no entry is
     /// missed.
     @Test func thePublicPredicateAnswersForEveryTextExtensionAndNoOther() {
         for ext in PairContentKind.textExtensions {
-            #expect(EditableText.isText(path: "/a/notes.\(ext)"),
+            #expect(PairContentKind.classify(path: "/a/notes.\(ext)") == .text,
                     "the table lists .\(ext) but the predicate refuses it — a door would withhold it")
         }
         for name in ["photo.jpg", "report.pdf", "archive.zip", "clip.mov", "app.dmg", "Makefile", "/a/Downloads"] {
-            #expect(!EditableText.isText(path: name),
+            #expect(PairContentKind.classify(path: name) != .text,
                     "\(name) reads as text — a door would offer it and the editor would refuse")
         }
         // Case, because a door is handed whatever the filesystem spells.
-        #expect(EditableText.isText(path: "/a/READ.MD"), "an upper-cased extension is not matched")
+        #expect(PairContentKind.classify(path: "/a/READ.MD") == .text, "an upper-cased extension is not matched")
     }
 
     /// The predicate and the menu item's own gate are one answer, not two that agree today. Checked
@@ -50,7 +50,7 @@ import FileExplorerTestSupport
         // And the predicate is text OR PDF, nothing wider.
         #expect(EditableText.opensInEdit(path: "notes.md"), "no item was built for a text row — the verb is gone")
         #expect(EditableText.opensInEdit(path: "/a/report.pdf") && EditableText.isPDF(path: "/a/report.pdf"))
-        #expect(!EditableText.isText(path: "/a/report.pdf"), "isText must keep meaning text")
+        #expect(PairContentKind.classify(path: "/a/report.pdf") != .text, "a PDF must not classify as text")
         #expect(!EditableText.opensInEdit(path: "/a/photo.jpg"))
     }
 

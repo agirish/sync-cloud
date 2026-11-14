@@ -47,7 +47,6 @@ import Foundation
                       "/Dropbox": [visit("Shared Docs", 1)]],
             favorites: [:], limit: 8)
         #expect(out.map(\.relativePath) == ["Dental", "Shared Docs", "Statements"])
-        #expect(out.last?.visitedAt == nil)
     }
 
     /// An undated entry must not outrank even a very old dated one, a case a `.distantPast` default

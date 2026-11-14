@@ -85,7 +85,7 @@ import Testing
             var body: some View {
                 Picker("Text size", selection: $selection) {
                     ForEach(FontSize.allCases) { size in
-                        Text(size.displayName).tag(size.percent)
+                        Text("\(size.percent)%").tag(size.percent)
                     }
                 }
                 .pickerStyle(.segmented)

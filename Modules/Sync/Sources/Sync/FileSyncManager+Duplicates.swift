@@ -46,32 +46,20 @@ extension FileSyncManager {
     public struct DuplicateSummary: Sendable, Equatable {
         public var groupCount: Int
         public var reclaimableBytes: Int
-        public var redundantCopyCount: Int
-        public var needsReviewCount: Int
     }
 
-    /// Summary derived from the current ``duplicateGroups``. The headline "reclaimable" and
-    /// "redundant" figures count only batch-eligible (identical) groups, so they match exactly
-    /// what "Apply recommended" delivers — overlapping, versions and same-text groups never
-    /// inflate them.
+    /// Summary derived from the current ``duplicateGroups``. The headline "reclaimable" figure
+    /// counts only batch-eligible (identical) groups, so it matches exactly what "Apply
+    /// recommended" delivers — overlapping, versions and same-text groups never inflate it.
     public var duplicateSummary: DuplicateSummary {
-        var reclaimable = 0, redundant = 0, review = 0
+        var reclaimable = 0
         for g in duplicateGroups {
             if g.isRecommendedForBatch {
                 reclaimable += g.reclaimableBytes
-                redundant += g.copies.count - 1
-            }
-            // The kind the user must look at before acting: a same-text group's copies only
-            // provably *read* the same.
-            switch g.matchType {
-            case .sameText: review += 1
-            case .identical, .overlapping, .versions: break
             }
         }
         return DuplicateSummary(groupCount: duplicateGroups.count,
-                                reclaimableBytes: reclaimable,
-                                redundantCopyCount: redundant,
-                                needsReviewCount: review)
+                                reclaimableBytes: reclaimable)
     }
 
     // MARK: Scan
@@ -2362,11 +2350,6 @@ extension FileSyncManager {
             }
         }
         return out
-    }
-
-    /// Removes a group from the list without touching disk (in-memory only).
-    public func dismissDuplicateGroup(_ group: DuplicateGroup) {
-        duplicateGroups.removeAll { $0.id == group.id }
     }
 
     /// Drops a single resolved copy — one trashed out-of-band, e.g. from the Compare duplicate

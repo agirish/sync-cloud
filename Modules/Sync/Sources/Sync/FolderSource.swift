@@ -45,8 +45,8 @@ public struct FolderSource: Codable, Equatable, Sendable, Identifiable {
 
     /// The rule, with the volume lookup injected so it stays pure and testable without a disk.
     /// Every path answers from its last component (`/Volumes/Backup` is "Backup") except `/`, which
-    /// has none and takes the volume's name instead. A tab at a provider root wears this name
-    /// (`PaneTab.displayName(providerName:)`), so `/` would show in tabs, headers, ⌘K and Settings.
+    /// has none and takes the volume's name instead. A tab at a provider root wears this name, so
+    /// `/` would show in tabs, headers, ⌘K and Settings.
     static func defaultDisplayName(forPath path: String, volumeName: (String) -> String?) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         let standardized = URL(fileURLWithPath: expanded).standardizedFileURL.path

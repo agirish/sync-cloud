@@ -156,17 +156,6 @@ public enum AskClaudeLooseFiles {
         return nil
     }
 
-    /// The files a card shows, from `from`: after the first card, those no card before it showed,
-    /// so files moved since don't shift the rest past it. `shown` holds what
-    /// earlier cards showed from this folder; with none, `from` counts from the start. `total` is
-    /// `from` plus what is left, the count the card numbers against.
-    /// `ahead` puts the sure ones first (``sureFirst(_:path:ahead:)``).
-    public static func page(_ files: [File], from: Int, shown: Set<String>, count: Int = perCard,
-                            ahead: [String: Ahead] = [:]) -> (files: [File], total: Int) {
-        let rest = unshown(files, from: from, shown: shown)
-        return (Array(sureFirst(rest, path: \.path, ahead: ahead).prefix(count)), from + rest.count)
-    }
-
     /// The files no card has shown yet, newest first: after the first card, those no card before
     /// it showed or left; with none, `from` counts from the start. `from` 0 is a fresh ask, which
     /// looks at every file again.

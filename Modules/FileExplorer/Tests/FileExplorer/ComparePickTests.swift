@@ -74,12 +74,4 @@ import Sync
         #expect(long.armedName == "Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf",
                 "the name arrived pre-shortened — truncation belongs to the view, which knows the width")
     }
-
-    /// The row marker is keyed on the armed path alone, so it survives the selection moving, a
-    /// scroll and a navigation.
-    @Test func theMarkerFollowsTheArmedPathAlone() {
-        let p = pick()
-        #expect(p.marks("/left/Lease — Signed.pdf"))
-        #expect(!p.marks("/left/Addendum.pdf"))
-    }
 }

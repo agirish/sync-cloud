@@ -159,23 +159,9 @@ public enum MappingRefineProtocol {
         return body
     }
 
-    /// Parses the response into proposals — nil for an error or an unreadable shape (the caller
-    /// says the pass failed), never a silent partial guess: a row with an unknown verdict string
-    /// is dropped rather than coerced.
-    public static func parseProposals(responseData: Data,
-                                      rows: [RestructureMapping.Row]) -> [MappingRefineProposal]? {
-        guard let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        else { return nil }
-        if (root["type"] as? String) == "error" { return nil }
-        guard let content = root["content"] as? [[String: Any]],
-              let toolUse = content.first(where: { ($0["type"] as? String) == "tool_use" }),
-              let input = toolUse["input"] as? [String: Any],
-              let proposals = input["proposals"] as? [[String: Any]] else { return nil }
-        return proposalList(from: proposals, rows: rows)
-    }
-
-    /// The same, from the tool calls a streamed answer collected. Every proposal call counts; nil when
-    /// the model made none.
+    /// Parses the tool calls a streamed answer collected into proposals. Every proposal call counts;
+    /// nil when the model made none (the caller says the pass failed). Never a silent partial guess:
+    /// a row with an unknown verdict string is dropped rather than coerced.
     public static func parseProposals(toolCalls: [AskClaudeToolCall],
                                       rows: [RestructureMapping.Row]) -> [MappingRefineProposal]? {
         let lists = toolCalls.filter { $0.name == toolName }.compactMap { call -> [[String: Any]]? in

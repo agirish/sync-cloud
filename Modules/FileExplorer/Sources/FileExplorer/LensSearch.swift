@@ -201,8 +201,6 @@ enum FilingSearch {
             return nil
         }
     }
-
-    static func removing(_ raw: String, word: String) -> String { TokenQuery.removing(raw, word: word) }
 }
 
 // MARK: - Automations
@@ -266,8 +264,6 @@ enum AutomationSearch {
             return nil
         }
     }
-
-    static func removing(_ raw: String, word: String) -> String { TokenQuery.removing(raw, word: word) }
 }
 
 // MARK: - Storage
@@ -336,6 +332,4 @@ enum StorageSearch {
             return nil
         }
     }
-
-    static func removing(_ raw: String, word: String) -> String { TokenQuery.removing(raw, word: word) }
 }

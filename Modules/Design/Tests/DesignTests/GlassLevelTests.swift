@@ -144,14 +144,12 @@ struct GlassLevelTests {
         #expect(SurfaceStyle(rawValue: "solid") == nil)
     }
 
-    @Test func everyLevelAndStyleIsLabelledAndExplained() {
+    @Test func everyLevelAndStyleIsLabelled() {
         for level in GlassLevel.allCases {
             #expect(!level.displayName.isEmpty)
-            #expect(!level.detail.isEmpty)
         }
         for style in SurfaceStyle.allCases {
             #expect(!style.displayName.isEmpty)
-            #expect(!style.detail.isEmpty)
         }
     }
 

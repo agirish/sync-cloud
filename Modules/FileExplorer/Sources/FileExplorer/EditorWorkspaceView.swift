@@ -22,13 +22,6 @@ public enum EditorLayoutMetrics {
     }
     /// The narrowest the document column may become. Below this a line of prose stops being a line.
     public static let minDocumentWidth: CGFloat = 260
-    /// What the editor half of the row needs in total, which the source pane is clamped against when
-    /// expanded. Includes 2 × `cardGutter`: the rail and document cards each pad by half a gutter on
-    /// every side, chrome neither column can use, and without it the clamp would guarantee a document
-    /// width it then shaves short.
-    public static var minWorkspaceWidth: CGFloat {
-        railWidth + minDocumentWidth + 2 * LiquidGlass.cardGutter
-    }
 
     /// What the editor half needs when the rail is not drawn: the document and its one card, which
     /// is one gutter. The host clamps the source pane's drag range against this when the rail has

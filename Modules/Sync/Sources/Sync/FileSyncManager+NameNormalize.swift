@@ -1,74 +1,13 @@
 import Events
 import Foundation
 
-/// Name Normalizer: the bulk counterpart to the per-file name check at transfer. It scans a whole
-/// subtree, lists every risky file and folder name a provider forbids, and normalizes the selected
-/// ones in one undoable pass, before they break a cloud sync. Shaped like +Duplicates and +Filing:
-/// a cancellable scan publishing `@Published` state, and an apply routed through the serial
+/// Name Normalizer: the bulk counterpart to the per-file name check at transfer. The Filing pass
+/// lists every risky file and folder name a provider forbids, and the selected ones are normalized
+/// in one undoable pass, before they break a cloud sync: an apply routed through the serial
 /// `enqueueFileOperation` queue with one grouped undo.
 extension FileSyncManager {
 
     // MARK: Scan
-
-    /// Walks `root`, detects every risky name via the pure ``NameNormalizer``, and publishes them.
-    /// `fileManager` is injectable for tests; production uses the manager's own.
-    ///
-    /// Not the shipped producer: the app finds risky names on the Filing pass, through
-    /// ``detectRiskyNames(in:root:provider:isCancelled:)``, over the tree already in memory. Kept
-    /// because `NameNormalizerTests` and `PermissionDeniedScanTests` drive it as the
-    /// standalone-walk reference, and the permission-denied behaviour they pin is what the Filing
-    /// path inherits.
-    func scanNames(root: URL, provider: CloudProvider.ProviderType, fileManager fm: FileManaging? = nil) async {
-        guard !isScanningNames else { return }
-        let fileManager = fm ?? self.fileManager
-        beginScan(\.nameScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
-        // hasCompleted flips only on completion (below), so a cancelled scan leaves the prior
-        // state intact rather than flashing an empty "no risky names".
-        defer {
-            endScan(\.nameScanLifecycle)
-        }
-
-        // Budgeted first, as a probe, as in `buildStorageLens`. The answer can't be budgeted: a
-        // risky name never reached is a rename never offered, which reads as "nothing wrong here".
-        let probe = NodeBudget(wholeTreeProbeBudget)
-        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil, budget: probe)
-        if Task.isCancelled { return }
-        if probe.didStopADescent {
-            let preflight = LargeWalkPreflight(pass: .rename, rootPath: root.path,
-                                               probeLimit: probe.limit)
-            guard largeWalkConfirmer(preflight) else {
-                Logger.shared.info("Rename: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
-                return
-            }
-            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil)
-            if Task.isCancelled { return }
-        }
-        // An unreadable root has no scannable names, so publish an empty result. Fed to the
-        // detector, its marker would flag the root itself (see `isUnreadableRootMarker`).
-        if Self.isUnreadableRootMarker(tree, root: root) {
-            riskyNames = []
-            completeScan(\.nameScanLifecycle, root: root)
-            Logger.shared.warning("Name normalizer: could not read \(root.lastPathComponent) — permission denied; no names scanned")
-            return
-        }
-        // Detached: flattening and rule-checking a large provider's tree would block the main
-        // actor for the whole pass. Only the @Published writes run back on it. The isCancelled
-        // check after the hop keeps a cancelled scan's stale result from landing.
-        let risky = await Task.detached(priority: .userInitiated) {
-            NameNormalizer.scan(nodes: tree, provider: provider)
-        }.value
-        if Task.isCancelled { return }
-
-        // Kept names never reach the list — see `reportable(_:)`. Filtered here rather than inside
-        // the detector so `NameNormalizer` stays a pure function of the names and the ruleset.
-        riskyNames = reportable(risky)
-        // Published with the results, not at scan start: the root labels what's on screen, and a
-        // cancelled rescan of a different folder must not relabel the previous results.
-        completeScan(\.nameScanLifecycle, root: root)
-        Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s), \(riskyNames.count) reported")
-    }
 
     /// True when a walk came back as nothing but the unreadable root itself. `buildTree` reports
     /// a permission-denied root as one unexplored marker with the root's own path, which the
@@ -81,13 +20,13 @@ extension FileSyncManager {
 
     /// Flags provider-hostile names on a tree the caller has already walked. The Filing scan walks
     /// the whole provider anyway, so risky names come back on that pass with no second walk or
-    /// button. Detached, as in `scanNames`, to keep the main actor free.
+    /// button. Detached, to keep the main actor free.
     /// - Parameter isCancelled: the staleness check, injectable so a test can assert that a stale
     ///   scan publishes nothing. Real cancellation is a race no test can stage, and a bulk rename
     ///   must never act on results for the wrong ruleset.
     func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType,
                           isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
-        // Same guard as `scanNames`: never offer to rename an unreadable provider root.
+        // Never offer to rename an unreadable provider root.
         if Self.isUnreadableRootMarker(tree, root: root) {
             riskyNames = []
             completeScan(\.nameScanLifecycle, root: root)

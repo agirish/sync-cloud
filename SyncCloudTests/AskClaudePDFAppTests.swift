@@ -186,7 +186,7 @@ import Sync
     // MARK: What Claude hears
 
     private func written(_ path: String, bytes: Int = 3_100_000, pages: Int? = 22) -> PDFWrittenFile {
-        PDFWrittenFile(source: "/d/Scan.pdf", path: path, stamp: EditorFileStore.Stamp(modifiedAt: nil, size: bytes),
+        PDFWrittenFile(path: path, stamp: EditorFileStore.Stamp(modifiedAt: nil, size: bytes),
                        bytes: bytes, pageCount: pages)
     }
 

@@ -43,7 +43,7 @@ import Testing
 
     /// The words are the lens's own. `RestructureLens.kindLabel` is the tag every finding wears on
     /// its card, so a summary naming the kinds differently would read as a different measurement.
-    /// `RenameBacklogTally` follows the same rule against `RenamePassLens.summary`.
+    /// `RenameBacklogTally` follows the same rule against the Renames rows.
     @Test func theBreakdownQuotesTheLensesOwnTags() {
         for kind in FindingKind.allCases {
             let line = StructureBacklogTally(finding(kind, 4)).breakdown

@@ -624,9 +624,6 @@ import Design
         #expect(OrganizeRailMetrics.style(contentWidth: 1400, leadingWidth: lead(twoBadges)) == .full)
         #expect(OrganizeRailMetrics.style(contentWidth: 900, leadingWidth: lead(twoBadges)) == .full)
         #expect(OrganizeRailMetrics.style(contentWidth: 600, leadingWidth: lead(twoBadges)) == .iconOnly)
-        // The shed rung must actually solve it, or shedding buys nothing.
-        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: twoBadges)
-        #expect(shed <= 600 - OrganizeRailMetrics.searchToggleWidth)
         // Badges widen the rail, so the day every finding reports is the tightest; a rule measured
         // without them would shed too late. Every lens badged sheds soonest, and answers the same
         // way at the same widths.
@@ -683,33 +680,14 @@ import Design
             host.layoutSubtreeIfNeeded()
             let height = host.fittingSize.height
 
-            #expect(height > 0, "the rail item laid out at 0pt at \(size.displayName) — this measurement is fiction")
+            #expect(height > 0, "the rail item laid out at 0pt at \(size.percent)% — this measurement is fiction")
             #expect(height <= LensHeaderMetrics.tabRow,
                     """
-                    a rail item is \(height)pt at \(size.displayName), taller than the \
+                    a rail item is \(height)pt at \(size.percent)%, taller than the \
                     \(LensHeaderMetrics.tabRow)pt row — the scroll view in `lensTitle` clips it now, \
                     so this shows as a badge cut off top and bottom
                     """)
         }
-    }
-
-    /// Shedding can't always solve it, which is why the row also scrolls. At the workspace
-    /// column's 340pt floor (`singleSourceLayout`'s `minWorkspace`), four three-digit badges at the
-    /// largest text size overrun the usable row even with the labels gone, and an `HStack` out of
-    /// room draws over its neighbour rather than clipping. This keeps the horizontal scroll in
-    /// `LensWorkspaceView.lensTitle` from reading as belt-and-braces someone can tidy away.
-    @Test("The glyph rung can still overrun the narrowest column")
-    func theGlyphRungCanStillOverrunTheNarrowestColumn() {
-        let busy = Self.states([.toFile: 410, .duplicates: 410,
-                                .renames: 410, .restructure: 410])
-        let shed = OrganizeRailMetrics.shedLeadingWidth(scale: FontSize.extraLarge.scale, state: busy)
-        let usable = 340 - OrganizeRailMetrics.cardChrome - OrganizeRailMetrics.searchToggleWidth
-
-        #expect(shed > usable,
-                """
-                the glyph rail now fits the 340pt workspace floor at \(shed)pt against \(usable) — \
-                the scroll in `lensTitle` has stopped being reachable and this test has lost its subject
-                """)
     }
 
     @Test("The leading model matches what row 1 draws at every text size the app ships", .machinePinned(.pixelSampling),
@@ -1117,27 +1095,6 @@ import Design
         #expect(counts(try #require(PixelProbe.render(mount(quiet, lens: .renames, width: width),
                                                       renamesActions))).ink > 100,
                 "the Renames actions band painted almost nothing — it is not over the Rescan button, so the comparison above proves nothing")
-    }
-
-    @Test("The shed rung is narrower than the rail it replaces, by enough to be worth having")
-    func theShedRungIsAFallbackWorthFallingBackTo() {
-        // Asserted in the arithmetic, not a render: row 1 reserves only the search toggle, so the
-        // rail sheds below ~668pt of card, and the harness can't get there. `LensWorkspaceView`
-        // lays its header out at about 750pt however narrow the canvas, and below that the leading
-        // cluster is clipped, not shed, so a render would measure clipping and call it shedding.
-        //
-        // The claim that matters: the fallback must be much narrower than what it replaces (315pt
-        // against 632 measured), or shedding buys nothing. `theShedRuleIsComputed` covers the rule
-        // choosing between them.
-        let badge = Self.states([.toFile: 24, .duplicates: 410, .renames: 17])
-        let shedModel = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: badge)
-        let spelledOut = OrganizeRailMetrics.leadingWidth(scale: 1, state: badge)
-        #expect(shedModel < spelledOut - 100,
-                "the shed rung models \(shedModel)pt against \(spelledOut)pt spelled out — falling back to it saves too little to be a fallback")
-        // And it keeps the badges, which are the reason to look at a shed rail at all.
-        let unbadged = OrganizeRailMetrics.shedLeadingWidth(scale: 1, state: Self.states([:]))
-        #expect(shedModel > unbadged,
-                "the shed rung costs the same with badges as without — it is dropping the counts along with the labels")
     }
 
     // MARK: The control — Rescan outlives the queue

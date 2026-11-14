@@ -92,11 +92,10 @@ import FileExplorerTestSupport
                 "a second row did not make the rail taller (\(two)pt vs \(short)pt) — height is not measuring the rows, so the comparison above proves nothing")
     }
 
-    /// The two cards really cost a `cardGutter`, measured rather than restated.
-    /// `minWorkspaceWidth` is `railWidth + minDocumentWidth + 2 * cardGutter`; the `2 *` rests on
-    /// `bottomSectionCard` (a Design component) insetting half a gutter each side in Cards. If that
-    /// changes, the floor would promise a document column it then shaves. In Unified the cards sit
-    /// flush and cost nothing, which the floor also covers.
+    /// A card really costs a `cardGutter`, measured rather than restated. `minDocumentOnlyWidth`
+    /// budgets one per card, which rests on `bottomSectionCard` (a Design component) insetting half
+    /// a gutter each side in Cards. If that changes, the floor would promise a document column it
+    /// then shaves. In Unified the cards sit flush and cost nothing, which the floor also covers.
     @Test func aCardCostsExactlyTheGutterTheWorkspaceMinimumBudgetsForIt() {
         let bare = size(Color.clear.frame(width: 200, height: 40))
         let carded = size(Color.clear.frame(width: 200, height: 40)
@@ -106,10 +105,7 @@ import FileExplorerTestSupport
         #expect(flush == bare, "a Unified section costs \(flush.width - bare.width)pt; it should sit flush")
 
         #expect(abs((carded.width - bare.width) - LiquidGlass.cardGutter) < 0.51,
-                "a card costs \(carded.width - bare.width)pt of width, not the \(LiquidGlass.cardGutter)pt `minWorkspaceWidth` budgets two of")
-        #expect(EditorLayoutMetrics.minWorkspaceWidth >= EditorLayoutMetrics.railWidth
-                    + EditorLayoutMetrics.minDocumentWidth + 2 * (carded.width - bare.width),
-                "the workspace floor does not cover the chrome the two cards actually draw")
+                "a card costs \(carded.width - bare.width)pt of width, not the \(LiquidGlass.cardGutter)pt `minDocumentOnlyWidth` budgets for it")
     }
 
     /// The rail row wears the `.row` hover variant in one shape: `.inline` would draw a grey disc

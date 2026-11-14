@@ -185,7 +185,6 @@ public struct SettingEntry: Identifiable, Hashable, Sendable {
     public let otherLabels: [String]
     /// The page it is on.
     public let place: SettingsPlace
-    var tab: SettingsView.SettingsTab { place.tab }
     public let storage: SettingStorage
     public let control: SettingControl
     public let defaultValue: SettingValue?

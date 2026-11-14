@@ -224,23 +224,14 @@ struct FilingCardReplayTests {
             survey.add(best: c.best, gold: f.gold[c.filePath]!, root: Fixture.root, oneWordHigh: false)
         }
         print("[card-replay] GW — a full re-survey instead (the oracle)\n\(survey)")
-        let taught = FilingRouter.makeIndex(destinations: Array(f.folders), profile: f.profile,
-                                            memory: FilingSurvey.memory(f.memory, addingFiled: filed,
-                                                                        foldersWith: FilingSurvey.folderFrequency(f.train)),
-                                            registry: LiveCorpus.registry)
         let roughly = FilingRouter.makeIndex(destinations: Array(f.folders), profile: f.profile,
                                              memory: FilingSurvey.memory(f.memory, addingFiled: filed),
                                              registry: LiveCorpus.registry)
-        var rough = Tally()
-        for c in f.cards(next, index: roughly).card {
-            rough.add(best: c.best, gold: f.gold[c.filePath]!, root: Fixture.root, oneWordHigh: false)
-        }
-        print("[card-replay] GW — after, rarity read off the memory alone\n\(rough)")
         let coldFolders = Set(byFolder.keys).subtracting(f.train.documents.keys.map {
             ($0 as NSString).deletingLastPathComponent
         })
         var before = Tally(), after = Tally(), coldBefore = Tally(), coldAfter = Tally()
-        for (b, a) in zip(f.cards(next).card, f.cards(next, index: taught).card) {
+        for (b, a) in zip(f.cards(next).card, f.cards(next, index: roughly).card) {
             let g = f.gold[b.filePath]!
             before.add(best: b.best, gold: g, root: Fixture.root, oneWordHigh: false)
             after.add(best: a.best, gold: g, root: Fixture.root, oneWordHigh: false)

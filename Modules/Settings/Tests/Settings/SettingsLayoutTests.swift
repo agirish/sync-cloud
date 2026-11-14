@@ -118,7 +118,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         let margin = appearanceMargin(at: size.scale)
 
         #expect(margin >= 15,
-                "Appearance has \(margin)pt of slack at \(size.displayName) (scale \(size.scale)).")
+                "Appearance has \(margin)pt of slack at \(size.percent)% (scale \(size.scale)).")
     }
 
     /// Text & Spacing fits a 1280×800 display at every text size: it exists for large text, and its
@@ -138,7 +138,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
         #expect(fitting == FontSize.allCases,
                 """
-                Readability fits a 1280×800 display at \(fitting.map(\.displayName)) — the tab \
+                Readability fits a 1280×800 display at \(fitting.map { "\($0.percent)%" }) — the tab \
                 that exists for large text does not survive its own largest setting.
                 """)
     }
@@ -178,7 +178,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         // Every size fits at today's `baseSize`. An equality, not "at least these", so it can't go
         // vacuous: if a section is added and Largest stops fitting, this fails.
         #expect(fitting == FontSize.allCases,
-                "Appearance fits a 1280×800 display at \(fitting.map(\.displayName)) — the residual recorded on this test is out of date.")
+                "Appearance fits a 1280×800 display at \(fitting.map { "\($0.percent)%" }) — the residual recorded on this test is out of date.")
     }
 
     /// Overflow degrades by scrolling, not clipping, which a fit test can't say. `SettingsPage`
@@ -190,11 +190,11 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
                                                           available: Self.smallDisplayWindow)
 
             #expect(sheet.height <= Self.smallDisplayWindow.height,
-                    "at \(size.displayName) the sheet is \(sheet.height)pt in a \(Self.smallDisplayWindow.height)pt window — the overflow is off-screen, not scrollable.")
+                    "at \(size.percent)% the sheet is \(sheet.height)pt in a \(Self.smallDisplayWindow.height)pt window — the overflow is off-screen, not scrollable.")
             #expect(sheet.width <= Self.smallDisplayWindow.width)
             #expect(SettingsSheetMetrics.pageOpening(textScale: size.scale,
                                                      available: Self.smallDisplayWindow) > 0,
-                    "at \(size.displayName) the title row and the sub-tab strip have eaten the whole sheet.")
+                    "at \(size.percent)% the title row and the sub-tab strip have eaten the whole sheet.")
         }
     }
 
@@ -206,7 +206,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
             #expect(resolved.width >= SettingsSheetMetrics.baseSize.width)
             #expect(resolved.height >= SettingsSheetMetrics.baseSize.height,
-                    "\(size.displayName) shrank the sheet to \(resolved.height)pt.")
+                    "\(size.percent)% shrank the sheet to \(resolved.height)pt.")
         }
     }
 
@@ -444,7 +444,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         #expect(margin >= 0,
                 """
                 The tab list overruns its opening by \(-margin)pt on a 1280×800 display at \
-                \(size.displayName) — \(SettingsView.SettingsTab.allCases.count) tabs in \
+                \(size.percent)% — \(SettingsView.SettingsTab.allCases.count) tabs in \
                 \(SettingsView.SettingsTab.railGroups.count) groups no longer fit, and the rail \
                 has to scroll on the display it is budgeted against.
                 """)
@@ -461,7 +461,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         #expect(fitting == FontSize.allCases,
                 """
                 At the window's own floor (\(Self.windowFloor.width)×\(Self.windowFloor.height)) \
-                the tab list fits at \(fitting.map(\.displayName)) — the boundary recorded on \
+                the tab list fits at \(fitting.map { "\($0.percent)%" }) — the boundary recorded on \
                 this test is out of date.
                 """)
     }
@@ -479,12 +479,12 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
         let fitting = FontSize.allCases.filter { tabListMargin(at: $0.scale, available: tinyWindow) >= 0 }
         let margins = FontSize.allCases.map { size in
-            "\(size.displayName) \(tabListMargin(at: size.scale, available: tinyWindow))pt"
+            "\(size.percent)% \(tabListMargin(at: size.scale, available: tinyWindow))pt"
         }
 
         #expect(fitting.isEmpty,
                 """
-                At the sheet's floor the tab list now fits at \(fitting.map(\.displayName)) with \
+                At the sheet's floor the tab list now fits at \(fitting.map { "\($0.percent)%" }) with \
                 \(SettingsView.SettingsTab.allCases.count) tabs — the residual recorded on this \
                 test is out of date. Margins now: \(margins.joined(separator: ", ")).
                 """)
@@ -567,7 +567,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
         #expect(intrinsic <= SettingsRail.versionTextWidth,
                 """
-                "SyncCloud \(Self.versionMarker)" wants \(intrinsic)pt at \(size.displayName) in \
+                "SyncCloud \(Self.versionMarker)" wants \(intrinsic)pt at \(size.percent)% in \
                 a \(SettingsRail.versionTextWidth)pt column — the rail is fixed-width and does \
                 not scroll, so the line wraps onto a second row.
                 """)
@@ -580,7 +580,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
         #expect(extra < oneLine / 2,
                 """
-                At \(size.displayName) the rail is \(extra)pt taller with "\(Self.versionMarker)" \
+                At \(size.percent)% the rail is \(extra)pt taller with "\(Self.versionMarker)" \
                 than with a one-character version, and a line of this type is \(oneLine)pt — the \
                 version line has wrapped onto a second row.
                 """)

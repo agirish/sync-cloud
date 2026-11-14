@@ -130,35 +130,6 @@ public final class PersonTagStore: ObservableObject {
         }
     }
 
-    /// Withdraws a verdict entirely, putting the document back in front of whatever the channels
-    /// say about it. The undo for a misclick, and the only way a row returns to the queue.
-    ///
-    /// Withdraws what `record` would have replaced, not only the exact key: a fingerprint-keyed and
-    /// a path-keyed verdict at one recorded path are one answer, so clearing one kind alone would
-    /// leave the row judged and the button doing nothing.
-    ///
-    /// No production caller yet: the People queue offers no way back to a judged row.
-    public func clear(personId: String, key: PersonTagKey, path: String? = nil) {
-        let recordedPath = path ?? tags.first { $0.personId == personId && $0.key == key }?.recordedPath
-        let countBefore = tags.count
-        tags.removeAll { tag in
-            guard tag.personId == personId else { return false }
-            if tag.key == key { return true }
-            // The other kind of key naming the same document: what `record` would have superseded.
-            guard let recordedPath, !recordedPath.isEmpty else { return false }
-            return tag.recordedPath == recordedPath && Self.isDifferentKind(tag.key, key)
-        }
-        guard tags.count != countBefore else { return }
-        let revisionBefore = savedRevision
-        save()
-        // Conditioned on `savedRevision`, as in `record`: while the set-aside keeps failing a
-        // withdrawal lives in memory only, and "withdrew the verdict" is a durability claim.
-        let persisted = !isPersistent || savedRevision != revisionBefore
-        Logger.shared.info("People: withdrew the verdict on \(recordedPath ?? "(unknown path)") "
-                           + "for \(personId)"
-                           + (persisted ? "" : " — NOT saved: held in memory only this session"))
-    }
-
     private func keyKind(_ key: PersonTagKey) -> String {
         switch key {
         // Says what the key is, not what the lookup does with it: `PersonFiles.gather` passes no

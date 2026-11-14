@@ -168,16 +168,6 @@ enum OrganizeRailMetrics {
             + overviewGlyphWidth * scale + glyphGap + itemPadding + itemGap + margin
     }
 
-    /// Width of the rail with every label shed. Badges stay — they are the reason to look.
-    @MainActor
-    static func iconOnlyWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
-        let items = OrganizeLens.railItems.reduce(CGFloat.zero) {
-            $0 + glyphWidth($1, scale: scale) + itemPadding + stateWidth(state($1), scale: scale)
-        }
-        return items + CGFloat(max(0, OrganizeLens.railItems.count - 1)) * itemGap
-            + overviewGlyphWidth * scale + itemPadding + itemGap + 2 * separatorWidth
-    }
-
     /// Everything row 1's leading half must seat.
     ///
     /// Today that is the spelled-out rail alone. It stays a named seam because this is what
@@ -186,12 +176,6 @@ enum OrganizeRailMetrics {
     @MainActor
     static func leadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
         fullWidth(scale: scale, state: state)
-    }
-
-    /// The same, with the rail shed — what the row falls back to.
-    @MainActor
-    static func shedLeadingWidth(scale: CGFloat, state: (OrganizeLens) -> RailItemState) -> CGFloat {
-        iconOnlyWidth(scale: scale, state: state)
     }
 
     /// The style a header of this width can seat.

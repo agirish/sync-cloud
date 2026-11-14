@@ -35,14 +35,11 @@ public struct RememberedVisit: Equatable, Sendable {
     public let root: String
     public let relativePath: String
     public let name: String
-    /// `nil` when the visit's time is unknown; see ``JumpLocation/visitedAt``.
-    public let visitedAt: Date?
 
-    public init(root: String, relativePath: String, name: String, visitedAt: Date?) {
+    public init(root: String, relativePath: String, name: String) {
         self.root = root
         self.relativePath = relativePath
         self.name = name
-        self.visitedAt = visitedAt
     }
 }
 
@@ -552,8 +549,7 @@ public final class FolderJumpStore: ObservableObject {
             for (path, record) in stays[root] ?? [:] where !subtracted.contains(path) {
                 guard let standing = standing(of: record.stays, in: mode, now: now, calendar: calendar)
                 else { continue }
-                found.append((RememberedVisit(root: root, relativePath: path, name: record.name,
-                                              visitedAt: standing.last),
+                found.append((RememberedVisit(root: root, relativePath: path, name: record.name),
                               standing.rank, standing.last))
             }
         }
@@ -712,7 +708,7 @@ public final class FolderJumpStore: ObservableObject {
             if let landing = landings[root] { pinned.insert(landing) }
             for visit in recents[root] ?? [] where !pinned.contains(visit.relativePath) {
                 let entry = RememberedVisit(root: root, relativePath: visit.relativePath,
-                                            name: visit.name, visitedAt: visit.visitedAt)
+                                            name: visit.name)
                 if let at = visit.visitedAt { dated.append((entry, at)) } else { undated.append(entry) }
             }
         }
@@ -744,7 +740,7 @@ public final class FolderJumpStore: ObservableObject {
         let flat = pinnedByRoot.keys.sorted().flatMap { root in
             (pinnedByRoot[root] ?? []).map {
                 RememberedVisit(root: root, relativePath: $0.relativePath,
-                                name: $0.name, visitedAt: $0.visitedAt)
+                                name: $0.name)
             }
         }
         return Self.orderedFavorites(flat, order: favoriteOrder)

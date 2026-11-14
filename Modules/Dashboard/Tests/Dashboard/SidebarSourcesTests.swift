@@ -128,14 +128,8 @@ import Foundation
                 "home is not in the default Favorites — it was the first row of the arrangement asked for")
         #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == NSHomeDirectory() },
                 "home is in both lists — the builder would draw two rows for it")
-        #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == SidebarSourceModel.startupDiskPath },
+        #expect(!SidebarSourceModel.favoriteShortcuts.contains { $0.path == "/" },
                 "the startup disk is in both lists — the builder would draw two rows for it")
-    }
-
-    /// The startup disk is `/`, nothing more: its name and glyph come from the mounted-volume walk,
-    /// so this can't go stale when a disk is renamed.
-    @Test func theStartupDiskIsNamedByPathOnly() {
-        #expect(SidebarSourceModel.startupDiskPath == "/")
     }
 
     /// Home contains the standard folders. Once Home is a folder source, clicking Desktop or

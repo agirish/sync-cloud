@@ -93,10 +93,4 @@ enum DuplicateSearch {
             return nil
         }
     }
-
-    /// Removes every occurrence of `word` from `raw`; `TokenQuery.removing` says why all of them is
-    /// the right ✕ under last-wins parsing.
-    static func removing(_ raw: String, word: String) -> String {
-        TokenQuery.removing(raw, word: word)
-    }
 }

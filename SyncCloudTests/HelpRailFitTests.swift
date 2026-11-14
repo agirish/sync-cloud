@@ -40,7 +40,7 @@ import Testing
             #expect(height <= budget,
                     """
                     “\(topic.title)” takes \(String(format: "%.1f", lines)) lines of the \
-                    \(HelpCardSize.sidebarTitleWidth)pt rail at \(size.displayName) — the rail is \
+                    \(HelpCardSize.sidebarTitleWidth)pt rail at \(size.percent)% — the rail is \
                     fixed-width, so no card size gets it back.
                     """)
         }

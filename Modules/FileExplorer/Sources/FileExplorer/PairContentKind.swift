@@ -15,11 +15,6 @@ import UniformTypeIdentifiers
 /// **It can't tell a folder from a file**: a directory named `notes.md` answers true. A caller that
 /// can hold a directory tests that itself, as the row menu's `!singleNode.isDirectory` does.
 public enum EditableText {
-    /// Whether ``EditorRail`` would list this file and the editor would load it.
-    public static func isText(path: String) -> Bool {
-        PairContentKind.classify(path: path) == .text
-    }
-
     /// Whether the editor opens this file as a read-only PDF (``EditorPDFDocument``, not the text
     /// document). The host routes on it before any text read is attempted.
     public static func isPDF(path: String) -> Bool {
@@ -29,7 +24,7 @@ public enum EditableText {
     /// Whether "Open in Edit" is offered for this file: text, which opens writable, or a PDF,
     /// which opens read-only. The gate every door asks: ⌘O, the row menu, the preview's button,
     /// a click in Edit's pane, the inspector, row dimming, a Compare difference row and a duplicate
-    /// copy. ``isText(path:)`` keeps meaning "text", for the questions only text answers.
+    /// copy.
     public static func opensInEdit(path: String) -> Bool {
         let kind = PairContentKind.classify(path: path)
         return kind == .text || kind == .pdf

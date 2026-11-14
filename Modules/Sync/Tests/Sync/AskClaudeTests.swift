@@ -141,7 +141,7 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(acc.finished)
         #expect(acc.stopReason == "end_turn")
         #expect(acc.model == "claude-sonnet-5-5")
-        #expect(acc.text == "Two files are over 5 MB.")
+        #expect(acc.content.first?["text"]?.stringValue == "Two files are over 5 MB.")
         // input and cache reads from message_start; the running output count from message_delta.
         #expect(acc.usage == AskClaudeUsage(inputTokens: 300, outputTokens: 40, cacheReadTokens: 4500))
     }

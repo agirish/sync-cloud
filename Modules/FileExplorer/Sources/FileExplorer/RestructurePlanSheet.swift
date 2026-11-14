@@ -421,18 +421,10 @@ struct RestructurePlanSheet: View {
         }.map(\.element)
     }
 
-    /// True when this row shares its similar-key with another — the quiet marker that says why
-    /// two rows are neighbours.
-    static func hasSimilarNeighbour(_ row: RestructureMapping.Row,
-                                    in rows: [RestructureMapping.Row]) -> Bool {
-        let key = similarKey(row.source)
-        return rows.contains { $0.source != row.source && similarKey($0.source) == key }
-    }
-
-    /// The same question asked once for the whole list: the sources that have such a neighbour.
-    /// One pass instead of the per-row form's O(rows²) per render. A source has a neighbour when
-    /// its key is shared with another distinct source; duplicate sources are refused by the
-    /// derivation (`duplicateMappingRows`), so this is the same answer.
+    /// The sources that share their similar-key with another — the quiet marker that says why two
+    /// rows are neighbours. Asked once for the whole list, in one pass, not per row (O(rows²) per
+    /// render). A source has a neighbour when its key is shared with another distinct source;
+    /// duplicate sources are refused by the derivation (`duplicateMappingRows`).
     static func sourcesWithSimilarNeighbour(_ rows: [RestructureMapping.Row]) -> Set<String> {
         var sourcesByKey: [String: Set<String>] = [:]
         for row in rows { sourcesByKey[similarKey(row.source), default: []].insert(row.source) }

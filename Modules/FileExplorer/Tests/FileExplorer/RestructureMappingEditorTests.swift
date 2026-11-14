@@ -60,29 +60,13 @@ import Testing
                     == ["Payment", "Payments", "Receipts", "Receipt", "Statements"])
     }
 
-    @Test func aRowWithNoTwinIsNotMarked() {
-        let rows = Self.rows(["Payment", "Payments", "Statements"])
-        #expect(RestructurePlanSheet.hasSimilarNeighbour(rows[0], in: rows))
-        #expect(RestructurePlanSheet.hasSimilarNeighbour(rows[1], in: rows))
-        #expect(!RestructurePlanSheet.hasSimilarNeighbour(rows[2], in: rows))
-    }
-
-    /// The whole-list form and the per-row rule are the same rule. The editor asks once for the
-    /// list, not once per row (O(rows²) per keystroke); if the two disagreed, the link marker
-    /// would claim an adjacency the sort didn't make.
-    @Test func theWholeListNeighbourSetAgreesWithThePerRowRule() {
+    /// The rows marked as neighbours are exactly those that share a similar-key; a row with no
+    /// twin is not marked. The fixture holds two pairs the plural fold doesn't make: `Bus`/`Bu`
+    /// (the fold needs a real stem left) and `Taxes`/`Tax` (`tax` is under the four-character bar).
+    @Test func theWholeListNeighbourSetHoldsOnlyTheFoldedPairs() {
         let names = ["Payment", "Payments", "Statements", "Form W-2", "Form W2", "Receipts",
                      "Bus", "Bu", "Taxes", "Tax"]
-        let rows = Self.rows(names)
-        let set = RestructurePlanSheet.sourcesWithSimilarNeighbour(rows)
-        for row in rows {
-            #expect(set.contains(row.source)
-                        == RestructurePlanSheet.hasSimilarNeighbour(row, in: rows),
-                    "\(row.source): the list form and the per-row rule disagree")
-        }
-        // And the answers themselves, since two wrong functions can still agree. The fixture holds
-        // two pairs the plural fold doesn't make: `Bus`/`Bu` (the fold needs a real stem left) and
-        // `Taxes`/`Tax` (`tax` is under the four-character bar).
+        let set = RestructurePlanSheet.sourcesWithSimilarNeighbour(Self.rows(names))
         #expect(set == ["Payment", "Payments", "Form W-2", "Form W2"])
     }
 

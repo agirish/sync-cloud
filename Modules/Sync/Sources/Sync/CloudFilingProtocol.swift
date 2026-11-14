@@ -282,37 +282,8 @@ public enum CloudFilingProtocol {
         if shape.stream { body["stream"] = true }
     }
 
-    /// Parses the Anthropic response into verdicts keyed by `filePath`. nil for an error or an
-    /// unreadable shape, so the caller falls back to the on-device backend; an empty dictionary
-    /// means the model placed nothing. Every placement call in the answer counts, not just the first.
-    public static func parseVerdicts(responseData: Data, files: [FilingCandidateFile]) -> [String: FilingVerdict]? {
-        guard let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else { return nil }
-        if (root["type"] as? String) == "error" { return nil }
-        guard let content = root["content"] as? [[String: Any]] else { return nil }
-        let inputs = content.filter { ($0["type"] as? String) == "tool_use" && ($0["name"] as? String) == toolName }
-            .compactMap { $0["input"] as? [String: Any] }
-        return verdicts(fromInputs: inputs, files: files)
-    }
-
-    /// The same, from the tool calls a streamed answer collected (``AskClaudeStreamAccumulator/toolCalls``).
-    /// nil when the model made no placement call.
-    public static func parseVerdicts(toolCalls: [AskClaudeToolCall], files: [FilingCandidateFile]) -> [String: FilingVerdict]? {
-        let inputs = toolCalls.filter { $0.name == toolName }.compactMap { call -> [String: Any]? in
-            guard let data = try? call.input.encoded() else { return nil }
-            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        }
-        return verdicts(fromInputs: inputs, files: files)
-    }
-
-    /// One verdict per file from the `placements` of every call. A number the model wrote as text or
+    /// One verdict per file from the placements of every call. A number the model wrote as text or
     /// with a decimal still reads; a later placement for the same file replaces an earlier one.
-    static func verdicts(fromInputs inputs: [[String: Any]], files: [FilingCandidateFile]) -> [String: FilingVerdict]? {
-        let lists = inputs.compactMap { $0["placements"] as? [[String: Any]] }
-        guard !lists.isEmpty else { return nil }
-        return verdicts(fromPlacements: lists.flatMap { $0 }, files: files)
-    }
-
-    /// The same, from the placements themselves.
     static func verdicts(fromPlacements placements: [[String: Any]], files: [FilingCandidateFile]) -> [String: FilingVerdict] {
         var out: [String: FilingVerdict] = [:]
         for placement in placements {
@@ -385,34 +356,7 @@ public enum CloudFilingProtocol {
         return out
     }
 
-    // MARK: Usage / cost accounting (for logging)
-
-    /// Token usage reported by the API, split so cache reads/writes can be priced correctly.
-    public struct Usage: Equatable, Sendable {
-        public let inputTokens: Int          // uncached input, full rate
-        public let outputTokens: Int
-        public let cacheCreationTokens: Int  // written to cache (~1.25× input)
-        public let cacheReadTokens: Int      // served from cache (~0.1× input)
-        public var totalInputTokens: Int { inputTokens + cacheCreationTokens + cacheReadTokens }
-        public init(inputTokens: Int, outputTokens: Int, cacheCreationTokens: Int, cacheReadTokens: Int) {
-            self.inputTokens = inputTokens; self.outputTokens = outputTokens
-            self.cacheCreationTokens = cacheCreationTokens; self.cacheReadTokens = cacheReadTokens
-        }
-    }
-
-    public static func parseUsage(responseData: Data) -> Usage? {
-        guard let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-              let usage = root["usage"] as? [String: Any] else { return nil }
-        func n(_ key: String) -> Int { usage[key] as? Int ?? 0 }
-        return Usage(inputTokens: n("input_tokens"), outputTokens: n("output_tokens"),
-                     cacheCreationTokens: n("cache_creation_input_tokens"),
-                     cacheReadTokens: n("cache_read_input_tokens"))
-    }
-
-    /// The response's `stop_reason` — "max_tokens" means placements were truncated.
-    public static func stopReason(responseData: Data) -> String? {
-        (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["stop_reason"] as? String
-    }
+    // MARK: Pricing
 
     /// Approximate list price ($/million tokens) for a rough cost estimate; the Anthropic Console is
     /// the source of truth. nil for a model we have no rate for.
@@ -432,16 +376,6 @@ public enum CloudFilingProtocol {
         if model.hasPrefix("claude-sonnet") { return (3, 15) }
         if model.hasPrefix("claude-haiku") { return (1, 5) }
         return nil
-    }
-
-    /// Estimated USD cost of a request from its usage, accounting for cache read/write rates.
-    public static func estimatedCostUSD(model: String, usage: Usage) -> Double? {
-        guard let price = pricing(for: model) else { return nil }
-        let inPerToken = price.input / 1_000_000, outPerToken = price.output / 1_000_000
-        return Double(usage.inputTokens) * inPerToken
-            + Double(usage.cacheReadTokens) * inPerToken * 0.1
-            + Double(usage.cacheCreationTokens) * inPerToken * 1.25
-            + Double(usage.outputTokens) * outPerToken
     }
 
     // MARK: Pre-call estimate (for the spend guardrails / confirmation dialog)

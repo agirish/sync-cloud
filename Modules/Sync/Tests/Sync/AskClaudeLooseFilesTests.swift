@@ -105,14 +105,14 @@ import Testing
     /// After a card is applied, the next card is the files no card showed, however many moved.
     @Test func theNextCardIsTheFilesNoCardShowed() {
         let files = (0..<25).map { AskClaudeLooseFiles.File(path: "/d/f\($0)", name: "f\($0)", size: 1, modified: nil) }
-        let first = AskClaudeLooseFiles.page(files, from: 0, shown: [])
-        #expect(first.files.map(\.name) == (0..<10).map { "f\($0)" } && first.total == 25)
+        let first = AskClaudeLooseFiles.unshown(files, from: 0, shown: [])
+        #expect(first.prefix(10).map(\.name) == (0..<10).map { "f\($0)" } && first.count == 25)
         // Three of the first ten moved away; the list is collected again without them.
         let left = files.filter { !["f1", "f4", "f7"].contains($0.name) }
-        let next = AskClaudeLooseFiles.page(left, from: 10, shown: Set(first.files.map(\.path)))
-        #expect(next.files.map(\.name) == (10..<20).map { "f\($0)" } && next.total == 25)
+        let next = AskClaudeLooseFiles.unshown(left, from: 10, shown: Set(first.prefix(10).map(\.path)))
+        #expect(next.prefix(10).map(\.name) == (10..<20).map { "f\($0)" } && 10 + next.count == 25)
         // No card showed any: from counts from the start.
-        #expect(AskClaudeLooseFiles.page(files, from: 20, shown: []).files.map(\.name) == (20..<25).map { "f\($0)" })
+        #expect(AskClaudeLooseFiles.unshown(files, from: 20, shown: []).map(\.name) == (20..<25).map { "f\($0)" })
     }
 
     /// Two files of one name going to one folder both land under their own name, said on each

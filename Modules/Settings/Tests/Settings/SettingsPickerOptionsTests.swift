@@ -1,7 +1,7 @@
 import Testing
 @testable import Settings
 
-/// Pins the rule that keeps the five numeric Settings pickers honest. A persisted value that isn't
+/// Pins the rule that keeps the three numeric Settings pickers honest. A persisted value that isn't
 /// one of a picker's tags (from an older build's option set, a `defaults write`, or a hand-edited
 /// plist) would render the control with no selection while still governing every scan, and the
 /// user's first click would silently replace it. So an unrecognized value gains its own row,
@@ -24,14 +24,6 @@ import Testing
         #expect(SettingsPickerOptions.overlapThreshold(including: 0.7).map(\.value) == [0.5, 0.6, 0.7, 0.8, 0.9])
         #expect(SettingsPickerOptions.overlapThreshold(including: 0.7).map(\.label)
             == ["50%", "60%", "70%", "80%", "90%"])
-
-        #expect(SettingsPickerOptions.monthlyBudget(including: 0).map(\.value) == [0, 1, 5, 10, 25, 50])
-        #expect(SettingsPickerOptions.monthlyBudget(including: 0).map(\.label)
-            == ["Off (no limit)", "$1", "$5", "$10", "$25", "$50"])
-
-        #expect(SettingsPickerOptions.totalBudget(including: 5).map(\.value) == [0, 5, 10, 25, 50, 100])
-        #expect(SettingsPickerOptions.totalBudget(including: 5).map(\.label)
-            == ["Off (no limit)", "$5", "$10", "$25", "$50", "$100"])
     }
 
     // MARK: - An unrecognized stored value gets a row
@@ -51,21 +43,18 @@ import Testing
         // Below every option…
         #expect(SettingsPickerOptions.overlapThreshold(including: 0.1).map(\.value).first == 0.1)
         // …and above every option.
-        #expect(SettingsPickerOptions.totalBudget(including: 500).map(\.value).last == 500)
+        #expect(SettingsPickerOptions.overlapThreshold(including: 0.95).map(\.value).last == 0.95)
     }
 
     /// The extra row is labeled by the same formatter as its neighbours: "3.0" next to "2 seconds"
     /// would read as a glitch rather than a setting. Finding each by value also shows every picker
     /// carries an unrecognized stored value, which SwiftUI needs to render a selection at all.
     @Test func theExtraRowUsesTheSameVocabularyAsItsNeighbours() {
-        #expect(SettingsPickerOptions.totalBudget(including: 7.5).contains { $0.value == 7.5 })
         #expect(SettingsPickerOptions.dateTolerance(including: 3).first { $0.value == 3 }?.label == "3 seconds")
         #expect(SettingsPickerOptions.dateTolerance(including: 120).first { $0.value == 120 }?.label == "2 minutes")
         #expect(SettingsPickerOptions.minFileSize(including: 51_200).first { $0.value == 51_200 }?.label == "50 KB")
         #expect(SettingsPickerOptions.minFileSize(including: 500).first { $0.value == 500 }?.label == "500 bytes")
         #expect(SettingsPickerOptions.overlapThreshold(including: 0.65).first { $0.value == 0.65 }?.label == "65%")
-        #expect(SettingsPickerOptions.monthlyBudget(including: 3).first { $0.value == 3 }?.label == "$3")
-        #expect(SettingsPickerOptions.totalBudget(including: 500).first { $0.value == 500 }?.label == "$500")
     }
 
     /// `Picker` keys its rows by tag, so two rows sharing a value would collide: the widening must
@@ -76,7 +65,6 @@ import Testing
             #expect(rows.count == 5)
             #expect(Set(rows.map(\.value)).count == rows.count)
         }
-        #expect(SettingsPickerOptions.monthlyBudget(including: 0).count == 6)
         #expect(SettingsPickerOptions.minFileSize(including: 0).count == 4)
     }
 
@@ -86,7 +74,7 @@ import Testing
     /// to shorten it.
     @Test func hostileStoredValuesStillProduceARow() {
         for stored in [1e300, -5, Double.nan, .infinity] {
-            let rows = SettingsPickerOptions.monthlyBudget(including: stored)
+            let rows = SettingsPickerOptions.dateTolerance(including: stored)
             // NaN compares false against everything, so it lands at the end rather than in order,
             // but it is present, which is what the picker needs.
             #expect(rows.contains { $0.value == stored || ($0.value.isNaN && stored.isNaN) })
