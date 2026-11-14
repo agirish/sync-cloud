@@ -2840,6 +2840,16 @@ Red once on hosted CI at `04e1c47d4` (Activity messages linked to runs by id), w
 local runs of the suite passed (2.3–5.9 s), and the next commit, `86d2ca221`, which carries the
 same `Modules/FileExplorer` tree, went green. Not reproduced.
 
+Seen again 2026-11-14 at `273ea3e28` (statements filed by account number; no layout change),
+with `aRevealRequestBringsInfoBack` beside it (`mounted.held`), both after 94 s in a 653-test
+chunk. The rerun of the failed job passed.
+
+#### Seen: `EditorPDFFillSignTests.aFileThatStaysGoneIsLetGoAtTheSecondLook`, 2026-11-14
+
+Red once on hosted CI at `72f75a47c` (a filing change, nothing in the PDF editor): three
+expectations failed after 13.3 s in a 919-test chunk. Locally the suite passed three times in a
+row, the test in 0.28–0.42 s, and the rerun of the failed job passed. Not reproduced.
+
 ### 18. A named NSPasteboard is machine-global, so two test PROCESSES share it
 
 **Symptom.** A pasteboard assertion fails with a value from a fixture **this process never
