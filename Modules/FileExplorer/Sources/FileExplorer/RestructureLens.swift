@@ -891,12 +891,20 @@ struct RestructureLens: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let onRefreshSurvey {
-                            Button("Update the Survey") { onRefreshSurvey(finding.subject) }
+                            // Busy like the setup card's: disabled only for the running walk, so
+                            // every other guard still answers with the sentence below.
+                            Button(isRefreshing ? "Updating the Survey…" : "Update the Survey") {
+                                onRefreshSurvey(finding.subject)
+                            }
                                 .scaledFont(.system(size: 11, weight: .semibold))
                                 .buttonStyle(.plain)
-                                .foregroundStyle(accent)
+                                .foregroundStyle(isRefreshing ? AnyShapeStyle(.secondary)
+                                                              : AnyShapeStyle(accent))
                                 .chromeHover()
-                                .help(Self.refreshSurveyHelp)
+                                .disabled(isRefreshing)
+                                .help(isRefreshing
+                                      ? "Re-reading the tree now — this takes a few seconds."
+                                      : Self.refreshSurveyHelp)
                         }
                         if let refreshSurveyRefusal,
                            refreshSurveyRefusal.subject == finding.subject {

@@ -33,12 +33,14 @@ import Testing
     }
 
     private static func lens(refusal: (subject: String, sentence: String)?,
-                             scaffolded: Bool = true) -> RestructureLens {
+                             scaffolded: Bool = true,
+                             refreshing: Bool = false) -> RestructureLens {
         RestructureLens(
             findings: [Self.backlog()], hasProfile: true, folderCount: 10,
             accent: .blue, onReveal: { _ in },
             scaffoldedSubjects: scaffolded ? ["Health/Dental/2026"] : [],
             hasReviewed: true,
+            isRefreshing: refreshing,
             onRefreshSurvey: { _ in },
             refreshSurveyRefusal: refusal)
     }
@@ -79,7 +81,8 @@ import Testing
         let elseBranch = try #require(text.range(of: "} else if !scaffold.isEmpty, let onScaffold {",
                                                  range: landed.lowerBound..<text.endIndex))
         let branch = text[landed.lowerBound..<elseBranch.lowerBound]
-        #expect(branch.contains("Button(\"Update the Survey\") { onRefreshSurvey"),
+        #expect(SourceText.normalized(String(branch))
+                    .contains(SourceText.normalized("{ onRefreshSurvey(finding.subject) }")),
                 "the button lives in the scaffolded branch")
         #expect(!SourceText.normalized(String(text[elseBranch.lowerBound...].prefix(600)))
                     .contains(SourceText.normalized("onRefreshSurvey(finding.subject)")),
@@ -111,16 +114,27 @@ import Testing
         }
     }
 
-    /// The control that starts the walk is disabled while it runs, and says so; otherwise a button
-    /// that looks dead gets pressed again, collecting a refusal per press.
+    /// Each control that starts the walk is disabled while it runs, greys, and says so; otherwise a
+    /// button that looks idle gets pressed again, collecting a refusal per press. Scanned per
+    /// control, so one keeping its busy state can't vouch for another.
     @Test func theRefreshControlsShowTheyAreBusy() throws {
         let lens = try SourceText.fileExplorer("RestructureLens.swift")
         #expect(lens.contains("var isRefreshing: Bool"),
                 "the lens cannot show a busy state it is never told about")
-        #expect(lens.contains("Button(isRefreshing ? \"Updating the Survey…\" : \"Update the Survey\")"),
-                "Update the Survey must say when it is already updating")
-        #expect(lens.contains(".disabled(isRefreshing)"),
-                "Rescan must refuse the second press rather than collecting a refusal for it")
+        let busy = [
+            "Button(isRefreshing ? \"Updating the Survey…\" : \"Update the Survey\")",
+            ".foregroundStyle(isRefreshing ? AnyShapeStyle(.secondary)",
+            ".disabled(isRefreshing)",
+            "\"Re-reading the tree now — this takes a few seconds.\"",
+        ]
+        for (control, opening) in [("the Scaffolded card", "if scaffoldedSubjects.contains(finding.subject)"),
+                                   ("the stale-survey note", "if stale, let onUpdateSurvey")] {
+            let block = SourceText.normalized(try SourceText.block(opening: opening, in: lens))
+            for piece in busy {
+                #expect(block.contains(SourceText.normalized(piece)),
+                        "\(control)'s Update the Survey lacks \(piece)")
+            }
+        }
         #expect(lens.contains("isBusy: isRefreshing"),
                 "the setup card's secondary action must carry the same busy state")
 
@@ -128,5 +142,23 @@ import Testing
         let host = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(host.contains("isRefreshing: syncManager.restructureLandingInProgress"),
                 "the button's enabled state must be the engine's guard, or the two disagree")
+    }
+
+    /// Drawn, not only read: the Scaffolded card looks different while a refresh runs, and a card
+    /// without the button looks the same either way, so the difference is the button's.
+    @Test func theScaffoldedButtonDrawsItsBusyState() throws {
+        func render(scaffolded: Bool, refreshing: Bool) throws -> NSBitmapImageRep {
+            try #require(RestructureRender.raster(
+                Self.lens(refusal: nil, scaffolded: scaffolded, refreshing: refreshing),
+                width: 640, height: 300))
+        }
+        let idle = try render(scaffolded: true, refreshing: false)
+        let busy = try render(scaffolded: true, refreshing: true)
+        #expect(RestructureRender.inkedPixels(idle) > 0, "the card drew something at all")
+        #expect(RestructureRender.differingPixels(idle, busy) > 200,
+                "Update the Survey must look busy while the survey is updating")
+        #expect(RestructureRender.differingPixels(try render(scaffolded: false, refreshing: false),
+                                                  try render(scaffolded: false, refreshing: true)) == 0,
+                "nothing else on the card reacts to a refresh")
     }
 }

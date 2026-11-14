@@ -15503,3 +15503,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s survey=%s router=%s months=%s
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The router, so month words as topics | RECORDED — not owed |
 | `v3.x` / `v2.x` | No router | CLOSED — does not apply |
+
+## The Scaffolded card's Update the Survey shows it is running — recorded, not owed
+
+2026-11-14, for v7.2. On a structure finding whose scaffold has landed, Update the Survey now reads
+"Updating the Survey…", greys and is disabled while a refresh runs, as the setup card's own button
+already did. Before, it stayed accented and pressable, so a second press only collected a refusal.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s button=%s busy=%s\n' $l \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -c 'onRefreshSurvey(finding.subject)')" \
+  "$(git show origin/$l:Modules/FileExplorer/Sources/FileExplorer/RestructureLens.swift 2>/dev/null | grep -c 'var isRefreshing')"; done
+# measured 2026-11-14, against origin: button=1 busy=1 on v6.x/v5.x, 0 on v4.x/v3.x/v2.x
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` | The button, without its busy state | RECORDED — not owed |
+| `v4.x` / `v3.x` / `v2.x` | No Scaffolded button | CLOSED — does not apply |
