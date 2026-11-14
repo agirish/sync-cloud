@@ -16,6 +16,15 @@ struct FilingGroupCard: View {
     /// Type the whole group's home in full, offered when its home creates folders.
     var pathEditor: FilingPathEditorHooks? = nil
     @State private var editingPath = false
+    /// What Choose a Folder… would teach.
+    var rememberAccount: FilingRememberAccount? = nil
+    /// The account sits in an archive and these are newer than anything in it: File N files into
+    /// the archive, and this moves the account out first. nil hides it.
+    var onMoveOutOfArchive: (() -> Void)? = nil
+    /// The archive's own name, for "File N in Archive".
+    var archiveName: String = "Archive"
+    /// File Once Here, when the statements name other accounts too.
+    var onFileOnce: ((FilingPreference.Scope?) -> Void)? = nil
 
     @State private var expanded: Bool? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -70,11 +79,17 @@ struct FilingGroupCard: View {
             }
             HStack(spacing: 9) {
                 Button(action: onFile) {
-                    Label(FilingGroupText.fileButton(group), systemImage: "arrow.right.circle")
+                    Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
+                          systemImage: "arrow.right.circle")
                 }
                 .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                 .chromeHover().lockedDuringRun()
                 .disabled(group.toFile.isEmpty)
+                if let onMoveOutOfArchive {
+                    Button(action: onMoveOutOfArchive) { Label("Move Out of \(archiveName), Then File", systemImage: "archivebox") }
+                        .controlSize(.small).lockedDuringRun()
+                        .help("These are newer than anything in the account, so it looks live again: move its folder beside the archive, then file them. ⌘Z undoes both.")
+                }
                 Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
                     .controlSize(.small).lockedDuringRun()
                     .disabled(group.toFile.isEmpty)
@@ -87,6 +102,10 @@ struct FilingGroupCard: View {
                 .buttonStyle(.borderless).controlSize(.small)
                 .accessibilityLabel(isExpanded ? "Hide the \(group.members.count) files" : "Show the \(group.members.count) files")
             }
+            if let onFileOnce, !group.destination.alsoCopiesTo.isEmpty {
+                FilingCopiesRow(copies: group.destination.alsoCopiesTo, onFileOnce: onFileOnce)
+            }
+            if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
             if isExpanded { memberList }
         }
         .padding(.horizontal, 14)

@@ -26,6 +26,7 @@ extension FileSyncManager {
         refreshSatelliteHomes(providerRoot: providerRoot)
         // Before the early-out too: an undone filing moves the generation the index is keyed on.
         forgetUndoneFilings()
+        forgetUndoneLearnedAccounts()
         if filingRouterIndex != nil, filingRouterIndexKey == destinations,
            before == filingSatelliteHomes,
            filingRouterIndexFiledGeneration == filingFiledSinceSurveyGeneration { return }

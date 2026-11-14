@@ -1,0 +1,186 @@
+import Events
+import Foundation
+
+/// New statements for an account that sits in an archive (decision 9): filed there by default,
+/// with an offer to move the account out of the archive first, since statements newer than any it
+/// holds say the account is live again.
+public struct FilingArchiveOffer: Sendable, Equatable {
+    /// The account folder now, inside the archive. Absolute.
+    public let accountFolder: String
+    /// Where it would go: beside the archive, under the same name. Absolute.
+    public let target: String
+    /// The archive folder's own name, for the button ("Archive", "Closed").
+    public let archiveName: String
+}
+
+extension FilingDestination {
+    /// This home with `old` (a folder) replaced by `new` wherever it begins a path: its own, its
+    /// account's and its copies'.
+    func repointed(from old: String, to new: String) -> FilingDestination {
+        func swap(_ p: String) -> String {
+            p == old ? new : (p.hasPrefix(old + "/") ? new + p.dropFirst(old.count) : p)
+        }
+        func swapAccount(_ a: FilingAccount) -> FilingAccount {
+            var b = FilingAccount(root: swap(a.root), ending: a.ending, institution: a.institution,
+                                  archived: a.archived && swap(a.root) == a.root, kind: a.kind)
+            b.institutionName = a.institutionName
+            return b
+        }
+        var d = FilingDestination(path: swap(path), confidence: confidence, reasons: reasons, newSegments: newSegments,
+                                  fromContent: fromContent, remembered: remembered, fromAI: fromAI,
+                                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                                  proposedName: proposedName, fromSurvey: fromSurvey,
+                                  account: account.map(swapAccount), nameOrigin: nameOrigin)
+        d.alsoCopiesTo = alsoCopiesTo.map {
+            FilingCopy(path: swap($0.path), proposedName: $0.proposedName, account: swapAccount($0.account))
+        }
+        return d
+    }
+}
+
+extension FileSyncManager {
+
+    /// The offer for `group`, when it holds two or more statements for an archived account, newer
+    /// than the newest it holds, and the folder beside the archive is free. Tax forms and single
+    /// files are filed into the archive with no offer.
+    public func archiveOffer(for group: FilingCardGroup) -> FilingArchiveOffer? {
+        // Asked per render of the card: answered once per set of cards.
+        guard group.account.archived else { return nil }
+        let key = group.id + "\u{0}" + group.toFile.map(\.filePath).joined(separator: "\u{0}")
+        if filingArchiveOfferCache.generation != filingSuggestionsGeneration {
+            filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
+        }
+        if let cached = filingArchiveOfferCache.offers[key] { return cached }
+        let offer = computeArchiveOffer(for: group)
+        filingArchiveOfferCache.offers[key] = .some(offer)
+        return offer
+    }
+
+    private func computeArchiveOffer(for group: FilingCardGroup) -> FilingArchiveOffer? {
+        let account = group.account
+        guard account.archived, group.toFile.count >= 2,
+              group.toFile.allSatisfy({ filingDocumentFacts[$0.filePath]?.kind == .statement }),
+              let root = filingLastProviderRoot ?? group.members.first?.providerRoot,
+              let relative = Self.relativePath(account.root, under: root) else { return nil }
+        // The archive: the nearest folder above the account named so, or marked so by the survey.
+        var parts = relative.split(separator: "/").map(String.init)
+        var archiveIndex: Int?
+        for i in stride(from: parts.count - 2, through: 0, by: -1) {
+            let path = parts[...i].joined(separator: "/")
+            if AccountIndex.isArchiveName(parts[i]) || filingArchivedFolders.contains(path) { archiveIndex = i; break }
+        }
+        guard let archiveIndex else { return nil }
+        let archiveName = parts[archiveIndex]
+        // Out of the archive and any year folders it filed the account under (`Archive/2019/…`),
+        // keeping the bank folder between (`Archive/HDFC Forex/HDFC Forex 9055`).
+        parts.remove(at: archiveIndex)
+        while archiveIndex < parts.count - 1, FolderProfileEntry.looksLikeYear(parts[archiveIndex]) {
+            parts.remove(at: archiveIndex)
+        }
+        let target = root + "/" + parts.joined(separator: "/")
+        guard !fileManager.fileExists(atPath: target) else { return nil }
+        // Newer than anything it holds.
+        // Two or more of them newer than anything it holds.
+        let periods = group.toFile.compactMap { s in
+            filingDocumentFacts[s.filePath]?.period ?? StatementFamily.period(ofName: s.fileName, folder: "")
+        }
+        guard let node = AccountProposal.node(at: relative, in: filingAccountTaxonomy) else { return nil }
+        let held = StatementFamily.families(below: node).values.flatMap { $0 }.map(\.period).max()
+        guard periods.filter({ p in held.map { p > $0 } ?? true }).count >= 2 else { return nil }
+        return FilingArchiveOffer(accountFolder: account.root, target: target, archiveName: archiveName)
+    }
+
+    /// Moves the account out of its archive, points what referred to it at its new place (learned
+    /// accounts, the open cards), then files `group` there. One ⌘Z puts the files back and the
+    /// account back in the archive. Refuses, moving nothing, when a statement in it is only in the
+    /// cloud or the folder beside the archive has been taken since the offer.
+    @discardableResult
+    public func moveOutOfArchiveThenFile(_ group: FilingCardGroup, offer: FilingArchiveOffer) async -> Int {
+        let fm = fileManager
+        guard !isVerifyAllRunning, !filingBatchInFlight.contains(ObjectIdentifier(self)) else {
+            banner = .refusal("Wait for the filing or Verify All in progress to finish", log: .info)
+            return 0
+        }
+        guard !fm.fileExists(atPath: offer.target) else {
+            banner = .refusal("“\((offer.target as NSString).lastPathComponent)” is already beside \(offer.archiveName); filed nothing", log: .info)
+            return 0
+        }
+        if Self.holdsCloudOnlyFile(offer.accountFolder) {
+            banner = .refusal("Some files in “\((offer.accountFolder as NSString).lastPathComponent)” are only in iCloud. Download them first, or file in \(offer.archiveName).", log: .info)
+            return 0
+        }
+        let from = URL(fileURLWithPath: offer.accountFolder), to = URL(fileURLWithPath: offer.target)
+        // In the file-operation queue, behind anything already moving files in or out of it.
+        let moveError: String? = await enqueueFileOperation {
+            do { try FileManager.default.moveItem(at: from, to: to); return nil } catch { return error.localizedDescription }
+        }
+        if let moveError {
+            banner = .refusal("Couldn’t move “\(from.lastPathComponent)” out of \(offer.archiveName): \(moveError)", log: .warn)
+            return 0
+        }
+        filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
+        Logger.shared.info("Filing: moved \(from.path) out of \(offer.archiveName) → \(to.path)")
+        repointFiling(from: offer.accountFolder, to: offer.target, registersUndo: false)
+        let members = group.members.map { s in
+            s.replacingCandidates(s.candidates.map { $0.repointed(from: offer.accountFolder, to: offer.target) })
+        }
+        let moved = FilingCardGroup(account: group.destination.repointed(from: offer.accountFolder, to: offer.target).account ?? group.account,
+                                    destination: group.destination.repointed(from: offer.accountFolder, to: offer.target),
+                                    members: members)
+        let n = await fileFilingGroup(moved, priorFolderMove: (move: (from: from, to: to, overwritten: nil),
+                                                                old: offer.accountFolder, new: offer.target))
+        if n == 0 {
+            // Nothing filed: the account goes back where it was, so the move isn't left without a ⌘Z.
+            if (try? fm.moveItem(at: to, to: from)) != nil {
+                repointFiling(from: offer.target, to: offer.accountFolder, registersUndo: false)
+            }
+        }
+        return n
+    }
+
+    /// Whether any file under `folder` is only in the cloud: moving it then would ask the provider
+    /// to move what isn't here.
+    nonisolated static func holdsCloudOnlyFile(_ folder: String) -> Bool {
+        guard let walker = FileManager.default.enumerator(atPath: folder) else { return false }
+        while let rel = walker.nextObject() as? String {
+            if MaterializationStatus.isCloudOnlyIfKnown(atPath: folder + "/" + rel) == true { return true }
+        }
+        return false
+    }
+
+    /// Learned accounts and open cards that point inside `old` now point inside `new`. Registers
+    /// its own reverse, so the ⌘Z that moves the folder back points them back too.
+    func repointFiling(from old: String, to new: String, registersUndo: Bool = true) {
+        guard let root = filingLastProviderRoot,
+              let oldRel = Self.relativePath(old, under: root), let newRel = Self.relativePath(new, under: root) else { return }
+        var learned = filingLearnedAccounts
+        var changed = false
+        for i in learned.indices where learned[i].surveyRoot == root
+            && (learned[i].folder == oldRel || learned[i].folder.hasPrefix(oldRel + "/")) {
+            learned[i].folder = newRel + learned[i].folder.dropFirst(oldRel.count)
+            changed = true
+        }
+        if changed { filingLearnedAccounts = learned }
+        filingSuggestions = filingSuggestions.map { s in
+            s.replacingCandidates(s.candidates.map { $0.repointed(from: old, to: new) })
+        }
+        filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
+        if registersUndo { registerRepointUndo(from: new, to: old) }
+    }
+
+    /// An undo that points learned accounts and cards from `new` back to `old`, once the folder
+    /// is back: queued behind the moves the same ⌘Z queued first, and skipped if the folder
+    /// stayed where it was (its move-back refused). Registers its own redo.
+    func registerRepointUndo(from new: String, to old: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerRepointUndo(from: old, to: new)
+            let slot = target.claimFileOperationSlot()
+            Task { @MainActor in
+                let back = await target.enqueueFileOperation(slot: slot) {
+                    FileManager.default.fileExists(atPath: old) && !FileManager.default.fileExists(atPath: new)
+                }
+                if back { target.repointFiling(from: new, to: old, registersUndo: false) }
+            }
+        }
+    }
+}

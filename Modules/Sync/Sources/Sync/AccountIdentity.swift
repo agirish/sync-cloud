@@ -363,6 +363,9 @@ public struct AccountIndex: Sendable {
         case medium(Account, number: DocumentFacts.OwnNumber, why: Why)
         /// Two or more accounts end in the printed number.
         case ambiguous([Account])
+        /// A statement printing the own numbers of two or more accounts, each matched to one
+        /// account at a bank the page names (a combined brokerage and IRA statement), in page order.
+        case several([Account], numbers: [DocumentFacts.OwnNumber])
         case none
 
         public enum Why: String, Sendable { case notAStatement, institutionSilent }
@@ -408,6 +411,7 @@ public struct AccountIndex: Sendable {
     }
 
     public func match(_ facts: DocumentFacts) -> Match {
+        if let several = severalAccounts(facts) { return .several(several.map(\.0), numbers: several.map(\.1)) }
         var hits: [(Account, DocumentFacts.OwnNumber)] = []
         for account in accounts {
             for number in facts.matchingNumbers where account.identities.contains(where: { ends(number, identity: $0) }) {
@@ -438,6 +442,33 @@ public struct AccountIndex: Sendable {
         if own == 0 { return .medium(account, number: number, why: .institutionSilent) }
         guard facts.kind == .statement else { return .medium(account, number: number, why: .notAStatement) }
         return .high(account, number: number)
+    }
+}
+
+extension AccountIndex {
+    /// Each own number on a statement, in page order, matched to exactly one account (nested
+    /// matches collapse to the highest folder), when two or more distinct accounts result and
+    /// every one is at a bank the page names, with no other bank heading it more. nil otherwise:
+    /// one number at two accounts is ``Match/ambiguous(_:)``, not this.
+    func severalAccounts(_ facts: DocumentFacts) -> [(Account, DocumentFacts.OwnNumber)]? {
+        guard facts.kind == .statement else { return nil }
+        var pairs: [(Account, DocumentFacts.OwnNumber)] = []
+        var seen: Set<String> = []
+        for number in facts.matchingNumbers where seen.insert(number.ending).inserted {
+            let hit = accounts.filter { $0.identities.contains { ends(number, identity: $0) } }
+            let top = hit.filter { a in !hit.contains { o in o.root != a.root && a.root.hasPrefix(o.root + "/") } }
+            guard !top.isEmpty else { continue }
+            guard top.count == 1 else { return nil }
+            if pairs.contains(where: { $0.0.root == top[0].root }) { continue }
+            pairs.append((top[0], number))
+        }
+        guard pairs.count >= 2 else { return nil }
+        let banks = Set(pairs.map(\.0.institution))
+        let own = banks.map { mentions($0, in: facts.header) }
+        guard own.allSatisfy({ $0 > 0 }) else { return nil }
+        let rival = institutionTokens.keys.filter { !banks.contains($0) }.map { mentions($0, in: facts.header) }.max() ?? 0
+        guard rival <= (own.max() ?? 0) else { return nil }
+        return pairs
     }
 }
 

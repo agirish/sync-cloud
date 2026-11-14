@@ -1064,6 +1064,10 @@ public class FileSyncManager: ObservableObject {
     var filingSharedStatementFolders: Set<String> = []
     /// The last scan's folders the survey marks as archives, for re-asks.
     var filingArchivedFolders: Set<String> = []
+    /// Page 1 facts of the last scan's loose files, by path: what a redirect teaches from.
+    public internal(set) var filingDocumentFacts: [String: DocumentFacts] = [:]
+    /// Archive offers by group, for the cards on screen (``archiveOffer(for:)``).
+    var filingArchiveOfferCache: (generation: Int, offers: [String: FilingArchiveOffer?]) = (-1, [:])
     /// Members of a group card that couldn't be filed; the lens shows them as cards of their own.
     @Published public internal(set) var filingGroupFailures: Set<String> = []
     /// Page 1 facts of filed statements read to learn accounts named without digits, by path, with

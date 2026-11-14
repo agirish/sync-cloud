@@ -225,6 +225,9 @@ public struct LensWorkspaceView: View {
     /// scan starts (see `.onChange(of: isSuggestingFiles)`).
     /// Files the user pulled out of a group card, shown as cards of their own until the next scan.
     @State private var pulledOutOfGroups: Set<String> = []
+    /// "Remember ••NNNN where I choose", per card, where he changed it from the default: on for a
+    /// group, off for a single file (decision 8).
+    @State private var rememberAccountChoice: [String: Bool] = [:]
 
     /// See `LensWorkspaceSession.filedThisSession`.
     private var filedThisSession: Bool {
@@ -4472,9 +4475,43 @@ public struct LensWorkspaceView: View {
             },
             pathEditor: group.destination.createsAccountFolder ? pathEditor(for: group.members[0], title: "Create and File \(group.toFile.count)") { dest in
                 filedThisSession = true
-                Task { await syncManager.applyFilingGroup(group, typed: dest) }
-            } : nil
+                Task { await syncManager.applyFilingGroup(group, typed: dest, teach: true) }
+            } : nil,
+            // Not where the account's folder name carries the number: that outranks any lesson.
+            rememberAccount: offersRemember(group)
+                ? FilingRememberAccount(ending: syncManager.rememberableEnding(for: group.toFile),
+                                        isOn: rememberAccountChoice[group.id] ?? true,
+                                        onToggle: { rememberAccountChoice[group.id] = $0 })
+                : nil,
+            onMoveOutOfArchive: syncManager.archiveOffer(for: group).map { offer in
+                {
+                    filedThisSession = true
+                    Task { await syncManager.moveOutOfArchiveThenFile(group, offer: offer) }
+                }
+            },
+            archiveName: syncManager.archiveOffer(for: group)?.archiveName ?? "Archive",
+            onFileOnce: { scope in
+                filedThisSession = true
+                rememberFileOnce(scope, copies: group.destination.alsoCopiesTo)
+                Task { await syncManager.applyFilingGroup(group, fileOnce: true) }
+            }
         )
+    }
+
+    /// File Once Here from now on, at `scope` (nil: just this time), as a preference listed in
+    /// Automations.
+    private func rememberFileOnce(_ scope: FilingPreference.Scope?, copies: [FilingCopy]) {
+        guard let scope else { return }
+        syncManager.setFilingPreference(FilingPreference(scope: scope, copies: false,
+                                                         label: FilingCopiesText.label(scope, copies: copies)))
+    }
+
+    /// Whether a group card offers "Remember ••NNNN where I choose": statements, and not where the
+    /// account's folder name carries the number (that outranks any lesson), unless that folder is
+    /// the new one it proposes.
+    private func offersRemember(_ group: FilingCardGroup) -> Bool {
+        (!group.account.isNamedByFolder || group.destination.createsAccountFolder)
+            && group.toFile.contains { syncManager.filingDocumentFacts[$0.filePath]?.kind == .statement }
     }
 
     /// Asks where a whole group goes, then files every member there under its own name.
@@ -4494,7 +4531,8 @@ public struct LensWorkspaceView: View {
             ),
             onCommit: { destination in
                 filedThisSession = true
-                Task { await syncManager.applyFilingGroup(group, into: destination) }
+                let teach = offersRemember(group) && (rememberAccountChoice[group.id] ?? true)
+                Task { await syncManager.applyFilingGroup(group, into: destination, teach: teach) }
             },
             onOther: { Self.runSystemFolderPanel(for: first.fileName, startingAt: group.account.root) }
         ))
@@ -4562,8 +4600,20 @@ public struct LensWorkspaceView: View {
             isNotDownloaded: syncManager.filingNotDownloaded.contains(suggestion.filePath),
             pathEditor: suggestion.best?.createsAccountFolder == true ? pathEditor(for: suggestion, title: "Create and File") { dest in
                 filedThisSession = true
-                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
-            } : nil
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: true) }
+            } : nil,
+            // Statements only: what an account is.
+            rememberAccount: syncManager.filingDocumentFacts[suggestion.filePath]?.kind == .statement
+                && (suggestion.best?.account?.isNamedByFolder != true || suggestion.best?.createsAccountFolder == true)
+                ? FilingRememberAccount(ending: syncManager.rememberableEnding(for: [suggestion]),
+                                        isOn: rememberAccountChoice[suggestion.id] ?? false,
+                                        onToggle: { rememberAccountChoice[suggestion.id] = $0 })
+                : nil,
+            onFileOnce: { scope, dest in
+                filedThisSession = true
+                rememberFileOnce(scope, copies: suggestion.best?.alsoCopiesTo ?? [])
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, fileOnce: true) }
+            }
         )
     }
 
@@ -4838,7 +4888,8 @@ public struct LensWorkspaceView: View {
         Task {
             // Only prompt to remember an override when the file actually moved: a rule from filing
             // into the folder it already sits in (`.notNeeded`) is pointless.
-            if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
+            let teachAccount = rememberAccountChoice[suggestion.id] ?? false
+            if await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: teachAccount) == .moved, teachable {
                 pendingRuleOffer = nil   // a stale offer would otherwise hide the fresh teach prompt
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
                                                               destinationPath: destination,

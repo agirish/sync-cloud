@@ -74,6 +74,10 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
 
     public enum NameOrigin: String, Sendable, Equatable, Hashable { case planner, template, typed }
 
+    /// The other accounts a statement printing several accounts' own numbers is copied into
+    /// (decision 11): this home is the account whose number comes first. Empty for every other home.
+    public var alsoCopiesTo: [FilingCopy] = []
+
     public var isNew: Bool { !newSegments.isEmpty }
 
     /// The home makes the account's own folder, not just a year inside an account it has: a new
@@ -208,6 +212,18 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
 }
 
 /// The account a statement was matched to: what a grouped card is about.
+/// A copy of a statement filed into another account it names (decision 11).
+public struct FilingCopy: Sendable, Equatable, Hashable {
+    /// The folder the copy lands in, absolute.
+    public let path: String
+    /// Its name there, copied from that account's statements; nil keeps the file's own.
+    public let proposedName: String?
+    public let account: FilingAccount
+    public init(path: String, proposedName: String?, account: FilingAccount) {
+        self.path = path; self.proposedName = proposedName; self.account = account
+    }
+}
+
 public struct FilingAccount: Sendable, Equatable, Hashable {
     /// The account folder, absolute.
     public let root: String
@@ -221,6 +237,13 @@ public struct FilingAccount: Sendable, Equatable, Hashable {
     public let archived: Bool
     /// Statement, tax form or other, from page 1.
     public let kind: DocumentFacts.Kind
+
+    /// The account folder's own name carries the number (`Brokerage 1750`): what the tree says,
+    /// which no lesson outranks, so filing these elsewhere teaches nothing.
+    public var isNamedByFolder: Bool {
+        AccountIndex.accountDigits(inFolderNamed: (root as NSString).lastPathComponent)
+            .contains { $0.hasSuffix(ending) || (ending.count >= 3 && ending.hasSuffix($0)) }
+    }
 
     public init(root: String, ending: String, institution: String, archived: Bool, kind: DocumentFacts.Kind) {
         self.root = root; self.ending = ending; self.institution = institution

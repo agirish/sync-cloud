@@ -425,10 +425,14 @@ extension FileSyncManager {
         let namedAccounts = await Task.detached(priority: .userInitiated) {
             AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived)
         }.value
-        let accountIndex = filingReadsContents && !looseFiles.isEmpty
+        let withUnnamed = filingReadsContents && !looseFiles.isEmpty
             ? await addingUnnamedAccounts(to: namedAccounts, taxonomy: walkedTaxonomy,
                                           root: providerRoot.path, isArchived: isArchived)
             : namedAccounts
+        // And the accounts he taught by filing (decision 8), less any whose teaching was undone.
+        forgetUndoneLearnedAccounts()
+        let accountIndex = withUnnamed.adding(learned: filingLearnedAccounts, root: providerRoot.path,
+                                              tree: walkedTaxonomy, isArchived: isArchived)
         if Task.isCancelled { return }
         filingAccountIndex = accountIndex
         filingAccountTaxonomy = taxonomy
@@ -635,10 +639,11 @@ extension FileSyncManager {
             let input = suggestions
             let scannedFolder = folder.path
             let shared = filingSharedStatementFolders
+            let preferences = filingPreferences
             let (placed, facts) = await Task.detached(priority: .userInitiated) {
                 Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
                                       root: root, scannedFolder: scannedFolder, sharedStatementFolders: shared,
-                                      isArchived: isArchived)
+                                      isArchived: isArchived, preferences: preferences)
             }.value
             if Task.isCancelled { return }
             suggestions = placed
@@ -869,6 +874,8 @@ extension FileSyncManager {
         // Published with the results, not at scan start: the folder labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
+        // Page 1 facts, for what a redirect teaches: with the cards they describe.
+        filingDocumentFacts = readFacts
         // The pages this scan read, kept for the rule offered after a filing move: same publish,
         // replaced rather than merged so a sample never outlives the list it describes. Truncated
         // to what the scorer was measured on, not what the extractor returned (`filingPageSamples`).
@@ -1783,7 +1790,8 @@ extension FileSyncManager {
     ///   when refused or the move errored.
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
-                                      remember: Bool = false) async -> FilingApplyResult {
+                                      remember: Bool = false, teachAccount teach: Bool = false,
+                                      fileOnce: Bool = false) async -> FilingApplyResult {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
         // file Verify All may be hashing.
         guard !isVerifyAllRunning else {
@@ -1815,9 +1823,18 @@ extension FileSyncManager {
                                         providerRoot: suggestion.providerRoot,
                                         evidenceWord: suggested.evidenceToken)
             }
-            registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
+            let copied = fileOnce ? [] : performFilingCopies(of: move.to, copies: destination.alsoCopiesTo)
+            registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)")
+            // What it teaches (decision 8): a statement he sent somewhere with "Remember" ticked,
+            // or the first statement of an account it made.
+            if teach || destination.createsAccountFolder {
+                let into = destination.createsAccountFolder && !teach ? (destination.account?.root ?? destination.path)
+                                                                      : destination.path
+                teachAccount(from: [suggestion], landed: [.init(source: move.from.path, landed: move.to.path)],
+                             into: into, by: teach ? .singleRedirect : .newAccount)
+            }
             let folderName = (destination.path as NSString).lastPathComponent
-            banner = .success("Filed “\(suggestion.fileName)” → \(folderName)", undoable: true)
+            banner = .success("Filed “\(suggestion.fileName)” → \(folderName)" + Self.copiedPhrase(copied), undoable: true)
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")
             return .moved
         case .noMoveNeeded:
@@ -2093,6 +2110,7 @@ extension FileSyncManager {
             filingSuggestions.removeAll { $0.id == suggestion.id }
             learnFromFiling(fileName: suggestion.fileName, sourcePath: suggestion.filePath,
                             into: dst.deletingLastPathComponent().path, filedPath: dst.path)
+            noteFiledIntoLearnedAccount(folder: dst.deletingLastPathComponent().path)
             return .moved((from: src, to: dst, overwritten: overwritten))
         }
     }

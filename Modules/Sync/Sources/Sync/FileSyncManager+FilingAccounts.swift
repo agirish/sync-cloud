@@ -12,7 +12,8 @@ extension FileSyncManager {
         _ suggestions: [FilingSuggestion], index: AccountIndex, snippets: [String: String],
         taxonomy: [FileNode], root: String, scannedFolder: String?,
         sharedStatementFolders shared: Set<String>? = nil,
-        isArchived: @escaping (String) -> Bool = { _ in false }
+        isArchived: @escaping (String) -> Bool = { _ in false },
+        preferences: [FilingPreference] = []
     ) -> (suggestions: [FilingSuggestion], facts: [String: DocumentFacts]) {
         var facts: [String: DocumentFacts] = [:]
         let nodes = accountNodes(index, in: taxonomy)
@@ -42,6 +43,39 @@ extension FileSyncManager {
                 if case .medium(_, _, .notAStatement) = match {
                     return s.replacingCandidates(appending(dest, to: s.candidates))
                 }
+                return s.replacingCandidates(inserting(dest, into: s.candidates))
+            case .several(let accounts, let numbers):
+                let pairs = Array(zip(accounts, numbers))
+                // Filed into the account whose number comes first, copied into the others he
+                // hasn't asked to file once (decision 11).
+                var placed: [(AccountIndex.Account, DocumentFacts.OwnNumber, AccountPlacement.Placement)] = []
+                for (account, number) in pairs {
+                    guard let node = nodes[account.root] else { continue }
+                    placed.append((account, number, AccountPlacement.place(in: node, period: period, taxForm: false,
+                                                                           fileName: s.fileName)))
+                }
+                guard let (account, number, place) = placed.first else { return s }
+                let sure = placed.allSatisfy { !$0.2.yearUnknown }
+                var dest = destination(for: account, number: number, place: place, kind: f.kind,
+                                       confidence: sure ? .high : .medium, root: root, match: .high(account, number: number))
+                let copies = placed.dropFirst().map { a, n, p -> FilingCopy in
+                    let accountPath = root + "/" + a.root
+                    var fa = FilingAccount(root: accountPath, ending: n.ending, institution: a.institution,
+                                           archived: a.archived, kind: f.kind)
+                    fa.institutionName = a.institutionName
+                    return FilingCopy(path: p.folder.isEmpty ? accountPath : accountPath + "/" + p.folder,
+                                      proposedName: p.name, account: fa)
+                }
+                let kept = copies.filter { FilingPreference.copies(into: $0.account, kind: f.kind, preferences: preferences) }
+                let named = copies.map { "••" + $0.account.ending }.joined(separator: ", ")
+                var reasons = dest.reasons
+                reasons.append(kept.isEmpty
+                    ? "Also names \(named) · filed once, as you asked"
+                    : "Also names " + kept.map { "••\($0.account.ending)" }.joined(separator: ", ") + " · a copy goes to each")
+                dest = FilingDestination(path: dest.path, confidence: dest.confidence, reasons: reasons,
+                                         newSegments: dest.newSegments, fromContent: true, evidenceToken: dest.evidenceToken,
+                                         proposedName: dest.proposedName, account: dest.account, nameOrigin: dest.nameOrigin)
+                dest.alsoCopiesTo = kept
                 return s.replacingCandidates(inserting(dest, into: s.candidates))
             case .ambiguous(let accounts):
                 // Which of them can't be told from the page: each is offered, none leads a surer home.
@@ -234,11 +268,14 @@ extension FileSyncManager {
     /// rest.
     func applyingAccounts(to suggestion: FilingSuggestion, page: String) -> FilingSuggestion {
         guard let index = filingAccountIndex, !index.isEmpty, let root = filingLastProviderRoot else { return suggestion }
-        return Self.applyingAccounts([suggestion], index: index, snippets: [suggestion.filePath: page],
-                                     taxonomy: filingAccountTaxonomy, root: root,
-                                     scannedFolder: filingScanFolder,
-                                     sharedStatementFolders: filingSharedStatementFolders,
-                                     isArchived: { [archived = filingArchivedFolders] in archived.contains($0) }).suggestions.first ?? suggestion
+        let (placed, facts) = Self.applyingAccounts([suggestion], index: index, snippets: [suggestion.filePath: page],
+                                                    taxonomy: filingAccountTaxonomy, root: root,
+                                                    scannedFolder: filingScanFolder,
+                                                    sharedStatementFolders: filingSharedStatementFolders,
+                                                    isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
+                                                    preferences: filingPreferences)
+        if let f = facts[suggestion.filePath] { filingDocumentFacts[suggestion.filePath] = f }
+        return placed.first ?? suggestion
     }
 
     /// The folders the survey marks as archives, by path relative to its root.

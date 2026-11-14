@@ -1,0 +1,230 @@
+import Foundation
+import Events
+
+/// An account he taught by filing its statements somewhere To File didn't offer (decision 8): the
+/// number the statements print for themselves, their bank, and the folder he chose. The next scan
+/// matches it like an account whose folder name carries the number.
+///
+/// Stored in plain text: the last four digits, the same digits his folder names already show.
+/// Hashing four digits protects nothing on the Mac that holds them.
+public struct LearnedAccount: Codable, Equatable, Identifiable, Sendable {
+    public enum TaughtBy: String, Codable, Sendable { case groupRedirect, singleRedirect, newAccount }
+
+    /// One file of the filing that taught it: Undo puts it back at `source` and takes it from
+    /// `landed`, which is how the entry knows to forget itself.
+    public struct Teaching: Codable, Equatable, Sendable {
+        public let source: String
+        public let landed: String
+        public init(source: String, landed: String) { self.source = source; self.landed = landed }
+    }
+
+    public var id: UUID
+    /// The bank's normalized name (`charles schwab`), as the account index keys it.
+    public var institution: String
+    /// The bank's folder name, for display (`Charles Schwab`).
+    public var institutionName: String
+    /// The last four digits the statements print.
+    public var ending: String
+    /// The account folder, relative to `surveyRoot`.
+    public var folder: String
+    public var surveyRoot: String
+    public var taughtAt: Date
+    public var taughtBy: TaughtBy
+    /// Statements filed into it since, its teaching included.
+    public var filedCount: Int
+    public var teaching: [Teaching]
+
+    public var absoluteFolder: String { surveyRoot + "/" + folder }
+}
+
+extension FileSyncManager {
+
+    public nonisolated static let learnedAccountsDefaultsKey = "filingLearnedAccounts"
+
+    /// Every account taught, newest last. Lives beside the rules (`filingRuleDefaults`), apart
+    /// from the survey: a survey rebuilt leaves it as it was.
+    public var filingLearnedAccounts: [LearnedAccount] {
+        get {
+            FileSyncManager.decodePersistedStore([LearnedAccount].self, from: filingRuleDefaults,
+                                                 key: Self.learnedAccountsDefaultsKey,
+                                                 describing: "learned accounts") ?? []
+        }
+        set {
+            objectWillChange.send()
+            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
+                                                key: Self.learnedAccountsDefaultsKey,
+                                                describing: "learned accounts")
+        }
+    }
+
+    /// The number a filing of `members` would teach: the ending most of them print for themselves.
+    /// nil when none prints one: "Nothing to remember: no account number on page 1".
+    public func rememberableEnding(for members: [FilingSuggestion]) -> String? {
+        var counts: [String: Int] = [:]
+        for m in members {
+            // Statements only: a 1099 sent to Income Tax says nothing about where statements go.
+            guard let f = filingDocumentFacts[m.filePath], f.kind == .statement else { continue }
+            for e in Set(f.matchingNumbers.map(\.ending)) { counts[e, default: 0] += 1 }
+        }
+        guard let top = counts.max(by: { ($0.value, $1.key) < ($1.value, $0.key) }) else { return nil }
+        // A tie names no one account.
+        return counts.filter { $0.value == top.value }.count == 1 ? top.key : nil
+    }
+
+    /// Records what filing `members` into `folder` taught: their number, their bank and the
+    /// account folder holding `folder` (its year and month levels set aside). Nothing when they
+    /// print no number, when `folder` is outside the tree the scan walked, or when no bank is
+    /// known for them. Returns the entry taught.
+    @discardableResult
+    public func teachAccount(from members: [FilingSuggestion], landed: [LearnedAccount.Teaching],
+                             into folder: String, by taughtBy: LearnedAccount.TaughtBy,
+                             now: Date = Date()) -> LearnedAccount? {
+        guard !landed.isEmpty, let ending = rememberableEnding(for: members),
+              let root = members.first?.providerRoot ?? filingLastProviderRoot,
+              var relative = Self.relativePath(folder, under: root), !relative.isEmpty else { return nil }
+        relative = Self.accountFolder(of: relative)
+        guard !relative.isEmpty else { return nil }
+        let index = filingAccountIndex
+        let facts = members.compactMap { filingDocumentFacts[$0.filePath] }
+        // The bank the pages name, else the bank folder he chose.
+        let named = facts.compactMap { index?.headerInstitution($0) }
+        let byPage = Dictionary(grouping: named, by: { $0 }).max { $0.value.count < $1.value.count }?.key
+        let folderBank = AccountIndex.institutionFolder(of: relative, isArchived: { _ in false })?.0
+        let institution = byPage ?? folderBank.map { ($0 as NSString).lastPathComponent.lowercased() }
+        guard let institution else { return nil }
+        // A folder whose name carries this number at this bank outranks any lesson
+        // (`AccountIndex.adding(learned:)`): one taught here would be listed and never used.
+        if let named = index?.accounts.first(where: { a in
+            a.institution == institution && a.root != relative
+                && AccountIndex.accountDigits(inFolderNamed: (a.root as NSString).lastPathComponent)
+                    .contains { $0.hasSuffix(ending) }
+        }) {
+            Logger.shared.info("Filing: nothing learned for ••\(ending): \(named.root) carries that number")
+            return nil
+        }
+        let displayName = relative.split(separator: "/").map(String.init).last { $0.lowercased() == institution }
+            ?? index?.accounts.first { $0.institution == institution }?.institutionName
+            ?? folderBank.map { ($0 as NSString).lastPathComponent } ?? institution
+        var all = filingLearnedAccounts
+        let entry: LearnedAccount
+        if let i = all.firstIndex(where: { $0.institution == institution && $0.ending == ending
+                                           && $0.folder == relative && $0.surveyRoot == root }) {
+            // Counted already as each file landed (`noteFiledIntoLearnedAccount`). Each filing's
+            // files are kept: undoing a later one leaves the lesson an earlier one taught.
+            all[i].teaching = Array((all[i].teaching + landed).suffix(200))
+            all[i].taughtAt = now
+            entry = all[i]
+        } else {
+            // The same number at the same bank somewhere else stays too: two accounts can share an
+            // ending, and the cards then say so rather than pick one.
+            entry = LearnedAccount(id: UUID(), institution: institution, institutionName: displayName,
+                                   ending: ending, folder: relative, surveyRoot: root, taughtAt: now,
+                                   taughtBy: taughtBy, filedCount: landed.count, teaching: landed)
+            all.append(entry)
+        }
+        filingLearnedAccounts = all
+        Logger.shared.info("Filing: learned \(displayName) ••\(ending) → \(relative)")
+        return entry
+    }
+
+    /// `relative` without the year and month levels at its end: the account, not its 2026.
+    nonisolated static func accountFolder(of relative: String) -> String {
+        var parts = relative.split(separator: "/").map(String.init)
+        while let last = parts.last, parts.count > 1,
+              FolderProfileEntry.looksLikeYear(last) || FilingPeriod.monthSlot(ofFolderNamed: last) != nil {
+            parts.removeLast()
+        }
+        return parts.joined(separator: "/")
+    }
+
+    /// Forgets each account whose teaching was undone: every file it taught with is back where it
+    /// came from and gone from where it landed. Moving them on later, elsewhere, forgets nothing.
+    public func forgetUndoneLearnedAccounts() {
+        let all = filingLearnedAccounts
+        let fm = fileManager
+        let kept = all.filter { a in
+            guard !a.teaching.isEmpty else { return true }
+            return !a.teaching.allSatisfy { !fm.fileExists(atPath: $0.landed) && fm.fileExists(atPath: $0.source) }
+        }
+        guard kept.count != all.count else { return }
+        Logger.shared.info("Filing: forgot \(all.count - kept.count) learned account(s) whose filing was undone")
+        filingLearnedAccounts = kept
+    }
+
+    public func removeLearnedAccount(id: UUID) {
+        filingLearnedAccounts.removeAll { $0.id == id }
+    }
+
+    /// Whether the folder an entry points at is still there; a missing one is listed, not used.
+    public func learnedAccountFolderExists(_ account: LearnedAccount) -> Bool {
+        var isDir: ObjCBool = false
+        return fileManager.fileExists(atPath: account.absoluteFolder, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    /// Counts a filing into a learned account's folder, for the "N filed" on its row.
+    func noteFiledIntoLearnedAccount(folder: String) {
+        var all = filingLearnedAccounts
+        guard let i = all.firstIndex(where: { PathBoundary.contains(folder, under: $0.absoluteFolder) }) else { return }
+        all[i].filedCount += 1
+        filingLearnedAccounts = all
+    }
+}
+
+extension AccountIndex {
+
+    /// The index with the accounts he taught for this tree. A learned number loses to a folder
+    /// whose own name carries it at the same bank: what the tree says outranks a past correction.
+    /// A learned folder no longer in the tree is not used.
+    public func adding(learned: [LearnedAccount], root: String, tree: [FileNode],
+                       isArchived: (String) -> Bool = { _ in false }) -> AccountIndex {
+        var accounts = self.accounts
+        var tokens = institutionTokens
+        for l in learned where l.surveyRoot == root {
+            guard AccountProposal.node(at: l.folder, in: tree) != nil else { continue }
+            let number = DocumentFacts.OwnNumber(digits: l.ending, masked: false)
+            // Against the tree's own accounts only: a second lesson for the same number is not
+            // outranked by the first; both stay and the card asks. Only a folder whose own name
+            // carries the number outranks a lesson; one learned from reading its statements gives
+            // the number up to it.
+            func carries(_ a: Account) -> Bool {
+                a.institution == l.institution && a.root != l.folder
+                    && a.identities.contains { ends(number, identity: $0) }
+            }
+            if self.accounts.contains(where: { carries($0) && Self.namedByFolder($0, ending: l.ending) }) { continue }
+            let treeRoots = Set(self.accounts.map(\.root))
+            for (i, a) in accounts.enumerated().reversed()
+            where treeRoots.contains(a.root) && carries(a) && !Self.namedByFolder(a, ending: l.ending) {
+                let left = a.identities.filter { !ends(number, identity: $0) }
+                if left.isEmpty { accounts.remove(at: i); continue }
+                var trimmed = Account(root: a.root, identities: left, institution: a.institution, archived: a.archived)
+                trimmed.institutionName = a.institutionName
+                accounts[i] = trimmed
+            }
+            if let i = accounts.firstIndex(where: { $0.root == l.folder }) {
+                let a = accounts[i]
+                guard !a.identities.contains(l.ending) else { continue }
+                var merged = Account(root: a.root, identities: a.identities + [l.ending],
+                                     institution: a.institution, archived: a.archived)
+                merged.institutionName = a.institutionName
+                accounts[i] = merged
+                continue
+            }
+            let archived = l.folder.split(separator: "/").contains { Self.isArchiveName(String($0)) }
+                || isArchived(l.folder)
+            var a = Account(root: l.folder, identities: [l.ending], institution: l.institution, archived: archived)
+            a.institutionName = l.institutionName
+            accounts.append(a)
+            if tokens[l.institution] == nil {
+                tokens[l.institution] = Self.words(l.institution).filter {
+                    $0.count >= 3 && !Self.stopWords.contains($0) && !genericWords.contains($0)
+                }
+            }
+        }
+        return AccountIndex(accounts: accounts, institutionTokens: tokens, genericWords: genericWords)
+    }
+
+    /// The account folder's own name carries `ending`.
+    static func namedByFolder(_ a: Account, ending: String) -> Bool {
+        accountDigits(inFolderNamed: (a.root as NSString).lastPathComponent).contains { $0.hasSuffix(ending) }
+    }
+}

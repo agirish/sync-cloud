@@ -12,7 +12,16 @@ extension FileSyncManager {
     /// which the lens shows as cards of their own.
     @discardableResult
     public func applyFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
-                                 typed: FilingDestination? = nil) async -> Int {
+                                 typed: FilingDestination? = nil, teach: Bool = false,
+                                 fileOnce: Bool = false) async -> Int {
+        await fileFilingGroup(group, into: folder, typed: typed, teach: teach, fileOnce: fileOnce)
+    }
+
+    /// ``applyFilingGroup(_:into:typed:teach:fileOnce:)``, with an account folder moved out of its
+    /// archive just before (`moveOutOfArchiveThenFile`) undone in the same step.
+    func fileFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
+                         typed: FilingDestination? = nil, teach: Bool = false, fileOnce: Bool = false,
+                         priorFolderMove: (move: MoveItemState, old: String, new: String)? = nil) async -> Int {
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
@@ -25,6 +34,7 @@ extension FileSyncManager {
         defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
 
         var moves: [MoveItemState] = []
+        var copied: [CopyItemState] = []
         var filed: [FilingBatchLog.Filed] = []
         var scored: [FilingScorecard.Record] = []
         var failures = 0, alreadyHome = 0
@@ -37,6 +47,7 @@ extension FileSyncManager {
             switch await performFiling(s, to: dest) {
             case .moved(let move):
                 moves.append(move)
+                if !fileOnce { copied += performFilingCopies(of: move.to, copies: dest.alsoCopiesTo) }
                 if let offer = s.firstOffer {
                     scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
                                                          renamedOffer: Self.isRenamedOffer(dest, of: s)))
@@ -61,7 +72,16 @@ extension FileSyncManager {
             return 0
         }
         filingScorecard.append(scored)
-        registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
+        registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
+                           priorFolderMove: priorFolderMove)
+        // What it teaches (decision 8): a group sent somewhere he chose, or a new account made.
+        let chosen = typed?.path ?? folder
+        // Filed into the new account it proposed (not a folder he chose instead).
+        let makesAccount = (typed ?? (folder == nil ? group.destination : nil))?.createsAccountFolder ?? false
+        if teach || makesAccount, let into = chosen ?? (makesAccount ? group.destination.account?.root : nil) {
+            teachAccount(from: group.toFile, landed: moves.map { .init(source: $0.from.path, landed: $0.to.path) },
+                         into: into, by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect)
+        }
         for line in FilingBatchLog.lines(operation: "Filing group", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
                                                                                     alreadyHome: alreadyHome)) {
@@ -69,7 +89,7 @@ extension FileSyncManager {
         }
         let n = moves.count
         let home = alreadyHome == 0 ? "" : "; \(alreadyHome) \(alreadyHome == 1 ? "was" : "were") already there"
-        let text = "Filed \(n) file\(n == 1 ? "" : "s") → \(folderName)" + home
+        let text = "Filed \(n) file\(n == 1 ? "" : "s") → \(folderName)" + home + Self.copiedPhrase(copied)
         banner = failures > 0
             ? .warning("\(text); \(failures) couldn’t be filed and stay listed", undoable: true, log: .warn)
             : .success(text, undoable: true)

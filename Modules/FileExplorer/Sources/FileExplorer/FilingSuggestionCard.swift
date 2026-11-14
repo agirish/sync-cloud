@@ -40,6 +40,11 @@ struct FilingSuggestionCard: View {
     /// Type the home in full ("Edit Path…"), offered on a home that creates folders. nil hides it.
     var pathEditor: FilingPathEditorHooks? = nil
     @State private var editingPath = false
+    /// What Choose a Folder… would teach, for a statement; nil hides the row.
+    var rememberAccount: FilingRememberAccount? = nil
+    /// File Once Here, when the statement names other accounts too.
+    /// Gets the home as shown, a typed folder name included.
+    var onFileOnce: ((FilingPreference.Scope?, FilingDestination) -> Void)? = nil
 
     /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
     /// proposed name is the model's, not the user's, so they can change it before filing.
@@ -109,7 +114,13 @@ struct FilingSuggestionCard: View {
                 confidenceCluster
             }
             .padding(.horizontal, 14).padding(.top, densityMetrics.cardHeaderVerticalPadding)
-            actions
+            VStack(alignment: .leading, spacing: 6) {
+                actions
+                if let onFileOnce, let best, !best.alsoCopiesTo.isEmpty {
+                    FilingCopiesRow(copies: best.alsoCopiesTo) { onFileOnce($0, best.renamingNewFolder(to: editedFolderName)) }
+                }
+                if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
+            }
                 .padding(.horizontal, 14)
                 .padding(.top, densityMetrics.cardHeaderVerticalPadding)
                 .padding(.bottom, densityMetrics.cardHeaderVerticalPadding)

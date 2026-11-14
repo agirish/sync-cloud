@@ -15563,3 +15563,20 @@ way it always has (`FilingEngine`'s `newSegments`), so nothing there is wrong wi
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The older new-folder offer | CLOSED — checked, not owed (a feature) |
+
+## Learned accounts, multi-account copies and the archive offer (filing overhaul, landings E and F) — main only, checked, not owed
+
+2026-11-14, for v7.2. On `main`, To File:
+- learns an account from where he files its statements ("Remember ••NNNN where I choose"), lists
+  it in Automations, and forgets it when the filing that taught it is undone;
+- files a statement printing several accounts' own numbers into the first and copies it into the
+  others, with File Once Here and per-scope preferences;
+- offers to move an archived account out of its archive when newer statements arrive, one ⌘Z for
+  the move and the filing.
+
+Features, not fixes: no line carries a defect they mend, and every line still files these
+statements somewhere the user can see and move (the classifier's pick, or Choose a Folder…).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Nothing these replace | CLOSED — checked, not owed (features) |
