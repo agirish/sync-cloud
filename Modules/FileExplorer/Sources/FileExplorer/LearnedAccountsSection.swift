@@ -23,6 +23,7 @@ struct LearnedAccountsSection: View {
                                       sharesEnding: accounts.filter { $0.institution == account.institution
                                                                       && $0.ending == account.ending }.count,
                                       folderExists: syncManager.learnedAccountFolderExists(account),
+                                      note: syncManager.learnedAccountNote(account),
                                       onRemove: { syncManager.removeLearnedAccount(id: account.id) })
                 }
             }
@@ -39,6 +40,8 @@ private struct LearnedAccountRow: View {
     let account: LearnedAccount
     let sharesEnding: Int
     let folderExists: Bool
+    /// Why it isn't in use, when it isn't.
+    let note: String?
     let onRemove: () -> Void
 
     var body: some View {
@@ -47,9 +50,10 @@ private struct LearnedAccountRow: View {
                 Text("\(account.institutionName) ••\(account.ending) → \(account.folder.split(separator: "/").joined(separator: " › "))")
                     .scaledFont(.system(size: 12))
                     .lineLimit(2).truncationMode(.middle)
-                Text(LearnedAccountText.detail(account, sharesEnding: sharesEnding, folderExists: folderExists))
+                Text(note.map { folderExists ? $0 : "folder missing · not used" }
+                     ?? LearnedAccountText.detail(account, sharesEnding: sharesEnding, folderExists: folderExists))
                     .scaledFont(.system(size: 11))
-                    .foregroundStyle(folderExists ? Color.secondary : SemanticColor.caution)
+                    .foregroundStyle(folderExists && note == nil ? Color.secondary : SemanticColor.caution)
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 8)

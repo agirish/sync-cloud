@@ -64,6 +64,13 @@ public struct DocumentFacts: Sendable, Equatable {
         #"(?<![\w*•])[Xx\*•]{3,24}+(?:[ \-]{0,2}+[Xx\*•\d]{1,8}+){0,6}+"#)
     private static let ssnMask = try! NSRegularExpression(pattern: #"[Xx\*•]{3}-[Xx\*•]{2}-\d{4}"#)
     private static let routingLabel = try! NSRegularExpression(pattern: #"\b(?:routing|aba|rtn|transit)\b"#, options: [.caseInsensitive])
+    /// The person's number, not an account's.
+    private static let taxpayerWords = try! NSRegularExpression(pattern: #"\b(?:tin|ssn|social|taxpayer)\b"#, options: [.caseInsensitive])
+    /// A number named on a payment or transfer line belongs to the other account
+    /// (`AutoPay from account ending in 5696`, `Transfer to account number 4121`).
+    private static let otherAccountWords = try! NSRegularExpression(pattern:
+        #"\b(?:from|autopay|auto[- ]pay|transfer(?:red|s)?|linked|funding|paid|debit(?:ed)?|deposit(?:ed)?)\b"#,
+        options: [.caseInsensitive])
 
     static func ownNumbers(in page: String) -> [OwnNumber] {
         let ns = page as NSString
@@ -87,7 +94,13 @@ public struct DocumentFacts: Sendable, Equatable {
             let before = ns.substring(with: NSRange(location: max(0, m.range.location - 12),
                                                     length: min(12, m.range.location))).lowercased()
             // A taxpayer number is the person's, not the account's.
-            if before.contains("tin") || before.contains("ssn") || before.contains("social") || before.contains("taxpayer") { continue }
+            if taxpayerWords.firstMatch(in: before, range: NSRange(location: 0, length: (before as NSString).length)) != nil { continue }
+            // The same line, before the label: a payment or transfer names another account.
+            let lineStart = ns.range(of: "\n", options: .backwards,
+                                     range: NSRange(location: 0, length: m.range.location)).location
+            let from = lineStart == NSNotFound ? max(0, m.range.location - 40) : max(lineStart + 1, m.range.location - 40)
+            let line = ns.substring(with: NSRange(location: from, length: m.range.location - from))
+            if otherAccountWords.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil { continue }
             let end = m.range.location + m.range.length
             var after = ns.substring(with: NSRange(location: end, length: min(60, ns.length - end)))
             // The value may sit on the next line (`Account Number\n3841-7863`) or carry one letter
@@ -97,7 +110,14 @@ public struct DocumentFacts: Sendable, Equatable {
                after.dropFirst().first?.isNumber == true { after = String(after.dropFirst()) }
             let a = after as NSString
             if let n = numberAfterLabel.firstMatch(in: after, range: NSRange(location: 0, length: a.length)) {
-                add(a.substring(with: n.range).trimmingCharacters(in: .whitespaces), at: m.range.location, labelled: true)
+                var raw = a.substring(with: n.range)
+                // `1234-5678 03/31/2026`: the last group ran into a date; it isn't the number's.
+                let next = n.range.location + n.range.length
+                if next < a.length, "/.".contains(a.substring(with: NSRange(location: next, length: 1))),
+                   let space = raw.lastIndex(of: " ") {
+                    raw = String(raw[..<space])
+                }
+                add(raw.trimmingCharacters(in: .whitespaces), at: m.range.location, labelled: true)
             }
         }
         let head = String(page.prefix(2500)) as NSString
@@ -142,9 +162,12 @@ public struct DocumentFacts: Sendable, Equatable {
     private static let monthDayRangeRE = try! NSRegularExpression(pattern: #"\b"# + monthRE + #"[a-z]* \d{1,2}\s*-\s*\d{1,2}, \d{4}"#)
 
     static func kind(of lower: String) -> Kind {
-        let head = String(lower.prefix(800))
-        if matches(taxRE, head) { return .taxForm }
-        if matches(statementWordsRE, lower) || matches(rangeRE, lower) || matches(monthDayRangeRE, lower) { return .statement }
+        // A form names itself at the top; a statement saying "your 2025 Form 1099 is available"
+        // further down is still a statement.
+        if matches(taxRE, String(lower.prefix(300))) { return .taxForm }
+        let statement = matches(statementWordsRE, lower) || matches(rangeRE, lower) || matches(monthDayRangeRE, lower)
+        if statement { return .statement }
+        if matches(taxRE, String(lower.prefix(800))) { return .taxForm }
         return .other
     }
 
@@ -167,7 +190,9 @@ public struct DocumentFacts: Sendable, Equatable {
     /// Dates the page labels as something other than the period, matched as words ("vest" is not
     /// in "investment").
     private static let nonPeriodLabel = try! NSRegularExpression(pattern:
-        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since)\b"#, options: [.caseInsensitive])
+        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|beginning)\b"#, options: [.caseInsensitive])
+    private static let periodLabel = try! NSRegularExpression(pattern:
+        #"\b(?:statement|billing|period|cycle)\b"#, options: [.caseInsensitive])
     private static let labelledDateRE = try! NSRegularExpression(pattern:
         #"(?:closing date|statement date|statement closing date|period ending|period end|through|as of)[\s:|]*("# + dateRE + ")")
     private static let numericDateRE = try! NSRegularExpression(pattern: #"^(\d{1,2})/(\d{1,2})/(\d{2,4})"#)
@@ -181,6 +206,16 @@ public struct DocumentFacts: Sendable, Equatable {
         func rejected(_ loc: Int) -> Bool {
             let l = labelBefore(loc)
             return nonPeriodLabel.firstMatch(in: l, range: NSRange(location: 0, length: (l as NSString).length)) != nil
+        }
+        func labelled(_ loc: Int) -> Bool {
+            let l = labelBefore(loc)
+            return periodLabel.firstMatch(in: l, range: NSRange(location: 0, length: (l as NSString).length)) != nil
+        }
+        // A range the page labels as its period (`Statement Period 02/01/2026 - 02/28/2026`), first.
+        for m in rangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length))
+        where labelled(m.range.location) && !rejected(m.range.location) {
+            let s = ns.substring(with: m.range)
+            if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
         }
         // `March 1-31, 2026`: a month with a day range.
         for m in monthDayRangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
@@ -281,6 +316,17 @@ public struct AccountIndex: Sendable {
 
     static func isArchiveName(_ name: String) -> Bool { name.lowercased() == "archive" }
 
+    /// A folder below `node`, not a year or month, whose own name carries account digits and that
+    /// holds a regular statement family.
+    static func hasNamedAccountBelow(_ node: FileNode) -> Bool {
+        for child in node.children ?? [] where child.isDirectory {
+            if FolderProfileEntry.looksLikeYear(child.name) || FilingPeriod.monthSlot(ofFolderNamed: child.name) != nil { continue }
+            if !accountDigits(inFolderNamed: child.name).isEmpty, StatementFamily.hasRegularFamily(below: child) { return true }
+            if hasNamedAccountBelow(child) { return true }
+        }
+        return false
+    }
+
     /// Builds the index from a walked tree. `isArchived` answers from the survey's profile (role or
     /// lifecycle axis); a folder named `Archive` counts either way.
     public static func build(tree: [FileNode],
@@ -291,9 +337,13 @@ public struct AccountIndex: Sendable {
             guard node.isDirectory else { return }
             if !rel.isEmpty, !isInbox(rel) {
                 let digits = accountDigits(inFolderNamed: node.name)
-                if !digits.isEmpty, StatementFamily.hasRegularFamily(below: node) {
+                // The highest such folder is the account; below it are its years. Unless a folder
+                // below carries account digits of its own (`401k/Fidelity 4138`): then this one is
+                // a category, and the accounts are below it.
+                if !digits.isEmpty, StatementFamily.hasRegularFamily(below: node),
+                   !Self.hasNamedAccountBelow(node) {
                     named.append((rel, digits))
-                    return   // the highest such folder is the account; below it are its years
+                    return
                 }
             }
             for child in node.children ?? [] where child.isDirectory {

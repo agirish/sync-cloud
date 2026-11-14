@@ -26,8 +26,7 @@ import Foundation
             try writeBytes(docs.appendingPathComponent(String(format: "Credit Accounts/Chase/Credit 1768/2025/%02d. %@ 2025.pdf", i + 1, month)),
                            Data(repeating: 0x42, count: 64))
         }
-        let m = FileSyncManager()
-        m.filingRuleDefaults = ScratchDefaults("FilingLearnedAccounts." + prefix)
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingLearnedAccountsTests.1"))
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
         let inbox = root.appendingPathComponent("Inbox")
@@ -80,9 +79,9 @@ import Foundation
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == file.path })
         #expect(card.best?.account?.isNamedByFolder == true, "Credit 1768 names it")
-        _ = await f.m.applyFilingSuggestion(
+        #expect(await f.m.applyFilingSuggestion(
             card, to: FilingDestination(path: f.docs.path + "/Bank Accounts/Chase/Joint Checking", confidence: .high,
-                                        reasons: ["r"], newSegments: []), teachAccount: true)
+                                        reasons: ["r"], newSegments: []), teachAccount: true) == .moved)
         #expect(f.m.filingLearnedAccounts.isEmpty, "Credit 1768's name would outrank it; nothing to list")
     }
 
@@ -105,7 +104,7 @@ import Foundation
             #expect(f.m.rememberableEnding(for: [card]) == nil, "\(card.fileName)")
             let dest = FilingDestination(path: f.docs.path + "/Bank Accounts/Chase/Joint Checking",
                                          confidence: .high, reasons: ["r"], newSegments: [])
-            _ = await f.m.applyFilingSuggestion(card, to: dest, teachAccount: true)
+            #expect(await f.m.applyFilingSuggestion(card, to: dest, teachAccount: true) == .moved, "\(card.fileName)")
         }
         #expect(f.m.filingLearnedAccounts.isEmpty)
     }
@@ -119,9 +118,9 @@ import Foundation
         f.m.filingSnippetExtractor = { $0 == file.path ? Self.statement("4139", month: "March") : nil }
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         let card = try #require(f.m.filingSuggestions.first { $0.filePath == file.path })
-        _ = await f.m.applyFilingSuggestion(
+        #expect(await f.m.applyFilingSuggestion(
             card, to: FilingDestination(path: f.docs.path + "/Bank Accounts/Chase/Joint Checking", confidence: .high,
-                                        reasons: ["r"], newSegments: []), teachAccount: true)
+                                        reasons: ["r"], newSegments: []), teachAccount: true) == .moved)
         #expect(f.m.filingLearnedAccounts.count == 1)
         f.m.forgetUndoneLearnedAccounts()
         #expect(f.m.filingLearnedAccounts.count == 1, "still filed: still taught")
@@ -132,7 +131,11 @@ import Foundation
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(FileManager.default.fileExists(atPath: file.path), "Undo put it back")
-        // The next scan forgets it before matching: the statement isn't offered the undone lesson.
+        // The same ⌘Z forgets it, once the file is back: no rescan needed.
+        let forgetDeadline = Date().addingTimeInterval(10)
+        while !f.m.filingLearnedAccounts.isEmpty, Date() < forgetDeadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(f.m.filingLearnedAccounts.isEmpty, "forgotten by the undo itself")
+        // And the next scan doesn't offer it: the statement isn't offered the undone lesson.
         await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         #expect(f.m.filingLearnedAccounts.isEmpty)
         let again = try #require(f.m.filingSuggestions.first { $0.filePath == file.path })

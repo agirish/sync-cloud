@@ -182,7 +182,7 @@ extension FileSyncManager {
         // A Medium home already offered inside an account of this type (or this number) is the home.
         if let best = s.best, best.confidence >= .medium,
            let rel = relativePath(best.path, under: root),
-           let holder = index.accounts.first(where: { rel == $0.root || rel.hasPrefix($0.root + "/") }) {
+           let holder = index.accounts.first(where: { $0.institution == institution && (rel == $0.root || rel.hasPrefix($0.root + "/")) }) {
             let n = (holder.root as NSString).lastPathComponent.lowercased()
             if n.hasPrefix(type.lowercased()) || (ending.map { e in holder.identities.contains { $0.hasSuffix(e) || e.hasSuffix($0) } } ?? false) {
                 return s

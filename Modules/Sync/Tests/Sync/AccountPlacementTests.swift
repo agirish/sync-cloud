@@ -138,7 +138,7 @@ import Foundation
         let letter = inbox.appendingPathComponent("Note from the school.pdf")
         try writeBytes(letter, Data(repeating: 0x41, count: 64))
 
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.1"))
         let page = """
         Bank of America Advantage Banking
         for February 26, 2026 to March 27, 2026

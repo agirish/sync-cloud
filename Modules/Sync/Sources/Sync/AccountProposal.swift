@@ -40,7 +40,9 @@ public enum AccountProposal {
     }
 
     /// The proposal for a statement whose page names `institution` and matches no account. `type`
-    /// and `ending` come from the page or, failing that, the folder it arrived in.
+    /// comes from the folder it arrived in (`Checking 0779`), so a statement loose in an inbox, or
+    /// in a folder naming no type and number, gets no proposal; `ending` from the page, else that
+    /// folder.
     public static func propose(institution: String, type: String?, ending: String?, name: String? = nil,
                                index: AccountIndex, tree: [FileNode], period: DocumentFacts.Period?,
                                fileName: String = "statement.pdf",
@@ -96,7 +98,8 @@ public enum AccountProposal {
             guard depth < 6 else { return }
             for n in nodes where n.isDirectory {
                 let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
-                if AccountIndex.isArchiveName(n.name) || isArchived(rel) { continue }
+                // Never an archive, never an inbox.
+                if AccountIndex.isArchiveName(n.name) || isArchived(rel) || FolderProfile.isInboxPath(rel) { continue }
                 if n.name.lowercased() == institution { out.append(rel) }
                 visit(n.children ?? [], rel, depth: depth + 1)
             }

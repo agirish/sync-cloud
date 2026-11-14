@@ -49,6 +49,11 @@ public enum AccountPlacement {
         // be chosen: it stops above the first year level.
         var segments: [String] = []
         for seg in newest.folder.split(separator: "/").map(String.init) {
+            // A year inside a longer name (`Statements 2025`, `Tax Year 2025`) moves with it too.
+            if seg.count > 4, FilingPeriod.monthSlot(ofFolderNamed: seg) == nil, let period, let r = seg.range(of: #"\b(19|20)\d\d\b"#, options: .regularExpression) {
+                segments.append(seg.replacingCharacters(in: r, with: String(period.year)))
+                continue
+            }
             let isYear = seg.count == 4 && FolderProfileEntry.looksLikeYear(seg)
             let isMonth = FilingPeriod.monthSlot(ofFolderNamed: seg) != nil
             guard isYear || isMonth else { segments.append(seg); continue }

@@ -13,15 +13,24 @@ extension FileSyncManager {
     @discardableResult
     public func applyFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
                                  typed: FilingDestination? = nil, teach: Bool = false,
-                                 fileOnce: Bool = false) async -> Int {
-        await fileFilingGroup(group, into: folder, typed: typed, teach: teach, fileOnce: fileOnce)
+                                 fileOnce: Bool = false, exceptCopiesTo: Set<String> = []) async -> Int {
+        // A folder he chose is checked as a typed one is: never the source, an inbox, or outside
+        // the tree.
+        if let folder, let first = group.toFile.first,
+           case .failure(let refusal) = filingDestination(typed: folder, for: first) {
+            banner = .refusal(refusal.sentence, log: .info)
+            return 0
+        }
+        return await fileFilingGroup(group, into: folder, typed: typed, teach: teach, fileOnce: fileOnce,
+                                     exceptCopiesTo: exceptCopiesTo)
     }
 
     /// ``applyFilingGroup(_:into:typed:teach:fileOnce:)``, with an account folder moved out of its
     /// archive just before (`moveOutOfArchiveThenFile`) undone in the same step.
     func fileFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
                          typed: FilingDestination? = nil, teach: Bool = false, fileOnce: Bool = false,
-                         priorFolderMove: (move: MoveItemState, old: String, new: String)? = nil) async -> Int {
+                         exceptCopiesTo: Set<String> = [],
+                         priorFolderMove: PriorFolderMove? = nil) async -> Int {
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
@@ -35,6 +44,12 @@ extension FileSyncManager {
 
         var moves: [MoveItemState] = []
         var copied: [CopyItemState] = []
+        // The folders filing these makes, copies' included: ⌘Z removes them again.
+        let homes = group.toFile.compactMap { s -> FilingDestination? in
+            guard let own = s.best else { return nil }
+            return typed ?? folder.map { FilingDestination(path: $0, confidence: .high, reasons: [], newSegments: []) } ?? own
+        }
+        let wouldCreate = missingFolders(for: homes.map(\.path) + (fileOnce ? [] : homes.flatMap { $0.alsoCopiesTo.map(\.path) }))
         var filed: [FilingBatchLog.Filed] = []
         var scored: [FilingScorecard.Record] = []
         var failures = 0, alreadyHome = 0
@@ -47,7 +62,9 @@ extension FileSyncManager {
             switch await performFiling(s, to: dest) {
             case .moved(let move):
                 moves.append(move)
-                if !fileOnce { copied += performFilingCopies(of: move.to, copies: dest.alsoCopiesTo) }
+                if !fileOnce {
+                    copied += performFilingCopies(of: move.to, copies: dest.alsoCopiesTo.filter { !exceptCopiesTo.contains($0.account.root) })
+                }
                 if let offer = s.firstOffer {
                     scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
                                                          renamedOffer: Self.isRenamedOffer(dest, of: s)))
@@ -72,16 +89,18 @@ extension FileSyncManager {
             return 0
         }
         filingScorecard.append(scored)
-        registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
-                           priorFolderMove: priorFolderMove)
         // What it teaches (decision 8): a group sent somewhere he chose, or a new account made.
         let chosen = typed?.path ?? folder
         // Filed into the new account it proposed (not a folder he chose instead).
         let makesAccount = (typed ?? (folder == nil ? group.destination : nil))?.createsAccountFolder ?? false
+        var taught: LearnedAccount?
         if teach || makesAccount, let into = chosen ?? (makesAccount ? group.destination.account?.root : nil) {
-            teachAccount(from: group.toFile, landed: moves.map { .init(source: $0.from.path, landed: $0.to.path) },
-                         into: into, by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect)
+            taught = teachAccount(from: group.toFile, landed: moves.map { .init(source: $0.from.path, landed: $0.to.path) },
+                                  into: into, by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect)
         }
+        registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
+                           createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
+                           priorFolderMove: priorFolderMove, forgetsLesson: taught != nil)
         for line in FilingBatchLog.lines(operation: "Filing group", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
                                                                                     alreadyHome: alreadyHome)) {
@@ -108,14 +127,21 @@ extension FileSyncManager {
         // Never a loose file itself, nor anything in the folder being filed from: a statement is
         // not "already filed" as itself (an inbox inside an account folder, say).
         let loose = Set(suggestions.map(\.filePath))
-        let wanted = Dictionary(matched.compactMap { s -> (String, (String, Int?))? in
-            guard let best = s.best, let account = best.account else { return nil }
-            return (account.root, (best.path, StatementFamily.period(ofName: best.proposedName ?? s.fileName, folder: "")?.year))
-        }, uniquingKeysWith: { a, _ in a })
+        // Every landing folder and year among an account's cards, not the first one's only: a
+        // backfilled 2023 statement beside 2026 ones is compared with the account's 2023 files.
+        var wanted: [String: (landings: Set<String>, years: Set<Int>)] = [:]
+        for s in matched {
+            guard let best = s.best, let account = best.account else { continue }
+            wanted[account.root, default: ([], [])].landings.insert(best.path)
+            if let y = StatementFamily.period(ofName: best.proposedName ?? s.fileName, folder: "")?.year {
+                wanted[account.root, default: ([], [])].years.insert(y)
+            }
+        }
         let filedByAccount = await Task.detached(priority: .userInitiated) { () -> [String: [String]] in
             var out: [String: [String]] = [:]
-            for (root, (landing, year)) in wanted {
-                out[root] = Self.comparableFiles(in: root, near: landing, year: year, fileManager: FileManager.default)
+            for (root, want) in wanted {
+                out[root] = Self.comparableFiles(in: root, near: Array(want.landings), years: want.years,
+                                                 fileManager: FileManager.default)
                     .filter { path in
                         !loose.contains(path) && !(scannedFolder.map { PathBoundary.contains(path, under: $0) } ?? false)
                     }
@@ -150,7 +176,7 @@ extension FileSyncManager {
 
     /// PDFs in `accountRoot` worth comparing a statement against: the landing folder's, and those of
     /// sibling year folders' namesakes, at most `limit`, newest first.
-    nonisolated static func comparableFiles(in accountRoot: String, near landing: String, year: Int? = nil,
+    nonisolated static func comparableFiles(in accountRoot: String, near landings: [String], years: Set<Int> = [],
                                             fileManager fm: FileManaging, limit: Int = 60) -> [String] {
         var out: [(String, Date)] = []
         func list(_ folder: String, depth: Int) {
@@ -165,15 +191,18 @@ extension FileSyncManager {
                 out.append((p, m))
             }
         }
-        list(landing, depth: 0)
+        for landing in landings { list(landing, depth: 0) }
         let inLanding = out.map(\.0)
         out = []
         list(accountRoot, depth: 3)
-        // The landing folder's files always, then the statement's year's, then the account's newest.
-        let sameYear = year.map { y in out.filter { StatementFamily.period(ofName: ($0.0 as NSString).lastPathComponent,
-                                                                           folder: ($0.0 as NSString).deletingLastPathComponent)?.year == y } } ?? []
+        // The landing folders' files always, then the statements' years', then the account's newest.
+        let sameYear = years.isEmpty ? [] : out.filter {
+            StatementFamily.period(ofName: ($0.0 as NSString).lastPathComponent,
+                                   folder: ($0.0 as NSString).deletingLastPathComponent).map { years.contains($0.year) } ?? false
+        }
         var seen = Set<String>()
-        return (inLanding + sameYear.map(\.0) + out.sorted { $0.1 > $1.1 }.map(\.0))
-            .filter { seen.insert($0).inserted }.prefix(limit).map { $0 }
+        // Each landing and year is always compared; only the account's newest beyond them is capped.
+        let sure = (inLanding + sameYear.map(\.0)).filter { seen.insert($0).inserted }
+        return sure + out.sorted { $0.1 > $1.1 }.map(\.0).filter { seen.insert($0).inserted }.prefix(max(0, limit - sure.count))
     }
 }

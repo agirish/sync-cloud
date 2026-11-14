@@ -28,7 +28,7 @@ import Foundation
     }
 
     private func manager(surveying t: Tree) -> FileSyncManager {
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingRoutingRootTests.1"))
         m.filingFolderProfile = FolderProfile(profileId: "p", root: t.documents.path, folders: [:], personTokens: [])
         return m
     }
@@ -63,11 +63,15 @@ import Foundation
         // Control: the same card scanned against File Into itself would be eligible when High.
         let plain = card.replacingCandidates(card.candidates)
         #expect(plain.preferredRoot == t.fileInto.path, "rebuilding a card keeps File Into")
-        if best.confidence == .high, !best.fromContent, !best.fromAI {
-            var unfenced = card
-            unfenced.preferredRoot = nil
-            #expect(unfenced.isBatchEligible, "the narrowing, not something else, kept it out")
-        }
+        // A name-derived High outside File Into, built by hand so the control always runs.
+        let high = FilingSuggestion(filePath: card.filePath, fileName: card.fileName, size: 1, modificationDate: nil,
+                                    candidates: [FilingDestination(path: t.documents.path + "/Vehicles/Tesla/Insurance",
+                                                                   confidence: .high, reasons: ["name"], newSegments: [])],
+                                    providerRoot: t.documents.path).preferring(t.fileInto.path)
+        #expect(!high.isBatchEligible, "a High outside File Into needs a click")
+        var unfenced = high
+        unfenced.preferredRoot = nil
+        #expect(unfenced.isBatchEligible, "the narrowing, not something else, kept it out")
     }
 
     @Test func rulesStayScopedToAndResolvedAgainstFileInto() throws {
@@ -107,7 +111,7 @@ import Foundation
     }
 
     @Test func verdictKeysCarryTheWalkedRootOnlyWhenItIsWider() {
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingRoutingRootTests.2"))
         #expect(m.filingVerdictArtifacts("abc") == "abc", "an ordinary scan keeps its cached answers")
         m.filingRoutedRoot = "/Users/x/Documents"
         #expect(m.filingVerdictArtifacts("abc") == "abc|root=/Users/x/Documents")
@@ -139,12 +143,12 @@ import Foundation
     }
 
     @Test func aRuleOfferedAfterFilingIsRelativeToFileIntoOrAbsolute() {
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingRoutingRootTests.3"))
         m.filingLastFileInto = "/D/Finance/US"
         m.filingRoutedRoot = "/D"
         #expect(m.ruleDestination(forFiledFolder: "/D/Finance/US/Schwab/2026", scannedRoot: "/D") == "Schwab/2026")
-        #expect(m.ruleDestination(forFiledFolder: "/D/Vehicles/Tesla", scannedRoot: "/D") == "/D/Vehicles/Tesla",
-                "outside File Into the rule names the folder itself, never a path the next scan re-roots")
+        #expect(m.ruleDestination(forFiledFolder: "/D/Vehicles/Tesla", scannedRoot: "/D") == nil,
+                "outside File Into no rule is offered: rules act only inside it, so it would never fire")
     }
 
     @Test func theModelsFolderMenuLeadsWithFileInto() {

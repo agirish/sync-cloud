@@ -1066,6 +1066,8 @@ public class FileSyncManager: ObservableObject {
     var filingArchivedFolders: Set<String> = []
     /// Page 1 facts of the last scan's loose files, by path: what a redirect teaches from.
     public internal(set) var filingDocumentFacts: [String: DocumentFacts] = [:]
+    /// Whether a folder holds a file only in the cloud; a test substitutes.
+    var filingHoldsCloudOnlyFile: (String) -> Bool = { FileSyncManager.holdsCloudOnlyFile($0) }
     /// Archive offers by group, for the cards on screen (``archiveOffer(for:)``).
     var filingArchiveOfferCache: (generation: Int, offers: [String: FilingArchiveOffer?]) = (-1, [:])
     /// Members of a group card that couldn't be filed; the lens shows them as cards of their own.

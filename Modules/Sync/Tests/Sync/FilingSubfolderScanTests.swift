@@ -27,7 +27,7 @@ import EventsTestSupport
     @Test func anInboxWithFilesOnlyInSubfoldersOffersToScanThem() async throws {
         let (root, inbox) = try makeInbox("FilingSubfolderOffer")
         defer { try? FileManager.default.removeItem(at: root) }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.1"))
         await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
 
         #expect(manager.filingSuggestions.isEmpty, "nothing loose in the inbox itself")
@@ -41,7 +41,7 @@ import EventsTestSupport
     @Test func takingTheOfferScansEveryFileBelowAndKeepsTheSourceHint() async throws {
         let (root, inbox) = try makeInbox("FilingSubfolderAccept")
         defer { try? FileManager.default.removeItem(at: root) }
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.2"))
         let documents = root.appendingPathComponent("Documents")
         await manager.findFilingSuggestions(folder: inbox, providerRoot: documents)
         manager.acceptFilingSubfolderOffer()
@@ -64,7 +64,7 @@ import EventsTestSupport
         let (root, inbox) = try makeInbox("FilingSubfolderAlso")
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBytes(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.3"))
         await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
 
         #expect(manager.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"])
@@ -77,11 +77,11 @@ import EventsTestSupport
 
     @Test func theChoiceIsRememberedSoAnAutomaticRescanRepeatsIt() throws {
         let defaults = ScratchDefaults("FilingSubfolderRemember")
-        let manager = FileSyncManager()
+        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.4"))
         manager.persistedUIStateDefaults = defaults
         manager.setFilingScansSubfolders(true, for: "/x/TODO")
         // A fresh manager on the same store, as after a relaunch.
-        let next = FileSyncManager()
+        let next = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.5"))
         next.persistedUIStateDefaults = defaults
         #expect(next.filingScansSubfolders("/x/TODO"))
         #expect(!next.filingScansSubfolders("/x/Other"))
@@ -113,8 +113,12 @@ import EventsTestSupport
         #expect(!FileSyncManager.subfolderOfferEligible(folder: "/home/Docs", profile: nil, fileInto: "/home/Docs/Finance"),
                 "nor one holding File Into")
         #expect(eligible("/home/Documents/TODO"), "the inbox name test, though the survey never saw it")
-        #expect(eligible("/home/Documents/Never Surveyed"), "a folder the survey doesn't know")
+        #expect(!eligible("/home/Documents/Never Surveyed"),
+                "a folder the survey doesn't know may be an account made since: only by its name")
         #expect(eligible("/home/Downloads"), "outside the survey")
-        #expect(FileSyncManager.subfolderOfferEligible(folder: "/anything", profile: nil), "no survey at all")
+        // With no survey, only a place files wait in: a folder of filed documents isn't one.
+        #expect(!FileSyncManager.subfolderOfferEligible(folder: "/x/Documents/Taxes", profile: nil))
+        #expect(FileSyncManager.subfolderOfferEligible(folder: "/x/Documents/TODO", profile: nil))
+        #expect(FileSyncManager.subfolderOfferEligible(folder: "/x/Downloads", profile: nil))
     }
 }

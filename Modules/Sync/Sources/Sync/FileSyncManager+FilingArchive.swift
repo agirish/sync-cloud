@@ -105,14 +105,23 @@ extension FileSyncManager {
             banner = .refusal("“\((offer.target as NSString).lastPathComponent)” is already beside \(offer.archiveName); filed nothing", log: .info)
             return 0
         }
-        if Self.holdsCloudOnlyFile(offer.accountFolder) {
+        if filingHoldsCloudOnlyFile(offer.accountFolder) {
             banner = .refusal("Some files in “\((offer.accountFolder as NSString).lastPathComponent)” are only in iCloud. Download them first, or file in \(offer.archiveName).", log: .info)
             return 0
         }
         let from = URL(fileURLWithPath: offer.accountFolder), to = URL(fileURLWithPath: offer.target)
+        // The bank folder beside the archive may not exist yet (`Archive/Charles Schwab/…`).
+        let parents = missingFolders(for: [(offer.target as NSString).deletingLastPathComponent])
         // In the file-operation queue, behind anything already moving files in or out of it.
         let moveError: String? = await enqueueFileOperation {
-            do { try FileManager.default.moveItem(at: from, to: to); return nil } catch { return error.localizedDescription }
+            do {
+                try FileManager.default.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.moveItem(at: from, to: to)
+                return nil
+            } catch {
+                Self.removeIfEmpty(parents)
+                return error.localizedDescription
+            }
         }
         if let moveError {
             banner = .refusal("Couldn’t move “\(from.lastPathComponent)” out of \(offer.archiveName): \(moveError)", log: .warn)
@@ -127,11 +136,15 @@ extension FileSyncManager {
         let moved = FilingCardGroup(account: group.destination.repointed(from: offer.accountFolder, to: offer.target).account ?? group.account,
                                     destination: group.destination.repointed(from: offer.accountFolder, to: offer.target),
                                     members: members)
-        let n = await fileFilingGroup(moved, priorFolderMove: (move: (from: from, to: to, overwritten: nil),
-                                                                old: offer.accountFolder, new: offer.target))
+        // Snapshotted now, before anything is filed into it: what ⌘Z finds once the files are out.
+        let prior = PriorFolderMove(move: (from: from, to: to, overwritten: nil),
+                                    identityBeforeFiling: ItemIdentity.snapshot(at: to, fileManager: fm),
+                                    createdParents: parents, old: offer.accountFolder, new: offer.target)
+        let n = await fileFilingGroup(moved, priorFolderMove: prior)
         if n == 0 {
             // Nothing filed: the account goes back where it was, so the move isn't left without a ⌘Z.
             if (try? fm.moveItem(at: to, to: from)) != nil {
+                Self.removeIfEmpty(parents)
                 repointFiling(from: offer.target, to: offer.accountFolder, registersUndo: false)
             }
         }
@@ -174,8 +187,10 @@ extension FileSyncManager {
     func registerRepointUndo(from new: String, to old: String) {
         undoManager?.registerUndo(withTarget: self) { target in
             target.registerRepointUndo(from: old, to: new)
-            let slot = target.claimFileOperationSlot()
+            // The slot is claimed in a task, not here: after every other action of the same ⌘Z
+            // or ⇧⌘Z has claimed its own, whichever order they run in, so the folder has moved.
             Task { @MainActor in
+                let slot = target.claimFileOperationSlot()
                 let back = await target.enqueueFileOperation(slot: slot) {
                     FileManager.default.fileExists(atPath: old) && !FileManager.default.fileExists(atPath: new)
                 }

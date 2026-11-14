@@ -65,14 +65,19 @@ extension FileSyncManager {
         // Never a folder that holds the filed tree: picking `~` or the provider root would make
         // every filed document a loose file.
         if let fileInto, PathBoundary.contains(fileInto, under: folder) { return false }
-        guard let profile, let root = profile.recordedFolderPath else { return true }
+        // With nothing to say otherwise, only a folder named as a place files wait (`TODO`,
+        // `Inbox`, Downloads): `~/Documents/Taxes` holds filed documents, not loose ones.
+        let waits = FolderProfile.isInboxPath(relativePath(folder, under: NSHomeDirectory()) ?? (folder as NSString).lastPathComponent)
+            || (folder as NSString).lastPathComponent == "Downloads"
+        guard let profile, let root = profile.recordedFolderPath else { return waits }
         if PathBoundary.contains(root, under: folder) { return false }
         guard FilingSurveyInUse.isAtOrInsideSurvey(folder, root) else { return true }
         guard let relative = relativePath(folder, under: root) else { return false }
         if FolderProfile.isInboxPath(relative) { return true }
         // A folder that refuses new files for its own reason (a closed account) is still filed
-        // into, so only the inbox role counts.
-        guard let entry = profile.folders[relative] else { return true }
+        // into, so only the inbox role counts. One the survey never saw (an account folder made
+        // since) only by its name.
+        guard let entry = profile.folders[relative] else { return waits }
         return entry.role == .inbox
     }
 
@@ -168,12 +173,12 @@ extension FileSyncManager {
     }
 
     /// The destination a rule offered after a filing names: relative to File Into when the file
-    /// landed inside it (rules resolve there), else the absolute folder, which acts anywhere. Never
-    /// relative to a wider walked root, which the next scan would resolve under File Into again.
-    public func ruleDestination(forFiledFolder path: String, scannedRoot: String?) -> String {
+    /// landed inside it, where rules resolve. nil for a folder outside it: rules act only inside
+    /// File Into (`AutomationEvaluator.absoluteDestination`), so a rule saved there would never fire.
+    public func ruleDestination(forFiledFolder path: String, scannedRoot: String?) -> String? {
         if let into = filingLastFileInto, let rel = Self.relative(path, toRoot: into) { return rel }
         if filingRoutedRoot == nil, let root = scannedRoot, let rel = Self.relative(path, toRoot: root) { return rel }
-        return path
+        return nil
     }
 
     /// The verdict cache's artifacts digest, with the walked root folded in when it isn't File

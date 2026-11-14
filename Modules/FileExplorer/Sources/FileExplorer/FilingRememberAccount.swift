@@ -25,7 +25,7 @@ struct FilingRememberAccountRow: View {
             .controlSize(.small)
             .help("Choose a Folder… files statements printing ••\(ending) there from now on. Listed in Automations, where you can remove it.")
         } else {
-            Text("Nothing to remember: no account number on page 1")
+            Text("Nothing to remember: page 1 names no single account number")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }

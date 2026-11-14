@@ -12,7 +12,7 @@ import Foundation
         let docs = root.appendingPathComponent("Docs")
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("Vehicles/Tesla/Insurance"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: docs.appendingPathComponent("TODO/Finance"), withIntermediateDirectories: true)
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.1"))
         m.filingLastProviderRoot = docs.path
         m.filingScanFolder = docs.path + "/TODO"
         m.filingLastExistingFolders = ["Vehicles", "Vehicles/Tesla", "Vehicles/Tesla/Insurance", "Finance", "Finance/US"]
@@ -55,6 +55,11 @@ import Foundation
                                                    withDestinationPath: root.path + "/Elsewhere")
         #expect(refusal("Away/New") == .outsideTree(root.path + "/Docs"))
         #expect(refusal("TODO/Finance/Chase") != nil, "the folder being filed from (also an inbox by name)")
+        // A source folder not named like an inbox is refused as the source.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Docs/Scans/Batch"), withIntermediateDirectories: true)
+        m.filingScanFolder = root.path + "/Docs/Scans"
+        #expect(refusal("Scans/Batch") == .intoSource)
+        m.filingScanFolder = root.path + "/Docs/TODO"
         #expect(refusal("Vehicles/Te:sla") == .invalidName("Te:sla"))
     }
 
@@ -63,7 +68,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let full = try m.filingDestination(typed: root.path + "/Docs/Vehicles/Tesla/Lease", for: card).get()
         #expect(full.path == root.path + "/Docs/Vehicles/Tesla/Lease" && full.newSegments == ["Lease"])
-        let none = FileSyncManager()
+        let none = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.2"))
         #expect(none.filingDestination(typed: "Vehicles", for: FilingSuggestion(filePath: "/x/a.pdf", fileName: "a.pdf", size: 1,
                                                                                 modificationDate: nil, candidates: []))
                 == .failure(.noTree))
@@ -97,7 +102,7 @@ import Foundation
         let inbox = root.appendingPathComponent("Inbox")
         let statement = inbox.appendingPathComponent("Chase/Checking 0779/2026/03. Mar 2026.pdf")
         try writeBytes(statement, Data(repeating: 0x41, count: 64))
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.3"))
         m.setFilingScansSubfolders(true, for: inbox.path)
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { $0 == statement.path ? "Chase Total Checking\nFebruary 13, 2026 through March 12, 2026\nAccount Number:\nA PERSON" : nil }
@@ -126,7 +131,7 @@ import Foundation
         let other = inbox.appendingPathComponent("Chase/Auto Lease 2388/2026/04. Apr 2026.pdf")
         try writeBytes(lease, Data(repeating: 0x41, count: 64))
         try writeBytes(other, Data(repeating: 0x42, count: 64))
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.4"))
         m.setFilingScansSubfolders(true, for: inbox.path)
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = {
@@ -158,7 +163,7 @@ import Foundation
         let inbox = root.appendingPathComponent("Inbox")
         let statement = inbox.appendingPathComponent("Chase/Checking 0779/2026/03. Mar 2026.pdf")
         try writeBytes(statement, Data(repeating: 0x41, count: 64))
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingTypedPathTests.5"))
         m.setFilingScansSubfolders(true, for: inbox.path)
         m.filingContentExtractor = { _ in [] }
         m.filingSnippetExtractor = { $0 == statement.path ? "Chase Total Checking\nFebruary 13, 2026 through March 12, 2026\nA PERSON" : nil }

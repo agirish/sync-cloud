@@ -110,7 +110,7 @@ import CoreText
                                          nameOrigin: .template)
             cards.append(FilingSuggestion(filePath: f.path, fileName: "\(m).pdf", size: 64, modificationDate: nil, candidates: [dest]))
         }
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingCardGroupTests.1"))
         let undo = UndoManager()
         m.undoManager = undo
         guard case .group(let group) = FilingCardGrouping.items(cards)[0] else { Issue.record("expected a group"); return }
@@ -120,7 +120,9 @@ import CoreText
         #expect(FileManager.default.fileExists(atPath: account.path + "/Statement_02.pdf"))
         #expect(undo.canUndo)
         undo.undo()
-        try await Task.sleep(for: .milliseconds(500))
+        let deadline = Date().addingTimeInterval(10)
+        while !(FileManager.default.fileExists(atPath: root.path + "/In/01.pdf") && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf")),
+              Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(FileManager.default.fileExists(atPath: root.path + "/In/01.pdf")
                 && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf"), "one ⌘Z puts both back")
     }
@@ -143,7 +145,7 @@ import CoreText
             cards.append(FilingSuggestion(filePath: f.path, fileName: "\(m).pdf", size: 64, modificationDate: nil,
                                           candidates: [dest], providerRoot: docs.path))
         }
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingCardGroupTests.2"))
         m.filingLastProviderRoot = docs.path
         guard case .group(let group) = FilingCardGrouping.items(cards)[0] else { Issue.record("expected a group"); return }
         #expect(group.destination.createsAccountFolder)
@@ -174,7 +176,7 @@ import CoreText
             return FilingSuggestion(filePath: root.path + "/In/" + rel, fileName: (rel as NSString).lastPathComponent, size: 10,
                                     modificationDate: nil, candidates: [dest], providerRoot: root.path + "/Docs")
         }
-        let m = FileSyncManager()
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingCardGroupTests.3"))
         let marked = await m.markingFiledInAccounts([card("01. Jan 2026.pdf"), card("Brokerage/01. Jan 2026.pdf"), card("02. Feb 2026.pdf")])
         let byName = Dictionary(uniqueKeysWithValues: marked.map { ($0.filePath, $0) })
         #expect(byName[root.path + "/In/01. Jan 2026.pdf"]?.isAlreadyFiled == true, "the same statement under Fidelity's name")

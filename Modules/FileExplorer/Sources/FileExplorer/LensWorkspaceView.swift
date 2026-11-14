@@ -4407,7 +4407,8 @@ public struct LensWorkspaceView: View {
     /// the next scan would resolve to `Documents/Documents/Family/Shweta` and create.
     private func offerRule(fileName: String, filePath: String, destinationPath: String,
                            providerRoot: String?, modificationDate: Date?) {
-        let rel = syncManager.ruleDestination(forFiledFolder: destinationPath, scannedRoot: providerRoot)
+        // Rules act only inside File Into: no offer for a folder outside it.
+        guard let rel = syncManager.ruleDestination(forFiledFolder: destinationPath, scannedRoot: providerRoot) else { return }
         // The file's own date lets a destination ending in a year generalise to `{year}` rather
         // than freezing the example's year.
         guard let proposal = syncManager.proposeAutomationRule(fileName: fileName,
@@ -4475,7 +4476,9 @@ public struct LensWorkspaceView: View {
             },
             pathEditor: group.destination.createsAccountFolder ? pathEditor(for: group.members[0], title: "Create and File \(group.toFile.count)") { dest in
                 filedThisSession = true
-                Task { await syncManager.applyFilingGroup(group, typed: dest, teach: true) }
+                // Teaches as Choose a Folder… does: what the Remember box says.
+                let teach = offersRemember(group) && (rememberAccountChoice[group.id] ?? true)
+                Task { await syncManager.applyFilingGroup(group, typed: dest, teach: teach) }
             } : nil,
             // Not where the account's folder name carries the number: that outranks any lesson.
             rememberAccount: offersRemember(group)
@@ -4493,9 +4496,23 @@ public struct LensWorkspaceView: View {
             onFileOnce: { scope in
                 filedThisSession = true
                 rememberFileOnce(scope, copies: group.destination.alsoCopiesTo)
-                Task { await syncManager.applyFilingGroup(group, fileOnce: true) }
+                let skip = Self.copiesSkipped(by: scope, copies: group.destination.alsoCopiesTo)
+                Task { await syncManager.applyFilingGroup(group, exceptCopiesTo: skip) }
             }
         )
+    }
+
+    /// The copies File Once Here leaves out: all of them this time or for the bank's or every
+    /// statement; for one account, only that account's, so the others are still made.
+    static func copiesSkipped(by scope: FilingPreference.Scope?, copies: [FilingCopy]) -> Set<String> {
+        switch scope {
+        case .account(let institution, let ending):
+            return Set(copies.filter { $0.account.institution == institution && $0.account.ending == ending }.map(\.account.root))
+        case .institution(let institution):
+            return Set(copies.filter { $0.account.institution == institution }.map(\.account.root))
+        case nil, .statements, .all:
+            return Set(copies.map(\.account.root))
+        }
     }
 
     /// File Once Here from now on, at `scope` (nil: just this time), as a preference listed in
@@ -4600,7 +4617,8 @@ public struct LensWorkspaceView: View {
             isNotDownloaded: syncManager.filingNotDownloaded.contains(suggestion.filePath),
             pathEditor: suggestion.best?.createsAccountFolder == true ? pathEditor(for: suggestion, title: "Create and File") { dest in
                 filedThisSession = true
-                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: true) }
+                let teach = rememberAccountChoice[suggestion.id] ?? false
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: teach) }
             } : nil,
             // Statements only: what an account is.
             rememberAccount: syncManager.filingDocumentFacts[suggestion.filePath]?.kind == .statement
@@ -4611,8 +4629,10 @@ public struct LensWorkspaceView: View {
                 : nil,
             onFileOnce: { scope, dest in
                 filedThisSession = true
-                rememberFileOnce(scope, copies: suggestion.best?.alsoCopiesTo ?? [])
-                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, fileOnce: true) }
+                let copies = suggestion.best?.alsoCopiesTo ?? []
+                rememberFileOnce(scope, copies: copies)
+                let skip = Self.copiesSkipped(by: scope, copies: copies)
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, exceptCopiesTo: skip) }
             }
         )
     }

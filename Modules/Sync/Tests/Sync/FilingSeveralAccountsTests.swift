@@ -27,8 +27,7 @@ import Foundation
         let inbox = root.appendingPathComponent("Inbox")
         let file = inbox.appendingPathComponent("Fidelity/03. Mar 2026.pdf")
         try writeBytes(file, Data(repeating: 0x5A, count: 80))
-        let m = FileSyncManager()
-        m.filingRuleDefaults = ScratchDefaults("FilingSeveralAccounts." + prefix)
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSeveralAccountsTests.1"))
         m.filingContentExtractor = { _ in [] }
         m.filingTokensFromText = { _ in [] }
         m.filingSnippetExtractor = { $0 == file.path ? Self.page : nil }

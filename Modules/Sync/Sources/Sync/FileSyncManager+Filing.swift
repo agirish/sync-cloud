@@ -367,7 +367,13 @@ extension FileSyncManager {
         // Never a destination: the folder being filed from, when it lies inside the walked tree
         // (`~/Documents/TODO` inside `~/Documents`), or its own folder names would match its files.
         // After the tree findings, which describe the whole tree, the inbox included.
-        if !scanHoldsFileInto { taxonomy = Self.pruning(folder.path, from: taxonomy) }
+        // Only when the scan reads that subtree: a one-level scan of `Finance/Chase` files into
+        // `Chase/Checking 1234` as before; the engine drops each file's own folder by path.
+        // An inbox's folders are never homes for its own files either (`TODO/Vehicles/Tesla`).
+        let scannedIsInbox = FolderProfile.isInboxPath(Self.relativePath(folder.path, under: providerRoot.path)
+                                                       ?? folder.lastPathComponent)
+        let excludesScannedSubtree = (recursive || scannedIsInbox) && !scanHoldsFileInto
+        if excludesScannedSubtree { taxonomy = Self.pruning(folder.path, from: taxonomy) }
 
         // The user's rules steer the suggestions. Automations are the one rule system.
         ensureAutomationRulesLoaded()
@@ -851,14 +857,17 @@ extension FileSyncManager {
         // is about the document, not the name it would land under, and before the publish so the
         // queue never shows a duplicate as ordinary for a frame.
         // Nothing is filed into the folder it came from, by any pass (a rule, a model answer).
-        if !scanHoldsFileInto {
+        // A one-level scan keeps the folders below as homes, just not the folder itself.
+        if excludesScannedSubtree || !scanHoldsFileInto {
             suggestions = suggestions.map { s in
-                let kept = s.candidates.filter { !PathBoundary.contains($0.path, under: folder.path) }
+                let kept = s.candidates.filter {
+                    excludesScannedSubtree ? !PathBoundary.contains($0.path, under: folder.path) : $0.path != folder.path
+                }
                 return kept.count == s.candidates.count ? s : s.replacingCandidates(kept)
             }
         }
         suggestions = await markingAlreadyFiled(suggestions, providerRoot: providerRoot.path,
-                                                excludingSubtree: scanHoldsFileInto ? nil : folder.path)
+                                                excludingSubtree: excludesScannedSubtree ? folder.path : nil)
         if Task.isCancelled { return }
         // And, for statements matched to an account, against that account's own files: no Duplicates
         // scan has to have run, and a copy saved under the bank's own name still counts.
@@ -1791,13 +1800,14 @@ extension FileSyncManager {
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
                                       remember: Bool = false, teachAccount teach: Bool = false,
-                                      fileOnce: Bool = false) async -> FilingApplyResult {
+                                      fileOnce: Bool = false, exceptCopiesTo: Set<String> = []) async -> FilingApplyResult {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
         // file Verify All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return .failed
         }
+        let wouldCreate = missingFolders(for: [destination.path] + (fileOnce ? [] : destination.alsoCopiesTo.map(\.path)))
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
             if let offer = suggestion.firstOffer {
@@ -1823,16 +1833,21 @@ extension FileSyncManager {
                                         providerRoot: suggestion.providerRoot,
                                         evidenceWord: suggested.evidenceToken)
             }
-            let copied = fileOnce ? [] : performFilingCopies(of: move.to, copies: destination.alsoCopiesTo)
-            registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)")
+            let copied = fileOnce ? [] : performFilingCopies(of: move.to, copies: destination.alsoCopiesTo.filter {
+                !exceptCopiesTo.contains($0.account.root)
+            })
             // What it teaches (decision 8): a statement he sent somewhere with "Remember" ticked,
             // or the first statement of an account it made.
+            var taught: LearnedAccount?
             if teach || destination.createsAccountFolder {
                 let into = destination.createsAccountFolder && !teach ? (destination.account?.root ?? destination.path)
                                                                       : destination.path
-                teachAccount(from: [suggestion], landed: [.init(source: move.from.path, landed: move.to.path)],
-                             into: into, by: teach ? .singleRedirect : .newAccount)
+                taught = teachAccount(from: [suggestion], landed: [.init(source: move.from.path, landed: move.to.path)],
+                                      into: into, by: teach ? .singleRedirect : .newAccount)
             }
+            registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)",
+                               createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
+                               forgetsLesson: taught != nil)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName)" + Self.copiedPhrase(copied), undoable: true)
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")

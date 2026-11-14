@@ -151,6 +151,22 @@ extension FileSyncManager {
         filingLearnedAccounts = kept
     }
 
+    /// Why a lesson isn't in use, for its row: taught for another tree than the one the last scan
+    /// walked, or outranked by a folder whose name carries the number. nil when it is used.
+    public func learnedAccountNote(_ account: LearnedAccount) -> String? {
+        if let root = filingLastProviderRoot, root != account.surveyRoot {
+            return "not used: taught for “\((account.surveyRoot as NSString).lastPathComponent)”, not the folders scanned last"
+        }
+        let number = DocumentFacts.OwnNumber(digits: account.ending, masked: false)
+        if let index = filingAccountIndex, let named = index.accounts.first(where: { a in
+            a.institution == account.institution && a.root != account.folder
+                && AccountIndex.namedByFolder(a, ending: account.ending) && a.identities.contains { index.ends(number, identity: $0) }
+        }) {
+            return "not used: “\((named.root as NSString).lastPathComponent)” carries ••\(account.ending)"
+        }
+        return nil
+    }
+
     public func removeLearnedAccount(id: UUID) {
         filingLearnedAccounts.removeAll { $0.id == id }
     }

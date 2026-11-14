@@ -330,7 +330,10 @@ struct FilingScorecardSheet: View {
     /// The same offer a filing's "Save as rule…" makes, for the newest file of the pair.
     private func offerRule(_ pair: FilingScorecard.Repeat) {
         let r = pair.latest
-        let rel = syncManager.ruleDestination(forFiledFolder: r.landed, scannedRoot: r.root)
+        guard let rel = syncManager.ruleDestination(forFiledFolder: r.landed, scannedRoot: r.root) else {
+            syncManager.banner = .refusal("Rules file only inside File Into; “\(r.fileName)” landed outside it", log: .info)
+            return
+        }
         let date = (try? FileManager.default.attributesOfItem(atPath: r.file))?[.modificationDate] as? Date
         guard let proposal = syncManager.proposeAutomationRule(fileName: r.fileName, filePath: r.file,
                                                                destinationRelativePath: rel, modificationDate: date)
