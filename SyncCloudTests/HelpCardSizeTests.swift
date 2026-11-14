@@ -40,13 +40,8 @@ import Testing
             let movedHeight = out.height != start.height
             #expect(movedWidth == (grip.horizontal != 0), "\(grip) moved width when it should not, or did not when it should")
             #expect(movedHeight == (grip.vertical != 0), "\(grip) moved height wrongly")
+            #expect(grip.horizontal != 0 || grip.vertical != 0, "\(grip) moves nothing at all")
         }
-    }
-
-    /// The control for the walk above: it would notice a grip that moved nothing at all.
-    @Test func theGripWalkWouldNoticeADeadGrip() {
-        let moving = HelpCardGrip.allCases.filter { $0.horizontal != 0 || $0.vertical != 0 }
-        #expect(moving.count == HelpCardGrip.allCases.count)
         #expect(HelpCardGrip.allCases.count == 8)
     }
 
@@ -93,11 +88,15 @@ import Testing
 
     /// The window's own floor can show the card's floor. A minimum larger than the smallest window
     /// the app allows would make the clamp fight the window on every small display.
-    @Test func theCardsFloorFitsTheWindowsFloor() {
-        // `ContentView.chromedContent` pins the window to 760×560.
-        let windowFloor = CGSize(width: 760, height: 560)
-        #expect(HelpCardSize.minimum.width <= windowFloor.width)
-        #expect(HelpCardSize.minimum.height <= windowFloor.height)
+    @Test func theCardsFloorFitsTheWindowsFloor() throws {
+        // The window's own `.frame(minWidth:minHeight:)`, read from `ContentView`, not a copy of it.
+        let floors = argumentLists(of: "frame", in: sourceCodeOnly(try macAppFile("ContentView.swift")))
+            .map(CallArguments.init).filter { $0.value("minHeight") != nil }
+        try #require(floors.count == 1, "ContentView declares \(floors.count) minHeights — which is the window's?")
+        let width = try #require(floors[0].value("minWidth").flatMap(Double.init), "the window's minWidth is not a literal")
+        let height = try #require(floors[0].value("minHeight").flatMap(Double.init), "the window's minHeight is not a literal")
+        #expect(HelpCardSize.minimum.width <= width)
+        #expect(HelpCardSize.minimum.height <= height)
     }
 
     // MARK: The call site

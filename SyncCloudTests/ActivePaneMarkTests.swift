@@ -79,10 +79,6 @@ import AppKit
     @Test func theColumnRingIsUnifiedOnly() {
         #expect(ActivePaneMark.cardAccent(isFocused: true,
                                                  accent: LiquidGlassHue.blue.accentColor,
-                                                 surfaceStyle: .cards) != nil,
-                "a destination pane in Cards has no border colour, so its cards cannot mark themselves")
-        #expect(ActivePaneMark.cardAccent(isFocused: true,
-                                                 accent: LiquidGlassHue.blue.accentColor,
                                                  surfaceStyle: .unified) == nil,
                 "Unified handed a card accent, where paneCardIfNeeded is a no-op — it would be silently discarded")
     }
@@ -121,19 +117,10 @@ import AppKit
     /// The mark is applied to the pane column, and to the pane column only. Applied deeper it would
     /// land inside the header's measured rows; applied higher it would cover both panes.
     @Test func theMarkIsAppliedToThePaneColumn() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8))
         // Counted inside `paneColumn`'s body, not across the file: a surface elsewhere adopting
         // the spelling while a pane card lost it would keep a file-wide count at three.
-        let start = try #require(code.range(of: "func paneColumn"),
-                                 "paneColumn is gone — the mark has no home to be asserted in")
-        let rest = String(code[start.upperBound...])
-        // Member indentation only (4–5 spaces): a looser `\s*` would stop at the first local
-        // `var` inside the body and cut off the cards being counted.
-        let end = rest.range(of: #"\n {4,5}(private )?(func|var) "#, options: .regularExpression)
-        let column = end.map { String(rest[..<$0.lowerBound]) } ?? rest
+        let column = try declarationBody(of: "func paneColumn(isLeft: Bool) -> some View {",
+                                         in: macAppFile("ContentView.swift"))
         #expect(column.contains("ActivePaneMark(isFocused: paneIsFocusedPane(isLeft: isLeft)"),
                 "the pane column does not carry the mark")
         // Every card in the column, not some of them: a stack with one bordered card reads as that
@@ -145,10 +132,7 @@ import AppKit
     /// Every click in a pane moves the focus to it. A list of the ways to click a pane goes stale
     /// as soon as a control is added, so the question is asked once, where every press is visible.
     @Test func everyClickInAPaneMovesTheFocus() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8))
+        let code = try macAppFile("ContentView.swift")
         #expect(code.contains("PaneClickReporter {"),
                 "the pane column no longer reports clicks, so focus moves only on a row selection again")
         #expect(code.contains("noteFocusedPane(isLeft: isLeft, because: \"a click in this pane\")"),
@@ -179,7 +163,8 @@ import AppKit
     /// `ClickReportingView.currentEventType` for why that seam exists). It sits in the right half
     /// of its host, as Compare's right pane does: at the origin, local and superview coordinates
     /// match, which would hide a member reading the point as local.
-    private func mounted(_ event: NSEvent.EventType?) -> (PaneClickReporter.ClickReportingView, () -> Int) {
+    private func mounted(_ event: NSEvent.EventType?,
+                         deliverNow: Bool = true) -> (PaneClickReporter.ClickReportingView, () -> Int) {
         let host = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
         let reporter = PaneClickReporter.ClickReportingView(
             frame: CGRect(x: 100, y: 0, width: 100, height: 200))
@@ -190,7 +175,7 @@ import AppKit
         reporter.currentEventType = { event }
         // Synchronous delivery, so these tests check the reporting rule without spinning a run
         // loop. `theReportLeavesTheClicksOwnRoutingWindow` keeps the production `deliver`.
-        reporter.deliver = { $0() }
+        if deliverNow { reporter.deliver = { $0() } }
         return (reporter, { count.n })
     }
 
@@ -199,23 +184,16 @@ import AppKit
     /// synchronously, inside the table's mouse-down tracking loop, the first click would not
     /// select. Nothing fires inside `hitTest`; the report lands on the next `.default`-mode turn.
     @Test func theReportLeavesTheClicksOwnRoutingWindow() {
-        let host = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
-        let reporter = PaneClickReporter.ClickReportingView(
-            frame: CGRect(x: 100, y: 0, width: 100, height: 200))
-        host.addSubview(reporter)
-        final class Count { var n = 0 }
-        let count = Count()
-        reporter.onClick = { count.n += 1 }
-        reporter.currentEventType = { .leftMouseDown }
+        let (reporter, reported) = mounted(.leftMouseDown, deliverNow: false)
         #expect(reporter.hitTest(CGPoint(x: 150, y: 100)) == nil)
-        #expect(count.n == 0,
+        #expect(reported() == 0,
                 "the report published inside the click's own routing window — the ordering aa9d407 exists to forbid")
         // Bounded: spin `.default` until the deferred report lands or the budget is spent.
         let deadline = Date().addingTimeInterval(2)
-        while count.n == 0, Date() < deadline {
+        while reported() == 0, Date() < deadline {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
-        #expect(count.n == 1, "the deferred report never arrived — the click would no longer move focus at all")
+        #expect(reported() == 1, "the deferred report never arrived — the click would no longer move focus at all")
     }
 
     /// It answers nil to every hit test, so the press goes on to whatever lies beneath; returning

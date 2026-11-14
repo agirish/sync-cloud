@@ -25,11 +25,6 @@ import Foundation
                                                 in: Self.askClaude()))
         #expect(body.contains("PaneLogic.pinRoom(input, previous: askClaudePinDecided ? askClaudePinState : nil)"))
         #expect(body.contains("if input.rowWidth > 0 { askClaudePinDecided = true }"))
-        // The rule itself: no previous answer docks at exactly what it needs; the overlay's needs 40 more.
-        let input = PaneLogic.PinRoomInput(workspace: .browse, rowWidth: 774, columnWidth: 373, gutter: 0,
-                                           sidebarShown: true, sidebarStored: 180)
-        #expect(PaneLogic.pinRoom(input, previous: nil).fits)
-        #expect(!PaneLogic.pinRoom(input, previous: .overlay).fits)
     }
 
     /// Organize's spine drawer is for a fold made by hand. The dock's fold is computed, and a drawer

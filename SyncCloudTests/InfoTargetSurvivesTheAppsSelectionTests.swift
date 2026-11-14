@@ -39,8 +39,8 @@ import Sync
                 "an unconditional clear is back — the app's own write clears the target again")
         #expect(content.contains(".onChange(of: syncManager.selectedRightPaths) { _, paths in clearInfoTargetAfterRightSelection(paths) }"),
                 "the right pane's selection no longer reaches the Get Info target's clear")
-        let body = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
-                                                         in: "ContentView.swift")
+        let body = try memberBody("func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
+                                  inFile: "ContentView.swift")
         #expect(try CallArguments(of: "Self.leftSelectionClearsInfoTarget(", in: body.normalized)
                     .passes("paidSelection", "editorPaneSelectionPaid"))
     }
@@ -59,8 +59,8 @@ import Sync
     /// The marker is one-shot (read, then lowered, before the rule is asked), so it can't outlive
     /// the change it announced and swallow the user's own later clear.
     @Test func theRightMarkerIsConsumedByTheChangeItAnnounced() throws {
-        let body = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {",
-                                                         in: "ContentView.swift")
+        let body = try memberBody("func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {",
+                                  inFile: "ContentView.swift")
         let read = try #require(body.range(of: "let paid = editorPaneRightClearPaid"))
         let lower = try #require(body.range(of: "editorPaneRightClearPaid = false"),
                                  "the marker is never lowered — the user's next clear would keep a stale target")
@@ -95,8 +95,8 @@ import Sync
 
         // The window: each selection handler clears its own side, and Get Info aims the side that
         // holds the path.
-        let left = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
-                                                         in: "ContentView.swift")
+        let left = try memberBody("func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
+                                  inFile: "ContentView.swift")
         #expect(left.contains("infoTargets.clear(isLeft: true)") && !left.contains("isLeft: false"))
         let show = CodeText(try declarationBody(of: "func showInfo(for path: String) {", in: macAppFile("ContentView.swift")))
         #expect(show.contains("let isLeft = paneInfoTargetIsLeft(for: path)"))
@@ -161,12 +161,12 @@ import Sync
         #expect(targets.path(isLeft: false) == nil, "the right pane's own click kept its old target")
 
         // The window's handlers pass the other pane's live selection.
-        let left = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
-                                                         in: "ContentView.swift")
+        let left = try memberBody("func clearInfoTargetAfterLeftSelection(_ paths: Set<String>) {",
+                                  inFile: "ContentView.swift")
         #expect(try CallArguments(of: "Self.leftSelectionClearsInfoTarget(", in: left.normalized)
                     .passes("otherPane", "syncManager.selectedRightPaths"))
-        let right = try EditorNewFilePaneWiringTests.body(of: "func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {",
-                                                          in: "ContentView.swift")
+        let right = try memberBody("func clearInfoTargetAfterRightSelection(_ paths: Set<String>) {",
+                                   inFile: "ContentView.swift")
         #expect(try CallArguments(of: "Self.rightSelectionClearsInfoTarget(", in: right.normalized)
                     .passes("otherPane", "syncManager.selectedLeftPaths"))
     }

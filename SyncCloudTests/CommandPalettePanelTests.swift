@@ -147,14 +147,20 @@ import Sync
         return state
     }
 
-    /// The panel must refuse key. The field is in the host's toolbar, so a panel that took key
-    /// would pull the caret out of the field mid-word. With the panel non-key the host stays key,
-    /// the field editor keeps first responder, and the row highlight is this app's own fill.
-    @Test func theWindowClassRefusesKeySoTheFieldKeepsTheCaret() {
+    /// A borderless palette window, left to ARC and never ordered in: close it in a `defer`.
+    private func scratchPanel() -> CommandPaletteWindow {
         let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                                          styleMask: [.borderless, .nonactivatingPanel],
                                          backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
+        return panel
+    }
+
+    /// The panel must refuse key. The field is in the host's toolbar, so a panel that took key
+    /// would pull the caret out of the field mid-word. With the panel non-key the host stays key,
+    /// the field editor keeps first responder, and the row highlight is this app's own fill.
+    @Test func theWindowClassRefusesKeySoTheFieldKeepsTheCaret() {
+        let panel = scratchPanel()
         // `isReleasedWhenClosed = false` leaves the window to ARC, and the `defer` takes it out of
         // the app's window list at the end of the test. Closed, not ordered out, only because it is
         // borderless and never shown; the hosts are ordered out instead, as `makeHost` says.
@@ -343,10 +349,7 @@ import Sync
     /// whole boundary. No window is ordered in: the rule is object identity, which unordered windows
     /// still have.
     @Test func aClickInAnotherWindowDismissesThePalette() {
-        let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
-                                         styleMask: [.borderless, .nonactivatingPanel],
-                                         backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
+        let panel = scratchPanel()
         let other = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
                              styleMask: [.borderless], backing: .buffered, defer: false)
         other.isReleasedWhenClosed = false
@@ -371,9 +374,7 @@ import Sync
     /// `return .none` swallows as surely as `return nil`.
     @Test func theMonitorActuallyInstallsTheClickAwayRule() throws {
         let source = maskedCode(try Self.panelSource())
-        let block = try Self.braceBalancedBlock(after: "addMonitor(matching: [.leftMouseDown",
-                                                in: source,
-                                                what: "the click monitor")
+        let block = try declarationBody(of: "addMonitor(matching: [.leftMouseDown", in: source)
 
         #expect(block.contains("self.clickDismissesThePalette(clickedWindow: event.window,"),
                 "the click monitor no longer consults clickDismissesThePalette — the rule is extracted and unused")
@@ -405,11 +406,6 @@ import Sync
         let source = maskedCode(try Self.panelSource())
         #expect(!source.contains("addMonitor(matching: .keyDown"),
                 "a keyDown monitor is back — ⌘K is being intercepted before the menu item sees it")
-        #expect(!source.contains("closesThePalette"),
-                "the retired chord rule is back in the file")
-        // The click monitor stays: a right- or middle-click moves no key window, so for two of its
-        // three masks it is the only dismissal path.
-        #expect(source.contains("addMonitor(matching: [.leftMouseDown"))
     }
 
     /// The resign observer is on the host. On the panel it would never fire, since a window that
@@ -431,25 +427,17 @@ import Sync
     /// call-site scan above green.
     @Test func theMonitorHelperInstallsAndDismissDrainsThem() throws {
         let source = maskedCode(try Self.panelSource())
-        let helper = try Self.braceBalancedBlock(after: "private func addMonitor(matching mask:",
-                                                 in: source, what: "addMonitor")
+        let helper = try declarationBody(of: "private func addMonitor(matching mask:", in: source)
         #expect(helper.contains("NSEvent.addLocalMonitorForEvents(matching: mask, handler: handler)"),
                 "addMonitor no longer calls AppKit — every monitor in this file is now a no-op")
         #expect(helper.contains("eventMonitors.append(monitor)"),
                 "addMonitor no longer tracks the token, so dismiss() can never remove the monitor")
 
-        let dismiss = try Self.braceBalancedBlock(after: "func dismiss() {", in: source, what: "dismiss()")
+        let dismiss = try declarationBody(of: "func dismiss() {", in: source)
         #expect(dismiss.contains("eventMonitors.forEach(NSEvent.removeMonitor)"),
                 "dismiss() no longer drains the monitors — they outlive the palette and fire app-wide")
         #expect(dismiss.contains("eventMonitors = []"),
                 "dismiss() leaves stale tokens in the bag — the next dismiss() would remove them twice")
-    }
-
-    /// The body after `anchor`, to its own closing brace, read over ``maskedCode(_:)``: a brace or a
-    /// `return` inside a string or a comment can then neither move the bounds nor count.
-    static func braceBalancedBlock(after anchor: String, in source: String,
-                                   what: String) throws -> String {
-        try declarationBody(of: anchor, in: maskedCode(source))
     }
 
     /// Every `return <expr>` in a block, as the expression's text, in source order. A
@@ -501,8 +489,7 @@ import Sync
     /// out at teardown, after the assertions, is right: it keeps these windows from accumulating.
     @Test func onlyTeardownEverOrdersAWindowOut() throws {
         let source = maskedCode(try Self.fixtureSource())
-        let teardown = try Self.braceBalancedBlock(after: "private func teardown(", in: source,
-                                                   what: "the fixture's teardown")
+        let teardown = try declarationBody(of: "private func teardown(", in: source)
         #expect(teardown.contains("orderOut"),
                 "teardown no longer orders the host out, so this suite's windows stay in the app's window list for the rest of the process")
         // Counted over the whole masked file minus teardown's own block, so a new helper can't hide
@@ -529,10 +516,7 @@ import Sync
     /// ...and a click on the palette must not dismiss it, or the list would close under the
     /// pointer before it could be used.
     @Test func aClickOnThePaletteItselfIsLeftAlone() {
-        let panel = CommandPaletteWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10),
-                                         styleMask: [.borderless, .nonactivatingPanel],
-                                         backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
+        let panel = scratchPanel()
         // Never ordered in; closed for the reason `theWindowClassRefusesKeySoTheFieldKeepsTheCaret`
         // gives.
         defer { panel.close() }
@@ -732,13 +716,5 @@ import Sync
         #expect(state.query.isEmpty, "a keystroke after the close still reached the retired list")
         #expect(state.selection == selected, "↓ after the close still moved a retired selection")
         #expect(ran == 0, "↩ after the close ran a route")
-    }
-
-    @Test func theIndexIsSnapshottedRatherThanReReadPerKeystroke() {
-        // A palette that re-indexed between a key and its character would be walking the folder
-        // profile inside a keystroke. The state takes the index once, at init.
-        let state = CommandPaletteState(index: index)
-        state.setQuery("legal")
-        #expect(state.index.folders == ["Legal"])
     }
 }

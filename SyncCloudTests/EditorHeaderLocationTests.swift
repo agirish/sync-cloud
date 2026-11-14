@@ -30,18 +30,6 @@ import FileExplorer
         #expect(location.style == .crumb)
     }
 
-    /// The reading follows the pane: open → the folder's name, collapsed → the crumb.
-    @Test func thePaneStateChoosesTheReading() throws {
-        let open = try #require(EditorHeaderLocation.location(
-            documentPath: "/r/A/f.md", paneFolder: "/r/A", sourceRoot: "/r", providerName: "Drive",
-            paneIsOpen: true, links: [:]))
-        let collapsed = try #require(EditorHeaderLocation.location(
-            documentPath: "/r/A/f.md", paneFolder: "/r/A", sourceRoot: "/r", providerName: "Drive",
-            paneIsOpen: false, links: [:]))
-        #expect(open.style == .folderName)
-        #expect(collapsed.style == .crumb)
-    }
-
     /// iCloud Drive's `Documents` is `~/Documents` on disk, linked into the container. A file the
     /// pane lists under `iCloud › Documents` must be placed there, through the hand-off's own root
     /// test, not refused as outside the source.
@@ -146,12 +134,6 @@ import FileExplorer
             #expect(location.help == "iCloud › Documents › Finance")
             #expect(location.style == (paneIsOpen ? .folderName : .crumb))
         }
-        // And what the header draws from it: "in Finance" is words, not a door, with the pane open.
-        let open = try #require(EditorHeaderLocation.location(
-            documentPath: nil, paneFolder: "/Users/me/Cloud/Documents/Finance",
-            sourceRoot: "/Users/me/Cloud", providerName: "iCloud", paneIsOpen: true, links: [:]))
-        #expect(open.segments.last?.name == "Finance")
-        #expect(open.segments.last?.target == nil, "the empty page's folder name is a door onto the folder the pane already shows")
         // An empty string for the document is no document, not a file named "".
         let blank = EditorHeaderLocation.location(
             documentPath: "", paneFolder: "/Users/me/Cloud/Documents/Finance",

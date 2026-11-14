@@ -40,22 +40,14 @@ import Foundation
         #expect(landings["~/Documents"] == nil, "the raw spelling is keyed, which matches no recent")
     }
 
-    /// A trailing slash is the other spelling of one root, and `key(forRoot:)` settles it. Stated
-    /// here because a source path is user-editable in Settings.
-    @Test func aTrailingSlashIsTheSameRoot() {
-        let landings = ContentView.folderSidebarLandings([
-            provider("local", root: "/Users/x/Sync/", openAt: "Documents")
-        ])
-        #expect(landings["/Users/x/Sync"] == "Documents")
-    }
-
-    /// A source that opens at its root carries an empty landing rather than being left out; it
-    /// subtracts nothing, because `recordVisit` never writes a recent for a root.
-    @Test func aSourceThatLandsOnItsRootCarriesAnEmptyLanding() {
-        let landings = ContentView.folderSidebarLandings([
-            provider("icloud", root: "/Users/x/iCloud", openAt: "")
-        ])
-        #expect(landings["/Users/x/iCloud"] == "")
+    /// A trailing slash is the other spelling of one root (a source path is user-editable in
+    /// Settings), and `key(forRoot:)` settles it. A source that opens at its root carries an empty
+    /// landing rather than being left out; `recordVisit` never writes a recent for a root.
+    @Test(arguments: [("/Users/x/Sync/", "Documents", "/Users/x/Sync"),
+                      ("/Users/x/iCloud", "", "/Users/x/iCloud")])
+    func aSourceIsKeyedOnItsRootsOneSpelling(root: String, openAt: String, key: String) {
+        let landings = ContentView.folderSidebarLandings([provider("local", root: root, openAt: openAt)])
+        #expect(landings[key] == openAt)
     }
 
     /// No sources is the first-run state: an empty map, which the store reads as "subtract

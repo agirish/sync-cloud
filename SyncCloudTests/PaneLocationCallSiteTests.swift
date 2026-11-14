@@ -11,20 +11,10 @@ import Foundation
 /// behavioural test, since the manager never learns which pane the app meant.
 @Suite struct PaneLocationCallSiteTests {
 
-    /// One declaration's body, bounded by its closing brace, not a character count: a fixed window
-    /// runs past a short body into the next member and answers about the wrong text.
-    private static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "`\(declaration)` is gone — this scan would read nothing")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for `\(declaration)`")
-        return String(rest[..<end.lowerBound])
-    }
-
     /// The header's path. `mode` is the resolved presentation, so a Tree pane reads out its scope
     /// and a Columns pane its scope joined with the open columns.
     @Test func theHeadersPathAsksForTheLocationThePresentationActuallyShows() throws {
-        let body = try Self.body(of: "func paneContext(isLeft: Bool) -> PaneContext {",
+        let body = try declarationBody(of: "func paneContext(isLeft: Bool) -> PaneContext {",
                                  in: try macAppFile("ContentView.swift"))
         #expect(body.contains(
                     "relativePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: mode == .columns)"),
@@ -50,7 +40,12 @@ import Foundation
                      "onForward: { syncManager.goForward(isLeft: isLeft, drawsColumns: pane.viewMode == .columns) }"] {
             #expect(source.contains(call), "missing or altered: \(call)")
         }
-        #expect(source.contains("drawsColumns: pane.viewMode == .columns) },"),
+        // The crumb's own argument, read by label: the arrows' lines end the same way.
+        let header = try CallArguments(of: "PaneHeader(", in: sourceCodeOnly(source))
+        #expect(header.passes("onNavigate", """
+                    { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0,
+                                               drawsColumns: pane.viewMode == .columns) }
+                    """),
                 """
                 a crumb click no longer carries the pane's presentation — in Tree it would write \
                 to a column stack the pane draws nowhere, and land on nothing at all
@@ -61,7 +56,7 @@ import Foundation
     /// arguments pinned whole: swapped, each pane is driven through the other's mode, which no
     /// behavioural test can see.
     @Test func aLinkedClickAsksEachPaneAboutItself() throws {
-        let body = try Self.body(of: "func navigateBothPanes(toCombinedPath combined: String, from isLeft: Bool) {",
+        let body = try declarationBody(of: "func navigateBothPanes(toCombinedPath combined: String, from isLeft: Bool) {",
                                  in: try macAppFile("ContentView.swift"))
         #expect(body.contains("drawsColumns: paneDrawsColumns(isLeft: isLeft)"),
                 "the clicked pane is no longer asked about its own presentation")
@@ -73,7 +68,7 @@ import Foundation
     /// would resolve through the sibling's presentation and every chip test would still pass, since
     /// they call `PaneTabChips.items` directly.
     @Test func theTabStripResolvesThroughItsOwnPanesPresentation() throws {
-        let body = try Self.body(of: "func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {",
+        let body = try declarationBody(of: "func paneTabItems(isLeft: Bool) -> [PaneTabStrip.Item] {",
                                  in: try macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains(
                     "livePath: syncManager.paneLocation(isLeft: isLeft, drawsColumns: paneDrawsColumns(isLeft: isLeft))"),

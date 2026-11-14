@@ -58,7 +58,6 @@ import AppKit
         #expect(host.makeFirstResponder(chosen))
         let before = try #require(host.firstResponder)
         #expect(before === chosen, "the fixture never focused what the user chose")
-        #expect(previous !== chosen, "the two stand-ins are the same view — this could not fail")
 
         ContentView.restoreCaret(to: previous, in: host, caretIsInField: false)
         #expect(host.firstResponder === before,

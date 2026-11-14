@@ -39,11 +39,8 @@ import Foundation
     /// grouped in `PaneChromeCommands`. A `ViewBuilder` silently takes only the first ten, so an
     /// eleventh added loose would drop an item off the menu with nothing failing.
     @Test func theViewMenusBuilderStaysWithinItsTenChildren() throws {
-        let group = try Self.slice(from: "CommandGroup(after: .sidebar) {", to: "\n            }\n",
-                                   in: try macAppFile("SyncCloudApp.swift"))
-        let children = group.split(separator: "\n")
-            .map { $0.prefix { $0 != "/" }.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        let group = try declarationBody(of: "CommandGroup(after: .sidebar) {", in: macAppFile("SyncCloudApp.swift"))
+        let children = group.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         #expect(children.count <= 10,
                 "the View group lists \(children.count) children: \(children) — a ViewBuilder takes ten")
         #expect(children.contains("PaneChromeCommands()"),
@@ -58,24 +55,23 @@ import Foundation
     /// The scan reads structure because asking a rendered Compare needs the whole window.
     @Test func theBarIsBuiltForBrowseAndNotInTheSharedPaneColumn() throws {
         let layout = try macAppFile("ContentView+SplitLayout.swift")
-        let browse = try Self.slice(from: "func browseLayout(geo: GeometryProxy) -> some View {",
-                                    to: "\n    }\n", in: layout)
+        let browse = try declarationBody(of: "func browseLayout(geo: GeometryProxy) -> some View {", in: layout)
         #expect(browse.contains("browseStatusBar"), "browseLayout no longer builds the status bar")
         #expect(browse.contains("if statusBarVisible"),
                 "the bar is drawn unconditionally — View ▸ Status Bar cannot hide it")
 
         // Exactly one construction in the whole app, so moving the call can't satisfy it: a second
         // `BrowseStatusBar(` anywhere in MacApp is a second surface drawing it.
-        let built = try Self.appSources().reduce(into: [String: Int]()) { counts, entry in
-            let hits = entry.value.components(separatedBy: "BrowseStatusBar(").count - 1
-            if hits > 0 { counts[entry.key] = hits }
+        let built = try QuickLookOriginTests.macAppSwiftFiles().reduce(into: [String: Int]()) { counts, name in
+            let hits = try macAppCode(name).components(separatedBy: "BrowseStatusBar(").count - 1
+            if hits > 0 { counts[name] = hits }
         }
         #expect(built == ["ContentView+SplitLayout.swift": 1],
                 "the status bar is constructed in \(built) — it belongs to browseLayout alone")
 
         // And it is not reached from the shared pane builder by another name.
-        let column = try Self.slice(from: "func paneColumn(isLeft: Bool) -> some View {",
-                                    to: "\n    }\n", in: try macAppFile("ContentView.swift"))
+        let column = try declarationBody(of: "func paneColumn(isLeft: Bool) -> some View {",
+                                         in: macAppFile("ContentView.swift"))
         #expect(!column.contains("browseStatusBar") && !column.contains("StatusBar"),
                 "paneColumn draws a status bar — it is shared with Compare and the lens rail")
     }
@@ -83,8 +79,7 @@ import Foundation
     /// The menu item is live on Browse and disabled everywhere else, following the folder
     /// sidebar's rule: a ticked switch on Compare would describe a strip that surface does not draw.
     @Test func theSwitchIsLiveOnBrowseAndNowhereElse() throws {
-        let body = try Self.slice(from: "var shortcutStatusBar: Binding<Bool>? {", to: "\n    }\n",
-                                  in: try macAppFile("ShortcutCommands.swift"))
+        let body = try declarationBody(of: "var shortcutStatusBar: Binding<Bool>? {", in: macAppFile("ShortcutCommands.swift"))
         #expect(body.contains("selectedWorkspace == .browse"),
                 "the switch no longer gates on the one workspace that draws the bar")
     }
@@ -102,31 +97,5 @@ import Foundation
         #expect(source.contains(#"@AppStorage(BrowseWindowSettings.tabBarVisibleKey) var tabBarVisible: Bool = BrowseWindowSettings.tabBarVisibleDefault"#)
                 && BrowseWindowSettings.tabBarVisibleKey == "browseTabBarVisible" && !BrowseWindowSettings.tabBarVisibleDefault,
                 "the tab bar preference moved — the two switches may now share a key")
-    }
-
-    // MARK: Helpers
-
-    /// Every Swift file directly in `MacApp`, by file name. Read from the tree rather than a list,
-    /// so a status bar built in a file added later is still caught.
-    private static func appSources() throws -> [String: String] {
-        let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
-        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
-            .filter { $0.hasSuffix(".swift") }
-        try #require(names.count > 20, "found \(names.count) app sources — this scan would be thin")
-        return try names.reduce(into: [:]) { out, name in
-            out[name] = try String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)
-        }
-    }
-
-    /// The text between a declaration and its closing brace. A scan that reads the wrong region is
-    /// worse than no scan, so both ends are required rather than defaulted.
-    private static func slice(from opening: String, to closing: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: opening),
-                                 "\(opening) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: closing), "\(opening) never closes")
-        return String(rest[..<end.lowerBound])
     }
 }

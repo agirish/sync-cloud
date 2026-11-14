@@ -13,19 +13,13 @@ import Foundation
 /// instantiated here and a re-implementation could agree with itself while disagreeing with the app.
 @Suite struct FolderSidebarCardTests {
 
-    static func source(_ relative: String) throws -> String { sourceCodeOnly(try repoFile(relative)) }
-
-    static func sidebarSource() throws -> String { try source("MacApp/ContentView+FolderSidebar.swift") }
-    static func hostSource() throws -> String { try source("MacApp/ContentView.swift") }
-    static func layoutSource() throws -> String { try source("MacApp/ContentView+SplitLayout.swift") }
-
     /// The same call, argument for argument, so a change of surface style, glass level, hue or tint
     /// reaches both panels or neither. Comparing the call text catches the half-edit: a hue passed to
     /// one and not the other shows only under a non-default setting.
     @Test func theSidebarAndTheInspectorUseTheSameCall() throws {
-        let sidebar = try #require(Self.cardCall(in: try Self.sidebarSource()),
+        let sidebar = try #require(Self.cardCall(in: try macAppCode("ContentView+FolderSidebar.swift")),
                                    "no bottomSectionCard call found in the sidebar")
-        let inspector = try #require(Self.cardCall(in: try Self.hostSource()),
+        let inspector = try #require(Self.cardCall(in: try macAppCode("ContentView.swift")),
                                      "no bottomSectionCard call found in the Info inspector")
         #expect(sidebar == inspector,
                 "the two panels flanking the pane are framed differently — sidebar: \(sidebar), inspector: \(inspector)")
@@ -45,7 +39,7 @@ import Foundation
     /// down the middle is a third edge between two already there, which is why the inspector's edge
     /// isn't a `Divider` either.
     @Test func theSeamIsAClearStripRatherThanADivider() throws {
-        let code = try Self.layoutSource()
+        let code = try macAppCode("ContentView+SplitLayout.swift")
         let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: code)
         #expect(!handle.contains("Divider()"),
                 "the sidebar seam draws a rule again, inside the card gutter")
@@ -60,7 +54,7 @@ import Foundation
     /// `onHover` leaks a pushed cursor if the column hides mid-hover (⌃⌘S is one keystroke away), and
     /// a hand-picked pointer drifts from the `.columnResize` every other seam shows.
     @Test func theSeamUsesTheSharedResizeHandle() throws {
-        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try Self.layoutSource())
+        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try macAppCode("ContentView+SplitLayout.swift"))
         #expect(handle.contains("ResizeHandle("),
                 "the sidebar seam hand-rolls its resize gesture again")
         #expect(!handle.contains("NSCursor"),
@@ -71,7 +65,7 @@ import Foundation
 
     /// The drag clamps to the column's own bounds and never closes it.
     @Test func theDragStillClampsToTheColumnsBounds() throws {
-        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try Self.layoutSource())
+        let handle = try declarationBody(of: "func folderSidebarResizeHandle(", in: try macAppCode("ContentView+SplitLayout.swift"))
         #expect(handle.contains("FolderSidebarView.minWidth"))
         #expect(handle.contains("FolderSidebarView.maxWidth"))
         #expect(handle.contains("folderSidebarDragOrigin"),

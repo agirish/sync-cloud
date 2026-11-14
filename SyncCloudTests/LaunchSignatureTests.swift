@@ -12,37 +12,24 @@ import Testing
 @Suite struct LaunchSignatureTests {
 
     /// A made-up team: the repository is public, and the real one is not needed to test the branch.
-    private static let team = "ABCDE12345"
+    static let team = "ABCDE12345"
 
-    @Test func aTeamCertificateIsReportedByItsTeam() {
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: Self.team, flags: 0)
-                == .team(Self.team))
-    }
-
-    /// Ad-hoc is read from its one flag, not from the whole word: the linker's own signature sets a
-    /// second flag beside it, and a comparison against `0x2` alone would call that build "no team".
-    @Test func adHocIsReadFromItsFlagNotTheWholeWord() {
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: nil, flags: 0x2) == .adHoc)
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: nil, flags: 0x20002) == .adHoc,
-                "a linker-signed build is ad-hoc too")
-    }
-
-    /// An empty team identifier is no team, so the flags decide.
-    @Test func anEmptyTeamIsNoTeam() {
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: "", flags: 0x2) == .adHoc)
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: "", flags: 0) == .noTeam)
-    }
-
-    @Test func aSignatureWithNeitherIsItsOwnCase() {
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: nil, flags: 0) == .noTeam)
-        #expect(LaunchSignature.classify(isSigned: true, teamIdentifier: nil, flags: nil) == .noTeam)
-    }
-
-    /// Unsigned code must not be reported as signed by anything, whatever the flags say.
-    @Test func unsignedCodeIsNeverReportedAsSigned() {
-        #expect(LaunchSignature.classify(isSigned: false, teamIdentifier: nil, flags: 0x2) == .unsigned)
-        #expect(LaunchSignature.classify(isSigned: false, teamIdentifier: Self.team, flags: 0)
-                == .unsigned)
+    /// `classify`, case by case. Ad-hoc is read from its one flag, not the whole word: the linker's
+    /// own signature sets a second flag beside it, and a comparison against `0x2` alone would call
+    /// that build "no team".
+    @Test(arguments: [
+        (true, LaunchSignatureTests.team, 0, .team(LaunchSignatureTests.team)),
+        (true, nil, 0x2, .adHoc),
+        (true, nil, 0x20002, .adHoc),        // linker-signed is ad-hoc too
+        (true, "", 0x2, .adHoc),             // an empty team is no team, so the flags decide
+        (true, "", 0, .noTeam),
+        (true, nil, 0, .noTeam),             // neither is its own case
+        (true, nil, nil, .noTeam),
+        (false, nil, 0x2, .unsigned),        // unsigned is never reported as signed, whatever the flags
+        (false, LaunchSignatureTests.team, 0, .unsigned),
+    ] as [(Bool, String?, UInt32?, LaunchSignature)])
+    func classify(isSigned: Bool, team: String?, flags: UInt32?, expected: LaunchSignature) {
+        #expect(LaunchSignature.classify(isSigned: isSigned, teamIdentifier: team, flags: flags) == expected)
     }
 
     /// The prefix is what a reader greps for; the ad-hoc line is the only one that says what it

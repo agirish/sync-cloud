@@ -14,12 +14,13 @@ func paneDelegate(syncManager: FileSyncManager? = nil, settings: SettingsManager
                   onFindDuplicatesOf: @escaping (FileNode) -> Void = { _ in },
                   onOrganizeFolder: @escaping (FileNode) -> Void = { _ in },
                   onOrganizeScope: @escaping (FileNode) -> Void = { _ in },
-                  onOpenInNewTab: @escaping (FileNode) -> Void = { _ in }) -> PaneActionDelegate {
+                  onOpenInNewTab: @escaping (FileNode) -> Void = { _ in },
+                  onOpenInEditor: @escaping (String) -> Void = { _ in }) -> PaneActionDelegate {
     PaneActionDelegate(
         handler: nil, syncManager: syncManager ?? .scratch(), settings: settings ?? .scratch(), isLeft: isLeft,
         leftProviderId: "left", rightProviderId: "right", isSingleSource: isSingleSource,
         ownsOrganizeScope: ownsOrganizeScope, servesEditor: servesEditor,
-        forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
+        forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: onOpenInEditor,
         ignoreStateToken: [], keptNamesToken: keptNamesToken,
         onFindDuplicatesOf: onFindDuplicatesOf, onOrganizeFolder: onOrganizeFolder, onCheckFolderShape: { _ in },
         onOrganizeScope: onOrganizeScope, onOpenInNewTab: onOpenInNewTab, onNewTabHere: { _ in }, onCloseTab: { })

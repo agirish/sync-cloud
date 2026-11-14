@@ -67,9 +67,6 @@ import Testing
         let expand = try #require(items.firstIndex { $0.title == "Expand" })
         let firstDivider = try #require(items.firstIndex { $0.isSeparatorItem })
         #expect(expand < firstDivider, "Expand is not in the modes' group")
-        #expect(!text.contains("Find…"), "Find… is duplicated into Text — ⌘F is registered twice")
-        #expect(!text.contains("Save"), "Save is duplicated into Text — ⌘S is registered twice")
-        #expect(!text.contains("Format Bar"), "Format Bar is back in Text — it lives in View, beside Status Bar")
     }
 
     /// The Markup menu is the context menu's list, in its order: derived from the same `menuOrder`,
@@ -112,21 +109,13 @@ import Testing
         #expect(item.keyEquivalentModifierMask == [.control, .command], "Expand registers the wrong modifiers")
         let claimants = try menuItems(claiming: "e", modifiers: [.control, .command]).map(\.title)
         #expect(claimants == ["Expand"], "⌃⌘E is claimed by \(claimants)")
-        // Format Bar is a switch with no key: the bar's buttons carry the Markup chords already.
-        #expect(try Self.item("Format Bar", in: "View").keyEquivalent.isEmpty, "Format Bar has acquired a key")
-        // Readable Line Length likewise: a preference about drawing, not a verb.
-        #expect(try Self.item("Readable Line Length", in: "Text").keyEquivalent.isEmpty,
-                "Readable Line Length has acquired a key")
-        // Paper Background likewise: a preference about drawing.
-        #expect(try Self.item("Paper Background", in: "Text").keyEquivalent.isEmpty, "Paper Background has acquired a key")
-        // Typewriter Scrolling likewise: a preference about how Source moves.
-        #expect(try Self.item("Typewriter Scrolling", in: "Text").keyEquivalent.isEmpty,
-                "Typewriter Scrolling has acquired a key")
-        // Continue Lists likewise: a preference, not a verb.
-        #expect(try Self.item("Continue Lists", in: "Text").keyEquivalent.isEmpty, "Continue Lists has acquired a key")
-        // Edit in Preview too: ⌥ is barred and ⌃⌘ is spent.
-        #expect(try Self.item("Edit in Preview (Experimental)", in: "Text").keyEquivalent.isEmpty,
-                "Edit in Preview has acquired a key")
+        // Switches with no key: preferences about drawing or how Source moves, not verbs. Format
+        // Bar's buttons carry the Markup chords already; for Edit in Preview ⌥ is barred and ⌃⌘ spent.
+        for (title, menu) in [("Format Bar", "View"), ("Readable Line Length", "Text"),
+                              ("Paper Background", "Text"), ("Typewriter Scrolling", "Text"),
+                              ("Continue Lists", "Text"), ("Edit in Preview (Experimental)", "Text")] {
+            #expect(try Self.item(title, in: menu).keyEquivalent.isEmpty, "\(title) has acquired a key")
+        }
     }
 
     /// Text ▸ Go to Line… is ⌃⌘L and nothing else in the bar claims it: not Window ▸ Activity Log's

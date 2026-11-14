@@ -51,15 +51,20 @@ import FileExplorer
         let text = try macAppFile("CommandPaletteHost.swift")
         #expect(text.contains("switch Self.revealOutcome(for: absolutePath, under: root ?? lensProviderRootExpanded)"),
                 "the reveal carries its own copy of the rule again — the branches this suite pins are not the ones that run")
+        let reveal = try declarationBody(of: "private func revealInSourcePane(", in: text)
         for branch in ["case .noSource:", "case .outsideSource(let root):"] {
-            let start = try #require(text.range(of: branch), "\(branch) is gone from the reveal")
-            let body = String(text[start.upperBound...].prefix(220))
-            #expect(body.contains("Logger.shared.warning"),
+            let start = try #require(reveal.range(of: branch), "\(branch) is gone from the reveal")
+            // The arm alone, up to the next `case .`: a fixed window reads into the next arm's log.
+            let rest = reveal[start.upperBound...]
+            let arm = rest[..<(rest.range(of: "case .")?.lowerBound ?? rest.endIndex)]
+            #expect(arm.contains("Logger.shared.warning("),
                     "\(branch) returns without a word — an accepted route delivering nothing, with no trace")
         }
-        // The person route's exit must log too.
-        let person = try #require(text.range(of: "is no longer in the registry"),
+        // The person route's exit must log too: the log call that says it, not any earlier one.
+        let code = sourceCodeOnly(text)
+        let person = try #require(code.range(of: "is no longer in the registry"),
                                   "↩ on a person the registry has dropped goes back to doing nothing silently")
-        #expect(text[..<person.lowerBound].contains("Logger.shared.warning"))
+        #expect(code[..<person.lowerBound].suffix(80).contains("Logger.shared.warning("),
+                "the dropped-person exit no longer logs a warning")
     }
 }

@@ -12,13 +12,13 @@ import FileExplorer
     /// Every route out of the PDF asks before a pending order or a running tool is lost, and asks
     /// first, before anything about the text document, which is empty while a PDF is open.
     @Test func everyRouteOutOfThePDFAsksFirst() throws {
-        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let settle = try memberBody("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         let ask = try #require(settle.range(of: "if asksAboutPDFWork { guard editorPDF.tools.mayLeave(thenRetry: retry) else { return false } }"),
                                "settleEditorDocument no longer asks about the PDF's pending work")
         let compose = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"))
         #expect(ask.lowerBound < compose.lowerBound, "the PDF is asked about after the text document")
 
-        let close = try EditorDiskWatchWiringTests.body("func closeEditorDocument()")
+        let close = try memberBody("func closeEditorDocument()", inFile: "ContentView+Editor.swift")
         let closeAsk = try #require(close.range(of: "guard editorPDF.tools.mayLeave(thenRetry: { closeEditorDocument() }) else { return }"),
                                     "closing a PDF no longer asks about its pending work")
         let closePDF = try #require(close.range(of: "EditorOpenRoute.closePDF(editorPDF,"))
@@ -29,21 +29,19 @@ import FileExplorer
     /// the question itself to run again once the copy lands. Opening a file, the hand-off, ⌘N's new
     /// file, the close and the quit each retry as themselves.
     @Test func everyRouteOutOfThePDFRetriesItselfAfterASavedFill() throws {
-        let open = try EditorDiskWatchWiringTests.body("func openInEditor(path: String, selectsInPane: Bool = false)")
+        let open = try memberBody("func openInEditor(path: String, selectsInPane: Bool = false)", inFile: "ContentView+Editor.swift")
         #expect(open.contains("guard settleEditorDocument(thenRetry: { openInEditor(path: path, selectsInPane: selectsInPane) }) else { return }"))
-        let create = try EditorDiskWatchWiringTests.body("func createTextFile(named name: String) -> Bool")
+        let create = try memberBody("func createTextFile(named name: String) -> Bool", inFile: "ContentView+Editor.swift")
         #expect(create.contains("guard settleEditorDocument(thenRetry: { if createTextFile(named: name) { editorIsNaming = false } }) else {"))
-        let settle = try EditorDiskWatchWiringTests.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
-        #expect(settle.contains("mayLeave(thenRetry: retry)"))
     }
 
     /// ⌘Q asks too, from the delegate, which holds the tools the window adopted, in Quit's words
     /// rather than Leave's.
     @Test func quittingAsksAboutThePDF() throws {
-        let app = CodeText(try EditorDiskWatchWiringTests.source("SyncCloudApp.swift"))
+        let app = CodeText(try macAppCode("SyncCloudApp.swift"))
         #expect(app.contains("if let tools = Self.sharedPDFTools, !tools.mayLeave(quitting: true, thenRetry: { NSApp.terminate(nil) }) {"))
         #expect(app.contains("return .terminateCancel"))
-        let view = CodeText(try EditorDiskWatchWiringTests.source("ContentView.swift"))
+        let view = CodeText(try macAppCode("ContentView.swift"))
         #expect(view.contains("SyncCloudAppDelegate.shared?.adoptPDFTools(editorPDF.tools)"),
                 "nothing hands the quit guard the PDF's tools — ⌘Q would never ask")
         // And a run from a pane's right-click menu, which the open PDF's tools know nothing of.
@@ -56,7 +54,7 @@ import FileExplorer
     /// Open through the rail click's door (which asks about the open file first), Reveal through
     /// Reveal in Browse, logged as the banner's.
     @Test func theHostIsTheWindowsOwnDoors() throws {
-        let editor = CodeText(try EditorDiskWatchWiringTests.editor())
+        let editor = CodeText(try macAppCode("ContentView+Editor.swift"))
         #expect(editor.contains(".onAppear { editorPDF.tools.host = editorPDFToolHost }"),
                 "the tools are never given the window — a copy would re-list nothing")
         #expect(editor.contains("""
@@ -70,14 +68,14 @@ import FileExplorer
         // A file now only in the cloud: Edit's own Download, from Edit's banner and a pane's.
         #expect(editor.contains("download: { path in downloadFromEdit(path) })"))
         let pane = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",
-                                                in: try EditorDiskWatchWiringTests.editor()))
+                                                in: try macAppCode("ContentView+Editor.swift")))
         #expect(pane.contains("download: { path in downloadFromEdit(path) })"), "a pane's banner has no Download")
     }
 
     /// A pane-launched batch's Reveal selects every copy beside the first, and may replace the set
     /// the batch ran on. A one-file run replaces nothing, so its Reveal is the one-row rule exactly.
     @Test func thePanesBatchRevealOwesEveryCopyBesideTheFirst() throws {
-        let editor = try EditorDiskWatchWiringTests.editor()
+        let editor = try macAppCode("ContentView+Editor.swift")
         let body = CodeText(try declarationBody(of: "func startPanePDFTool(_ request: PDFToolRequest, paths: [String]) {",
                                                 in: editor))
         #expect(body.contains("""

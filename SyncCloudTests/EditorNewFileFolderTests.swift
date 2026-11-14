@@ -131,16 +131,12 @@ import Sync
 
     // MARK: The wiring
 
-    private static func body(_ declaration: String) throws -> CodeText {
-        try EditorHeaderDoorsWiringTests.memberBody(declaration, in: EditorHeaderDoorsWiringTests.editor())
-    }
-
     /// ⌘N takes the pane to Notes before the row opens, and after the workspace switch, since
     /// before it `editorFolder` would be read for the workspace being left. A Notes that couldn't be
     /// made opens no row. Fails if the call moves above the switch, after `editorIsNaming = true`,
     /// or out of its `guard`.
     @Test func theChordTakesThePaneToNotesBeforeTheRowOpens() throws {
-        let chord = try Self.body("var shortcutNewTextFile: () -> Void")
+        let chord = try memberBody("var shortcutNewTextFile: () -> Void", inFile: "ContentView+Editor.swift")
         let switchTo = try #require(chord.range(of: "selectedWorkspace = .editor"))
         let move = try #require(chord.range(of: "guard takePaneToNotesIfItIsNoPlaceForAFile() else { return }"),
                                 "⌘N no longer takes the pane to Notes, or opens the row when Notes could not be made")
@@ -155,7 +151,7 @@ import Sync
     /// blank, then be pruned, sending ⌘N's file to Documents. Fails without `guard let refusal`,
     /// the make or the re-read, if the follow takes `paneFolder`, or if the re-read precedes it.
     @Test func thePaneFollowsNotesOnlyOnceItExists() throws {
-        let take = try Self.body("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool")
+        let take = try memberBody("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool", inFile: "ContentView+Editor.swift")
         #expect(take.contains("guard let refusal else { return true }"))
         let make = try #require(take.range(of: "let notes = makeNotesFolder(folder) guard notes != .couldNotMake else { return false }"))
         let follow = try #require(take.range(of: "followFolderInTabs(folder, for: \"the file ⌘N is about to make\","),
@@ -169,17 +165,17 @@ import Sync
     /// The file is made where the rule says, not in `editorFolder`, and the name the row offers and
     /// refuses is checked against that same folder. Fails if any of the three reads `editorFolder`.
     @Test func theFileTheRowNamesAndTheFileMadeShareOneFolder() throws {
-        let create = try Self.body("func createTextFile(named name: String) -> Bool")
+        let create = try memberBody("func createTextFile(named name: String) -> Bool", inFile: "ContentView+Editor.swift")
         #expect(create.contains("let (folder, refusal) = newTextFileDestination"))
         #expect(create.contains("EditorFileStore.createEmptyFile(named: name, in: folder)"))
         #expect(!create.contains("editorFolder"), "createTextFile reads the pane's folder, not the destination")
         #expect(create.contains("if refusal != nil, editorNewFilePane != .staysPut { followFolderInTabs(folder, keepsSource: editorNewFilePane == .followsOnItsSource) }"),
                 "a file made in Notes leaves the pane behind, drags it out of a comparison, or out of Organize's source")
-        let workspace = try Self.body("func editorWorkspace(showsRail: Bool, railWidth: CGFloat")
-        let call = try EditorHeaderDoorsWiringTests.call("EditorWorkspaceView(", in: workspace)
-        #expect(call.passes("prefilledName", "{ EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) }"))
-        #expect(call.passes("refusal", "{ typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) }"))
-        #expect(call.passes("newFileFolderName", "editorNewFileFolderName"))
+        let workspace = try memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat", inFile: "ContentView+Editor.swift")
+        let args = try call("EditorWorkspaceView(", in: workspace)
+        #expect(args.passes("prefilledName", "{ EditorFileStore.availableUntitledName(in: newTextFileDestination.folder) }"))
+        #expect(args.passes("refusal", "{ typed in EditorFileStore.refusal(forName: typed, in: newTextFileDestination.folder) }"))
+        #expect(args.passes("newFileFolderName", "editorNewFileFolderName"))
     }
 
     /// From Compare the pane stays half of the comparison; from Organize it keeps its source, as
@@ -188,12 +184,12 @@ import Sync
     /// below the switch (it would always say Edit), Compare's arm follows, or the follow ignores
     /// `.followsOnItsSource`.
     @Test func fromCompareTheFileGoesToNotesAndThePaneStays() throws {
-        let chord = try Self.body("var shortcutNewTextFile: () -> Void")
+        let chord = try memberBody("var shortcutNewTextFile: () -> Void", inFile: "ContentView+Editor.swift")
         let ask = try #require(chord.range(of: "editorNewFilePane = ExternalOpen.pane(workspace: selectedWorkspace, isReviewing: reviewStore.isReviewing, atLaunch: false)"),
                                "⌘N no longer asks what the workspace it was pressed in does to the pane")
         let switchTo = try #require(chord.range(of: "selectedWorkspace = .editor"))
         #expect(ask.lowerBound < switchTo.lowerBound, "the workspace is asked after ⌘N has already left it")
-        let take = try Self.body("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool")
+        let take = try memberBody("func takePaneToNotesIfItIsNoPlaceForAFile() -> Bool", inFile: "ContentView+Editor.swift")
         let stays = try #require(take.range(of: "case .staysPut:"))
         let follows = try #require(take.range(of: "case .followsTheFile, .followsOnItsSource:"))
         let follow = try #require(take.range(of: "followFolderInTabs(folder,"))
@@ -208,14 +204,14 @@ import Sync
     /// `isWritable` is an `access(2)` that can wait on a slow volume. Both fail if it reads
     /// `newTextFileDestination`.
     @Test func theTooltipsNameNeverReadsTheDisk() throws {
-        let name = try Self.body("var editorNewFileFolderName: String?")
+        let name = try memberBody("var editorNewFileFolderName: String?", inFile: "ContentView+Editor.swift")
         #expect(name.contains("EditorNewFileFolder.pathRefusal(of: editorFolder"))
         #expect(!name.contains("isWritable") && !name.contains("newTextFileDestination"))
     }
 
     /// The destination reads the pane on screen and the real home.
     @Test func theDestinationReadsThePaneAndTheHome() throws {
-        let destination = try Self.body("var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?)")
+        let destination = try memberBody("var newTextFileDestination: (folder: String, refusal: EditorNewFileFolder.Refusal?)", inFile: "ContentView+Editor.swift")
         #expect(destination.contains("paneFolder: editorFolder, home: NSHomeDirectory()"))
         #expect(destination.contains("FileManager.default.isWritableFile(atPath: $0)"))
         #expect(destination.contains("resolve: { Self.resolved($0) }"), "a link into a system folder is not followed")

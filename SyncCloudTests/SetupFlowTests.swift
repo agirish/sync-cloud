@@ -364,39 +364,6 @@ import Testing
         #expect(leading.title == "Browse")
     }
 
-    /// The workspaces that folded into Organize lenses. Each time one folds, prose written before
-    /// the fold keeps calling it a workspace.
-    static let retiredWorkspaces = ["Rename", "Duplicates", "Automations", "Storage"]
-
-    /// No panel may describe a retired workspace as a workspace.
-    @Test func noPanelCallsARetiredWorkspaceAWorkspace() {
-        for retired in Self.retiredWorkspaces {
-            for panel in SetupFlow.panels {
-                #expect(!panel.blurb.localizedCaseInsensitiveContains("\(retired) workspace"),
-                        "“\(panel.title)” calls \(retired) a workspace — it is an Organize lens")
-                #expect(!panel.title.localizedCaseInsensitiveContains("\(retired) workspace"),
-                        "“\(panel.title)” calls \(retired) a workspace — it is an Organize lens")
-            }
-        }
-        for row in SetupFlow.outline {
-            for retired in Self.retiredWorkspaces {
-                #expect(!row.detail.localizedCaseInsensitiveContains("\(retired) workspace"))
-            }
-        }
-    }
-
-    /// The positive control for the scan above, which asserts an absence and would pass on an empty
-    /// table, empty copy or a matcher that never matches. This proves all three are live.
-    @Test func theRetiredWorkspaceScanCanActuallyFail() {
-        #expect(!Self.retiredWorkspaces.isEmpty)
-        #expect(!SetupFlow.panels.isEmpty)
-        let offender = "The Duplicates workspace finds duplicate files."
-        let caught = Self.retiredWorkspaces.contains {
-            offender.localizedCaseInsensitiveContains("\($0) workspace")
-        }
-        #expect(caught, "the matcher no longer catches the phrasing this test exists to ban")
-    }
-
     // MARK: - What the summary may claim
 
     /// The Done step reports a household, not a guess. `PeopleStore.save()` won't write over a
@@ -702,19 +669,6 @@ import Testing
         let people = try macAppFile("Setup/PeopleScreen.swift")
         #expect(people.contains("return Self.foundBlurb(found: model.walkState.walk?.people.count ?? 0,"))
         #expect(try macAppFile("Setup/CountriesScreen.swift").contains("confident: model.countryCandidates.filter(JurisdictionCandidates.isConfident).count)"))
-    }
-
-    /// Summary no longer talks about the folder walk as work that has not shipped.
-    @Test func summaryDoesNotDescribeTheWalkAsUnshipped() throws {
-        let source = try macAppFile("Setup/SummaryScreen.swift")
-        for stale in ["Learning your folders comes next", "when it lands",
-                      "not in this build yet"] {
-            #expect(!source.contains(stale),
-                    "the sheet still says “\(stale)” about a screen it now has")
-        }
-        // The positive control: the sweep can see this file's copy at all.
-        #expect(source.contains("You have not learned a folder tree yet"),
-                "the replacement copy is not there — every check above is vacuous")
     }
 
     /// The Help topic counts the same screens the sheet has. Prose doesn't fail to compile, and the

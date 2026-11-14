@@ -12,34 +12,19 @@ import Foundation
 /// in source: the reader fails loudly on a missing or short file, and the exact count means a new entry point can't be added without deciding this.
 @Suite struct QuickLookOriginTests {
 
-    /// One MacApp file with no length floor, for the sweep, so a small new file passes. The checks
-    /// about one named file read it through `macAppFile`, which has the floor.
-    static func readable(_ name: String) throws -> String {
-        try #require(try? String(contentsOf: macAppDirectory().appendingPathComponent(name), encoding: .utf8),
-                     "cannot read \(name) — every check below would be vacuous")
-    }
-
     /// Every call to `toggleQuickLook(` across the app, each as `toggleQuickLook(<its whole
     /// argument list>)`, whitespace-normalised (``normalizedCode(_:)``). Swept over all of
     /// `MacApp/`, since a fixed file list would miss a call in a new file. Read per call, not per
     /// line: ``argumentLists(of:in:)`` reads to the closing paren, skips comments and strings, and
     /// doesn't count the definition.
     static func callSites() throws -> [String] {
-        var sites: [String] = []
-        for file in try Self.macAppSwiftFiles() {
-            for list in argumentLists(of: "toggleQuickLook(", in: sourceCodeOnly(try readable(file))) {
-                sites.append("toggleQuickLook(\(normalizedCode(list)))")
-            }
-        }
-        return sites
+        argumentLists(of: "toggleQuickLook(", in: sourceCodeOnly(try macAppSources()))
+            .map { "toggleQuickLook(\(normalizedCode($0)))" }
     }
 
     /// Every Swift file in `MacApp/`, by name, so the sweep above cannot silently narrow.
     static func macAppSwiftFiles() throws -> [String] {
-        let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
-        let urls = try #require(try? FileManager.default.contentsOfDirectory(at: dir,
+        let urls = try #require(try? FileManager.default.contentsOfDirectory(at: macAppDirectory(),
                                                                             includingPropertiesForKeys: nil),
                                 "cannot list MacApp/ — every check below would be vacuous")
         let names = urls.filter { $0.pathExtension == "swift" }.map { $0.lastPathComponent }

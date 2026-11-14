@@ -35,16 +35,12 @@ import Sync
         let unchanged = delegate(syncManager: manager, settings: settings, keptNames: [])
         #expect(before.isEquivalent(to: unchanged),
                 "an unchanged keep set must still let the pane skip the render")
-    }
 
-    /// Withdrawing one keep while adding another leaves the count unchanged, which is why the token
-    /// is the set and not a number.
-    @Test func swappingOneKeepForAnotherIsNoticed() {
-        let manager = FileSyncManager.scratch()
-        let settings = SettingsManager.scratch()
+        // Withdrawing one keep while adding another leaves the count unchanged, which is why the
+        // token is the set and not a number.
         let a = delegate(syncManager: manager, settings: settings, keptNames: ["one "])
         let b = delegate(syncManager: manager, settings: settings, keptNames: ["two "])
-        #expect(a.isEquivalent(to: b) == false)
+        #expect(a.isEquivalent(to: b) == false, "swapping one keep for another went unnoticed")
     }
 
     /// A kept name is silenced, and a name with the same hazard beside it isn't: a keep is about

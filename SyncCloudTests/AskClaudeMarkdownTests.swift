@@ -177,14 +177,7 @@ import Testing
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        // At 1× on every machine, as the hosted CI display draws, so a run here sees what CI sees.
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(host.bounds.width.rounded(.up)),
-                                                pixelsHigh: Int(host.bounds.height.rounded(.up)), bitsPerSample: 8,
-                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        rep.size = host.bounds.size
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return try renderAt1x(host)
     }
 
     private static func answer(_ text: String, width: CGFloat = 340) throws -> NSBitmapImageRep {

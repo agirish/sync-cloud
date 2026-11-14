@@ -66,6 +66,9 @@ import Testing
         // And outside it, the table still does.
         let onTable = hosting.hitTest(NSPoint(x: 200, y: 350))
         #expect(isInside(onTable, NSTableView.self), "the table should keep the clicks outside the column; got \(String(describing: onTable))")
+        // An empty, transparent corner of the column must not let a click fall through either.
+        let edge = hosting.hitTest(NSPoint(x: 1000 - 370, y: 690))
+        #expect(!isInside(edge, NSTableView.self), "a click on the column's empty edge reached the table; got \(String(describing: edge))")
     }
 
     /// The same, as a SwiftUI `.overlay`, which is how the narrow-window overlay would be drawn.
@@ -96,20 +99,5 @@ import Testing
         #expect(!isInside(hit, NSTableView.self), "the table under the drawer took the click; got \(String(describing: hit))")
         let onTable = hosting.hitTest(NSPoint(x: 200, y: 350))
         #expect(isInside(onTable, NSTableView.self))
-    }
-
-    /// An empty, transparent column area must not let a click fall through to the table either.
-    @Test func theColumnsBackgroundBlocksTheClickToo() async throws {
-        let controller = AskClaudeDock()
-        let (window, hosting) = host(
-            ZStack(alignment: .trailing) {
-                TableRep()
-                AskClaudeColumnHost(dock: controller).frame(width: 372)
-            })
-        await settle()
-        _ = window
-        // Near the top-left corner of the column, where nothing is drawn in an empty host.
-        let hit = hosting.hitTest(NSPoint(x: 1000 - 370, y: 690))
-        #expect(!isInside(hit, NSTableView.self), "a click on the column's empty edge reached the table; got \(String(describing: hit))")
     }
 }

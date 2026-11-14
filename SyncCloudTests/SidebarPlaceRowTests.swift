@@ -8,47 +8,59 @@ import Foundation
 /// place-first, so a place that becomes a folder source keeps its name and band: `Macintosh HD`
 /// added as `/` stays `Macintosh HD` among the devices, and Desktop as a source stays in Favorites.
 ///
-/// Asserted against `ContentView`'s own source, as `FolderSidebarWiringTests` is: `ContentView` is
-/// a `View` with `@State` and can't be instantiated here, and a copy of the logic could agree with
-/// itself while disagreeing with the app.
+/// The rows are built by `ContentView`'s `nonisolated static` builders. The wiring around them
+/// (one build per refresh, the volume walk handed down, the drag indexes) is asserted against
+/// `ContentView`'s own source, which can't be instantiated here.
 @Suite struct SidebarPlaceRowTests {
 
     static func source() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
 
-    /// Places are built before providers: the claimed-by-a-provider check runs against a place,
-    /// which needs the places to exist first.
-    @Test func aPlaceKeepsItsOwnNameWhenASourceClaimsIt() throws {
-        let code = try Self.source()
-        #expect(code.contains("name: place.name"),
-                "the row takes its name from the provider again — a folder source over \"/\" is named \"/\", and over \"~\" is named for the account's short name")
-        #expect(code.contains("band: place.band"),
-                "the row takes its band from somewhere other than the place, so promoting a volume moves it out of the device band")
+    static let disk = SidebarSourceModel.Volume(name: "Macintosh HD", path: "/",
+                                                isRemovable: false, isInternal: true)
+
+    static func rows(_ providers: [CloudProvider]) -> [SidebarSourceRow] {
+        ContentView.buildFolderSidebarPlaceRows(providers, volumes: [disk], favoritePlaces: [], links: [:])
     }
 
-    /// A place that a source claims becomes `.configured` (reachable) rather than being dropped from
-    /// the place list and redrawn as a provider.
-    @Test func aClaimedPlaceBecomesConfiguredRatherThanDisappearing() throws {
-        let code = try Self.source()
-        #expect(code.contains("owner != nil ? .configured"),
-                "a place claimed by a source no longer resolves to .configured")
-        #expect(code.contains("claimed.insert(owner.id)"),
-                "nothing records which providers a place claimed, so the same folder draws twice")
-    }
-
-    /// Only the providers no place claimed become cloud rows, or Desktop as a folder source would
-    /// be drawn in both Favorites and Locations.
-    @Test func onlyUnclaimedProvidersBecomeCloudRows() throws {
-        #expect(try Self.source().contains("providers.filter { !claimed.contains($0.id) }"),
-                "every provider becomes a cloud row again, so a place that is also a source draws twice")
+    /// A folder source over `/` becomes the disk's row: the place's name and band, the source's id,
+    /// `.configured`, and no second row for it among the cloud accounts.
+    @Test func aClaimedPlaceKeepsItsNameAndBandAndBecomesTheSource() throws {
+        let source = CloudProvider(id: "folder:disk", displayName: "/", imageName: "folder",
+                                   rootPath: "/", type: .localFolder)
+        let rows = Self.rows([source])
+        let disk = try #require(rows.first { $0.absolutePath == "/" })
+        #expect(disk.id == source.id, "the place did not become the source's row")
+        #expect(disk.name == "Macintosh HD", "the row takes its name from the source (\(disk.name))")
+        #expect(disk.band == .device, "promoting the volume moved it out of the device band")
+        #expect(disk.state == .configured)
+        #expect(rows.filter { $0.id == source.id }.count == 1,
+                "the claimed source is drawn twice: \(rows.map(\.id))")
+        #expect(!rows.contains { $0.band == .cloud }, "a claimed source became a cloud row too")
     }
 
     /// The Trash is never a source, even where somebody has added `~/.Trash` as a folder source by
     /// hand.
     @Test func theTrashIsAlwaysRevealOnly() throws {
-        let code = try Self.source()
-        #expect(code.contains("if place.band == .trash"),
-                "the Trash no longer short-circuits, so a source over it would make it browsable")
-        #expect(code.contains("state: .revealOnly"))
+        let trash = SidebarSourceModel.trashEntry.path
+        try #require(FileManager.default.fileExists(atPath: trash), "no \(trash) on this Mac")
+        let source = CloudProvider(id: "folder:trash", displayName: ".Trash", imageName: "folder",
+                                   rootPath: trash, type: .localFolder)
+        let row = try #require(Self.rows([source]).first { $0.band == .trash })
+        #expect(row.state == .revealOnly, "a source over the Trash made it browsable")
+        #expect(row.id == trash)
+    }
+
+    /// Bands are walked, not sorted: `sorted(by:)` is not stable, and every cloud account shares a
+    /// band, so a sort could shuffle them between renders.
+    @Test func cloudAccountsKeepTheirOrderAboveTheDevices() {
+        let zeta = CloudProvider(id: "Zeta", displayName: "Zeta", imageName: "cloud",
+                                 rootPath: "/nowhere/zeta", type: .dropBox)
+        let alpha = CloudProvider(id: "Alpha", displayName: "Alpha", imageName: "cloud",
+                                  rootPath: "/nowhere/alpha", type: .dropBox)
+        let locations = ContentView.splitFolderSidebarPlaceRows(
+            [zeta, alpha], volumes: [Self.disk], favoritePlaces: [], links: [:]).locations
+        #expect(Array(locations.map(\.id).prefix(2)) == ["Zeta", "Alpha"], "Locations reads \(locations.map(\.id))")
+        #expect(locations.map(\.band).drop { $0 == .cloud }.allSatisfy { $0 != .cloud })
     }
 
     /// Promotion does not rename the source. `FolderSource.defaultDisplayName` asks the volume for
@@ -272,11 +284,7 @@ import Foundation
 @Suite struct FavoritePlacesKeyTests {
 
     @Test func favoritePlacesKeyMatchesTheAppStorageProperty() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read ContentView.swift — this scan would be vacuous")
+        let code = try macAppFile("ContentView.swift")
         try #require(code.contains("@AppStorage("), "the file holds no @AppStorage — the scan is vacuous")
         #expect(code.contains("@AppStorage(\"\(SidebarFavoritePlaces.storageKey)\")"),
                 "ContentView reads a different key from SidebarFavoritePlaces.storageKey")

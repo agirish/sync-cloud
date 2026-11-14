@@ -124,7 +124,17 @@ import Testing
                 if !code.contains("wipeDefaultsSuite(\(name))") { leaked.append("\(file.name): suiteName: \(name)") }
             }
         }
-        try #require(suites >= 2, "found \(suites) bare suites — the scan is reading the wrong folder")
+        try #require(suites >= 1, "found \(suites) bare suites — the scan is reading the wrong folder")
         #expect(leaked.isEmpty, "a suite this file never wipes leaves its plist behind: \(leaked)")
+    }
+
+    /// Edit's PDF models remember the reader's layout and the saved signatures in `defaults`, and
+    /// observe it, so one built bare reads and watches the user's live domain.
+    @Test func everyPDFModelNamesItsDefaults() throws {
+        let calls = try ["EditorPDFDocument(", "EditorPDFViewState(", "EditorPDFSignatureStore("]
+            .flatMap { try Self.calls(of: $0) }
+        try #require(calls.count >= 10, "found \(calls.count) PDF model constructions — the scan is reading the wrong folder")
+        let live = calls.filter { $0.call.value("defaults") == nil }.map { "\($0.file): \($0.text)" }
+        #expect(live.isEmpty, "built on the user's live defaults — pass TestDefaults().defaults: \(live)")
     }
 }

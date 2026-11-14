@@ -26,18 +26,18 @@ import FileExplorer
     }
 
     @Test func theWindowAttachesTheWatchAndAnswersItsCallbacks() throws {
-        let view = CodeText(try Self.source("ContentView.swift"))
+        let view = CodeText(try macAppCode("ContentView.swift"))
         #expect(view.contains("attachEditorDiskWatch()"), "nothing attaches the disk watch — nothing is watched")
-        let attach = try Self.body("func attachEditorDiskWatch()")
+        let attach = try memberBody("func attachEditorDiskWatch()", inFile: "ContentView+Editor.swift")
         #expect(attach.contains("editorDiskWatch.attach(document: editorDocument, undoStore: editorUndoStore)"))
         #expect(attach.contains("editorDiskWatch.onMoved = { old, new, byThisApp in editorDocumentDidMove(from: old, to: new, byThisApp: byThisApp) }"))
         #expect(attach.contains("editorDiskWatch.onBannerChange = { banner in editorDiskBannerDidChange(banner) }"))
-        let app = CodeText(try Self.source("SyncCloudApp.swift"))
+        let app = CodeText(try macAppCode("SyncCloudApp.swift"))
         #expect(app.contains("editorDiskWatch: editorDiskWatch,"))
     }
 
     @Test func theWorkspaceIsHandedTheBannerAndItsAnswers() throws {
-        let call = try CallArguments(of: "EditorWorkspaceView(", in: normalizedCode(Self.editor()))
+        let call = try CallArguments(of: "EditorWorkspaceView(", in: normalizedCode(macAppCode("ContentView+Editor.swift")))
         #expect(call.passes("diskBanner", "editorDiskWatch.banner"))
         #expect(call.passes("diskNotice", "editorDiskWatch.notice?.text"))
         #expect(call.passes("onDiskBanner", "{ answerEditorDiskBanner($0) }"))
@@ -46,7 +46,7 @@ import FileExplorer
     /// A move takes the window's path-keyed state with it, the autosave switch most of all: a file
     /// switched off must not quietly come back on under its new name.
     @Test func aMoveTakesTheWindowsPathKeyedStateWithIt() throws {
-        let moved = try Self.body("func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool)")
+        let moved = try memberBody("func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool)", inFile: "ContentView+Editor.swift")
         #expect(moved.contains("editorAutosavePolicy.move(from: old, to: new)"))
         #expect(moved.contains("EditorOutlineScroll.moveAnchor(in: &editorOutlineAnchors, from: old, to: new)"))
         #expect(moved.contains("refreshEditorRail()"))
@@ -67,7 +67,7 @@ import FileExplorer
     /// Fails if `.saveAnyway` drops the consent or the banner's Keep Mine… goes straight to
     /// `writeEditorDocument`.
     @Test func keepMineAsksBeforeItWrites() throws {
-        let apply = try Self.body("func applyDivergenceAnswer(")
+        let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
         let keep = try #require(apply.range(of: "case .saveAnyway:"))
         let asks = try #require(apply.range(of: "EditorAlerts.keepMineAsks(for: divergence)"))
         let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
@@ -80,7 +80,7 @@ import FileExplorer
                 && ask.lowerBound < declined.lowerBound && declined.lowerBound < write.lowerBound,
                 "Keep Mine… writes before it asks")
         // The banner's Keep Mine… is the same answer, not a write of its own.
-        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        let banner = try memberBody("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)", inFile: "ContentView+Editor.swift")
         let bannerKeep = try #require(banner.range(of: "case .keepMine:"))
         let routed = try #require(banner.range(of: "applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true,"))
         let next = try #require(banner.range(of: "case .useDisks:"))
@@ -88,7 +88,7 @@ import FileExplorer
         #expect(!banner.normalized[bannerKeep.lowerBound..<next.lowerBound].contains("writeEditorDocument"),
                 "the banner's Keep Mine… writes on its own path again")
         // The sheet's foot comes back through `answerEditorDivergenceDiff` into the same function.
-        let foot = try Self.body("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)")
+        let foot = try memberBody("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)", inFile: "ContentView+Editor.swift")
         #expect(foot.contains("applyDivergenceAnswer(EditorAlerts.divergenceAnswer(for: verdict),"))
         #expect(EditorAlerts.keepMineButtonTitles == ["Keep Mine", "Cancel"])
         #expect(EditorAlerts.keepMineInformativeText.contains("the other changes are lost"))
@@ -106,7 +106,7 @@ import FileExplorer
     /// Fails if the `.saveAnyway` arm stamps with `consentedTo: EditorFileStore.stamp(ofPath:
     /// path)`, or any door drops its `seen:`.
     @Test func keepMineConsentsToTheVersionItAskedAbout() throws {
-        let apply = try Self.body("func applyDivergenceAnswer(")
+        let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
         let ask = try #require(apply.range(of: "!EditorAlerts.confirmKeepMine(name: editorDocument.name)"))
         let reload = try #require(apply.range(of: "case .reloadFromDisk:"))
         let tail = CodeText(String(apply.normalized[ask.upperBound..<reload.lowerBound]))
@@ -114,24 +114,24 @@ import FileExplorer
         #expect(!tail.contains("EditorFileStore.stamp(ofPath:"),
                 "the consent stamp is read after the alert — a version that landed meanwhile is agreed to unseen")
         // ⌘S: the stamp the divergence was found with is the one carried.
-        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let save = try memberBody("func saveEditorDocument() -> Bool", inFile: "ContentView+Editor.swift")
         let seen = try #require(save.range(of: "let seen = EditorFileStore.stamp(ofPath: path)"))
         let found = try #require(save.range(of: "EditorFileStore.divergence(of: seen, from: stamp)"))
         let asked = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
         #expect(seen.lowerBound < found.lowerBound && found.lowerBound < asked.lowerBound)
         #expect(save.contains("divergence: divergence, path: path, explicit: true, seen: seen)"))
         // Autosave's alert: stamped before it is put.
-        let autosave = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let autosave = try memberBody("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)", inFile: "ContentView+Editor.swift")
         let autoSeen = try #require(autosave.range(of: "let seen = EditorFileStore.stamp(ofPath: path)"))
         let autoAsk = try #require(autosave.range(of: "EditorAlerts.askAboutDivergence("))
         #expect(autoSeen.lowerBound < autoAsk.lowerBound)
         #expect(autosave.contains("divergence: divergence, path: path, explicit: false, seen: seen)"))
         // The banner: stamped at the click, which is before the consent alert.
-        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        let banner = try memberBody("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)", inFile: "ContentView+Editor.swift")
         #expect(banner.contains("applyDivergenceAnswer(.saveAnyway, divergence: .changed, path: path, explicit: true, seen: EditorFileStore.stamp(ofPath: path))"))
         // The diff: stamped as it opens, carried on the review, and handed back with the answer.
         #expect(apply.contains("EditorDivergenceReview(divergence: divergence, explicit: explicit, path: path, seen: EditorFileStore.stamp(ofPath: path))"))
-        let foot = try Self.body("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)")
+        let foot = try memberBody("func answerEditorDivergenceDiff(_ verdict: EditorDivergenceVerdict)", inFile: "ContentView+Editor.swift")
         #expect(foot.contains("path: review.path, explicit: review.explicit, seen: review.seen)"))
     }
 
@@ -142,14 +142,14 @@ import FileExplorer
     /// Fails if `writeEditorDocument` drops the `landed` catch or `.wroteKeepingAside` goes to a
     /// stop.
     @Test func aSaveThatKeptAnotherVersionAsideIsASave() throws {
-        let write = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
+        let write = try memberBody("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         let caught = try #require(write.range(
             of: "catch let failure as EditorFileStore.Failure where failure.landed != nil { keptAside = failure.savedBut }"),
             "⌘S reads a checked save that kept another version aside as a failure")
         let cleared = try #require(write.range(of: "editorAutosaveStop = nil"))
         #expect(caught.lowerBound < cleared.lowerBound)
         #expect(write.contains("syncManager.banner = EditorAutosaveStop.savedBut(name: editorDocument.name, clause: keptAside)"))
-        let outcome = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let outcome = try memberBody("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)", inFile: "ContentView+Editor.swift")
         let arm = try #require(outcome.range(of: "case .wroteKeepingAside(let clause):"))
         let next = outcome.normalized[arm.upperBound...].range(of: normalizedCode("case ."))?.lowerBound
             ?? outcome.normalized.endIndex
@@ -162,7 +162,7 @@ import FileExplorer
     /// The sheet says ⌘Z brings the typing back only where it does: with the banner up, where Use
     /// Disk Version is the undoable take.
     @Test func theSheetIsToldWhetherTakingTheDiskIsUndoable() throws {
-        let view = try Self.source("ContentView.swift")
+        let view = try macAppCode("ContentView.swift")
         let call = try CallArguments(of: "EditorDivergenceDiffOverlay(", in: normalizedCode(view))
         #expect(call.passes("takingDiskIsUndoable", "editorDiskWatch.banner == .changed"))
     }
@@ -170,7 +170,7 @@ import FileExplorer
     /// Save Again looks before it writes, so a file back at the path isn't written over, and the ⌘S
     /// alert's Save Again for a gone file is the banner's, through the same path.
     @Test func saveAgainLooksBeforeItWrites() throws {
-        let again = try Self.body("func saveEditorDocumentAgain(explicit: Bool) -> Bool")
+        let again = try memberBody("func saveEditorDocumentAgain(explicit: Bool) -> Bool", inFile: "ContentView+Editor.swift")
         let look = try #require(again.range(of: "editorDiskWatch.prepareSaveAgain()"))
         let write = try #require(again.range(of: "return writeEditorDocument(explicit: explicit)"))
         #expect(look.lowerBound < write.lowerBound)
@@ -178,10 +178,10 @@ import FileExplorer
                 "Save Again writes whatever the look found")
         #expect(again.contains("case .failed(let why): syncManager.banner = .error("),
                 "a folder that could not be made again fails silently")
-        let banner = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        let banner = try memberBody("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)", inFile: "ContentView+Editor.swift")
         #expect(banner.contains("case .saveAgain: saveEditorDocumentAgain(explicit: true)"))
         #expect(!banner.contains("writeEditorDocument"), "the banner writes on a path of its own")
-        let apply = try Self.body("func applyDivergenceAnswer(")
+        let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
         let saveAnyway = try #require(apply.range(of: "case .saveAnyway:"))
         let gone = try #require(apply.range(of: "if divergence == .missing { return saveEditorDocumentAgain(explicit: explicit) }"))
         let keepMine = try #require(apply.range(of: "EditorAlerts.keepMineAsks(for: divergence)"))
@@ -191,7 +191,7 @@ import FileExplorer
 
     /// The diff's Use Disk Version, with the banner up, is the banner's undoable one.
     @Test func reloadFromDiskUnderTheBannerIsTheUndoableOne() throws {
-        let apply = try Self.body("func applyDivergenceAnswer(")
+        let apply = try memberBody("func applyDivergenceAnswer(", inFile: "ContentView+Editor.swift")
         let reload = try #require(apply.range(of: "case .reloadFromDisk:"))
         let use = try #require(apply.range(of: "editorDiskWatch.useDisksVersion()"))
         let old = try #require(apply.range(of: "return reloadOverTheBuffer(path: path)"))
@@ -200,7 +200,7 @@ import FileExplorer
 
     /// Autosave's own check finding a divergence goes to the watch first: a banner, not a modal.
     @Test func autosavesBlockedWriteAsksTheWatchFirst() throws {
-        let outcome = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let outcome = try memberBody("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)", inFile: "ContentView+Editor.swift")
         let blocked = try #require(outcome.range(of: "case .blocked(let divergence):"))
         let watch = try #require(outcome.range(of: "editorDiskWatch.reconcile()"))
         let alert = try #require(outcome.range(of: "EditorAlerts.askAboutDivergence("))
@@ -211,13 +211,13 @@ import FileExplorer
     /// its banner re-latches the stop from it, and Compare latches it before reading it. A stop
     /// cleared under a standing banner would leave Compare doing nothing and autosave free.
     @Test func theStopIsLatchedFromTheBannerWhereItIsRead() throws {
-        let outcome = try Self.body("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)")
+        let outcome = try memberBody("private func applyAutosaveOutcome(_ outcome: EditorAutosave.Outcome)", inFile: "ContentView+Editor.swift")
         let asked = try #require(outcome.range(of: "case .asked:"))
         let latch = try #require(outcome.range(of: "editorDiskBannerDidChange(editorDiskWatch.banner)"))
         let returned = try #require(outcome.ranges(of: "return").first { $0.lowerBound > latch.lowerBound })
         #expect(asked.lowerBound < latch.lowerBound && latch.lowerBound < returned.lowerBound,
                 "a blocked autosave answered by the banner leaves the stop as it was")
-        let answer = try Self.body("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)")
+        let answer = try memberBody("func answerEditorDiskBanner(_ action: EditorDiskBannerAction)", inFile: "ContentView+Editor.swift")
         let compare = try #require(answer.range(of: "case .compare:"))
         let compareLatch = try #require(answer.range(of: "editorDiskBannerDidChange(editorDiskWatch.banner)"))
         let diff = try #require(answer.range(of: "showEditorDivergenceDiff()"))
@@ -230,11 +230,11 @@ import FileExplorer
     /// ⌘S and leaving a document both let the watch look before they ask, so a move is followed
     /// and a re-stamp taken instead of a question about nothing.
     @Test func explicitSavesAndLeavingLookBeforeTheyAsk() throws {
-        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let save = try memberBody("func saveEditorDocument() -> Bool", inFile: "ContentView+Editor.swift")
         let look = try #require(save.range(of: "editorDiskWatch.reconcile()"))
         let ask = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
         #expect(look.lowerBound < ask.lowerBound)
-        let settle = try Self.body("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool")
+        let settle = try memberBody("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         let blocked = try #require(settle.range(of: "case .blocked(let divergence):"))
         // The one after `.blocked`; the look for a gone file comes earlier.
         let settleLook = try #require(settle.ranges(of: "editorDiskWatch.reconcile()").first { $0.lowerBound > blocked.lowerBound })
@@ -247,7 +247,7 @@ import FileExplorer
     /// with a write held between its swap and its commit. The leave and quit flushes reach it
     /// through `EditorAutosave.attempt`.
     @Test func explicitSavesSettleAutosavesOwnWriteBeforeTheyAsk() throws {
-        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let save = try memberBody("func saveEditorDocument() -> Bool", inFile: "ContentView+Editor.swift")
         let settle = try #require(save.range(of: "if EditorAutosave.settleLandedWrite(into: editorDocument) {"))
         let host = try #require(save.range(of: "_ = writeEditorDocumentDidWrite()"))
         let look = try #require(save.range(of: "editorDiskWatch.reconcile()"))
@@ -268,13 +268,13 @@ import FileExplorer
             #expect(!ContentView.saveHasNothingToWrite(isDirty: false, stop: stop),
                     "a clean document with autosave stopped (\(stop)) is not written by ⌘S")
         }
-        let save = try Self.body("func saveEditorDocument() -> Bool")
+        let save = try memberBody("func saveEditorDocument() -> Bool", inFile: "ContentView+Editor.swift")
         let divergence = try #require(save.range(of: "EditorAlerts.askAboutDivergence("))
         let skip = try #require(save.range(of: "if Self.saveHasNothingToWrite(isDirty: editorDocument.isDirty, stop: editorAutosaveStop) {"))
         let write = try #require(save.range(of: "return writeEditorDocument(explicit: true)"))
         #expect(divergence.lowerBound < skip.lowerBound && skip.lowerBound < write.lowerBound,
                 "the skip must follow the divergence question and precede the write")
-        let writer = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
+        let writer = try memberBody("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         #expect(!writer.contains("saveHasNothingToWrite"),
                 "Keep Mine and Save Again write through here and must write whatever the buffer is")
     }
@@ -282,7 +282,7 @@ import FileExplorer
     // MARK: Gap 1 — a write that puts a deleted file back is listed
 
     @Test func aWriteThatRecreatesTheFileShowsItInThePane() throws {
-        let write = try Self.body("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool")
+        let write = try memberBody("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool", inFile: "ContentView+Editor.swift")
         #expect(write.contains("let recreates = editorDocument.path.map { !FileManager.default.fileExists(atPath: $0) } ?? false"))
         #expect(write.contains("if recreates { showCreatedFileInPane(path) }"),
                 "Save Again after a delete leaves the panes without the file")
@@ -294,10 +294,10 @@ import FileExplorer
     // MARK: Gap 2 — Edit's rail follows the app's own file operations
 
     @Test func theRailIsReReadAfterTheAppsOwnFileOperations() throws {
-        let view = try Self.source("ContentView.swift")
+        let view = try macAppCode("ContentView.swift")
         let receive = try declarationBody(of: ".onReceive(syncManager.refreshSubject)", in: view)
         #expect(CodeText(receive).contains("refreshEditorAfterFileOperation()"))
-        let after = try Self.body("func refreshEditorAfterFileOperation()")
+        let after = try memberBody("func refreshEditorAfterFileOperation()", inFile: "ContentView+Editor.swift")
         #expect(after.contains("Task { await refreshEditorRail() }"))
         #expect(after.contains("editorDiskWatch.reconcile(afterOwnFileOperation: true)"),
                 "gap 3: the open note is not looked at after the app's own rename, move or delete")
@@ -307,28 +307,18 @@ import FileExplorer
     }
 
     @Test func anImageImportReReadsTheRail() throws {
-        let images = try Self.body("func noteEditorImages(_ report: EditorImageImport.Report)")
+        let images = try memberBody("func noteEditorImages(_ report: EditorImageImport.Report)", inFile: "ContentView+Editor.swift")
         #expect(images.contains("if !files.isEmpty || madeFolder != nil { Task { await refreshEditorRail() } }"))
     }
 
     // MARK: Gap 4 — the destination picker's New Folder is listed even when the transfer is not made
 
     @Test func aFolderThePickerMadeIsListedWhateverTheTransferDoes() throws {
-        let call = try CallArguments(of: "DestinationPicker(", in: normalizedCode(Self.source("ContentView.swift")))
+        let call = try CallArguments(of: "DestinationPicker(", in: normalizedCode(macAppCode("ContentView.swift")))
         #expect(call.passes("onFolderCreated",
                             "{ rereadPanesAfterEditorWrite($0, writer: \"The destination picker made\", comparesInCompare: false) }"),
                 "in Compare the picker's folder starts a rescan the transfer's own refresh supersedes")
     }
 
     // MARK: Helpers
-
-    static func editor() throws -> String { try source("ContentView+Editor.swift") }
-
-    static func body(_ declaration: String) throws -> CodeText {
-        CodeText(try declarationBody(of: declaration, in: editor()))
-    }
-
-    static func source(_ name: String) throws -> String {
-        try EditorHeaderDoorsWiringTests.source(name)
-    }
 }

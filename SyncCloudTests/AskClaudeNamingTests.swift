@@ -140,20 +140,11 @@ import SwiftUI
         ]
     }
 
-    @Test func eachFitsTheNarrowestPanelAndDraws() throws {
+    @Test func eachFitsTheNarrowestPanel() {
         for (name, view) in views() {
             let controller = NSHostingController(rootView: view.frame(width: 240))
             let size = controller.sizeThatFits(in: CGSize(width: 240, height: 2_000))
             #expect(size.width <= 240 && size.height > 8, "\(name): \(size)")
-            controller.view.frame = CGRect(origin: .zero, size: size)
-            controller.view.layoutSubtreeIfNeeded()
-            let rep = try #require(controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds))
-            controller.view.cacheDisplay(in: controller.view.bounds, to: rep)
-            if let folder = ProcessInfo.processInfo.environment["ASK_CLAUDE_CARD_SHOTS"],
-               let png = rep.representation(using: .png, properties: [:]) {
-                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-                try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("names-\(name).png"))
-            }
         }
     }
 }

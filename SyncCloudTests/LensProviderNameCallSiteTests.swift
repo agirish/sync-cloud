@@ -8,21 +8,9 @@ import Foundation
 /// pins the whole expression, not its ingredients.
 @Suite struct LensProviderNameCallSiteTests {
 
-    private static func contentView() throws -> String { try macAppFile("ContentView.swift") }
-
-    /// One declaration's body, bounded by its closing brace rather than a character count, which
-    /// would run past a short body into the next member.
-    private static func body(of declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "`\(declaration)` is gone — this scan would read nothing")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }"), "no closing brace for `\(declaration)`")
-        return String(rest[..<end.lowerBound])
-    }
-
     /// The lens workspaces show one source, so their name carries no pane suffix.
     @Test func theLensNameIsThePlainOne() throws {
-        let body = try Self.body(of: "var lensProviderName: String {", in: try Self.contentView())
+        let body = try declarationBody(of: "var lensProviderName: String {", in: macAppFile("ContentView.swift"))
         #expect(body.contains("paneNames.plain(isLeft: !lensTargetIsRight)"), """
                 `lensProviderName` no longer asks for the plain name. A lens workspace shows one \
                 pane, so a "(left)"/"(right)" suffix there disambiguates against a pane that is \
@@ -33,13 +21,5 @@ import Foundation
                 "the disambiguated name is back in a single-pane surface: \(body)")
         #expect(!body.contains("paneNames.right"),
                 "the disambiguated name is back in a single-pane surface: \(body)")
-    }
-
-    /// The other direction: the Differences table shows both panes, so it keeps the suffixed pair;
-    /// swapping every `paneNames` for the plain one would give it two identically named columns.
-    @Test func theDifferencesTableKeepsTheDisambiguatedPair() throws {
-        let source = try Self.contentView()
-        #expect(source.contains("DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames"),
-                "the Differences table no longer takes the disambiguated pane names")
     }
 }

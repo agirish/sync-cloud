@@ -112,10 +112,6 @@ import Sync
 
     // MARK: Availability gating (no model output asserted)
 
-    @Test func availabilityIsStableAcrossCalls() {
-        #expect(OnDeviceFilingClassifier.isAvailable == OnDeviceFilingClassifier.isAvailable)
-    }
-
     /// With no taxonomy there is nothing to classify: `classify` returns empty whether the model is
     /// unavailable (outer gate) or available (the empty-taxonomy guard), never touching a file.
     @Test func classifyWithoutATaxonomyReturnsEmpty() async {

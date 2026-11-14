@@ -15,7 +15,7 @@ import Foundation
         let app = try repoFile("MacApp/SyncCloudApp.swift")
         #expect(app.components(separatedBy: "onUndoRun:").count == 2,
                 "a run's Undo… is wired in more than one place, or none — this reads the first")
-        let action = try LinkedMoveTranslationTests.body(of: "onUndoRun:", in: app)
+        let action = try declarationBody(of: "onUndoRun:", in: app)
             .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "{")))
         #expect(action.hasPrefix("syncManager.undoLastSyncRunAskingFirst("),
                 "Undo…'s closure no longer hands back the refusal from the asking entry point")
@@ -25,7 +25,7 @@ import Foundation
     /// Crumbs drive the other pane only where there is one: a one-pane workspace passes nil, which
     /// is what `PaneBreadcrumb` reads as "no second pane" (`PaneBreadcrumbHelpTests`).
     @Test func onePaneWorkspacesPassNoSecondPane() throws {
-        let view = LinkedMoveTranslationTests.codeOnly(try repoFile("MacApp/ContentView.swift"))
+        let view = try macAppCode("ContentView.swift")
         let argument = try #require(view.range(of: "onNavigateBoth:"),
                                     "ContentView no longer hands the crumbs onNavigateBoth")
         let value = view[argument.upperBound...].prefix(160)

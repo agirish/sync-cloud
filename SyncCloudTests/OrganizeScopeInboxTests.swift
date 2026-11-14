@@ -10,10 +10,8 @@ import Foundation
 /// file can't be read: a scan of an empty haystack passes as green as one that proves something.
 @Suite struct OrganizeScopeInboxTests {
 
-    static func contentView() throws -> String { try macAppFile("ContentView.swift") }
-
     @Test func theInboxRootSwapIsGone() throws {
-        let source = try Self.contentView()
+        let source = try macAppFile("ContentView.swift")
         // The expression that would let the pane's position choose the subject.
         #expect(!source.contains("(atRoot && inboxExists) ? inboxPath : focused"),
                 "the inbox root-swap is back in filingScanTargetFolder")
@@ -25,10 +23,10 @@ import Foundation
     /// `filingInboxRelativePathKey` defaults to `TODO`, so a rail rule that opened on the inbox
     /// would jump the source rail into a folder nobody asked for.
     @Test func theRailNoLongerOpensOnTheInbox() throws {
-        let source = try Self.contentView()
+        let source = try macAppFile("ContentView.swift")
         // The pane keeps the folder it was in, and `LensEntryContinuityTests` bans every pane move
         // in this body; this holds that no rule of Organize's own, the inbox above all, moves it.
-        let body = try Self.body(of: "func presentLensRail(for workspace: Workspace) {", in: source)
+        let body = try declarationBody(of: "func presentLensRail(for workspace: Workspace) {", in: source)
         // The key, not the word "inbox": the body's own comment may say "inbox", and a scan for the
         // word would fail a correct implementation.
         #expect(!body.contains("filingInboxRelativePathKey"),
@@ -45,7 +43,7 @@ import Foundation
     }
 
     @Test func theInboxPATHResolutionSurvives() throws {
-        let source = try Self.contentView()
+        let source = try macAppFile("ContentView.swift")
         // No rule, but the resolution stays: the shortcut needs it, and its existence check stops
         // the rail and the scan disagreeing about a missing inbox.
         #expect(source.contains("var filingInboxFolder: String?"))
@@ -56,17 +54,9 @@ import Foundation
                 "the inbox is resolved but never handed to the lens, so no shortcut can appear")
     }
 
-    /// The declaration's body, bounded by its closing brace, not a character count: a fixed window
-    /// can run past a short body into the next member's text and answer about the wrong code. The
-    /// shared reader, ``declarationBody(of:in:)``, also strips comments and refuses a duplicated
-    /// declaration.
-    static func body(of declaration: String, in source: String) throws -> String {
-        try declarationBody(of: declaration, in: source)
-    }
-
     @Test func filingScanTargetIsSimplyTheFocusedFolder() throws {
-        let source = try Self.contentView()
-        let body = try Self.body(of: "var filingScanTargetFolder: String? {", in: source)
+        let source = try macAppFile("ContentView.swift")
+        let body = try declarationBody(of: "var filingScanTargetFolder: String? {", in: source)
         #expect(body.contains("return focused"))
         #expect(!body.contains("inbox"),
                 "filingScanTargetFolder mentions the inbox again — it must not decide the subject")
@@ -75,9 +65,9 @@ import Foundation
     }
 
     @Test func pointingAtAFolderSetsTheScopeAndTheRootClearsIt() throws {
-        let source = try Self.contentView()
+        let source = try macAppFile("ContentView.swift")
         // "Organize This Folder…" must set the scope, not just scan: the scope is the lasting half.
-        let body = try Self.body(
+        let body = try declarationBody(
             of: "func organizeFolderAction(_ node: FileNode, providerRoot: String, providerAnchor: String) {",
             in: source)
         #expect(body.contains("setOrganizeScope(folder, providerRoot: providerRoot)"),

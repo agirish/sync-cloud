@@ -81,6 +81,9 @@ import Foundation
             // not a comment
             \"""
             """)
+        let tricky = sourceCodeOnly(#"/* outer /* nested */ still comment */ let c = 3; let q = "a \" // kept" + "b""#)
+        #expect(!tricky.contains("still comment") && tricky.contains("let c = 3"), "nested block comments: \(tricky)")
+        #expect(tricky.contains(#""a \" // kept" + "b""#), "an escaped quote ended the string: \(tricky)")
     }
 
     @Test func layoutDoesNotDecideAMatch() {
@@ -121,5 +124,56 @@ import Foundation
         #expect(call.count("pane") == 1 && call.value("missing") == nil)
         #expect(argumentLists(of: "open", in: source).count == 1,
                 "a declaration, a string, or a call to another name that ends the same way was read as the call")
+    }
+
+    /// The reader's own control: a decoy in a comment must not become the answer. The first fixture
+    /// puts a commented-out copy of the declaration above the real one; a reader that counted over
+    /// stripped text but searched the raw text would return the decoy. The second is the other
+    /// direction: a doc comment that names the member must not count as a second declaration.
+    @Test func testTheReaderIgnoresDeclarationsThatAreOnlyComments() throws {
+        let withDecoy = """
+            struct S {
+            //    func target() -> Int {
+            //        return decoy
+            //    }
+                func target() -> Int {
+                    return real
+                }
+            }
+            """
+        let body = try declarationBody(of: "func target() -> Int {", in: withDecoy)
+        #expect(body.contains("return real"), "the reader took a commented-out declaration as the member")
+        #expect(!body.contains("decoy"))
+
+        let mentioned = """
+            struct S {
+                /// Companion to `func target() -> Int {`, which it must not be counted as.
+                func target() -> Int {
+                    return real
+                }
+            }
+            """
+        // Not wrapped: the failure worth seeing here is the reader's own `#require`, which reports
+        // itself.
+        #expect(try declarationBody(of: "func target() -> Int {", in: mentioned)
+                    .contains("return real"))
+
+        // A genuine second declaration still stops the run. `withKnownIssue`, not
+        // `#expect(throws:)`: the refusal is a `#require`, which records an issue as well as
+        // throwing, and that issue would still fail the test. This form also fails if none is
+        // recorded.
+        let twice = """
+            struct S {
+                func target() -> Int {
+                    return first
+                }
+                func target() -> Int {
+                    return second
+                }
+            }
+            """
+        withKnownIssue("two real declarations were not refused — range(of:) would read the first") {
+            _ = try declarationBody(of: "func target() -> Int {", in: twice)
+        }
     }
 }

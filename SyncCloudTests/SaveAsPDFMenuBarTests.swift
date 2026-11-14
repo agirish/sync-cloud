@@ -79,9 +79,7 @@ import Testing
         let app = CodeText(try macAppFile("SyncCloudApp.swift"))
         #expect(app.contains("PDFFillSignCommand() SaveAsPDFCommand()"), "Save as PDF is not in File's print group")
 
-        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift"), encoding: .utf8)
+        let pane = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         #expect(CodeText(pane).count(of: "SaveAsPDFOffer.forSelection(") == 2,
                 "the row menu no longer asks forSelection for both its items")
     }

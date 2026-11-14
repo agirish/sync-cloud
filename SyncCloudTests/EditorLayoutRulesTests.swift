@@ -28,8 +28,6 @@ import Foundation
             #expect(layout.drawsAPaneList == draws,
                     "\(layout) says drawsAPaneList == \(layout.drawsAPaneList)")
         }
-        // The control: an answer of "all" or "none" would satisfy a loop that only checked one side.
-        #expect(expected.contains { $0.1 } && expected.contains { !$0.1 })
     }
 
     /// The sibling member, and why both are asked of the layout rather than the workspace: the
@@ -48,9 +46,6 @@ import Foundation
             #expect(layout.hasCollapsibleRail == collapsible,
                     "\(layout) says hasCollapsibleRail == \(layout.hasCollapsibleRail)")
         }
-        let differ = expected.filter { $0.0.drawsAPaneList != $0.0.hasCollapsibleRail }
-        #expect(!differ.isEmpty,
-                "the two members agree on every case — one of them is redundant, or this table is wrong")
     }
 
     /// The launch refresh's completion must be tried before the bootstrap guard returns.

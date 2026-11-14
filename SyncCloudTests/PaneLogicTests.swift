@@ -9,23 +9,18 @@ import Sync
 
     // MARK: copyTargetName
 
-    @Test func testCopyTargetIsTheOppositePane() {
-        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
-        // Selection in the left pane copies to the right provider, and vice versa.
-        #expect(PaneLogic.copyTargetName(activePane: .left, paneNames: names) == "Dropbox")
-        #expect(PaneLogic.copyTargetName(activePane: .right, paneNames: names) == "iCloud")
-    }
-
-    @Test func testCopyTargetIsNilWithoutSelection() {
-        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
-        #expect(PaneLogic.copyTargetName(activePane: nil, paneNames: names) == nil)
-    }
-
-    @Test func testCopyTargetDisambiguatesSameProviderPanes() {
-        // Both panes on the same provider: the target must still say which side.
-        let names = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
-        #expect(PaneLogic.copyTargetName(activePane: .left, paneNames: names) == "iCloud (right)")
-        #expect(PaneLogic.copyTargetName(activePane: .right, paneNames: names) == "iCloud (left)")
+    /// The opposite pane's provider, nil with no selection, and the side named when both panes
+    /// show the same provider.
+    @Test(arguments: [
+        ("iCloud", "Dropbox", .left, "Dropbox"),
+        ("iCloud", "Dropbox", .right, "iCloud"),
+        ("iCloud", "Dropbox", nil, nil),
+        ("iCloud", "iCloud", .left, "iCloud (right)"),
+        ("iCloud", "iCloud", .right, "iCloud (left)"),
+    ] as [(String, String, PaneLogic.ActivePane?, String?)])
+    func testCopyTargetIsTheOppositePane(left: String, right: String, activePane: PaneLogic.ActivePane?, expected: String?) {
+        let names = PaneProviderNames(leftName: left, rightName: right)
+        #expect(PaneLogic.copyTargetName(activePane: activePane, paneNames: names) == expected)
     }
 
     // MARK: actionBarSymbols
@@ -418,26 +413,11 @@ import Sync
         // re-run the session steps: resetting showHiddenFiles would discard a mid-session
         // toggle, and re-applying the distinct-pair selection would silently flip a right pane
         // the user deliberately set to the same provider as the left.
-        let steps = PaneLogic.bootstrapSteps(isFirstAppearance: false)
-        #expect(steps == [
+        #expect(PaneLogic.bootstrapSteps(isFirstAppearance: false) == [
             .createActionHandler,
             .rewireUndoManager,
             .endProviderBootstrapGuard,
         ])
-        #expect(!steps.contains(.resetShowHiddenFilesFromDefault))
-        #expect(!steps.contains(.discoverProvidersAndApplyInitialSelection))
-    }
-
-    @Test func testEveryAppearanceRewiresTheWindowScopedState() {
-        // The recreated window brings a fresh UndoManager and a nil @State action handler;
-        // both must be rewired on every appearance, and the recreated view's
-        // isBootstrappingProviders guard must be cleared exactly when no discovery will do it.
-        for first in [true, false] {
-            let steps = PaneLogic.bootstrapSteps(isFirstAppearance: first)
-            #expect(steps.contains(.createActionHandler))
-            #expect(steps.contains(.rewireUndoManager))
-            #expect(steps.contains(.endProviderBootstrapGuard) != first)
-        }
     }
 
     // MARK: - Duplicate-review drift gate (trashRightCopy, both ends)

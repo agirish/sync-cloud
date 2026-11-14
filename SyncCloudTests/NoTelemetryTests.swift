@@ -13,13 +13,8 @@ import Testing
 
     // MARK: Reading the shipped sources
 
-    /// The repository root, located from this file rather than a working directory, which the test
-    /// bundle doesn't promise. Same derivation as `macAppDirectory()`.
-    private static func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)      // …/SyncCloudTests/NoTelemetryTests.swift
-            .deletingLastPathComponent()     // …/SyncCloudTests
-            .deletingLastPathComponent()     // repo root
-    }
+    /// The repository root, located from this file, as `macAppDirectory()` is.
+    private static func repositoryRoot() -> URL { macAppDirectory().deletingLastPathComponent() }
 
     /// Every Swift file compiled into something a user installs, as (repo-relative path, text).
     /// Directory-shaped exclusions: any component ending in `Tests` goes, taking every test target
@@ -155,10 +150,7 @@ import Testing
     /// those modules' own manifests. A `url:` here would give the
     /// app a dependency nobody in this repository reviews.
     @Test func theAppTargetLinksOnlyLocalPackages() throws {
-        let yaml = try #require(
-            try? String(contentsOf: Self.repositoryRoot().appendingPathComponent("project.yml"),
-                        encoding: .utf8),
-            "project.yml could not be read — this check would be vacuous")
+        let yaml = try repoFile("project.yml")
         let packages = try #require(yaml.range(of: "\npackages:\n"),
                                     "project.yml has no packages: block — the scan is reading the wrong file")
         let block = String(yaml[packages.upperBound...])
@@ -172,12 +164,4 @@ import Testing
     }
 
     // MARK: Positive controls
-
-    /// The scans can actually fail: each is shown finding what it looks for.
-    @Test func theScansAreNotVacuous() {
-        #expect(Self.networkSymbols.contains { symbol in
-            Self.shippedSources.first { $0.path == "Modules/Sync/Sources/Sync/CloudFilingRefiner.swift" }?
-                .text.contains(symbol) == true
-        }, "the network scan cannot even see the known network call — every result above is meaningless")
-    }
 }

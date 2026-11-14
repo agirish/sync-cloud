@@ -22,10 +22,21 @@ func openBlankPDF(_ name: String, pages: Int, in folder: String,
                   defaults: UserDefaults) async throws -> EditorPDFDocument {
     let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
     pdf.open(path: blankPDF(name, pages: pages, in: folder), log: { _ in })
-    for _ in 0..<1000 where pdf.phase == .loading {
+    await awaitPDFLane("the PDF load of \(name) never came back") { pdf.phase != .loading }
+    try #require(pdf.phase == .open)
+    return pdf
+}
+
+/// Waits until `done` holds while the PDF lane works, bounded in lane turns rather than seconds
+/// (`docs/flaky-tests.md`, "The wait that hangs instead of failing"), and records `what` rather
+/// than hanging when it never does.
+@MainActor
+func awaitPDFLane(_ what: Comment, sourceLocation: SourceLocation = #_sourceLocation,
+                  until done: () -> Bool) async {
+    for _ in 0..<1000 {
+        if done() { return }
         await PDFKitSerialAccess.perform {}
         try? await Task.sleep(for: .milliseconds(5))
     }
-    try #require(pdf.phase == .open)
-    return pdf
+    Issue.record("\(what.rawValue) in 1000 lane turns", sourceLocation: sourceLocation)
 }

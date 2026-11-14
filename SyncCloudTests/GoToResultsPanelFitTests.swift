@@ -34,11 +34,7 @@ import FileExplorer
     /// `ContentView`'s window floor, read from the source rather than copied, so changing it re-runs
     /// the sum below instead of quietly invalidating it.
     static func contentFloor() throws -> CGFloat {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/ContentView.swift")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read ContentView.swift — this sum would be vacuous")
+        let text = try macAppFile("ContentView.swift")
         // Exactly one, or this reads somebody else's number: `range(of:)` takes the first match, so
         // a `minHeight:` added above the window's own frame would silently become the floor.
         let count = text.components(separatedBy: "minHeight: ").count - 1

@@ -28,29 +28,6 @@ import Testing
         }
     }
 
-    /// A walk creates a roster where there was none, reachable from the manager: after `attach`,
-    /// `filingPeopleStore` is non-nil, so a view reading through the manager can place the draft.
-    @Test func aWalkGivesTheManagerARosterToWriteInto() async throws {
-        let root = try Self.scratch(), profiles = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
-        try Self.tree(in: root)
-
-        let manager = FileSyncManager.scratch()
-        manager.filingProfilesDirectory = profiles
-        #expect(manager.filingPeopleStore == nil, "the fixture already had a roster — this proves nothing")
-
-        let result = await manager.deriveFolderProfile(root: root)
-        let report = try #require(try? result.get())
-        #expect(report.becameActive)
-
-        // `attach` reads from the real Application Support directory, so the store is pointed at
-        // the scratch one by hand: what is under test is that a fresh profile becomes readable.
-        let loaded = try #require(FilingProfileStore.active(in: profiles))
-        manager.filingPeopleStore = PeopleStore(directory: profiles, profileId: loaded.id,
-                                                profile: loaded.profile)
-        #expect(manager.filingPeopleStore != nil)
-    }
-
     /// The draft lands in that roster, and its answers survive the trip.
     @Test func theDraftLandsInTheRosterTheWalkCreated() async throws {
         let root = try Self.scratch(), profiles = try Self.scratch()

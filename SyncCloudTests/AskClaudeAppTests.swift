@@ -77,11 +77,17 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         ]),
     ]
 
-    private static func index(_ nodes: [FileNode], into map: inout [String: FileNode]) {
-        for node in nodes {
-            map[node.id] = node
-            if let children = node.children { index(children, into: &map) }
+    /// The tree plus `extra`, every node by its path.
+    private static func indexed(_ extra: [FileNode] = []) -> [String: FileNode] {
+        var map: [String: FileNode] = [:]
+        func add(_ nodes: [FileNode]) {
+            for node in nodes {
+                map[node.id] = node
+                if let children = node.children { add(children) }
+            }
         }
+        add(tree + extra)
+        return map
     }
 
     private final class Recorder {
@@ -99,8 +105,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
                        lookupsGo: Bool = true, shared: [String] = []) -> AskClaudeBrowseTools {
         // Lookups beyond the folder on screen go, as with the card's tick: these tests are about
         // what a lookup finds; `aLookupBeyondTheScreenWaitsOnACard` is about the card.
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree + extra, into: &map)
+        let map = Self.indexed(extra)
         let scope = root
         if recorder.folder == nil { recorder.folder = folder }
         return AskClaudeBrowseTools(context: browseContext(
@@ -138,15 +143,21 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         AskClaudeToolCall(id: "t", name: name, input: .object(input))
     }
 
+    /// Settings on `defaults` with nothing hidden and the login item off.
+    private static func lookup(_ defaults: UserDefaults, manager: SettingsManager? = nil, keyIsSaved: Bool = true,
+                               people: [Person] = []) -> SettingsLookup {
+        SettingsLookup(defaults: defaults,
+                       settings: manager ?? SettingsManager(autoDiscover: false, userDefaults: defaults,
+                                                            cloudStorageLister: { .read([]) }),
+                       keyIsSaved: { keyIsSaved }, hiddenCount: { 0 }, isHidden: { _ in false },
+                       loginItemIsOn: { false }, people: { people })
+    }
+
     /// The settings tool answers find, get and changed through the runner.
     @Test func theSettingsToolFindsReadsAndListsWhatChanged() async {
         let defaults = ScratchDefaults("AskClaudeSettingsTool")
         defaults.set(AppearanceMode.dark.rawValue, forKey: LiquidGlass.appearanceModeKey)
-        let lookup = SettingsLookup(defaults: defaults,
-                                    settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
-                                                              cloudStorageLister: { .read([]) }),
-                                    keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
-                                    loginItemIsOn: { false })
+        let lookup = Self.lookup(defaults)
         let runner = tools(settingsLookup: lookup)
         var handles = AskClaudeHandles()
 
@@ -167,9 +178,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     @Test func setChangesOnlyWhatClaudeMayChangeItself() async throws {
         let defaults = ScratchDefaults("AskClaudeSettingsSet")
         let manager = SettingsManager(autoDiscover: false, userDefaults: defaults, cloudStorageLister: { .read([]) })
-        let lookup = SettingsLookup(defaults: defaults, settings: manager,
-                                    keyIsSaved: { true }, hiddenCount: { 0 }, isHidden: { _ in false },
-                                    loginItemIsOn: { false })
+        let lookup = Self.lookup(defaults, manager: manager)
         let write = { SettingsWriter(defaults: defaults, settings: manager).write($0, $1, target: $2) }
         var handles = AskClaudeHandles()
         func set(_ id: String, _ value: String, busy: String? = nil) async -> AskClaudeToolOutcome {
@@ -224,11 +233,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     /// `show` checks every item before a card appears.
     @Test func showPutsACardUpOnlyForWhatItsClickCouldDo() async throws {
         let defaults = ScratchDefaults("AskClaudeSettingsShow")
-        let lookup = SettingsLookup(defaults: defaults,
-                                    settings: SettingsManager(autoDiscover: false, userDefaults: defaults,
-                                                              cloudStorageLister: { .read([]) }),
-                                    keyIsSaved: { false }, hiddenCount: { 0 }, isHidden: { _ in false },
-                                    loginItemIsOn: { false }, people: { [Person(id: "jane", displayName: "Jane")] })
+        let lookup = Self.lookup(defaults, keyIsSaved: false, people: [Person(id: "jane", displayName: "Jane")])
         let runner = tools(settingsLookup: lookup)
         var handles = AskClaudeHandles()
         func show(_ items: [[String: JSONFragment]], title: String? = nil) async -> AskClaudeToolOutcome {
@@ -601,8 +606,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         var handles = AskClaudeHandles()
         var edited: [String] = []
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         let runner = AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
             ctx.openInEdit = { edited.append($0); return .opened }
         }, listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil }, openFile: { _ in Issue.record("opened in its app"); return true })
@@ -919,8 +923,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     @Test func aSearchInsideFilesHoldsItsNamesUntilShared() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let biopsy = Self.root + "/Documents/Taxes/Biopsy results.txt"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree + [Self.file("Documents/Taxes/Biopsy results.txt", kind: "Plain Text")], into: &map)
+        let map = Self.indexed([Self.file("Documents/Taxes/Biopsy results.txt", kind: "Plain Text")])
         func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
@@ -1000,8 +1003,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     /// folder hidden as well is hidden.
     @Test func aFolderSharedWithoutAskingSkipsTheCards() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         func runner(shared: [String], hidden: [String] = [], sharesAnswers: Bool = false) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = shared
@@ -1088,8 +1090,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     /// The card still names the page; "none" waits on a card too.
     @Test func heldReadsAndSearchesSayNothingOfWhatMatched() async throws {
         let receipt = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         func runner(hits: [String]) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }), listDisk: { _ in nil }, searchNames: { _, _ in nil }, statDisk: { _ in nil },
                read: { _ in AskClaudeReading.Read(pages: ["Store copy", "Total due: $84.10 for the tent"], pageCount: 2) },
@@ -1233,8 +1234,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
     @Test func readingStaysOnTheMacUnlessTheSwitchIsOn() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         func runner(sharesRoot: Bool) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
@@ -1265,8 +1265,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     /// 34-page scan as `read` gives it: ten pages read, two with words, the rest past the limit.
     @Test func textReadByOCRIsSaidAndStaysOnTheMac() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         func runner(sharesRoot: Bool, _ read: AskClaudeReading.Read?) -> AskClaudeBrowseTools {
             AskClaudeBrowseTools(context: browseContext(root: Self.root, folder: "Documents/Taxes", node: { map[$0] }) { ctx in
                 ctx.shared = sharesRoot ? [Self.root] : []
@@ -1309,8 +1308,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     @Test func aReadAnswersFromWhatFitsAndWhatHoldsNow() async {
         let pdf = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
         let note = Self.root + "/Documents/Taxes/Empty.txt"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree + [Self.file("Documents/Taxes/Empty.txt", kind: "Plain Text")], into: &map)
+        let map = Self.indexed([Self.file("Documents/Taxes/Empty.txt", kind: "Plain Text")])
         let sharesRoot = Box(false)
         let sent = Box<[Int]>([])
         func runner(_ read: @escaping (String) async -> AskClaudeReading.Read?,
@@ -1375,8 +1373,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     /// any key masked, since it is saved with the chat and sent by the button.
     @Test func aReadChecksTheHiddenListAfterAndMasksItsPassage() async {
         let path = Self.root + "/Documents/Taxes/Receipt REI 2025.pdf"
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree, into: &map)
+        let map = Self.indexed()
         let hidden = Box<[String]>([])
         let key = "sk-ant-api03-" + String(repeating: "aB3_-", count: 6)
         func runner(sharesRoot: Bool, hideWhileReading: Bool) -> AskClaudeBrowseTools {
@@ -1603,8 +1600,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
     private func cloudTools(cloudOnly: @escaping (String) -> Bool?, extra: [FileNode], statDisk: @escaping (String) -> FileNode? = { _ in nil },
                             extracted: Box<Int>, opened: Box<[URL]>) -> AskClaudeBrowseTools {
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree + extra, into: &map)
+        let map = Self.indexed(extra)
         return AskClaudeBrowseTools(context: browseContext(
             sourceName: "iCloud Drive",
             root: Self.root,
@@ -1636,8 +1632,7 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
 
     @Test func outsideBrowseACardIsOfferedWithoutMovingThem() async {
         let recorder = Recorder()
-        var map: [String: FileNode] = [:]
-        Self.index(Self.tree + [Self.lease], into: &map)
+        let map = Self.indexed([Self.lease])
         var switched: [String] = []
         let runner = AskClaudeBrowseTools(context: browseContext(
             inBrowse: false,
@@ -1701,15 +1696,6 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
     }
 }
 
-/// A transport that answers every request with one short text reply.
-private struct OneLineTransport: AskClaudeTransport {
-    let text: String
-
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        SSE.response(SSE.text(text, cacheRead: 4500, outputTokens: 700))
-    }
-}
-
 /// A one-line transport that answers as the model each request asked for, unless a scripted reply
 /// says which model served it (a fallback) or that it was declined.
 private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
@@ -1731,70 +1717,6 @@ private final class ModelTransport: AskClaudeTransport, @unchecked Sendable {
     }
 }
 
-/// A one-line transport that keeps each request's body, to read what was sent.
-private final class RecordingTransport: AskClaudeTransport, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _bodies: [String] = []
-    var bodies: [String] { lock.withLock { _bodies } }
-
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        lock.withLock { _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self)) }
-        return try await OneLineTransport(text: "ok").send(request)
-    }
-}
-
-/// Plays one reply per request, in order, and keeps each request's body.
-private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendable {
-    enum Reply {
-        case text(String)
-        /// The first words of an answer, then silence until the question is stopped.
-        case hang
-        /// A turn of only thinking: empty, so it can't join the transcript.
-        case onlyThinking
-        /// One read_text call.
-        case toolCall
-        case status(Int)
-    }
-
-    private let lock = NSLock()
-    private var replies: [Reply]
-    private var _bodies: [String] = []
-    var bodies: [String] { lock.withLock { _bodies } }
-
-    init(_ replies: [Reply]) { self.replies = replies }
-
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        let reply = lock.withLock {
-            _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self))
-            return replies.isEmpty ? Reply.status(500) : replies.removeFirst()
-        }
-        let start = SSE.start()
-        let lines: [String]
-        switch reply {
-        case .text(let text):
-            return try await OneLineTransport(text: text).send(request)
-        case .hang:
-            return AskClaudeTransportResponse(status: 200, retryAfter: nil, lines: AsyncThrowingStream { c in
-                c.yield(start)
-                c.yield(#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#)
-                c.yield(#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Partly"}}"#)
-            })
-        case .onlyThinking:
-            lines = [start,
-                     #"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}"#,
-                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Hm."}}"#,
-                     #"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}"#,
-                     #"data: {"type":"content_block_stop","index":0}"#] + SSE.end(outputTokens: 5)
-        case .toolCall:
-            lines = [start] + SSE.toolBlock(id: "toolu_1", name: "read_text", input: #"{\"handle\":\"f1\"}"#)
-                + SSE.end("tool_use", outputTokens: 20)
-        case .status(let status):
-            return SSE.response([], status: status)
-        }
-        return SSE.response(lines)
-    }
-}
-
 @MainActor
 @Suite struct AskClaudeChatTests {
 
@@ -1806,11 +1728,22 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Documents", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
+    /// Asks `question` about the suite's screen and waits for the answer.
+    private func ask(_ chat: AskClaudeChat, _ question: String, tools: AskClaudeToolRunning? = nil,
+                     sourceLocation: SourceLocation = #_sourceLocation) async {
+        chat.ask(question, screen: screen, tools: tools ?? NoTools())
+        await waitUntilIdle(chat, sourceLocation: sourceLocation)
+    }
+
+    /// The chat's receipts, oldest first.
+    private func receipts(_ chat: AskClaudeChat) -> [AskClaudeChat.Receipt] {
+        chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+    }
+
     @Test func anAnswerLandsUnderTheQuestionWithItsReceipt() async {
         let d = defaults()
         let chat = makeChat(OneLineTransport(text: "Two files."), defaults: d)
-        chat.ask("Which are big?", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "Which are big?")
         let kinds = chat.items.map(\.kind)
         #expect(kinds.first == .user("Which are big?"))
         #expect(kinds.dropFirst().first == .assistant("Two files."))
@@ -1841,8 +1774,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         // A question like any other: Edit takes it, and every question before it, back.
         #expect(chat.canEdit(chat.items[0].id))
         // The next question to Claude carries it, as data.
-        chat.ask("thanks", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "thanks")
         let sent = transport.bodies.last ?? ""
         #expect(sent.contains("On this Mac, without you, they asked") && sent.contains("eject the sd card") && sent.contains("Ejected SD Card."))
     }
@@ -1882,9 +1814,10 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let chat = makeChat(OneLineTransport(text: "x"), defaults: d)
         var wentToClaude = 0
+        let tools = WaitsForStop()
         chat.tryOnDevice("go to Dropbox", decide: { AskClaudeToolCall(id: "on-device", name: "go_to", input: .object(["source": .string("Dropbox")])) },
-                         tools: WaitsForStop(), otherwise: { wentToClaude += 1 })
-        await waitUntil("the command is running", timeout: 10) { WaitsForStop.started }
+                         tools: tools, otherwise: { wentToClaude += 1 })
+        await waitUntil("the command is running", timeout: 10) { tools.started }
         chat.stop()
         await waitUntilIdle(chat)
         #expect(wentToClaude == 0)
@@ -1940,16 +1873,14 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let chat = makeChat(OneLineTransport(text: "Into which folder?"), defaults: d)
         #expect(!chat.awaitsAnswer)
-        chat.ask("file these", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "file these")
         #expect(chat.awaitsAnswer)
     }
 
     @Test func withNoKeyThePanelSaysWhereToAddOne() async {
         let d = defaults()
         let chat = makeChat(OneLineTransport(text: "x"), defaults: d, readKey: { nil })
-        chat.ask("hi", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "hi")
         guard case .problem(let problem) = chat.items.last?.kind else { Issue.record("no problem shown"); return }
         #expect(problem.kind == .noKey)
         #expect(problem.message.contains("Settings ▸ Ask Claude"))
@@ -1959,11 +1890,9 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, now: { clock })
-        chat.ask("one", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "one")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
-        chat.ask("two", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.items.first?.kind == .note("Started a new chat after an hour away."))
         #expect(!chat.items.contains { $0.kind == .user("one") })
     }
@@ -1973,8 +1902,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let chat = makeChat(SlowTransport(text: "old"), defaults: d)
         chat.ask("first", screen: screen, tools: NoTools())
         chat.startOver()
-        chat.ask("second", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "second")
         try? await Task.sleep(for: .milliseconds(400))   // past when the first run would have unwound
         let kinds = chat.items.map(\.kind)
         #expect(kinds.first == .user("second"))
@@ -1987,10 +1915,10 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         // A change, from the menu or Settings (the same key), never starts a new chat.
         let d = defaults()
         let chat = makeChat(ModelTransport(), defaults: d)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
+        await ask(chat, "three")
         let kinds = chat.items.map(\.kind)
         #expect(kinds.first == .user("one"))
         let two = kinds.firstIndex(of: .user("two"))
@@ -2002,12 +1930,12 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     @Test func aSwitchThatNeverReachedClaudeIsNotedAtTheQuestionThatDid() async {
         let d = defaults()
         let chat = makeChat(ModelTransport([.init(), .init(stop: "refusal")]), defaults: d)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
         d.set(AskClaudeDetail.detailed.rawValue, forKey: AskClaudeDetail.defaultsKey)
-        chat.ask("declined", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "declined")
         #expect(!chat.items.contains { if case .note(let n) = $0.kind { n.hasPrefix("Now on") } else { false } })
-        chat.ask("kept", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "kept")
         let kinds = chat.items.map(\.kind)
         let kept = kinds.firstIndex(of: .user("kept"))
         #expect(kept.map { kinds[$0 - 1] } == .note("Now on Claude Opus 5.5. Answers now Detailed."))
@@ -2020,8 +1948,8 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let chat = makeChat(ModelTransport([.init(), .init()]), defaults: d)
         chat.ask("How is the weather in San Ramon", screen: screen, withholdScreen: { true }, tools: NoTools())
         await waitUntilIdle(chat)
-        chat.ask("What’s in this folder?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        await ask(chat, "What’s in this folder?")
+        let receipts = self.receipts(chat)
         #expect(receipts.count == 2)
         #expect(receipts.first?.screenWithheld == true)
         #expect(receipts.first?.summary.hasPrefix("Sent no screen · ") == true, "\(receipts.first?.summary ?? "")")
@@ -2054,7 +1982,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         chat.ask("What’s in this folder?", screen: AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Taxes",
                                                                    sort: "Name", rows: [], selection: [], toolsAvailable: true),
                  tools: NoTools()); await waitUntilIdle(chat)
-        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        let receipts = self.receipts(chat)
         #expect(receipts.count == 2)
         #expect(receipts.first?.summary.hasPrefix("Sent screen when Claude asked · ") == true, "\(receipts.first?.summary ?? "")")
         #expect(receipts.last?.summary.hasPrefix("Sent screen · ") == true, "\(receipts.last?.summary ?? "")")
@@ -2063,11 +1991,11 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     @Test func aReceiptNamesTheModelOnlyWhenItChangesAndMarksAFallback() async {
         let d = defaults()
         let chat = makeChat(ModelTransport([.init(), .init(), .init(served: "claude-opus-5")]), defaults: d)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
+        await ask(chat, "two")
         d.set(AskClaudeModels.opus.id, forKey: AskClaudeModels.defaultsKey)
-        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        await ask(chat, "three")
+        let receipts = self.receipts(chat)
         #expect(receipts.map(\.showsModel) == [false, false, true])
         #expect(receipts[0].summary.hasPrefix("Sent screen"))
         #expect(receipts[2].summary.hasPrefix("Opus 5, fallback · Sent screen"))
@@ -2083,7 +2011,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
             .init(served: "claude-sonnet-5"), .init(served: "claude-sonnet-5"),
         ]), defaults: d)
         for q in ["one", "two", "three"] { chat.ask(q, screen: screen, tools: NoTools()); await waitUntilIdle(chat) }
-        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        let receipts = self.receipts(chat)
         #expect(receipts.map(\.rounds) == [2, 1, 1])
         #expect(receipts.map(\.modelName) == ["Sonnet 5, fallback", "Sonnet 5, fallback", "Sonnet 5, fallback"])
         #expect(receipts.map(\.showsModel) == [true, true, true])
@@ -2092,11 +2020,11 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     @Test func aDeclinedAnswerIsNotTheModelTheChatWasLastAnsweredOn() async {
         let d = defaults()
         let chat = makeChat(ModelTransport([.init(), .init(stop: "refusal"), .init()]), defaults: d)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         d.set(AskClaudeModels.haiku.id, forKey: AskClaudeModels.defaultsKey)
-        chat.ask("declined", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        chat.ask("answered", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        let receipts = chat.items.compactMap { if case .receipt(let r) = $0.kind { r } else { nil } }
+        await ask(chat, "declined")
+        await ask(chat, "answered")
+        let receipts = self.receipts(chat)
         #expect(receipts.map(\.kept) == [true, false, true])
         // Haiku's first real answer still says so: the declined one didn't count.
         #expect(receipts.last?.showsModel == true)
@@ -2125,7 +2053,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         var clock = now
         let fresh = defaults("hourAway")
         let chat = makeChat(ModelTransport(), defaults: fresh, now: { clock })
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         #expect(chat.chatModel == AskClaudeModels.sonnet.id && (chat.contextTokens ?? 0) > 0)
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         #expect(chat.startsOverAtNextQuestion && chat.chatModel == nil && chat.contextTokens == nil)
@@ -2138,7 +2066,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let store = dir.appendingPathComponent("chat.json")
         let make = { makeChat(ModelTransport(), defaults: d, storeURL: store) }
         let first = make()
-        first.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(first)
+        await ask(first, "one")
         // As an older build saved it: model, style and that build's digest, and receipts without
         // the fields added since.
         var saved = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: store)) as? [String: Any])
@@ -2158,9 +2086,9 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         try JSONSerialization.data(withJSONObject: old).write(to: store)
         let second = make()
         #expect(second.items.contains { $0.kind == .user("one") })
-        second.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(second)
+        await ask(second, "two")
         #expect(second.items.first?.kind == .note("Started a new chat: Ask Claude was updated since this one began."))
-        second.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(second)
+        await ask(second, "three")
         let kinds = second.items.map(\.kind)
         #expect(kinds.contains(.user("two")) && kinds.contains(.user("three")) && !kinds.contains(.user("one")))
         #expect(kinds.filter { if case .note = $0 { true } else { false } }.count == 1)
@@ -2193,9 +2121,9 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let reads = Counter()
         let center = NotificationCenter()
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, readKey: { reads.bump(); return "k" }, keyChanges: center)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         center.post(name: AnthropicKeychain.didChange, object: nil)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(reads.value == 2)
     }
 
@@ -2209,8 +2137,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let card = AskClaudeSettingCard(rows: [.init(id: "appearance.theme", pick: "dark")])
         let chat = makeChat(ToolThenTextTransport(), defaults: d)
-        chat.ask("go dark", screen: screen, tools: ShowsASettingCard(card))
-        await waitUntilIdle(chat)
+        await ask(chat, "go dark", tools: ShowsASettingCard(card))
         let id = chat.items.first { if case .settings = $0.kind { true } else { false } }?.id
         #expect(id != nil)
         if let id {
@@ -2232,8 +2159,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         defer { try? FileManager.default.removeItem(at: store.deletingLastPathComponent()) }
         let make = { makeChat(OneLineTransport(text: "hi"), defaults: d, storeURL: store) }
         let first = make()
-        first.ask("what's in Medical?", screen: screen, tools: NoTools())
-        await waitUntilIdle(first)
+        await ask(first, "what's in Medical?")
         #expect(!first.startsOverAtNextQuestion)
         AskClaudePrivacy.hide("/Users/me/Medical", in: d)
         let relaunched = make()
@@ -2317,8 +2243,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         d.set(5.0, forKey: AskClaudeSpend.limitDefaultsKey)
         AskClaudeSpend.record(6, in: d)
         let chat = makeChat(OneLineTransport(text: "hi"), defaults: d)
-        chat.ask("which folders changed most?", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "which folders changed most?")
         #expect(!chat.items.contains { if case .problem = $0.kind { true } else { false } })
         let card = try #require(chat.items.lazy.compactMap { item -> AskClaudeSettingCard? in
             if case .settings(let card) = item.kind { card } else { nil }
@@ -2339,8 +2264,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
         center.post(name: SettingsRevert.didRevert, object: nil, userInfo: line)
         #expect(chat.sinceLastAnswer.isEmpty)
-        chat.ask("go dark", screen: screen, tools: ShowsASettingCard(AskClaudeSettingCard(rows: [.init(id: "appearance.theme")])))
-        await waitUntilIdle(chat)
+        await ask(chat, "go dark", tools: ShowsASettingCard(AskClaudeSettingCard(rows: [.init(id: "appearance.theme")])))
         center.post(name: SettingsRevert.didRevert, object: nil, userInfo: line)
         #expect(chat.sinceLastAnswer == [line["line"]!])
     }
@@ -2351,12 +2275,12 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
         AskClaudePrivacy.setHiddenFolders([], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.items.first?.kind == .user("one"))
     }
 
@@ -2368,14 +2292,14 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let center = NotificationCenter()
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         AskClaudePrivacy.setHiddenFolders([], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("what's in Medical?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "what's in Medical?")
         #expect(chat.items.first?.kind == .user("one"))
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "three")
         #expect(chat.items.first?.kind == .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays."))
         #expect(!chat.items.contains { $0.kind == .user("what's in Medical?") })
     }
@@ -2386,7 +2310,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
+        await ask(chat, "what were my results?", tools: OffersAPassage())
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2402,7 +2326,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        chat.ask("what were my results?", screen: screen, tools: OffersAPassage()); await waitUntilIdle(chat)
+        await ask(chat, "what were my results?", tools: OffersAPassage())
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         let sent = try #require(chat.takeOffer(offer))
         #expect(sent.question.contains("Cholesterol 182"))
@@ -2424,7 +2348,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        chat.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(chat)
+        await ask(chat, "what were my results?", tools: HoldsAnAnswer())
         let offer = try #require(chat.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         let answer = try #require(chat.takeOffer(offer, .answer))
         #expect(answer.question.contains("Cholesterol is 182.") && answer.question.contains("asked “What was the cholesterol?”"))
@@ -2444,7 +2368,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(!masked.contains("aB3_") && masked.contains("The key is sk-ant-api03-••••••••••••."))
         // Hidden since: the card goes, and the note says what didn't go.
         let later = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        later.ask("what were my results?", screen: screen, tools: HoldsAnAnswer()); await waitUntilIdle(later)
+        await ask(later, "what were my results?", tools: HoldsAnAnswer())
         let second = try #require(later.items.first { if case .offer = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2458,7 +2382,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+        await ask(chat, "which files mention my diagnosis?", tools: FindsNames())
         let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
         guard case .found(let found) = card.kind else { Issue.record("not a found card"); return }
         #expect(AskClaudeHeldAnswer.foundTitle(found) == "Spotlight found 8 files mentioning “diagnosis” in iCloud › Medical, on this Mac:")
@@ -2484,7 +2408,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         guard case .found(let still)? = chat.items.first(where: { $0.id == card.id })?.kind else { Issue.record("card gone"); return }
         #expect(still.customizing == true)
         let later = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        later.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(later)
+        await ask(later, "which files mention my diagnosis?", tools: FindsNames())
         let second = try #require(later.items.first { if case .found = $0.kind { true } else { false } }?.id)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
@@ -2500,7 +2424,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         func card() async throws -> (AskClaudeChat, UUID, [AskClaudeFoundNames.File]) {
             let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: NotificationCenter())
-            chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+            await ask(chat, "which files mention my diagnosis?", tools: FindsNames())
             let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } })
             guard case .found(let found) = card.kind else { Issue.record("not a found card"); throw CancellationError() }
             return (chat, card.id, try #require(found.files))
@@ -2564,7 +2488,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("tick-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: store) }
         let chat = makeChat(ToolThenTextTransport(), defaults: d, storeURL: store, keyChanges: NotificationCenter())
-        chat.ask("a chat to keep", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "a chat to keep")
         chat.setSharesAnswers(true)
         let again = makeChat(ToolThenTextTransport(), defaults: d, storeURL: store, keyChanges: NotificationCenter())
         #expect(again.sharesAnswers)
@@ -2585,7 +2509,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     @Test func aQuestionsReadsGatherOnOneCard() async throws {
         let d = defaults()
         let chat = makeChat(TwoReadsTransport(), defaults: d, keyChanges: NotificationCenter())
-        chat.ask("what are my flights?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
+        await ask(chat, "what are my flights?", tools: HoldsTwoAnswers())
         let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
         #expect(cards.count == 1)
         let card = try #require(cards.first)
@@ -2605,7 +2529,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(all.question.contains("All of Boarding Pass.pdf") && !all.question.contains("eTicket"))
         #expect(AskClaudeHeldAnswer.readsAllButton(1, sent: true) == "All Content Shared")
         // A new question gathers on a new card.
-        chat.ask("and again?", screen: screen, tools: HoldsTwoAnswers()); await waitUntilIdle(chat)
+        await ask(chat, "and again?", tools: HoldsTwoAnswers())
         #expect(chat.items.filter { if case .reads = $0.kind { true } else { false } }.count == 2)
     }
 
@@ -2613,7 +2537,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
     @Test func aFileReadTwiceIsOneRow() async throws {
         let d = defaults()
         let chat = makeChat(TwoReadsTransport(), defaults: d, keyChanges: NotificationCenter())
-        chat.ask("what flight and seat?", screen: screen, tools: ReadsOneFileTwice()); await waitUntilIdle(chat)
+        await ask(chat, "what flight and seat?", tools: ReadsOneFileTwice())
         let cards = chat.items.filter { if case .reads = $0.kind { true } else if case .offer = $0.kind { true } else { false } }
         #expect(cards.count == 1)
         guard case .offer(let passage, _)? = cards.first?.kind else { Issue.record("not one offer: \(cards)"); return }
@@ -2629,7 +2553,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let center = NotificationCenter()
         func chat() async throws -> (AskClaudeChat, UUID) {
             let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-            chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+            await ask(chat, "which files mention my diagnosis?", tools: FindsNames())
             return (chat, try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id))
         }
         let (stale, card) = try await chat()
@@ -2657,7 +2581,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let center = NotificationCenter()
         func chat() async throws -> (AskClaudeChat, UUID) {
             let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-            chat.ask("does anything mention my diagnosis?", screen: screen, tools: FindsNothing()); await waitUntilIdle(chat)
+            await ask(chat, "does anything mention my diagnosis?", tools: FindsNothing())
             return (chat, try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id))
         }
         let (held, card) = try await chat()
@@ -2686,7 +2610,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(ToolThenTextTransport(), defaults: d, keyChanges: center)
-        chat.ask("which files mention my diagnosis?", screen: screen, tools: FindsNames()); await waitUntilIdle(chat)
+        await ask(chat, "which files mention my diagnosis?", tools: FindsNames())
         let card = try #require(chat.items.first { if case .found = $0.kind { true } else { false } }?.id)
         let share = try #require(chat.takeFound(card))
         #expect(share.question.range(of: #"\nr\d+\|"#, options: .regularExpression) != nil, "premise: the share carries handles")
@@ -2700,7 +2624,7 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         #expect(Array(chat.items.dropLast()) == before, "the chat started over for a question it then sent")
         #expect(chat.items.last?.kind == .note("Didn’t ask again: a folder was hidden from Claude since this chat began, so the next question starts a new chat, without what this one shares. Ask again to read it afresh."))
         // A question of his own still starts the new chat.
-        chat.ask("anything else?", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "anything else?")
         #expect(chat.items.first?.kind == .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays."))
     }
 
@@ -2712,11 +2636,11 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         // Another change, a folder shared without asking say, posts the same news.
         center.post(name: AskClaudePrivacy.didChange, object: nil)
         #expect(!chat.startsOverAtNextQuestion)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.items.first?.kind == .user("one"))
     }
 
@@ -2800,12 +2724,12 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let center = NotificationCenter()
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         AskClaudePrivacy.setHiddenFolders([], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Medical"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.items.first?.kind == .user("one"))
     }
 
@@ -2822,10 +2746,10 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let d = defaults()
         let center = NotificationCenter()
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, keyChanges: center)
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
         AskClaudePrivacy.setHiddenFolders(["/Users/me/Private"], in: d)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.items.first?.kind == .note("Started a new chat: a folder was hidden, so nothing Claude saw of it stays."))
         #expect(!chat.items.contains { $0.kind == .user("one") })
     }
@@ -2848,11 +2772,11 @@ private final class ScriptedChatTransport: AskClaudeTransport, @unchecked Sendab
         let reads = Counter()
         // Its own center: a key change posted by any other test would otherwise reach this chat.
         let chat = makeChat(OneLineTransport(text: "ok"), defaults: d, readKey: { reads.bump(); return "k" }, keyChanges: NotificationCenter())
-        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
-        chat.ask("two", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "one")
+        await ask(chat, "two")
         #expect(reads.value == 1)
         chat.startOver()
-        chat.ask("three", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        await ask(chat, "three")
         #expect(reads.value == 2)
     }
 }
@@ -2864,13 +2788,6 @@ private struct SlowTransport: AskClaudeTransport {
         try? await Task.sleep(for: .milliseconds(150))
         return try await OneLineTransport(text: text).send(request)
     }
-}
-
-private final class Counter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var n = 0
-    func bump() { lock.withLock { n += 1 } }
-    var value: Int { lock.withLock { n } }
 }
 
 @Suite struct AskClaudePathsTests {
@@ -3038,11 +2955,6 @@ private final class Counter: @unchecked Sendable {
 
     // The panel is a view in the main window now, not a window of its own: `AskClaudeColumnTests` covers
     // the dock, and `OverlayHitTestSpikeTests` the clicks over the panes' tables.
-}
-
-private final class Box<Value>: @unchecked Sendable {
-    var value: Value
-    init(_ value: Value) { self.value = value }
 }
 
 /// Answers the first request with one read_text call and every later one with text.
@@ -3263,14 +3175,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         let manager = FileSyncManager.scratch()
         let settings = SettingsManager.scratch()
         func delegate(_ token: [String], asks: Bool = true) -> PaneActionDelegate {
-            var d = PaneActionDelegate(
-                handler: nil, syncManager: manager, settings: settings, isLeft: true,
-                leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-                forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-                ignoreStateToken: [], keptNamesToken: [],
-                onFindDuplicatesOf: { _ in },
-                onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
-                onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            var d = paneDelegate(syncManager: manager, settings: settings)
             d.canAskClaude = asks
             d.hiddenFromClaudeToken = token
             return d
@@ -3320,14 +3225,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         let settings = SettingsManager.scratch()
         var handed: [[String]] = []
         func delegate(asks: Bool) -> PaneActionDelegate {
-            var d = PaneActionDelegate(
-                handler: nil, syncManager: manager, settings: settings, isLeft: true,
-                leftProviderId: "left", rightProviderId: "right", isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-                forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in }, onOpenInEditor: { _ in },
-                ignoreStateToken: [], keptNamesToken: [],
-                onFindDuplicatesOf: { _ in },
-                onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
-                onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            var d = paneDelegate(syncManager: manager, settings: settings)
             d.canAskClaude = asks
             d.onFileWithClaude = { handed.append($0) }
             return d
@@ -4223,6 +4121,13 @@ private final class OffersADownload: AskClaudeToolRunning {
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "Downloads", sort: "Name",
                                          rows: [], selection: [], toolsAvailable: true)
 
+    /// Asks `question` about the suite's screen and waits for the answer.
+    private func ask(_ chat: AskClaudeChat, _ question: String, tools: AskClaudeToolRunning? = nil,
+                     sourceLocation: SourceLocation = #_sourceLocation) async {
+        chat.ask(question, screen: screen, tools: tools ?? NoTools())
+        await waitUntilIdle(chat, sourceLocation: sourceLocation)
+    }
+
     /// Wiped with its plist once the chat lets go: each question records its spend here.
     private func scratch() -> UserDefaults { ScratchDefaults("AskClaudeSinceLastAnswerTests") }
 
@@ -4231,10 +4136,8 @@ private final class OffersADownload: AskClaudeToolRunning {
         let transport = RecordingTransport()
         let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They applied your card “File 3 Loose Files”: Moved 3 files.")
-        chat.ask("Where did they go?", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
-        chat.ask("And now?", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "Where did they go?")
+        await ask(chat, "And now?")
         let bodies = transport.bodies
         #expect(bodies.count == 2)
         // Counted by the line itself: the instructions name the block too.
@@ -4250,8 +4153,7 @@ private final class OffersADownload: AskClaudeToolRunning {
         let d = scratch()
         let chat = makeChat(RecordingTransport(), defaults: d, readKey: { nil })
         chat.tellClaude("They undid your card “T”.")
-        chat.ask("hi", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "hi")
         #expect(chat.sinceLastAnswer == ["They undid your card “T”."])
         chat.startOver()
         #expect(chat.sinceLastAnswer.isEmpty, "a new chat has no cards to report on")
@@ -4267,14 +4169,13 @@ private final class OffersADownload: AskClaudeToolRunning {
         let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
         chat.ask("one", screen: screen, tools: NoTools())
-        for _ in 0..<300 where !chat.items.contains(where: { if case .assistant = $0.kind { true } else { false } }) {
-            try? await Task.sleep(for: .milliseconds(10))
+        await waitUntil("the answer starts", timeout: 10) {
+            chat.items.contains(where: { if case .assistant = $0.kind { true } else { false } })
         }
         chat.stop()
         await waitUntilIdle(chat)
         #expect(chat.sinceLastAnswer == ["They undid your card “T”."], "the stopped question never joined the transcript")
-        chat.ask("two", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(transport.bodies.count == 2)
         #expect(times(transport.bodies.last) == 1)
     }
@@ -4284,11 +4185,9 @@ private final class OffersADownload: AskClaudeToolRunning {
         let transport = ScriptedChatTransport([.onlyThinking, .text("ok")])
         let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
-        chat.ask("one", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "one")
         #expect(chat.sinceLastAnswer == ["They undid your card “T”."], "an empty turn joins nothing")
-        chat.ask("two", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(transport.bodies.count == 2)
         #expect(times(transport.bodies.last) == 1)
     }
@@ -4298,12 +4197,10 @@ private final class OffersADownload: AskClaudeToolRunning {
         let transport = ScriptedChatTransport([.toolCall, .status(500), .text("ok")])
         let chat = makeChat(transport, defaults: d)
         chat.tellClaude("They undid your card “T”.")
-        chat.ask("one", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "one")
         #expect(chat.items.contains { if case .problem = $0.kind { true } else { false } })
         #expect(chat.sinceLastAnswer.isEmpty, "the first round took them to Claude")
-        chat.ask("two", screen: screen, tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(transport.bodies.count == 3)
         #expect(times(transport.bodies.last) == 1, "replayed with the first turn, not sent again")
     }
@@ -4678,33 +4575,15 @@ private final class OffersADownload: AskClaudeToolRunning {
         ]
     }
 
-    private func host(_ card: AskClaudeRefineCard, width: CGFloat) -> NSHostingController<AskClaudeRefineCardView> {
+    private func host(_ card: AskClaudeRefineCard) -> NSHostingController<AskClaudeRefineCardView> {
         NSHostingController(rootView: AskClaudeRefineCardView(itemID: UUID(), card: card, bridge: AskClaudeRefineBridge(), accent: .blue, hue: .blue))
     }
 
     @Test func everyStateFitsTheNarrowestPanel() {
         for (name, card) in cards() {
-            let size = host(card, width: 240).sizeThatFits(in: CGSize(width: 240, height: 4_000))
+            let size = host(card).sizeThatFits(in: CGSize(width: 240, height: 4_000))
             #expect(size.width <= 240, "\(name) asks for \(size.width) pt of 240")
             #expect(size.height > 8, "\(name) drew nothing")
-        }
-    }
-
-    /// Pictures of each state, for looking at: written beside the other test output when
-    /// `ASK_CLAUDE_CARD_SHOTS` names a folder. Nothing is asserted about them.
-    @Test func eachStateDrawsSomething() throws {
-        for (name, card) in cards() {
-            let controller = host(card, width: 300)
-            let size = controller.sizeThatFits(in: CGSize(width: 300, height: 4_000))
-            controller.view.frame = CGRect(origin: .zero, size: size)
-            controller.view.layoutSubtreeIfNeeded()
-            let rep = try #require(controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds))
-            controller.view.cacheDisplay(in: controller.view.bounds, to: rep)
-            if let folder = ProcessInfo.processInfo.environment["ASK_CLAUDE_CARD_SHOTS"],
-               let png = rep.representation(using: .png, properties: [:]) {
-                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-                try png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("refine-\(name).png"))
-            }
         }
     }
 }
@@ -4714,9 +4593,9 @@ private final class OffersADownload: AskClaudeToolRunning {
 /// A tool that runs until the question is stopped, then says it didn't get there, as a go-to's
 /// bounded wait does when its sleeps throw at once.
 private final class WaitsForStop: AskClaudeToolRunning {
-    nonisolated(unsafe) static var started = false
+    private(set) var started = false
     func run(_ call: AskClaudeToolCall, handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
-        Self.started = true
+        started = true
         while !Task.isCancelled { try? await Task.sleep(nanoseconds: 5_000_000) }
         return AskClaudeToolOutcome(result: "The pane hadn’t got there.", isError: true, step: "Hadn’t got there")
     }

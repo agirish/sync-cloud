@@ -72,21 +72,12 @@ import Testing
     }
 
     @Test func everySelectableTextInTheAppLabelsAnElementOfItsOwn() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         // The app and every package's sources: a package view in the app's window has the same tree.
-        var files: [URL] = []
-        for top in ["MacApp", "Modules"] {
-            let dir = root.appendingPathComponent(top)
-            files += try #require(FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil))
-                .compactMap { $0 as? URL }
-                .filter { $0.pathExtension == "swift" && !$0.path.contains("/Tests/") && !$0.path.contains("/.build/") }
-        }
         var selectable = 0
         var unguarded: [String] = []
-        for file in files {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            selectable += source.components(separatedBy: ".textSelection(.enabled)").count - 1
-            unguarded += Self.unguardedLabels(in: source).map { "\(file.lastPathComponent):\($0)" }
+        for file in try SelectionLensWiringTests.everySource() where !file.path.contains("/.build/") {
+            selectable += file.text.components(separatedBy: ".textSelection(.enabled)").count - 1
+            unguarded += Self.unguardedLabels(in: file.text).map { "\(file.path):\($0)" }
         }
         #expect(selectable >= 5, "found \(selectable) selectable texts; is MacApp where it was?")
         #expect(unguarded.isEmpty, "label on selectable text's own node: \(unguarded)")

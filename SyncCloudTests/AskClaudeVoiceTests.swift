@@ -228,7 +228,7 @@ private final class Heard {
         // Scratch defaults and a center of its own: each question records its spend, and the test
         // host is SyncCloud, with his own.
         let d = ScratchDefaults("AskClaudeSpokenItemTests")
-        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: AnswersAtOnce(), defaults: d) },
+        let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: OneLineTransport(text: "Opened."), defaults: d) },
                                  readKey: { "k" }, keyChanges: NotificationCenter())
         let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [], selection: [],
                                      toolsAvailable: true)
@@ -476,13 +476,6 @@ private final class Heard {
         chat.stop()
         await waitUntil("the question stops", timeout: 60) { !chat.isRunning }
         withExtendedLifetime(panel) {}
-    }
-}
-
-/// Answers every request with one line of text.
-private struct AnswersAtOnce: AskClaudeTransport {
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        SSE.response(SSE.text("Opened.", outputTokens: 5))
     }
 }
 

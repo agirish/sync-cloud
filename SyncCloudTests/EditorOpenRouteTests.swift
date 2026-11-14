@@ -15,6 +15,8 @@ import FileExplorer
 
     let folder = NSTemporaryDirectory() + "open-route-" + UUID().uuidString
     var lines: [String] = []
+    /// The PDF model's layout store: the test host's `.standard` is the user's live settings.
+    let scratch = TestDefaults("EditorOpenRouteTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -55,16 +57,10 @@ import FileExplorer
                              log: { [weak self] in self?.lines.append($0.text) })
     }
 
-    /// Waits for the PDF model's load to come back from the lane, bounded in lane turns, not
-    /// seconds (`docs/flaky-tests.md`, "The wait that hangs instead of failing"), and fails with a
-    /// label rather than hanging when it never does.
-    private func settled(_ pdf: EditorPDFDocument) async {
-        for _ in 0..<1000 {
-            if pdf.phase != .loading { return }
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("the PDF load of \(pdf.path ?? "nothing") never came back in 1000 lane turns")
+    /// Waits for the PDF model's load to come back from the lane.
+    private func settled(_ pdf: EditorPDFDocument, sourceLocation: SourceLocation = #_sourceLocation) async {
+        await awaitPDFLane("the PDF load of \(pdf.path ?? "nothing") never came back",
+                           sourceLocation: sourceLocation) { pdf.phase != .loading }
     }
 
     // MARK: Routing
@@ -74,7 +70,7 @@ import FileExplorer
     @Test func aPDFOpensIntoThePDFModelAndNeverIntoTheTextDocument() async {
         let file = pdfFile("report.pdf", pages: 3)
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         #expect(route(file, document, store, pdf) == .pdf)
         await settled(pdf)
         #expect(document.path == nil, "the PDF reached the text document")
@@ -95,7 +91,7 @@ import FileExplorer
         #expect(control.path == file, "fixture: the text reader no longer opens this PDF at all")
 
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         let outcome = EditorHandOffRun.run(
             file, pane: .staysPut, syncManager: FileSyncManager.scratch(), paneRoot: folder,
             openDocument: nil, isRefused: false,
@@ -115,7 +111,7 @@ import FileExplorer
         let notes = try note("notes.md", "first draft")
         let file = pdfFile("invoice.pdf")
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         #expect(route(notes, document, store, pdf) == .text)
         document.text = "second draft"
         try #require(document.isDirty)
@@ -146,7 +142,7 @@ import FileExplorer
         let file = pdfFile("scan.pdf", pages: 6)
         let notes = try note("after.md", "words")
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         route(file, document, store, pdf)
         await settled(pdf)
         try #require(pdf.phase == .open)
@@ -168,7 +164,7 @@ import FileExplorer
         let notes = try note("draft.md", "draft")
         let file = pdfFile("contract.pdf")
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         route(notes, document, store, pdf)
         document.text = "typed but not written"
         // The host settles before the route; skipped here, so this measures the route's own
@@ -194,7 +190,7 @@ import FileExplorer
         let broken = path("broken.pdf")
         try Data("nope".utf8).write(to: URL(fileURLWithPath: broken))
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
 
         route(good, document, store, pdf)
         await settled(pdf)
@@ -215,7 +211,7 @@ import FileExplorer
     @Test func closingAPDFClearsThePanesSelectionOfIt() async {
         let file = pdfFile("closing.pdf")
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         route(file, document, store, pdf)
         await settled(pdf)
         var selection: Set<String> = [file]
@@ -241,7 +237,7 @@ import FileExplorer
         let missing = path("gone.md")
         let note = try note("Pasta.md", "# Pasta")
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         let list = recents()
 
         let refusedKind = route(missing, document, store, pdf)
@@ -262,7 +258,7 @@ import FileExplorer
         let broken = path("broken.pdf")
         try Data("nope".utf8).write(to: URL(fileURLWithPath: broken))
         let document = EditorDocument(), store = EditorUndoStore()
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: scratch.defaults)
         let list = recents()
 
         let brokenKind = route(broken, document, store, pdf)

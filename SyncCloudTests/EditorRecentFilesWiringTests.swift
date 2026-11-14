@@ -15,8 +15,8 @@ import FileExplorer
     /// Dropping the `if recordsRecent` guard, recording before `EditorOpenRoute.load(`, or handing
     /// `recordOpen` another store must each fail it.
     @Test func theOneLoadRecordsWhatItOpened() throws {
-        let body = try EditorHeaderDoorsWiringTests.memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)",
-                                                              in: EditorHeaderDoorsWiringTests.editor())
+        let body = try memberBody("func loadIntoEditor(path: String, recordsRecent: Bool = true)",
+                                  inFile: "ContentView+Editor.swift")
         let load = try #require(body.range(of: "EditorOpenRoute.load(path: path,"), "the load no longer routes through EditorOpenRoute")
         let guarded = try #require(body.range(of: "if recordsRecent {"), "the record is not gated on recordsRecent")
         let record = try #require(body.range(of: "EditorOpenRoute.recordOpen(kind: kind, document: editorDocument, pdf: editorPDF,"),
@@ -31,8 +31,8 @@ import FileExplorer
     /// refusal, which re-reads the file already open; no other caller does. Dropping
     /// `recordsRecent: false`, or adding it to `createTextFile`, must fail it.
     @Test func onlyTheReloadSkipsTheRecord() throws {
-        let source = try EditorHeaderDoorsWiringTests.editor()
-        let reload = try EditorHeaderDoorsWiringTests.memberBody("func reloadOverTheBuffer(path: String) -> Bool", in: source)
+        let source = try macAppCode("ContentView+Editor.swift")
+        let reload = try memberBody("func reloadOverTheBuffer(path: String) -> Bool", in: source)
         #expect(reload.contains("loadIntoEditor(path: path, recordsRecent: false)"),
                 "a reload over the buffer moves the file to the top of the recent files")
         #expect(source.contains("onTryAgain: { if let path = editorDocument.path, editorDocument.refusal != nil { loadIntoEditor(path: path, recordsRecent: false) } },"),
@@ -44,9 +44,9 @@ import FileExplorer
     /// The moved file is followed, whether this app or Finder moved it: before the `byThisApp`
     /// return, which would otherwise skip the app's own renames.
     @Test func aMovedOpenFileIsFollowed() throws {
-        let body = try EditorHeaderDoorsWiringTests.memberBody(
+        let body = try memberBody(
             "func editorDocumentDidMove(from old: String, to new: String, byThisApp: Bool)",
-            in: EditorHeaderDoorsWiringTests.editor())
+            inFile: "ContentView+Editor.swift")
         let move = try #require(body.range(of: "EditorRecentFiles.shared.move(from: old, to: new)"),
                                 "the recent files do not follow a moved file")
         let early = try #require(body.range(of: "guard !byThisApp else { return }"))
@@ -57,14 +57,14 @@ import FileExplorer
     /// handed the shared store; the menu's closure is wired like New Text File ⌘N's
     /// (`theHeaderPlusIsHandedTheNewFileChordItself`).
     @Test func thePageAndTheMenuOpenThroughTheHandOff() throws {
-        let workspace = try EditorHeaderDoorsWiringTests.memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat",
-                                                                   in: EditorHeaderDoorsWiringTests.editor())
-        let call = try EditorHeaderDoorsWiringTests.call("EditorWorkspaceView(", in: workspace)
-        #expect(call.passes("recentFiles", "EditorRecentFiles.shared"), "the empty page reads a store nothing records in")
-        #expect(call.passes("onOpenRecent", "{ path in handOffToEditor(path) }"), "a recent row does not open through the hand-off")
-        let publisher = try EditorHeaderDoorsWiringTests.memberBody("var shortcutValuePublisher: ShortcutValuePublisher",
-                                                                   in: EditorHeaderDoorsWiringTests.source("ShortcutCommands.swift"))
-        #expect(try EditorHeaderDoorsWiringTests.call("ShortcutValuePublisher(", in: publisher)
+        let workspace = try memberBody("func editorWorkspace(showsRail: Bool, railWidth: CGFloat",
+                                       inFile: "ContentView+Editor.swift")
+        let args = try call("EditorWorkspaceView(", in: workspace)
+        #expect(args.passes("recentFiles", "EditorRecentFiles.shared"), "the empty page reads a store nothing records in")
+        #expect(args.passes("onOpenRecent", "{ path in handOffToEditor(path) }"), "a recent row does not open through the hand-off")
+        let publisher = try memberBody("var shortcutValuePublisher: ShortcutValuePublisher",
+                                       inFile: "ShortcutCommands.swift")
+        #expect(try call("ShortcutValuePublisher(", in: publisher)
                     .passes("openRecent", "{ path in handOffToEditor(path) }"),
                 "File ▸ Open Recent does not open through the hand-off")
     }

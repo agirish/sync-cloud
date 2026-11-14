@@ -27,15 +27,7 @@ import Testing
         return String(afterCall[..<nextSibling.lowerBound])
     }
 
-    // MARK: - The premise
-
     // MARK: - The three surfaces
-
-    @Test func theTabStripTakesTheWash() throws {
-        let chain = try Self.stripModifiers(in: try Self.codeFile("MacApp/ContentView.swift"))
-        #expect(chain.contains(Self.wash),
-                "the tab strip does not paint the tint — it will read as a pale stripe across the pane")
-    }
 
     @Test func theWashIsAppliedBeforeTheCardClips() throws {
         // The wash must come before the card: applied after `surfaceCard` clips, it squares off
@@ -48,23 +40,11 @@ import Testing
                 "the wash is applied after the card clips — it will poke past the rounded corners")
     }
 
-    /// The `PaneHeader` type's own slice, from its declaration to the next top-level declaration.
-    /// Structural, like `stripModifiers`: a file-level `contains` would stay green on any other
+    /// The `PaneHeader` type's own body: a file-level `contains` would stay green on any other
     /// wash in DashboardViews.swift while the header lost its own.
-    private static func paneHeaderSlice(in source: String) throws -> String {
-        let start = try #require(source.range(of: "struct PaneHeader"),
-                                 "PaneHeader is gone — the wash has no home to be asserted in")
-        let rest = String(source[start.upperBound...])
-        // The next declaration at column zero ends the type; anchored to the line start so a
-        // nested type can't end the slice early.
-        let end = rest.range(of: #"\n(public |private |internal |final )*(struct|enum|class|extension)\s"#,
-                             options: .regularExpression)
-        return end.map { String(rest[..<$0.lowerBound]) } ?? rest
-    }
-
     @Test func theHeaderTakesTheWash() throws {
         let source = try Self.codeFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
-        let header = try Self.paneHeaderSlice(in: source)
+        let header = try declarationBody(of: "public struct PaneHeader: View {", in: source)
         // The slice is the header's own body, not the whole file: the header's height pin anchors
         // it, and the boundary really cut something.
         try #require(header.contains(".frame(height: LiquidGlass.headerHeight)"),

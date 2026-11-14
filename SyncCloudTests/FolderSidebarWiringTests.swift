@@ -12,8 +12,6 @@ import Foundation
 /// trigger so a scan that finds nothing fails.
 @Suite struct FolderSidebarWiringTests {
 
-    static func contentViewSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
-
     /// Each trigger with the call it must make, matched as one string: `.onChange(of:
     /// selectedWorkspace)` exists for other reasons too, so finding it proves nothing unless the
     /// refresh is inside it. Every input `folderSidebarIsShowing` reads is one (Expand's hold in Edit
@@ -22,7 +20,7 @@ import Foundation
                       "browseSidebarRecentsMode", "editorSidebarVisible", "panesHiddenForCurrentTab",
                       "folderSidebarHeldByExpand"])
     func everyTriggerTheGuardMakesNecessaryIsWired(value: String) throws {
-        let source = try Self.contentViewSource()
+        let source = try macAppCode("ContentView.swift")
         let declaration = ".onChange(of: \(value)) { _, _ in refreshFolderSidebarRows() }"
         #expect(source.contains(declaration),
                 "\(value) does not refresh the sidebar — with the on-screen guard in place, the column keeps whatever rows it last resolved")
@@ -31,7 +29,7 @@ import Foundation
     /// The guard is the one rule, not a hand-rolled copy: the layout's `if` and the refresh's guard
     /// must ask the same question, or the column draws rows nobody refreshed.
     @Test func bothSitesAskTheOneRule() throws {
-        let source = try Self.contentViewSource()
+        let source = try macAppCode("ContentView.swift")
         #expect(!source.contains("selectedWorkspace == .browse, browseSidebarVisible"),
                 "the guard was re-spelled in ContentView instead of going through FolderSidebarModel")
 
@@ -53,23 +51,13 @@ import Foundation
         #expect(rows.count > 10, "the reference is implausibly short — this scan would be near-vacuous")
         let chorded = rows.filter { $0.keys.replacingOccurrences(of: " ", with: "").contains("⌃⌘S") }
         #expect(chorded.count == 1, "\(chorded.count) rows list ⌃⌘S: \(chorded.map(\.action))")
-        #expect(chorded.first?.action.lowercased().contains("sidebar") == true,
-                "the ⌃⌘S row does not say what it toggles: “\(chorded.first?.action ?? "")”")
-    }
-
-    /// The row names no workspace. Every workspace has a sidebar, so any qualifier could only go
-    /// stale when the set changes, with nothing to catch it. Asserted, so re-adding one has to be
-    /// deliberate.
-    @Test func theRowDoesNotEnumerateWorkspaces() {
-        let rows = ShortcutsReference.groups.flatMap(\.items)
-        let row = rows.first { $0.keys.replacingOccurrences(of: " ", with: "").contains("⌃⌘S") }
-        let action = row?.action ?? ""
+        let action = chorded.first?.action ?? ""
+        #expect(action.lowercased().contains("sidebar"), "the ⌃⌘S row does not say what it toggles: “\(action)”")
+        // It names no workspace: every workspace has a sidebar, so a qualifier could only go stale.
         for workspace in Workspace.allCases.map(\.title) {
             #expect(!action.localizedCaseInsensitiveContains(workspace),
                     "the ⌃⌘S row names \(workspace) — every workspace has a sidebar, so the qualifier can only go stale: “\(action)”")
         }
-        #expect(action.localizedCaseInsensitiveContains("sidebar"),
-                "the row no longer says what it toggles: “\(action)”")
     }
 }
 
@@ -78,8 +66,6 @@ import Foundation
 /// while it is hidden is dropped and nothing re-runs it when the column comes back. Each way of
 /// becoming visible must itself be a trigger, or the column shows a list resolved before it hid.
 @Suite struct SidebarRefreshTriggerTests {
-
-    static func appSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView.swift")) }
 
     /// The row builder is handed the dragged order. `FolderSidebarModel.rows` applies it
     /// (`FavoriteOrderReachesTheRowsTests`), but the parameter defaults to empty, so dropping this
@@ -111,7 +97,7 @@ import Foundation
 @Suite struct PaneFavoriteWiringTests {
 
     @Test func contentViewSuppliesTheFavoriteClosureToEveryPaneDelegate() throws {
-        let code = try FolderSidebarWiringTests.contentViewSource()
+        let code = try macAppCode("ContentView.swift")
         #expect(code.contains("onToggleFolderFavorite: { node in toggleFavorite(forPaneFolder: node, isLeft: pane.isLeft) }"),
                 "the pane delegate is built without its favorite closure — the menu item draws and does nothing")
     }
@@ -156,18 +142,11 @@ import Foundation
 /// so a spelling elsewhere can't answer for it, and anchored so a renamed member fails.
 @Suite struct FolderSidebarOpenTargetingTests {
 
-    static func sidebarSource() throws -> String { sourceCodeOnly(try macAppFile("ContentView+FolderSidebar.swift")) }
-
-    /// One member's body, to its own closing brace.
-    static func body(of declaration: String, sourceLocation: SourceLocation = #_sourceLocation) throws -> String {
-        try declarationBody(of: declaration, in: sidebarSource(), sourceLocation: sourceLocation)
-    }
-
     /// `openFolderSidebarRow` asks the pane it is opening on: the source-switch guard compares the
     /// row's root with the `isLeft` pane's provider path, not `folderSidebarRoot`, which describes
     /// the target and would switch the wrong pane's source from the context menu.
     @Test func theRowOpenDerivesItsGuardFromTheOpeningPane() throws {
-        let body = try Self.body(of: "func openFolderSidebarRow(")
+        let body = try declarationBody(of: "func openFolderSidebarRow(", in: macAppFile("ContentView+FolderSidebar.swift"))
         try #require(body.contains("syncManager.focusOn(relativePath: row.relativePath, isLeft: isLeft)"),
                      "the open no longer focuses — this slice is not the member it claims to be")
         #expect(body.contains("settings.rootPath(for: isLeft ? leftProviderId : rightProviderId)"),
@@ -180,7 +159,7 @@ import Foundation
     /// `owningSource` resolved so two same-named sources can't make this pick the wrong one and
     /// strip against the wrong root.
     @Test func theInsideOpenResolvesItsOwnerById() throws {
-        let body = try Self.body(of: "func openFolderSidebarShortcutInsideItsOwner(")
+        let body = try declarationBody(of: "func openFolderSidebarShortcutInsideItsOwner(", in: macAppFile("ContentView+FolderSidebar.swift"))
         try #require(body.contains("folderSidebarProviders.first(where:"),
                      "the owner lookup is gone — this slice is not the member it claims to be")
         #expect(body.contains("$0.id == ownerId"),
@@ -193,7 +172,7 @@ import Foundation
     /// than reading the target pane's provider while setting the `isLeft` pane's. Pinned on which
     /// pane's provider is read, not on the operator around it.
     @Test func theInsideOpenComparesTheOpeningPanesProvider() throws {
-        let body = try Self.body(of: "func openFolderSidebarShortcutInsideItsOwner(")
+        let body = try declarationBody(of: "func openFolderSidebarShortcutInsideItsOwner(", in: macAppFile("ContentView+FolderSidebar.swift"))
         #expect(body.contains("provider.id == (isLeft ? leftProviderId : rightProviderId)"),
                 "the switch decision reads some other pane's provider than the one it sets")
         #expect(!body.contains("folderSidebarProviderId"),
@@ -204,7 +183,7 @@ import Foundation
     /// after, it can't tell "just added" from "already existed": a disabled source's row draws as
     /// not added, and the inline Remove would delete a source the user configured long ago.
     @Test func thePromotionTakesMembershipBeforeItAdds() throws {
-        let body = try Self.body(of: "func promoteFolderSidebarShortcut(")
+        let body = try declarationBody(of: "func promoteFolderSidebarShortcut(", in: macAppFile("ContentView+FolderSidebar.swift"))
         let before = try #require(body.range(of: "let knownBefore"),
                                   "the before-the-call membership set is gone — wasAdded can no longer tell added from existed")
         let add = try #require(body.range(of: "settings.addFolderSource(path:"),
@@ -219,7 +198,7 @@ import Foundation
     /// existing source can only be a disabled one (enabled sources draw as `.configured`), and a pane
     /// on a disabled provider is a state the pane header's own menu can't reach.
     @Test func thePromotionReEnablesADisabledExistingSource() throws {
-        let body = try Self.body(of: "func promoteFolderSidebarShortcut(")
+        let body = try declarationBody(of: "func promoteFolderSidebarShortcut(", in: macAppFile("ContentView+FolderSidebar.swift"))
         #expect(body.contains("if !wasAdded && !settings.isEnabled(id)"),
                 "the not-minted path no longer checks for the disabled source it can only be")
         #expect(body.contains("settings.setEnabled(true, for: id)"),

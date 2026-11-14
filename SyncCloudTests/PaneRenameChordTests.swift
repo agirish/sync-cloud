@@ -11,9 +11,7 @@ import AppKit
     /// and every sheet. Finder doesn't register it either. Scans all of `MacApp/`, since the damage
     /// is the same wherever it is written.
     @Test func returnIsNotRegisteredAsAChordAnywhere() throws {
-        let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
+        let dir = macAppDirectory()
         let urls = try #require(try? FileManager.default.contentsOfDirectory(at: dir,
                                                                             includingPropertiesForKeys: nil),
                                 "cannot list MacApp/ — this check would be vacuous")
@@ -64,15 +62,11 @@ import AppKit
     /// `shortcutPaneRowVerbs.rename`, as File ▸ Rename does, so they can't disagree about when a
     /// rename is possible or what it renames.
     @Test func theChordRunsTheMenuItemsOwnAction() throws {
-        let search = try macAppFile("ContentView+PaneSearch.swift")
-        let handler = try #require(search.range(of: "func paneRename()"),
-                                   "the ↩ handler is gone or has moved out of this file")
-        // Wide enough to hold the handler with its suspension guard and comments: a window tighter
-        // than the body fails for the wrong reason.
-        let body = String(search[handler.upperBound...].prefix(900))
+        let body = try memberBody("func paneRename() -> KeyPress.Result {", inFile: "ContentView+PaneSearch.swift")
         #expect(body.contains("shortcutPaneRowVerbs.rename"),
                 "↩ resolves its own rename target — it must share the menu item's, or the two will drift")
-        #expect(body.contains("return .ignored"),
+        // The target's own `else`, not the suspension guard's `.ignored` above it.
+        #expect(body.contains("guard let rename = shortcutPaneRowVerbs.rename else { return .ignored }"),
                 "↩ swallows the key when a rename is not possible, so nothing else can have it")
     }
 

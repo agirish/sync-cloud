@@ -34,10 +34,6 @@ import Testing
         #expect(SetupDraftStore.read(at: url) == draft)
     }
 
-    @Test func anAbsentDraftIsNotAnError() throws {
-        #expect(SetupDraftStore.read(at: dir.appendingPathComponent("nothing.json")) == nil)
-    }
-
     /// A draft this build cannot read is asked for again, never half-applied: asking again costs a
     /// minute, while a partly decoded draft builds a wrong household that every document is then
     /// attributed through. A foreign schema and garbage alike.

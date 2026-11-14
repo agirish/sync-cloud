@@ -251,7 +251,7 @@ import FileExplorer
 
     /// The last tab's ⌘W hands the window-close settle the app's own reload.
     @Test func theLastTabsCloseReloadsOnADiscard() throws {
-        let tabs = try EditorHeaderDoorsWiringTests.source("ContentView+PaneTabs.swift")
+        let tabs = try macAppCode("ContentView+PaneTabs.swift")
         let call = try CallArguments(of: "EditorDocumentClose.settleForWindowClose(", in: normalizedCode(tabs))
         // The PDF outlives the window, so the last tab's close does not ask about its pending work.
         #expect(call.passes("settle", "{ settleEditorDocument(asksAboutPDFWork: false, asksAboutTheOnlyCopy: false) }"))

@@ -45,19 +45,10 @@ import Foundation
         let opposite = isLeft == "true" ? "false" : "true"
         #expect(!body.contains("retargetPane(isLeft: \(opposite)"),
                 "the \(pane)-provider handler retargets the OTHER pane")
-    }
-
-    /// The landing is the switched pane's own source, not the sibling's: the half of the polarity
-    /// a boolean flip alone wouldn't disturb.
-    @Test func eachProviderHandlerLandsOnTheNewSourcesOpeningFolder() throws {
-        let source = try Self.contentViewSource()
-        let handlers = [(".onChange(of: leftProviderId) { _, newId in", ".onChange(of: rightProviderId) { _, newId in"),
-                        (".onChange(of: rightProviderId) { _, newId in", ".modifier(BrowseTabPersistence(")]
-        for (opening, closing) in handlers {
-            let body = try Self.region(from: opening, to: closing, in: source)
-            #expect(body.contains("landing: settings.openAtIfReachable(for: newId)"),
-                    "\(opening) re-homes its pane somewhere other than the source it just switched to")
-        }
+        // The landing is the switched pane's own source, not the sibling's: the half of the
+        // polarity a boolean flip alone wouldn't disturb.
+        #expect(body.contains("landing: settings.openAtIfReachable(for: newId)"),
+                "the \(pane) handler re-homes its pane somewhere other than the source it just switched to")
     }
 
     // MARK: - Settings: the same scope to the teardown and to the rescan
@@ -78,15 +69,9 @@ import Foundation
                 "the Location edit is back to dropping BOTH panes' trees")
         #expect(!body.contains("refreshAction()"),
                 "the Location edit is back to re-walking BOTH panes")
-    }
-
-    /// The scoped reload announces neither cause nor pane by itself, so the log line that does
-    /// both is part of the wiring. `describedPanes` is asserted by name because
-    /// `String(describing:)` yields a case name like `leftOnly`, meaningless in `~/sync-cloud.log`.
-    @Test func theLocationEditSaysWhichPaneItIsRewalkingAndWhy() throws {
-        let body = try Self.region(from: "if let edited = Self.paneRootEdits(",
-                                   to: "\n        .modifier(SettingsEngineMirrors(",
-                                   in: try Self.contentViewSource())
+        // The scoped reload announces neither cause nor pane by itself, so the log line that does
+        // both is part of the wiring. `describedPanes` by name: `String(describing:)` yields a
+        // case name like `leftOnly`, meaningless in `~/sync-cloud.log`.
         #expect(body.contains("Logger.shared.info("),
                 "a Location edit re-walks a pane and writes nothing to the log saying so")
         #expect(body.contains("edited.describedPanes"),

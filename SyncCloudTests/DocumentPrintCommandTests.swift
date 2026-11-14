@@ -17,7 +17,8 @@ import Foundation
 
     // MARK: Where the two items are
 
-    /// Both items are in File, below Save, in the mockup's order.
+    /// Both items are in File, below Save, in the mockup's order. Both titles end in an ellipsis,
+    /// because both open a dialog before anything happens, as `New Text File…` does.
     @Test func thePrintPairSitsUnderSave() throws {
         let titles = try appMenu("File").items.map(\.title).filter { !$0.isEmpty }
         let save = try #require(titles.firstIndex(of: "Save"), "File ▸ Save is gone")
@@ -26,10 +27,12 @@ import Foundation
         let print = try #require(titles.firstIndex(of: "Print…"), "File ▸ Print… is gone")
         #expect(save < export && export < print,
                 "the group reads \(titles[save...print]) — RD9 puts Export then Print under Save")
+        #expect(!titles.contains("Print") && !titles.contains("Export as PDF"))
     }
 
     /// Exactly one item claims ⌘P, and it is Print. Two would leave one dead, and AppKit, not the
-    /// app, picks which: the rule `theFileMenuIsInTheRoadmapsOrder` holds ⌘W to.
+    /// app, picks which: the rule `theFileMenuIsInTheRoadmapsOrder` holds ⌘W to. Export
+    /// deliberately has no key equivalent; see `AppChord.printDocument`.
     @Test func onlyPrintRegistersTheChord() throws {
         let menu = try appMenu("File")
         let claimants = menu.items.filter { $0.keyEquivalent == "p" }
@@ -37,20 +40,8 @@ import Foundation
         #expect(claimants.first?.title == "Print…")
         #expect(claimants.first?.keyEquivalentModifierMask == .command,
                 "Print's chord is not a bare ⌘P")
-    }
-
-    /// Export deliberately has no key equivalent; see `AppChord.printDocument`.
-    @Test func exportHasNoChord() throws {
-        let export = try #require(try appMenu("File").items.first { $0.title == "Export as PDF…" })
+        let export = try #require(menu.items.first { $0.title == "Export as PDF…" })
         #expect(export.keyEquivalent.isEmpty, "Export as PDF… has acquired a chord")
-    }
-
-    /// Both titles end in an ellipsis, because both open a dialog before anything happens, as
-    /// `New Text File…` and `Move Selection to Trash…` do.
-    @Test func bothTitlesPromiseTheDialogTheyOpen() throws {
-        let titles = try appMenu("File").items.map(\.title)
-        #expect(titles.contains("Print…") && !titles.contains("Print"))
-        #expect(titles.contains("Export as PDF…") && !titles.contains("Export as PDF"))
     }
 
     /// Export names the document it exports, so it can't be read as Save as PDF, which writes the
@@ -70,9 +61,7 @@ import Foundation
 
     /// The window hands Export the open document's name, and only where Export is offered.
     @Test func theWindowHandsExportTheDocumentsName() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/EditorPrinting.swift")
-        let code = CodeText(try String(contentsOf: url, encoding: .utf8))
+        let code = CodeText(try macAppFile("EditorPrinting.swift"))
         #expect(code.contains("export: { exportEditorDocumentAsPDF() }, exportName: editorDocument.name)"))
         #expect(code.contains("DocumentPrintActions(print: { printEditorPDF() }, export: nil)"),
                 "a PDF is offered Export, or handed a name to export")
@@ -126,31 +115,17 @@ import Foundation
     }
 
     /// The export goes through the atomic write path, not `Data.write(to:)`: a half-written PDF
-    /// over a good one is the same loss as a half-written note.
-    @Test func theExportWritesThroughTheStore() throws {
-        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
-                                                     in: macAppFile("EditorPrinting.swift")))
+    /// over a good one is the same loss as a half-written note. The panel opens on the rail's
+    /// folder with the document's name, and the render waits for its answer, so a cancel is free.
+    @Test func theExportWritesThroughTheStoreAfterThePanel() throws {
+        let body = try declarationBody(of: "func exportEditorDocumentAsPDF()", in: macAppFile("EditorPrinting.swift"))
         #expect(body.contains("EditorFileStore.write("),
                 "the export writes bytes without the staging, flush and read-back every other write here gets")
         #expect(!body.contains("data.write(to:"), "the export bypasses the store")
-    }
-
-    /// The panel opens on the folder the rail is reading, with the document's own name, offered
-    /// rather than imposed.
-    @Test func theExportPanelStartsInTheRailsFolder() throws {
-        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
-                                                     in: macAppFile("EditorPrinting.swift")))
         #expect(body.contains("panel.directoryURL = URL(fileURLWithPath: editorFolder)"),
                 "the save panel no longer opens on the folder the rail is reading")
         #expect(body.contains("panel.nameFieldStringValue = job.exportName"),
                 "the save panel no longer suggests the document's own name")
-    }
-
-    /// Rendered after the panel is answered, so a cancel doesn't cost the render, which on a long
-    /// document is seconds.
-    @Test func theRenderHappensAfterThePanelIsAnswered() throws {
-        let body = sourceCodeOnly(try declarationBody(of: "func exportEditorDocumentAsPDF()",
-                                                     in: macAppFile("EditorPrinting.swift")))
         let panel = try #require(body.range(of: "panel.runModal()"))
         let render = try #require(body.range(of: "DocumentPDF.data("))
         #expect(panel.lowerBound < render.lowerBound,

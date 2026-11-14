@@ -38,11 +38,9 @@ import Testing
         // hide under it.
         let budget = one * 2.5
 
-        var worst: (title: String, lines: CGFloat) = ("", 0)
         for topic in HelpBook.allTopics {
             let height = laidOutHeight(topic.title, scale: size.scale)
             let lines = height / one
-            if lines > worst.lines { worst = (topic.title, lines) }
             #expect(height <= budget,
                     """
                     “\(topic.title)” takes \(String(format: "%.1f", lines)) lines of the \
@@ -50,7 +48,6 @@ import Testing
                     fixed-width, so no card size gets it back.
                     """)
         }
-        print("[rail] worst at \(size.displayName): “\(worst.title)” \(String(format: "%.2f", worst.lines)) lines")
     }
 
     /// The control: a title nobody could fit in two lines must fail, or the measurement above is

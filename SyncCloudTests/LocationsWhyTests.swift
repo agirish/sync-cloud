@@ -75,10 +75,7 @@ import Testing
         let host = NSHostingView(rootView: panel.frame(width: size.width, height: size.height))
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds),
-                               "the panel would not render — every measurement here is vacuous")
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return try snapshot(host)
     }
 
     /// Pixels where two renders of the same panel differ. Bytes first: in two bitmaps of one format,

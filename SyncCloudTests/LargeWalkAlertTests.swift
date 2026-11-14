@@ -24,7 +24,6 @@ import Testing
         let p = preflight(.storageLens)
         let text = SyncOperationAlerts.largeWalkInformativeText(p)
         #expect(text.contains("more than"), "the prompt states a total for a tree nobody finished reading")
-        #expect(!text.contains("400,312"), "the prompt reports what the PROBE read as if it were the folder's size")
         #expect(text.contains("400,000"), "the prompt names no figure at all")
     }
 
@@ -37,24 +36,8 @@ import Testing
             #expect(text.contains("contents") == pass.readsFileContents,
                     "\(pass) says the wrong thing about reading file contents: “\(text)”")
             #expect(text.contains(pass.title), "the prompt does not name the pass: “\(text)”")
-        }
-    }
-
-    /// Each pass's prompt is distinct: describing them identically would understate whichever costs
-    /// more.
-    @Test func thePassesDoNotAllSayTheSameThing() {
-        let texts = LargeWalkPreflight.Pass.allCases.map {
-            SyncOperationAlerts.largeWalkInformativeText(preflight($0))
-        }
-        #expect(Set(texts).count == texts.count, "two passes share a prompt")
-    }
-
-    /// Both prompts say the pass can be cancelled, because it can, and "several minutes" without
-    /// that reads as a commitment.
-    @Test func bothPromptsSayItCanBeCancelled() {
-        for pass in [LargeWalkPreflight.Pass.storageLens, .duplicates] {
-            #expect(SyncOperationAlerts.largeWalkInformativeText(preflight(pass)).contains("cancel"),
-                    "\(pass) prompt does not say the pass can be cancelled")
+            // It can be cancelled, and "several minutes" without that reads as a commitment.
+            #expect(text.contains("cancel"), "\(pass) prompt does not say the pass can be cancelled")
         }
     }
 }

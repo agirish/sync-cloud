@@ -172,21 +172,8 @@ import UniformTypeIdentifiers
         #expect(await ContentSignalExtractor.tokens(forFileAt: path).isEmpty)
     }
 
-    /// End-to-end OCR over a synthetic scan: huge, clean, black-on-white text that Vision's `.fast`
-    /// recognizer reads reliably. A real Vision call, the extractor's one environment-dependent
-    /// piece, kept easy so the test stays deterministic.
-    @Test func imageTextIsExtractedViaOCR() async throws {
-        let dir = FixtureDir()
-        let path = dir.path("scan.png")
-        try Self.writeTextImage("INVOICE 1099", to: path)
-        let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
-        #expect(snippet.uppercased().contains("INVOICE"))
-        let tokens = await ContentSignalExtractor.tokens(forFileAt: path)
-        #expect(tokens.contains("invoice"))
-        #expect(tokens.contains("1099"))
-    }
-
-    /// A scan Vision reads must not also report that Vision failed.
+    /// End-to-end OCR over a synthetic scan (huge, clean, black-on-white text that Vision's `.fast`
+    /// recognizer reads reliably), which must not also report that Vision failed.
     ///
     /// The "OCR failed on …" warning lets an operator tell a broken recognizer from a folder of
     /// blank scans, which works only if it stays inside the throwing branch. Logged beside the
@@ -213,6 +200,9 @@ import UniformTypeIdentifiers
         // The fixture must really OCR, or the no-warning assertion below proves nothing.
         let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
         #expect(snippet.uppercased().contains("INVOICE"))
+        let tokens = await ContentSignalExtractor.tokens(forFileAt: path)
+        #expect(tokens.contains("invoice"))
+        #expect(tokens.contains("1099"))
 
         // After the call under test, so a capture that holds it was listening throughout.
         let marker = "ocr-failure window close \(UUID().uuidString)"

@@ -63,8 +63,6 @@ import Sync
     /// reason for its tooltip.
     @Test func everySaveFailureIsSaidThroughTheStop() throws {
         let editor = CodeText(try macAppFile("ContentView+Editor.swift"))
-        #expect(!editor.contains("\"Couldn't save “\\(editorDocument.name)” — \\(message)\""),
-                "a save failure composes its own banner again")
         #expect(editor.contains("let stop = EditorAutosaveStop(saveError: error)"))
         #expect(editor.count(of: "case .savedUnchecked(let clause): editorAutosaveStop = .unchecked(clause)") == 2)
         let call = try CallArguments(of: "EditorWorkspaceView(", in: normalizedCode(macAppFile("ContentView+Editor.swift")))
@@ -170,8 +168,6 @@ import Sync
         // guard alone would stand between a reload and the wrong file.
         #expect(editor.contains("path: review.path, explicit: review.explicit"),
                 "the answer is routed with the live path rather than the reviewed one")
-        #expect(!editor.contains("path: editorDocument.path ?? \"\", explicit: review.explicit"),
-                "the old shape is still there — the guard can be true and the path still wrong")
     }
 
     /// The overlay is mounted where nothing can cover it. It is up because a modal alert asked and

@@ -14,28 +14,24 @@ import Foundation
 
     /// The row menus aim at their own pane. Both are named, since the closures sit one line apart
     /// and a fix to only one would look done.
-    @Test func theRowMenusScopeAgainstTheirOwnPanesRoot() throws {
-        let view = try macAppFile("ContentView.swift")
-        for closure in ["onOrganizeFolder:", "onOrganizeScope:"] {
-            let start = try #require(view.range(of: closure),
-                                     "\(closure) is gone from ContentView — this scan checks nothing")
-            let window = String(view[start.upperBound...].prefix(220))
-            #expect(window.contains("providerRootExpanded(forProviderId: pane.providerId)"),
-                    "\(closure) does not name the row's own pane; window was:\n\(window)")
-            #expect(!window.contains("lensProviderRootExpanded"),
-                    "\(closure) is back on the FOCUSED pane's root, which a context menu does not move")
-        }
+    @Test(arguments: [("onOrganizeFolder", "organizeFolderAction("), ("onOrganizeScope", "setOrganizeScope(")])
+    func theRowMenusScopeAgainstTheirOwnPanesRoot(closure: String, callee: String) throws {
+        let body = try declarationBody(of: "func paneActionDelegate(for pane: PaneContext) -> PaneActionDelegate {",
+                                       in: macAppFile("ContentView.swift"))
+        let handler = try #require(try CallArguments(of: "PaneActionDelegate(", in: body).value(closure),
+                                   "\(closure) is gone from the pane's delegate — this scan checks nothing")
+        #expect(try CallArguments(of: callee, in: handler)
+                    .passes("providerRoot", "providerRootExpanded(forProviderId: pane.providerId)"),
+                "\(closure) does not name the row's own pane: \(handler)")
+        #expect(!handler.contains("lensProviderRootExpanded"),
+                "\(closure) is back on the FOCUSED pane's root, which a context menu does not move")
     }
 
     /// The write itself may not fall back to the focused pane, so a new caller can't inherit it by
-    /// not thinking about it.
+    /// not thinking about it. The signature, which requires a root, is the one this reads.
     @Test func theScopeWriteTakesItsRootFromTheCallerOnly() throws {
-        let view = try macAppFile("ContentView.swift")
-        let start = try #require(view.range(of: "func setOrganizeScope("))
-        let window = String(view[start.upperBound...].prefix(200))
-        #expect(window.contains("providerRoot: String"),
-                "setOrganizeScope no longer requires a root, so a call site can inherit the focused pane's again")
-        #expect(!window.contains("lensProviderRootExpanded"),
-                "setOrganizeScope reads the focused pane's root again")
+        let body = try declarationBody(of: "func setOrganizeScope(_ path: String?, providerRoot: String) {",
+                                       in: macAppFile("ContentView.swift"))
+        #expect(!body.contains("lensProviderRootExpanded"), "setOrganizeScope reads the focused pane's root again")
     }
 }

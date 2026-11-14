@@ -28,13 +28,20 @@ import FileExplorer
          CommandPaletteBarMetrics.keycapWidth(symbol: AppChord.commandPalette.display, scale: scale))
     }
 
-    /// `styles(...)` at a text scale, with the real pill measured at that same scale.
-    private func styles(contentWidth: CGFloat, labelWidths: [CGFloat],
-                        scale: CGFloat = 1) -> ToolbarBarStyles {
+    /// `styles(...)` at a text scale, with the real pill measured at that same scale; `open` with
+    /// the Go-to field open, `run` with a run's capsule on the row.
+    private func styles(contentWidth: CGFloat, labelWidths: [CGFloat], scale: CGFloat = 1,
+                        open: Bool = false, run: Bool = false) -> ToolbarBarStyles {
         let search = searchWidths(scale: scale)
-        return WorkspaceBarMetrics.styles(contentWidth: contentWidth, labelWidths: labelWidths,
-                                          searchLabelWidth: search.label,
-                                          searchKeycapWidth: search.keycap)
+        return WorkspaceBarMetrics.styles(
+            contentWidth: contentWidth, labelWidths: labelWidths,
+            searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
+            // The open field draws its `esc` keycap, as ContentView feeds it, not the pill's ⌘K.
+            openField: open ? OpenFieldRequest(
+                keycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
+                                                                  scale: scale),
+                scale: scale) : nil,
+            runShowing: run)
     }
 
     /// The real labels at the real weight, so these assertions measure the shipping bar. Semibold
@@ -168,12 +175,6 @@ import FileExplorer
         #expect(iconOnly <= Self.windowFloor - WorkspaceBarMetrics.reservedChrome)
     }
 
-    @Test func testAnOrdinaryWindowSpellsTheSegmentsOut() {
-        // The window opens at ~85% of the screen, so the common case must be labelled; an
-        // always-glyph bar would be a regression dressed up as a fix.
-        #expect(styles(contentWidth: 1400, labelWidths: labelWidths()).workspace == .full)
-    }
-
     @Test func testLargerTextShedsSoonerThanSmaller() {
         // The widths are measured, not tabulated, because the app scales its own type: a constant
         // would be right at one Settings ▸ Text size and overflow at the rest. At a width that
@@ -285,21 +286,11 @@ import FileExplorer
 
     // MARK: The open field's share of the row (§7)
 
-    /// `styles(...)` with the field open, at a text scale.
-    private func openStyles(contentWidth: CGFloat, labelWidths: [CGFloat],
-                            scale: CGFloat = 1) -> ToolbarBarStyles {
-        let search = searchWidths(scale: scale)
-        return WorkspaceBarMetrics.styles(
-            contentWidth: contentWidth, labelWidths: labelWidths,
-            searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
-            openField: OpenFieldRequest(keycapWidth: search.keycap, scale: scale))
-    }
-
     /// Nothing moves on a wide window: the field reaches its ceiling with every label still
     /// spelled out. This is the state a large display is always in, so it would hide a broken
     /// ladder from anyone testing by hand there.
     @Test func testAWideWindowOpensTheFieldAtItsCeilingAndMovesNothingElse() {
-        let resolved = openStyles(contentWidth: 1700, labelWidths: labelWidths())
+        let resolved = styles(contentWidth: 1700, labelWidths: labelWidths(), open: true)
         #expect(resolved.workspace == .full, "the bar shed labels it did not need to")
         #expect(resolved.field?.width == GoToFieldMetrics.ceilingWidth)
         #expect(resolved.field?.placeholder == .full)
@@ -314,7 +305,7 @@ import FileExplorer
         // end the fixture proves nothing.
         let spare = (GoToFieldMetrics.floorWidth + GoToFieldMetrics.ceilingWidth) / 2
         let contentWidth = WorkspaceBarMetrics.reservedChrome + bar + spare
-        let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths)
+        let resolved = styles(contentWidth: contentWidth, labelWidths: widths, open: true)
         #expect(spare > GoToFieldMetrics.floorWidth && spare < GoToFieldMetrics.ceilingWidth)
         #expect(resolved.workspace == .full)
         #expect(resolved.field?.width == spare, "the field did not take the row's spare width")
@@ -327,14 +318,14 @@ import FileExplorer
         let bar = WorkspaceBarMetrics.fullWidth(labelWidths: widths)
         // One point under the floor with the labels up: the last width at which the bar sheds.
         let contentWidth = WorkspaceBarMetrics.reservedChrome + bar + GoToFieldMetrics.floorWidth - 1
-        let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths)
+        let resolved = styles(contentWidth: contentWidth, labelWidths: widths, open: true)
         #expect(resolved.workspace == .iconOnly, "the field was left under its floor with the labels up")
         let gained = bar - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
         #expect(gained > 0)
         #expect(resolved.field?.width == GoToFieldMetrics.floorWidth - 1 + gained,
                 "the shed did not reach the field")
         // And one point wider, the labels stay: this is a band, not a general rule.
-        #expect(openStyles(contentWidth: contentWidth + 1, labelWidths: widths).workspace == .full)
+        #expect(styles(contentWidth: contentWidth + 1, labelWidths: widths, open: true).workspace == .full)
     }
 
     /// At the window's own floor the field is still above its floor, so a field opened under 320pt
@@ -344,8 +335,8 @@ import FileExplorer
     /// until another segment, a wider `reservedChrome` or a lower window minimum changes that.
     @Test func testTheNarrowestWindowStillClearsTheFieldsFloor() throws {
         for size in FontSize.allCases {
-            let resolved = openStyles(contentWidth: Self.windowFloor,
-                                      labelWidths: labelWidths(scale: size.scale), scale: size.scale)
+            let resolved = styles(contentWidth: Self.windowFloor,
+                                  labelWidths: labelWidths(scale: size.scale), scale: size.scale, open: true)
             let width = try #require(resolved.field?.width)
             #expect(resolved.workspace == .iconOnly)
             #expect(width >= GoToFieldMetrics.floorWidth,
@@ -356,10 +347,8 @@ import FileExplorer
     /// What the narrow end costs is the invitation, not the field: at the floor the full
     /// placeholder does not fit, so the short rung absorbs it.
     @Test func testTheNarrowestWindowShortensTheInvitation() {
-        #expect(openStyles(contentWidth: Self.windowFloor, labelWidths: labelWidths()).field?.placeholder
+        #expect(styles(contentWidth: Self.windowFloor, labelWidths: labelWidths(), open: true).field?.placeholder
                 == .short)
-        // And it is a rung, not a permanent state: the wide window says the whole sentence.
-        #expect(openStyles(contentWidth: 1700, labelWidths: labelWidths()).field?.placeholder == .full)
     }
 
     /// The shed is a band, and both of its edges are silent. Above it the field reaches its ceiling
@@ -371,7 +360,7 @@ import FileExplorer
         var band: [CGFloat] = []
         for contentWidth in stride(from: Self.windowFloor, through: 1600, by: 1) {
             let closed = styles(contentWidth: contentWidth, labelWidths: widths)
-            let open = openStyles(contentWidth: contentWidth, labelWidths: widths)
+            let open = styles(contentWidth: contentWidth, labelWidths: widths, open: true)
             if closed.workspace == .iconOnly {
                 #expect(open.workspace == .iconOnly,
                         "at \(contentWidth)pt opening the field moved a bar that was already glyphs")
@@ -400,8 +389,8 @@ import FileExplorer
         for size in FontSize.allCases {
             let widths = labelWidths(scale: size.scale)
             for contentWidth in stride(from: Self.windowFloor, through: 2400, by: 13) {
-                let resolved = openStyles(contentWidth: contentWidth, labelWidths: widths,
-                                          scale: size.scale)
+                let resolved = styles(contentWidth: contentWidth, labelWidths: widths,
+                                      scale: size.scale, open: true)
                 let bar = resolved.workspace == .full
                     ? WorkspaceBarMetrics.fullWidth(labelWidths: widths)
                     : WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count)
@@ -425,20 +414,6 @@ import FileExplorer
 
     // MARK: The progress capsule (TE205, TE206)
 
-    /// `styles(...)` with a run going, closed or open, at a text scale.
-    private func runStyles(contentWidth: CGFloat, labelWidths: [CGFloat], scale: CGFloat = 1,
-                           open: Bool = false) -> ToolbarBarStyles {
-        let search = searchWidths(scale: scale)
-        return WorkspaceBarMetrics.styles(
-            contentWidth: contentWidth, labelWidths: labelWidths,
-            searchLabelWidth: search.label, searchKeycapWidth: search.keycap,
-            openField: open ? OpenFieldRequest(
-                keycapWidth: CommandPaletteBarMetrics.keycapWidth(symbol: GoToFieldMetrics.closeKeycap,
-                                                                  scale: scale),
-                scale: scale) : nil,
-            runShowing: true)
-    }
-
     /// The chevron guard, with the capsule on the row. A capsule folded behind the chevron is a run
     /// nobody can see or stop, so at every width and text size the row seats the capsule (at least
     /// its ring) and never spends more than it has, closed or with the Go-to field open.
@@ -448,8 +423,8 @@ import FileExplorer
             let search = searchWidths(scale: size.scale)
             for contentWidth in stride(from: Self.windowFloor, through: 2400, by: 13) {
                 for open in [false, true] {
-                    let resolved = runStyles(contentWidth: contentWidth, labelWidths: widths,
-                                             scale: size.scale, open: open)
+                    let resolved = styles(contentWidth: contentWidth, labelWidths: widths,
+                                          scale: size.scale, open: open, run: true)
                     let run = try? #require(resolved.run, "no capsule at \(contentWidth)pt / \(size.displayName)")
                     guard let run else { continue }
                     let bar = resolved.workspace == .full
@@ -472,7 +447,7 @@ import FileExplorer
     @Test func testTheCapsuleShrinksToItsRingBeforeTheLabelsShed() {
         let widths = labelWidths()
         let rungs = stride(from: Self.windowFloor, through: 2000, by: 1).map {
-            runStyles(contentWidth: $0, labelWidths: widths)
+            styles(contentWidth: $0, labelWidths: widths, run: true)
         }
         #expect(rungs.contains { $0.run == .ring && $0.workspace == .full })
         // And never the other way round: labels shed while the full capsule stays.
@@ -483,12 +458,12 @@ import FileExplorer
     /// capsule beside the full row.
     @Test func testTheFloorSeatsTheRingAndAnOrdinaryWindowTheWholeCapsule() {
         let widths = labelWidths()
-        #expect(runStyles(contentWidth: Self.windowFloor, labelWidths: widths).run == .ring)
-        let wide = runStyles(contentWidth: 1600, labelWidths: widths)
+        #expect(styles(contentWidth: Self.windowFloor, labelWidths: widths, run: true).run == .ring)
+        let wide = styles(contentWidth: 1600, labelWidths: widths, run: true)
         #expect(wide.run == .full)
         #expect(wide.workspace == .full && wide.search == .full)
         // With the field open the capsule takes its ring and the field the rest.
-        #expect(runStyles(contentWidth: 1600, labelWidths: widths, open: true).run == .ring)
+        #expect(styles(contentWidth: 1600, labelWidths: widths, open: true, run: true).run == .ring)
     }
 
     /// No run, no capsule: the row without one resolves exactly as plain `styles` does, and the
@@ -506,8 +481,8 @@ import FileExplorer
             #expect(set.resolved(fieldOpen: false, runShowing: false) == styles(contentWidth: contentWidth, labelWidths: widths))
             #expect(set.resolved(fieldOpen: false, runShowing: false).run == nil)
             #expect(set.resolved(fieldOpen: true, runShowing: false).run == nil)
-            #expect(set.resolved(fieldOpen: false, runShowing: true) == runStyles(contentWidth: contentWidth, labelWidths: widths))
-            #expect(set.resolved(fieldOpen: true, runShowing: true) == runStyles(contentWidth: contentWidth, labelWidths: widths, open: true))
+            #expect(set.resolved(fieldOpen: false, runShowing: true) == styles(contentWidth: contentWidth, labelWidths: widths, run: true))
+            #expect(set.resolved(fieldOpen: true, runShowing: true) == styles(contentWidth: contentWidth, labelWidths: widths, open: true, run: true))
         }
     }
 

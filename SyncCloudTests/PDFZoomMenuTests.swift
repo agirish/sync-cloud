@@ -118,19 +118,14 @@ import Testing
 
     // MARK: The items are wired to the rules
 
-    private func source(_ file: String) throws -> String { sourceCodeOnly(try macAppFile(file)) }
-
     private func block(_ name: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: "struct \(name): View {"), "\(name) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n}\n")?.lowerBound ?? rest.endIndex
-        return String(rest[..<end])
+        try declarationBody(of: "struct \(name): View {", in: source)
     }
 
     /// The items ask the route, on the platform's chords, and the window publishes the verbs from
     /// the reader's focus: the half no rule test can see.
     @Test func theItemsAndTheWindowAreWiredToTheRules() throws {
-        let commands = try source("ShortcutCommands.swift")
+        let commands = try macAppCode("ShortcutCommands.swift")
         let items = try block("TextSizeCommands", in: commands)
         #expect(items.contains("@FocusedValue(\\.pdfZoom)"))
         #expect(items.contains("TextSizeMenuRoute.perform(verb, pdfZoom: pdfZoom, size: size)"),
@@ -145,10 +140,9 @@ import Testing
         #expect(commands.contains(".focusedSceneValue(\\.pdfZoom, effectivePDFZoom)"))
         #expect(commands.contains("pdfZoom: shortcutPDFZoom,"))
 
-        let editor = try source("ContentView+Editor.swift")
-        let flat = editor.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let flat = CodeText(try macAppCode("ContentView+Editor.swift"))
         #expect(flat.contains("PDFZoomVerbs.resolve(workspace: selectedWorkspace, pdf: editorPDF, readerHasFocus: editorPDFReaderFocused)"))
-        let content = try source("ContentView.swift")
+        let content = try macAppCode("ContentView.swift")
         #expect(content.contains(".onReceive(editorPDF.view.$hasFocus.removeDuplicates()) { editorPDFReaderFocused = $0 }"),
                 "the window never hears the reader's focus")
     }

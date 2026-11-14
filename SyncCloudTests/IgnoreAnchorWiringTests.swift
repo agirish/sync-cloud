@@ -30,11 +30,7 @@ import Sync
     @Test func neitherClosureCapturesAStoredCopy() throws {
         let source = try Self.contentViewSource()
         for name in ["paneOpenAtForSyncManager", "paneSourceIdForSyncManager"] {
-            let start = try #require(source.range(of: "private var \(name): (Bool) -> String {"),
-                                     "cannot find \(name) — the wiring test above is checking a name that no longer exists")
-            let tail = source[start.upperBound...]
-            let end = try #require(tail.range(of: "\n    }"), "cannot find the end of \(name)")
-            let body = String(tail[..<end.lowerBound])
+            let body = try declarationBody(of: "private var \(name): (Bool) -> String {", in: source)
             #expect(body.contains("self.leftProviderId") && body.contains("self.rightProviderId"),
                     "\(name) does not read the pane's provider id at call time")
         }

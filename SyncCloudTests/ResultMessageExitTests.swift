@@ -7,48 +7,39 @@ import Sync
 /// How a result message leaves on its own — the capsule's flies into Activity; nothing else does.
 @Suite struct ResultMessageExitTests {
 
-    private func exit(_ home: ResultMessageHome, mirrored: Bool = false, reduceMotion: Bool = false,
-                      activityIsOpen: Bool = false, hasAnchors: Bool = true) -> ResultMessageExit {
-        ResultMessageExit.exit(home: home, mirroredInCapsule: mirrored, reduceMotion: reduceMotion,
-                               activityIsOpen: activityIsOpen, hasAnchors: hasAnchors)
-    }
+    /// `(home, mirrored in the capsule, Reduce Motion, Activity open, both anchors laid out)`.
+    typealias Ending = (home: ResultMessageHome, mirrored: Bool, reduce: Bool, open: Bool, anchors: Bool,
+                        exit: ResultMessageExit)
 
-    /// A run's ending a pane shows and the capsule mirrors goes into Activity from the capsule, by
-    /// the capsule's own rules.
-    @Test func aMirroredRunsEndingFliesFromTheCapsule() {
-        #expect(exit(.pane(isLeft: true), mirrored: true) == .fly)
-        #expect(exit(.workspace, mirrored: true) == .fly)
-        #expect(exit(.pane(isLeft: true), mirrored: true, reduceMotion: true) == .landInActivity)
-        #expect(exit(.pane(isLeft: true), mirrored: true, hasAnchors: false) == .landInActivity)
-        #expect(exit(.pane(isLeft: true), mirrored: true, activityIsOpen: true) == .flashInActivity)
-    }
-
-    @Test func theCapsulesMessageFliesIntoActivity() {
-        #expect(exit(.toolbar) == .fly)
-    }
-
-    @Test func aPanesOrTheWorkspacesMessageJustGoes() {
-        #expect(exit(.pane(isLeft: true)) == .clear)
-        #expect(exit(.pane(isLeft: false)) == .clear)
-        #expect(exit(.workspace) == .clear)
-        // Not even a glow: the reader was looking at it.
-        #expect(exit(.workspace, reduceMotion: true) == .clear)
-    }
-
-    @Test func reduceMotionLandsItWithoutTheFlight() {
-        #expect(exit(.toolbar, reduceMotion: true) == .landInActivity)
-    }
-
-    @Test func noFlightWithoutBothEndsInTheWindow() {
-        // Activity folded behind the toolbar's chevron, or the capsule's item not laid out.
-        #expect(exit(.toolbar, hasAnchors: false) == .landInActivity)
-    }
-
-    @Test func activityAlreadyOpenUnderTheCapsuleFlashesItsRowInstead() {
-        #expect(exit(.toolbar, activityIsOpen: true) == .flashInActivity)
-        #expect(exit(.toolbar, reduceMotion: true, activityIsOpen: true) == .flashInActivity)
-        // A pane's message is not in the popover's way: it just goes.
-        #expect(exit(.workspace, activityIsOpen: true) == .clear)
+    @Test(arguments: [
+        // A run's ending a pane shows and the capsule mirrors goes into Activity from the capsule,
+        // by the capsule's own rules.
+        (.pane(isLeft: true), true, false, false, true, .fly),
+        (.workspace, true, false, false, true, .fly),
+        (.pane(isLeft: true), true, true, false, true, .landInActivity),
+        (.pane(isLeft: true), true, false, false, false, .landInActivity),
+        (.pane(isLeft: true), true, false, true, true, .flashInActivity),
+        // The capsule's own message flies into Activity.
+        (.toolbar, false, false, false, true, .fly),
+        // A pane's or the workspace's message just goes; not even a glow, the reader was on it.
+        (.pane(isLeft: true), false, false, false, true, .clear),
+        (.pane(isLeft: false), false, false, false, true, .clear),
+        (.workspace, false, false, false, true, .clear),
+        (.workspace, false, true, false, true, .clear),
+        // Reduce Motion lands it without the flight.
+        (.toolbar, false, true, false, true, .landInActivity),
+        // No flight without both ends: Activity folded behind the chevron, or the item not laid out.
+        (.toolbar, false, false, false, false, .landInActivity),
+        // Activity already open under the capsule flashes its row instead.
+        (.toolbar, false, false, true, true, .flashInActivity),
+        (.toolbar, false, true, true, true, .flashInActivity),
+        // A pane's message is not in the popover's way.
+        (.workspace, false, false, true, true, .clear),
+    ] as [Ending])
+    func aMessageLeavesByItsHomesRules(_ ending: Ending) {
+        #expect(ResultMessageExit.exit(home: ending.home, mirroredInCapsule: ending.mirrored,
+                                       reduceMotion: ending.reduce, activityIsOpen: ending.open,
+                                       hasAnchors: ending.anchors) == ending.exit)
     }
 
     /// The landing releases a held dot and flashes the message's row; calling a flight off does

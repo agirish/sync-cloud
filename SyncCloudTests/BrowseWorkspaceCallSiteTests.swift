@@ -19,78 +19,13 @@ import FileExplorer
 /// pinned.
 @Suite struct BrowseWorkspaceCallSiteTests {
 
-    /// The same text with comments removed, for counting, where prose naming a member would
-    /// otherwise count as the member. The shared stripper, ``sourceCodeOnly(_:)``.
-    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
-
-    /// One declaration's body, bounded by its closing brace rather than a character count. A fixed
-    /// window drifts as the member changes length: it overruns into the next member's doc comment,
-    /// so a `!contains` gets answered by prose, or stops short of the code it checks. The reading is
-    /// the shared ``declarationBody(of:in:)``, which requires one declaration and searches the
-    /// comment-stripped text, so a decoy in a comment can't become the answer.
-    static func body(of declaration: String, in source: String) throws -> String {
-        try declarationBody(of: declaration, in: source)
-    }
-
-    /// The reader's own control: a decoy in a comment must not become the answer. The first fixture
-    /// puts a commented-out copy of the declaration above the real one; a reader that counted over
-    /// stripped text but searched the raw text would return the decoy. The second is the other
-    /// direction: a doc comment that names the member must not count as a second declaration.
-    @Test func testTheReaderIgnoresDeclarationsThatAreOnlyComments() throws {
-        let withDecoy = """
-            struct S {
-            //    func target() -> Int {
-            //        return decoy
-            //    }
-                func target() -> Int {
-                    return real
-                }
-            }
-            """
-        let body = try declarationBody(of: "func target() -> Int {", in: withDecoy)
-        #expect(body.contains("return real"), "the reader took a commented-out declaration as the member")
-        #expect(!body.contains("decoy"))
-
-        let mentioned = """
-            struct S {
-                /// Companion to `func target() -> Int {`, which it must not be counted as.
-                func target() -> Int {
-                    return real
-                }
-            }
-            """
-        // Not wrapped: the failure worth seeing here is the reader's own `#require`, which reports
-        // itself.
-        #expect(try declarationBody(of: "func target() -> Int {", in: mentioned)
-                    .contains("return real"))
-
-        // A genuine second declaration still stops the run. `withKnownIssue`, not
-        // `#expect(throws:)`: the refusal is a `#require`, which records an issue as well as
-        // throwing, and that issue would still fail the test. This form also fails if none is
-        // recorded.
-        let twice = """
-            struct S {
-                func target() -> Int {
-                    return first
-                }
-                func target() -> Int {
-                    return second
-                }
-            }
-            """
-        withKnownIssue("two real declarations were not refused — range(of:) would read the first") {
-            _ = try declarationBody(of: "func target() -> Int {", in: twice)
-        }
-    }
-
     // MARK: The layout
 
     /// Browse resolves its layout before the pane-hiding question is asked. The pane is the whole
     /// window there, so "panes hidden" would mean an empty window; no Browse control writes that
     /// override, but a stray key in the stored map must not blank the workspace either.
     @Test func testBrowseIsDecidedBeforePaneHidingIsConsulted() throws {
-        let body = try Self.body(of: "var contentLayout: ContentLayout {",
-                                 in: try macAppSources())
+        let body = try declarationBody(of: "var contentLayout: ContentLayout {", in: macAppSources())
         let browse = try #require(body.range(of: "return .browseFull"),
                                   "contentLayout has no Browse arm — Browse falls through to the rail layout")
         let hidden = try #require(body.range(of: "panesHiddenForCurrentTab"),
@@ -103,8 +38,7 @@ import FileExplorer
     /// Space → Quick Look lives on the file list inside `paneColumn`, so Browse gets it with the
     /// column; `PaneQuickLookScopeTests` covers it.
     @Test func testTheBrowseLayoutKeepsTheRegionFrame() throws {
-        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)",
-                                 in: try macAppSources())
+        let body = try declarationBody(of: "func browseLayout(geo: GeometryProxy)", in: macAppSources())
         #expect(body.contains("paneColumn(isLeft: true)"))
         #expect(body.contains(".panesRegionFrame(surfaceStyle, level: glassLevel)"))
     }
@@ -142,7 +76,7 @@ import FileExplorer
         // in another file is the same defect. The read resolver is `viewMode(in:isLeft:)`, which
         // answers for any workspace and to which `resolvedViewMode` must delegate, so the count
         // matches the ternary's tail, which both spellings share.
-        let occurrences = Self.codeOnly(content)
+        let occurrences = sourceCodeOnly(content)
             .components(separatedBy: ".singleSource ? railViewMode").count - 1
         #expect(occurrences == 2,
                 "the rail-or-pane ternary appears \(occurrences) times in MacApp/ — it belongs in `viewMode(in:isLeft:)` and `resolvedViewModeBinding` and nowhere else")
@@ -161,8 +95,8 @@ import FileExplorer
     /// which would resize them and make the pane non-`Equatable`.
     /// View ▸ File Preview is gone; this pins what is left for the app to get wrong.
     @Test func testThePreviewIsThePanesInfoAlone() throws {
-        let macApp = Self.codeOnly(try macAppSources())
-        let content = Self.codeOnly(try macAppFile("ContentView+PaneInfo.swift"))
+        let macApp = sourceCodeOnly(try macAppSources())
+        let content = sourceCodeOnly(try macAppFile("ContentView+PaneInfo.swift"))
         #expect(content.contains("AnyView(InspectorFilePreview("),
                 "Info no longer draws the preview")
         #expect(content.contains("previewFraction: $inspectorPreviewFraction"),
@@ -215,7 +149,7 @@ import FileExplorer
     /// prose after it.
     @Test func testThePerPaneResolverIgnoresTheActivePane() throws {
         let macApp = try macAppSources()
-        let body = try Self.body(of: "func paneSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
+        let body = try declarationBody(of: "func paneSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
         #expect(body.contains("syncManager.leftNodes(for: syncManager.selectedLeftPaths)"))
         #expect(body.contains("syncManager.rightNodes(for: syncManager.selectedRightPaths)"))
         #expect(!body.contains("activePane"),
@@ -223,7 +157,7 @@ import FileExplorer
         #expect(!body.contains("paneActionBarSideActive"),
                 "the per-pane resolver went back through the compare-only gate — Delete is dead outside Compare")
         // The sibling it must not become: `barSelectionNodes` IS activePane-scoped, on purpose.
-        let bar = try Self.body(of: "func barSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
+        let bar = try declarationBody(of: "func barSelectionNodes(isLeft: Bool) -> [FileNode] {", in: macApp)
         #expect(bar.contains("paneActionBarSideActive"),
                 "barSelectionNodes stopped being the active pane's — the floating action bar's target has changed")
     }
@@ -232,20 +166,12 @@ import FileExplorer
     /// take their titles from the other pane, which does not exist there.
     @Test func testTheFloatingBarAndChordStayCompareOnly() throws {
         let macApp = try macAppSources()
-        let gate = try Self.body(of: "func paneActionBarSideActive(isLeft: Bool) -> Bool {", in: macApp)
+        let gate = try declarationBody(of: "func paneActionBarSideActive(isLeft: Bool) -> Bool {", in: macApp)
         #expect(gate.contains("guard layoutMode == .compare"),
                 "the floating action bar's compare guard was widened — Browse would show transfer buttons naming a pane that does not exist")
-        let chord = try Self.body(of: "var shortcutDeleteSelection: (() -> Void)? {", in: macApp)
+        let chord = try declarationBody(of: "var shortcutDeleteSelection: (() -> Void)? {", in: macApp)
         #expect(chord.contains("guard layoutMode == .compare"),
                 "⌘⌫ escaped Compare — it acts on the active pane, which is ambiguous with no floating bar to show which")
-    }
-
-    // MARK: ⌘K
-
-    @Test func testThePaletteCanReachBrowse() throws {
-        let host = try macAppFile("CommandPaletteHost.swift")
-        #expect(host.contains("case .browse:"), "runPaletteRoute has no Browse arm")
-        #expect(host.contains("workspaceSelection.wrappedValue = .browse"))
     }
 
     // MARK: The bar has no rule
@@ -282,8 +208,7 @@ import FileExplorer
     /// The gather takes a resizable slot in Browse, the same shape and remembered share it takes
     /// everywhere else: not a fixed strip, and not the whole window.
     @Test func testTheBrowseGatherSlotIsTheSharedResizableOne() throws {
-        let body = try Self.body(of: "func browseLayout(geo: GeometryProxy)",
-                                 in: try macAppSources())
+        let body = try declarationBody(of: "func browseLayout(geo: GeometryProxy)", in: macAppSources())
         #expect(body.contains("if let scope = personScope"),
                 "browseLayout does not branch on a live gather")
         // One structure, so the file column keeps its identity when a gather opens or clears. The

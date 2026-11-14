@@ -81,16 +81,7 @@ import FileExplorer
         final class Box: @unchecked Sendable { var paths: [String] = [] }
         let box = Box()
         func delegate(isLeft: Bool) -> PaneActionDelegate {
-            PaneActionDelegate(
-                handler: nil, syncManager: FileSyncManager.scratch(), settings: SettingsManager.scratch(),
-                isLeft: isLeft, leftProviderId: "left", rightProviderId: "right",
-                isSingleSource: false, ownsOrganizeScope: false, servesEditor: false,
-                forceRefreshAction: {}, onGetInfo: { _ in }, onChooseDestination: { _, _ in },
-                onOpenInEditor: { box.paths.append($0) },
-                ignoreStateToken: [], keptNamesToken: [],
-                onFindDuplicatesOf: { _ in },
-                onOrganizeFolder: { _ in }, onCheckFolderShape: { _ in }, onOrganizeScope: { _ in },
-                onOpenInNewTab: { _ in }, onNewTabHere: { _ in }, onCloseTab: { })
+            paneDelegate(isLeft: isLeft, onOpenInEditor: { box.paths.append($0) })
         }
 
         delegate(isLeft: true).handleOpenInEditor("/a/left.md")
@@ -152,6 +143,10 @@ import FileExplorer
         let differences = CallArguments(try #require(constructions.first,
                                                      "the differences list is built somewhere this scan does not look"))
         #expect(differences.passes("syncManager", "syncManager"), "the slice is not the differences list's construction")
+        // Both panes are on screen, so the table keeps the suffixed pair; the plain names would
+        // title two columns alike.
+        #expect(differences.passes("paneNames", "paneNames"),
+                "the Differences table no longer takes the disambiguated pane names")
         // `.staysPut`: the differences list opens the file without moving the left pane, which is
         // half of the comparison the list shows. `EditorHandOffRunTests` measures what each
         // variant does to a real pane.

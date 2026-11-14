@@ -12,7 +12,7 @@ import Testing
 ///
 /// Driven through a stub, not a scratch suite: a `UserDefaults(suiteName:)` still searches the
 /// process-wide registration domain, where this key is already `0` in the test host, so the absent
-/// case can't be produced in-process and `anAbsentKeyReadsAsArmed` would pass for the wrong reason.
+/// case can't be produced in-process and would pass for the wrong reason.
 @Suite struct DisplayCycleAssertTests {
 
     /// Answers exactly what it is told, so each of the three states AppKit distinguishes can be
@@ -31,23 +31,12 @@ import Testing
         }
     }
 
-    /// Absent means armed. Under tests nothing is registered, so CI fails loudly if a fixture
-    /// reproduces the runaway, and the breadcrumb must say ARMED there. A `boolForKey:`-only read
-    /// can't see this state: an absent key reads `false` and would be reported as suppressed.
-    @Test func anAbsentKeyReadsAsArmed() {
-        #expect(DisplayCycleAssert.isArmed(in: StubDefaults(stored: nil)))
-    }
-
-    /// `false`, what a real launch registers, suppresses it.
-    @Test func falseSuppressesTheAssert() {
-        #expect(!DisplayCycleAssert.isArmed(in: StubDefaults(stored: false)))
-    }
-
-    /// A diagnostic session gets the crash back by writing the key `true`, the documented escape
-    /// hatch. An `objectForKey:`-only read can't see this state: a present key would be reported as
-    /// suppressed whatever its value.
-    @Test func anExplicitTrueArmsItAgain() {
-        #expect(DisplayCycleAssert.isArmed(in: StubDefaults(stored: true)))
+    /// Absent means armed, `false` (what a real launch registers) suppresses it, and `true` (the
+    /// documented escape hatch) arms it again. A `boolForKey:`-only read can't see the first: an
+    /// absent key reads `false`; an `objectForKey:`-only read can't see the last.
+    @Test(arguments: [(Bool?.none, true), (false, false), (true, true)])
+    func theStoredValueDecidesWhetherItIsArmed(stored: Bool?, armed: Bool) {
+        #expect(DisplayCycleAssert.isArmed(in: StubDefaults(stored: stored)) == armed)
     }
 
     /// The one constant both sites use is AppKit's own spelling, since agreeing on the wrong string

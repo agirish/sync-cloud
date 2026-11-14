@@ -176,11 +176,6 @@ private final class Gate: @unchecked Sendable {
     }
 }
 
-private final class Box<Value>: @unchecked Sendable {
-    var value: Value
-    init(_ value: Value) { self.value = value }
-}
-
 /// Holds each request until the gate opens, then answers it with one line; a stop cancels it.
 private struct GatedTransport: AskClaudeTransport {
     let gate: Gate

@@ -97,10 +97,19 @@ import FileExplorer
 
     // MARK: - ⌘↑
 
+    /// ⌘↑ closes the rightmost column, and the popped column stays walkable by `›`, exactly as it
+    /// is when `‹` pops it: the two are the same move on the same axis.
     @Test func theEnclosingFolderChordClosesTheRightmostColumn() throws {
         let stack = PaneBrowsePath(components: ["Documents", "Invoices"])
         let next = try #require(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: stack))
         #expect(next.components == ["Documents"])
+        #expect(next.canAdvance)
+        var forward = next
+        // Called outside `#expect`: `advance()` is mutating, and the macro's autoclosure makes its
+        // operand immutable, so `#expect(forward.advance())` does not compile.
+        let walkedBack = forward.advance()
+        #expect(walkedBack)
+        #expect(forward.components == ["Documents", "Invoices"])
     }
 
     /// What tells ⌘↑ from ⌘[. `⌘[` pops this same stack, then falls through to the pane's focus
@@ -109,20 +118,6 @@ import FileExplorer
     /// `!stack.isEmpty` guard must fail this test.
     @Test func theEnclosingFolderChordStopsAtTheRootColumn() {
         #expect(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: PaneBrowsePath()) == nil)
-    }
-
-    /// Popped columns stay walkable by `›`, exactly as they are when `‹` pops them: the two are
-    /// the same move on the same axis.
-    @Test func theEnclosingFolderChordLeavesTheColumnWalkableAgain() throws {
-        let stack = PaneBrowsePath(components: ["Documents", "Invoices"])
-        let next = try #require(PaneLogic.enclosingFolderStack(drawsColumns: true, stack: stack))
-        #expect(next.canAdvance)
-        var forward = next
-        // Called outside `#expect`: `advance()` is mutating, and the macro's autoclosure makes its
-        // operand immutable, so `#expect(forward.advance())` does not compile.
-        let walkedBack = forward.advance()
-        #expect(walkedBack)
-        #expect(forward.components == ["Documents", "Invoices"])
     }
 
     // MARK: - Tree view

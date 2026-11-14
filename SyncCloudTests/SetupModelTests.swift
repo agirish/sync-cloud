@@ -238,7 +238,8 @@ import Testing
 
     /// A reading that lands while Structure is already on screen draws the tree it read. Continue
     /// never waits, so on a large tree Structure can open before the reading lands.
-    @Test func aReadingThatLandsOnStructureDrawsItsTree() async throws {
+    @Test(.timeLimit(.minutes(2)))
+    func aReadingThatLandsOnStructureDrawsItsTree() async throws {
         let s = try Scratch("land", folders: ["Documents/Finance/US", "Documents/Family/Mother"], makesProfiles: false)
         defer { s.remove() }
 
@@ -246,9 +247,7 @@ import Testing
         model.walkRoot = s.documents
         model.screen = .structure
         model.startWalk()
-        for _ in 0..<500 where !model.walkState.isDone && model.walkFailureReason == nil {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await model.lastWalk?.value
 
         #expect(model.walkState.isDone, "premise: the reading landed (\(model.walkFailureReason ?? "still running"))")
         #expect(model.preview != nil, "Structure kept drawing “Nothing has been learned yet.”")
@@ -384,11 +383,9 @@ import Testing
     /// On a re-run the chips are the real `people.json`, so one click would delete a person with
     /// the full names and aliases curated in Settings, where the same removal asks first.
     @Test func removingARosterPersonAsksFirst() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-remove-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = PeopleStore(directory: dir, profileId: "remove", profile: nil)
+        let s = try Scratch("remove", makesProfiles: false)
+        defer { s.remove() }
+        let store = PeopleStore(directory: s.root, profileId: "remove", profile: nil)
         store.add(displayName: "Maya")
         let model = await self.model(peopleStore: store, hasFilingProfile: true)
         #expect(model.rosterNames == ["Maya"], "premise: the roster is what the chips show")
@@ -409,14 +406,10 @@ import Testing
     /// roster it creates; if the draft in memory still named them, leaving People would bring them
     /// back.
     @Test func aPersonRemovedAfterAFirstRunSaveStaysRemoved() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-unremove-\(UUID().uuidString)")
-        let profiles = root.appendingPathComponent("profiles")
-        try FileManager.default.createDirectory(at: profiles, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let draftURL = root.appendingPathComponent("setup-draft.json")
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = profiles
+        let s = try Scratch("unremove")
+        defer { s.remove() }
+        let draftURL = s.root.appendingPathComponent("setup-draft.json")
+        let engine = s.engine, profiles = s.profiles
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
                                      syncManager: engine, draftURL: draftURL,
                                      onProfileWritten: {
@@ -455,11 +448,9 @@ import Testing
     /// survives Esc, ✕ or a click outside. Read from the draft on disk in a scratch folder, never the
     /// real `setup-draft.json`. Closing must not mark setup finished.
     @Test func closingKeepsTheOpenScreensAnswers() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-close-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let draftURL = root.appendingPathComponent("setup-draft.json")
+        let s = try Scratch("close", makesProfiles: false)
+        defer { s.remove() }
+        let draftURL = s.root.appendingPathComponent("setup-draft.json")
         let defaults = ScratchDefaults("setup-model-close")
         let model = SetupModel(settings: await settings(), peopleStore: nil, syncManager: nil,
                                hasFilingProfile: false, defaults: defaults,
@@ -543,19 +534,13 @@ import Testing
     /// A model on Structure whose Save has failed once, against a profiles folder that cannot be
     /// written — and the blocker to remove when the write should succeed.
     private func failedSave(_ tag: String) async throws -> (model: SetupModel, root: URL, blocker: URL) {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-\(tag)-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let blocker = root.appendingPathComponent("blocker")
-        try Data("not a folder".utf8).write(to: blocker)
-        let engine = FileSyncManager.scratch()
-        engine.filingProfilesDirectory = blocker.appendingPathComponent("profiles")
+        let s = try Scratch(tag, blocked: true)
         let model = await self.model(walk: Self.walk(folders: ["Finance/US", "Family/Mother"]),
-                                     syncManager: engine)
+                                     syncManager: s.engine)
         model.screen = .structure
         await model.saveAndContinue()
         #expect(model.saveFailure != nil, "premise: the first Save failed")
-        return (model, root, blocker)
+        return (model, s.root, s.blocker)
     }
 
     /// Holds a press at `SetupModel.saveInFlight` until the test lets it go.
@@ -581,8 +566,7 @@ import Testing
         let gate = SaveGate()
         model.saveInFlight = { await gate.park() }
         let press = Task { await model.saveAndContinue() }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !gate.parked, ContinuousClock.now < deadline { await Task.yield() }
+        await waitUntil("the Save parks in flight", timeout: 10) { gate.parked }
         #expect(gate.parked && model.isSaving, "premise: the Save is parked in flight")
         return (press, gate)
     }
@@ -901,7 +885,8 @@ import Testing
     }
 
     /// And Learn Again still reads the folder afresh, and moves on without waiting.
-    @Test func learnAgainReadsAfreshAndMovesOn() async throws {
+    @Test(.timeLimit(.minutes(2)))
+    func learnAgainReadsAfreshAndMovesOn() async throws {
         let s = try Scratch("again", folders: ["Documents/Finance/US"], makesProfiles: false)
         defer { s.remove() }
 
@@ -912,9 +897,7 @@ import Testing
         #expect(model.walkState == .running, "Learn Again did not start a reading")
         #expect(model.screen == .you, "Learn Again waited for the reading")
         // Let it land inside the fixture before the folder is removed.
-        for _ in 0..<500 where model.walkState.isRunning {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await model.lastWalk?.value
         #expect(!model.walkState.isRunning, "the reading never finished")
     }
 
@@ -1029,11 +1012,9 @@ import Testing
     /// which People hides, so a duplicate would show nowhere. The old name stays as an alias, so
     /// folders that call you by it still find you.
     @Test func editingYourNameAndClosingRenamesYourRecord() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-rename-me-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let store = PeopleStore(directory: dir, profileId: "rename", profile: nil)
+        let s = try Scratch("rename-me", makesProfiles: false)
+        defer { s.remove() }
+        let store = PeopleStore(directory: s.root, profileId: "rename", profile: nil)
         store.add(displayName: "Abhishek", relationship: "me")
         store.add(displayName: "Maya", relationship: "wife")
         let id = try #require(store.people.first { $0.relationship == "me" }?.id)
@@ -1096,11 +1077,9 @@ import Testing
     /// A roster Setup cannot write offers no ✕: the chip would vanish, the store refuse the save,
     /// and the person be back at the next launch.
     @Test func aReadOnlyRosterOffersNoRemove() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-readonly-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir.appendingPathComponent("p"),
-                                                withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
+        let s = try Scratch("readonly", folders: ["p"], makesProfiles: false)
+        defer { s.remove() }
+        let dir = s.root
         // One id twice: valid, and refused for writing until somebody says which record is meant.
         try Data("""
             { "schemaVersion": 1, "people": [

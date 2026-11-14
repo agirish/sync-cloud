@@ -159,18 +159,6 @@ import FileExplorer
 
     // MARK: ⌘N's naming row
 
-    /// A hand-off lands on a document, never on ⌘N's naming row. After ⌘N, leaving Edit and
-    /// choosing a file elsewhere must not land with the row open over the document and its field
-    /// taking the keyboard. Put away after the settle (never on Cancel, which must change nothing)
-    /// and on the already-open exit.
-    @Test func aHandOffPutsTheNamingRowAwayUnlessCancelled() {
-        for pane in [EditorHandOffRun.Pane.staysPut, .followsTheFile] {
-            let opened = Scene()
-            opened.handOff(Self.file, pane: pane)
-            #expect(Array(opened.steps.prefix(2)) == ["settle", "endNaming"], "\(pane): \(opened.steps)")
-        }
-    }
-
     // MARK: Which folder "already there" asks about
 
     /// The guard asks about the folder Edit will show, not the one on screen. With Browse drawing
@@ -436,9 +424,9 @@ import FileExplorer
     /// decides "inside the source" against, so only the left source's expanded root is right (`~`
     /// is not a folder the pane can walk).
     @Test func theAppRunsTheSharedActWithItsOwnPieces() throws {
-        let body = try EditorNewFilePaneWiringTests.body(
-            of: "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {",
-            in: "ContentView+Editor.swift")
+        let body = try memberBody(
+            "func handOffToEditor(_ path: String, pane: EditorHandOffRun.Pane? = nil) -> EditorHandOffRun.Outcome {",
+            inFile: "ContentView+Editor.swift")
         let run = try CallArguments(of: "EditorHandOffRun.run(", in: body.normalized)
         #expect(run.unlabeled == ["path"], "the act is handed \(run.unlabeled), not the path it was asked to open")
         for (label, value) in [("pane", "pane"), ("syncManager", "syncManager"),
@@ -473,10 +461,9 @@ import FileExplorer
     /// `revealInBrowseFromEditLandsWithTheFileSelected`) in Browse's mode, with the real switch and
     /// the real debt, and each door passes its own name.
     @Test func theAppRevealsThroughBrowsesModeAndNamesTheDoor() throws {
-        let body = try EditorNewFilePaneWiringTests.body(
-            of: "func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],",
-            in: "ContentView+Editor.swift")
-        #expect(body.contains("EditorRevealInBrowse.reveal("), "the app no longer runs the tested act")
+        let body = try memberBody(
+            "func revealInBrowse(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [],",
+            inFile: "ContentView+Editor.swift")
         let reveal = try CallArguments(of: "EditorRevealInBrowse.reveal(", in: body.normalized)
         #expect(reveal.passes("drawsColumns", "viewMode(in: .browse, isLeft: true) == .columns"),
                 "Reveal in Browse asks some other workspace's view mode")

@@ -50,16 +50,24 @@ import Testing
     static let rosterOnlyNames = ["Ada", "Bruno", "Cosima", "Devendra", "Eun-ji", "Farhan",
                                   "Giulia"]
 
-    private func roster() throws -> PeopleStore {
+    /// A fresh temp folder; each caller removes it with a `defer`.
+    private func scratchDirectory(_ name: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-fit-roster-\(UUID().uuidString)")
+            .appendingPathComponent("setup-fit-\(name)-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func roster(in dir: URL) -> PeopleStore {
         let store = PeopleStore(directory: dir, profileId: "fit", profile: nil)
         for name in Self.realisticRoster {
             store.add(displayName: name, relationship: name == "Father" ? "me" : "family")
         }
         return store
     }
+
+    /// The sheet's model and every `@AppStorage` the screens read, kept off the live domain.
+    let defaults = ScratchDefaults("setup-fit-d")
 
     private func sheet(_ settings: SettingsManager, people: PeopleStore? = nil,
                        hasFilingProfile: Bool = false,
@@ -72,6 +80,7 @@ import Testing
             surfaceTint: 0,
             availableSize: Self.smallDisplayHost,
             hasFilingProfile: hasFilingProfile,
+            defaults: defaults,
             walk: walk,
             // No draft: a mounted sheet commits the open screen when it is taken down.
             draftURL: nil,
@@ -153,6 +162,7 @@ import Testing
                         outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> CGFloat {
         let host = NSHostingView(
             rootView: sheet.screenBody(screen, outlineRows: outlineRows)
+                .defaultAppStorage(defaults)
                 .environment(\.appFontScale, scale)
                 // The sheet publishes this; a screen measured without it lays its one
                 // point-sized box out at the default size and understates every other size.
@@ -206,28 +216,6 @@ import Testing
         .welcome, .learn, .you, .people, .countries, .structure, .workspaces, .appearance, .summary,
     ]
 
-    /// Household names enough to make the People step as tall as it honestly gets. A fixture with
-    /// none measures a step with no chips in it.
-    static let realisticPeople: [PersonCandidate] = [
-        PersonCandidate(name: "Granny", parents: ["Family"], folderCount: 5, householdParents: 2),
-        PersonCandidate(name: "Mother", parents: ["Family"], folderCount: 28, householdParents: 1),
-        PersonCandidate(name: "Daughter", parents: ["Family"], folderCount: 12, householdParents: 1),
-        PersonCandidate(name: "Son", parents: ["Family"], folderCount: 12, householdParents: 1),
-        PersonCandidate(name: "Uncle", parents: ["Family"], folderCount: 5, householdParents: 1),
-        PersonCandidate(name: "Elder", parents: ["Family"], folderCount: 5, householdParents: 1),
-    ]
-
-    /// Places enough to make the Countries step as tall as it honestly gets: the five the reference
-    /// tree proposes, `US`, `IN`, `EMP`, `IT` and `PRD`, two real and three not, which is why the
-    /// step exists.
-    static let realisticPlaces: [JurisdictionCandidate] = [
-        JurisdictionCandidate(value: "US", parents: ["Finance", "Legal", "School"], folderCount: 214),
-        JurisdictionCandidate(value: "IN", parents: ["Finance", "Immigration"], folderCount: 168),
-        JurisdictionCandidate(value: "EMP", parents: ["Work"], folderCount: 61),
-        JurisdictionCandidate(value: "IT", parents: ["Work/Payslips"], folderCount: 12),
-        JurisdictionCandidate(value: "PRD", parents: ["Work/Releases"], folderCount: 9),
-    ]
-
     @Test func everyBoundedScreenFitsTheCardTheyShare() async throws {
         // The fixture has to be feeding the screens that grow, or this measures nothing.
         #expect(Self.realisticWalk.people.count >= 5,
@@ -240,7 +228,9 @@ import Testing
         let settings = await manager(providerCount: Self.realisticProviderCount)
         #expect(settings.availableProviders.count >= Self.realisticProviderCount,
                 "the fixture discovered no providers — this would measure the empty state")
-        let store = try roster()
+        let dir = try scratchDirectory("roster")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = roster(in: dir)
         #expect(store.people.count == Self.realisticRoster.count,
                 "the fixture roster is empty — the People step would be measured with nothing in it")
 
@@ -404,7 +394,9 @@ import Testing
     /// edit, tight enough that a stale number fails.
     @Test func theSharedHeightIsNotMuchTallerThanItNeedsToBe() async throws {
         let settings = await manager(providerCount: Self.realisticProviderCount)
-        let sheet = sheet(settings, people: try roster(), hasFilingProfile: true)
+        let dir = try scratchDirectory("roster")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sheet = sheet(settings, people: roster(in: dir), hasFilingProfile: true)
         let tallest = try #require(Self.boundedScreens
             .map { height(of: $0, in: sheet, width: width(for: $0)) }.max())
         #expect(tallest > 0, "a screen measured nothing at all")
@@ -453,14 +445,17 @@ import Testing
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)
 
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-fit-grow-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = try scratchDirectory("grow")
+        defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "grow", profile: nil)
 
-        // One name first: the proposals sit behind `SetupMoreOptions`, which opens itself while the
-        // list is empty, so an empty roster draws more than a roster of one. Both measurements are
-        // taken with it closed, so only the rows move.
+        // Empty first: People opens its proposals while the list is empty, so a real first run
+        // draws the longest chip row the screen ever shows, and it must still fit.
+        let empty = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
+                           width: opening.width)
+        // Then one name: the proposals sit behind `SetupMoreOptions`, which opens itself while the
+        // list is empty, so an empty roster draws more than a roster of one. The measurements from
+        // here are taken with it closed, so only the rows move.
         store.add(displayName: Self.rosterOnlyNames[0])
         let one = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
                          width: opening.width)
@@ -471,35 +466,15 @@ import Testing
                           width: opening.width)
 
         #expect(one > 0, "the fixture measured nothing at all")
+        #expect(empty > one,
+                "an empty roster measured \(Int(empty))pt against \(Int(one))pt with one name — the proposals are not being drawn on the first run")
+        #expect(empty <= opening.height,
+                "the first-run People screen wants \(Int(empty))pt of \(Int(opening.height))")
         #expect(Set(Self.rosterOnlyNames)
                     .isDisjoint(with: Set(Self.realisticWalk.people.map(\.name))),
                 "these names are proposals, so adding them removes a chip as it adds a row")
         #expect(full > one,
                 "\(Self.rosterOnlyNames.count - 1) more people did not make the People screen taller (\(Int(one))pt vs \(Int(full))pt) — this measurement is not seeing the roster")
-    }
-
-    /// The empty roster is not the smallest this screen can be, the other half of the control
-    /// above. People opens its proposals while the list is empty, so a real first run draws the
-    /// longest chip row the screen ever shows, and it must still fit.
-    @Test func theEmptyRosterDrawsTheProposalsAndStillFits() async throws {
-        let settings = await manager(providerCount: 2)
-        let opening = (width: contentWidth, height: contentCeiling)
-
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-fit-empty-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let store = PeopleStore(directory: dir, profileId: "empty", profile: nil)
-
-        let empty = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
-                           width: opening.width)
-        store.add(displayName: Self.rosterOnlyNames[0])
-        let one = height(of: .people, in: sheet(settings, people: store, hasFilingProfile: true),
-                         width: opening.width)
-
-        #expect(empty > one,
-                "an empty roster measured \(Int(empty))pt against \(Int(one))pt with one name — the proposals are not being drawn on the first run")
-        #expect(empty <= opening.height,
-                "the first-run People screen wants \(Int(empty))pt of \(Int(opening.height))")
     }
 
     /// Where People stops fitting. Same shape as `sourcesOutgrowsTheOpeningEventually`: no card
@@ -508,9 +483,8 @@ import Testing
         let settings = await manager(providerCount: 2)
         let opening = (width: contentWidth, height: contentCeiling)
 
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("setup-fit-people-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = try scratchDirectory("people")
+        defer { try? FileManager.default.removeItem(at: dir) }
         let store = PeopleStore(directory: dir, profileId: "many", profile: nil)
 
         var firstOverflow: Int?

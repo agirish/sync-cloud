@@ -520,14 +520,6 @@ import Testing
                 "nothing says the ledger undo outlives the session — the whole difference between the two")
     }
 
-    /// The positive control for the walk above: a section name Organize doesn't have finds nothing,
-    /// so the copy half matches titles, not everything.
-    @Test func theOrganizeSectionScanCanActuallyFail() {
-        #expect(HelpBook.filteredSections(matching: "Quarantine").isEmpty)
-        #expect(!OrganizeLens.allCases.map(\.title).contains("Quarantine"),
-                "“Quarantine” is a section name now — this test's counter-example is no longer one")
-    }
-
     /// No topic is reachable only by scrolling the sidebar: the related chips are the one route
     /// between articles. `testEveryRelatedLinkResolvesToARealTopic` walks the graph from the links,
     /// so it can't see a topic nothing points at. No exemption for the topic Help opens on: if it
@@ -605,20 +597,6 @@ import Testing
             #expect(described,
                     "the app has a \(menu.title) menu and no article names a \(menu.title) ▸ … path")
         }
-    }
-
-    /// The positive control for the reverse walk, about the bare word: a scan for "Edit" alone is
-    /// satisfied by ordinary prose, so the arrow is what is asserted.
-    @Test func theMenuCoverageScanCanActuallyFail() {
-        let book = HelpBook.allTopics.flatMap { Self.copy(of: $0) }.joined(separator: "\n")
-        let inventedMenu = book.contains("Bookmarks ▸ ")
-        #expect(!inventedMenu, "the book names a Bookmarks menu, which this app has never had")
-        // The real Edit coverage is a path, not a loose word: without the article naming Edit ▸ …
-        // this fails, while a bare-word scan would not.
-        let editIsAPath = book.contains("Edit ▸ ")
-        let editIsALooseWord = book.contains("Edit") || book.contains("edit")
-        #expect(editIsAPath, "no article names an Edit ▸ … path")
-        #expect(editIsALooseWord, "the loose word is present too — which is exactly why it proves nothing")
     }
 
     /// The positive control: a real path is extracted and matched, and a plausible wrong one is

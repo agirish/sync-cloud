@@ -172,11 +172,10 @@ import Testing
         pdf.fill.place(at: CGPoint(x: 100, y: 100), page: 0)
         try #require(pdf.fill.hasUnsavedItems)
         try choose("Save Filled Copy")
-        for _ in 0..<10_000 where pdf.tools.running == nil && pdf.tools.banner == nil { await Task.yield() }
-        for _ in 0..<1000 where pdf.tools.running != nil {
-            await PDFKitSerialAccess.perform {}
-            try? await Task.sleep(for: .milliseconds(5))
+        await waitUntil("File ▸ Save Filled Copy never started a run") {
+            pdf.tools.running != nil || pdf.tools.banner != nil
         }
+        await awaitPDFLane("File ▸ Save Filled Copy never finished") { pdf.tools.running == nil }
         guard case .wrote(let copy)? = pdf.tools.banner?.kind else {
             Issue.record("File ▸ Save Filled Copy wrote no copy: \(String(describing: pdf.tools.banner))"); return
         }
@@ -325,7 +324,7 @@ import Testing
             #expect(PDFPageVerbs.fit(for: mode).textMenuMode == mode, "\(mode)")
         }
         #expect(PDFPageVerbs.goToTitle(nil) == "Go to Line…")
-        #expect(PDFPageVerbs.goToTitle(PDFPageVerbs(view: EditorPDFViewState(), goToPage: nil)) == "Go to Page…")
+        #expect(PDFPageVerbs.goToTitle(PDFPageVerbs(view: EditorPDFViewState(defaults: TestDefaults().defaults), goToPage: nil)) == "Go to Page…")
     }
 
     /// ⌘A outside a text field: the Pages grid's pages while it has focus, else the pane's rows,
@@ -383,9 +382,7 @@ import Testing
                 "the selection's tools do not run through the row menu's handler: \(pdfTools)")
 
         // …and the row menu still asks it, both times.
-        let pane = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift"), encoding: .utf8)
+        let pane = try repoFile("Modules/FileExplorer/Sources/FileExplorer/FileTreeView.swift")
         #expect(CodeText(pane).count(of: "PanePDFToolOffer.forSelection(") == 2,
                 "the row menu no longer asks forSelection for both its submenus")
     }

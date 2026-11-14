@@ -81,9 +81,7 @@ import Sync
         // The raw conjunctions must not reappear inline, or the truth tables above stop describing
         // the shipped gates. Matched as ingredient pairs, not one phrase, so a reordered
         // `canUndo && banner.isUndoable` can't slip past.
-        let lines = source.split(separator: "\n").filter {
-            !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
-        }
+        let lines = sourceCodeOnly(source).split(separator: "\n")
         let undoReinlines = lines.filter {
             $0.contains("isUndoable") && $0.contains("canUndo") && !$0.contains("showsUndo")
         }

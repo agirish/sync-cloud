@@ -66,10 +66,16 @@ private final class ManualSleeper: @unchecked Sendable {
         capsuleNanoseconds: capsuleDelay
     )
 
+    /// A scheduler on the test delays whose every wait parks on the returned sleeper.
+    @MainActor
+    private static func make() -> (ManualSleeper, BannerDismissScheduler) {
+        let clock = ManualSleeper()
+        return (clock, BannerDismissScheduler(delays: testDelays, sleep: clock.sleep))
+    }
+
     @MainActor
     @Test func testReplacementBannerWithSameTextRestartsTheDismissWindow() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Deleted 3 items")) { dismissCount += 1 }
@@ -96,8 +102,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testClearingTheBannerCancelsThePendingDismiss() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
@@ -120,8 +125,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testWarningGetsALongerWindowThanSuccess() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .warning("3 copied; 2 failed", log: .warn)) { dismissCount += 1 }
@@ -130,7 +134,6 @@ private final class ManualSleeper: @unchecked Sendable {
         // Asserted directly rather than inferred from elapsed time: the window asked for is the
         // warning one, and it is longer than a success window.
         #expect(clock.requestedDelays == [Self.warningDelay])
-        #expect(Self.warningDelay > Self.successDelay)
         #expect(dismissCount == 0)
 
         clock.releaseAll()
@@ -139,8 +142,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func theCapsulesMessageGetsTheCapsuleWindowAndAnErrorStaysSticky() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Moved “Untitled.md” to the Trash"), inCapsule: true) { dismissCount += 1 }
@@ -165,8 +167,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testErrorBannerIsStickyUntilManuallyClosed() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .error("Copy failed", log: .error)) { dismissCount += 1 }
@@ -187,8 +188,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testHoverPausesTheTimerAndExitRestartsTheFullWindow() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
@@ -220,8 +220,7 @@ private final class ManualSleeper: @unchecked Sendable {
     /// stopped until the popover closes, then grant the full window.
     @MainActor
     @Test func testAHoldOutlastsHoverExitAndReleasingItRestartsTheFullWindow() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Filed “Bill.pdf” → Bills")) { dismissCount += 1 }
@@ -244,8 +243,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testBannerPostedWhileHoveringStaysUntilHoverExit() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("First")) { dismissCount += 1 }
@@ -275,8 +273,7 @@ private final class ManualSleeper: @unchecked Sendable {
     /// must time out all the same.
     @MainActor
     @Test func aReplacementTheHoveredSurfaceDoesNotShowStartsItsWindow() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Moved 2 items to Trash"),
@@ -305,8 +302,7 @@ private final class ManualSleeper: @unchecked Sendable {
     /// it paused; a replacement both still show stays paused too.
     @MainActor
     @Test func aMessageOnTwoSurfacesStaysPausedUntilThePointerLeavesBoth() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
         let both: Set<ResultMessageHome> = [.pane(isLeft: true), .toolbar]
 
@@ -330,8 +326,7 @@ private final class ManualSleeper: @unchecked Sendable {
     /// Organize's lens) leaves a resting pointer where the pane's message was.
     @MainActor
     @Test func aMessageMovingOffTheHoveredSurfaceStartsItsWindow() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.bannerChanged(to: .success("Copied 2 files"), shownOn: [.pane(isLeft: true)]) { dismissCount += 1 }
@@ -350,8 +345,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testManualCloseWhileHoveredDoesNotStrandTheNextBannersTimer() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         // Every ✕ click happens while the pointer hovers the banner, and SwiftUI never delivers
@@ -397,8 +391,7 @@ private final class ManualSleeper: @unchecked Sendable {
         // scheduler is never told about the banner still on screen, and `onChange` never fires for
         // an unchanged value: without adopting it, the banner would stay forever. (On macOS 27 a
         // close and Dock reopen keeps the same view and scheduler; nothing promises it.)
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         scheduler.adoptExistingBanner(.success("Copied 2 files")) { dismissCount += 1 }
@@ -411,8 +404,7 @@ private final class ManualSleeper: @unchecked Sendable {
 
     @MainActor
     @Test func testAdoptingIsANoOpForAnEmptyBannerOrASchedulerAlreadyRunning() async {
-        let clock = ManualSleeper()
-        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        let (clock, scheduler) = Self.make()
         var dismissCount = 0
 
         // Nothing on screen: nothing to adopt.

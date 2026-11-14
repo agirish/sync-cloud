@@ -51,9 +51,10 @@ import Sync
 
     // MARK: The handoff
 
-    /// Drives the real entry point and reads back everything it is supposed to move.
+    /// Drives the real entry point, from `node`'s row or, with `path`, the recovery entry that
+    /// takes only a path, and reads back everything it is supposed to move.
     private func handoff(
-        node: FileNode, isLeft: Bool = true, manager: FileSyncManager,
+        node: FileNode? = nil, path: String? = nil, isLeft: Bool = true, manager: FileSyncManager,
         paneRoot: @escaping (Bool) -> String = { _ in "/Users/u/Projects" }
     ) -> (workspace: Workspace, lens: OrganizeLens?, request: DuplicateRevealRequest?,
           scanned: [URL]) {
@@ -70,7 +71,8 @@ import Sync
             revealRequest: Binding(get: { request }, set: { request = $0 }),
             paneRoot: paneRoot,
             startScan: { scanned.append($0) })
-        coordinator.findDuplicates(of: node, isLeft: isLeft)
+        if let path { coordinator.findDuplicates(ofPath: path) }
+        if let node { coordinator.findDuplicates(of: node, isLeft: isLeft) }
         return (workspace, lens, request, scanned)
     }
 
@@ -131,22 +133,12 @@ import Sync
     /// scan exactly that folder. The focused root may not contain the file after a handoff from the
     /// other pane, and the button would loop its own failure.
     @Test func theRecoveryEntryScansTheFilesOwnFolder() {
-        var workspace = Workspace.compare
-        var lens: OrganizeLens? = .toFile
-        var request: DuplicateRevealRequest?
-        var scanned: [URL] = []
-        let coordinator = DuplicateRevealCoordinator(
-            syncManager: FileSyncManager.scratch(),
-            selectedWorkspace: Binding(get: { workspace }, set: { workspace = $0 }),
-            organizeLens: Binding(get: { lens }, set: { lens = $0 }),
-            revealRequest: Binding(get: { request }, set: { request = $0 }),
-            paneRoot: { _ in "/Users/u/UnrelatedPaneRoot" },
-            startScan: { scanned.append($0) })
-        coordinator.findDuplicates(ofPath: "/Users/u/Right/Photos/a.txt")
-        #expect(scanned.map(\.path) == ["/Users/u/Right/Photos"],
+        let result = handoff(path: "/Users/u/Right/Photos/a.txt", manager: FileSyncManager.scratch(),
+                             paneRoot: { _ in "/Users/u/UnrelatedPaneRoot" })
+        #expect(result.scanned.map(\.path) == ["/Users/u/Right/Photos"],
                 "the caption promises the file's own folder, and only that folder always contains the file")
-        #expect(request?.path == "/Users/u/Right/Photos/a.txt")
-        #expect(request?.awaitsScanReplacing != nil)
+        #expect(result.request?.path == "/Users/u/Right/Photos/a.txt")
+        #expect(result.request?.awaitsScanReplacing != nil)
     }
 
     /// A folder never reaches the handoff: a folder overlap group is a different unit.

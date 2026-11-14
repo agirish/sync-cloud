@@ -26,9 +26,7 @@ import Testing
     /// `SetupSheet.swift` alone is the host, with no affordance in it, so the file-count floor keeps
     /// the scan from passing on nothing.
     static func setupSheetSource() throws -> [String] {
-        let repo = URL(fileURLWithPath: #filePath)     // …/SyncCloudTests/<this>.swift
-            .deletingLastPathComponent()               // …/SyncCloudTests
-            .deletingLastPathComponent()               // repo root
+        let repo = macAppDirectory().deletingLastPathComponent()
         let directory = repo.appendingPathComponent("MacApp/Setup")
         let files = try #require(try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: nil), "cannot read MacApp/Setup")

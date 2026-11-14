@@ -13,13 +13,6 @@ import Sync
 /// check asserts the exact string whose absence is the regression.
 @Suite struct CommandPaletteRouteCallSiteTests {
 
-    /// The text with whole-line `//` comments removed, through the shared ``sourceCodeOnly(_:)``.
-    ///
-    /// For the negative checks only: a scan asserting something is absent is the one a comment
-    /// explaining the absence will falsify. Positive checks keep the raw text, since prose can't
-    /// fake a call that is really there.
-    static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
-
     /// The rail and the scope are written through `@AppStorage`, never `UserDefaults.standard`.
     ///
     /// `@AppStorage` can lose a standard-domain write outright, not just deliver it late, and
@@ -27,12 +20,7 @@ import Sync
     /// Duplicates" could land on Organize and leave the rail where it was, intermittently and with
     /// nothing logged.
     @Test func theRouteWritesOrganizesStateThroughAppStorage() throws {
-        let host = try macAppFile("CommandPaletteHost.swift")
-        #expect(host.contains("paletteRailLens = lens"),
-                "the rail selection is no longer written through @AppStorage")
-        #expect(host.contains("if let scope { setOrganizeScope(scope, providerRoot: lensProviderRootExpanded) }"),
-                "the scope no longer goes through setOrganizeScope — the one @AppStorage-backed writer")
-        let code = Self.codeOnly(host)
+        let code = try macAppCode("CommandPaletteHost.swift")
         for raw in ["UserDefaults.standard.set", "UserDefaults.standard.removeObject"] {
             #expect(!code.contains(raw),
                     "\(raw) is back — a write @AppStorage is documented to lose")
@@ -44,7 +32,7 @@ import Sync
     /// global view is what `OrganizeScope`'s failable `init?` exists to rule out, so the host must
     /// not carry its own copy of that rule.
     @Test func theRouteCannotMintASecondEncodingOfTheGlobalView() throws {
-        let code = Self.codeOnly(try macAppFile("CommandPaletteHost.swift"))
+        let code = try macAppCode("CommandPaletteHost.swift")
         #expect(!code.contains("OrganizeScope(path:"),
                 "the host has grown its own copy of the normalization again")
         for verbatim in ["paletteScopePath =", "organizeScopePath ="] {
@@ -70,7 +58,7 @@ import Sync
                 "the provider read no longer goes through the aim")
         #expect(host.contains("isLeft: isLeft ?? !aimedAtRight"),
                 "the reveal always targets the left pane, even when the index came from the right one")
-        #expect(!Self.codeOnly(host).contains("isLeft: true"),
+        #expect(!sourceCodeOnly(host).contains("isLeft: true"),
                 "a reveal still hard-codes the left pane")
         #expect(host.contains("isCurrent: provider.id == paletteProviderId"),
                 "\"The current source\" is decided against the left pane rather than the aimed one")
@@ -82,7 +70,7 @@ import Sync
                 "choosing a source from ⌘K switches the pane the palette was not describing")
         #expect(host.contains("chooseFolderSource { id in aimProvider(id) }"),
                 "adding a source from ⌘K still points a pane the palette was not describing")
-        #expect(Self.codeOnly(host).components(separatedBy: "lensTargetIsRight").count - 1 == 1,
+        #expect(sourceCodeOnly(host).components(separatedBy: "lensTargetIsRight").count - 1 == 1,
                 "the aimed-pane rule is stated in more than one place again")
     }
 
@@ -191,7 +179,7 @@ import Sync
     /// meaning anything on the alert that really moves files to the Trash.
     @Test func thePaneSwapPromptIsNotDressedAsADestructiveAction() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
-        let code = Self.codeOnly(host)
+        let code = sourceCodeOnly(host)
         #expect(code.contains("NativeAlerts.confirmChange("),
                 "the pane-swap prompt no longer goes through the non-destructive confirm")
         #expect(!code.contains("confirmDestructive"),
@@ -207,7 +195,7 @@ import Sync
         // No `case .storage:`: Storage is part of Organize, its place derived from
         // `OrganizeLens.railItems`, so it arrives through `case .organize(let lens, let scope):`
         // below, with a scope.
-        for arm in ["case .compare:", "case .editor:",
+        for arm in ["case .browse:", "case .compare:", "case .editor:",
                     "case .organize(let lens, let scope):",
                     "case .person(let id):", "case .provider(let id):", "case .folder(let path):",
                     // Listed apart from `.folder` because it is a separate destination: the same
@@ -216,6 +204,7 @@ import Sync
                     "case .action(let action):", "case .settings(let raw):"] {
             #expect(host.contains(arm), "runPaletteRoute no longer handles `\(arm)`")
         }
+        #expect(host.contains("workspaceSelection.wrappedValue = .browse"))
         #expect(!(try declarationBody(of: "func runPaletteRoute(_ route: PaletteRoute) {", in: host)).contains("default:"),
                 "a default arm would swallow a route case added upstream")
     }
@@ -230,7 +219,7 @@ import Sync
     /// the scan checks the list's source: `SettingsTab.digests`, mapped whole.
     @Test func theHostOffersEverySettingsTab() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
-        let code = Self.codeOnly(host)
+        let code = sourceCodeOnly(host)
         #expect(code.contains("settingsTabs: SettingsView.SettingsTab.digests.map"),
                 "the palette index no longer takes the whole derived tab list — a subset here is silent")
         #expect(!code.contains("SettingsTab.allCases.filter"),
@@ -246,7 +235,7 @@ import Sync
     /// right nearly every time.
     @Test func aTabRouteGoesThroughTheOneDeepLinkDoor() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
-        let code = Self.codeOnly(host)
+        let code = sourceCodeOnly(host)
         #expect(code.contains("openSettings(on: place)"),
                 "the Settings tab route no longer opens through openSettings(on:)")
         // `runPaletteAction`'s `case .settings` is the one legitimate bare latch in this file —
@@ -263,7 +252,7 @@ import Sync
     /// no count an empty list and a full one log the same line.
     @Test func theOpenLogReportsHowManySettingsTabsWereIndexed() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
-        #expect(Self.codeOnly(host).contains("index.settingsTabs.count) settings tabs"),
+        #expect(sourceCodeOnly(host).contains("index.settingsTabs.count) settings tabs"),
                 "the palette-open log no longer counts the settings tabs — an empty list would log identically")
     }
 
@@ -272,7 +261,7 @@ import Sync
     /// Appearance delivering Advanced is worse than ↩ doing nothing.
     @Test func anUnknownTabRawValueIsRefusedOutLoud() throws {
         let host = try macAppFile("CommandPaletteHost.swift")
-        let code = Self.codeOnly(host)
+        let code = sourceCodeOnly(host)
         #expect(code.contains("guard let place = SettingsPlace(paletteRoute: raw)"),
                 "the raw value is no longer checked before it is used")
         #expect(code.contains("is not a settings tab"),

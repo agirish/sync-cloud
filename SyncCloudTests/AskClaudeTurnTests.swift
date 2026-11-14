@@ -13,7 +13,7 @@ import Testing
     private let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
                                          selection: [], toolsAvailable: true)
 
-    private func chat(_ transport: TurnTransport, d: UserDefaults = ScratchDefaults("AskClaudeTurnTests")) -> AskClaudeChat {
+    private func chat(_ transport: ScriptedChatTransport, d: UserDefaults = ScratchDefaults("AskClaudeTurnTests")) -> AskClaudeChat {
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) },
                                  readKey: { "k" }, keyChanges: NotificationCenter())
         chat.askAgain = { [weak chat] asked, shown, spoken in
@@ -35,7 +35,7 @@ import Testing
     }
 
     /// The text of each message the last request sent, user and assistant, in order.
-    private func lastSent(_ transport: TurnTransport) throws -> [String] {
+    private func lastSent(_ transport: ScriptedChatTransport) throws -> [String] {
         let body = try JSONFragment.decode(Data(try #require(transport.bodies.last).utf8))
         return (body["messages"]?.arrayValue ?? []).map { message in
             (message["content"]?.arrayValue ?? []).compactMap { $0["text"]?.stringValue }.last ?? ""
@@ -58,7 +58,7 @@ import Testing
     }
 
     @Test func anAnswerIsEveryRoundsTextAndAQuestionIsItsOwnWords() async {
-        let transport = TurnTransport([.tool, .text("Two files."), .text("The lease.")])
+        let transport = ScriptedChatTransport([.textThenTool, .text("Two files."), .text("The lease.")])
         let chat = chat(transport)
         chat.attach([AskClaudeChat.Attachment(path: "/Docs/Lease.pdf", name: "Lease.pdf", isDirectory: false)])
         chat.ask("Which are big?", shown: "Which are big?\nAbout Lease.pdf", attached: chat.takeAttachments(), editable: true,
@@ -74,7 +74,7 @@ import Testing
     /// Edit, then send: the edited question and all after it go, and Claude's transcript is
     /// what it was before it, the whole screen sent again.
     @Test func sendingAnEditedQuestionTakesBackItAndWhatFollowed() async throws {
-        let transport = TurnTransport([.text("A"), .text("B"), .text("C"), .text("D")])
+        let transport = ScriptedChatTransport([.text("A"), .text("B"), .text("C"), .text("D")])
         let chat = chat(transport)
         await ask(chat, "one")
         await ask(chat, "two")
@@ -97,7 +97,7 @@ import Testing
 
     /// Retry on the last answer: the question goes again in its place, with what it was about.
     @Test func retryAsksTheLastQuestionAgainInItsPlace() async throws {
-        let transport = TurnTransport([.text("A"), .text("B"), .text("B again")])
+        let transport = ScriptedChatTransport([.text("A"), .text("B"), .text("B again")])
         let chat = chat(transport)
         await ask(chat, "one")
         chat.ask("two", attached: [AskClaudeChat.Attachment(path: "/Docs/Lease.pdf", name: "Lease.pdf", isDirectory: false)],
@@ -114,7 +114,7 @@ import Testing
     /// A card from the turns taken back that changed something stays, and Claude, which no longer
     /// sees it, is told again what was done on it and what it did itself there.
     @Test func aChangedCardStaysAndClaudeIsToldAgain() async throws {
-        let transport = TurnTransport([.text("A"), .tool, .text("Dark now."), .tool, .text("Shown."), .text("ok")])
+        let transport = ScriptedChatTransport([.text("A"), .textThenTool, .text("Dark now."), .textThenTool, .text("Shown."), .text("ok")])
         let chat = chat(transport)
         await ask(chat, "one")
         chat.tellClaude("They applied your card “Rename 2 Files”: 2 renamed.")
@@ -144,7 +144,7 @@ import Testing
     /// Nothing is taken back while a question runs, and a failed question that never reached
     /// Claude goes from the thread alone.
     @Test func aRunningChatRefusesAndAFailedQuestionGoesFromTheThreadAlone() async throws {
-        let transport = TurnTransport([.text("A"), .status(500), .text("B")])
+        let transport = ScriptedChatTransport([.text("A"), .status(500), .text("B")])
         let chat = chat(transport)
         await ask(chat, "one")
         await ask(chat, "two")
@@ -166,7 +166,7 @@ import Testing
         let d = ScratchDefaults("AskClaudeTurnTests")
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudeTurnTests-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: store) }
-        let transport = TurnTransport([.text("A"), .text("B")])
+        let transport = ScriptedChatTransport([.text("A"), .text("B")])
         let chat = AskClaudeChat(defaults: d, makeEngine: { AskClaudeEngine(transport: transport, defaults: d) }, readKey: { "k" },
                                  storeURL: store, keyChanges: NotificationCenter())
         chat.ask("one", editable: true, screen: screen, tools: TurnTools())
@@ -180,35 +180,6 @@ import Testing
         #expect(reopened.canEdit(ids[0].id) && !reopened.canEdit(ids[1].id))
         #expect(reopened.canRewind(from: ids[1].id))
         #expect(reopened.question(ids[1].id) == "Sent page 1 of x")
-    }
-}
-
-/// Plays one reply per request, in order, keeping each body. `.tool` is one list_folder call
-/// with "Looking." before it.
-private final class TurnTransport: AskClaudeTransport, @unchecked Sendable {
-    enum Reply { case text(String), tool, status(Int) }
-    private let lock = NSLock()
-    private var replies: [Reply]
-    private var _bodies: [String] = []
-    var bodies: [String] { lock.withLock { _bodies } }
-
-    init(_ replies: [Reply]) { self.replies = replies }
-
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        let reply = lock.withLock {
-            _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self))
-            return replies.isEmpty ? Reply.status(500) : replies.removeFirst()
-        }
-        switch reply {
-        case .status(let status):
-            return SSE.response([], status: status)
-        case .text(let text):
-            return SSE.response(SSE.text(text, outputTokens: 5))
-        case .tool:
-            return SSE.response([SSE.start()] + SSE.textBlock("Looking.")
-                                + SSE.toolBlock(id: "toolu_t", name: "list_folder", input: #"{\"folder\":\"\"}"#, index: 1)
-                                + SSE.end("tool_use", outputTokens: 20))
-        }
     }
 }
 
@@ -239,12 +210,7 @@ private final class TurnTools: AskClaudeToolRunning {
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 300, pixelsHigh: 30, bitsPerSample: 8,
-                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        rep.size = host.bounds.size
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+        return try renderAt1x(host)
     }
 
     /// The columns, left to right, where the middle row paints red and where it paints blue.

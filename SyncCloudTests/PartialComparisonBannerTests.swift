@@ -35,10 +35,7 @@ import Foundation
     /// The coverage is published under the same gate as the rows, so the two can't describe
     /// different scans. Scanned on the manager's source for the same reason as above.
     @Test func theCoverageIsPublishedWithTheRowsItDescribes() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift")
-        let code = try #require(try? String(contentsOf: url, encoding: .utf8))
+        let code = try repoFile("Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift")
         #expect(code.contains("self.lastScanCoverage = outcome.coverage"),
                 "the coverage is not published, so the banner can never appear")
         #expect(code.contains("coverage: PartialComparison.of(left: leftFilesInfo, right: rightFilesInfo)"),

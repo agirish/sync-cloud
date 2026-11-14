@@ -33,14 +33,7 @@ import Testing
         guard let field = rig.field else { return false }
         let top = field.convert(field.bounds, to: nil).maxY
         for y in stride(from: top + 8, through: top + 60, by: 3) {
-            let point = NSPoint(x: 40, y: y)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                                                     timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: rig.window.windowNumber, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                rig.window.sendEvent(event)
-            }
+            click(NSPoint(x: 40, y: y), in: rig.window)
             try? await Task.sleep(for: .milliseconds(10))
             if sent() { return true }
         }
@@ -85,20 +78,8 @@ import Testing
         let sent = Sent()
         let rig = rig(chat, sent)
         #expect(await clickAboveTheBox(rig) { !sent.questions.isEmpty } == false, "no chip above the box")
-        rig.window.orderFrontRegardless()
-        defer { rig.window.orderOut(nil) }
         // Down the thread from under the header: the first thing that sends is the first starter.
-        for y in stride(from: 60.0, through: 320.0, by: 3) where sent.questions.isEmpty {
-            let point = NSPoint(x: 60, y: rig.host.bounds.height - y)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                                                     timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: rig.window.windowNumber, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                rig.window.sendEvent(event)
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        _ = await clickDown(rig.window, rig.host, x: 60) { !sent.questions.isEmpty }
         #expect(sent.questions == [question])
         #expect(AskClaudeSuggestions.Memory.load(defaults).seen["compare"]?.putAwayAt == 7)
     }

@@ -15,6 +15,20 @@ func snapshot(_ view: NSView, sourceLocation: SourceLocation = #_sourceLocation)
     return rep
 }
 
+/// `view` read back at 1× in device RGB on every machine, as the hosted CI display draws, so a run
+/// here sees what CI sees.
+@MainActor
+func renderAt1x(_ view: NSView, sourceLocation: SourceLocation = #_sourceLocation) throws -> NSBitmapImageRep {
+    let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width.rounded(.up)),
+                                            pixelsHigh: Int(view.bounds.height.rounded(.up)), bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                           sourceLocation: sourceLocation)
+    rep.size = view.bounds.size
+    view.cacheDisplay(in: view.bounds, to: rep)
+    return rep
+}
+
 /// `view` drawn in a borderless sRGB window of `scheme`, so `colorAt` reads back the colours it
 /// painted. With `hue`, the hue is stored in a scratch suite the view reads through
 /// `defaultAppStorage`: the test host is the app, and must not read the real setting. The caller

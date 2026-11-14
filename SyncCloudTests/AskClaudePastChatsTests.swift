@@ -3,24 +3,9 @@ import Testing
 import Sync
 @testable import SyncCloud
 
-/// Answers every request with one line, keeping each request's body.
-private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _bodies: [String] = []
-    let text: String
-    var bodies: [String] { lock.withLock { _bodies } }
-
-    init(text: String = "In Immigration.") { self.text = text }
-
-    func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
-        lock.withLock { _bodies.append(String(decoding: request.httpBody ?? Data(), as: UTF8.self)) }
-        return SSE.response(SSE.text(text, cacheRead: 4500, outputTokens: 700))
-    }
-}
-
 /// Past Chats (TE306): what is kept, what a past chat shows, and what Continue does.
 @MainActor
-@Suite struct AskClaudePastChatsTests {
+@Suite final class AskClaudePastChatsTests {
 
     private let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AskClaudePast-\(UUID().uuidString)")
     private let center = NotificationCenter()
@@ -42,14 +27,19 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         return (chat, past)
     }
 
-    private func clean() { try? FileManager.default.removeItem(at: folder) }
+    deinit { try? FileManager.default.removeItem(at: folder) }
+
+    /// Asks `question` about a screen of `rows` and waits for the answer.
+    private func ask(_ chat: AskClaudeChat, _ question: String, rows: [AskClaudeScreen.Row] = [],
+                     sourceLocation: SourceLocation = #_sourceLocation) async {
+        chat.ask(question, screen: screen(rows: rows), tools: NoTools())
+        await waitUntilIdle(chat, sourceLocation: sourceLocation)
+    }
 
     @Test func newChatPutsTheChatAwayAndItReadsAsItWas() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("Where is my I-797?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(text: "In Immigration."), d)
+        await ask(chat, "Where is my I-797?")
         chat.newChat()
         #expect(chat.items.isEmpty)
         #expect(chat.earlier == nil)
@@ -65,17 +55,14 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// What the row says a chat cost counts the answers Edit and Retry took back: spent all the
     /// same. Mutation: summing only the receipts left counts one answer of two.
     @Test func aTakenBackAnswerStillCounts() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("Where is my I-797?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d)
+        await ask(chat, "Where is my I-797?")
         let one = chat.items.reduce(0.0) { if case .receipt(let r) = $1.kind { $0 + r.costUSD } else { $0 } }
         #expect(one > 0)
         let first = try #require(chat.items.first?.id)
         #expect(chat.rewind(from: first))
-        chat.ask("Where is my I-94?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "Where is my I-94?")
         chat.newChat()
         let entry = try #require(past.entries.first)
         #expect(abs(entry.costUSD - 2 * one) < 0.000_001, "row says \(entry.costUSD), two answers cost \(2 * one)")
@@ -83,18 +70,15 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Decision JK: an hour away, the next question starts a new chat and the old one stays above it.
     @Test func anHourAwayKeepsTheEarlierChatInViewAboveTheNewOne() async {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, past) = make(PastChatTransport(), d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
         #expect(chat.currentResume == nil)
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         guard case .readBack(let cost, _)? = chat.currentResume else { Issue.record("no Continue offered"); return }
         #expect(cost > 0)
-        chat.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.earlier?.firstQuestion == "one")
         #expect(!chat.items.contains { $0.kind == .user("one") })
         #expect(!chat.items.contains { $0.kind == .note("Started a new chat after an hour away.") })
@@ -103,12 +87,10 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Decision JJ: Continue on a chat this build wrote reads it back in, as it was.
     @Test func continueReadsAPastChatBackInAndItLeavesTheList() async throws {
-        defer { clean() }
         let d = defaults()
-        let transport = PastChatTransport()
+        let transport = RecordingTransport()
         let (chat, past) = make(transport, d)
-        chat.ask("remember the first one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "remember the first one")
         chat.newChat()
         let id = try #require(past.entries.first?.id)
         guard case .readBack? = past.entries.first?.way else { Issue.record("not read back"); return }
@@ -116,8 +98,7 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(chat.items.contains { $0.kind == .user("remember the first one") })
         #expect(chat.continuing)
         #expect(past.entries.isEmpty)
-        chat.ask("and now?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "and now?")
         #expect(!chat.continuing)
         let last = transport.bodies.last ?? ""
         #expect(last.contains("remember the first one"))
@@ -126,12 +107,10 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// A chat from before an update can't be read back in: Continue carries it as text, once.
     @Test func continueAfterAnUpdateCarriesTheChatAsText() async throws {
-        defer { clean() }
         let d = defaults()
-        let transport = PastChatTransport()
+        let transport = RecordingTransport()
         let (chat, past) = make(transport, d)
-        chat.ask("what was in Taxes?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "what was in Taxes?")
         chat.newChat()
         let id = try #require(past.entries.first?.id)
         // Written by an earlier build, whose instructions differ from this one's.
@@ -146,13 +125,11 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(chat.items.isEmpty)
         #expect(chat.earlier?.id == id)
         #expect(chat.carryingText?.contains("Me: what was in Taxes?") == true)
-        chat.ask("and the 1099s?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "and the 1099s?")
         #expect(chat.carryingText == nil)
         #expect(transport.bodies.last?.contains("<earlier_chat>") == true)
         // Sent once: the next question doesn't carry it again as new text.
-        chat.ask("thanks", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "thanks")
         let last = try #require(transport.bodies.last)
         #expect(last.components(separatedBy: "<earlier_chat>").count == 2)
     }
@@ -160,13 +137,11 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// Decision LN: a folder hidden after the chat hides its names in the chat, its search, and
     /// what Continue carries.
     @Test func aFolderHiddenLaterIsHiddenInPastChats() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(text: "Secret-Plan.pdf is the newest; the Secret-Plan scan is older."), d)
+        let (chat, past) = make(RecordingTransport(text: "Secret-Plan.pdf is the newest; the Secret-Plan scan is older."), d)
         let row = AskClaudeScreen.Row(path: "/Users/me/Private/Secret-Plan.pdf", name: "Secret-Plan.pdf", isDirectory: false,
                                       kind: "PDF document", size: 1_000, modified: nil, tags: [])
-        chat.ask("Which is Secret-Plan.pdf?", screen: screen(rows: [row]), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "Which is Secret-Plan.pdf?", rows: [row])
         chat.newChat()
         #expect(past.search("Secret-Plan").count == 1)
 
@@ -198,12 +173,11 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// being deleted, and is put away when the next question starts afresh. Its questions keep every
     /// field added since: spoken, asked, turn and told.
     @Test func anOldSavedChatComesBackAndIsPutAwayWithEveryField() async throws {
-        defer { clean() }
         let store = folder.appendingPathComponent("chat.json")
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
         do {
-            let (first, _) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+            let (first, _) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
             first.ask("spoken one", spoken: true, editable: true, screen: screen(), tools: NoTools())
             await waitUntilIdle(first)
         }
@@ -212,7 +186,7 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         try JSONSerialization.data(withJSONObject: json).write(to: store)
 
         clock = clock.addingTimeInterval(3 * 3600)
-        let (again, past) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+        let (again, past) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
         let question = try #require(again.items.first)
         #expect(question.kind == .user("spoken one"))
         #expect(question.spoken == true)
@@ -220,8 +194,7 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(question.turn != nil)
         #expect(again.startsOverAtNextQuestion)
 
-        again.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(again)
+        await ask(again, "two")
         #expect(again.earlier?.firstQuestion == "spoken one")
         let keptID = try #require(past.entries.first?.id)
         let kept = try #require(past.chat(keptID))
@@ -233,17 +206,15 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// A chat past the keep length isn't brought back at launch, and Past Chats doesn't keep it.
     @Test func aSavedChatPastTheKeepLengthIsNotBroughtBack() async throws {
-        defer { clean() }
         let store = folder.appendingPathComponent("chat.json")
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
         do {
-            let (first, _) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
-            first.ask("long ago", screen: screen(), tools: NoTools())
-            await waitUntilIdle(first)
+            let (first, _) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
+            await ask(first, "long ago")
         }
         clock = clock.addingTimeInterval(31 * 86_400)
-        let (later, past) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+        let (later, past) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
         #expect(later.items.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.path))
         past.refresh()
@@ -252,11 +223,9 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Decision LM: Delete asks nothing, and Undo brings it back until the list closes.
     @Test func deleteTakesAChatAndUndoPutsItBack() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("keep me", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d)
+        await ask(chat, "keep me")
         chat.newChat()
         let id = try #require(past.entries.first?.id)
         past.delete(id)
@@ -272,11 +241,9 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     }
 
     @Test func searchMatchesQuestionsAndAnswersWithTheirLine() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(text: "The newest is the approval notice."), d)
-        chat.ask("Find my latest I-797", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(text: "The newest is the approval notice."), d)
+        await ask(chat, "Find my latest I-797")
         chat.newChat()
         #expect(past.search("i-797").count == 1)
         #expect(past.search("APPROVAL").first?.match("approval") == "Claude: The newest is the approval notice.")
@@ -306,11 +273,9 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// A folder hidden since a chat began, which it never named, still rules out reading it back in
     /// (Claude may have seen the folder's name in a listing): the list must not promise it.
     @Test func aFolderHiddenSinceMakesContinueCarryTextAndSaySo() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("what's in Taxes?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(text: "In Immigration."), d)
+        await ask(chat, "what's in Taxes?")
         chat.newChat()
         d.set(["/Users/me/Medical"], forKey: AskClaudePrivacy.hiddenFoldersKey)
         past.refresh()
@@ -330,19 +295,15 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// Clear All in Settings takes the chat shown above the line too, and an Undo from before it
     /// can't write a chat back.
     @Test func clearAllElsewhereTakesTheEarlierChatAndTheUndo() async throws {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, past) = make(PastChatTransport(), d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
         chat.newChat()
         let first = try #require(past.entries.first?.id)
-        chat.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
-        chat.ask("three", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "three")
         #expect(chat.earlier?.firstQuestion == "two")
         past.delete(first)
         try #require(past.files).clearAll()
@@ -355,12 +316,10 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Edit or Retry on the first question after Continue in a New Chat carries the earlier chat again.
     @Test func takingBackTheQuestionThatCarriedAChatCarriesItAgain() async throws {
-        defer { clean() }
         let d = defaults()
-        let transport = PastChatTransport()
+        let transport = RecordingTransport()
         let (chat, past) = make(transport, d)
-        chat.ask("first", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "first")
         chat.newChat()
         d.set(["/Users/me/Medical"], forKey: AskClaudePrivacy.hiddenFoldersKey)
         past.refresh()
@@ -376,11 +335,9 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// A chat put away while Claude was answering can't be read back in, and says why; the at-limit
     /// card isn't an answer, so a chat holding only that isn't kept.
     @Test func aChatStoppedMidAnswerSaysSoAndAnAtLimitCardIsntAnAnswer() async throws {
-        defer { clean() }
         let d = defaults()
         let (chat, past) = make(SlowSecondTransport(), d)
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "one")
         chat.ask("two", screen: screen(), tools: NoTools())
         #expect(chat.isRunning)
         chat.newChat()
@@ -393,12 +350,10 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// An on-device command after an hour away starts a new chat, as a question to Claude does.
     @Test func anOnDeviceCommandAfterAnHourStartsANewChat() async {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, _) = make(PastChatTransport(), d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, _) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         var wentToClaude = false
         chat.tryOnDevice("show hidden files", decide: { nil }, tools: NoTools(), otherwise: { wentToClaude = true })
@@ -411,12 +366,10 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// Cards from an earlier session have their buttons off: after an hour, and after Continue,
     /// though new ones don't.
     @Test func cardsFromAnEarlierSessionAreOff() async throws {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, _) = make(PastChatTransport(), d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, _) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
         let old = try #require(chat.items.last?.id)
         #expect(!chat.cardIsExpired(old))
         // What the panel turns off for an expired item: cards, never the conversation or Refine.
@@ -427,8 +380,7 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         chat.continueThisChat()
         #expect(chat.continuing)
         #expect(chat.cardIsExpired(old))
-        chat.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(chat.cardIsExpired(old))
         #expect(!chat.cardIsExpired(try #require(chat.items.last?.id)))
     }
@@ -437,14 +389,12 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// A carry is built when the question goes: a folder hidden after Continue in a New Chat keeps
     /// what the chat read there from Claude, and a chat deleted since sends nothing.
     @Test func aCarryFollowsWhatIsHiddenAndDeletedAfterContinue() async throws {
-        defer { clean() }
         let d = defaults()
-        let transport = PastChatTransport(text: "Secret-Plan.pdf says to move in May.")
+        let transport = RecordingTransport(text: "Secret-Plan.pdf says to move in May.")
         let (chat, past) = make(transport, d)
         let row = AskClaudeScreen.Row(path: "/Users/me/Private/Secret-Plan.pdf", name: "Secret-Plan.pdf", isDirectory: false,
                                       kind: "PDF document", size: 1_000, modified: nil, tags: [])
-        chat.ask("what does the plan say?", screen: screen(rows: [row]), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "what does the plan say?", rows: [row])
         chat.newChat()
         d.set(["/Users/me/Medical"], forKey: AskClaudePrivacy.hiddenFoldersKey)
         past.refresh()
@@ -455,8 +405,7 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
         d.set(["/Users/me/Medical", "/Users/me/Private"], forKey: AskClaudePrivacy.hiddenFoldersKey)
         center.post(name: AskClaudePrivacy.didChange, object: nil)
-        chat.ask("and then?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "and then?")
         let sent = try #require(transport.bodies.last)
         #expect(sent.contains("<earlier_chat>"))
         #expect(sent.contains("what does the plan say?"))
@@ -469,40 +418,37 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
         #expect(chat.isCarrying)
         past.delete(id)
         #expect(!chat.isCarrying)
-        chat.ask("anything?", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "anything?")
         #expect(transport.bodies.last?.contains("<earlier_chat>") == false)
     }
 
     /// Continue outlasts a quit: a read-back still reads the chat back in, and a carry still goes.
     @Test func continueSurvivesARelaunch() async throws {
-        defer { clean() }
         let store = folder.appendingPathComponent("chat.json")
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
         do {
-            let (chat, past) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
-            chat.ask("first", screen: screen(), tools: NoTools())
-            await waitUntilIdle(chat)
+            let (chat, past) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
+            await ask(chat, "first")
             clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
             chat.continueThisChat()
             #expect(chat.continuing)
             _ = past
         }
         do {
-            let (again, _) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+            let (again, _) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
             #expect(again.continuing)
             #expect(!again.startsOverAtNextQuestion)
             again.newChat()
         }
         do {
-            let (chat, past) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+            let (chat, past) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
             d.set(["/Users/me/Medical"], forKey: AskClaudePrivacy.hiddenFoldersKey)
             past.refresh()
             #expect(chat.continuePast(try #require(past.entries.first?.id)))
             #expect(chat.isCarrying)
         }
-        let (relaunched, _) = make(PastChatTransport(), d, now: { clock }, storeURL: store)
+        let (relaunched, _) = make(RecordingTransport(), d, now: { clock }, storeURL: store)
         #expect(relaunched.isCarrying)
         #expect(relaunched.carryingText?.contains("Me: first") == true)
         #expect(relaunched.earlier?.firstQuestion == "first")
@@ -510,11 +456,9 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// The note over the box prices a read-back as the button did, and the button follows the model.
     @Test func continuesPriceFollowsTheModelAndTheNoteAgrees() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d)
+        await ask(chat, "one")
         chat.newChat()
         let entry = try #require(past.entries.first)
         let models = AskClaudeModels.options
@@ -534,29 +478,24 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// An on-device command after an hour away keeps what Claude hasn't been told yet, as a question does.
     @Test func anOnDeviceCommandAfterAnHourKeepsWhatClaudeIsStillToHear() async throws {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let transport = PastChatTransport()
+        let transport = RecordingTransport()
         let (chat, _) = make(transport, d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "one")
         chat.tellClaude("They applied your card “File 3 Scans”.")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         chat.tryOnDevice("show hidden files", decide: { nil }, tools: NoTools(), otherwise: {})
         await waitUntilIdle(chat)
-        chat.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         #expect(transport.bodies.last?.contains("File 3 Scans") == true)
     }
 
     /// New Chat while an on-device command runs puts away a whole chat: Claude was never asked.
     @Test func newChatDuringAnOnDeviceCommandKeepsTheReadBack() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d)
+        await ask(chat, "one")
         chat.tryOnDevice("show hidden files", decide: { try? await Task.sleep(for: .seconds(5)); return nil },
                          tools: NoTools(), otherwise: {})
         #expect(chat.isRunning)
@@ -566,15 +505,12 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Undo on the chat shown above the line brings it back on screen.
     @Test func undoingADeleteBringsTheEarlierChatBack() async throws {
-        defer { clean() }
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, past) = make(PastChatTransport(), d, now: { clock })
-        chat.ask("one", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
-        chat.ask("two", screen: screen(), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "two")
         let id = try #require(chat.earlier?.id)
         past.delete(id)
         #expect(chat.earlier == nil)
@@ -584,13 +520,11 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
 
     /// Hiding a folder reaches the list and the chat above the line on its own, with no refresh asked for.
     @Test func hidingAFolderRedactsTheListAtOnce() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(text: "Secret-Plan.pdf is the newest."), d)
+        let (chat, past) = make(RecordingTransport(text: "Secret-Plan.pdf is the newest."), d)
         let row = AskClaudeScreen.Row(path: "/Users/me/Private/Secret-Plan.pdf", name: "Secret-Plan.pdf", isDirectory: false,
                                       kind: "PDF document", size: 1_000, modified: nil, tags: [])
-        chat.ask("Which is newest?", screen: screen(rows: [row]), tools: NoTools())
-        await waitUntilIdle(chat)
+        await ask(chat, "Which is newest?", rows: [row])
         chat.newChat()
         #expect(past.search("Secret-Plan").count == 1)
         d.set(["/Users/me/Private"], forKey: AskClaudePrivacy.hiddenFoldersKey)
@@ -601,9 +535,8 @@ private final class PastChatTransport: AskClaudeTransport, @unchecked Sendable {
     /// A chat about a folder hidden since doesn't show its name, even from a folder inside it; one
     /// asked while the folder on screen was hidden doesn't keep it.
     @Test func aChatsHiddenFolderIsntShownOnItsRow() async throws {
-        defer { clean() }
         let d = defaults()
-        let (chat, past) = make(PastChatTransport(), d)
+        let (chat, past) = make(RecordingTransport(), d)
         let inside = AskClaudeScreen(workspace: "Browse", source: "iCloud Drive", folder: "Medical/2024", sort: "Name",
                                      rows: [], selection: [], toolsAvailable: true)
         chat.ask("what's here?", screen: inside, tools: NoTools())

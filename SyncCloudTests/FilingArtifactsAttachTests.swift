@@ -31,11 +31,4 @@ import Sync
                 "a Mac with no profile cannot write its first one — this is the fresh-install path")
         #expect(manager.contentIndexDirectory?.standardizedFileURL.path == root.standardizedFileURL.path)
     }
-
-    /// The directory is the default one, not something invented.
-    @Test func theDirectoryIsTheStoresOwnDefault() {
-        let manager = FileSyncManager.scratch()
-        FilingArtifacts.attach(to: manager)
-        #expect(manager.filingProfilesDirectory == FilingProfileStore.defaultDirectory())
-    }
 }

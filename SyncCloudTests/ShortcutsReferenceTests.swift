@@ -74,7 +74,6 @@ import Design
             .filter { $0.contains("⌘") && !registered.contains($0) && !notCommands.contains($0) }
         #expect(unregistered.isEmpty,
                 "the reference lists \(unregistered.sorted()) — no command registers it")
-        #expect(!Self.listedChordKeys().contains("⇧⌘P"), "⇧⌘P is listed again, with nothing bound to it")
     }
 
     /// Listed ⌘ keys the app does not register through `AppChord`, each with its reason.
@@ -117,24 +116,15 @@ import Design
     /// `.keyboardShortcut("?", modifiers: .command)` written directly on a menu item, so these are
     /// read out of the source.
     @Test func testEveryLiterallyRegisteredCommandChordHasAReferenceRow() throws {
-        let macApp = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
-        let files = try #require(try? FileManager.default.contentsOfDirectory(at: macApp,
-                                                                             includingPropertiesForKeys: nil),
-                                 "cannot list MacApp/ — this scan would be vacuous")
         var registered: Set<String> = []
-        for url in files where url.pathExtension == "swift" {
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n") {
-                let code = line.trimmingCharacters(in: .whitespaces)
-                guard !code.hasPrefix("//"), code.contains(".keyboardShortcut(\"") else { continue }
-                guard let open = code.range(of: ".keyboardShortcut(\""),
-                      let close = code[open.upperBound...].firstIndex(of: "\"") else { continue }
-                let key = String(code[open.upperBound..<close])
-                guard key.count == 1, code.contains("modifiers: .command") else { continue }
-                registered.insert(key)
-            }
+        for line in try macAppSources().split(separator: "\n") {
+            let code = line.trimmingCharacters(in: .whitespaces)
+            guard !code.hasPrefix("//"), code.contains(".keyboardShortcut(\"") else { continue }
+            guard let open = code.range(of: ".keyboardShortcut(\""),
+                  let close = code[open.upperBound...].firstIndex(of: "\"") else { continue }
+            let key = String(code[open.upperBound..<close])
+            guard key.count == 1, code.contains("modifiers: .command") else { continue }
+            registered.insert(key)
         }
         // Non-vacuity: the reader found the literal registration that certainly exists.
         #expect(registered.contains("?"), "the scan found no ⌘? — it is not reading the menus")

@@ -160,20 +160,19 @@ import Sync
     /// `noteEditorWrote`, which records only under a compared folder (dropping cached walks of one
     /// elsewhere at once) and pays at once while Compare is on screen.
     @Test func everySaveIsRecordedAsAnUnreadWrite() throws {
-        let save = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {",
-                                                         in: "ContentView+Editor.swift")
+        let save = try memberBody("private func writeEditorDocument(explicit: Bool, consentedTo: EditorFileStore.Stamp? = nil) -> Bool {",
+                                  inFile: "ContentView+Editor.swift")
         let write = try #require(save.range(of: "try EditorFileStore.write(editorDocument, consentedTo: consentedTo)"))
         let note = try #require(save.range(of: "noteEditorWrote(path)"), "⌘S is not recorded")
         #expect(write.lowerBound < note.lowerBound, "recorded before the write succeeded")
-        let background = try EditorNewFilePaneWiringTests.body(of: "private func writeEditorDocumentDidWrite() -> Bool {",
-                                                               in: "ContentView+Editor.swift")
+        let background = try memberBody("private func writeEditorDocumentDidWrite() -> Bool {",
+                                        inFile: "ContentView+Editor.swift")
         #expect(background.contains("noteEditorWrote(editorDocument.path)"), "autosave is not recorded")
-        let settle = try EditorNewFilePaneWiringTests.body(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {",
-                                                           in: "ContentView+Editor.swift")
+        let settle = try memberBody("func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool {",
+                                    inFile: "ContentView+Editor.swift")
         #expect(settle.contains("if case .wrote = flushed { noteEditorWrote(editorDocument.path) }"),
                 "the flush on the way to another document is not recorded — or is recorded when it wrote nothing")
-        let noted = try EditorNewFilePaneWiringTests.body(of: "func noteEditorWrote(_ path: String?) {",
-                                                          in: "ContentView+Editor.swift")
+        let noted = try memberBody("func noteEditorWrote(_ path: String?) {", inFile: "ContentView+Editor.swift")
         let record = try #require(noted.range(of: "guard owedComparison.recordWrite("),
                                   "a write is not recorded at all")
         let recorded = try CallArguments(of: "owedComparison.recordWrite(", in: noted.normalized)
@@ -197,8 +196,8 @@ import Sync
     /// re-reading the pane holding the file, as a skipped comparison naming the file, so the
     /// payment compares without walking that pane again.
     @Test func createAndExportFeedTheSameRecord() throws {
-        let body = try EditorNewFilePaneWiringTests.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
-                                                         in: "ContentView+Editor.swift")
+        let body = try memberBody("func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
+                                  inFile: "ContentView+Editor.swift")
         let compare = try #require(body.range(of: "if selectedWorkspace == .compare, comparesInCompare {"),
                                    "the re-read no longer tells Compare from the rest")
         let noted = try #require(body.range(of: "noteEditorWrote(path)"),
@@ -216,8 +215,8 @@ import Sync
     /// isn't served the pre-write walk. One that doesn't compare takes the debt on, keeping a more
     /// specific reason already there.
     @Test func aComparingRefreshReadsTheWritesAndSettlesTheRecord() throws {
-        let refresh = try EditorNewFilePaneWiringTests.body(of: "func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,",
-                                                            in: "ContentView.swift")
+        let refresh = try memberBody("func refreshAction(reloading: FileSyncManager.PaneReloadScope = .both,",
+                                     inFile: "ContentView.swift")
         let comparing = try #require(refresh.range(of: "if comparing {"))
         // The widening asks the record, so it must come before the record is cleared, and its
         // answer must be what the refresh walks.
@@ -246,8 +245,8 @@ import Sync
     /// cross-source opens reload through it too. Checked as delegation, since a second copy of the
     /// refresh would be free to skip the settle.
     @Test func theTabSwitchRefreshIsTheComparingRefresh() throws {
-        let body = try EditorNewFilePaneWiringTests.body(of: "func refreshForTabSwitch(movedPane isLeft: Bool) {",
-                                                         in: "ContentView+PaneTabs.swift")
+        let body = try memberBody("func refreshForTabSwitch(movedPane isLeft: Bool) {",
+                                  inFile: "ContentView+PaneTabs.swift")
         // Whole call, closing parenthesis included: a `comparing: false` would not match it.
         #expect(body.contains("refreshAction(reloading: .movedPane(isLeft: isLeft))"),
                 "the tab-switch refresh no longer goes through refreshAction's comparing refresh — nothing settles what Compare owes before its scan reads the kept walk")
@@ -273,7 +272,7 @@ import Sync
     /// comparing refresh or compares alone, clears nothing until the providers resolve, and writes
     /// one line saying why.
     @Test func thePaymentAsksTheRuleAndSaysWhy() throws {
-        let body = try EditorNewFilePaneWiringTests.body(of: "func payOwedComparisonIfNeeded() {", in: "ContentView.swift")
+        let body = try memberBody("func payOwedComparisonIfNeeded() {", inFile: "ContentView.swift")
         let asked = try CallArguments(of: "owedComparison.payment(", in: body.normalized)
         #expect(asked.passes("leftFolder", "currentLeftPath") && asked.passes("rightFolder", "currentRightPath")
                 && asked.passes("leftLinkTargets", "syncManager.leftTreeLinkTargets")

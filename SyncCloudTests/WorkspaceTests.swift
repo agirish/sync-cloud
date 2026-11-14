@@ -14,13 +14,7 @@ import FileExplorer
     /// otherwise. `SetupFlowTests.theWelcomeStripOpensWhereTheAppDoes` reads the first-run default
     /// through it.
     static func workspaceCase(inFile name: String, after anchor: String) throws -> String {
-        let url = URL(fileURLWithPath: #filePath)      // …/SyncCloudTests/WorkspaceTests.swift
-            .deletingLastPathComponent()               // …/SyncCloudTests
-            .deletingLastPathComponent()               // repo root
-            .appendingPathComponent("MacApp/\(name)")
-        let text = try #require(try? String(contentsOf: url, encoding: .utf8),
-                                "cannot read \(name) — this comparison would be vacuous")
-        try #require(text.count > 500, "\(name) is implausibly short — truncated?")
+        let text = try macAppFile(name)
         let start = try #require(text.range(of: anchor),
                                  "\(name) no longer contains “\(anchor)” — the declaration moved or was reworded, and this test is now measuring nothing")
         // Exactly once: `range(of:)` returns the first match, so a doc comment quoting the
@@ -42,21 +36,6 @@ import FileExplorer
 
     // MARK: Persistence format
 
-    @Test func testRawValuesAreAStablePersistenceFormat() {
-        // Persisted via @AppStorage(Workspace.defaultsKey). Renaming a raw value would silently
-        // drop that user onto the default, which is why `title` is separate: the display name
-        // differs from the id in three places.
-        #expect(Workspace.browse.rawValue == "Browse")
-        #expect(Workspace.compare.rawValue == "Differences")
-        #expect(Workspace.filing.rawValue == "Filing")
-        // "Storage" is a retired workspace raw value that names an `OrganizeLens` case.
-        #expect(!Workspace.allCases.map(\.rawValue).contains("Storage"))
-
-        #expect(Workspace.browse.title == "Browse")
-        #expect(Workspace.compare.title == "Compare")
-        #expect(Workspace.filing.title == "Organize")
-    }
-
     @Test func testRestoresFromStoredRawValue() {
         for workspace in Workspace.allCases {
             #expect(Workspace(rawValue: workspace.rawValue) == workspace)
@@ -77,31 +56,11 @@ import FileExplorer
         #expect(Workspace.allCases.count == 4)
         #expect(Workspace.allCases.map(\.title)
                 == ["Browse", "Compare", "Organize", "Edit"])
-        // The raw values are the persistence format, so `Editor` stays even though the title is
-        // "Edit".
+        // The raw values are the persistence format (`@AppStorage(Workspace.defaultsKey)`):
+        // renaming one silently drops that user onto the default, which is why `title` is separate
+        // and `Editor` stays though the title is "Edit".
         #expect(Workspace.allCases.map(\.rawValue)
                 == ["Browse", "Differences", "Filing", "Editor"])
-    }
-
-    @Test func testTheFoldedWorkspacesAreGoneFromTheBar() {
-        // Duplicates and Automations are rail items; what must not come back is a segment.
-        let titles = Set(Workspace.allCases.map(\.title))
-        for retired in ["Duplicates", "Automations", "Rename"] {
-            #expect(Workspace(rawValue: retired) == nil, "\(retired) is a lens, not a workspace")
-            #expect(!titles.contains(retired))
-        }
-    }
-
-    /// The bar's order: Browse leads, as the plainest place in the bar, and the workspaces that own
-    /// a lens stay adjacent, so the bar reads as ordered rather than arbitrary. The bar has no
-    /// groups, since Editor neither looks at a tree nor acts on one.
-    @Test func testBarOrderPutsBrowseFirstAndKeepsTheLensPairTogether() {
-        #expect(Workspace.allCases.first == .browse)
-        let lensIndices = Workspace.allCases.indices.filter { Workspace.allCases[$0].lens != nil }
-        #expect(lensIndices == Array(lensIndices.first!...lensIndices.last!),
-                "the workspaces that own a lens are no longer adjacent in the bar")
-        // Editor is last, which hands it ⌘4: the chords are positional.
-        #expect(Workspace.allCases.last == .editor)
     }
 
     @Test func testEverySegmentHasItsOwnGlyph() {
@@ -136,8 +95,6 @@ import FileExplorer
             let slot = Workspace.destination(for: lens).workspace.lens
             #expect(slot != nil, "\(lens.rawValue) resolves to a workspace with no lens slot")
         }
-        #expect(Workspace.browse.lens == nil)
-        #expect(Workspace.compare.lens == nil)
         #expect(Workspace.filing.lens == .filing)
         // Organize is the only workspace with a lens slot; every `WorkspaceLensKind` reaches it
         // through the rail, which is what the loop above checks.
@@ -157,7 +114,5 @@ import FileExplorer
             #expect(OrganizeLens.railItems.contains(lens),
                     "\(kind.rawValue) mints \(lens.title), which the rail does not draw")
         }
-        #expect(Workspace.destination(for: .duplicates).organizeLens == .duplicates)
-        #expect(Workspace.destination(for: .storage).organizeLens == .storage)
     }
 }

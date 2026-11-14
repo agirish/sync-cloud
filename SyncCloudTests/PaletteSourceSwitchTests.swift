@@ -118,7 +118,7 @@ import FileExplorer
         // `theOnlyWriterOfAPaneProviderIdInTheTabsFileIsTheAdoptHelper` covers only the tabs file.
         for wrong in ["aimProvider(", "leftProviderId =", "rightProviderId =",
                       "$leftProviderId", "$rightProviderId", "retargetPane("] {
-            #expect(!Self.codeOnly(body).contains(wrong),
+            #expect(!body.contains(wrong),
                     "the source switch writes the pane's provider with `\(wrong)`, which does not suppress the navigation reset")
         }
     }
@@ -133,8 +133,10 @@ import FileExplorer
                        "case .nothingAtThatPath:"] {
             let start = try #require(body.range(of: branch),
                                      "\(branch) is gone from the switch — the rule has an answer nothing acts on")
-            let arm = String(body[start.upperBound...].prefix(400))
-            #expect(arm.contains("Logger.shared.warning"),
+            // The arm alone, up to the next `case .`: a fixed window reads into the next arm's log.
+            let rest = body[start.upperBound...]
+            let arm = rest[..<(rest.range(of: "case .")?.lowerBound ?? rest.endIndex)]
+            #expect(arm.contains("Logger.shared.warning("),
                     "\(branch) returns without a word — an accepted route delivering nothing, with no trace")
         }
     }
@@ -146,7 +148,7 @@ import FileExplorer
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try macAppFile("CommandPaletteHost.swift"))
-        let code = Self.codeOnly(body)
+        let code = body
         // A caller may name its pane (Ask Claude setting one side of Compare); otherwise the aim.
         #expect(code.contains("let isLeft = paneIsLeft ?? !aimedAtRight"),
                 "the aimed pane is no longer captured once at the top")
@@ -168,13 +170,10 @@ import FileExplorer
         let body = try declarationBody(
             of: "private func switchSourceAndReveal(providerId: String, path: String, isLeft paneIsLeft: Bool? = nil) {",
             in: try macAppFile("CommandPaletteHost.swift"))
-        let code = Self.codeOnly(body)
+        let code = body
         for both in ["focusBoth", "PaneLinkPreference", "isLinked", "PaneSideChoice.sibling"] {
             #expect(!code.contains(both),
                     "the cross-source switch reaches for the sibling pane (`\(both)`) — it is on another source and would be handed a path from this one's tree")
         }
     }
-
-    private static func codeOnly(_ source: String) -> String { sourceCodeOnly(source) }
-
 }

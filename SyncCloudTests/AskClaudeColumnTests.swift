@@ -97,6 +97,15 @@ private struct ColumnProbeView: View {
         dock.hide()
     }
 
+    /// A press at `point` in the column's window, handed to the column as its click monitor would
+    /// hand every click in that window.
+    private func tuckClick(_ point: NSPoint, on column: AskClaudeColumnView) {
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                       windowNumber: column.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                       clickCount: 1, pressure: 1)!
+        column.tuckIfOutside(event)
+    }
+
     /// Over the workspace a click outside the column tucks it away, and the click still goes where it
     /// was aimed. Inside it, or when docked, nothing is tucked.
     @Test func aClickOutsideAnOverlaidColumnTucksItAway() async throws {
@@ -108,25 +117,18 @@ private struct ColumnProbeView: View {
         window.contentView?.addSubview(column)
         var tucks = 0
         column.onTuck = { tucks += 1 }
-        func click(at point: NSPoint) {
-            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
-                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                           clickCount: 1, pressure: 1)!
-            // The column's monitor calls this for every click in its window; called directly here.
-            column.tuckIfOutside(event)
-        }
         column.tucksOnOutsideClick = false
-        click(at: NSPoint(x: 100, y: 100))
+        tuckClick(NSPoint(x: 100, y: 100), on: column)
         #expect(tucks == 0, "a docked column tucked")
         column.tucksOnOutsideClick = true
-        click(at: NSPoint(x: 800, y: 100))
+        tuckClick(NSPoint(x: 800, y: 100), on: column)
         #expect(tucks == 0, "a click inside the column tucked it")
-        click(at: NSPoint(x: 100, y: 100))
+        tuckClick(NSPoint(x: 100, y: 100), on: column)
         #expect(tucks == 1, "a click in the workspace did not tuck the overlaid column")
         // The resize handle reaches past the column's leading edge: a press there drags the column.
-        click(at: NSPoint(x: 628 - 5, y: 100))
+        tuckClick(NSPoint(x: 628 - 5, y: 100), on: column)
         #expect(tucks == 1, "a press on the column's resize handle tucked it")
-        click(at: NSPoint(x: 628 - AskClaudeColumnView.resizeHandleThickness - 2, y: 100))
+        tuckClick(NSPoint(x: 628 - AskClaudeColumnView.resizeHandleThickness - 2, y: 100), on: column)
         #expect(tucks == 2, "a click just past the handle did not tuck the column")
     }
 
@@ -146,22 +148,16 @@ private struct ColumnProbeView: View {
         column.tucksOnOutsideClick = true
         var tucks = 0
         column.onTuck = { tucks += 1 }
-        func click(at point: NSPoint) {
-            let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
-                                           windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                           clickCount: 1, pressure: 1)!
-            column.tuckIfOutside(event)
-        }
-        click(at: NSPoint(x: 900, y: layout.maxY + 4))
+        tuckClick(NSPoint(x: 900, y: layout.maxY + 4), on: column)
         #expect(tucks == 0, "a press in the toolbar, over the column, tucked it")
-        click(at: NSPoint(x: 100, y: layout.maxY + 4))
+        tuckClick(NSPoint(x: 100, y: layout.maxY + 4), on: column)
         #expect(tucks == 0, "a press in the titlebar tucked the column")
-        click(at: NSPoint(x: 2, y: 300))
+        tuckClick(NSPoint(x: 2, y: 300), on: column)
         #expect(tucks == 0, "a press on the window's left edge tucked the column")
-        click(at: NSPoint(x: 300, y: 2))
+        tuckClick(NSPoint(x: 300, y: 2), on: column)
         #expect(tucks == 0, "a press on the window's bottom edge tucked the column")
         // The control: a press in the workspace itself still tucks it.
-        click(at: NSPoint(x: 300, y: 300))
+        tuckClick(NSPoint(x: 300, y: 300), on: column)
         #expect(tucks == 1, "a click in the workspace did not tuck the column")
     }
 

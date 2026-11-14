@@ -16,26 +16,12 @@ import Design
 
     static let marks = ["icloud", "dropbox", "googledrive", "onedrive"]
 
-    private func render(_ name: String, monochrome: Bool) -> NSBitmapImageRep? {
-        let size = CGSize(width: 32, height: 32)
-        let view = ProviderLogo(name, size: 32, monochrome: monochrome)
-            .foregroundStyle(Color(red: 0.4, green: 0.4, blue: 0.4))
-            .frame(width: size.width, height: size.height)
-            .background(Color.white)
-            .environment(\.colorScheme, .light)
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = CGRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .aqua)
-        window.colorSpace = .sRGB
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return rep
+    private func render(_ name: String, monochrome: Bool) throws -> NSBitmapImageRep {
+        try renderInSRGBWindow(ProviderLogo(name, size: 32, monochrome: monochrome)
+                                   .foregroundStyle(Color(red: 0.4, green: 0.4, blue: 0.4))
+                                   .frame(width: 32, height: 32)
+                                   .background(Color.white),
+                               size: CGSize(width: 32, height: 32), scheme: .light)
     }
 
     /// The largest gap between any pixel's colour channels — 0 for grey, large for a brand colour.
@@ -66,7 +52,7 @@ import Design
     /// Every mark renders in one ink in monochrome mode; the brand colours are gone.
     @Test func aMonochromeMarkCarriesNoColour() throws {
         for name in Self.marks {
-            let rep = try #require(render(name, monochrome: true))
+            let rep = try render(name, monochrome: true)
             #expect(maxChroma(rep) < 0.06,
                     "\(name) still carries colour in monochrome mode (max channel spread \(maxChroma(rep)))")
         }
@@ -76,7 +62,7 @@ import Design
     /// not artwork that was grey all along.
     @Test func theSameMarksInColourAreColoured() throws {
         for name in Self.marks where name != "icloud" {
-            let rep = try #require(render(name, monochrome: false))
+            let rep = try render(name, monochrome: false)
             #expect(maxChroma(rep) > 0.2,
                     "\(name) has no colour even in colour mode — the monochrome assertion is vacuous")
         }
@@ -88,7 +74,7 @@ import Design
     @Test func aMonochromeMarkKeepsItsShapeRatherThanFillingItsBox() throws {
         let box = 32 * 32 * 4   // 2× backing store
         for name in Self.marks {
-            let rep = try #require(render(name, monochrome: true))
+            let rep = try render(name, monochrome: true)
             let ink = inked(rep)
             #expect(ink > box / 20, "\(name) rendered almost nothing (\(ink) of \(box) px)")
             #expect(ink < box * 3 / 4,
@@ -100,7 +86,7 @@ import Design
     /// explicit style inside the monochrome branch would override the caller's instead.
     @Test func theCallersTintReachesBothKindsOfMark() throws {
         for name in Self.marks + ["folder.fill"] {
-            let rep = try #require(render(name, monochrome: true))
+            let rep = try render(name, monochrome: true)
             var darkest: CGFloat = 1
             for x in 0..<rep.pixelsWide {
                 for y in 0..<rep.pixelsHigh {

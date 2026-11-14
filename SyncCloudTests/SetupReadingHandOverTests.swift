@@ -239,12 +239,11 @@ import Testing
         #expect(!fixture.corpusExists(in: "t"))
     }
 
-    /// A plan made for a profile since replaced is made again, once, and the reading goes into the
-    /// profile in use. The race is a Save landing while the plan walks; the large-walk question,
-    /// asked part-way, is where this stages it.
-    @Test func aPlanOvertakenByASaveIsMadeAgain() async throws {
-        let fixture = try Fixture()
-        defer { try? FileManager.default.removeItem(at: fixture.root) }
+    /// Reads Documents under profile `walk-old` while a Save of `root` as `id` lands at the plan's
+    /// first large-walk question, as Setup's lands mid-walk; answers the outcome and how many times
+    /// the plan was made.
+    private func overtakenPlan(_ fixture: Fixture, savingTo root: URL,
+                               id: String) async throws -> (DocumentSurveyStarter.Outcome, Int) {
         fixture.machine.hot = false
         _ = try FilingProfileStore.writeProfile(
             FolderProfile(profileId: "walk-old", root: fixture.documents.path, folders: [:],
@@ -254,24 +253,31 @@ import Testing
         fixture.engine.wholeTreeProbeBudget = 1
         var asked = 0
         let profiles = fixture.profiles
-        let documents = fixture.documents
-        let engine = fixture.engine
-        engine.largeWalkConfirmer = { _ in
+        fixture.engine.largeWalkConfirmer = { _ in
             asked += 1
             if asked == 1 {
-                // A Save of the same folder, as Setup's lands mid-walk.
                 _ = try? FilingProfileStore.writeProfile(
-                    FolderProfile(profileId: "walk-new", root: documents.path, folders: [:],
-                                  personTokens: []),
+                    FolderProfile(profileId: id, root: root.path, folders: [:], personTokens: []),
                     in: profiles)
                 fixture.attach()
             }
             return true
         }
-        #expect(engine.filingProfileDirectoryId == "walk-old")
-
-        let outcome = await DocumentSurveyStarter.start(manager: engine, askedFrom: documents,
+        #expect(fixture.engine.filingProfileDirectoryId == "walk-old")
+        let outcome = await DocumentSurveyStarter.start(manager: fixture.engine,
+                                                        askedFrom: fixture.documents,
                                                         mode: .read, planned: { _ in })
+        return (outcome, asked)
+    }
+
+    /// A plan made for a profile since replaced is made again, once, and the reading goes into the
+    /// profile in use. The race is a Save landing while the plan walks; the large-walk question,
+    /// asked part-way, is where this stages it.
+    @Test func aPlanOvertakenByASaveIsMadeAgain() async throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // A Save of the same folder.
+        let (outcome, asked) = try await overtakenPlan(fixture, savingTo: fixture.documents, id: "walk-new")
 
         guard case .ran(let report) = outcome else {
             Issue.record("the overtaken plan came to \(outcome)")
@@ -288,33 +294,9 @@ import Testing
     @Test func aPlanOvertakenByASaveOfAnotherFolderReadsNothing() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        fixture.machine.hot = false
         let elsewhere = try fixture.elsewhere(
             "Wage and tax statement for the year, from the employer to the employee, with the amounts withheld.")
-        _ = try FilingProfileStore.writeProfile(
-            FolderProfile(profileId: "walk-old", root: fixture.documents.path, folders: [:],
-                          personTokens: []),
-            in: fixture.profiles)
-        fixture.attach()
-        fixture.engine.wholeTreeProbeBudget = 1
-        var asked = 0
-        let profiles = fixture.profiles
-        fixture.engine.largeWalkConfirmer = { _ in
-            asked += 1
-            if asked == 1 {
-                // A Save of another folder, as Setup's lands mid-walk.
-                _ = try? FilingProfileStore.writeProfile(
-                    FolderProfile(profileId: "walk-elsewhere", root: elsewhere.path, folders: [:],
-                                  personTokens: []),
-                    in: profiles)
-                fixture.attach()
-            }
-            return true
-        }
-
-        let outcome = await DocumentSurveyStarter.start(manager: fixture.engine,
-                                                        askedFrom: fixture.documents,
-                                                        mode: .read, planned: { _ in })
+        let (outcome, _) = try await overtakenPlan(fixture, savingTo: elsewhere, id: "walk-elsewhere")
 
         #expect(outcome == .refused(.profileReplaced), "the overtaken plan came to \(outcome)")
         #expect(fixture.reads.all.isEmpty,

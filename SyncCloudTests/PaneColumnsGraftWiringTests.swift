@@ -13,14 +13,14 @@ import Foundation
 
     static func appSource() throws -> String { try source("MacApp/ContentView.swift") }
 
-    /// The app's `FileTreeView` must hand the request to the manager: the parameter is passed, and
-    /// reaches `loadColumnChildren`, since a closure wired elsewhere would satisfy the first alone.
-    @Test func thePaneWiresTheRequestToTheManager() throws {
-        let code = try Self.appSource()
-        #expect(code.contains("onNeedChildren:"),
-                "the pane no longer passes onNeedChildren — it defaults to a no-op, so columns past the node budget stay blank")
-        #expect(code.contains("syncManager.loadColumnChildren(atPath:"),
-                "onNeedChildren is wired to something other than loadColumnChildren")
+    /// The app's `FileTreeView` hands the request to the manager, for its own pane's side. Dropped,
+    /// it defaults to a no-op and columns past the node budget stay blank; wired to the wrong side,
+    /// the request grafts into the other pane's tree, where the path is likely absent. A hardcoded
+    /// `true` would look right in Browse and fail only in Compare's right pane.
+    @Test func thePaneWiresTheRequestToTheManagerForItsOwnSide() throws {
+        let call = try CallArguments(of: "FileTreeView(", in: try Self.appSource())
+        #expect(call.passes("onNeedChildren", "{ syncManager.loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1) }"),
+                "the pane's graft request is missing, reaches something other than loadColumnChildren, or names the wrong side")
     }
 
     /// The "being read" set is wired too, to the same pane. `graftsInFlight` tells a directory
@@ -31,14 +31,5 @@ import Foundation
         let code = try Self.appSource()
         #expect(code.contains("graftsInFlight: syncManager.columnGraftsInFlightPaths(isLeft: pane.isLeft)"),
                 "the pane cannot tell a directory being read from one that could not be, and says “Can’t be read” for both")
-    }
-
-    /// The side must be the pane's own. Wired to the wrong side, the request grafts into the other
-    /// pane's tree, where the path is likely absent, so the column stays blank with no error. A
-    /// hardcoded `true` would look right in Browse and fail only in Compare's right pane.
-    @Test func theRequestCarriesTheRequestingPanesSide() throws {
-        let code = try Self.appSource()
-        #expect(code.contains("loadColumnChildren(atPath: $0, isLeft: pane.isLeft, passive: $1)"),
-                "the graft request does not carry the requesting pane's own side, or drops whether it is a scroll past")
     }
 }

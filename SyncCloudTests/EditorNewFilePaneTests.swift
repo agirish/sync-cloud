@@ -17,20 +17,11 @@ import Sync
 /// red if the line it names is deleted.
 @Suite struct EditorNewFilePaneWiringTests {
 
-    /// One member's body in a `MacApp/` file: the shared ``declarationBody(of:in:sourceLocation:)``
-    /// (brace-matched, comment-stripped, unique or it fails) read as ``CodeText``, so every check
-    /// on it is whitespace-insensitive. The Edit suites all slice through here.
-    static func body(of declaration: String, in file: String,
-                     sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
-        CodeText(try declarationBody(of: declaration, in: try macAppFile(file),
-                                     sourceLocation: sourceLocation))
-    }
-
     /// ⌘N re-reads and selects in the pane, not only the rail. The rail refresh stays: collapsed,
     /// the rail is the list.
     @Test func creatingAFileShowsItInThePaneAsWellAsTheRail() throws {
-        let body = try Self.body(of: "func createTextFile(named name: String) -> Bool {",
-                                 in: "ContentView+Editor.swift")
+        let body = try memberBody("func createTextFile(named name: String) -> Bool {",
+                                  inFile: "ContentView+Editor.swift")
         let load = try #require(body.range(of: "loadIntoEditor(path: path)"),
                                 "createTextFile no longer opens the file — this slice is not the member it claims to be")
         let pane = try #require(body.range(of: "showCreatedFileInPane(path)"),
@@ -48,12 +39,11 @@ import Sync
     /// compared only in Compare, not a whole-cache drop and a `.both` refresh with a full
     /// comparison scan on every ⌘N and export.
     @Test func theReReadIsTargetedAtThePaneThatShowsTheFile() throws {
-        let show = try Self.body(of: "func showCreatedFileInPane(_ path: String) {",
-                                 in: "ContentView+Editor.swift")
+        let show = try memberBody("func showCreatedFileInPane(_ path: String) {", inFile: "ContentView+Editor.swift")
         #expect(show.contains("rereadPanesAfterEditorWrite(path)"),
                 "⌘N no longer re-reads the pane — the new file is not listed")
-        let body = try Self.body(of: "func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
-                                 in: "ContentView+Editor.swift")
+        let body = try memberBody("func rereadPanesAfterEditorWrite(_ path: String, writer: String = \"Edit wrote\", comparesInCompare: Bool = true) {",
+                                  inFile: "ContentView+Editor.swift")
         let prepare = try #require(body.range(of: "syncManager.prepareReread(afterWritingAt: path)"),
                                    "the cache is not dropped — the re-read is served the pre-create walk")
         // Outside Compare the reload without its comparison; in Compare the write is paid at once,
@@ -145,7 +135,7 @@ import Sync
     /// Export as PDF adds a file to the folder too, so it re-reads the pane like ⌘N, or with the
     /// pane open the exported PDF wouldn't be listed.
     @Test func exportingAPDFReReadsThePaneToo() throws {
-        let body = try Self.body(of: "func exportEditorDocumentAsPDF() {", in: "EditorPrinting.swift")
+        let body = try memberBody("func exportEditorDocumentAsPDF() {", inFile: "EditorPrinting.swift")
         let write = try #require(body.range(of: "try EditorFileStore.write(data, toPath: url.path)"),
                                  "the export no longer writes — this slice is not the member it claims to be")
         let reread = try #require(body.range(of: "rereadPanesAfterEditorWrite(url.path)"),
@@ -157,8 +147,8 @@ import Sync
     /// through `openInEditor`, a no-op here only because its first guard returns for the path
     /// already open. Pinned so that guard can't be loosened without this going red.
     @Test func selectingTheOpenDocumentDoesNotOpenItAgain() throws {
-        let body = try Self.body(of: "func openInEditor(path: String, selectsInPane: Bool = false) {",
-                                 in: "ContentView+Editor.swift")
+        let body = try memberBody("func openInEditor(path: String, selectsInPane: Bool = false) {",
+                                  inFile: "ContentView+Editor.swift")
         let guardLine = try #require(
             body.range(of: "guard EditorHandOffRun.opens("),
             "openInEditor no longer returns early for the open document — a ⌘N would open the file twice")

@@ -98,17 +98,14 @@ import Foundation
     /// must not hijack the preview. The one handler reads this from the layout; read wrong, the
     /// preview silently shows the wrong file.
     @Test func testTheTargetIsResolvedFromTheLayout() throws {
-        let search = try macAppFile("ContentView+PaneSearch.swift")
-        let start = try #require(search.range(of: "func paneQuickLook()"))
-        // Wide enough for the whole body, including its suspension guard: a window tighter than
-        // the body fails for the wrong reason.
-        let body = String(search[start.upperBound...].prefix(1_100))
+        let body = try memberBody("func paneQuickLook() -> KeyPress.Result {", inFile: "ContentView+PaneSearch.swift")
         #expect(body.contains("CurrentSelection.primaryPanePath"),
                 "the target is no longer resolved by the shared resolver")
         #expect(body.contains("singleSource: layoutMode == .singleSource"),
                 "a one-pane workspace can preview the hidden right pane's stale selection")
         #expect(body.contains("toggleQuickLook"))
-        #expect(body.contains("return .ignored"),
+        // The target's own `else`, not the suspension guard's `.ignored` above it.
+        #expect(body.contains("singleSource: layoutMode == .singleSource ) else { return .ignored }"),
                 "with nothing selected this must decline the key, not swallow it")
     }
 }

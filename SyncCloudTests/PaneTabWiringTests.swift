@@ -318,9 +318,6 @@ import Sync
                 "the sibling of the LEFT pane is the left pane — a mirrored open lands twice on the pane the user aimed at")
         #expect(PaneSideChoice.sibling(false) == true,
                 "the sibling of the RIGHT pane is the right pane — a mirrored open lands twice on the pane the user aimed at")
-        // Both directions, because a flip and a constant are told apart only by asking twice.
-        #expect(PaneSideChoice.sibling(PaneSideChoice.sibling(true)) == true,
-                "the flip does not come back — it is a constant, not a negation")
     }
 
     // MARK: Where the strip is mounted
@@ -368,20 +365,14 @@ import Sync
 
     // MARK: The Tab Bar switch
 
-    @Test func aSecondTabForcesTheTabBarSwitchOnAndFreezesIt() {
-        let forced = TabBarSwitch.resolve(hasSecondTab: true, preference: false) { _ in }
-        #expect(forced.isOn, "the switch reads OFF while a tab bar is on screen")
-        #expect(forced.isForced, "the switch could hide a strip whose tabs would be unreachable")
-    }
-
-    @Test func atOneTabTheSwitchIsThePreferenceAndIsLive() {
-        let off = TabBarSwitch.resolve(hasSecondTab: false, preference: false) { _ in }
-        #expect(!off.isOn)
-        #expect(!off.isForced)
-
-        let on = TabBarSwitch.resolve(hasSecondTab: false, preference: true) { _ in }
-        #expect(on.isOn)
-        #expect(!on.isForced)
+    /// A second tab forces the switch on and freezes it: off, it would read OFF over a strip on
+    /// screen, and live, it could hide tabs that would then be unreachable. At one tab it is the
+    /// preference, and live.
+    @Test(arguments: [(true, false, true, true), (false, false, false, false), (false, true, true, false)])
+    func theTabBarSwitchIsForcedOnlyByASecondTab(hasSecondTab: Bool, preference: Bool, isOn: Bool, isForced: Bool) {
+        let resolved = TabBarSwitch.resolve(hasSecondTab: hasSecondTab, preference: preference) { _ in }
+        #expect(resolved.isOn == isOn)
+        #expect(resolved.isForced == isForced)
     }
 
     /// The switch must ask the question the visibility rule answers, which covers both panes.
@@ -505,9 +496,7 @@ import Sync
         // The active chip's path is what Copy Path copies and what the tooltip shows, so the three
         // agree by construction (see `copyTabPath`). In Tree that means the clipboard carries the
         // scope, which is where selecting the tab lands you.
-        let liveInTree = PaneTabChips.items(list, liveProviderId: "iCloud", livePath: "Photos",
-                                            drawsColumns: false, source: { _ in self.iCloud })
-        #expect(liveInTree[0].fullPath.hasSuffix("/Photos"),
+        #expect(tree[0].fullPath.hasSuffix("/Photos"),
                 "Copy Path and the tooltip no longer agree with the chip's own label")
     }
 
@@ -559,21 +548,14 @@ import Sync
 
     // MARK: Whether a switch changes the source
 
-    @Test func aTabOnTheSameSourceWritesNoProviderId() {
-        #expect(PaneTabProviderSwitch.decide(arrived: "iCloud", current: "iCloud",
-                                             isAvailable: { _ in true }) == .keep)
-    }
-
-    @Test func aTabOnAnotherAvailableSourceIsAdopted() {
-        #expect(PaneTabProviderSwitch.decide(arrived: "Dropbox", current: "iCloud",
-                                             isAvailable: { _ in true }) == .adopt("Dropbox"))
-    }
-
-    /// The invisible one: a tab whose source has been removed must not have its folder rendered
-    /// under whatever source the pane happens to be showing.
-    @Test func aTabOnASourceThatIsGoneIsRefusedRatherThanReinterpreted() {
-        #expect(PaneTabProviderSwitch.decide(arrived: "Dropbox", current: "iCloud",
-                                             isAvailable: { _ in false }) == .unavailable("Dropbox"))
+    /// The same source writes no provider id; another available one is adopted. The invisible
+    /// one: a tab whose source has been removed must not have its folder rendered under whatever
+    /// source the pane happens to be showing.
+    @Test(arguments: [("iCloud", true, PaneTabProviderSwitch.keep), ("Dropbox", true, .adopt("Dropbox")),
+                      ("Dropbox", false, .unavailable("Dropbox"))])
+    func aTabsSourceIsKeptAdoptedOrRefused(arrived: String, isAvailable: Bool, expected: PaneTabProviderSwitch) {
+        #expect(PaneTabProviderSwitch.decide(arrived: arrived, current: "iCloud",
+                                             isAvailable: { _ in isAvailable }) == expected)
     }
 
     /// …and the call site acts on it. The verb has already applied the tab, so only logging would
@@ -1021,9 +1003,7 @@ import Sync
 
         // Which host files wire into the tabs file at all. Walked recursively, so a `MacApp/Tabs/`
         // folder would be seen.
-        let macApp = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
+        let macApp = macAppDirectory()
         let hostFiles = Self.swiftFiles(under: macApp)
         #expect(hostFiles.count > 20,
                 "the host walk found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
@@ -1309,9 +1289,7 @@ import Sync
     /// is used app-wide (`CompareReviewReducer`, `DuplicateReviewCoordinator`), so the whole of
     /// `MacApp/**` is walked and the known users must be in the derived set.
     @Test func everyPaneSideChoiceCallNarrowsAMatchedPair() throws {
-        let macApp = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
+        let macApp = macAppDirectory()
         let hostFiles = Self.swiftFiles(under: macApp)
         #expect(hostFiles.count > 20,
                 "the host walk found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")
@@ -1431,10 +1409,7 @@ import Sync
                                        in: macAppFile("ContentView+PaneTabs.swift"))
         #expect(body.contains("refreshForTabSwitch(movedPane: isLeft)"),
                 "a tab switch never reloads — a source change would keep the previous tab's tree")
-        let sync = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift"),
-                              encoding: .utf8)
+        let sync = try repoFile("Modules/Sync/Sources/Sync/FileSyncManager+PaneTabs.swift")
         // Sliced on the prefix, not the whole signature, so a growing parameter list doesn't
         // report "applyTab is gone" for a member that is right there.
         let apply = try declarationBody(of: "public func applyTab(_ tab: PaneTab, isLeft: Bool", in: sync)
@@ -1568,28 +1543,16 @@ import Sync
 
     // MARK: The seam
 
-    /// The seam's ⇄ / 🔗 capsule is drawn on top of the strip, and it lands on the left pane's ＋.
-    @Test func theStripGivesUpTheEdgeTheSeamControlsSitOn() {
-        #expect(PaneTabSeam.inset(isCompare: true, isLeft: true, leading: false) == PaneTabSeam.reserve,
-                "the left pane's ＋ stays under the seam controls")
-        #expect(PaneTabSeam.inset(isCompare: true, isLeft: false, leading: true) == PaneTabSeam.reserve,
-                "the right pane's first chip stays under the seam controls")
-    }
-
-    /// …and only that edge. The other three would be track given up for nothing.
-    @Test func noOtherEdgeGivesUpTrack() {
-        #expect(PaneTabSeam.inset(isCompare: true, isLeft: true, leading: true) == 0)
-        #expect(PaneTabSeam.inset(isCompare: true, isLeft: false, leading: false) == 0)
-    }
-
-    /// Browse and the Organize/Storage rail have no seam — one pane, nothing straddling anything.
-    @Test func aSinglePaneWorkspaceKeepsItsWholeStrip() {
-        for isLeft in [true, false] {
-            for leading in [true, false] {
-                #expect(PaneTabSeam.inset(isCompare: false, isLeft: isLeft, leading: leading) == 0,
-                        "a single-pane workspace lost strip track to a seam it does not have")
-            }
-        }
+    /// The seam's ⇄ / 🔗 capsule is drawn on top of the strip, over the left pane's ＋ and the
+    /// right pane's first chip, so those two edges give it up, and only in Compare: any other edge
+    /// would be track given up for nothing, and Browse and the rail have no seam.
+    @Test(arguments: [true, false], [true, false])
+    func theStripGivesUpOnlyTheEdgeTheSeamControlsSitOn(isLeft: Bool, leading: Bool) {
+        let underTheSeam = isLeft != leading
+        #expect(PaneTabSeam.inset(isCompare: true, isLeft: isLeft, leading: leading)
+                == (underTheSeam ? PaneTabSeam.reserve : 0), "isLeft \(isLeft), leading \(leading)")
+        #expect(PaneTabSeam.inset(isCompare: false, isLeft: isLeft, leading: leading) == 0,
+                "a single-pane workspace lost strip track to a seam it does not have")
     }
 
     /// The call-site half: the pane column asks the rule rather than spelling a number.
@@ -1754,10 +1717,7 @@ import Sync
     /// below the rows, which a full column doesn't have. The bar itself is untouched: no glyph, no
     /// `PaneBarItem`, nothing in the customize sheet.
     @Test func theHeaderCardsMenuOffersANewTab() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
-        let header = try String(contentsOf: url, encoding: .utf8)
+        let header = try repoFile("Modules/Dashboard/Sources/Dashboard/DashboardViews.swift")
         let menu = try declarationBody(of: "private func barContextMenu() -> some View {", in: header)
         #expect(menu.contains("Button(\"New Tab\")"), "the header card's menu has no New Tab")
         #expect(menu.contains("Button(\"Close Tab\")"), "the header card's menu has no Close Tab")
@@ -2448,45 +2408,21 @@ import Sync
         #expect(items[1].title == "My Drive — Google Drive (EMP)")
     }
 
-    /// A strip with no collision is left exactly as it was: the rule is "qualify where it
-    /// separates", not "qualify always". Width is the strip's scarcest resource (the ladder folds
-    /// chips away when it runs out), so a needless "— iCloud Drive" costs a chip somewhere else.
-    @Test func chipsThatAlreadyReadDifferentlyAreUntouched() {
-        let items = PaneTabChips.items(list(["Finance", "Photos"], selected: 0),
-                                       liveProviderId: "iCloud", livePath: "Finance",
+    /// One source: chips that already read differently are left as they were (width is the
+    /// strip's scarcest resource, so a needless "— iCloud Drive" costs a chip somewhere else); two
+    /// folders sharing a leaf name take their parent; a duplicated tab or two root chips are the
+    /// same folder, so nothing separates them and they are left alone (no `iCloud Drive — iCloud
+    /// Drive`).
+    @Test(arguments: [
+        (["Finance", "Photos"], ["Finance", "Photos"]),
+        (["2026/Statements", "2025/Statements"], ["Statements — 2026", "Statements — 2025"]),
+        (["2026/Statements", "2026/Statements"], ["Statements", "Statements"]),
+        (["", ""], ["iCloud Drive", "iCloud Drive"]),
+    ])
+    func chipsOnOneSourceAreQualifiedOnlyWhereThatSeparatesThem(paths: [String], titles: [String]) {
+        let items = PaneTabChips.items(list(paths, selected: 0), liveProviderId: "iCloud", livePath: paths[0],
                                        drawsColumns: true, source: { _ in self.iCloud })
-        #expect(items.map(\.title) == ["Finance", "Photos"])
-    }
-
-    /// One source, two folders sharing a leaf name: the parent is the smallest thing that separates
-    /// them, and the source name would not (it is the same source).
-    @Test func twoFoldersOnOneSourceSharingALeafNameAreQualifiedByTheirParent() {
-        let items = PaneTabChips.items(
-            list(["2026/Statements", "2025/Statements"], selected: 0),
-            liveProviderId: "iCloud", livePath: "2026/Statements",
-            drawsColumns: true, source: { _ in self.iCloud })
-        #expect(items.map(\.title) == ["Statements — 2026", "Statements — 2025"])
-    }
-
-    /// A duplicated tab is not a collision, and must not grow two identical suffixes. Same source,
-    /// same path: the chips are the same folder, so no qualifier separates them and both are left
-    /// alone, not `Statements — 2026 · Statements — 2026`.
-    @Test func aDuplicatedTabIsLeftAloneBecauseNothingSeparatesIt() {
-        let items = PaneTabChips.items(
-            list(["2026/Statements", "2026/Statements"], selected: 0),
-            liveProviderId: "iCloud", livePath: "2026/Statements",
-            drawsColumns: true, source: { _ in self.iCloud })
-        #expect(items.map(\.title) == ["Statements", "Statements"])
-    }
-
-    /// A root chip already wears its source's name, so qualifying it with that same name would read
-    /// `iCloud Drive — iCloud Drive`. The parent qualifier has nothing to offer at a root either, so
-    /// the pair is left alone — which is honest: two tabs at one source's root are the same folder.
-    @Test func rootChipsOnOneSourceAreNotQualifiedWithTheNameTheyAlreadyWear() {
-        let items = PaneTabChips.items(list(["", ""], selected: 0),
-                                       liveProviderId: "iCloud", livePath: "",
-                                       drawsColumns: true, source: { _ in self.iCloud })
-        #expect(items.map(\.title) == ["iCloud Drive", "iCloud Drive"])
+        #expect(items.map(\.title) == titles)
     }
 
     /// One setting, every way of walking into a folder. The mirror predicate is the same expression
@@ -2518,9 +2454,8 @@ import Sync
     /// the one that declares the door, named rather than pattern-matched. Test sources are out of
     /// scope: `SwapPanesTests` sets the property directly as a fixture.
     @Test func theHostWritesTheFocusedPaneSideOnlyThroughTheManagersDoor() throws {
-        let repo = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let macApp = repo.appendingPathComponent("MacApp")
+        let macApp = macAppDirectory()
+        let repo = macApp.deletingLastPathComponent()
         let hostFiles = PaneTabWiringTests.swiftFiles(under: macApp)
         #expect(hostFiles.count > 20,
                 "the host scan found \(hostFiles.count) Swift files — it is reading the wrong folder, or the enumerator yielded nothing")

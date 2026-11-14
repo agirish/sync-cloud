@@ -115,35 +115,32 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         CloudProvider(id: id, displayName: id, imageName: "icloud", rootPath: path, type: .iCloud)
     }
 
-    @Test func testUnrelatedProviderChangeDoesNotRequirePaneRefresh() {
-        // Toggling or re-pathing a provider neither pane shows must not rescan, or both panes
-        // would show spinners on an unrelated edit.
-        let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b"), provider("OneDrive", path: "/c")]
-        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
-
-        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == nil)
+    /// Which pane a Settings edit tears down: a side, not a Bool, because the caller spends it on
+    /// `invalidateComparisonState(reloading:)` and the rescan, and `true` would tear down a pane
+    /// whose root never moved.
+    @Test(arguments: [
+        // A provider neither pane shows: no rescan, or both panes spin on an unrelated edit.
+        ([("iCloud", "/a"), ("Dropbox", "/b"), ("OneDrive", "/c")], [("iCloud", "/a"), ("Dropbox", "/b")],
+         "iCloud", "Dropbox", nil),
+        // One pane's Location edited, and its mirror, so the polarity is measured.
+        ([("iCloud", "/a"), ("Dropbox", "/b")], [("iCloud", "/a"), ("Dropbox", "/elsewhere")],
+         "iCloud", "Dropbox", .rightOnly),
+        ([("iCloud", "/a"), ("Dropbox", "/b")], [("iCloud", "/a"), ("Dropbox", "/elsewhere")],
+         "Dropbox", "iCloud", .leftOnly),
+        // Both panes on one source: one Location edit moves both roots.
+        ([("iCloud", "/a")], [("iCloud", "/elsewhere")], "iCloud", "iCloud", .both),
+        // A pane's provider just enabled must load it.
+        ([("iCloud", "/a")], [("iCloud", "/a"), ("Dropbox", "/b")], "iCloud", "Dropbox", .rightOnly),
+    ] as [RootEdit])
+    func testAnEditTearsDownOnlyThePanesWhoseRootMoved(_ edit: RootEdit) {
+        #expect(ContentView.paneRootEdits(old: edit.old.map { provider($0.0, path: $0.1) },
+                                          new: edit.new.map { provider($0.0, path: $0.1) },
+                                          leftId: edit.left, rightId: edit.right) == edit.expected)
     }
 
-    /// Editing one pane's Location scopes the teardown to that pane. The answer is a side, not a
-    /// Bool, because the caller spends it on `invalidateComparisonState(reloading:)` and on the
-    /// rescan; a plain `true` would tear down the other pane too, for a root that hadn't moved.
-    @Test func testPaneProviderPathEditRequiresPaneRefresh() {
-        let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
-        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/elsewhere")]
-
-        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == .rightOnly)
-        // The mirror, so the polarity is measured rather than assumed.
-        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "Dropbox", rightId: "iCloud") == .leftOnly)
-    }
-
-    /// Both panes on one source is an ordinary configuration, and then one Location edit really
-    /// does move both roots.
-    @Test func testAPathEditUnderBothPanesRequiresBoth() {
-        let old = [provider("iCloud", path: "/a")]
-        let new = [provider("iCloud", path: "/elsewhere")]
-
-        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "iCloud") == .both)
-    }
+    /// `(id, root)` providers before and after, the panes' ids, and the side that must reload.
+    typealias RootEdit = (old: [(String, String)], new: [(String, String)], left: String, right: String,
+                          expected: FileSyncManager.PaneReloadScope?)
 
     @Test func testPaneProviderRenameIsANoOpForPaneRefresh() {
         // Renaming a provider in Settings (setCustomName) changes only displayName, which must
@@ -156,14 +153,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         ]
 
         #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == nil)
-    }
-
-    @Test func testPaneProviderAppearingOrVanishingRequiresPaneRefresh() {
-        let old = [provider("iCloud", path: "/a")]
-        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
-
-        // A pane pointing at a provider that just became enabled must load it.
-        #expect(ContentView.paneRootEdits(old: old, new: new, leftId: "iCloud", rightId: "Dropbox") == .rightOnly)
     }
 
     // MARK: Collision prompt wording (file vs. folder, and where-from/where-to)
@@ -416,93 +405,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
     // MARK: The pane-bar migration's launch line
 
-    /// Swift source with its comments removed, for the call-site scans below. Trailing and block
-    /// comments go too: a scan's positive control is a `contains`, which a commented-out call
-    /// would otherwise satisfy with the real call deleted.
-    ///
-    /// A character scanner, not a regex, so a `//` inside a string literal (`"https://…"`) is
-    /// kept. Escapes are honoured, and block comments nest, as in Swift.
-    ///
-    /// Not handled: multiline (`"""`) and raw (`#"`) string literals.
-    /// `theCommentStripperHandlesTheFormsTheScannedFileUses` asserts the scanned file has neither.
-    static func strippingComments(_ source: String) -> String {
-        var out = ""
-        var inString = false
-        var inLine = false
-        var blockDepth = 0
-        var escaped = false
-        var i = source.startIndex
-        func peek(_ offset: Int) -> Character? {
-            source.index(i, offsetBy: offset, limitedBy: source.index(before: source.endIndex))
-                .map { source[$0] }
-        }
-        while i < source.endIndex {
-            let c = source[i]
-            if inLine {
-                if c == "\n" { inLine = false; out.append(c) }
-            } else if blockDepth > 0 {
-                if c == "/", peek(1) == "*" { blockDepth += 1; i = source.index(i, offsetBy: 2); continue }
-                if c == "*", peek(1) == "/" { blockDepth -= 1; i = source.index(i, offsetBy: 2); continue }
-                // Newlines survive so line-oriented positions downstream stay sane.
-                if c == "\n" { out.append(c) }
-            } else if inString {
-                out.append(c)
-                if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
-            } else if c == "\"" {
-                inString = true; escaped = false; out.append(c)
-            } else if c == "/", peek(1) == "/" {
-                inLine = true; i = source.index(i, offsetBy: 2); continue
-            } else if c == "/", peek(1) == "*" {
-                blockDepth = 1; i = source.index(i, offsetBy: 2); continue
-            } else {
-                out.append(c)
-            }
-            i = source.index(after: i)
-        }
-        return out
-    }
-
-    /// The stripper's own proof, and the guard on its stated limits. Both directions: trailing and
-    /// block comments must go, or a deleted call keeps answering a `contains`; and real code must
-    /// stay, as in the URL case, or the same scans fail from the other side.
-    @Test func theCommentStripperHandlesTheFormsTheScannedFileUses() throws {
-        let stripped = Self.strippingComments("""
-        let a = 1 // PaneBarMigration.migrationMessage(
-        // whole line
-        /* block PaneBarMigration.migrationMessage( */ let b = 2
-        /* outer /* nested */ still comment */ let c = 3
-        let url = "https://example.com/x" // tail
-        let quoted = "a \\" // not a comment" + "b"
-        real()
-        """)
-        #expect(!stripped.contains("PaneBarMigration.migrationMessage("),
-                "a commented-out call survived the stripper, so a scan's positive control can be satisfied by a comment")
-        #expect(!stripped.contains("whole line"))
-        #expect(!stripped.contains("still comment"), "nested block comments are not closed correctly")
-        #expect(!stripped.contains("tail"))
-        // …and it did not eat real code, which a stripper that deleted everything would pass above.
-        #expect(stripped.contains("let a = 1"))
-        #expect(stripped.contains("let b = 2"))
-        #expect(stripped.contains("let c = 3"))
-        #expect(stripped.contains("\"https://example.com/x\""),
-                "the stripper treated a URL's // as a comment and ate the rest of the line")
-        #expect(stripped.contains("\"a \\\" // not a comment\""),
-                "the stripper does not honour escapes inside string literals")
-        #expect(stripped.contains("real()"))
-
-        // The stated limit, asserted: the scanned file uses neither form. If one appears, this
-        // fails instead of the stripper silently mis-parsing the rest of the file.
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read MacApp/SyncCloudApp.swift")
-        #expect(!raw.contains("\"\"\""),
-                "SyncCloudApp.swift now has a multiline string literal, which strippingComments does not parse")
-        #expect(!raw.contains("#\""),
-                "SyncCloudApp.swift now has a raw string literal, which strippingComments does not parse")
-    }
-
     /// The line this launch writes must be the migration's own answer, not a literal naming a
     /// control, which would go false as soon as a second migration step shipped.
     ///
@@ -510,12 +412,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     /// `PaneBarMigrationTests.theLaunchLineNamesEveryControlTheMigrationActuallyAdded` owns the
     /// wording; this pins that the app asks for it. Read off comment-stripped source.
     @Test func testTheLaunchNamesWhatThePaneBarMigrationActuallyAdded() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read MacApp/SyncCloudApp.swift")
-        let source = Self.strippingComments(raw)
+        let source = try macAppCode("SyncCloudApp.swift")
         // The positive control: the right file, and the migration still runs at launch, so the
         // absence below means something.
         #expect(source.contains("PaneBarMigration.apply(defaults: .standard)"),
@@ -538,25 +435,15 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     /// host's launch is not the app's. `PaneBarMigrationTests.testTheMigrationItselfWritesNoReachReport`
     /// owns the other end, so a report that runs twice per launch and one that never runs both fail.
     @Test func testTheStoredPaneBarIsReportedOnceFromTheLaunchDelegate() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp/SyncCloudApp.swift")
-        let raw = try #require(try? String(contentsOf: url, encoding: .utf8),
-                               "cannot read MacApp/SyncCloudApp.swift")
-        let source = Self.strippingComments(raw)
+        let source = try macAppCode("SyncCloudApp.swift")
 
         let call = "PaneBarMigration.reportStoredArrangementReach(defaults: .standard)"
         let sites = source.components(separatedBy: call).count - 1
         let wrongCount = "the stored pane bar is reported \(sites) times in SyncCloudApp.swift; it "
             + "is a per-launch fact and belongs in exactly one place"
         #expect(sites == 1, "\(wrongCount)")
-        // …and that place is the delegate method that fires once, not `init`. The anchor is
-        // required first, or the check below would read an empty range. The method's nested blocks
-        // close deeper than four spaces, so the first `\n    }` is its own closing brace.
-        let delegate = try #require(source.range(of: "func applicationDidFinishLaunching("),
-                                    "applicationDidFinishLaunching is gone or renamed — this scan is vacuous")
-        let tail = source[delegate.upperBound...]
-        let body = tail[..<(tail.range(of: "\n    }")?.upperBound ?? tail.endIndex)]
+        // …and that place is the delegate method that fires once, not `init`.
+        let body = try declarationBody(of: "func applicationDidFinishLaunching(", in: source)
         // The positive control: the launch breadcrumb is in that method, so a scan reading the
         // wrong region fails here.
         let wrongRegion = "the launch breadcrumb is not in this range — the scan is reading a "

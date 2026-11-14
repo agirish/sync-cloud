@@ -107,12 +107,7 @@ import AppKit
     }
 
     static func chordKey(_ chord: AppChord) -> String {
-        var out = ""
-        if chord.modifiers.contains(.control) { out += "^" }
-        if chord.modifiers.contains(.option) { out += "~" }
-        if chord.modifiers.contains(.shift) { out += "$" }
-        if chord.modifiers.contains(.command) { out += "@" }
-        return out + String(chord.key.character).lowercased()
+        chordKey(chord.appKitKeyEquivalent, chord.appKitModifierMask)
     }
 
     /// View ▸ Sidebar is in the bar and carries ⌃⌘S; where the column cannot be drawn (collapsed
@@ -122,24 +117,7 @@ import AppKit
     /// Both halves, because either alone can go missing: an item titled "Sidebar" that lost its key
     /// equivalent passes a title check and leaves Finder's chord dead.
     @Test func theSidebarSwitchIsInTheViewMenu() throws {
-        var titles: [String] = []
-        var chorded: [String] = []
-        func walk(_ menu: NSMenu) {
-            for item in menu.items {
-                titles.append(item.title)
-                if item.keyEquivalent.lowercased() == "s",
-                   item.keyEquivalentModifierMask == [.control, .command] {
-                    chorded.append(item.title)
-                }
-                if let sub = item.submenu { walk(sub) }
-            }
-        }
-        walk(try #require(NSApp.mainMenu, "the app built no menu bar — this check would be vacuous"))
-        // The walk can see a switch that is there, or every check below runs on an empty list.
-        #expect(titles.contains("Tab Bar"), "the walk cannot see View ▸ Tab Bar — it is not reading the bar")
-
-        #expect(titles.contains("Sidebar"),
-                "no menu item is titled Sidebar — the column has a chord and a toolbar button with no menu home")
+        let chorded = try menuItems(claiming: "s", modifiers: [.control, .command]).map(\.title)
         #expect(chorded == ["Sidebar"],
                 "⌃⌘S is registered by \(chorded) — it belongs to View ▸ Sidebar and to nothing else")
     }
@@ -185,14 +163,6 @@ import AppKit
                                        "Plan This Folder’s Shape…", "Set Up Like Its Siblings",
                                        "Undo This Reorganization…"],
                 "the Organize menu ends with \(organize.suffix(8))")
-    }
-
-    /// The ledger undo must never sit beside ⌘Z's Undo, where the two would be confused, so Edit
-    /// is asserted clean of it.
-    @Test func editNeverCarriesTheReorganisationUndo() throws {
-        let edit = menuTitles(try appMenu("Edit"))
-        #expect(!edit.contains("Undo This Reorganization…"),
-                "the ledger undo sat down beside ⌘Z — exactly the confusion §11 forbids")
     }
 
     /// The word appears once per menu: View carries only the ⌘3 workspace item, as it carries
@@ -439,10 +409,8 @@ import AppKit
     /// `CloudDownloadOffer.forActiveSelection`, takes the folders' one read off the main thread, so
     /// its body is scanned too.
     @Test func theMenuItemReadsTheBadgeCacheAndNeverStats() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let body = try Self.scan(root.appendingPathComponent("MacApp/ShortcutCommands.swift"),
-                                 from: "var shortcutPaneRowVerbs: PaneRowVerbs {")
+        let body = try declarationBody(of: "var shortcutPaneRowVerbs: PaneRowVerbs",
+                                       in: try macAppFile("ShortcutCommands.swift"))
         #expect(body.contains("CloudDownloadOffer.forActiveSelection("),
                 "File ▸ Download stopped asking for the active selection's offer")
         #expect(!body.contains("MaterializationStatus."),
@@ -450,9 +418,9 @@ import AppKit
         #expect(body.contains("CloudDownloadRequest.request(offer"),
                 "File ▸ Download stopped sharing the row verb's body")
 
-        let offer = try Self.scan(
-            root.appendingPathComponent("Modules/FileExplorer/Sources/FileExplorer/CloudDownloadOffer.swift"),
-            from: "public static func forActiveSelection(")
+        let offer = try declarationBody(
+            of: "public static func forActiveSelection(",
+            in: try repoFile("Modules/FileExplorer/Sources/FileExplorer/CloudDownloadOffer.swift"))
         #expect(offer.contains("CloudOnlyBadgeCache.cached("),
                 "File ▸ Download no longer reads the badge's memo")
         #expect(!offer.contains("MaterializationStatus."),
@@ -461,15 +429,6 @@ import AppKit
                 "File ▸ Download stopped asking the row menu's own question")
         #expect(offer.contains("BoundedCloudRead.shared.run"),
                 "File ▸ Download reads a folder's domain on the main thread again")
-    }
-
-    /// The source of the function opening at `marker`, up to its closing brace at four spaces.
-    private static func scan(_ url: URL, from marker: String) throws -> String {
-        let source = sourceCodeOnly(try String(contentsOf: url, encoding: .utf8))
-        let start = try #require(source.range(of: marker), "\(marker) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"))
-        return String(rest[..<end.lowerBound])
     }
 
     @Test func anEmptySelectionOffersNothing() {

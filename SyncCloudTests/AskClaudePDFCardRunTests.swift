@@ -42,7 +42,7 @@ import Sync
 
     private func cards(_ chat: AskClaudeChat, _ sync: FileSyncManager, _ window: Window) -> AskClaudePDFCards {
         var cards = AskClaudePDFCards(
-            askClaudeChat: chat, panePDFTools: PanePDFTools(), paneSaveAsPDF: PaneSaveAsPDF(), editorPDF: EditorPDFDocument(),
+            askClaudeChat: chat, panePDFTools: PanePDFTools(), paneSaveAsPDF: PaneSaveAsPDF(), editorPDF: EditorPDFDocument(defaults: ScratchDefaults("AskClaudePDFCardRunTests.pdf")),
             syncManager: sync, fontScale: { 1 }, hue: { .blue }, lockReason: { nil }, refuse: { false }, isHidden: { _ in false },
             reread: { window.rereads.append(($0, $1)) }, handOff: { _ in }, reveal: { _, _, _ in }, download: { _ in })
         let trash = trashFolder
@@ -66,10 +66,24 @@ import Sync
         if waiting { await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning } }
     }
 
-    private func onlyCard(_ chat: AskClaudeChat) throws -> (id: UUID, card: AskClaudePDFCard) {
+    /// Asks `question` about `path` with `cards` reading what Claude offers, and returns the one
+    /// card once it has read its file.
+    private func offered(_ chat: AskClaudeChat, _ cards: AskClaudePDFCards, _ question: String, about path: String,
+                         sourceLocation: SourceLocation = #_sourceLocation) async throws -> UUID {
+        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
+        await ask(chat, question, about: path)
+        let (id, _) = try onlyCard(chat, sourceLocation: sourceLocation)
+        await waitUntil("the card reads its file", timeout: 30, sourceLocation: sourceLocation) {
+            chat.pdfCard(id)?.state == .offered
+        }
+        return id
+    }
+
+    private func onlyCard(_ chat: AskClaudeChat,
+                          sourceLocation: SourceLocation = #_sourceLocation) throws -> (id: UUID, card: AskClaudePDFCard) {
         let found = allCards(chat)
-        #expect(found.count == 1, "cards: \(found.map(\.1.title))")
-        return try #require(found.first)
+        #expect(found.count == 1, "cards: \(found.map(\.1.title))", sourceLocation: sourceLocation)
+        return try #require(found.first, sourceLocation: sourceLocation)
     }
 
     private func allCards(_ chat: AskClaudeChat) -> [(UUID, AskClaudePDFCard)] {
@@ -108,15 +122,12 @@ import Sync
         sync.undoManager = undo
         let window = Window()
         let cards = cards(chat, sync, window)
-        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
-        await ask(chat, "delete the first page of the statement", about: statement)
-        let (id, _) = try onlyCard(chat)
-        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
-        let offered = try #require(chat.pdfCard(id))
-        #expect(offered.rows.first?.pageCount == 3)
-        #expect(offered.rows.first?.stamp != nil)
-        #expect(offered.pagesProblem == nil)
+        let id = try await offered(chat, cards, "delete the first page of the statement", about: statement)
+        let card = try #require(chat.pdfCard(id))
+        #expect(card.rows.first?.pageCount == 3)
+        #expect(card.rows.first?.stamp != nil)
+        #expect(card.pagesProblem == nil)
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder).sorted() == ["Statement.pdf", "Trash"],
                 "something was written before the click")
 
@@ -156,11 +167,8 @@ import Sync
         let undo = undoStack()
         sync.undoManager = undo
         let cards = cards(chat, sync, Window())
-        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
-        await ask(chat, "take pages 2 and 3 out", about: statement)
-        let (id, _) = try onlyCard(chat)
-        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+        let id = try await offered(chat, cards, "take pages 2 and 3 out", about: statement)
         undo.beginUndoGrouping()
         cards.askClaudePDFRun(id, password: nil)
         await waitUntil("the run ends", timeout: 60) { chat.pdfCard(id)?.state == .done }
@@ -181,11 +189,8 @@ import Sync
         let statement = blankPDF("Statement.pdf", pages: 3, in: folder)
         let chat = chat("changed", calling: #"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"2\"}"#)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
-        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
-        await ask(chat, "delete page 2", about: statement)
-        let (id, _) = try onlyCard(chat)
-        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+        let id = try await offered(chat, cards, "delete page 2", about: statement)
         _ = blankPDF("Statement.pdf", pages: 4, in: folder)
         cards.askClaudePDFRun(id, password: nil)
         #expect(chat.pdfCard(id)?.message == "A file changed since the card was made. Check it and click again.")
@@ -241,11 +246,8 @@ import Sync
         let transport = PDFCallTransport(inputs: [#"{\"action\":\"delete_pages\",\"handles\":[\"r1\"],\"pages\":\"1\"}"#], holding: 3)
         let chat = chat("answering", transport: transport)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
-        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
 
-        await ask(chat, "delete the first page", about: statement)
-        let (id, _) = try onlyCard(chat)
-        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+        let id = try await offered(chat, cards, "delete the first page", about: statement)
 
         await ask(chat, "and how big is it?", about: statement, waiting: false)
         await waitUntil("Claude is answering") { chat.isRunning }
@@ -316,13 +318,10 @@ import Sync
         let chat = chat("protect", transport: PDFCallTransport(inputs: [#"{\"action\":\"protect\",\"handles\":[\"r1\"]}"#]),
                         store: store)
         let cards = cards(chat, FileSyncManager.scratch(), Window())
-        chat.pdfCardOffered = { cards.askClaudePDFRead($0) }
         let log = LogCapture()
         let secret = "card-secret-\(UUID().uuidString)"
 
-        await ask(chat, "put a password on the notice", about: notice)
-        let (id, _) = try onlyCard(chat)
-        await waitUntil("the card reads its file", timeout: 30) { chat.pdfCard(id)?.state == .offered }
+        let id = try await offered(chat, cards, "put a password on the notice", about: notice)
         cards.askClaudePDFRun(id, password: EditorPDFSecret(secret))
         await waitUntil("the run ends", timeout: 60) { finished(chat, id) }
         let written = try #require(chat.pdfCard(id)?.written.first?.path, "\(String(describing: chat.pdfCard(id)))")

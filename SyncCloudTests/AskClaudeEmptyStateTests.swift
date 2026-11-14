@@ -37,30 +37,6 @@ import Testing
 
     private func keyFields(in view: NSView) -> [NSSecureTextField] { views(NSSecureTextField.self, in: view) }
 
-    /// Clicks down the thread's left side, as a person would, until something is sent: the first
-    /// starter, since nothing above it sends. SwiftUI's bordered buttons are no `NSButton`s here,
-    /// so a click is the only way to find one. Stops above the composer, whose Send would send
-    /// the draft. Never run over the setup, whose Console link would open the browser.
-    private func clickFirstStarter(_ window: NSWindow, _ host: NSView, sent: () -> Bool) async -> Bool {
-        // Ordered in, never made key: a key window here takes key from other suites' panels,
-        // and ⌘K's palette closes when it loses key (`CommandPalettePanelTests`).
-        window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
-        for y in stride(from: 60.0, through: 320.0, by: 4) {
-            let point = NSPoint(x: 60, y: host.bounds.height - y)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                                                     timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: window.windowNumber, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                window.sendEvent(event)
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-            if sent() { return true }
-        }
-        return false
-    }
-
     /// Lets the panel's appear and its notification land, then lays it out again.
     private func settle(_ host: NSView) async {
         for _ in 0..<10 {
@@ -69,25 +45,11 @@ import Testing
         }
     }
 
-    /// Clicks down the panel at `x` from just under the header until `done`, or past `limit`;
-    /// the distance from the top where it happened.
-    private func clickDown(_ window: NSWindow, _ host: NSView, x: CGFloat, limit: CGFloat = 320,
-                           done: () -> Bool) async -> CGFloat? {
-        window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
-        for y in stride(from: 60.0, through: limit, by: 3) {
-            let point = NSPoint(x: x, y: host.bounds.height - y)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                                                     timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: window.windowNumber, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                window.sendEvent(event)
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-            if done() { return y }
-        }
-        return nil
+    /// Clicks down the thread's left side until something is sent: the first starter, since nothing
+    /// above it sends. Stops above the composer, whose Send would send the draft. Never run over
+    /// the setup, whose Console link would open the browser.
+    private func clickFirstStarter(_ window: NSWindow, _ host: NSView, sent: () -> Bool) async -> Bool {
+        await clickDown(window, host, x: 60, done: sent) != nil
     }
 
     /// How far down the first starter sits in a new chat on `defaults`.
@@ -122,15 +84,6 @@ import Testing
         #expect(hiddenDepth + 40 < shownDepth, "the starters didn't move up: \(hiddenDepth) vs \(shownDepth)")
     }
 
-    @Test func withNoKeyTheEmptyPanelSetsUpWithTheKeyCard() async throws {
-        let (window, host) = host(KeyState(false))
-        await settle(host)
-        #expect(keyFields(in: host).count == 1, "the setup's API key field")
-        // The box stays usable: its own field is still there beside the key's.
-        #expect(views(NSTextField.self, in: host).contains { !($0 is NSSecureTextField) && $0.isEditable })
-        _ = window
-    }
-
     /// A save macOS refuses keeps the setup up and says why on its card. The key typed goes to
     /// the save and nowhere else. The panel's height is the test host's saved one, so the reason
     /// is found by drawing: before typing and after the save, with the caret in the field both
@@ -162,14 +115,17 @@ import Testing
         #expect(changed > 300, "no reason appeared on the card: \(changed) pixels changed")
     }
 
-    /// Saved anywhere (the setup's card, Settings), the Keychain announces it and the setup gives
-    /// way to the starters; a key removed brings it back.
+    /// With no key the empty panel sets up with the key card. Saved anywhere (the setup's card,
+    /// Settings), the Keychain announces it and the setup gives way to the starters; a key removed
+    /// brings it back.
     @Test func aKeySavedGivesWayToTheStartersAndOneRemovedBringsTheSetupBack() async throws {
         let key = KeyState(false)
         var asked: [String] = []
         let (window, host) = host(key, onAsk: { asked.append($0) })
         await settle(host)
-        try #require(keyFields(in: host).count == 1)
+        try #require(keyFields(in: host).count == 1, "the setup's API key field")
+        // The box stays usable: its own field is still there beside the key's.
+        #expect(views(NSTextField.self, in: host).contains { !($0 is NSSecureTextField) && $0.isEditable })
         key.saved = true
         NotificationCenter.default.post(name: AnthropicKeychain.didChange, object: nil)
         await settle(host)

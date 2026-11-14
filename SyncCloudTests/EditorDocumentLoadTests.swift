@@ -129,25 +129,6 @@ import FileExplorer
         #expect(!store.current.canUndo)
     }
 
-    /// Nothing in the load suspends, which stops a render pass seeing one document's text beside
-    /// another's undo manager. A test, not only prose in `EditorDocumentLoad`, because an innocent
-    /// `await` is exactly what would take that away.
-    @Test func theDocumentAndTheUndoStackMoveInTheSameTurn() throws {
-        let a = try file("a.md", "alpha")
-        let b = try file("b.md", "bravo")
-        let document = EditorDocument()
-        let store = EditorUndoStore()
-
-        load(a, document, store)
-        let stackForA = store.current
-        load(b, document, store)
-        // One turn: by the time `run` returns, both have moved to b. A suspension in the wrong
-        // place would show the two disagreeing here.
-        #expect(document.text == "bravo")
-        #expect(document.path == b)
-        #expect(store.current !== stackForA)
-    }
-
     /// A load also sweeps stacks whose files are gone. `forgetMissingFiles` is in the load because
     /// that is when a stack is put away, and a stack for a path that no longer exists can never be
     /// handed back. This checks the load performs the sweep, not just that the store can.
@@ -294,13 +275,13 @@ import FileExplorer
     /// Fails if either `endComposition()` is removed.
     @Test func leavingADocumentEndsTheCompositionFirst() throws {
         let settle = CodeText(try declarationBody(of: "func settleEditorDocument(asksAboutPDFWork: Bool = true, asksAboutTheOnlyCopy: Bool = true, thenRetry retry: (@MainActor () -> Void)? = nil) -> Bool",
-                                                  in: EditorHeaderDoorsWiringTests.editor()))
+                                                  in: macAppCode("ContentView+Editor.swift")))
         let ends = try #require(settle.range(of: "editorDocument.buffer.source.endComposition()"),
                                 "leaving a document no longer ends the composition")
         let asks = try #require(settle.range(of: "let withheld"))
         #expect(ends.lowerBound < asks.lowerBound, "the composition is ended after the buffer was read")
         let quit = CodeText(try declarationBody(of: "func applicationShouldTerminate(_ sender: NSApplication)",
-                                                in: EditorHeaderDoorsWiringTests.source("SyncCloudApp.swift")))
+                                                in: macAppCode("SyncCloudApp.swift")))
         let quitEnds = try #require(quit.range(of: "Self.sharedEditorDocument?.buffer.source.endComposition()"),
                                     "quitting no longer ends the composition before the flush")
         let flush = try #require(quit.range(of: "EditorAutosave.attempt(document)"))

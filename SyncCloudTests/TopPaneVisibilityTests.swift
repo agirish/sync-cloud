@@ -224,8 +224,11 @@ import FileExplorer
     @Test func testEncodingIsStableAcrossCalls() {
         // Sorted keys keep the persisted string identical for identical contents, so an
         // unchanged map doesn't churn @AppStorage.
-        let map: [String: Bool] = ["Storage": true, "Differences": false]
-        #expect(TopPaneVisibility.encodeOverrides(map) == TopPaneVisibility.encodeOverrides(map))
+        // Six keys, so an unsorted encoding matching this by chance is 1 in 720.
+        let map: [String: Bool] = ["Storage": true, "Differences": false, "Browse": true,
+                                   "Edit": false, "Activity": true, "Filing": false]
+        #expect(TopPaneVisibility.encodeOverrides(map)
+                == #"{"Activity":true,"Browse":true,"Differences":false,"Edit":false,"Filing":false,"Storage":true}"#)
     }
 
     @Test func testUnknownKeysAreIgnoredNotFatal() {

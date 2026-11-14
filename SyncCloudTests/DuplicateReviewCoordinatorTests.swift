@@ -173,12 +173,14 @@ private final class PermanentDeleteBox: @unchecked Sendable {
 /// runner.
 private final class GatedKeeperStat: FileManager, @unchecked Sendable {
     private let heldPath: String
+    private let trash: ScratchTrash
     private let lock = NSLock()
     private let released = DispatchSemaphore(value: 0)
     private var _isStatting = false
 
-    init(holding path: String) {
+    init(holding path: String, trash: URL) {
         self.heldPath = path
+        self.trash = ScratchTrash(folder: trash)
         super.init()
     }
 
@@ -191,6 +193,11 @@ private final class GatedKeeperStat: FileManager, @unchecked Sendable {
 
     /// Lets the parked stat finish, as the volume finally answering would.
     func release() { released.signal() }
+
+    override func trashItem(at url: URL,
+                            resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        try trash.trashItem(at: url, resultingItemURL: resultingItemURL)
+    }
 
     override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
         guard path == heldPath else { return try super.attributesOfItem(atPath: path) }
@@ -286,9 +293,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // its diff through the old pair's ignores: a file ignored for iCloud↔Dropbox silently
         // vanishes from the iCloud↔iCloud review used to decide "identical, trash the right copy".
         let harness = Harness()
-        let suite = "DuplicateReviewCoordinatorTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("DuplicateReviewCoordinatorTests")
         defaults.set(["CrossPair/report.pdf"], forKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
         defaults.set(["SamePair/notes.txt"], forKey: IgnoredItemsStore.pairKey("icloud", "icloud"))
         let store = IgnoredItemsStore(userDefaults: defaults)
@@ -433,10 +438,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         }
 
         /// A review whose group name and pre-review sources are unique to this run, with both panes
-        /// pinned to one provider exactly as `compareCopies` leaves them.
-        func pinnedReview(_ token: String, on harness: Harness) -> DuplicateCompareContext {
-            harness.leftId = "pinned-\(token)"
-            harness.rightId = "pinned-\(token)"
+        /// pinned to one provider exactly as `compareCopies` leaves them. With `alreadyOn`, both
+        /// panes were on that source before the review, so it pinned nothing.
+        func pinnedReview(_ token: String, on harness: Harness, alreadyOn source: String? = nil) -> DuplicateCompareContext {
+            harness.leftId = source ?? "pinned-\(token)"
+            harness.rightId = source ?? "pinned-\(token)"
             let review = DuplicateCompareContext(
                 groupName: "Docs-\(token)",
                 keepPath: "\(harness.lensProviderRoot)/Docs",
@@ -446,8 +452,8 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                 deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
                 keepContentSnapshot: nil, deleteContentSnapshot: nil,
                 keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
-                restore: SavedCompareState(leftProviderId: "was-left-\(token)",
-                                           rightProviderId: "was-right-\(token)",
+                restore: SavedCompareState(leftProviderId: source ?? "was-left-\(token)",
+                                           rightProviderId: source ?? "was-right-\(token)",
                                            leftRelativePath: "Was/Left",
                                            rightRelativePath: "Was/Right"))
             harness.duplicateReview = review
@@ -505,28 +511,14 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let calmToken = String(UUID().uuidString.prefix(8))
         let calm = Harness()
         let unchanged = "userchoice-\(calmToken)"
-        calm.leftId = unchanged
-        calm.rightId = unchanged
-        calm.duplicateReview = DuplicateCompareContext(
-            groupName: "Calm-\(calmToken)",
-            keepPath: "\(calm.lensProviderRoot)/Docs",
-            deletePath: "\(calm.lensProviderRoot)/Backup/Docs",
-            keepIsDirectory: true, keepScannedSize: 1234,
-            keepScannedDate: nil,
-            deleteIsDirectory: true, deleteScannedSize: 1234, deleteScannedDate: nil,
-            keepContentSnapshot: nil, deleteContentSnapshot: nil,
-            keeperRelativePath: "Docs", redundantRelativePath: "Backup/Docs",
-            // Both panes were already on this source before the review, so the review pinned
-            // nothing: there is no leftover on either side.
-            restore: SavedCompareState(leftProviderId: unchanged, rightProviderId: unchanged,
-                                       leftRelativePath: "Was/Left", rightRelativePath: "Was/Right"))
+        _ = pinnedReview(calmToken, on: calm, alreadyOn: unchanged)
         // The tab moves the right pane onto a new source, the user's own choice on the pane they
         // clicked in. The sibling (left) is untouched, so nothing is stranded.
         calm.rightId = "tabchoice-\(calmToken)"
         let afterCalm = try await window { calm.coordinator.noteTabChangedSource(isLeft: false) }
 
         #expect(calm.duplicateReview == nil, "the review survived a tab-driven source change")
-        #expect(afterCalm.contains(where: { $0.contains("Calm-\(calmToken)") }),
+        #expect(afterCalm.contains(where: { $0.contains("Docs-\(calmToken)") }),
                 "the discard line went missing — this window would then be asserting the absence of a warning in a run where nothing happened at all")
         #expect(!afterCalm.contains(where: { $0.contains("deliberately left in place") }),
                 "a WARNING claims the review stranded a provider pin on a pane that is exactly where the user left it — a warning about a loss that did not happen, in the log he audits")
@@ -643,19 +635,25 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     // MARK: trashRightCopy — the one destructive path
 
-    /// Declining the confirmation changes nothing: no delete, no tab switch, and the review stays
-    /// up so the user can retry.
-    @Test func decliningTheTrashConfirmationLeavesEverythingAlone() async {
-        let harness = Harness()
-        let review = harness.installReview()
+    /// Declining the confirmation changes nothing: no delete, no banner, no tab switch, and the
+    /// review stays up so the user can retry. Run on a real pair with baselines, so a trash that
+    /// went ahead anyway would succeed. Mutation: `confirmTrashRightCopy(review) || true` must fail it.
+    @Test func decliningTheTrashConfirmationLeavesEverythingAlone() async throws {
+        let (harness, review, folders) = try await folderReview("decline")
+        defer { folders.remove() }
         harness.trashConfirmAnswer = false
 
         harness.coordinator.trashRightCopy(review)
-        await Task.yield()
+        await settleTheTrashTask()
 
         #expect(harness.trashConfirmedFor == [review.deletePath])
+        #expect(FileManager.default.fileExists(atPath: folders.copy.appendingPathComponent("a.txt").path),
+                "a declined trash removed the right copy")
+        #expect(FileManager.default.fileExists(atPath: folders.keep.appendingPathComponent("a.txt").path))
+        #expect(!FileManager.default.fileExists(atPath: folders.trash.path), "a declined trash reached the Trash")
+        #expect(harness.syncManager.banner == nil)
         #expect(harness.duplicateReview == review)   // still up for a retry
-        #expect(harness.workspace == .filing)
+        #expect(harness.workspace == .compare)
         // Unchanged from where the harness started: this path refuses, so it must not navigate.
         // Asserted against `.toFile`, not the destination, so navigating here fails.
         #expect(harness.organizeLens == .toFile)
@@ -695,17 +693,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// The trash goes to a `ScratchTrash` folder beside the fixture, not `~/.Trash`, so the
     /// system's privacy checks can't decide the verdict and no copy lands in the runner's Trash.
     @Test func confirmingTrashesTheRightCopyAndReturnsToDuplicates() async throws {
-        let folders = try ReviewFolders("")
-        defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-
-        let harness = Harness(fileManager: ScratchTrash(folder: trash))
-        harness.lensProviderRoot = root.path
         // A folder review carries the scan's per-entry baselines; the directory half of the gate
         // re-walks against them, and nil would (correctly) refuse the trash.
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let (harness, review, folders) = try await folderReview("")
+        defer { folders.remove() }
+        let (trash, keep, copy) = (folders.trash, folders.keep, folders.copy)
         // The Duplicates list still holds the group this review came from.
         harness.syncManager.duplicateGroups = [
             DuplicateGroup(
@@ -716,8 +708,6 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                          duplicateCopy(path: copy.path, keeper: false)],
                 reclaimableBytes: 1234)
         ]
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
 
         harness.coordinator.trashRightCopy(review)
         await waitUntil("the right copy leaves the disk") {
@@ -748,19 +738,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// baselines: the refusal comes before the confirmation, names the file, points to Merge, and
     /// leaves both copies, the review and the tab as they were.
     @Test func aRightCopyHoldingWhatTheLeftLacksIsRefusedBeforeAsking() async throws {
-        // A stand-in Trash, so a regression that did trash never reaches the real one.
-        let folders = try ReviewFolders("unique")
+        let (harness, review, folders) = try await folderReview("unique") {
+            try Data("only here".utf8).write(to: $0.copy.appendingPathComponent("only-here.txt"))
+        }
         defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-        try Data("only here".utf8).write(to: copy.appendingPathComponent("only-here.txt"))
-
-        let harness = Harness(fileManager: ScratchTrash(folder: trash))
-        harness.lensProviderRoot = root.path
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
+        let copy = folders.copy
 
         harness.coordinator.trashRightCopy(review)
         await Task.yield()
@@ -781,26 +763,18 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// the bytes. Real folders, real baselines: refused before asking, naming the file. The
     /// control: the same pair dated alike is not a difference.
     @Test func aSameSizedFileWithAnotherDateIsRefusedBeforeAsking() async throws {
-        let folders = try ReviewFolders("dated")
+        let (harness, review, folders) = try await folderReview("dated") { folders in
+            for (folder, text, date) in [(folders.keep, "tax 2025", 1_700_000_000.0), (folders.copy, "tax 2026", 1_760_000_000.0)] {
+                let file = folder.appendingPathComponent("summary.txt")
+                try Data(text.utf8).write(to: file)
+                try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: date)],
+                                                      ofItemAtPath: file.path)
+            }
+        }
         defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-        try Data("tax 2025".utf8).write(to: keep.appendingPathComponent("summary.txt"))
-        try Data("tax 2026".utf8).write(to: copy.appendingPathComponent("summary.txt"))
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)],
-                                              ofItemAtPath: keep.appendingPathComponent("summary.txt").path)
-        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_760_000_000)],
-                                              ofItemAtPath: copy.appendingPathComponent("summary.txt").path)
-
-        let harness = Harness(fileManager: ScratchTrash(folder: trash))
-        harness.lensProviderRoot = root.path
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
-                                           matchKind: .overlapping)
+        let copy = folders.copy
         #expect(DuplicateReviewCoordinator.itemsOnlyInRightCopy(review) == ["summary.txt"],
                 "a.txt is dated alike, so only the edited file is a difference")
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
 
         harness.coordinator.trashRightCopy(review)
         await Task.yield()
@@ -848,30 +822,22 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// found the same content, so dates are not evidence. Real folders, the same bytes dated a year
     /// apart, run to the end: the right copy leaves the disk.
     @Test func anIdenticalGroupsCopyWithOtherDatesIsTrashed() async throws {
-        let folders = try ReviewFolders("cp", twins: false)
-        defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-        for (folder, date) in [(keep, 1_700_000_000.0), (copy, 1_730_000_000.0)] {
-            let file = folder.appendingPathComponent("a.txt")
-            try Data("same bytes".utf8).write(to: file)
-            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: date)],
-                                                  ofItemAtPath: file.path)
+        let (harness, review, folders) = try await folderReview("cp", twins: false, matchKind: .identical) { folders in
+            for (folder, date) in [(folders.keep, 1_700_000_000.0), (folders.copy, 1_730_000_000.0)] {
+                let file = folder.appendingPathComponent("a.txt")
+                try Data("same bytes".utf8).write(to: file)
+                try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: date)],
+                                                      ofItemAtPath: file.path)
+            }
         }
-
-        let harness = Harness(fileManager: ScratchTrash(folder: trash))
-        harness.lensProviderRoot = root.path
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
-                                           matchKind: .identical)
+        defer { folders.remove() }
+        let (trash, keep, copy) = (folders.trash, folders.keep, folders.copy)
         harness.syncManager.duplicateGroups = [
             DuplicateGroup(matchType: .identical, name: "Docs", isDirectory: true,
                            copies: [duplicateCopy(path: keep.path, keeper: true),
                                     duplicateCopy(path: copy.path, keeper: false)],
                            reclaimableBytes: 1234)
         ]
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
 
         harness.coordinator.trashRightCopy(review)
         await waitUntil("the right copy leaves the disk") {
@@ -923,20 +889,35 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(try #require(harness.duplicateReview).matchKind == .overlapping)
     }
 
-    /// Two real identical folders with real baselines, a review that would trash the right copy,
-    /// and the Duplicates list as `groups(keep, copy)` builds it.
+    /// A folder review over `ReviewFolders(tag)` with real baselines (each side's only when
+    /// `baselines` says so), as `compareCopies` leaves it on Compare, the trash confirmed. `prepare`
+    /// writes the copies before the baselines are taken. The trash goes to the folders' own
+    /// stand-in unless `fileManager` says otherwise. `folders.remove()` it in a `defer`.
+    private func folderReview(
+        _ tag: String, twins: Bool = true, fileManager: FileManaging? = nil,
+        baselines: (keep: Bool, delete: Bool) = (true, true), matchKind: DuplicateMatchType.Kind = .overlapping,
+        prepare: (ReviewFolders) throws -> Void = { _ in }
+    ) async throws -> (harness: Harness, review: DuplicateCompareContext, folders: ReviewFolders) {
+        let folders = try ReviewFolders(tag, twins: twins)
+        try prepare(folders)
+        let harness = Harness(fileManager: fileManager ?? ScratchTrash(folder: folders.trash))
+        harness.lensProviderRoot = folders.root.path
+        let keepSnapshot = baselines.keep ? await ReviewFolders.baseline(folders.keep) : nil
+        let deleteSnapshot = baselines.delete ? await ReviewFolders.baseline(folders.copy) : nil
+        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot,
+                                           matchKind: matchKind)
+        harness.workspace = .compare
+        harness.trashConfirmAnswer = true
+        return (harness, review, folders)
+    }
+
+    /// A `folderReview` that would trash the right copy, with the Duplicates list as
+    /// `groups(keep, copy, root)` builds it.
     private func heldReviewFixture(
         _ groups: (_ keep: URL, _ copy: URL, _ root: URL) -> [DuplicateGroup]
     ) async throws -> (harness: Harness, review: DuplicateCompareContext, copy: URL, cleanup: () -> Void) {
-        let folders = try ReviewFolders("held")
-        let harness = Harness(fileManager: ScratchTrash(folder: folders.trash))
-        harness.lensProviderRoot = folders.root.path
-        let keepSnapshot = await ReviewFolders.baseline(folders.keep)
-        let deleteSnapshot = await ReviewFolders.baseline(folders.copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let (harness, review, folders) = try await folderReview("held")
         harness.syncManager.duplicateGroups = groups(folders.keep, folders.copy, folders.root)
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
         return (harness, review, folders.copy, folders.remove)
     }
 
@@ -1084,16 +1065,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// removal measured different filesystems (and the copy reached the user's real Trash). The
     /// double refuses the trash outright, so this test never touches the real Trash.
     @Test func aPermanentlyDeletedRightCopyIsConfirmedAgainstTheManagersOwnFilesystem() async throws {
-        let folders = try ReviewFolders("perm")
+        let (harness, review, folders) = try await folderReview("perm", fileManager: TrashlessVolume())
         defer { folders.remove() }
-        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
-
-        let harness = Harness(fileManager: TrashlessVolume())
-        harness.lensProviderRoot = root.path
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
-        harness.trashConfirmAnswer = true
+        let (keep, copy) = (folders.keep, folders.copy)
 
         let askedAbout = PermanentDeleteBox()
         harness.syncManager.permanentDeleteConfirmer = { paths in
@@ -1124,17 +1098,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// copy is kept. Stat facts can't catch this (a folder's stat size is not its contents), so
     /// the directory verdict comes from the engine's shared re-walk against the scan's baseline.
     @Test func aRightFolderThatGainedAFileDuringTheReviewIsRefused() async throws {
-        let folders = try ReviewFolders("drift")
+        let (harness, review, folders) = try await folderReview("drift")
         defer { folders.remove() }
-        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let copy = folders.copy
 
         // The right copy gains a file after the scan's baseline, during the open review.
         try Data("the only copy of this".utf8).write(to: copy.appendingPathComponent("new-edit.txt"))
@@ -1156,17 +1122,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// during the open review: trashing the right copy would destroy the last instance of the
     /// scanned content. Only the directory verdict from the shared re-walk can refuse this.
     @Test func aKeepFolderWhoseContentsDriftedDuringTheReviewIsRefused() async throws {
-        let folders = try ReviewFolders("keep-drift")
+        let (harness, review, folders) = try await folderReview("keep-drift")
         defer { folders.remove() }
-        let (root, keep, copy) = (folders.root, folders.keep, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let (keep, copy) = (folders.keep, folders.copy)
 
         // The keeper loses its file after the scan's baseline, during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
@@ -1188,17 +1146,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// folder with an unreadable descendant, and a rescan reproduces nil, so claiming a change and
     /// pointing at a rescan would be wrong twice.
     @Test func aFolderReviewWithNoBaselineRefusesWithoutClaimingDrift() async throws {
-        let folders = try ReviewFolders("nil-baseline")
+        // Both paths exist and match on disk; only the baselines are missing.
+        let (harness, review, folders) = try await folderReview("nil-baseline", baselines: (false, false))
         defer { folders.remove() }
-        let (root, copy) = (folders.root, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        // Both paths exist and match on disk; only the baselines are missing (nil snapshots are
-        // installReview's default).
-        let review = harness.installReview()
+        let copy = folders.copy
 
         harness.coordinator.trashRightCopy(review)
         await waitUntil("the no-baseline refusal surfaces") {
@@ -1223,14 +1174,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     @Test func aReviewReplacedWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-race-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = URL(fileURLWithPath: root.path + "-trash")
+        defer { for dir in [root, trash] { try? FileManager.default.removeItem(at: dir) } }
         for name in ["Docs", "Backup/Docs", "Photos", "Old/Photos"] {
             let dir = root.appendingPathComponent(name)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try Data("x".utf8).write(to: dir.appendingPathComponent("a.txt"))
         }
 
-        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
+        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path, trash: trash)
         let harness = Harness(fileManager: stat)
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
@@ -1261,14 +1213,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     @Test func endingTheReviewWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("dup-review-done-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = URL(fileURLWithPath: root.path + "-trash")
+        defer { for dir in [root, trash] { try? FileManager.default.removeItem(at: dir) } }
         for name in ["Docs", "Backup/Docs"] {
             let dir = root.appendingPathComponent(name)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try Data("x".utf8).write(to: dir.appendingPathComponent("a.txt"))
         }
 
-        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
+        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path, trash: trash)
         let harness = Harness(fileManager: stat)
         harness.lensProviderRoot = root.path
         harness.workspace = .compare
@@ -1320,17 +1273,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// A keep-side refusal reaches the log, not just the banner, like the delete side's: a refusal
     /// visible on screen must also be in ~/sync-cloud.log, which he audits.
     @Test func aKeepSideRefusalIsLoggedLikeTheDeleteSide() async throws {
-        let folders = try ReviewFolders("keep-log")
+        let (harness, review, folders) = try await folderReview("keep-log")
         defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let (keep, copy) = (folders.keep, folders.copy)
         // The keeper's contents drift during the open review.
         try FileManager.default.removeItem(at: keep.appendingPathComponent("a.txt"))
 
@@ -1352,19 +1297,10 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// wording and the "unreadable, or nested too deep" phrasing, because the walk's depth cap and
     /// symlink-cycle guard record a nil baseline just like an unreadable descendant.
     @Test func aDeleteFolderWithNoBaselineRefusesWithTheRightCopyWording() async throws {
-        let folders = try ReviewFolders("delete-nil")
-        defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        let keepSnapshot = await FileSyncManager.folderContentSnapshot(
-            ofPath: keep.path, ignoredNames: DuplicateFinderOptions.defaultIgnoredNames,
-            fileManager: FileManager.default)
         // Keep side fully checked; the delete side carries no baseline.
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: nil)
+        let (harness, review, folders) = try await folderReview("delete-nil", baselines: (true, false))
+        defer { folders.remove() }
+        let copy = folders.copy
 
         let log = LogCapture()
         harness.coordinator.trashRightCopy(review)
@@ -1390,17 +1326,9 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
     /// pre-trash verdict and the removal. A file landing in the right copy then must not be trashed
     /// on the stale verdict, destroying its only instance.
     @Test func aRightCopyThatGainsAFileDuringTheQueueWaitIsRefused() async throws {
-        let folders = try ReviewFolders("queue-drift")
+        let (harness, review, folders) = try await folderReview("queue-drift")
         defer { folders.remove() }
-        let (root, trash, keep, copy) = (folders.root, folders.trash, folders.keep, folders.copy)
-
-        let harness = Harness()
-        harness.lensProviderRoot = root.path
-        harness.workspace = .compare
-        harness.trashConfirmAnswer = true
-        let keepSnapshot = await ReviewFolders.baseline(keep)
-        let deleteSnapshot = await ReviewFolders.baseline(copy)
-        let review = harness.installReview(keepSnapshot: keepSnapshot, deleteSnapshot: deleteSnapshot)
+        let copy = folders.copy
 
         // A long operation is already on the queue when the trash is requested.
         let latch = ReviewTestLatch()

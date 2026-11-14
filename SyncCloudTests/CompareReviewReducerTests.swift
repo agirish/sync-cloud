@@ -160,13 +160,8 @@ import Testing
     /// `everyEvent` names every declared case, so the event type's claim that its teardown
     /// invariant is checked for every event stays true when a case is added.
     @Test func theEventListNamesEveryDeclaredCase() throws {
-        let source = try macAppFile("CompareReviewReducer.swift")
-        let header = try #require(source.range(of: "enum CompareReviewEvent: Equatable {"),
-                                  "the event enum moved or was respelled — update this anchor")
-        let afterHeader = source[header.upperBound...]
-        // The enum is top-level, so the first column-0 close is its own; nested braces are indented.
-        let end = try #require(afterHeader.range(of: "\n}"), "the event enum never closes")
-        let body = afterHeader[..<end.lowerBound]
+        let body = try declarationBody(of: "enum CompareReviewEvent: Equatable {",
+                                       in: macAppFile("CompareReviewReducer.swift"))
         let declared = Set(body.split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { $0.hasPrefix("case ") && !$0.hasPrefix("case .") }

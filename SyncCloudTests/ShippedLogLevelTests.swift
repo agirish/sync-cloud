@@ -52,8 +52,6 @@ import Events
 
     // MARK: - Promoted lines reached only through a view or a race
 
-    static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-
     /// `(file, the call's opening, a fragment unique to its message)`.
     static let promoted: [(file: String, call: String, fragment: String)] = [
         ("Modules/FileExplorer/Sources/FileExplorer/CompareCopiesSheet.swift", "Logger.shared.info(\"\"\"", "aligned before comparing"),
@@ -68,7 +66,7 @@ import Events
 
     @Test func everyPromotedLineIsWrittenAtInfo() throws {
         for site in Self.promoted {
-            let source = try String(contentsOf: Self.root.appendingPathComponent(site.file), encoding: .utf8)
+            let source = try repoFile(site.file)
             // The positive control: the message is still there, so a missing call below is a demotion,
             // not a moved line.
             #expect(source.contains(site.fragment), "\(site.file) no longer writes “\(site.fragment)” — move this pin with it")

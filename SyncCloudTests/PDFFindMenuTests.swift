@@ -110,24 +110,19 @@ import Testing
 
     // MARK: The items are wired to the rules
 
-    private func source(_ file: String) throws -> String { sourceCodeOnly(try macAppFile(file)) }
-
-    /// The body of `struct <name>` up to the next top-level declaration.
+    /// The body of `struct <name>`, to its own closing brace.
     private func block(_ name: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: "struct \(name): View {"), "\(name) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = rest.range(of: "\n}\n")?.lowerBound ?? rest.endIndex
-        return String(rest[..<end])
+        try declarationBody(of: "struct \(name): View {", in: source)
     }
 
     @Test func theMenuItemsAskTheRules() throws {
-        let pane = try source("ContentView+PaneSearch.swift")
+        let pane = try macAppCode("ContentView+PaneSearch.swift")
         let find = try block("FindInPaneCommand", in: pane)
         #expect(find.contains("@FocusedValue(\\.pdfFind)"))
         #expect(find.contains("FindMenuRoute.find(pdf: pdfFind,"), "⌘F does not route a PDF first")
         #expect(find.contains(".disabled(!FindMenuRoute.findIsEnabled(pdf: pdfFind, beginPaneSearch: begin))"))
 
-        let commands = try source("ShortcutCommands.swift")
+        let commands = try macAppCode("ShortcutCommands.swift")
         for (item, call) in [("FindNextCommand", "FindMenuRoute.step(forward: true, pdf: pdfFind)"),
                              ("FindPreviousCommand", "FindMenuRoute.step(forward: false, pdf: pdfFind)"),
                              ("UseSelectionForFindCommand", "FindMenuRoute.useSelection(pdf: pdfFind)")] {
@@ -142,19 +137,14 @@ import Testing
     }
 
     @Test func theFindVerbsAreResolvedThroughTheRule() throws {
-        let editor = try source("ContentView+Editor.swift")
-        let start = try #require(editor.range(of: "var shortcutPDFFind: PDFFindVerbs? {"),
-                                 "shortcutPDFFind is gone — this scan would be vacuous")
-        let rest = editor[start.upperBound...]
-        let body = String(rest[..<(rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex)])
-        let flat = body.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let editor = try macAppFile("ContentView+Editor.swift")
+        let flat = try memberBody("var shortcutPDFFind: PDFFindVerbs? {", in: editor)
         #expect(flat.contains("PDFFindVerbs.isOffered(workspace: selectedWorkspace, hasPDF: editorPDF.path != nil, phase: editorPDF.phase)"))
         #expect(flat.contains("isSearchable: pdf.facts?.hasText == true"))
         #expect(flat.contains("pdf.find.useSelection(pdf.view.selectedText())"),
                 "⌘E does not hand the reader's selection to the find")
         // The text verbs stay a text document's: no PDF branch pretends one is open.
-        let text = try #require(editor.range(of: "var shortcutEditorVerbs: EditorVerbs? {"))
-        let textBody = editor[text.upperBound...].prefix(400)
+        let textBody = try memberBody("var shortcutEditorVerbs: EditorVerbs? {", in: editor)
         #expect(textBody.contains("guard let path = editorDocument.path"))
         #expect(!textBody.contains("editorPDF"))
     }

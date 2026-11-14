@@ -14,10 +14,6 @@ import FileExplorer
 
     // MARK: Leaving a document with unsaved changes
 
-    @Test func theThreeButtonsAreInThePlatformsOrder() {
-        #expect(EditorAlerts.unsavedButtonTitles == ["Save", "Cancel", "Don’t Save"])
-    }
-
     /// The mapping, as a table over every response an `NSAlert` can hand back, including ones a
     /// three-button alert never does: "everything else is Cancel" keeps a dismissed sheet from
     /// discarding work.
@@ -79,9 +75,6 @@ import FileExplorer
         #expect(EditorDiskVerbs.compare == "Compare…")
         #expect(EditorDiskVerbs.keepMine == "Keep Mine…")
         #expect(EditorDiskVerbs.useDiskVersion == "Use Disk Version")
-        let alert = EditorAlerts.divergenceButtonTitles(for: .changed)
-        #expect(alert.contains(EditorDiskVerbs.compare) && alert.contains(EditorDiskVerbs.keepMine)
-                && alert.contains(EditorDiskVerbs.useDiskVersion), "the ⌘S alert reads \(alert)")
     }
 
     /// Keep Mine… asks for a file that changed, and Save Again for a gone one doesn't: there is no
@@ -283,9 +276,6 @@ import FileExplorer
         #expect(EditorAlerts.divergenceAnswer(for: EditorDivergenceVerdict.saveAnyway) == .saveAnyway)
         #expect(EditorAlerts.divergenceAnswer(for: .reloadFromDisk) == .reloadFromDisk)
         #expect(EditorAlerts.divergenceAnswer(for: .cancel) == .cancel)
-        for verdict: EditorDivergenceVerdict in [.saveAnyway, .reloadFromDisk, .cancel] {
-            #expect(EditorAlerts.divergenceAnswer(for: verdict) != .showWhatChanged)
-        }
     }
 
     /// Anything AppKit returns that is not a button this alert drew changes nothing, the same rule

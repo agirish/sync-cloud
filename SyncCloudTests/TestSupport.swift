@@ -72,6 +72,28 @@ func macAppFile(_ name: String) throws -> String {
     try repoFile("MacApp/\(name)")
 }
 
+/// A `MacApp/` file with its comments removed, so prose describing the wiring can't satisfy a scan.
+func macAppCode(_ name: String) throws -> String { sourceCodeOnly(try macAppFile(name)) }
+
+/// One member's body in `source` (``declarationBody(of:in:sourceLocation:)``), read
+/// whitespace-insensitively.
+func memberBody(_ declaration: String, in source: String,
+                sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+    CodeText(try declarationBody(of: declaration, in: source, sourceLocation: sourceLocation))
+}
+
+/// One member's body in the `MacApp/` file `file`, read whitespace-insensitively.
+func memberBody(_ declaration: String, inFile file: String,
+                sourceLocation: SourceLocation = #_sourceLocation) throws -> CodeText {
+    try memberBody(declaration, in: try macAppFile(file), sourceLocation: sourceLocation)
+}
+
+/// The call of `callee` inside `body`, read by label.
+func call(_ callee: String, in body: CodeText,
+          sourceLocation: SourceLocation = #_sourceLocation) throws -> CallArguments {
+    try CallArguments(of: callee, in: body.normalized, sourceLocation: sourceLocation)
+}
+
 /// One file of the repo, by its path from the root, `#require`d readable and longer than 500
 /// characters, so a scan over it cannot pass on an empty or truncated read.
 func repoFile(_ path: String) throws -> String {

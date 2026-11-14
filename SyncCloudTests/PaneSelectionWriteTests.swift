@@ -106,14 +106,6 @@ import Sync
         #expect(state.selectedRightPaths.isEmpty, "the one-pane-selected invariant stopped being enforced")
     }
 
-    @Test func testTheClickedPaneCommitsBeforeAnythingIsDeferred() {
-        let state = State(), sequencer = PaneSelectionSequencer(), queue = Queue()
-        // Synchronous commit is why the click lands on the first try; assert it with nothing
-        // drained.
-        write(["/left/a"], isLeft: true, state, sequencer, queue)
-        #expect(state.selectedLeftPaths == ["/left/a"])
-    }
-
     @Test func testADeselectLeavesTheOtherPaneAloneAndQueuesNothing() {
         let state = State(), sequencer = PaneSelectionSequencer(), queue = Queue()
         state.selectedRightPaths = ["/right/b"]
@@ -176,17 +168,11 @@ import Sync
                                       sequencer: sequencer, schedule: { _ in })
     }
 
-    @Test func aPaneSelectionClaimsTheSurfaceToken() {
+    @Test(arguments: [(["/left/a"], true), (["/right/b"], false)] as [(Set<String>, Bool)])
+    func aPaneSelectionClaimsTheSurfaceToken(paths: Set<String>, isLeft: Bool) {
         let state = State()
         state.lastSelectionSurface = .differences
-        write(["/left/a"], isLeft: true, state, PaneSelectionSequencer())
-        #expect(state.lastSelectionSurface == .pane)
-    }
-
-    @Test func theRightPaneClaimsItToo() {
-        let state = State()
-        state.lastSelectionSurface = .differences
-        write(["/right/b"], isLeft: false, state, PaneSelectionSequencer())
+        write(paths, isLeft: isLeft, state, PaneSelectionSequencer())
         #expect(state.lastSelectionSurface == .pane)
     }
 

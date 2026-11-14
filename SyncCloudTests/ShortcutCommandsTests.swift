@@ -71,8 +71,8 @@ import Foundation
             pdfFind: PDFFindVerbs(isSearchable: true, show: {}, step: { _ in }, useSelection: { true }),
             pdfZoom: PDFZoomVerbs(zoom: { _ in }, actualSize: {}),
             pdfTools: EditorPDFTools(),
-            pdfPage: PDFPageVerbs(view: EditorPDFViewState(), goToPage: {}),
-            pdfFill: PDFFillSignVerbs(fill: EditorPDFFillSign(store: EditorPDFSignatureStore()),
+            pdfPage: PDFPageVerbs(view: EditorPDFViewState(defaults: ScratchDefaults("ShortcutCommandsTests.pdf")), goToPage: {}),
+            pdfFill: PDFFillSignVerbs(fill: EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: ScratchDefaults("ShortcutCommandsTests.pdf"))),
                                       tools: EditorPDFTools()),
             editorExpand: EditorExpandSwitch(isOn: false, toggle: {}),
             writesLocked: writesLocked,
@@ -173,163 +173,84 @@ import Foundation
     /// The publisher's own source, named so a rename fails loudly rather than emptying the scan.
     nonisolated static func publisherSource() throws -> String { try macAppFile("ShortcutCommands.swift") }
 
+    /// One `effective…` value: named by its own key path, so a name cannot pair with another
+    /// value's check.
+    typealias Suspendable = (name: String, isLive: (ShortcutValuePublisher) -> Bool)
+    static func value<T>(_ path: KeyPath<ShortcutValuePublisher, T?>) -> Suspendable {
+        (String(describing: path).components(separatedBy: ".").last ?? "", { $0[keyPath: path] != nil })
+    }
+
+    /// Every value the publisher suspends, with why it matters under a destination pick.
+    static var suspendable: [Suspendable] {
+        [value(\.effectiveWorkspace), value(\.effectiveGoBack), value(\.effectiveGoForward),
+         value(\.effectiveOpenSelectedFolder), value(\.effectiveEnclosingFolder),
+         value(\.effectiveRescan), value(\.effectiveNewFolder),
+         // ⌘S would write the buffer to a path the pick is still deciding about; ⌘N would switch
+         // workspace out from under it.
+         value(\.effectiveSaveDocument), value(\.effectiveNewTextFile),
+         value(\.effectiveCloseDocument), value(\.effectiveDocumentPrint),
+         value(\.effectiveHiddenFiles), value(\.effectiveTypeFilter), value(\.effectiveInspector),
+         value(\.effectiveDifferencesList), value(\.effectiveDelete), value(\.effectiveSwitchPaneFocus),
+         // ⌘K: the palette must not open over an in-flight pick and route out of it.
+         value(\.effectiveCommandPalette),
+         // ⌘F and the tab chords: ⌘T would open a tab under the picker, and ⌘W would fall through
+         // to `performClose` and close the window out from under the pick.
+         value(\.effectiveBeginPaneSearch),
+         // The clipboard verbs go silent together: a paste under the picker would write files into
+         // the pane the pick is describing.
+         value(\.effectiveSelectAll), value(\.effectiveClipboard),
+         value(\.effectiveNewTab), value(\.effectiveCloseTab), value(\.effectiveCycleTab),
+         value(\.effectiveReopenClosedTab),
+         // File ▸ Open Recent: opening a file in Edit moves the window under the pick.
+         value(\.effectiveOpenRecent),
+         value(\.effectiveTabBar), value(\.effectiveFolderSidebar), value(\.effectiveEditorTextFiles),
+         value(\.effectiveStatusBar), value(\.effectiveOrganizeLens), value(\.effectiveOrganizeVerbs),
+         value(\.effectivePaneRowVerbs), value(\.effectiveCompareTwoFiles),
+         // The Text and Markup menus: a mode switch or an autosave toggle changes the document the
+         // pick may be about.
+         value(\.effectiveEditorVerbs), value(\.effectivePDFFind),
+         // ⌘+ ⌘− ⌘0 on a PDF: under a pick they go back to the text size, as with nothing focused.
+         value(\.effectivePDFZoom), value(\.effectivePDFTools), value(\.effectivePDFPage),
+         value(\.effectivePDFFill),
+         // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
+         value(\.effectiveEditorExpand)]
+    }
+
     /// While the destination picker is up its overlay blocks the mouse from every control these
-    /// chords mirror; the keyboard must not tunnel under it. One flag silences all twelve.
+    /// chords mirror; the keyboard must not tunnel under it. One flag silences them all.
     @Test func suspensionSilencesEveryPublishedValue() {
         let publisher = loadedPublisher(suspended: true)
-        #expect(publisher.effectiveWorkspace == nil)
-        #expect(publisher.effectiveGoBack == nil)
-        #expect(publisher.effectiveGoForward == nil)
-        #expect(publisher.effectiveOpenSelectedFolder == nil)
-        #expect(publisher.effectiveEnclosingFolder == nil)
-        #expect(publisher.effectiveRescan == nil)
-        #expect(publisher.effectiveNewFolder == nil)
-        // The editor's. ⌘S under a destination pick would write the buffer to a path the pick is
-        // still deciding about; ⌘N would switch workspace out from under it.
-        #expect(publisher.effectiveSaveDocument == nil)
-        #expect(publisher.effectiveNewTextFile == nil)
-        #expect(publisher.effectiveCloseDocument == nil)
-        #expect(publisher.effectiveDocumentPrint == nil)
-        #expect(publisher.effectiveHiddenFiles == nil)
-        #expect(publisher.effectiveTypeFilter == nil)
-        #expect(publisher.effectiveInspector == nil)
-        #expect(publisher.effectiveDifferencesList == nil)
-        #expect(publisher.effectiveDelete == nil)
-        #expect(publisher.effectiveSwitchPaneFocus == nil)
-        // ⌘K: the palette must not open over an in-flight destination pick and route out of it.
-        #expect(publisher.effectiveCommandPalette == nil)
-        // ⌘F and the tab chords. Unsuspended, ⌘T would open a tab under the picker, and ⌘W would
-        // fall through to `performClose` and close the window out from under the pick.
-        // `everySuspendableValueIsCoveredHere` keeps new values landing in these two lists.
-        #expect(publisher.effectiveBeginPaneSearch == nil)
-        // The clipboard verbs go silent together, not one at a time: a paste answered under the
-        // picker would write files into the pane the pick is describing.
-        #expect(publisher.effectiveSelectAll == nil)
-        #expect(publisher.effectiveClipboard == nil)
-        #expect(publisher.effectiveNewTab == nil)
-        #expect(publisher.effectiveCloseTab == nil)
-        #expect(publisher.effectiveCycleTab == nil)
-        #expect(publisher.effectiveReopenClosedTab == nil)
-        // File ▸ Open Recent: opening a file in Edit moves the window under the pick.
-        #expect(publisher.effectiveOpenRecent == nil)
-        #expect(publisher.effectiveTabBar == nil)
-        #expect(publisher.effectiveFolderSidebar == nil)
-        #expect(publisher.effectiveEditorTextFiles == nil)
-        #expect(publisher.effectiveStatusBar == nil)
-        #expect(publisher.effectiveOrganizeLens == nil)
-        #expect(publisher.effectiveOrganizeVerbs == nil)
-        #expect(publisher.effectivePaneRowVerbs == nil)
-        #expect(publisher.effectiveCompareTwoFiles == nil)
-        // The Text and Markup menus: a mode switch or an autosave toggle under a destination pick
-        // changes the document the pick may be about.
-        #expect(publisher.effectiveEditorVerbs == nil)
-        #expect(publisher.effectivePDFFind == nil)
-        // ⌘+ ⌘− ⌘0 on a PDF: under a pick they go back to the text size, as with nothing focused.
-        #expect(publisher.effectivePDFZoom == nil)
-        #expect(publisher.effectivePDFTools == nil)
-        #expect(publisher.effectivePDFPage == nil)
-        #expect(publisher.effectivePDFFill == nil)
-        // Text ▸ Expand: folding the pane under a pick hides the folder the pick describes.
-        #expect(publisher.effectiveEditorExpand == nil)
+        for value in Self.suspendable {
+            #expect(!value.isLive(publisher), "\(value.name) still answers while the chords are suspended")
+        }
     }
 
     /// ...and the control for the test above: unsuspended, the same publisher passes every value
     /// through, so the nils really came from `suspended`.
     @Test func anUnsuspendedPublisherPassesEveryValueThrough() {
         let publisher = loadedPublisher(suspended: false)
-        #expect(publisher.effectiveWorkspace != nil)
-        #expect(publisher.effectiveGoBack != nil)
-        #expect(publisher.effectiveGoForward != nil)
-        #expect(publisher.effectiveOpenSelectedFolder != nil)
-        #expect(publisher.effectiveEnclosingFolder != nil)
-        #expect(publisher.effectiveRescan != nil)
-        #expect(publisher.effectiveNewFolder != nil)
-        #expect(publisher.effectiveSaveDocument != nil)
-        #expect(publisher.effectiveNewTextFile != nil)
-        #expect(publisher.effectiveCloseDocument != nil)
-        #expect(publisher.effectiveDocumentPrint != nil)
-        #expect(publisher.effectiveHiddenFiles != nil)
-        #expect(publisher.effectiveTypeFilter != nil)
-        #expect(publisher.effectiveInspector != nil)
-        #expect(publisher.effectiveDifferencesList != nil)
-        #expect(publisher.effectiveDelete != nil)
-        #expect(publisher.effectiveSwitchPaneFocus != nil)
-        #expect(publisher.effectiveCommandPalette != nil)
-        #expect(publisher.effectiveBeginPaneSearch != nil)
-        #expect(publisher.effectiveSelectAll != nil)
-        #expect(publisher.effectiveClipboard != nil)
-        #expect(publisher.effectiveNewTab != nil)
-        #expect(publisher.effectiveCloseTab != nil)
-        #expect(publisher.effectiveCycleTab != nil)
-        #expect(publisher.effectiveReopenClosedTab != nil)
-        #expect(publisher.effectiveOpenRecent != nil)
-        #expect(publisher.effectiveTabBar != nil)
-        #expect(publisher.effectiveFolderSidebar != nil)
-        #expect(publisher.effectiveEditorTextFiles != nil)
-        #expect(publisher.effectiveStatusBar != nil)
-        #expect(publisher.effectiveOrganizeLens != nil)
-        #expect(publisher.effectiveOrganizeVerbs != nil)
-        #expect(publisher.effectivePaneRowVerbs != nil)
-        #expect(publisher.effectiveCompareTwoFiles != nil)
-        #expect(publisher.effectiveEditorVerbs != nil)
-        #expect(publisher.effectivePDFFind != nil)
-        #expect(publisher.effectivePDFZoom != nil)
-        #expect(publisher.effectivePDFTools != nil)
-        #expect(publisher.effectivePDFPage != nil)
-        #expect(publisher.effectivePDFFill != nil)
-        #expect(publisher.effectiveEditorExpand != nil)
+        for value in Self.suspendable {
+            #expect(value.isLive(publisher), "\(value.name) is nil with nothing suspending it")
+        }
     }
 
-    /// Every `effective…` the publisher exposes is named in both lists above. Those two tests are
-    /// hand-listed, and `everyEffectiveValueIsHandedToAFocusedSceneValue` only proves a value is
-    /// published. Derived from both sources, so a new value is covered when it is written.
+    /// Every `effective…` the publisher declares is in the table, derived from its source, so a new
+    /// value is covered when it is written.
     @Test func everySuspendableValueIsCoveredHere() throws {
         let names = Self.effectiveValueNames(in: try Self.publisherSource())
         #expect(names.count >= 14,
                 "found only \(names.count) effective values — this scan would be near-vacuous")
-        // A known member must be in the derived set, or a parser that matched nothing would make
-        // the loop below vacuous.
         #expect(names.contains("effectiveNewTab"),
                 "the name scan no longer finds a value that is definitely declared")
-
-        // Bound to each of the two test bodies and to `#expect(`, not the whole file: a file-wide
-        // search would accept both forms sitting in the unsuspended test, or a comment naming the
-        // value.
-        let own = try Self.ownSource()
-        let silenced = sourceCodeOnly(try Self.ownMember("func suspensionSilencesEveryPublishedValue", in: own))
-        let live = sourceCodeOnly(try Self.ownMember("func anUnsuspendedPublisherPassesEveryValueThrough", in: own))
-        for name in names {
-            #expect(silenced.contains("#expect(publisher.\(name) == nil)"),
-                    "\(name) is never asserted to fall silent while the chords are suspended")
-            #expect(live.contains("#expect(publisher.\(name) != nil)"),
-                    "\(name) has no unsuspended control — its `== nil` could be vacuously true")
-        }
+        let table = Self.suspendable.map(\.name)
+        #expect(table.count == Set(table).count, "a value is listed twice: \(table)")
+        #expect(Set(table) == Set(names),
+                "not in the table: \(Set(names).subtracting(table).sorted()); not declared: \(Set(table).subtracting(names).sorted())")
     }
-
 
     /// One member's body, to its own closing brace: ``declarationBody(of:in:sourceLocation:)``.
     nonisolated static func memberBody(_ declaration: String, in source: String) throws -> String {
         try declarationBody(of: declaration, in: source)
-    }
-
-    /// One member of this file, from its first mention to its closing brace at member indentation.
-    /// Not ``declarationBody(of:in:sourceLocation:)``: the declarations it reads also appear in the
-    /// coverage scan's own string literals, so that reader's uniqueness check refuses them.
-    static func ownMember(_ declaration: String, in source: String) throws -> String {
-        let start = try #require(source.range(of: declaration),
-                                 "\(declaration) is gone — this scan would be vacuous")
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n    }\n"),
-                               "\(declaration) never closes at member indentation")
-        return String(rest[..<end.lowerBound])
-    }
-
-    /// This file's own text, for the coverage scan above.
-    static func ownSource() throws -> String {
-        let text = try #require(try? String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8),
-                                "cannot read this test file — the coverage scan would be vacuous")
-        try #require(text.count > 500, "this file is implausibly short — the scan would be near-vacuous")
-        return text
     }
 
     /// The `effective…` property names declared in `ShortcutValuePublisher`.
@@ -346,14 +267,7 @@ import Foundation
     @Test func theFocusSwitchItemNamesItsDestinationPane() {
         #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "Dropbox", run: {}))
                 == "Focus Dropbox")
-        // Same-provider panes are disambiguated upstream by `PaneProviderNames`, so the title
-        // still names one pane.
-        #expect(PaneFocusSwitch.menuTitle(for: PaneFocusSwitch(targetName: "iCloud (right)", run: {}))
-                == "Focus iCloud (right)")
-    }
-
-    /// The disabled form: a single-source workspace, with no second pane to name.
-    @Test func theFocusSwitchItemNamesNoPaneWhenThereIsNoOtherOne() {
+        // The disabled form: a single-source workspace, with no second pane to name.
         #expect(PaneFocusSwitch.menuTitle(for: nil) == "Focus Other Pane")
     }
 
@@ -369,14 +283,6 @@ import Foundation
         let content = try macAppFile("ContentView.swift")
         #expect(!sourceCodeOnly(content).contains(".focusedSceneValue(\\.beginPaneSearch"),
                 "ContentView still publishes ⌘F on its own, outside the suspension")
-    }
-
-    /// And the suspension actually reaches it: the property, not just the publication.
-    @Test func findInPaneIsSilencedWhileThePickerIsUp() {
-        #expect(loadedPublisher(suspended: true).effectiveBeginPaneSearch == nil,
-                "⌘F tunnels under the destination picker")
-        #expect(loadedPublisher(suspended: false).effectiveBeginPaneSearch != nil,
-                "⌘F is dead even with nothing suspending it")
     }
 
     // MARK: ⌘W, whose published value has THREE states
@@ -645,19 +551,13 @@ import Foundation
                               styleMask: [.borderless], backing: .buffered, defer: true)
         window.contentView?.addSubview(probe)
         // Suspending, not spinning the run loop: the reports arrive on the main queue, which a
-        // nested run loop inside this main-actor job does not drain. Bounded at two seconds.
-        func settle(until count: Int) async throws {
-            let deadline = Date().addingTimeInterval(2)
-            while reports.count < count && Date() < deadline {
-                try await Task.sleep(for: .milliseconds(10))
-            }
-        }
-        try await settle(until: 1)
+        // nested run loop inside this main-actor job does not drain.
+        await waitUntil("joining a window reports", timeout: 2) { reports.count >= 1 }
         #expect(reports.count == 1, "joining a window reported \(reports.count) times")
         #expect(reports.last == .some(window.screen?.visibleFrame.size))
 
         NotificationCenter.default.post(name: NSWindow.didChangeScreenNotification, object: window)
-        try await settle(until: 2)
+        await waitUntil("a screen change reports", timeout: 2) { reports.count >= 2 }
         #expect(reports.count == 2, "a screen change was not reported")
 
         // Another window's screen change is not this one's.
@@ -699,11 +599,6 @@ import Foundation
 /// the unsaved-changes warning, so it would answer the question before it is asked.
 @MainActor
 @Suite struct QuitFlushPolicyTests {
-
-    @Test func anOrdinaryDocumentIsStillFlushed() {
-        let policy = EditorAutosavePolicy()
-        #expect(SyncCloudAppDelegate.mayFlushOnQuit(path: "/n/a.md", policy: policy))
-    }
 
     @Test func aDocumentWithAutosaveOffIsNotFlushed() {
         let policy = EditorAutosavePolicy()

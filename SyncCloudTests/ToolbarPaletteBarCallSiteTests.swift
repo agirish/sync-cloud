@@ -51,9 +51,7 @@ import FileExplorer
         #expect(content.contains("@State var goToQuery = GoToQuery()"),
                 "the query is held some other way — check `ContentView` does not observe it")
         // Every file `ContentView`'s body is assembled from, not just the one that declares it.
-        let macApp = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("MacApp")
-        let parts = try FileManager.default.contentsOfDirectory(atPath: macApp.path)
+        let parts = try FileManager.default.contentsOfDirectory(atPath: macAppDirectory().path)
             .filter { $0.hasPrefix("ContentView") && $0.hasSuffix(".swift") }
         #expect(parts.count > 5, "found \(parts.count) ContentView files — this check is aimed wrong")
         for part in parts {

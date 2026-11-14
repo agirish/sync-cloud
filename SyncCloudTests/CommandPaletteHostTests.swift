@@ -82,10 +82,8 @@ import FileExplorer
     /// firing its provider-switch teardown on the side not being worked in.
     @Test func theWriteHalfOfTheAimedPaneRuleAgreesWithTheReadHalf() throws {
         let host = try Self.host()
-        let read = try #require(Self.declaration("var paletteProviderId: String", in: host),
-                                "paletteProviderId is gone — this comparison would be vacuous")
-        let write = try #require(Self.body(of: "func aimProvider(_ id: String) {", in: host),
-                                 "aimProvider is gone — this comparison would be vacuous")
+        let read = try declarationBody(of: "var paletteProviderId: String", in: host)
+        let write = try declarationBody(of: "func aimProvider(_ id: String) {", in: host)
 
         let readsWhenRight = try #require(Self.paneNamedWhenAimedRight(read),
                                           "paletteProviderId no longer picks a pane off the aim")
@@ -96,25 +94,6 @@ import FileExplorer
         // And the answer is the right pane, so the pair cannot agree on being wrong together.
         #expect(readsWhenRight == "rightProviderId",
                 "both halves now name the left pane when the right one is aimed at")
-    }
-
-    /// One member's body, bounded by its closing brace, as in
-    /// `BrowseWorkspaceCallSiteTests.body(of:in:)`: a fixed character window goes wrong as the
-    /// member grows.
-    static func body(of declaration: String, in source: String) -> String? {
-        guard let start = source.range(of: declaration) else { return nil }
-        let rest = source[start.upperBound...]
-        guard let end = rest.range(of: "\n    }") else { return nil }
-        return String(rest[..<end.lowerBound])
-    }
-
-    /// A single-line computed property, taken to the end of its line. `body(of:)` cannot read one:
-    /// its closing brace is on the same line as its declaration.
-    static func declaration(_ prefix: String, in source: String) -> String? {
-        guard let start = source.range(of: prefix) else { return nil }
-        let rest = source[start.upperBound...]
-        let end = rest.firstIndex(of: "\n") ?? rest.endIndex
-        return String(rest[..<end])
     }
 
     // MARK: - The pane-swap prompt's words
@@ -170,16 +149,14 @@ import FileExplorer
     /// list typed here would go on passing while `runPaletteAction` ignored it.
     @Test func everyPaletteActionIsApplied() throws {
         let host = try Self.host()
-        let body = try #require(
-            Self.body(of: "private func runPaletteAction(_ action: PaletteAction) {", in: host),
-            "runPaletteAction is gone — this scan would be vacuous")
+        let body = try declarationBody(of: "private func runPaletteAction(_ action: PaletteAction) {", in: host)
         #expect(PaletteAction.allCases.count >= 7,
                 "PaletteAction has shrunk to \(PaletteAction.allCases.count) cases — check this suite still means something")
         for action in PaletteAction.allCases {
             #expect(body.contains("case .\(action.rawValue):"),
                     "runPaletteAction ignores `\(action.rawValue)` — the palette offers “\(action.title)” and it does nothing")
         }
-        #expect(!CommandPaletteRouteCallSiteTests.codeOnly(body).contains("default:"),
+        #expect(!body.contains("default:"),
                 "a default arm would swallow a PaletteAction case added in FileExplorer")
     }
 
