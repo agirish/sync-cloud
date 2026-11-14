@@ -15545,3 +15545,21 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s classifier=%s identity=%s\n' 
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The classifier picking statement folders | RECORDED — not owed |
+
+## New account folders for statements, and a home typed in full (filing overhaul, landing D) — main only, checked, not owed
+
+2026-11-14, for v7.2. On `main`, To File:
+- proposes a new account folder for a statement from a bank the tree knows, when no folder holds
+  its account: named and laid out like that bank's (or another bank's) live account of the same
+  type, never inside an archive, never above Medium;
+- files a statement that prints no number into the account its inbox folder names, when the tree
+  has it;
+- lets the card's home be typed in full (Edit Path…), anywhere in the tree, the missing levels made
+  at filing.
+
+A feature, not a fix: no line mends a defect with it. Every line still offers a new folder the
+way it always has (`FilingEngine`'s `newSegments`), so nothing there is wrong without this.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The older new-folder offer | CLOSED — checked, not owed (a feature) |

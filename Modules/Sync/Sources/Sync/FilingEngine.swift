@@ -76,6 +76,14 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
 
     public var isNew: Bool { !newSegments.isEmpty }
 
+    /// The home makes the account's own folder, not just a year inside an account it has: a new
+    /// account (``AccountProposal``), whose whole path is worth checking before filing.
+    public var createsAccountFolder: Bool {
+        guard let root = account?.root, isNew else { return false }
+        let created = (path as NSString).pathComponents.dropLast(newSegments.count).count
+        return (root as NSString).pathComponents.count > created
+    }
+
     public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0, proposedName: String? = nil, fromSurvey: Bool = false,
                 account: FilingAccount? = nil, nameOrigin: NameOrigin = .planner) {
         self.account = account

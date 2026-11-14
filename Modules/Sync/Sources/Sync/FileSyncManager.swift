@@ -1060,6 +1060,10 @@ public class FileSyncManager: ObservableObject {
     /// The last scan's account index and walked tree, for re-asks that place by account.
     var filingAccountIndex: AccountIndex?
     var filingAccountTaxonomy: [FileNode] = []
+    /// The last scan's folders where a bank's statements are kept together (see `proposingAccount`).
+    var filingSharedStatementFolders: Set<String> = []
+    /// The last scan's folders the survey marks as archives, for re-asks.
+    var filingArchivedFolders: Set<String> = []
     /// Members of a group card that couldn't be filed; the lens shows them as cards of their own.
     @Published public internal(set) var filingGroupFailures: Set<String> = []
     /// Page 1 facts of filed statements read to learn accounts named without digits, by path, with

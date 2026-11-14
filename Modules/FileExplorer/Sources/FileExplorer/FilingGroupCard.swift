@@ -13,6 +13,9 @@ struct FilingGroupCard: View {
     let onChooseFolder: () -> Void
     let onPullOut: (FilingSuggestion) -> Void
     let onTrashCopies: ([FilingSuggestion]) -> Void
+    /// Type the whole group's home in full, offered when its home creates folders.
+    var pathEditor: FilingPathEditorHooks? = nil
+    @State private var editingPath = false
 
     @State private var expanded: Bool? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -32,7 +35,19 @@ struct FilingGroupCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(FilingGroupText.title(group))
                         .scaledFont(.system(size: 14, weight: .semibold))
-                    breadcrumb
+                    HStack(spacing: 8) {
+                        breadcrumb
+                        if let pathEditor {
+                            Button("Edit Path…") { editingPath = true }
+                                .buttonStyle(.hoverAffordance(.inline))
+                                .scaledFont(.system(size: 11))
+                                .help("Type where these go, anywhere in your folders; missing folders are made when you file")
+                                .popover(isPresented: $editingPath, arrowEdge: .bottom) {
+                                    FilingPathEditor(hooks: pathEditor) { editingPath = false }
+                                        .presentedNativeControlAccent()
+                                }
+                        }
+                    }
                     Text(FilingGroupText.why(group))
                         .scaledFont(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -168,6 +183,12 @@ enum FilingGroupText {
     }
 
     static func why(_ g: FilingCardGroup) -> String {
+        // A new account: say so, and where its name came from.
+        if g.destination.createsAccountFolder, let reason = g.destination.reasons.first {
+            var s = reason
+            if let r = g.dateRange { s += " · " + range(r.first, r.last) }
+            return s + " · check before filing"
+        }
         var s = "Account ••\(g.account.ending) on page 1 of all \(g.members.count)"
         if let r = g.dateRange { s += " · " + range(r.first, r.last) }
         if g.destination.confidence != .high { s += " · check before filing" }
@@ -196,7 +217,9 @@ enum FilingGroupText {
         return (path as NSString).abbreviatingWithTildeInPath.split(separator: "/").map(String.init)
     }
 
-    static func fileButton(_ g: FilingCardGroup) -> String { "File \(g.toFile.count)" }
+    static func fileButton(_ g: FilingCardGroup) -> String {
+        (g.destination.createsAccountFolder ? "Create and File " : "File ") + "\(g.toFile.count)"
+    }
 
     /// Where the copies' twins are, so Trash is never a blind click.
     static func trashHelp(_ g: FilingCardGroup) -> String {

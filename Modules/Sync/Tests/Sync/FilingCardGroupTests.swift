@@ -125,6 +125,38 @@ import CoreText
                 && FileManager.default.fileExists(atPath: root.path + "/In/02.pdf"), "one ⌘Z puts both back")
     }
 
+    /// A path typed on a group card makes its missing levels once and files every member there.
+    @Test func aTypedPathForAGroupMakesItsFoldersAndFilesThemAll() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingGroupTyped")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let docs = root.appendingPathComponent("Docs")
+        try FileManager.default.createDirectory(at: docs.appendingPathComponent("Bank Accounts/Chase"), withIntermediateDirectories: true)
+        let proposed = docs.path + "/Bank Accounts/Chase/Checking 0779/2026"
+        var cards: [FilingSuggestion] = []
+        for m in ["01", "02"] {
+            let f = root.appendingPathComponent("In/\(m).pdf")
+            try writeBytes(f, Data(repeating: 0x41, count: 64))
+            let dest = FilingDestination(path: proposed, confidence: .medium, reasons: ["No folder holds Chase ••0779"],
+                                         newSegments: ["Checking 0779", "2026"], fromContent: true,
+                                         account: FilingAccount(root: docs.path + "/Bank Accounts/Chase/Checking 0779",
+                                                                ending: "0779", institution: "chase", archived: false, kind: .statement))
+            cards.append(FilingSuggestion(filePath: f.path, fileName: "\(m).pdf", size: 64, modificationDate: nil,
+                                          candidates: [dest], providerRoot: docs.path))
+        }
+        let m = FileSyncManager()
+        m.filingLastProviderRoot = docs.path
+        guard case .group(let group) = FilingCardGrouping.items(cards)[0] else { Issue.record("expected a group"); return }
+        #expect(group.destination.createsAccountFolder)
+        let typed = try m.filingDestination(typed: "Bank Accounts/Chase/Total Checking 0779/2026", for: cards[0]).get()
+        #expect(typed.newSegments == ["Total Checking 0779", "2026"])
+        let filed = await m.applyFilingGroup(group, typed: typed)
+        #expect(filed == 2)
+        for n in ["01", "02"] {
+            #expect(FileManager.default.fileExists(atPath: docs.path + "/Bank Accounts/Chase/Total Checking 0779/2026/\(n).pdf"))
+        }
+        #expect(!FileManager.default.fileExists(atPath: proposed), "the proposed folder is not made")
+    }
+
     @Test func aStatementTheAccountHoldsUnderAnotherNameIsMarkedFiled() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingGroupFiled")
         defer { try? FileManager.default.removeItem(at: root) }

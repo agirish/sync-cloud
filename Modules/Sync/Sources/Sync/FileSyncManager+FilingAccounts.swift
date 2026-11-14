@@ -10,10 +10,15 @@ extension FileSyncManager {
     /// else, a Medium one leads only homes no surer than it.
     nonisolated static func applyingAccounts(
         _ suggestions: [FilingSuggestion], index: AccountIndex, snippets: [String: String],
-        taxonomy: [FileNode], root: String, scannedFolder: String?
+        taxonomy: [FileNode], root: String, scannedFolder: String?,
+        sharedStatementFolders shared: Set<String>? = nil,
+        isArchived: @escaping (String) -> Bool = { _ in false }
     ) -> (suggestions: [FilingSuggestion], facts: [String: DocumentFacts]) {
         var facts: [String: DocumentFacts] = [:]
         let nodes = accountNodes(index, in: taxonomy)
+        // Folders where a bank's statements are kept together with no account of their own
+        // (`Fidelity/Statements`): a bank that has one gets no new account folders proposed.
+        let sharedStatementFolders = shared ?? Set(index.unnamedSamples(tree: taxonomy).map(\.candidate))
         let out = suggestions.map { s -> FilingSuggestion in
             guard let page = snippets[s.filePath] else { return s }
             let f = DocumentFacts(page: page)
@@ -49,7 +54,9 @@ extension FileSyncManager {
                 for o in offers { candidates = appending(o, to: candidates) }
                 return s.replacingCandidates(candidates)
             case .none:
-                return s
+                return proposingAccount(for: s, facts: f, period: period, hint: hint, index: index,
+                                        taxonomy: taxonomy, root: root, sharedStatementFolders: sharedStatementFolders,
+                                        isArchived: isArchived)
             }
         }
         return (out, facts)
@@ -89,6 +96,76 @@ extension FileSyncManager {
                                             account: best.account, nameOrigin: .template)
             return s.replacingCandidates([renamed] + s.candidates.dropFirst())
         }
+    }
+
+    /// A new account folder for a statement from a known bank that no account matches
+    /// (``AccountProposal``), unless the bank keeps such statements together in one folder
+    /// (`Fidelity/Statements`), or a home in an account of this type is already offered. When the
+    /// folder the statement came from names an account the tree already has, that account is the
+    /// home instead.
+    nonisolated static func proposingAccount(for s: FilingSuggestion, facts f: DocumentFacts,
+                                             period: DocumentFacts.Period?, hint: String, index: AccountIndex,
+                                             taxonomy: [FileNode], root: String,
+                                             sharedStatementFolders: Set<String> = [],
+                                             isArchived: (String) -> Bool = { _ in false }) -> FilingSuggestion {
+        guard f.kind != .taxForm, let institution = index.headerInstitution(f) else { return s }
+        let hinted = AccountProposal.typeAndDigits(inHint: hint)
+        // A page not read as a statement (a lease bill, a page whose words OCR split apart) still
+        // gets one when the number it prints for itself is the one its inbox folder names.
+        guard f.kind == .statement
+              || (hinted.map { h in f.matchingNumbers.contains { $0.ending == h.digits } } ?? false) else { return s }
+        let ending = f.matchingNumbers.first?.ending ?? hinted?.digits
+        // An account this bank already has, named by the inbox folder's number (a statement that
+        // prints none, after the first ones made its folder): that account, at Medium.
+        if let digits = hinted?.digits, f.matchingNumbers.isEmpty,
+           let account = { () -> AccountIndex.Account? in
+               let named = index.accounts.filter { a in
+                   a.institution == institution && a.identities.contains { $0.hasSuffix(digits) || digits.hasSuffix($0) }
+               }
+               // A live account over a closed one of the same number; a closed one is still its home.
+               return named.first { !$0.archived } ?? named.first
+           }(),
+           let node = accountNodes(AccountIndex(accounts: [account], institutionTokens: [:]), in: taxonomy)[account.root] {
+            let place = AccountPlacement.place(in: node, period: period, taxForm: false, fileName: s.fileName)
+            var dest = destination(for: account, number: DocumentFacts.OwnNumber(digits: digits, masked: false),
+                                   place: place, kind: .statement, confidence: .medium, root: root,
+                                   match: .medium(account, number: DocumentFacts.OwnNumber(digits: digits, masked: false), why: .institutionSilent))
+            dest = FilingDestination(path: dest.path, confidence: .medium,
+                                     reasons: ["The folder it came from names ••\(digits) at \(account.institutionName.isEmpty ? institution : account.institutionName); page 1 prints no number"],
+                                     newSegments: dest.newSegments, fromContent: true, evidenceToken: dest.evidenceToken,
+                                     proposedName: dest.proposedName, account: dest.account, nameOrigin: dest.nameOrigin)
+            return s.replacingCandidates(inserting(dest, into: s.candidates))
+        }
+        guard let type = hinted?.type,
+              let p = AccountProposal.propose(institution: institution, type: type, ending: ending,
+                                              // The folder's own spelling, when it is this account's.
+                                              name: hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil },
+                                              index: index, tree: taxonomy, period: period, fileName: s.fileName,
+                                              isArchived: isArchived) else { return s }
+        // The bank keeps statements of this category together in one folder: no account folders.
+        let parent = (p.accountRoot as NSString).deletingLastPathComponent
+        if sharedStatementFolders.contains(where: { $0 == parent || $0.hasPrefix(parent + "/") }) { return s }
+        // A Medium home already offered inside an account of this type (or this number) is the home.
+        if let best = s.best, best.confidence >= .medium,
+           let rel = relativePath(best.path, under: root),
+           let holder = index.accounts.first(where: { rel == $0.root || rel.hasPrefix($0.root + "/") }) {
+            let n = (holder.root as NSString).lastPathComponent.lowercased()
+            if n.hasPrefix(type.lowercased()) || (ending.map { e in holder.identities.contains { $0.hasSuffix(e) || e.hasSuffix($0) } } ?? false) {
+                return s
+            }
+        }
+        let bank = AccountProposal.displayName(institution, from: AccountProposal.folders(namedFor: institution, in: taxonomy))
+        var reason = "No folder holds this \(bank) account"
+        if let e = ending.map({ "••" + $0 }) { reason = "No folder holds \(bank) \(e)" }
+        if let like = p.namedLike { reason += " · named like \((like as NSString).lastPathComponent)" }
+        if f.matchingNumbers.isEmpty, hinted != nil { reason += " · the number is from the folder it came from" }
+        var account = FilingAccount(root: root + "/" + p.accountRoot, ending: ending ?? "", institution: institution,
+                                    archived: false, kind: .statement)
+        account.institutionName = bank
+        let dest = FilingDestination(
+            path: root + "/" + p.folder, confidence: .medium, reasons: [reason], newSegments: p.newSegments,
+            fromContent: true, evidenceToken: ending.map { "••" + $0 }, account: account)
+        return s.replacingCandidates(inserting(dest, into: s.candidates))
     }
 
     /// The walked node for each account root.
@@ -159,7 +236,14 @@ extension FileSyncManager {
         guard let index = filingAccountIndex, !index.isEmpty, let root = filingLastProviderRoot else { return suggestion }
         return Self.applyingAccounts([suggestion], index: index, snippets: [suggestion.filePath: page],
                                      taxonomy: filingAccountTaxonomy, root: root,
-                                     scannedFolder: filingScanFolder).suggestions.first ?? suggestion
+                                     scannedFolder: filingScanFolder,
+                                     sharedStatementFolders: filingSharedStatementFolders,
+                                     isArchived: { [archived = filingArchivedFolders] in archived.contains($0) }).suggestions.first ?? suggestion
+    }
+
+    /// The folders the survey marks as archives, by path relative to its root.
+    nonisolated static func archivedFolders(in profile: FolderProfile?) -> Set<String> {
+        Set((profile?.folders ?? [:]).filter { $0.value.role == .archive || $0.value.axes["lifecycle"] == "archive" }.keys)
     }
 
     /// `index` with the accounts the tree names without digits, learned from page 1 of a few

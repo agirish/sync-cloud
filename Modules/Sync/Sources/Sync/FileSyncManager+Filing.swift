@@ -420,11 +420,8 @@ extension FileSyncManager {
         if Task.isCancelled { return }
         // Every account folder in the walked tree, from folder and file names alone: what a
         // statement's own number is matched against (``AccountIndex``).
-        let archiveProfile = filingRoutingProfile
-        let isArchived: @Sendable (String) -> Bool = { rel in
-            guard let entry = archiveProfile?.folders[rel] else { return false }
-            return entry.role == .archive || entry.axes["lifecycle"] == "archive"
-        }
+        let archivedFolders = Self.archivedFolders(in: filingRoutingProfile)
+        let isArchived: @Sendable (String) -> Bool = { archivedFolders.contains($0) }
         let namedAccounts = await Task.detached(priority: .userInitiated) {
             AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived)
         }.value
@@ -435,6 +432,13 @@ extension FileSyncManager {
         if Task.isCancelled { return }
         filingAccountIndex = accountIndex
         filingAccountTaxonomy = taxonomy
+        filingArchivedFolders = archivedFolders
+        // Where each bank keeps statements together, for this scan and its re-asks alike.
+        let walkedForShared = taxonomy
+        filingSharedStatementFolders = accountIndex.isEmpty ? [] : await Task.detached(priority: .userInitiated) {
+            Set(accountIndex.unnamedSamples(tree: walkedForShared).map(\.candidate))
+        }.value
+        if Task.isCancelled { return }
         // Cache the taxonomy for single-file re-asks (Try another).
         filingLastProviderRoot = providerRoot.path
         filingLastFileInto = fileInto.path
@@ -630,9 +634,11 @@ extension FileSyncManager {
             let root = providerRoot.path
             let input = suggestions
             let scannedFolder = folder.path
+            let shared = filingSharedStatementFolders
             let (placed, facts) = await Task.detached(priority: .userInitiated) {
                 Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
-                                      root: root, scannedFolder: scannedFolder)
+                                      root: root, scannedFolder: scannedFolder, sharedStatementFolders: shared,
+                                      isArchived: isArchived)
             }.value
             if Task.isCancelled { return }
             suggestions = placed

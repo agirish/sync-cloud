@@ -37,6 +37,9 @@ struct FilingSuggestionCard: View {
     /// The file is only in the cloud, so its home was chosen from its name alone. The card says so,
     /// since that is why such a suggestion can be weak; Download and Read, above the list, fixes it.
     var isNotDownloaded: Bool = false
+    /// Type the home in full ("Edit Path…"), offered on a home that creates folders. nil hides it.
+    var pathEditor: FilingPathEditorHooks? = nil
+    @State private var editingPath = false
 
     /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
     /// proposed name is the model's, not the user's, so they can change it before filing.
@@ -294,17 +297,42 @@ struct FilingSuggestionCard: View {
     private func newFolderNameField(_ dest: FilingDestination) -> some View {
         if let leaf = dest.newSegments.last {
             HStack(spacing: 6) {
-                Image(systemName: "folder.badge.plus")
-                    .scaledFont(.system(size: 11)).foregroundStyle(hueAccent)
-                Text("Create as").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
-                TextField(leaf, text: $editedFolderName)
-                    .textFieldStyle(.roundedBorder)
-                    .scaledFont(.system(size: 12))
-                    .frame(maxWidth: 220)
-                    .help("The name of the folder that will be created. Leave it to accept “\(leaf)”.")
+                if dest.newSegments.count == 1 {
+                    // One new level: its name can be changed in place.
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                            .scaledFont(.system(size: 11)).foregroundStyle(hueAccent)
+                        Text("Create as").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
+                        TextField(leaf, text: $editedFolderName)
+                            .textFieldStyle(.roundedBorder)
+                            .scaledFont(.system(size: 12))
+                            .frame(maxWidth: 220)
+                            .help("The name of the folder that will be created. Leave it to accept “\(leaf)”.")
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Create as \(editedFolderName.isEmpty ? leaf : editedFolderName)")
+                } else {
+                    // Several: renaming the last alone would leave the others unseen.
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.badge.plus")
+                            .scaledFont(.system(size: 11)).foregroundStyle(hueAccent)
+                        Text(FilingPathEditorText.preview(dest))
+                            .scaledFont(.system(size: 12)).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let pathEditor {
+                    Button("Edit Path…") { editingPath = true }
+                        .buttonStyle(.hoverAffordance(.inline))
+                        .scaledFont(.system(size: 11))
+                        .help("Type where it goes, anywhere in your folders; missing folders are made when you file")
+                        .popover(isPresented: $editingPath, arrowEdge: .bottom) {
+                            FilingPathEditor(hooks: pathEditor) { editingPath = false }
+                                .presentedNativeControlAccent()
+                        }
+                }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Create as \(editedFolderName.isEmpty ? leaf : editedFolderName)")
         }
     }
 

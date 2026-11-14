@@ -11,7 +11,8 @@ extension FileSyncManager {
     /// Returns how many moved; the members that couldn't be filed are in ``filingGroupFailures``,
     /// which the lens shows as cards of their own.
     @discardableResult
-    public func applyFilingGroup(_ group: FilingCardGroup, into folder: String? = nil) async -> Int {
+    public func applyFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
+                                 typed: FilingDestination? = nil) async -> Int {
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
@@ -29,7 +30,8 @@ extension FileSyncManager {
         var failures = 0, alreadyHome = 0
         for s in group.toFile {
             guard let own = s.best else { continue }
-            let dest = folder.map {
+            // A typed path keeps the levels it creates; the first member makes them.
+            let dest = typed ?? folder.map {
                 FilingDestination(path: $0, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
             } ?? own
             switch await performFiling(s, to: dest) {
@@ -49,7 +51,7 @@ extension FileSyncManager {
                 filingGroupFailures.insert(s.id)
             }
         }
-        let folderName = ((folder ?? group.destination.path) as NSString).lastPathComponent
+        let folderName = ((typed?.path ?? folder ?? group.destination.path) as NSString).lastPathComponent
         guard !moves.isEmpty else {
             if failures > 0 {
                 banner = .warning("Couldn’t file \(failures) file\(failures == 1 ? "" : "s") into \(folderName).", log: .warn)

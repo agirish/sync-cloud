@@ -4469,7 +4469,11 @@ public struct LensWorkspaceView: View {
                         syncManager.dismissFilingSuggestion(c)
                     }
                 }
-            }
+            },
+            pathEditor: group.destination.createsAccountFolder ? pathEditor(for: group.members[0], title: "Create and File \(group.toFile.count)") { dest in
+                filedThisSession = true
+                Task { await syncManager.applyFilingGroup(group, typed: dest) }
+            } : nil
         )
     }
 
@@ -4555,8 +4559,26 @@ public struct LensWorkspaceView: View {
                 ? { Task { await syncManager.readScan(for: suggestion) } }
                 : nil,
             isReadScanBusy: syncManager.filingOCRInFlight.contains(suggestion.filePath),
-            isNotDownloaded: syncManager.filingNotDownloaded.contains(suggestion.filePath)
+            isNotDownloaded: syncManager.filingNotDownloaded.contains(suggestion.filePath),
+            pathEditor: suggestion.best?.createsAccountFolder == true ? pathEditor(for: suggestion, title: "Create and File") { dest in
+                filedThisSession = true
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
+            } : nil
         )
+    }
+
+    /// The "Edit Path…" popover's hooks for a card: start from its current home, check against the
+    /// tree it was scanned against, suggest the folders of that tree.
+    private func pathEditor(for suggestion: FilingSuggestion, title: String,
+                            onCommit: @escaping (FilingDestination) -> Void) -> FilingPathEditorHooks {
+        let root = suggestion.providerRoot ?? ""
+        let current = suggestion.best.flatMap { PathBoundary.relativize($0.path, under: root) } ?? ""
+        return FilingPathEditorHooks(
+            initial: current,
+            validate: { syncManager.filingDestination(typed: $0, for: suggestion) },
+            complete: { syncManager.filingPathCompletions($0) },
+            commitTitle: title,
+            onCommit: onCommit)
     }
 
     /// The pre-scan state. Not `EmptyStateView` like the other four: this card shows three sample

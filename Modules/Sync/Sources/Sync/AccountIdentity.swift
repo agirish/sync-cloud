@@ -400,6 +400,13 @@ public struct AccountIndex: Sendable {
         return count
     }
 
+    /// The one institution the page's header names most, or nil for none or a tie.
+    public func headerInstitution(_ facts: DocumentFacts) -> String? {
+        let counts = institutionTokens.keys.map { ($0, mentions($0, in: facts.header)) }.filter { $0.1 > 0 }
+        guard let top = counts.max(by: { $0.1 < $1.1 }) else { return nil }
+        return counts.filter { $0.1 == top.1 }.count == 1 ? top.0 : nil
+    }
+
     public func match(_ facts: DocumentFacts) -> Match {
         var hits: [(Account, DocumentFacts.OwnNumber)] = []
         for account in accounts {
