@@ -103,6 +103,7 @@ extension PDFFixtures {
 @Suite(.serialized) final class EditorPDFToolsTests {
 
     let folder = NSTemporaryDirectory() + "editor-pdf-tools-" + UUID().uuidString
+    private let defaults = ScratchDefaults("EditorPDFToolsTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -280,7 +281,7 @@ extension PDFFixtures {
         #expect(asked == 1)
         #expect(!files().contains { $0.hasPrefix("Form (") }, "a copy was written: \(files())")
 
-        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false }, defaults: defaults)
         pdf.open(path: file, log: { _ in })
         for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
         #expect(pdf.phase == .open)
@@ -288,7 +289,7 @@ extension PDFFixtures {
         // So does a load that found the file locked to open: Remove Password is a run like any other.
         let locked = path("Locked.pdf")
         PDFFixtures.writeLocked(locked, password: "secret")
-        let held = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        let held = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false }, defaults: defaults)
         held.open(path: locked, log: { _ in })
         for _ in 0..<1000 where held.phase == .loading { await PDFKitSerialAccess.perform {} }
         #expect(held.phase == .locked)
@@ -332,7 +333,7 @@ extension PDFFixtures {
 
         let lease = path("Lease.pdf")
         PDFFixtures.write(lease, pages: 2)
-        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(settle: .seconds(600), isCloudOnly: { _ in false }, defaults: defaults)
         pdf.tools.isCloudOnly = { _ in false }
         pdf.open(path: lease, log: { _ in })
         for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
@@ -511,7 +512,7 @@ extension PDFFixtures {
     @Test func leavingWithAnUnsavedOrderAsksFirst() async {
         let file = path("Three.pdf")
         PDFFixtures.write(file, pages: 3)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         var asked = 0
         var answer = false
         pdf.tools.confirmDiscardingArrangement = { _ in asked += 1; return answer }
@@ -987,7 +988,7 @@ extension PDFFixtures {
     @Test func aFileLockedToOpenOffersOnlyRemovePassword() async throws {
         let file = path("Locked.pdf")
         PDFFixtures.writeLocked(file, password: "open-sesame")
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         pdf.open(path: file, log: { _ in })
         for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
         #expect(pdf.phase == .locked)
@@ -1010,7 +1011,7 @@ extension PDFFixtures {
     @Test func aRestrictedFileSaysWhatItsOwnerForbids() async throws {
         let file = path("Statement.pdf")
         PDFFixtures.writeRestricted(file)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         pdf.open(path: file, log: { _ in })
         for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
         let tools = pdf.tools
@@ -1519,7 +1520,7 @@ extension PDFFixtures {
         PDFFixtures.write(open, pages: 3)
         PDFFixtures.writeLocked(locked, password: "pw")
         for (file, phase) in [(open, EditorPDFDocument.Phase.open), (locked, .locked)] {
-            let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+            let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
             pdf.open(path: file, log: { _ in })
             for _ in 0..<1000 where pdf.phase == .loading { await PDFKitSerialAccess.perform {} }
             try #require(pdf.phase == phase, "\(file) opened as \(pdf.phase)")

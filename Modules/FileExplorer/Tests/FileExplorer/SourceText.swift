@@ -176,6 +176,63 @@ enum SourceText {
         return String(decoding: b[min(open + 1, b.count)...], as: UTF8.self)
     }
 
+    /// The labels each call of `name` in `source` passes, one list per call in source order:
+    /// `["isCloudOnly", "defaults"]` for `EditorPDFDocument(isCloudOnly: f, defaults: d)`, whatever
+    /// the layout. A call, not a mention: `name` stands alone (`Foo` does not match `MyFoo`), is in
+    /// code, is followed by `(`, and is not a `func` declaration. Commas split only at the top
+    /// level, so a closure or a nested call is one argument. The app target's `argumentLists` and
+    /// `CallArguments` read calls the same way.
+    static func callLabels(of name: String, in source: String) -> [[String]] {
+        let b = Array(source.utf8), n = Array(name.utf8)
+        guard !n.isEmpty, source.contains(name) else { return [] }
+        let kind = kinds(b)
+        func isWord(_ c: UInt8) -> Bool {
+            (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5A) || (c >= 0x61 && c <= 0x7A)
+                || c == UInt8(ascii: "_") || c >= 0x80
+        }
+        func isSpace(_ c: UInt8) -> Bool { c == 0x20 || c == 0x09 }
+        var calls: [[String]] = []
+        var i = 0
+        while i + n.count <= b.count {
+            defer { i += 1 }
+            guard kind[i] == .code, b[i..<(i + n.count)].elementsEqual(n), i == 0 || !isWord(b[i - 1]) else { continue }
+            var p = i + n.count
+            if p < b.count, isWord(b[p]) { continue }
+            while p < b.count, isSpace(b[p]) { p += 1 }
+            guard p < b.count, b[p] == UInt8(ascii: "("), kind[p] == .code else { continue }
+            var q = i
+            while q > 0, isSpace(b[q - 1]) { q -= 1 }
+            if q >= 4, b[(q - 4)..<q].elementsEqual("func".utf8), q == 4 || !isWord(b[q - 5]) { continue }
+            var pieces: [String] = [], depth = 0, start = p + 1, j = p
+            while j < b.count {
+                defer { j += 1 }
+                guard kind[j] == .code else { continue }
+                switch b[j] {
+                case UInt8(ascii: "("), UInt8(ascii: "["), UInt8(ascii: "{"): depth += 1
+                case UInt8(ascii: ")"), UInt8(ascii: "]"), UInt8(ascii: "}"):
+                    depth -= 1
+                    if depth == 0 { pieces.append(String(decoding: b[start..<j], as: UTF8.self)) }
+                case UInt8(ascii: ",") where depth == 1:
+                    pieces.append(String(decoding: b[start..<j], as: UTF8.self))
+                    start = j + 1
+                default: break
+                }
+                if depth == 0 { break }
+            }
+            guard depth == 0 else { continue }   // never closes: not a call this reader can read
+            calls.append(pieces.compactMap { piece in
+                // `label:` is an identifier then a colon that is not the first of `::`.
+                let value = normalized(piece)
+                guard let colon = value.firstIndex(of: ":"), !value[colon...].hasPrefix("::") else { return nil }
+                let label = value[..<colon]
+                guard let first = label.first, first.isLetter || first == "_",
+                      label.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return nil }
+                return String(label)
+            })
+        }
+        return calls
+    }
+
     /// Comments dropped, and whitespace outside string literals dropped except between two word
     /// characters, where it becomes one space. Strings are kept byte for byte.
     static func normalized(_ text: String) -> String {

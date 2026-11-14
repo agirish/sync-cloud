@@ -17,6 +17,7 @@ import Sync
 @Suite(.serialized) final class EditorPDFToolPolishTests {
 
     let folder = NSTemporaryDirectory() + "editor-pdf-polish-" + UUID().uuidString
+    private let defaults = ScratchDefaults("EditorPDFToolPolishTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -296,7 +297,7 @@ import Sync
     @Test func theCurrentPagesRingSitsInsideTheSelectedWash() async throws {
         let file = path("Ring.pdf")
         PDFFixtures.write(file, pages: 4)
-        let pdf = EditorPDFDocument(isCloudOnly: { _ in false })
+        let pdf = EditorPDFDocument(isCloudOnly: { _ in false }, defaults: defaults)
         pdf.open(path: file, log: { _ in })
         await wait("the open") { pdf.phase == .open }
         pdf.tools.click(0, .plain)

@@ -17,6 +17,7 @@ import Sync
     static let reads = BoundedCloudRead(deadline: .seconds(30))
 
     let folder = NSTemporaryDirectory() + "link-target-doors-" + UUID().uuidString
+    private let defaults = ScratchDefaults("LinkTargetDoorsTests")
 
     init() throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -106,7 +107,7 @@ import Sync
         let file = path("cloud.pdf")
         PDFFixtures.write(file, pages: 1)
         let link = try link("cloud-link.pdf", to: file)
-        let pdf = EditorPDFDocument(isCloudOnly: Self.only(file))
+        let pdf = EditorPDFDocument(isCloudOnly: Self.only(file), defaults: defaults)
         var phases: [EditorPDFDocument.Phase] = []
         pdf.onLoaded = { phases.append($0) }
         pdf.open(path: link, log: { _ in })
