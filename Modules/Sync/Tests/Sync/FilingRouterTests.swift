@@ -59,17 +59,15 @@ import Testing
         #expect(r.best?.relativePath == expected)
     }
 
-    /// The vocabulary for the two inheritance tests below: words in no folder path of the fixture,
-    /// with a file name sharing none of them, so inherited content is the only way a child folder
-    /// can score. Words from the folder names would let the children rank on their own path tokens
-    /// and the tests would never exercise inheritance.
+    /// The vocabulary for the inheritance test below: words in no folder path of the fixture, with a
+    /// file name sharing none of them, so inherited content is the only way a child folder can score.
+    /// Words from the folder names would let the children rank on their own path tokens.
     static let parentVocabulary = ["consulate", "foil", "annotation", "nonimmigrant", "issuance",
                                    "reciprocity", "biometrics", "interview", "endorsement",
                                    "duration", "petitioner", "beneficiary"]
 
-    /// The inherited share is in the same units as the score it is added to. Normalised by the peak
-    /// it would land in [0, `inheritWeight`] beside raw scores in the hundreds, and inheritance would
-    /// do nothing. Twelve matching anchors are enough to tell the two apart.
+    /// The inherited share is in the same units as the score it is added to: normalised by the peak
+    /// it would land in [0, `inheritWeight`] beside raw scores in the hundreds, and do nothing.
     @Test func theInheritedShareScalesWithTheEvidenceBehindIt() throws {
         let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
                              extraFolders: ["Records/Consular", "Records/Consular/Alpha"])
@@ -84,10 +82,9 @@ import Testing
                 "inherited \(child.score) against a parent at \(parent.score) — share out of scale")
     }
 
-    /// The scorer reads only the sample its weights were tuned on, whatever the caller passes.
-    /// `ContentSignalExtractor` returns up to five pages, right for a classifier prompt; pages 2–5
-    /// of a bill are line items whose words pull unrelated folders up and shrink the margin enough to
-    /// drop confidence a level.
+    /// The scorer reads only the sample its weights were tuned on, though `ContentSignalExtractor`
+    /// passes up to five pages: pages 2–5 of a bill are line items whose words pull unrelated
+    /// folders up and drop confidence a level.
     @Test func pagesTwoOnwardsCannotDiluteTheRanking() {
         let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary,
                                           "Finance/US/Income Tax/2023": ["itemised", "charges", "subtotal"]],
@@ -96,7 +93,6 @@ import Testing
         // stand-in would let the window reach into the tail and fail for the fixture's sake.
         let pageOne = String(repeating: Self.parentVocabulary.joined(separator: " ") + " ", count: 6)
         #expect(pageOne.count > FilingRouter.contentSampleChars)
-        // Plus four pages of line items whose words belong to a different folder entirely.
         let withTail = pageOne + String(repeating: "itemised charges subtotal ", count: 800)
         #expect(withTail.count > 16_000)
 
@@ -227,8 +223,8 @@ import Testing
         #expect(r.confidence == .low)
     }
 
-    /// With neither profile nor memory there is nothing to route with, so the caller gets an empty
-    /// index, not a confident wrong answer: the never-surveyed machine.
+    /// With neither profile nor memory (a never-surveyed machine) the index is empty, not a
+    /// confident wrong answer.
     @Test func noProfileAndNoMemoryMeansAnEmptyIndex() {
         let idx = FilingRouter.makeIndex(destinations: ["A/B"], profile: nil, memory: nil)
         #expect(FilingRouter.rank(fileName: "x.pdf", contentSnippet: "x", index: idx).best == nil)
@@ -291,14 +287,11 @@ import Testing
         let idx = Self.siblingPersonIndex()
         let r = FilingRouter.rank(fileName: "Father Elder - Report Card.pdf",
                                   contentSnippet: "Trimester report card, attendance", index: idx)
-        // Neither child is named, so neither bucket is confirmed OR contradicted: the two stay
-        // level and the margin says the router cannot tell them apart.
         #expect(r.margin < 0.2)
     }
 
     /// A contradiction demotes, not merely fails to promote. The penalty shows only where the wrong
-    /// person's folder wins on content: Daughter's folder knows every word of a shower invitation
-    /// that names Granny.
+    /// person's folder wins on content, so the invitation names Granny.
     @Test func aFolderContentRanksFirstIsDemotedWhenItIsTheWrongPersons() {
         let folders = ["Family/Daughter/Events", "Family/Granny/Events"]
         func entry(_ path: String, person: String) -> FolderProfileEntry {
@@ -463,8 +456,7 @@ import Testing
         #expect(out.best?.relativePath == "Immigration/OCI/Son", "an unrelated folder was boosted")
     }
 
-    /// With no peer names anywhere the ranking comes back untouched: the re-rank never reshuffles
-    /// on its own.
+    /// With no peer names anywhere the re-rank leaves the ranking untouched.
     @Test func noPeerNamesLeavesTheRankingAlone() {
         let r = Self.ranking([("A/B", 1.0), ("A/B/C", 0.9)])
         let out = FilingRouter.rerankedByPeerNames(r, fileName: "x.pdf") { _ in [] }

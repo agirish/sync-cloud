@@ -142,19 +142,13 @@ import Events
     /// What makes an offer stale by the time the user confirms it.
     enum StaleConfirm: Sendable { case fileOperation, pendingOperation, staleStamp }
 
-    /// Confirming a stale offer must refuse: the verdicts predate a write.
-    /// - `fileOperation`: the dialog is up, the user hits ⌘Z, and the undo overwrites a verified
-    ///   file before its rescan clears the offer (`scanDirectories` does, but only when the rescan
-    ///   completes, seconds later on a large tree). Same size, different content, so a stale copy
-    ///   would show.
-    /// - `pendingOperation`: the window the epoch alone can't see, an operation pre-counted but not
-    ///   yet at `enqueueFileOperation`, where the epoch is bumped. Undo/redo pre-count synchronously
-    ///   and enqueue from a `Task`, and `enqueueFileOperation`'s `await MainActor.run` suspends, so
-    ///   "epoch unmoved" doesn't mean "nothing is about to be written". Passing here, the bulk copy
-    ///   would queue behind the undo and overwrite what it restored. `bulkCopyDifferencesLeftToRight`
-    ///   re-checks both terms too, but only this guard refuses visibly at click time.
-    /// - `staleStamp`: the epoch term on its own, an offer stamped behind the live epoch. The stamp
-    ///   is part of `VerifiedCopyOffer`, so a stale one is a constructor argument.
+    /// Confirming a stale offer must refuse, or the bulk copy writes over bytes its verdicts predate:
+    /// - `fileOperation`: ⌘Z overwrites a verified file while the dialog is up, before its rescan
+    ///   clears the offer seconds later. Same size, different content, so a stale copy would show.
+    /// - `pendingOperation`: undo/redo pre-count synchronously and enqueue from a `Task`, so an
+    ///   unmoved epoch doesn't mean nothing is about to be written; passing here, the copy would
+    ///   queue behind the undo and overwrite what it restored.
+    /// - `staleStamp`: the epoch term on its own, an offer stamped behind the live epoch.
     @MainActor
     @Test(arguments: [StaleConfirm.fileOperation, .pendingOperation, .staleStamp])
     func testConfirmRefusesAStaleOffer(_ stale: StaleConfirm) async throws {
@@ -341,15 +335,10 @@ import Events
     /// What lands on a verified pair while the offer's dialog is up.
     enum Disturbance: Sendable { case fileOperation, pendingOperation, outOfAppWrite }
 
-    /// Cancel must not hide rows the confirm path would refuse to trust. Hiding is a claim about
-    /// the files, resting on the same verdicts as the copy, so an undo landing while the dialog is
-    /// up stops the hide. The undo's rescan re-derives the row only if it completes and isn't
-    /// superseded, so a wrong hide could last until a manual rescan.
-    ///
-    /// The count half of the same guard (`pendingOperation`): an operation pre-counted but not yet
-    /// enqueued. The epoch hasn't moved, so the stamp still matches and only the count can refuse
-    /// the hide. And an out-of-app write stops the hide too, or a refusal would resolve the row it
-    /// declined to act on.
+    /// Cancel must not hide rows the confirm path would refuse to trust: hiding rests on the same
+    /// verdicts as the copy, and a wrong hide could last until a manual rescan. An undo landing
+    /// while the dialog is up stops it; so does a pre-counted operation (`pendingOperation`), where
+    /// only the count can refuse because the epoch hasn't moved; so does an out-of-app write.
     @MainActor
     @Test(arguments: [Disturbance.fileOperation, .pendingOperation, .outOfAppWrite])
     func testDismissAfterADisturbanceHidesNothing(_ disturbance: Disturbance) async throws {
@@ -428,13 +417,10 @@ import Events
     /// Which end of a verified pair an out-of-app writer changes.
     enum PairSide: Sendable { case right, left }
 
-    /// The epoch, count and generation guards see only in-app writes. A cloud daemon syncing a
-    /// new right-side version while the dialog is open moves none of them, so Confirm re-checks
-    /// each pair's stamp and refuses rather than put the stale left copy over the new bytes.
-    /// Driven with a plain `Data.write`, not `enqueueFileOperation`: an out-of-app writer is the
-    /// point. The left side is what gets written, so a left file rewritten after the hash would
-    /// push unverified bytes onto the right, replacing a file the user was told was already the
-    /// same.
+    /// The epoch, count and generation guards see only in-app writes, so Confirm re-checks each
+    /// pair's stamp: a cloud daemon's new right-side version, or a left file rewritten after the
+    /// hash, must refuse rather than push stale or unverified bytes over the right. Driven with a
+    /// plain `Data.write`: an out-of-app writer is the point.
     @MainActor
     @Test(arguments: [PairSide.right, .left])
     func testConfirmRefusesWhenASideChangedOutsideTheApp(_ side: PairSide) async throws {

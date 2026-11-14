@@ -3,7 +3,7 @@ import Foundation
 import Events
 @testable import Sync
 
-/// The duplicate removal path must tell the truth about a destructive action.
+/// The duplicate removal path tells the truth about a destructive action.
 ///
 /// The undo promise: `deleteItems` registers a restore-undo only for items that reached the Trash,
 /// and its `DeleteOutcome` says so. On a Trash-less volume (exFAT, most SMB shares) the files are
@@ -21,8 +21,8 @@ import Events
 
     // MARK: The undo promise
 
-    /// The headline: on a Trash-less volume the copies are destroyed permanently, and the banner
-    /// must not offer an undo that would fire at an unrelated operation.
+    /// On a Trash-less volume the copies are destroyed permanently, and the banner must not offer
+    /// an undo that would fire at an unrelated operation.
     @MainActor
     @Test func aPermanentRemovalDoesNotPromiseUndo() async throws {
         let mockFM = MockFileManager()
@@ -44,8 +44,8 @@ import Events
         #expect(manager.banner?.isUndoable != true)
     }
 
-    /// The other direction: a normal Trash removal still offers the undo it really has. And the
-    /// drift guard does not over-refuse an untouched pair, or Tidy stops working entirely.
+    /// The other direction: a normal Trash removal still offers its undo, and the drift guard does
+    /// not over-refuse an untouched pair.
     @MainActor
     @Test func aTrashedRemovalStillPromisesUndo() async throws {
         let mockFM = MockFileManager()
@@ -71,10 +71,9 @@ import Events
     @Test func aPartialBatchThatOffersUndoIsMarkedUndoableSoTheOfferCanExpire() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager.forTests(fileManager: mockFM)
-        // Two eligible groups, one of whose keepers is gone: it is filtered out of `batch` while
-        // staying in `eligible`, which is what takes the partial branch. The surviving group
-        // trashes normally, so the outcome really is undoable; otherwise this would test the
-        // no-offer case.
+        // Two eligible groups, one with its keeper gone: filtered out of `batch` but still in
+        // `eligible`, which takes the partial branch. The surviving group trashes normally, so the
+        // outcome really is undoable; otherwise this would test the no-offer case.
         mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         mockFM.virtualDisk["/b/y"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
@@ -85,12 +84,12 @@ import Events
 
         await manager.applyRecommendedDuplicates([present, keeperGone])
 
-        // The premise: this is the partial branch, and it did make an offer.
+        // Premise: this is the partial branch.
         let message = try #require(manager.banner?.message)
         #expect(message.contains("of 2 groups"),
                 "not the partial branch — the banner reads “\(message)”, so the flag below is not the one under test")
-        // The invariant: an offer that is made must be retractable. The flag is the offer (it
-        // shows the Undo button), and `invalidateUndoableBanner` retires it by the same flag.
+        // The flag is the offer (it shows the Undo button), and `invalidateUndoableBanner` retires
+        // it by the same flag.
         #expect(manager.banner?.isUndoable == true,
                 "the partial banner made no undo offer, so its Undo button is missing — or, offered by prose alone, invalidateUndoableBanner would leave it up after the stack moves on")
         #expect(!message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it (TE216)")
@@ -134,7 +133,7 @@ import Events
         #expect(mockFM.virtualDisk["/b/x"] != nil, "an edited copy must never be trashed as redundant")
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("changed since it was scanned") == true)
-        // Nothing was removed: a refusal, kept for this session only, as the gate's twin is.
+        // Nothing was removed: a refusal, kept for this session only.
         #expect(manager.banner?.isRefusal == true)
     }
 
@@ -178,7 +177,6 @@ import Events
         #expect(!said.contains("changed since they were scanned"),
                 "a group nothing has touched was reported as drifted — a rescan finds the same thing: “\(said)”")
         #expect(said.contains("protected"), "the banner does not say why nothing was removed: “\(said)”")
-        // And both copies are still there — nothing was trashed on the way to that message.
         #expect(mockFM.virtualDisk["/b/x"] != nil)
         #expect(manager.banner?.isRefusal == true, "nothing left the disk, so it is kept for this session only")
     }

@@ -2,13 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What the classifier is allowed to answer with, and what a verdict is allowed to override.
-///
-/// A depth-ordered folder list cut at 250 can leave a file's real folder out of the prompt
-/// entirely (a visa foil's `Immigration/Visa/US/H-1B Visa/2024-2026` ranks 1,344th), and a model
-/// with no good option names a wrong folder at High with an invented reason. Withholding page 1
-/// because the filename "looks meaningful" hides the very text (consulate, visa class, expiry) that
-/// would have told it.
+/// What the classifier may answer with, and what a verdict may override. A depth-ordered folder
+/// list cut at 250 can leave a file's real folder out of the prompt (a deep visa folder ranks
+/// 1,344th), and a model with no good option names a wrong folder at High. Withholding page 1
+/// because the filename "looks meaningful" hides the very text that would have told it.
 @Suite struct FilingClassifierMenuTests {
 
     // MARK: - classifierFolders
@@ -121,10 +118,9 @@ import Testing
         #expect(blind == ["/root/a.pdf"])
     }
 
-    /// The half that keeps installs without a reader working. "We read it and got nothing" and "we
-    /// didn't read" look identical at the call site: with reading off, every file is handed over on
-    /// its name, and calling all of them blind would cap every verdict at `.low`, refuse every new
-    /// folder and demote every backend answer, on a claim nobody checked.
+    /// The half that keeps installs without a reader working. "Read it and got nothing" and "didn't
+    /// read" look identical at the call site: with reading off every file is handed over on its
+    /// name, and calling them all blind would cap, refuse and demote every verdict unchecked.
     @Test func noReaderMeansNoFileIsCalledBlind() {
         #expect(FilingEngine.contentBlindFiles(
             handedOver: ["/root/a.pdf", "/root/b.pdf"], read: [], hadReader: false).isEmpty)
@@ -152,10 +148,8 @@ import Testing
         for file in ["FileSyncManager+Filing.swift", "FileSyncManager+FilingRefine.swift"] {
             let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
             try #require(text.count > 5000, "\(file) could not be read — this scan would be vacuous")
-            // Deliberately NOT a ban on spelling `.subtracting(snippets.keys)`: that expression is
-            // general-purpose, a future line could want it for something unrelated, and a scan that
-            // forbids it pins a spelling rather than a behaviour. What matters is that the value
-            // handed to `applyVerdicts` comes from the shared rule, so that is what is asserted.
+            // Not a ban on spelling `.subtracting(snippets.keys)`, which pins a spelling, not a
+            // behaviour: what matters is that `applyVerdicts` gets the shared rule's value.
             let assigned = text.contains("let contentBlind = FilingEngine.contentBlindFiles(")
             #expect(assigned, "\(file) no longer builds its contentBlind set from the shared rule")
         }
@@ -224,10 +218,8 @@ import Testing
     ///   answer with the peer document already filed there; trimming it lands on the folder.
     /// - A folder that already exists is the user's, whatever it is called. The trim applies only
     ///   to a segment that would be CREATED, or a real `Backup.old` would become unreachable.
-    /// - A new folder has to be declared. An undeclared one is an invention, not a proposal: a
-    ///   deliberate proposal and a segment split out of the file's own name would be one signal.
-    ///   Declared, the same path creates the folder, or the rule would be indistinguishable from
-    ///   never proposing a new folder at all.
+    /// - A new folder has to be declared; an undeclared one is an invention, not a proposal.
+    ///   Declared, the same path creates it, or the rule would be "never propose a new folder".
     @Test(arguments: [
         ("DetailedBillApr2025.pdf", "Finance/US/Accounts/DetailedBillApr2025.pdf", true, false,
          "Finance/US/Accounts", ["Finance", "US", "Accounts"]),
@@ -252,14 +244,11 @@ import Testing
         }
     }
 
-    /// A backend that has not read the document cannot report high confidence. It saw a filename;
-    /// that is a `.low` claim however sure the model says it is, and the badge is what the user
-    /// reads before accepting a home. So a blind verdict doesn't displace a filename match the
-    /// deterministic engine made from the same information and rated `.medium`.
-    ///
-    /// The other half: with nothing better to keep, the blind verdict still leads — capped, so the
-    /// card says `.low` rather than claiming a certainty nobody has. Without it the first case
-    /// would pass for a rule that simply drops every blind verdict.
+    /// A backend that has not read the document cannot report high confidence: it saw a filename,
+    /// a `.low` claim, and the badge is what the user reads before accepting. So a blind verdict
+    /// doesn't displace a `.medium` filename match made from the same information. With nothing
+    /// better to keep it still leads, capped at `.low`; without that half the first case would pass
+    /// for a rule that drops every blind verdict.
     @Test(arguments: [true, false])
     func aBlindVerdictIsCappedAndCannotDisplaceAFilenameMatch(filenameMatch: Bool) throws {
         let path = "/root/TODO/scan.pdf"
@@ -280,12 +269,10 @@ import Testing
     }
 
     /// The model re-ranks the router's shortlist; it does not answer past it. One file can come
-    /// back as three different `.high` folders in three scans, so arbitration can't be confidence
-    /// against confidence. A verdict naming an existing folder the router never shortlisted leaves
-    /// the router's home on the card. Inside the shortlist the verdict leads as before, or the rule
-    /// would be indistinguishable from ignoring the model. With no artifacts there is no shortlist,
-    /// and the model is the only answer there is: the gate must not disable the backend on an
-    /// unsurveyed tree.
+    /// back as three different `.high` folders in three scans, so a verdict naming a folder the
+    /// router never shortlisted leaves the router's home on the card. Inside the shortlist the
+    /// verdict leads, or the rule would be ignoring the model. With no artifacts there is no
+    /// shortlist, and the gate must not disable the backend on an unsurveyed tree.
     @Test(arguments: [
         (["Documents/Visa", "Documents/Other"], "/root/Documents/Visa"),
         (["Documents/Visa", "Documents/I-94"], "/root/Documents/I-94"),
@@ -328,10 +315,9 @@ import Testing
         #expect(dest.renamingNewFolder(to: "Something Else") == dest)
     }
 
-    /// A colon is not a legal folder name here. Every new-folder path in the app goes through
-    /// `validateItemName`, which rejects `:` because Finder maps it to `/` per HFS+ semantics, so
-    /// the folder created isn't the one the name shows. This guard calls the same predicate rather
-    /// than keeping a hand-made list that can drift.
+    /// A colon is not a legal folder name: `validateItemName` rejects `:` because Finder maps it to
+    /// `/`, so the folder created isn't the one the name shows. This guard calls the same predicate
+    /// rather than a hand-made list that can drift.
     @Test func aRenameTheSharedValidatorRefusesIsRefusedHereToo() {
         let dest = FilingDestination(path: "/root/Documents/Visa/Suggested", confidence: .high,
                                      reasons: [], newSegments: ["Suggested"])
@@ -424,8 +410,7 @@ import Testing
     @Test(arguments: [
         // Daughter's document, Son's folder: refused.
         ("Daughter OCI.pdf", "Documents/OCI/Son", Roster.people, nil, nil),
-        // The right person leads, or the rule above is indistinguishable from refusing every
-        // person folder.
+        // The right person leads, or the rule above could be refusing every person folder.
         ("Daughter OCI.pdf", "Documents/OCI/Daughter", .people, nil, "Documents/OCI/Daughter"),
         // Asked of the profile's person axis, not the path's words: the trip folder
         // `Elder - 2021` holds the whole family's documents and has no person axis.
@@ -504,12 +489,9 @@ import Testing
     }
 
     /// The filename outranks the page; it doesn't merely add to it. A page-1 mention is testimony
-    /// (an application prints the sponsor, a sibling, a witness), but a file the user has labelled
-    /// `Daughter` is Daughter's, so a verdict sending it to Son's folder is refused even though the
-    /// page names Son. Folding the two sets together would let it through.
-    ///
-    /// The second half is the same rule read the other way: a supporting name on the page cannot
-    /// veto the person the filename declares.
+    /// (a sponsor, a sibling, a witness), but a file labelled `Daughter` is Daughter's, so a
+    /// verdict sending it to Son's folder is refused though the page names Son. The second half: a
+    /// supporting name on the page cannot veto the person the filename declares.
     @Test func theFilenameOutranksThePageWhenBothNamePeople() throws {
         let contested = "/root/TODO/Daughter - OCI.pdf"
         let contestedBase = [FilingSuggestion(filePath: contested, fileName: "Daughter - OCI.pdf", size: 10,

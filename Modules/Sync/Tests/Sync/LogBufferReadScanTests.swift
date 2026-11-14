@@ -104,10 +104,9 @@ import Testing
             """)
     }
 
-/// Positive control for the walk: a clean tree and a tree the scan stopped reading look the same.
-/// So a bare read is planted in one real file of every tree it walks, and the judgement must name
-/// it. The trees that once held bare reads are required by name, so a walk that lost one can't
-/// silently drop it from this control too.
+    /// Positive control for the walk: a clean tree and a tree the scan stopped reading look the
+    /// same, so a bare read is planted in one real file of every tree it walks and must be named.
+    /// The trees are required by name, so a walk that lost one can't drop it from this control.
     @Test func theScanSeesABareReadPlantedInEveryTestTree() {
         let trees = Self.testTrees()
         for tree in ["SyncCloudTests", "Modules/Sync/Tests", "Modules/Dashboard/Tests",
@@ -126,7 +125,7 @@ import Testing
         }
     }
 
-/// Positive control for the judgement: the shapes it has to tell apart.
+    /// Positive control for the judgement: the shapes it has to tell apart.
     @Test func theScanSeesABareReadAndOnlyThat() {
         let far = Array(repeating: "let x = 1", count: Self.boundReach).joined(separator: "\n")
         let cases: [(source: String, bare: Bool, why: Comment)] = [

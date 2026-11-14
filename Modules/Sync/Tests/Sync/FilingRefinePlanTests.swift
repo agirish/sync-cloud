@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine split in two (TE335, C1): ``FileSyncManager/prepareFilingRefine(_:)`` quotes without
+/// Refine in two steps: ``FileSyncManager/prepareFilingRefine(_:)`` quotes without
 /// sending, and ``FileSyncManager/sendFilingRefine(_:scope:)`` builds the request again and sends
 /// only what the plan quoted. Each test that expects a send is paired with one where the same
 /// change should stop it.
@@ -140,7 +140,7 @@ import Testing
         #expect(fresh.id != plan.id)
         #expect(sent.all.isEmpty, "nothing was sent against a list the person had not been quoted for")
         #expect(m.filingOpenRefinePlans[fresh.providerRoot]?.id == fresh.id)
-        // The control: the new plan, read again, sends.
+        // Control: the new plan sends.
         if case .sent = await m.sendFilingRefine(fresh, scope: m.filingSuggestions) {} else { Issue.record("the new plan did not send") }
         #expect(sent.all.count == 1)
     }

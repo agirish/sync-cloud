@@ -16,7 +16,6 @@ import Testing
     /// window that starts before its test does and can't be evicted. See `LogCapture`.
     private let log = LogCapture()
 
-
     /// The shared logger's most recent entry containing `fragment`, or nil. The whole entry, not
     /// its message, because a line's level is part of what this suite pins
     /// (`wideningAOnePaneRefreshSaysSo`).
@@ -85,8 +84,7 @@ import Testing
         #expect(entry != nil,
                 "a one-pane refresh was widened to both panes, and really ran, with nothing in the log")
         // The level matters: `.debug` is dropped at Settings ▸ Advanced ▸ Info, and this is the only
-        // account of a visible event (the other pane reloading). The reader who turned the noise
-        // down is the one asking why their right pane reloaded.
+        // account of a visible event (the other pane reloading).
         #expect(entry?.level == .info,
                 "the widening line is back at \(entry?.level.rawValue ?? "no") level — at .debug it is dropped for exactly the reader who turned the noise down to ask why their other pane reloaded")
         _ = await widening.value

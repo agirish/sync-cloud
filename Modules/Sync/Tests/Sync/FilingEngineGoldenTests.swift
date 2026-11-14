@@ -2,11 +2,10 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Characterization ("golden") test for `FilingEngine.suggest`. Pins the classification of a broad
-/// set of loose files against one taxonomy as a single snapshot — destination, confidence, and
-/// batch-eligibility per file — so a change to the filing heuristic (a token rule, the year handling,
-/// the confidence/batch gate) flips the snapshot and must be consciously re-blessed. Above all it
-/// catches a file becoming (or ceasing to be) batch-eligible.
+/// Characterization ("golden") test for `FilingEngine.suggest`: loose files against one taxonomy as
+/// a single snapshot of destination, confidence and batch eligibility, so a change to the filing
+/// heuristic flips it and must be re-blessed on purpose. Above all it catches a file becoming (or
+/// ceasing to be) batch-eligible.
 @Suite struct FilingEngineGoldenTests {
 
     // Mid-2024 so the derived year is 2024 in every timezone.
@@ -87,7 +86,7 @@ import Testing
         let suggestions = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                providerRoot: "/root", contentTokens: contentTokens)
 
-        // GOLDEN — captured, hand-verified, pinned. Load-bearing classes:
+        // Golden, hand-verified. Load-bearing classes:
         //  · 1099-INT 2023 files into Taxes/2023 (filename year) while 1099-INT.pdf (no year) and
         //    "2021-2022 tax summary" (a RANGE names no single year) both fall back to the 2024
         //    mtime — the whole filenameYear contract in one block;

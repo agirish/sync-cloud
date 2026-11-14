@@ -8,9 +8,6 @@ import Events
 /// Mostly failure paths. The verb destroys one of a user's files on a scan that may be minutes
 /// old, and what makes it safe (the pair verdict and the removal gate) never shows in a success:
 /// a resolve that merely works would pass with every refusal deleted.
-///
-/// Also pinned: on a three-copy group this trashes the compared copy and leaves the third alone,
-/// where `resolveDuplicateGroup` would take both.
 @Suite struct DuplicatePairResolveTests {
 
     private static let scanned = Date(timeIntervalSince1970: 1_000)
@@ -42,9 +39,8 @@ import Events
     @Test func aVanishedCopyIsNotBlamedOnTheKeeper() async throws {
         let fm = MockFileManager()
         let manager = FileSyncManager.forTests(fileManager: fm)
-        // The keeper is on disk but rewritten since the scan — drift, on its own enough to refuse.
+        // The keeper drifted (on its own enough to refuse), and the copy is gone.
         fm.virtualDisk["/a/x"] = stub(size: 4000)
-        // ...and the copy is simply gone.
         let keeper = copy("/a/x", keeper: true)
         let other = copy("/b/x", keeper: false)
         manager.duplicateGroups = [group([keeper, other])]
@@ -58,12 +54,11 @@ import Events
                 "the reader was sent to rescan over a file that is not there to rescan")
     }
 
-    /// The keeper's folder is walked last, as ``driftedFolderInGroup(_:)`` states and the group
-    /// resolve does. A walk takes real time (~0.7 s per 40k nodes) and a verdict ages from the
-    /// moment it forms, so a keeper walked first could change during the copy's walk unseen, and
-    /// the copy would be trashed against a keeper that no longer holds the scanned content.
-    /// Checked on the enumerations, since the verdict is the same either way; only the order
-    /// differs.
+    /// The keeper's folder is walked last, as ``driftedFolderInGroup(_:)`` states. A walk takes real
+    /// time (~0.7 s per 40k nodes) and a verdict ages from the moment it forms, so a keeper walked
+    /// first could change unseen during the copy's walk, and the copy would be trashed against a
+    /// keeper that no longer holds the scanned content. Checked on the enumeration order, since the
+    /// verdict is the same either way.
     @MainActor
     @Test func theKeepersFolderIsWalkedAfterTheCopys() async throws {
         let fm = MockFileManager()
@@ -90,9 +85,8 @@ import Events
 
     /// A keeper the group is not keeping is refused in the engine, not only by the button. A
     /// three-copy group's second and third copies are in one live group while the group keeps the
-    /// first, so the live-group lookup alone would wave them through. The Compare surface offers
-    /// that pair no verdict, but this verb is `public` and a disabled control is not a rule. The
-    /// refusal names the copy that is being kept, so the reader can act on it.
+    /// first, so the live-group lookup alone would wave them through. This verb is `public`, and a
+    /// disabled control is not a rule. The refusal names the copy being kept.
     @MainActor
     @Test func aKeeperTheGroupIsNotKeepingIsRefused() async throws {
         let fm = MockFileManager()
@@ -115,17 +109,16 @@ import Events
         #expect(await loggedLineOnDisk(containing: "refused to trash /c/x") != nil,
                 "a refusal he can see on screen must also be in the log he audits")
 
-        // The positive control: the SAME group, and the pair that does name its keeper resolves.
+        // Positive control: the same group, with the pair that names its keeper.
         #expect(await manager.assessDuplicatePair(copy: c, keeper: kept) == .matches,
                 "the fixture refuses everything, so the refusal above proves nothing")
     }
 
     // MARK: Refusals
 
-    /// The stale-scan case, and why the payload never carries a group UUID. A rescan replaces
-    /// `duplicateGroups` wholesale, so a surface left open across one describes copies no current
-    /// group holds. Nothing has been re-verified against a live grouping, and "unverified" must not
-    /// resolve to "removed".
+    /// The stale-scan case. A rescan replaces `duplicateGroups` wholesale, so a surface left open
+    /// across one describes copies no current group holds; "unverified" must not resolve to
+    /// "removed".
     @MainActor
     @Test func noLiveGroupRefusesAndTrashesNothing() async throws {
         let fm = MockFileManager()
@@ -163,9 +156,8 @@ import Events
         #expect(fm.virtualDisk["/b/x"] != nil)
     }
 
-    /// The lookup is by path, so a fresh scan's new UUID changes nothing. The positive control for
-    /// the refusals above: a lookup keyed on `DuplicateGroup.id` would pass those while breaking
-    /// every ordinary rescan.
+    /// The lookup is by path, so a fresh scan's new UUID changes nothing. Control for the refusals
+    /// above: a lookup keyed on `DuplicateGroup.id` would pass those while breaking every rescan.
     @MainActor
     @Test func aRescanThatMintsANewGroupIdStillResolves() async throws {
         let fm = MockFileManager()
@@ -302,9 +294,8 @@ import Events
 
     // MARK: Success
 
-    /// Why this verb exists: on a three-copy group the pair verdict is about one copy, and
-    /// `resolveDuplicateGroup` would trash both redundant copies, including one the user decided
-    /// nothing about.
+    /// On a three-copy group the pair verdict is about one copy; `resolveDuplicateGroup` would trash
+    /// both redundant copies, including one the user decided nothing about.
     @MainActor
     @Test func onlyTheComparedCopyIsTrashedNotEveryRedundantOne() async throws {
         let fm = MockFileManager()
@@ -494,8 +485,8 @@ import Events
 
     /// A copy re-picked as its own group's keeper is named as such, not as "the copy another
     /// duplicate group keeps — rescan": no other group is involved, and a rescan wouldn't change
-    /// the pick. `removalHold(onCopyAt:keeping:)` is told which copy the removal keeps, which
-    /// picks out the group asking. Without it, the pick still holds, in the other wording.
+    /// the pick. `removalHold(onCopyAt:keeping:)` learns the group asking from the copy it keeps;
+    /// without that, the hold still stands, in the other wording.
     @MainActor
     @Test func aCopyRepickedAsItsOwnGroupsKeeperIsNamedAsSuch() {
         let manager = FileSyncManager.forTests(fileManager: MockFileManager())

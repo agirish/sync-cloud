@@ -48,7 +48,6 @@ import Testing
                 offenders += Self.unbacked(text).map { "\(path):\($0)" }
             }
         }
-        // 27 when the Undo reporters went to `.notMirrored` under their run's cap (`UndoRunLog`).
         #expect(marks >= 20, "the scan found \(marks) marks — it has stopped reading the sources")
         #expect(offenders.isEmpty, "\(offenders) mark a banner as logged at its site with no WARN or ERROR line beside it")
     }

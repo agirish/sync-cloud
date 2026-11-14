@@ -33,17 +33,15 @@ import Testing
     private static func handBuiltActive(in dir: URL, id: String = "father") throws {
         try FilingProfileStore.writeProfile(Self.profile(id: id), in: dir,
                                             builtBy: "hand — offline generator")
-        // `writeProfile` stamps builtBy from its parameter, so the file reads hand-built; the
-        // index now names it.
+        // `writeProfile` stamps builtBy from its parameter, so the file reads hand-built.
         #expect(FilingProfileStore.activeProfileId(in: dir) == id)
         #expect(FilingProfileStore.profile(id: id, in: dir)?.provenance == .handBuilt)
     }
 
     // MARK: - The two fields
 
-    /// `noIntakeReason` and `derivedFrom` round-trip through the real writer and the real decoder
-    /// — the hand-built profile carries 45 of the former, and losing the WHY on a carried refusal
-    /// is what the field exists to prevent.
+    /// `noIntakeReason` and `derivedFrom` round-trip through the real writer and decoder: losing
+    /// the reason on a carried refusal is what the field exists to prevent.
     @Test func theRefusalReasonAndTheProvenanceChainRoundTrip() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -79,10 +77,8 @@ import Testing
         #expect(derived.provenance == .derived, "the derived write stamps its own builtBy")
     }
 
-    /// The licence is the claim being true: a `replacing` id that isn't the active one is an apply
-    /// that raced a profile switch, and it stops rather than re-pointing away from a profile it
-    /// never read. A missing chain is its own refusal, naming its own facts, not the raced-switch
-    /// case's.
+    /// A `replacing` id that isn't the active one is an apply that raced a profile switch: it stops
+    /// rather than re-pointing away from a profile it never read. A missing chain is its own refusal.
     @Test func aWrongClaimOrAMissingChainRefusesTheWholeWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -113,7 +109,6 @@ import Testing
         try FilingProfileStore.writeDerivedProfile(
             Self.profile(id: "r1", derivedFrom: "father"), replacing: "father", in: dir)
 
-        // A second apply must mint a fresh id; re-using one is refused with the file untouched.
         #expect(throws: FilingProfileStore.WriteRefusal.profileExists(id: "r1")) {
             try FilingProfileStore.writeDerivedProfile(
                 Self.profile(id: "r1", derivedFrom: "r1"), replacing: "r1", in: dir)
@@ -146,13 +141,9 @@ import Testing
 
     // MARK: - What the index row says about a derived profile
 
-    /// A re-derivation inherits the identity of the profile it replaces.
-    ///
-    /// A first profile gets no guessed name: a folder walk doesn't know the person's name, and an
-    /// absent field reads as unknown while a guessed one reads as fact. A re-derivation differs:
-    /// the tree is already identified and the answer is in the row being superseded. Without it, one
-    /// press of "Update the survey" would turn `Father / iCloud Drive (Desktop & Documents sync) /
-    /// 12280 files` into a nameless row, and every later press would inherit the nothing.
+    /// A re-derivation inherits the name and provider of the row it supersedes. A first profile gets
+    /// no guessed name (a walk doesn't know it), but here the answer is in the row being replaced;
+    /// without it one press of "Update the survey" leaves a nameless row for good.
     @Test func aDerivedProfileInheritsTheNameAndProviderItWasDerivedFrom() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -312,13 +303,9 @@ import Testing
 
     // MARK: - The provenance probe
 
-    /// The sweep reads the header, not the whole profile, and the two must agree.
-    ///
-    /// `provenance(id:in:)` reads only `builtBy`, rather than fully decoding every candidate
-    /// (thousands of folder entries, each with axes and a lenient retry) on the main actor
-    /// mid-landing. The two must answer the same for every shape a profile file can take: a
-    /// disagreement in the derived direction deletes a directory on a weaker reading than the full
-    /// decode.
+    /// The sweep's `provenance(id:in:)` reads only `builtBy`, not a full decode of thousands of
+    /// entries on the main actor mid-landing, and the two must agree for every shape a profile file
+    /// can take: a disagreement in the derived direction deletes a directory on a weaker reading.
     @Test func theProvenanceProbeAgreesWithTheFullDecode() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -338,7 +325,7 @@ import Testing
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try Data(json.utf8).write(to: folder.appendingPathComponent("folder-profile.json"))
         }
-        // No header at all — the pre-`builtBy` profiles, which are exactly the hand-built ones.
+        // No header at all, as on a hand-built profile.
         try write("no-header", #"{"profileId":"no-header","root":"~"}"#)
         // A header of the wrong TYPE: costs the file its provenance, never its readability.
         try write("bad-header", #"{"profileId":"x","builtBy":42,"root":"~"}"#)

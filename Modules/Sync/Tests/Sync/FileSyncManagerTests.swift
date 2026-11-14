@@ -16,7 +16,6 @@ import Foundation
         // inner task and the detached tree walk for the load to be discarded.
         let treeTask = Task { await manager.loadTree(path: "/src", isLeft: true) }
 
-        // Cancel it immediately before it can recursively build
         treeTask.cancel()
         await treeTask.value
 
@@ -29,24 +28,23 @@ import Foundation
     @Test func testUndoRegisterTrashItems() async throws {
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
-        
+
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/delete_me.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         await manager.deleteItems(at: ["/src/delete_me.txt"], fileManager: mockFM)
-        
+
         #expect(mockFM.virtualDisk["/src/delete_me.txt"] == nil)
         #expect(mockFM.trashedPaths.count == 1)
         #expect(manager.undoManager?.canUndo == true)
-        
-        // Execute the registered Undo (restore from trash)
+
         manager.undoManager?.undo()
 
         await waitUntil("undo restores the trashed file") { mockFM.virtualDisk["/src/delete_me.txt"] != nil }
         #expect(mockFM.virtualDisk["/src/delete_me.txt"] != nil)
     }
-    
+
     @MainActor
     @Test func testActiveOperationTracking() async throws {
         let manager = FileSyncManager()
@@ -68,14 +66,11 @@ import Foundation
         await operationTask.value
         #expect(manager.activeFileOperationsCount == 0)
     }
-    
+
     /// Every operation handed to `enqueueFileOperation` runs, runs alone, and unwinds the active
-    /// count: the serialization guarantee every mutation path in the app is built on.
-    ///
-    /// No timeout, on purpose: the operations need the cooperative pool, so under CPU load a
-    /// wall-clock poll would report a starved queue as a wrong count. Awaiting the task handles is
-    /// exact, since `enqueueFileOperation` returns only after its completion block decrements the
-    /// count. A real deadlock hangs until the harness's own timeout, which is the honest signal.
+    /// count. No timeout, on purpose: under CPU load a wall-clock poll would report a starved
+    /// cooperative pool as a wrong count. Awaiting the task handles is exact, since the enqueue
+    /// returns only after the count is decremented; a real deadlock hangs to the harness's timeout.
     @MainActor
     @Test func testConcurrentFileOperationsStress() async throws {
         actor Counter {
@@ -116,24 +111,21 @@ import Foundation
         #expect(peak == 1, "operations must be serialized; saw \(peak) running at once")
         #expect(manager.activeFileOperationsCount == 0)
     }
-    
+
     @MainActor
     @Test func testCacheInvalidationOnToggle() async throws {
         let manager = FileSyncManager()
-        
-        // 1. Fill cache
+
         manager.prefetchedTrees["/src"] = [FileNode(id: "/src/a", name: "a", isDirectory: false)]
         #expect(!manager.prefetchedTrees.isEmpty)
-        
-        // 2. Toggle hidden files -> should clear cache
+
+        // Showing hidden files clears the cache, and so does a sort change.
         manager.showHiddenFiles = true
         #expect(manager.prefetchedTrees.isEmpty)
-        
-        // 3. Fill again
+
         manager.prefetchedTrees["/src"] = [FileNode(id: "/src/a", name: "a", isDirectory: false)]
         #expect(!manager.prefetchedTrees.isEmpty)
-        
-        // 4. Change sort option -> should clear cache
+
         manager.sortOption = .size
         #expect(manager.prefetchedTrees.isEmpty)
     }
@@ -142,18 +134,18 @@ import Foundation
     @Test func testScanFailureHandling() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        
+
         let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", rootPath: "/tmp/p1", type: .iCloud)
         let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", rootPath: "/tmp/p2", type: .iCloud)
-        
-        // Simulate a directory that doesn't exist to trigger an error in scanDirectories
+
+        // A left path that doesn't exist.
         await manager.scanDirectories(left: provider1, leftPath: "/non-existent", right: provider2, rightPath: "/tmp/p2")
-        
+
         #expect(manager.differences.isEmpty)
         #expect(!manager.isScanning)
         #expect(manager.hasScanned) // Successfully completed with []
     }
-    
+
     @MainActor
     @Test(.parksAThread) func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
@@ -174,18 +166,18 @@ import Foundation
         try #require(!gate.releasedByTimeout, "the gate timed out: the walk was never actually held in flight")
         #expect(!manager.isLoadingLeftTree)
     }
-    
+
     @MainActor
     @Test func testSyncFileWithMoveAction() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         manager.undoManager = UndoManager()
-        
+
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/test_move.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         let diff = FileDifference(
             id: UUID(),
             relativePath: "test_move.txt",
@@ -196,13 +188,11 @@ import Foundation
             description: "Missing",
             isSyncing: false
         )
-        
+
         manager.differences = [diff]
-        
-        // Set isMove to true
+
         await manager.syncFile(diff, isMove: true, fileManager: mockFM)
-        
-        // Should exist on right but NOT left (Moved)
+
         #expect(mockFM.virtualDisk["/src/test_move.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] != nil)
 
@@ -214,28 +204,28 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/test_move.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] == nil)
     }
-    
+
     @MainActor
     @Test func testMockEnumeratorSkipsSubdirectoryDescendants() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/folder/child.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         let en = mockFM.enumerator(
             at: URL(fileURLWithPath: "/src"),
             includingPropertiesForKeys: nil,
             options: [.skipsSubdirectoryDescendants],
             errorHandler: nil
         )
-        
+
         var paths: [String] = []
         if let en {
             while let next = en.nextObject() as? URL {
                 paths.append(next.path)
             }
         }
-        
+
         #expect(paths.contains("/src/folder"))
         #expect(!paths.contains("/src/folder/child.txt"))
     }
@@ -282,10 +272,9 @@ import Foundation
                 "the byte scan answered without deferring to the expression")
     }
 
-    /// The fallback is also what keeps the two hidden-file deciders in one window agreeing.
-    /// `filterTree` filters the pane trees on `node.name.hasPrefix(".")` — the same grapheme
-    /// comparison the fallback runs — so a byte-only `isHiddenPath` would drop this name from
-    /// the difference list while the pane beside it went on listing the file.
+    /// The fallback also keeps the two hidden-file deciders agreeing: `filterTree` uses the same
+    /// grapheme `hasPrefix(".")`, so a byte-only `isHiddenPath` would drop this name from the
+    /// difference list while the pane beside it went on listing the file.
     @Test func theDifferenceFilterAndThePaneTreeAgreeOnTheAwkwardName() {
         let awkward = ".\u{0301}b"
         let shown = FileSyncManager.filterTree(

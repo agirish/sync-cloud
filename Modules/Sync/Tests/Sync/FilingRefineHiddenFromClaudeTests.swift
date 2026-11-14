@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine honours Hidden from Claude (Settings ▸ Ask Claude ▸ Privacy), as Ask Claude does: a hidden file's
-/// name and page never go, and a hidden folder is never sent as a destination or an "avoid", nor
-/// taken as an answer.
+/// Refine honours Hidden from Claude (Settings ▸ Ask Claude ▸ Privacy), as Ask Claude does: a
+/// hidden file's name and page never go, and a hidden folder is never sent as a destination or an
+/// "avoid", nor taken as an answer.
 ///
 /// Each test pairs the hidden run with an unhidden control, so a filter that does nothing fails.
 @MainActor
@@ -12,7 +12,6 @@ import Testing
 
     /// Everything a `.refine` call carried.
     private typealias Sent = LockedBox<[(destinations: [String], files: [FilingCandidateFile])]>
-
 
     private func fixture(_ name: String) throws -> URL { try refineFixture(prefix: "RefineHidden-\(name)") }
 

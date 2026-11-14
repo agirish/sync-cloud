@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine's old spend record is read once and never written over (TE335, E5). An undecodable
+/// Refine's old spend record is read once and never written over. An undecodable
 /// payload must read as unreadable, not as zero: reading it as zero would carry nothing into Ask
 /// Claude's total and then delete the only copy.
 @Suite struct FilingSpendPreservationTests {

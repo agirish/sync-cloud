@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// **Both paid paths run Claude's answer through the cross-person rule**, driven end to end: Try
+/// Both paid paths run Claude's answer through the cross-person rule, driven end to end: Try
 /// Another clicked until the card is re-asked, and Refine. Claude answers another person's folder
 /// and the card is read, with the refusal in the veto log.
 ///

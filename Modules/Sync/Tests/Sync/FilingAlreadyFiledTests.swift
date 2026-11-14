@@ -18,9 +18,8 @@ import Testing
 
     @Test("A document the tree already holds is never in the blind batch")
     func alreadyFiledIsNotBatchEligible() {
-        // The batch files without the user looking. A second copy is the one outcome they cannot
-        // review afterwards: it lands under a name of its own, in a folder that genuinely fits, and
-        // nothing about it says it is a copy.
+        // The batch files without the user looking, and a second copy is the one outcome they
+        // cannot review afterwards: nothing about it says it is a copy.
         #expect(suggestion("Payslip.jpg").isBatchEligible)
         #expect(!suggestion("Payslip.jpg", alreadyFiledAt: ["Work/EMP/Pay/2026"]).isBatchEligible)
         // The per-file "File here" is untouched — this withholds the BLIND path, not the choice.
@@ -32,8 +31,7 @@ import Testing
         #expect(!suggestion("a.pdf").isAlreadyFiled)
         #expect(suggestion("a.pdf", alreadyFiledAt: ["X"]).isAlreadyFiled)
         #expect(suggestion("a.pdf").alreadyFiled(at: ["X", "Y"]).alreadyFiledAt == ["X", "Y"])
-        // The copy keeps everything else — a suggestion that lost its candidates on the way through
-        // this would be a card with no home at all.
+        // The copy keeps everything else, candidates included.
         #expect(suggestion("a.pdf").alreadyFiled(at: ["X"]).candidates.count == 1)
     }
 
@@ -48,15 +46,14 @@ import Testing
                                        storedAt: Date(timeIntervalSince1970: 0))],
             fingerprints: [], providerRoot: "/P", existsOnDisk: { _ in true })
         #expect(index.folders(holding: "b:h", excluding: "TODO") == ["Work/Pay"])
-        // Non-vacuity: without the exclusion both folders come back, so the line above is measuring
-        // the exclusion and not a one-element index.
+        // Non-vacuity: without the exclusion both folders come back.
         #expect(index.folders(holding: "b:h") == ["TODO", "Work/Pay"])
     }
 
     @Test("A re-stamped PDF is still the same document")
     func fingerprintSeesWhatBytesCannot() {
-        // The case the whole feature exists for. Two downloads of one payslip: different bytes,
-        // same text. A byte-hash-only reading reports nothing and the queue files a second copy.
+        // Two downloads of one payslip: different bytes, same text. A byte-hash-only reading
+        // reports nothing and the queue files a second copy.
         func rec(_ path: String, _ hex: String) -> ContentHashRecord {
             ContentHashRecord(path: path, mtime: 0, size: 1, hex: hex,
                               storedAt: Date(timeIntervalSince1970: 0))
@@ -76,11 +73,9 @@ import Testing
 
 /// The phase itself, driven through a real scan.
 ///
-/// The four tests above hand-build a suggestion or call the index directly. The marking phase
-/// returns early on `guard let contentIndexDirectory`, so a test that never sets it runs the phase
-/// as a no-op. What it protects is the one outcome the blind batch's user can't review: a second
-/// copy of a document the tree already holds, landing under a name of its own in a folder that
-/// fits.
+/// The marking phase returns early on `guard let contentIndexDirectory`, so a test that never sets
+/// it runs the phase as a no-op. What it protects is the one outcome the blind batch's user can't
+/// review: a second copy of a document the tree already holds.
 @MainActor
 @Suite struct FilingAlreadyFiledScanTests {
 
@@ -201,7 +196,6 @@ import Testing
     /// `filingScan` would still pass them; this runs the real scan end to end and asserts the
     /// published card carries the marker.
     @Test func theScanItselfMarksTheCard() async throws {
-        // The tree already holds these bytes under Work; the same bytes sit loose in Downloads.
         let (root, indexDir, _, _) = try await indexedTree(prefix: "AlreadyFiledWiring",
                                                            filed: "Work/Pay/payslip-june.jpg",
                                                            loose: "Downloads/Payslip.jpg")

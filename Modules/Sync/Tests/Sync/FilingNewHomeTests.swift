@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE327: a new folder named like its siblings, for a file no folder holds well.
+/// A new folder named like its siblings, for a file no folder holds well.
 @Suite struct FilingNewHomeTests {
 
     private let root = "/never-on-disk-new-home/Documents"
@@ -91,7 +91,7 @@ import Testing
     }
 }
 
-/// TE327 through filing help: the new folder leads and the closest folder is the other choice.
+/// Through filing help: the new folder leads and the closest folder is the other choice.
 @MainActor
 @Suite struct FilingNewHomeHelpTests {
 
@@ -166,7 +166,7 @@ import Testing
     }
 }
 
-/// TE327 on the card: renaming a new folder carries its files.
+/// On the card: renaming a new folder carries its files.
 @Suite struct AskClaudeNewFolderRenameTests {
 
     private func card() -> AskClaudePlan {
@@ -245,7 +245,7 @@ import Testing
     }
 }
 
-/// TE327: what Claude is told about a new folder.
+/// What Claude is told about a new folder.
 @Suite struct AskClaudeNewFolderResultTests {
 
     @Test func aNewFolderIsSaidToBeNewAndWhatTheCardOffers() {

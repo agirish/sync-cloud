@@ -5,10 +5,9 @@ import Foundation
 /// Pins `FileLocation`, the pure containment × materialization classifier behind the Info
 /// inspector's *Where it lives* row.
 ///
-/// Every path here is fabricated and none exist, on purpose: containment must never touch the
-/// filesystem (the verdict's one syscall is the materialization `lstat`), and real files couldn't
-/// tell a pure answer from a statted one. `containmentNamesNoFilesystemTouchingApi` proves the
-/// other half.
+/// Every path here is fabricated on purpose: containment must never touch the filesystem (the
+/// verdict's one syscall is the materialization `lstat`), and real files couldn't tell a pure
+/// answer from a statted one. `containmentNamesNoFilesystemTouchingApi` proves the other half.
 struct FileLocationTests {
 
     /// Whether `path` sits inside no cloud source's folder — the containment half of "This Mac only".
@@ -81,9 +80,8 @@ struct FileLocationTests {
     // MARK: The account-folder widening
 
     /// A file inside the provider's ACCOUNT folder but outside its configured root is still in
-    /// that provider. Discovery configures OneDrive at `…/OneDrive-<acct>/Documents`, so a plain
-    /// test against the configured root alone stamps "This Mac only" on a file that plainly is in
-    /// OneDrive — manufacturing risk that is not there.
+    /// that provider. Discovery configures OneDrive at `…/OneDrive-<acct>/Documents`, so testing
+    /// the configured root alone stamps "This Mac only" on a file that is in OneDrive.
     @Test func aSiblingOfTheConfiguredRootInsideTheAccountFolderIsCovered() {
         let c = Self.coverage([Self.oneDrive()])
         let photo = "/Users/u/Library/CloudStorage/OneDrive-Acme/Photos/a.jpg"
@@ -113,14 +111,12 @@ struct FileLocationTests {
                 == ["/users/u/cloudstorage/acme/docs"])
     }
 
-    /// A root that already is its account folder contributes one path, not the same one twice.
-    /// That is the ordinary shape for a discovered source; a duplicate is harmless to containment
-    /// but wrong for anything that counts or logs the list.
+    /// A root that already is its account folder contributes one path, not the same one twice: a
+    /// duplicate is harmless to containment but wrong for anything that counts or logs the list.
     @Test func anAccountRootIsNotListedTwice() {
         #expect(FileLocation.coveredPaths(ofRootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal")
                 == ["/users/u/library/cloudstorage/onedrive-personal"])
-        // A root BELOW the account folder still widens to two — the case the widening exists for,
-        // and what a migrated `root_override_` or a folder source inside an account still produces.
+        // A root BELOW the account folder still widens to two: the case the widening exists for.
         #expect(FileLocation.coveredPaths(ofRootPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents")
                 == ["/users/u/library/cloudstorage/onedrive-personal/documents",
                     "/users/u/library/cloudstorage/onedrive-personal"])
@@ -159,9 +155,8 @@ struct FileLocationTests {
         #expect(FileLocation.covering(path: inside + "/a.txt", in: c)?.providerId == "OneDrive-Acme")
     }
 
-    /// A provider with no resolvable path claims nothing — the empty-root hazard
-    /// `PathBoundary.relativize` guards, arriving from a provider dropped from settings while its
-    /// stale row is still on screen.
+    /// A provider with no resolvable path (dropped from settings while its row is still on screen)
+    /// claims nothing: the empty-root hazard `PathBoundary.relativize` guards.
     @Test func aProviderWithNoPathCoversNothing() {
         let ghost = CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud",
                                   rootPath: "", type: .dropBox)
@@ -184,9 +179,8 @@ struct FileLocationTests {
     // MARK: Containment × materialization — the full cross
 
     /// Rows: (providers, path, isCloudOnly, verdict). The last is dataless outside every cloud
-    /// folder: some File Provider this app never discovered holds the content. `thisMacOnly` would
-    /// be a plain lie and there is no provider to name, so it says nothing, the same answer it
-    /// gives to every question it cannot prove.
+    /// folder, held by some File Provider this app never discovered: `thisMacOnly` would be a lie
+    /// and there is no provider to name, so it says nothing.
     @Test(arguments: [
         ([FileLocationTests.iCloud()], "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/a.md", false,
          .thisMacAndCloud(providerName: "iCloud")),
@@ -203,10 +197,9 @@ struct FileLocationTests {
 
     // MARK: nil materialization is its own outcome
 
-    /// A path that cannot be statted at all — deleted mid-download, or never there. Folding nil
-    /// into `false` would print "This Mac only" over a file that is on this Mac in no sense.
-    /// Containment and the verdict are separate answers, and an unknown file keeps them apart:
-    /// containment still says "outside", the verdict still says nothing.
+    /// A path that cannot be statted at all (deleted mid-download, or never there). Folding nil
+    /// into `false` would print "This Mac only" over a file that is not on this Mac; containment
+    /// still says "outside", the verdict still says nothing.
     @Test func unknownMaterializationIsNeverAVerdict() {
         let outside = Self.coverage([Self.iCloud()])
         #expect(self.outside(path: "/Users/u/Projects/gone.md", in: outside))
@@ -220,11 +213,10 @@ struct FileLocationTests {
 
     // MARK: A dataless file is never "This Mac only"
 
-    /// ☁ on a row comes from `isCloudOnly`; the inspector's "This Mac only" is the `.thisMacOnly`
-    /// verdict. They can't both describe one file because a dataless file never verdicts
-    /// `.thisMacOnly`, checked over the whole cross, including the account-folder path that would
-    /// produce both without the widening. Asserted on `verdict` itself: the same check over locally
-    /// derived flags is a tautology that passes with every rule in `verdict` mutated away.
+    /// ☁ on a row (`isCloudOnly`) and the inspector's "This Mac only" can't describe one file: a
+    /// dataless file never verdicts `.thisMacOnly`, over the whole cross, including the
+    /// account-folder path that would produce both without the widening. Asserted on `verdict`
+    /// itself: the same check over locally derived flags passes with every rule in `verdict` gone.
     @Test func aDatalessFileNeverVerdictsThisMacOnly() {
         let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
         let paths = [
@@ -246,9 +238,8 @@ struct FileLocationTests {
 
     // MARK: What the row says
 
-    /// The three verdicts' wording, pinned literally. This is the whole of what the inspector row
-    /// claims, and the copy rules are strict: "This Mac only" is where the file is NOT, never a
-    /// statement about copies existing anywhere, and never "unprotected" or "unsafe".
+    /// The three verdicts' wording, pinned literally: "This Mac only" says where the file is NOT,
+    /// never anything about copies existing, and never "unprotected" or "unsafe".
     @Test func theVerdictsSayExactlyTheseWords() {
         #expect(FileLocation.Verdict.thisMacOnly.label == "This Mac only")
         #expect(FileLocation.Verdict.thisMacAndCloud(providerName: "iCloud").label == "This Mac · iCloud")
@@ -267,9 +258,8 @@ struct FileLocationTests {
                 == "Work OneDrive only")
     }
 
-    /// The supporting fact the inspector shows above the verdict has to agree with it — the row
-    /// reads as a conclusion drawn from what is on screen, so a verdict saying the content is here
-    /// above a fact saying it is not would be self-contradicting.
+    /// The supporting fact the inspector shows above the verdict has to agree with it, or the row
+    /// would say the content is here above a fact saying it is not.
     @Test func theVerdictAgreesWithTheFactAboveIt() {
         #expect(FileLocation.Verdict.thisMacOnly.isOnThisMac)
         #expect(FileLocation.Verdict.thisMacAndCloud(providerName: "iCloud").isOnThisMac)
@@ -301,13 +291,11 @@ struct FileLocationTests {
             .deletingLastPathComponent()          // Sync (package)
             .appendingPathComponent("Sources/Sync/FileLocation.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
-        // The scan can only mean something if it read the right file.
         #expect(text.contains("public static func covering(path: String"),
                 "read the wrong file — the scan below would pass vacuously")
         for banned in ["URL(fileURLWithPath:", "standardizingPath", "resolvingSymlinksInPath",
                        "FileManager", "contentsOfDirectory", "fileExists", "lstat"] {
-            // Doc comments name `URL(fileURLWithPath:)` to explain why it is absent, so only
-            // CODE lines are scanned.
+            // Doc comments name `URL(fileURLWithPath:)` to explain its absence: scan CODE lines only.
             let offenders = text.split(separator: "\n", omittingEmptySubsequences: false)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !$0.hasPrefix("///") && !$0.hasPrefix("//") }

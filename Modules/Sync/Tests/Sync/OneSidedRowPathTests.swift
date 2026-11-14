@@ -3,21 +3,12 @@ import Testing
 @testable import Sync
 
 /// A one-sided row's path is composed with the item's own type, and is byte-identical to the
-/// unhinted composition.
-///
-/// `computeDifferences` builds the other side's expected path for each one-sided row it keeps.
-/// `appendingPathComponent(_:)` without `isDirectory:` asks the file system whether the result is a
-/// directory, a probe per row (hundreds of thousands on a large Home scan). The hint answers that
-/// from what the entry already knows.
+/// unhinted composition. Without `isDirectory:`, `appendingPathComponent(_:)` probes the file
+/// system per row (hundreds of thousands on a large Home scan); the hint answers from the entry.
 ///
 /// Composition stays URL composition: it decomposes precomposed names such as `é` where
-/// concatenation keeps them, so `root + "/" + key` would change the bytes of row paths on a
-/// non-ASCII tree. The hint only decides a trailing slash, which `.path` drops.
-/// `rowPathsAreTheOnesTheProbeComposed` pins that through the engine, across root spellings and
-/// what is on disk, re-aimed rows included.
-///
-/// It can't see the probe come back, since both forms give the same bytes, so
-/// `everyCompositionInTheEngineIsHinted` holds the hint itself.
+/// concatenation keeps them, so `root + "/" + key` would change row paths on a non-ASCII tree.
+/// Both forms give the same bytes, so `everyCompositionInTheEngineIsHinted` holds the hint itself.
 @Suite struct OneSidedRowPathTests {
 
     /// Two roots with something real at a few of the composed paths, so the unhinted form's probe

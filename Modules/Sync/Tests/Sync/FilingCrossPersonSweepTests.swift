@@ -10,8 +10,7 @@ import Testing
 /// (the default install) the classifier returns `[:]`, `applyVerdicts` short-circuits, and every
 /// card shows a router or keyword home, so without the sweep the rule reaches no card.
 ///
-/// These pin the sweep and the two call sites that produce homes without a verdict, since a rule
-/// extracted for testability is one revert from being unused.
+/// These pin the sweep and the two call sites that produce homes without a verdict.
 @Suite struct FilingCrossPersonSweepTests {
 
     static let root = "/root"
@@ -143,7 +142,6 @@ import Testing
 /// The two paths that put a home on a card without a backend verdict anywhere near it.
 @Suite @MainActor struct FilingCrossPersonSweepCallSiteTests {
 
-
     /// A tree with Son's OCI folder and a loose document named for Daughter. No classifier is
     /// injected, so `applyVerdicts` never runs: the ordinary state on a machine without Apple
     /// Intelligence.
@@ -191,13 +189,9 @@ import Testing
     }
 
     /// One page sample, so the scan and a later re-ask agree about who a document is about.
-    ///
-    /// The rule reads the page only for a file whose own name names nobody. "Try another" and the
-    /// OCR re-read get `filingPageSamples`, cut to the 400 characters the scorer was measured on, so
-    /// the scan uses the same cut, not the extractor's full return (up to 20,000). Otherwise a name
-    /// printed past the cut attributes the document in the scan and not on a re-ask.
-    ///
-    /// Here the name sits past the cut, so nothing may be refused. The card keeps its home.
+    /// "Try another" and the OCR re-read get `filingPageSamples`, cut to 400 characters, so the scan
+    /// must use the same cut, not the extractor's full return. Here the name sits past the cut, so
+    /// nothing may be refused and the card keeps its home.
     @Test func aNamePastTheSampleCutDoesNotDecideTheScan() async throws {
         let (m, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -215,9 +209,7 @@ import Testing
                                       providerRoot: root)
 
         let card = try #require(m.filingSuggestions.first { $0.fileName == "Scan 2026-08-02.pdf" })
-        // The premise: the scan really did offer Son's folder for this file.
-        // The sibling card, whose FILENAME names Daughter, is refused as it should be — the fixture
-        // proves the rule is live in this scan rather than quietly absent.
+        // The sibling card, whose filename names Daughter, is refused: the rule is live in this scan.
         try #require(log.events.contains { $0.fileName == "Daughter OCI.pdf" },
                      "the rule did not fire at all here — the fixture stopped exercising it")
         #expect(!log.events.contains { $0.fileName == "Scan 2026-08-02.pdf" },

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine's streamed request to Claude (TE335, E2): how it ends is said, never covered by another
+/// Refine's streamed request to Claude: how it ends is said, never covered by another
 /// backend, what arrived is kept, and a request that started is recorded as spend, finished or not.
 @Suite struct CloudFilingRefinerTests {
 

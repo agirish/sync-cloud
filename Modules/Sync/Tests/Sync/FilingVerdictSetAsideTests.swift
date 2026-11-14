@@ -11,7 +11,6 @@ import Testing
 /// the move works, as `PersonTagStore` does, or that save would write emptiness over the bytes.
 @Suite struct FilingVerdictSetAsideTests {
 
-
     private func cacheURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictSetAside-\(name)")
         return dir.appendingPathComponent("filing-verdicts.json")
@@ -179,7 +178,6 @@ import Testing
         #expect(FilingVerdictStore.save(cache("/root/b.pdf"), to: url))
         #expect(FilingVerdictStore.load(from: url).count == 1)
     }
-
 }
 
 // MARK: - The set-aside's own sentence

@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A row sent to a folder of their own choosing on Ask Claude's card teaches a rule at Apply
-/// (TE331): the Mac picks the words, picks that make one rule share its card, and the closest
+/// A row sent to a folder of their own choosing on Ask Claude's card teaches a rule at Apply:
+/// the Mac picks the words, picks that make one rule share its card, and the closest
 /// saved rule is updated rather than repeated.
 @MainActor
 @Suite struct CardRuleTests {
@@ -157,8 +157,8 @@ import Testing
         #expect(!plan.rows[0].teaches && plan.rows[0].pickedFrom == "/docs/Receipts")
     }
 
-    /// TE327 leads with a new folder of the app's; the router's own best is second. Taking either
-    /// corrects nothing, so no rule pins every lease to 2026.
+    /// When no folder fits, the card leads with a new one of the app's; the router's own best is
+    /// second. Taking either corrects nothing, so no rule pins every lease to 2026.
     @Test func takingTheRoutersFolderOverTheAppsNewOneTeachesNothing() {
         func card() -> AskClaudePlan {
             let choices: [AskClaudePlan.Choice] = [.init(label: "Lease › 2027", path: "/docs/Lease/2027", isNew: true),

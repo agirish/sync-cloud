@@ -9,17 +9,10 @@ import Testing
 /// read `.unchanged` and ⌘Z would trash the only copy of it, permanently on a Trash-less volume.
 ///
 /// `deepSnapshot` digests every descendant's relative path, kind, size and mtime as a
-/// `.directoryTree`, so a deep edit refuses the undo. These tests hold its edges: a deep edit
-/// refuses (by size, and by date alone); an untouched tree still undoes; an unreadable descendant
-/// is `.indeterminate` and refuses; and the digest ignores enumeration order, the Unicode form of
-/// names, and Finder's `.DS_Store`s. The registration walk's contract (off the main thread, undo
-/// armed before it resolves) is at the bottom.
-///
-/// Each end-to-end test first requires the shallow `ItemIdentity.snapshot` to still read
-/// `.unchanged` after the tampering, so it exercises what only the deep identity can see.
-///
-/// No `.serialized`: every assertion reads this suite's own banner or mock disk, and the one
-/// `Logger.shared` match is keyed on a per-run UUID path.
+/// `.directoryTree`, so a deep edit refuses the undo. Each end-to-end test first requires the
+/// shallow `ItemIdentity.snapshot` to still read `.unchanged`, so it exercises what only the deep
+/// identity can see. No `.serialized`: every assertion reads this suite's own banner or mock disk,
+/// and the one `Logger.shared` match is keyed on a per-run UUID path.
 @Suite struct DeepFolderIdentityTests {
 
     @MainActor
@@ -233,17 +226,12 @@ import Testing
 
     // MARK: 6 — the Unicode form a name reaches the digest in is not part of the identity
 
-    /// One relative path handed over decomposed (NFD, "é" as U+0065 U+0301) or precomposed (NFC)
-    /// digests under one spelling, byte for byte. The digest hashes UTF-8 and APFS/HFS+ lookups
-    /// ignore normalization, so one name hashing two ways would falsely refuse an untouched tree.
-    ///
-    /// Tested at the seam (`ItemIdentity.canonicalDigestSpelling`) because no end-to-end fixture
-    /// reaches it: `listing(of:)` re-spells every entry through `appendingPathComponent`, which
-    /// hands `deepSnapshot` the decomposed form whatever is on disk. That incidental normalization
-    /// is undocumented; this test notices if it stops holding the digest up.
-    ///
-    /// Compared as UTF-8 bytes, since `String ==` uses canonical equivalence and would pass with
-    /// the rule gone. Making `canonicalDigestSpelling` return its input must fail this.
+    /// One relative path handed over decomposed (NFD) or precomposed (NFC) digests under one
+    /// spelling, byte for byte: APFS/HFS+ lookups ignore normalization, so one name hashing two ways
+    /// would falsely refuse an untouched tree. Tested at the seam because `listing(of:)` happens to
+    /// decompose every entry first, so no end-to-end fixture reaches it. Compared as UTF-8 bytes:
+    /// `String ==` uses canonical equivalence and would pass with the rule gone.
+    /// Mutation: `canonicalDigestSpelling` returning its input must fail this.
     @Test func oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling() throws {
         let nfd = "sub/deep/re\u{0065}\u{0301}sume\u{0301}.txt"   // "résumé.txt", é decomposed
         let nfc = nfd.precomposedStringWithCanonicalMapping
@@ -257,11 +245,8 @@ import Testing
 
     /// The user-level half: a decomposed non-ASCII filename deep in a real tree reads `.unchanged`
     /// on re-walk, and matches a twin whose name was stored precomposed through POSIX `open`, as an
-    /// SMB or non-Foundation writer leaves it on APFS. macOS APIs may hand back either form.
-    ///
-    /// `listing(of:)` currently canonicalizes both spellings before the digest, so this passes even
-    /// without the precomposition (the seam test above fails then). It holds the invariant end to
-    /// end, whichever layer canonicalizes.
+    /// SMB or non-Foundation writer leaves it on APFS. macOS APIs may hand back either form. It
+    /// holds the invariant end to end, whichever layer canonicalizes.
     @Test func aDecomposedDeepFilenameIsOneIdentityWithItsPrecomposedTwin() throws {
         let nfdName = "re\u{0065}\u{0301}sume\u{0301}.txt"
         let nfcName = nfdName.precomposedStringWithCanonicalMapping
@@ -449,13 +434,10 @@ import Testing
     // MARK: 8 — the registration window is per ITEM, not per batch
 
     /// Each item's identity walk starts the moment its own copy lands, inside the transfer loop.
-    /// The loop blocks on user prompts, so a walk after the whole batch would leave an unbounded
-    /// window: copy folders A and B, and while B's collision prompt is open the user edits a file
-    /// deep in A's copy; that edit becomes A's baseline, and ⌘Z reads `.unchanged` and trashes it.
-    ///
-    /// The fixture holds the order: before the prompt, a bounded wait lets the walk stat the deep
-    /// file's pre-edit state, then the prompt applies the edit. With a post-batch walk, no walk can
-    /// run while the prompt is open, so the wait times out and the `#require` names the defect.
+    /// The loop blocks on user prompts, so a walk after the whole batch would take an edit made in
+    /// A's copy while B's collision prompt is open as A's baseline, and ⌘Z would trash it. Before
+    /// the prompt, a bounded wait lets the walk stat the pre-edit file; with a post-batch walk it
+    /// times out and the `#require` names the defect.
     @MainActor
     @Test func anEditDuringALaterItemsCollisionPromptRefusesTheUndoOfTheEarlierItem() async throws {
         let manager = makeManager()
@@ -592,10 +574,8 @@ import Testing
 
     /// An unreadable descendant at registration means a permanent refusal for that item, and the
     /// ⌘Z banner hours later can't say why. So registration logs one warning naming the item and
-    /// the failing descendant the listing reports.
-    ///
-    /// The paths carry a per-run UUID so no parallel neighbour can satisfy or pollute the match,
-    /// as in `LoggingGapTests`.
+    /// the failing descendant the listing reports. The paths carry a per-run UUID so no parallel
+    /// neighbour can satisfy or pollute the match.
     @MainActor
     @Test func anUnreadableDescendantAtRegistrationLogsWhyTheEventualUndoWillRefuse() async throws {
         let manager = makeManager()
@@ -666,11 +646,8 @@ import Testing
 
 /// A `FileManaging` that walks the real filesystem but hands each enumeration back reordered.
 /// The real enumerator yields a stable order, so only a double like this can make deleting
-/// `deepSnapshot`'s sort fail.
-///
-/// It doesn't vary the Unicode spelling: `listing(of:)` re-spells every entry through
-/// `appendingPathComponent`, which decomposes, so a respelling never reaches the digest. That rule
-/// is pinned at its seam (`oneNameReportedInEitherUnicodeFormDigestsAsOneSpelling`).
+/// `deepSnapshot`'s sort fail. It doesn't vary the Unicode spelling, which `listing(of:)` would
+/// undo; that rule is pinned at its seam.
 private final class ReshapedWalkFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
     let reorder: @Sendable ([URL]) -> [URL]
 

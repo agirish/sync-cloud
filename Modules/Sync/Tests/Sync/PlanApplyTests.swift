@@ -58,7 +58,7 @@ import Events
                                 protected: [dir + "/Documents"])
     }
 
-    /// A move with a new name (TE328) lands under it, a taken one numbered, never over the other
+    /// A move with a new name lands under it, a taken one numbered, never over the other
     /// file; one Undo brings both back under their old names.
     @Test func aMoveWithANewNameLandsUnderItAndUndoesToTheOldName() async throws {
         defer { cleanUp() }

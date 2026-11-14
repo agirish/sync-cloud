@@ -62,11 +62,9 @@ import Testing
                 file("/root/vers/deck.pdf", size: 60_000, modified: Date(timeIntervalSince1970: 1_000_000)),
                 file("/root/vers/deck-final.pdf", size: 70_000, modified: Date(timeIntervalSince1970: 2_000_000)),
             ]),
-            // Same stem+ext, DIFFERENT parents, NO marker on either name — must NOT group as
-            // versions (the IMG_0001-in-two-year-folders false positive). The marker on
-            // "/2023/IMG_0001 copy.jpg" vouches ONLY for its own parent: the /2023 pair groups,
-            // and the unrelated /2019 shot must never be pulled in. One marker must not license
-            // the whole cross-folder stem bucket.
+            // Same stem+ext, DIFFERENT parents: the marker on "/2023/IMG_0001 copy.jpg" vouches
+            // ONLY for its own parent, so the /2023 pair groups and the unrelated /2019 shot (a
+            // camera counter's name) must never be pulled in.
             dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
             dir("/root/2023", [
                 file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
@@ -140,31 +138,10 @@ import Testing
 
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
 
-        // GOLDEN — captured, hand-verified correct, then pinned. Every line is load-bearing:
-        //  · dupdir1 ≡ dupdir2 is the only identical FOLDER group (their files are covered, not
-        //    re-grouped);
-        //  · data.txt / doc.txt ARE file groups → withlink≠nolink and hassym≠hasreal, i.e. a folder
-        //    with a symlink does NOT falsely group with one holding the real file / no file;
-        //  · shared.bin has exactly 2 copies (f1, f2) — the /root/link symlink is excluded, not a 3rd;
-        //  · report.pdf's keeper is the docs/sub copy even though the Archive copy is newer AND
-        //    shallower — the archive-location penalty dominates depth and mtime;
-        //  · the two Projects folders are NOT reported: sharing a folder name stands up no group,
-        //    whatever the contents — the folder pass reports only `identical` trees and
-        //    `overlapping` ones;
-        //  · deck.pdf / plan.key / memo.txt / img_0001.jpg are the ONLY versions groups
-        //    (marker-justified), and img_0001.jpg holds EXACTLY the two /root/2023 files — the
-        //    marker on "IMG_0001 copy.jpg" vouches for its own parent only, so the unrelated
-        //    /root/2019 shot never joins (and stays in no group at all);
-        //  · plan.key's keeper is the /root/work copy even though the /root/backup copy is newer —
-        //    newestIndex applies the archive penalty first — while budget.xlsx keeps the NEWER
-        //    Downloads revision: transient-download locations are not penalized for a versions
-        //    keeper (trashing the Downloads copy would lose the only copy of the new bytes);
-        //  · memo.txt carries an unknown-hash member (memo copy.txt, marked `?`) that RIDES ALONG in
-        //    a group two real hashes justify — while huge.mp4 (two placeholders, marker AND same
-        //    parent) and draft.docx (one placeholder + only one real hash) stand up NO group:
-        //    unknown content is never evidence of drift.
-        // To re-bless after an INTENTIONAL behavior change: run, confirm the new grouping is correct,
-        // and paste the new value.
+        // GOLDEN: captured, hand-verified correct, then pinned. Every line is load-bearing; the
+        // fixture's comments above say why each group (or its absence, or its keeper) is right.
+        // To re-bless after an INTENTIONAL behavior change: run, confirm the new grouping is
+        // correct, and paste the new value.
         let expected = """
         identical "dupdir1" dir=true reclaim=200000 [/root/dupdir1*, /root/dupdir2]
         versions "memo.txt" dir=false reclaim=200000 [/root/ride/memo-v2.txt*, /root/ride/memo copy.txt?, /root/ride/memo.txt]

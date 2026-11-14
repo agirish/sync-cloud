@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Names made from a first page (TE328): which names change, and how the folder a file goes to
-/// shapes its new one (decision JL).
+/// Names made from a first page: which names change, and how the folder a file goes to
+/// shapes its new one.
 @Suite struct ContentNameTests {
 
     private func files(_ folder: String, _ names: [String]) -> [FolderFile] {
@@ -110,7 +110,7 @@ import Testing
     }
 }
 
-/// A card's new names (TE328): typed, kept, made again for another folder, and counted as taken.
+/// A card's new names: typed, kept, made again for another folder, and counted as taken.
 @Suite struct AskClaudePlanNameTests {
 
     private func plan(_ dir: String) -> AskClaudePlan {

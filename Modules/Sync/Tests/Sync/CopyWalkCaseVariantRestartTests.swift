@@ -12,11 +12,10 @@ import Events
 ///
 /// and the second clause is the case-variant half.
 ///
-/// `MockFileManager` can't pin it: every mock path already reports "folds case", but its
-/// `virtualDisk` is an exactly-cased dictionary, so the two spellings are two files, the second
-/// copy never replaces the first, and changing the clause to `|| false` changes nothing visible.
-/// Only a disk that really folds can, which this suite uses. The exact-path half is pinned on the
-/// mock by `CopyUndoDriftAndTransientTests.copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`.
+/// Only a disk that really folds can pin it: the mock's `virtualDisk` is an exactly-cased
+/// dictionary, so the two spellings stay two files there. Mutation: the clause as `|| false`.
+/// The exact-path half is pinned on the mock by
+/// `CopyUndoDriftAndTransientTests.copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce`.
 @MainActor
 @Suite struct CopyWalkCaseVariantRestartTests {
 
@@ -24,10 +23,8 @@ import Events
     /// ⌘Z. On a folding volume the second copy replaces the first, so the first item's walk
     /// describes a file the batch itself superseded. Restarted, both registrations record the final
     /// state, the folded duplicate gate sees one file, removes it once, and the folder is empty.
-    ///
-    /// Left stale, item 0 reads `.changed` and is refused; item 1 then trashes the file and
-    /// restores its backup, item 0's copy, so ⌘Z leaves that copy in a folder that was empty, under
-    /// a banner blaming the user for a change they didn't make.
+    /// Left stale, ⌘Z leaves item 0's copy in a folder that was empty, under a banner blaming the
+    /// user for a change they didn't make.
     ///
     /// The source folders differ in length on purpose: `pruneNestedNodes` sorts by `id.utf8.count`
     /// and Swift's sort isn't stable, so equal lengths would leave the batch order to chance.

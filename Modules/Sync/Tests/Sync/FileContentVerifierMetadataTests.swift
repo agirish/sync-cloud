@@ -60,9 +60,7 @@ struct FileContentVerifierMetadataTests {
         let file = dir.appendingPathComponent("shrinking.bin")
         try Data(repeating: 3, count: 2048).write(to: file)
 
-        // Truthful manager: hashes.
         #expect(await FileContentVerifier.hashOutcome(filePath: file.path).hash != nil)
-        // Manager reporting a larger file than the descriptor holds: refused.
         let lying = SizeLyingFileManager(inflateBy: 512)
         #expect(await FileContentVerifier.hashOutcome(filePath: file.path, fileManager: lying).hash == nil)
     }

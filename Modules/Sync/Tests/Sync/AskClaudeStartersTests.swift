@@ -111,7 +111,7 @@ import Testing
                                  "What’s in this folder?"])
     }
 
-    /// TE309's suggestion leads while the chat is empty, and isn't repeated (B-R8).
+    /// The quiet suggestion leads while the chat is empty, and isn't repeated.
     @Test func theSuggestionLeads() {
         let asked = browse([row("A.pdf", daysOld: 1), row("B.pdf")], suggested: "File the new files in iCloud › Downloads")
         #expect(asked == ["File the new files in iCloud › Downloads", "Summarize both PDFs", "What changed here this week?"])
@@ -129,7 +129,7 @@ import Testing
         #expect(AskClaudeStarters.questions(for: editing).first == "Summarize this PDF")
     }
 
-    /// Every rule's wording fits one line and names nothing, at any count (V10, B-R2).
+    /// Every rule's wording fits one line and names nothing, at any count.
     @Test func everyRuleQuestionIsShort() {
         var signals = AskClaudeStarters.Signals()
         for n in [1, 2, 5, 99, 1234] {

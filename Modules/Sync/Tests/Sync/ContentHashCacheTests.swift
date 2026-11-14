@@ -8,7 +8,6 @@ import Foundation
 /// the stored digest without re-reading the bytes.
 @Suite struct ContentHashCacheTests {
 
-
     // MARK: - Direct cache behavior
 
     @Test func testStoreThenHashReturnsValueAndMissesOnDifferentKey() async {

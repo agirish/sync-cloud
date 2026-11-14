@@ -25,10 +25,9 @@ import Foundation
         #expect(!keys.contains { $0.hasPrefix("a/b/link/") })    // …but never descended into (no phantom rows)
     }
 
-    /// The URL enumerator refuses to enter a symlinked folder and reports it as an error; the
-    /// manual descent then walks the target. The folder must come out explored, with its
-    /// contents, or the diff suppresses every Missing row beneath it, as a Compare at the iCloud
-    /// Drive container would over its linked `Documents`.
+    /// The URL enumerator reports a symlinked folder as an error; the manual descent then walks the
+    /// target. The folder must come out explored, or the diff suppresses every Missing row beneath
+    /// it, as a Compare at the iCloud Drive container would over its linked `Documents`.
     @Test func aSymlinkedFolderTheWalkDescendsIsNotMarkedUnexplored() throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
@@ -48,11 +47,10 @@ import Foundation
         #expect(files[""] == nil, "the walk root was marked unexplored")
     }
 
-    /// The same link as the walk's root: a Compare focused on iCloud Drive → Documents, with the
-    /// scan path spelled through the container. The enumerator lists nothing at a root whose last
-    /// component is a link (ENOTDIR), and the forgiveness above is right only for a link the walk
-    /// then descends. Unless the root is walked where it leads, the side reads as authoritatively
-    /// empty and everything on the other side becomes "Folder missing on left".
+    /// The same link as the walk's root (iCloud Drive → Documents, spelled through the container).
+    /// The enumerator lists nothing at a root whose last component is a link (ENOTDIR). Unless the
+    /// root is walked where it leads, the side reads as authoritatively empty and everything on the
+    /// other side becomes "Folder missing on left".
     @Test func aWalkRootedAtALinkToAFolderListsTheFolder() throws {
         let fm = FileManager.default
         let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
@@ -130,12 +128,12 @@ import Foundation
                                    .dir("/src/folderOnly")]))
         let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
 
-        // Missing on right: the item lives on the left, so its left size travels with the diff.
+        // Missing on right: the left size travels with the row.
         #expect(byPath["only-left.txt"]?.type == .missingOnRight)
         #expect(byPath["only-left.txt"]?.leftFileSize == 4096)
         #expect(byPath["only-left.txt"]?.rightFileSize == nil)
 
-        // Missing on left: mirror — the right size travels with the diff.
+        // Missing on left: the mirror.
         #expect(byPath["only-right.txt"]?.type == .missingOnLeft)
         #expect(byPath["only-right.txt"]?.rightFileSize == 8192)
         #expect(byPath["only-right.txt"]?.leftFileSize == nil)
@@ -153,8 +151,7 @@ import Foundation
     }
 
     @Test func testMissingModificationDateFallback() async throws {
-        // Simulating POSIX attributes or system aliases where modificationDate is missing (nil).
-        // Despite the missing dates, the size discrepancy forces a sync.
+        // Neither side has a modification date; the size difference still yields a row.
         let diffs = try diff(disk([.file("/src/nometa.txt", size: 500), .file("/dst/nometa.txt", size: 1000)]))
 
         #expect(diffs.count == 1)
@@ -174,11 +171,9 @@ import Foundation
         }
         let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: disk(stubs))
 
-        // Should find 10 files and 10 directories (excluding root)
-        // Note: the engine returns a flat dictionary of relative paths
+        // 10 files and 10 folders, keyed flat by relative path.
         #expect(srcFiles.count == 20)
-        
-        // Verify a deep file is present
+
         #expect(srcFiles["level_1/level_2/level_3/level_4/level_5/level_6/level_7/level_8/level_9/level_10/file_10.txt"] != nil)
     }
 
@@ -227,11 +222,10 @@ import Foundation
         var rightItemPath: String? = nil
     }
 
-    // A folder that pairs with a FILE on the other side resolves with a single action on its
-    // row (dir wins: recursive copy; file wins: the subtree is replaced wholesale). Its
-    // descendants must therefore collapse into that row like a missing folder's do — separate
-    // child rows double-copy after a dir-wins sync, race the parent's replace op in parallel
-    // bulk sync, and go stale after a file-wins sync.
+    // A folder that pairs with a FILE resolves with one action on its row (dir wins: recursive
+    // copy; file wins: the subtree is replaced). Its descendants collapse into that row: separate
+    // child rows double-copy after a dir-wins sync, race the parent's replace op in parallel bulk
+    // sync, and go stale after a file-wins sync.
     static let mismatches: [Mismatch] = {
         let older = Date(timeIntervalSince1970: 1_000)
         let newer = older.addingTimeInterval(10)
@@ -343,11 +337,10 @@ import Foundation
     }
 
     // MARK: - Case-insensitive matching
-    // On the default macOS filesystem "Readme.txt" and "readme.txt" are the same file, but the
-    // comparison maps are keyed by exact-case path. Without case-insensitive matching such a
-    // pair reports as two phantom "missing" rows whose sync silently overwrites one side's
-    // content. With `caseInsensitive: true` (both volumes case-insensitive) the pair must
-    // become a single row carrying the real on-disk paths.
+    // On the default macOS filesystem "Readme.txt" and "readme.txt" are one file, but the maps are
+    // keyed by exact-case path, so without case-insensitive matching the pair is two phantom
+    // "missing" rows whose sync silently overwrites one side. With `caseInsensitive: true` it must
+    // be one row carrying the real on-disk paths.
 
     @Test func testCaseVariantFilePairIsSingleRowWhenCaseInsensitive() async throws {
         let older = Date(timeIntervalSince1970: 5_000)
@@ -398,14 +391,13 @@ import Foundation
     }
 
     @Test func testCaseVariantDirectoryPairComparesChildrenInstead() async throws {
-        // Folders whose names differ only by case must match each other, so their children
-        // compare pairwise instead of the whole subtree double-reporting as missing on both
-        // sides. Identical children produce no rows; a changed child produces exactly one.
+        // Case-variant folders match, so children compare pairwise rather than double-reporting as
+        // missing on both sides. Identical children make no rows; a changed child makes one.
         let older = Date(timeIntervalSince1970: 8_000)
         let newer = older.addingTimeInterval(10)
         let diffs = try diff(disk([
             .dir("/src/Docs"), .dir("/dst/docs"),
-            // Identical child: same name and metadata on both sides.
+            // Identical child.
             .file("/src/Docs/same.txt", date: older, size: 50), .file("/dst/docs/same.txt", date: older, size: 50),
             // Changed child: left is newer.
             .file("/src/Docs/changed.txt", date: newer, size: 60), .file("/dst/docs/changed.txt", date: older, size: 60),
@@ -438,9 +430,8 @@ import Foundation
         }
     }
 
-    /// A walk over a subtree where thousands of entries are unreadable must not throw, must
-    /// still return every readable entry, and collects the failures for one summary log line
-    /// instead of one main-actor task per bad entry.
+    /// A walk where thousands of entries are unreadable must not throw, returns every readable one,
+    /// and collects the failures for one summary log line, not one main-actor task per entry.
     @Test func testWalkWithManyUnreadableEntriesReturnsReadableOnesAndDoesNotThrow() throws {
         let inner = MockFileManager()
         try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -463,11 +454,10 @@ import Foundation
         #expect(files["readable-b.txt"] != nil)
     }
 
-    /// A folder whose own attributes cannot be read is left out of the walk's map while what is
-    /// inside it is still listed: the entry's read fails, and the enumerator descends regardless.
-    /// The file inside must not pair across on its near-name into the right's `Swimming`, which
-    /// pairs with nothing on the left and is reported missing: that would be a both-sides row
-    /// inside a missing folder, and the folder's copy would carry the same `log.txt` again.
+    /// A folder whose own attributes can't be read is left out of the walk's map, but the
+    /// enumerator still lists what is inside. That file must not pair on its near-name into the
+    /// right's `Swimming`, which is reported missing: a both-sides row inside a missing folder
+    /// would have the folder's copy carry the same `log.txt` again.
     @Test func aFileInAFolderTheWalkCouldNotReadDoesNotPairIntoAMissingFolder() throws {
         let now = Date()
         let inner = disk([.dir("/src/Swimming "), .dir("/dst/Swimming"),

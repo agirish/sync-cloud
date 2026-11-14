@@ -210,9 +210,7 @@ import Events
         // case-sensitive first item switch off folding on a case-insensitive volume: two names
         // differing only by case would pass the uniqueness check and the workers write one file.
         // With `isMove` one file's contents are gone, with a success banner and nothing to undo.
-        //
-        // The probe is injected because this needs two volumes; production answers per
-        // destination the same way.
+        // The probe is injected because this needs two volumes.
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/plain"), withIntermediateDirectories: true)
@@ -259,11 +257,8 @@ import Events
     @MainActor
     @Test func aCaseSensitiveDestinationStillKeepsBothSpellingsVerbatim() async throws {
         // The control: on a case-sensitive destination two case variants are two names, and
-        // neither is uniquified to "… 2".
-        //
-        // Folding unconditionally still passes here: the reserved keys would be folded while
-        // `generateUniqueURL` gets this destination's case-sensitive rule, so its lookup misses.
-        // The dangerous direction, not folding where the volume collapses case, is the test above.
+        // neither is uniquified to "… 2". Folding unconditionally still passes here; the dangerous
+        // direction is the test above.
         let disk = MockFileManager()
         try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
         try disk.createDirectory(at: URL(fileURLWithPath: "/dst/mounted"), withIntermediateDirectories: true)

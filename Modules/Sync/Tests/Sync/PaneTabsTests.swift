@@ -117,14 +117,9 @@ import Events
 
     // MARK: The overlay a save writes over the active entry
 
-    /// What a save does to the active entry, and everything it leaves alone. The active entry is a
-    /// snapshot from when the tab was last parked, so a strip written straight off it would store
-    /// the tab on screen where it was opened, losing its columns across a quit. `saveBrowseTabs`
-    /// uses this overlay, kept here where tests can run it.
-    ///
-    /// Every line answers differently with and without the overlay: the entry is on another source
-    /// at another folder, and pinned while the live pane is not. `recentlyClosed` is seeded so a
-    /// reset of the reopen stack would fail.
+    /// The save overlay writes the live pane over the active entry, a snapshot from when the tab was
+    /// last parked, and leaves everything else alone. Every line answers differently without it, and
+    /// `recentlyClosed` is seeded so a reset of the reopen stack would fail.
     @Test func theSaveOverlayWritesTheLivePaneOverTheActiveEntryAndNothingElse() {
         let live = PaneTab(providerId: "iCloud", relativePath: "Finance", isPinned: true)
         let parked = PaneTab(providerId: "iCloud", relativePath: "Photos")
@@ -174,11 +169,9 @@ import Events
                 "the save moved the selection to another tab, so the pane reopens on the wrong one")
     }
 
-    /// The overlay throws the active tab's history away, on purpose. `replacingActive` omits
-    /// `history:`, so `PaneTab.init` re-seeds it from the path written, and the entry can walk back
-    /// to the root only. Right for `saveBrowseTabs`, whose store holds no history, but a second
-    /// caller reaching for it would quietly kill Back, so it is pinned here. The live tab has
-    /// walked two folders deep; the overlay writes a third.
+    /// The overlay throws the active tab's history away, on purpose: `PaneTab.init` re-seeds it from
+    /// the path written. Right for `saveBrowseTabs`, whose store holds no history, but a second
+    /// caller reaching for it would quietly kill Back.
     @Test func theSaveOverlayReSeedsTheActiveTabsHistoryRatherThanCarryingIt() {
         var walked = PaneNavigationHistory()
         walked.push("Finance")
@@ -521,12 +514,9 @@ import Events
         }, "an unreadable strip is thrown away by the next save with nothing said")
     }
 
-    /// The other direction: no key at all is the ordinary case (every fresh install, every right
-    /// pane that never held a second tab), so a warning there would fire when nothing is wrong. An
-    /// empty array is the same "seed it" answer and is quiet too.
-    ///
-    /// An absence needs guarding: reading between the test's own markers, with the opening one
-    /// required, reports a rolled window instead of passing on a window that never held the moment.
+    /// No key at all, or an empty array, is the ordinary case and stays quiet. Reading between the
+    /// test's own markers, with the opening one required, reports a rolled window instead of passing
+    /// on a window that never held the moment.
     @MainActor
     @Test func aStripThatWasNeverWrittenOrIsEmptyIsNotReported() async throws {
         let defaults = ScratchDefaults("PaneTabsStore-quietLoad")
@@ -691,12 +681,9 @@ import Events
         #expect(restored?.list.active.combinedRelativePath == "School/US/Daughter/Homework")
     }
 
-    /// The active tab's columns, end to end through the overlay that writes them. The test above
-    /// saves an entry already where the pane is, true of parked tabs only. Here the active entry is
-    /// a stale snapshot at the root and the pane has walked three columns deep; without the overlay
-    /// the tab on screen would go to disk at the root. The stored path is the COMBINED one (scope
-    /// plus column stack): that is the folder that was on screen, and restoring only the scope
-    /// would reopen the tab somewhere shallower.
+    /// The active tab's columns, end to end through the overlay: the entry is a stale snapshot at the
+    /// root and the pane has walked three columns deep. The stored path is the combined one (scope
+    /// plus stack), or the tab would reopen somewhere shallower.
     @Test func theActiveTabIsSavedWhereThePaneIsAndNotWhereItWasParked() {
         let defaults = ScratchDefaults("PaneTabsStore-activeOverlay")
         let strip = PaneTabList(tabs: [PaneTab(providerId: "iCloud"),

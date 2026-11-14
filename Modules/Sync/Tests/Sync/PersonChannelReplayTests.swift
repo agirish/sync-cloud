@@ -3,18 +3,11 @@ import Foundation
 @testable import Sync
 
 /// Every channel that can claim a document for a person, replayed over the live corpus and scored
-/// against the tree's own filing. The review queue treats weak evidence as unreviewed rather than
-/// wrong, which only holds if its precision is decent: a queue of mostly wrong rows costs a
-/// decision per row. A document under a folder whose `person` axis resolves is labelled by that
-/// folder.
-///
-/// Ground truth exists only for documents already in a person folder, which never reach the queue,
-/// so these precisions are an upper bound for queue rows. What the replay can say is the ordering
-/// (filename beats page, strong beats weak) and how often a channel contradicts the tree, the one
-/// failure that would make the queue lie. ``queueSize`` counts the real, unlabelled rows.
-///
-/// Assertions are coarser than the printed numbers: the tree is his live `~/Documents`, and exact
-/// figures would trip on his filing rather than on this code.
+/// against the tree's own filing (a folder whose `person` axis resolves labels what is under it).
+/// Labelled documents never reach the review queue, so precisions are an upper bound; what is
+/// pinned is the ordering (filename beats page, strong beats weak) and how often a channel
+/// contradicts the tree. ``queueSize`` counts the real rows. Assertions are coarser than the
+/// printed numbers, since the tree is his live `~/Documents`.
 @Suite(.enabled(if: LiveProfile.isAvailable && LiveCorpus.isAvailable,
                 "no live filing corpus on this machine — channel replay skipped"),
        .machinePinned(.liveProfile))
@@ -56,11 +49,8 @@ struct PersonChannelReplayTests {
 
     // MARK: - Asking one channel
 
-    /// What a channel said about one document: the single person it claimed, or nil for no opinion.
-    ///
-    /// One person or none, never a set: a channel naming two people hasn't attributed the document,
-    /// so it scores as an abstention. Counting either half as a hit would let a channel that names
-    /// everybody score 100%.
+    /// The single person a channel claimed for one document, or nil. A channel naming two people
+    /// abstains: counting either half as a hit would let a channel that names everybody score 100%.
     static func claim(_ report: PersonMatchReport, strongOnly: Bool) -> String? {
         var ids = Set<String>()
         for m in report.matches {
@@ -78,10 +68,8 @@ struct PersonChannelReplayTests {
 
     static func unique(_ id: String) -> Set<String> { uniqueWords[id] ?? [] }
 
-    /// The page sample a channel reads, from the anchors the corpus already holds.
-    ///
-    /// A sorted, de-duplicated bag, not text; see
-    /// ``PersonChannelReplayTests/aSortedBagHasNoPhrasesToFind()``.
+    /// The page sample a channel reads, from the corpus's anchors: a sorted, de-duplicated bag, not
+    /// text; see ``PersonChannelReplayTests/aSortedBagHasNoPhrasesToFind()``.
     static func pageSample(_ doc: FilingCorpusDocument) -> String? {
         doc.anchors.isEmpty ? nil : doc.anchors.joined(separator: " ")
     }

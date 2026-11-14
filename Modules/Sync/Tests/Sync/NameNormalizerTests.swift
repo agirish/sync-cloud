@@ -194,6 +194,5 @@ import Foundation
         let banner = try #require(manager.banner)
         #expect(!banner.message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it: \(banner.message)")
         #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")
-
     }
 }

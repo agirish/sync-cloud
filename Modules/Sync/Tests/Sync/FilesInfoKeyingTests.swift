@@ -4,16 +4,14 @@ import Testing
 
 /// Pins `filesInfo(fromTree:basePath:)`'s keys.
 ///
-/// A key is the path of names from the base down to the node, read off the tree's shape (the
-/// function's doc says why). `legacyKey` below strips the key off the node's id instead; the two
-/// must agree on every node whose id continues its parent's, in any script or normalization, under
-/// a base spelled either way. The first group pins that, each case against a written-out key and
-/// the strip, since two implementations agreeing proves only that they agree.
+/// A key is the path of names from the base down to the node, read off the tree's shape.
+/// `legacyKey` strips the key off the node's id instead; the two must agree on every node whose id
+/// continues its parent's, in any script or normalization. Each case checks a written-out key as
+/// well, since two implementations agreeing proves only that they agree.
 ///
-/// The second group pins where they part. A node whose id doesn't continue its parent's is what the
-/// walk makes of a folder linked in from outside (listed in the link's place as the real folder)
-/// and of anything reached through a folder symlink, whose listing comes back resolved. It is keyed
-/// where it sits, as the disk walk keys it.
+/// They part where a node's id doesn't continue its parent's: a folder linked in from outside
+/// (listed in the link's place as the real folder) and anything reached through a folder symlink,
+/// whose listing comes back resolved. Such a node is keyed where it sits, as the disk walk keys it.
 @Suite struct FilesInfoKeyingTests {
 
     /// The id-strip keying, kept verbatim as the second implementation.
@@ -41,8 +39,8 @@ import Testing
         return node
     }
 
-    /// The key every node got, by the node's id — the map read back the other way. Ids are unique
-    /// in every tree this is used on, so a node keyed twice is a failure, not a trap.
+    /// The key every node got, by the node's id. Ids are unique in every tree this is used on, so a
+    /// node keyed twice is a failure.
     private func keysByID(_ tree: [FileNode], basePath: String) -> [String: String] {
         let pairs = FileDiffEngine.filesInfo(fromTree: tree, basePath: basePath).map { ($0.value.url.path, $0.key) }
         let byID = Dictionary(pairs, uniquingKeysWith: { first, _ in first })
@@ -83,22 +81,21 @@ import Testing
     }
 
     /// A base spelled in the other Unicode normalization from the tree's ids. APFS stores names as
-    /// given, so both spellings are reachable on one volume; the strip needed a grapheme-count
-    /// fallback to survive it, and the shape never reads the base's spelling at all.
+    /// given, so both spellings are reachable on one volume.
     @Test func keysATreeUnderABaseSpelledInTheOtherNormalization() {
         let precomposed = "/a/caf\u{00E9}"                // é as one code point
         let decomposed = "/a/cafe\u{0301}"                // e + combining acute
-        // Premises, asserted rather than assumed: canonically equal, byte-wise different. If
-        // either stops holding, the cases below are testing nothing and should say so loudly.
+        // Premises: canonically equal, byte-wise different. Without them the cases below test
+        // nothing.
         #expect((decomposed + "/x.txt").hasPrefix(precomposed), "premise: canonically equivalent")
         #expect(!Array(decomposed.utf8).starts(with: Array(precomposed.utf8)), "premise: bytes differ")
         check([branch(under: decomposed, "x.txt")], base: precomposed,
               expected: [decomposed + "/x.txt": "x.txt"], "NFD tree under an NFC base")
         check([branch(under: precomposed, "x.txt")], base: decomposed,
               expected: [precomposed + "/x.txt": "x.txt"], "NFC tree under an NFD base")
-        // The one thing the shape keying reads of the base is whether a node IS it, and that has to
-        // hold across the two spellings as well — an unreadable root spelled one way, under a base
-        // spelled the other, is still the root, and still suppresses the whole side.
+        // The shape keying reads of the base only whether a node IS it, and that must hold across
+        // spellings: an unreadable root spelled one way is still the root, and still suppresses the
+        // whole side.
         let unreadableRoot = FileNode(id: decomposed, name: "cafe\u{0301}", isDirectory: true, children: [],
                                       isUnexplored: true)
         let map = FileDiffEngine.filesInfo(fromTree: [unreadableRoot], basePath: precomposed)
@@ -135,10 +132,9 @@ import Testing
 
     /// A folder the walk lists in a link's place is keyed where it sits. The walk substitutes the
     /// real folder for one linked in from outside (iCloud Drive's `Documents`), so every id under it
-    /// says where the folder really is (`/U/Documents`), nowhere near the base. The strip keys them
-    /// near-absolute, where the disk walk keys them under the link. The base here is the
-    /// container's parent (a Compare on `~/Library`): no table at the base names the link, so no
-    /// lookup can fix it.
+    /// says where the folder really is (`/U/Documents`); the disk walk keys them under the link. The
+    /// base is the container's parent (a Compare on `~/Library`), so no table at the base names the
+    /// link and no lookup can fix it.
     @Test func aLinkedFolderIsKeyedWhereTheWalkListedIt() {
         let tree = [FileNode(id: "/L/c", name: "c", isDirectory: true, children: [
             FileNode(id: "/U/Documents", name: "Documents", isDirectory: true, children: [
@@ -153,9 +149,8 @@ import Testing
 
     /// A folder the walk reaches twice is keyed once per route. At Home, `~/Documents` is a child of
     /// the base and where the container's link leads; the walk lists it in both places with one id
-    /// and marks the container's copy `isCoveredElsewhere`. The strip keys both onto the direct
-    /// one's keys and loses the container's copy, which the disk walk lists. That flag is for
-    /// consumers that add the tree up, not this one.
+    /// and marks the container's copy `isCoveredElsewhere` (a flag for consumers that add the tree
+    /// up, not this one). The strip would lose the container's copy, which the disk walk lists.
     @Test func aFolderReachedTwiceIsKeyedOncePerRoute() {
         let note = FileNode(id: "/H/Documents/x.txt", name: "x.txt", isDirectory: false)
         let tree = [
@@ -175,10 +170,9 @@ import Testing
                 "what the strip made of BOTH copies")
     }
 
-    /// So where a node's id says it lives never enters its key; only its own name does. Under the
-    /// strip, each of these (a sibling sharing the base's prefix, a path outside the base, a byte
-    /// match splitting a grapheme) keeps part or all of its absolute path. A top-level node is a
-    /// child of the base, keyed by its name.
+    /// A top-level node is keyed by its own name, whatever its id says. Under the strip, each of
+    /// these (a sibling sharing the base's prefix, a path outside the base, a byte match splitting a
+    /// grapheme) keeps part or all of its absolute path.
     @Test func aTopLevelNodeIsKeyedByItsNameWhereverItsPathPoints() {
         let cases: [(id: String, base: String, legacy: String)] = [
             ("/a/bb/x.txt", "/a/b", "b/x.txt"),
@@ -217,21 +211,19 @@ import Testing
         var baseHoldsTheTargets: Bool { self == .aboveTheContainerAndItsTargets }
     }
 
-    /// The invariant `FileInfo`'s own doc claims, that the warm (tree) and cold (disk walk) scan
-    /// branches agree, asserted wholesale over a real directory rather than field by field. They
-    /// build URLs from different sources (the enumerator's URLs, a node's path string), and a
+    /// The warm (tree) and cold (disk walk) scan branches agree, as `FileInfo`'s doc claims,
+    /// asserted wholesale over a real directory. They build URLs from different sources, and a
     /// divergence makes a scan report differently depending on whether the cache was warm.
     ///
-    /// A folder linked in from outside the root is one such shape: iCloud Drive's `Documents`, at
-    /// the container. The walk lists it as the folder it points at, so its nodes carry the real
-    /// path, which the base is no prefix of. Keyed by prefix they'd come out near-absolute while the
-    /// disk walk keys them through the link, and a warm Compare would offer to copy the whole folder
-    /// into `<other side>/Users/…/Documents`. The table is the fixture's own.
+    /// A folder linked in from outside the root is one such shape: iCloud Drive's `Documents`. Its
+    /// nodes carry the real path, which the base is no prefix of. Keyed by prefix they'd come out
+    /// near-absolute, and a warm Compare would offer to copy the whole folder into
+    /// `<other side>/Users/…/Documents`.
     ///
-    /// Run at every distance the base can sit from the container. One level above it (`~/Library`)
-    /// the walk still substitutes the links, and a table naming the container can't key them. At an
-    /// ancestor that also holds the targets (Home), the real folder is reached twice, directly and
-    /// through the container (marked `isCoveredElsewhere`), and each route must keep its own keys.
+    /// Run at every distance the base can sit from the container. One level above it the walk still
+    /// substitutes the links, and a table naming the container can't key them. At an ancestor that
+    /// also holds the targets (Home), the real folder is reached twice, and each route must keep
+    /// its own keys.
     @Test(arguments: LinkedContainerPlacement.allCases)
     func warmAndColdBranchesProduceTheSameMap(_ placement: LinkedContainerPlacement) async throws {
         let fm = FileManager.default
@@ -347,9 +339,8 @@ import Testing
         let tree = await FileSyncManager.buildTree(url: base, sortOption: .name)
         let warm = FileDiffEngine.filesInfo(fromTree: tree, basePath: base.path)
 
-        // Premise: the shape under test really occurs — some node's id does not continue its
-        // parent's (or, at the top, the base's). Should a listing ever stop resolving links, this
-        // says so instead of passing over nothing.
+        // Premise: some node's id does not continue its parent's (or, at the top, the base's).
+        // Should a listing ever stop resolving links, this says so instead of passing over nothing.
         func breaks(_ nodes: [FileNode], under parent: String) -> Bool {
             nodes.contains { !$0.id.hasPrefix(parent + "/") || breaks($0.children ?? [], under: $0.id) }
         }
@@ -377,8 +368,7 @@ import Testing
         let map = FileDiffEngine.filesInfo(fromTree: [dir, file], basePath: "/a/b")
         #expect(map["sub"]?.url.path == "/a/b/sub")
         #expect(map["f.txt"]?.url.path == "/a/b/f.txt")
-        // And it reproduces exactly what the unhinted initializer resolves to, which is what
-        // makes the hint an optimization rather than a different value.
+        // The same value the unhinted initializer resolves to.
         #expect(map["sub"]?.url == URL(fileURLWithPath: "/a/b/sub", isDirectory: true))
         #expect(map["f.txt"]?.url == URL(fileURLWithPath: "/a/b/f.txt", isDirectory: false))
     }

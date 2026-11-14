@@ -16,9 +16,8 @@ import Testing
             .appendingPathComponent("fpw-\(UUID().uuidString)")
     }
 
-    /// What the in-app survey can produce: paths and counts, no `naming`, `anchors` or axes. Unlike
-    /// the hand-built fixture in every visible field, so "unchanged" and "changed to this" can't be
-    /// confused.
+    /// What the in-app survey can produce: paths and counts, no `naming`, `anchors` or axes. It
+    /// differs from the hand-built fixture in every visible field, so "unchanged" can't pass as "changed".
     private static func nameOnly(id: String = "father",
                                  root: String = "~/Documents",
                                  builtBy: String? = nil) -> FolderProfile {
@@ -41,10 +40,9 @@ import Testing
 
     // MARK: - Direction one: it writes where there is nothing
 
-    /// Paths are written with bare slashes. `JSONEncoder` escapes `/` by default, which decodes the
+    /// Paths are written with bare slashes: `JSONEncoder` escapes `/` by default, which decodes the
     /// same but stops the file diffing against the Python builder's output. Asserted on the bytes,
-    /// since a decoder round trip passes either way; the positive check keeps a writer that emits
-    /// no nested paths from passing.
+    /// since a round trip passes either way; the positive check is the vacuity guard.
     @Test func pathKeysAreWrittenWithBareSlashesSoTheFileDiffs() throws {
         let root = Self.scratch()
         let dir = root.appendingPathComponent("profiles")
@@ -71,9 +69,8 @@ import Testing
         #expect(written == FilingProfileStore.profileURL(id: "father", in: dir))
 
         let read = try #require(FilingProfileStore.profile(id: "father", in: dir))
-        // Every field, including the empty person axis. Not an identity round trip: the store stamps
-        // `builtBy`, which marks the profile as the app's own, so reading back the bare input would
-        // mean provenance was dropped.
+        // Not an identity round trip: the store stamps `builtBy` to mark the profile as the app's
+        // own, so reading back the bare input would mean provenance was dropped.
         #expect(read == Self.nameOnly(builtBy: read.builtBy))
         #expect(read.provenance == .derived)
         #expect(read.folders.count == 3)
@@ -172,8 +169,7 @@ import Testing
 
     /// A `profiles.json` this build can't read refuses the whole write, profile included, so a
     /// retry after the index is fixed isn't blocked by a half-landed profile. The exact refusal is
-    /// expected, string and all ("schema 99, not 1" is what a caller prints), since any stray I/O
-    /// error would satisfy `(any Error).self`.
+    /// expected, since any stray I/O error would satisfy `(any Error).self`.
     @Test func anUnreadableIndexRefusesTheWholeWrite() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -210,7 +206,6 @@ import Testing
 
         #expect(try Data(contentsOf: index) == before, "profiles.json was rewritten")
         #expect(FilingProfileStore.activeProfileId(in: dir) == "father")
-        // The second profile is on disk and readable: writes are additive, keyed by id.
         #expect(FilingProfileStore.profile(id: "second", in: dir)?.root == "~/Work")
         #expect(FilingProfileStore.active(in: dir)?.profile.profileId == "father")
     }
@@ -490,9 +485,8 @@ import Testing
 
     /// The same logical profile writes the same bytes, however its containers are laid out. The
     /// file's hash feeds `fingerprint(id:in:)`, which keys `FilingVerdictCache`, so a
-    /// re-serialisation would void every cached verdict and re-bill a paid pass. Determinism across
-    /// launches is what matters; two containers built to iterate differently are the closest one
-    /// process gets. The canonical-order test below covers the rest.
+    /// re-serialisation would void every cached verdict and re-bill a paid pass. Two containers
+    /// built to iterate differently stand in for two launches.
     @Test func theSameProfileFromDifferentlyLaidOutContainersWritesTheSameBytes() throws {
         let folders = Self.laidOutDifferently(Self.deterministicFolders)
         let people = Self.laidOutDifferently(Self.deterministicPeople)
@@ -508,10 +502,9 @@ import Testing
         #expect(!first.isEmpty)
     }
 
-    /// The output is in canonical order, which makes it a function of the content, not the layout.
-    /// Three orderings, each its own regression: `folders` sorted by path, the person axis's
-    /// `values` sorted, and every object's keys sorted (`.sortedKeys`). Key order survives no parse,
-    /// so it is read off the raw bytes.
+    /// The output is in canonical order: `folders` sorted by path, the person axis's `values`
+    /// sorted, and every object's keys sorted (`.sortedKeys`). Key order survives no parse, so it is
+    /// read off the raw bytes.
     @Test func theProfileIsWrittenInCanonicalOrder() throws {
         let folders = Self.laidOutDifferently(Self.deterministicFolders)
         let bytes = try Self.writeDeterministic(folders: folders.a,
@@ -548,10 +541,9 @@ import Testing
 
     /// The profile is removed when the index write fails. It lands first, so a failed index write
     /// would leave a profile nothing points at, and every retry would refuse it with
-    /// `profileExists`: a permanent block on a fresh machine. Tested through
-    /// ``FilingProfileStore/land(_:at:index:at:writeIndex:)`` with an index URL in a missing
-    /// directory, because a broken index reached through `writeProfile` is refused at the read and
-    /// never reaches the rollback.
+    /// `profileExists`: a permanent block on a fresh machine. Driven through
+    /// ``FilingProfileStore/land(_:at:index:at:writeIndex:)``, because a broken index reached
+    /// through `writeProfile` is refused at the read and never reaches the rollback.
     @Test func aFailedIndexWriteRollsTheProfileBackAndLeavesTheTreeRetryable() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -581,8 +573,8 @@ import Testing
 
     // MARK: - …and the line that reports it says which of the three happened
 
-    /// The most recent line `log` captured containing `fragment`. A capture, not the shared buffer,
-    /// so other suites logging past the line can't push it out.
+    /// The most recent captured line containing `fragment`. A capture, not the shared buffer, so
+    /// other suites logging past the line can't push it out.
     @MainActor
     private static func loggedLine(_ log: LogCapture, containing fragment: String) async -> String? {
         await log.entries.last { $0.message.contains(fragment) }?.message
@@ -603,7 +595,7 @@ import Testing
         let left = "was left in place"
         let gone = "nothing is at"
 
-        // 1. Removed by us: the ordinary rollback.
+        // 1. Removed: the ordinary rollback.
         let mine = Self.rollbackId()
         let mineDir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: mineDir) }
@@ -617,8 +609,7 @@ import Testing
                 throw CocoaError(.fileWriteUnknown)
             }
         }
-        // When the bytes on disk are this call's, they go, so the comparison can't pass by never
-        // removing. Asserted before the log is read, so a missed line can't skip it.
+        // Asserted before the log is read, so a missed line can't skip it.
         #expect(!FileManager.default.fileExists(atPath: mineURL.path))
         var line = try #require(await Self.loggedLine(log, containing: mine),
                                 "the rollback wrote no line at all")
@@ -626,7 +617,7 @@ import Testing
         #expect(!line.contains(left), "a removed profile is reported as left in place: \(line)")
         #expect(!line.contains(gone), "a profile this call removed is reported as merely absent: \(line)")
 
-        // 2. Left in place because it is not ours: another writer landed in the gap.
+        // 2. Left in place: another writer landed in the gap.
         let theirs = Self.rollbackId()
         let theirsDir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: theirsDir) }
@@ -651,8 +642,8 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: theirsURL.path),
                 "the fixture's own premise failed — the profile was removed after all")
 
-        // 3. Already gone: the index write fails because its directory went away, and the profile
-        // went with it. Reported as (2), it would promise a refusal that can't happen.
+        // 3. Already gone with its directory. Reported as (2), it would promise a refusal that
+        // can't happen.
         let vanished = Self.rollbackId()
         let vanishedDir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: vanishedDir) }
@@ -663,8 +654,7 @@ import Testing
             try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: vanishedURL,
                                         index: Data("{}".utf8),
                                         at: vanishedDir.appendingPathComponent("profiles.json")) { _, _ in
-                // The profile's directory goes, as on an unmount or a rename, which is why the
-                // index write fails.
+                // As on an unmount or a rename.
                 try FileManager.default.removeItem(at: vanishedURL.deletingLastPathComponent())
                 throw CocoaError(.fileWriteUnknown)
             }
@@ -684,9 +674,8 @@ import Testing
 
     /// Every stored field of an entry reaches the file. `ProfileDocument.EntryBox` hand-mirrors
     /// ``FolderProfileEntry`` because the JSON is a contract with the Python builder, so a new field
-    /// forgotten there is silently dropped from every write. `Mirror` lists the stored properties
-    /// and each must appear as a key. The entry is fully populated so omit-when-nil fields can't
-    /// hide.
+    /// forgotten there is silently dropped from every write. `Mirror` lists the stored properties;
+    /// each must appear as a key.
     @Test func theEncoderWritesEveryFieldAnEntryStores() throws {
         let full = FolderProfileEntry(path: "Finance", role: .container, naming: "ordinal-month",
                                       anchors: ["tax"], acceptsNewFiles: false,
@@ -727,9 +716,8 @@ import Testing
         return mirror.displayStyle == .optional && mirror.children.isEmpty
     }
 
-    /// The `note` the file carries must describe what the survey produces: it derives `anchors` and
-    /// `axes`, so the note must not say they are left empty or that filing falls back to folder
-    /// names. A person auditing a bad suggestion reads this header to judge the artifact.
+    /// The file's `note` describes what the survey produces: it derives `anchors` and `axes`, so it
+    /// must not say they are left empty or that filing falls back to folder names.
     @Test func theEmbeddedNoteDescribesWhatTheSurveyActuallyDerives() throws {
         let dir = Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

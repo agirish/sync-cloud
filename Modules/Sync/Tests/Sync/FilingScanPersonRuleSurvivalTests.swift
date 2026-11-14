@@ -3,12 +3,11 @@ import Testing
 @testable import Sync
 
 /// Phase 2 must not withdraw a person rule. The content pass calls `FilingEngine.suggest` again for
-/// the whole loose set and replaces the list, so every argument phase 1 got must be passed again;
-/// an omitted one is withdrawn from files already answered. Without `registry` and `identity`,
-/// `automationFacts` attributes nobody, so `personIs` reads false, `{person}` is `.unresolved`, and
-/// the user's rule silently stops steering. Driven through the real scan, since the risk is at the
-/// call site. The document is named by an alias, `Mom - vaccination.pdf`, sharing no token with
-/// either folder, so only the registry can connect it to Granny.
+/// the whole loose set and replaces the list, so every argument phase 1 got must be passed again.
+/// Without `registry` and `identity`, `automationFacts` attributes nobody, so `personIs` reads
+/// false, `{person}` is `.unresolved`, and the user's rule silently stops steering. Driven through
+/// the real scan, since the risk is at the call site. The document is named by an alias,
+/// `Mom - vaccination.pdf`, sharing no token with either folder, so only the registry links it to Granny.
 @Suite @MainActor struct FilingScanPersonRuleSurvivalTests {
 
     static let household = PersonRegistry(people: [
@@ -21,13 +20,9 @@ import Testing
     /// 2 would be skipped and these tests would pass vacuously.
     typealias Reads = LockedBox<[String]>
 
-
     /// A scan holding two loose files: one the rule answers, one nothing answers. The second leaves
     /// an "unsure" file, which makes phase 2 read contents and re-suggest; without it there is no
-    /// second pass to test.
-    ///
-    /// - Parameter destinationTemplate: the rule's destination, so the same fixture exercises both
-    ///   the `personIs` condition and the `{person}` token.
+    /// second pass to test. `destinationTemplate` lets one fixture cover `personIs` and `{person}`.
     static func makeScan(destinationTemplate: String,
                          conditions: [AutomationCondition] = [.personIs("granny")],
                          reads: Reads = Reads()) throws -> (FileSyncManager, URL, Reads) {
@@ -60,8 +55,7 @@ import Testing
         return FilingEngine.relative(best.path, under: root.path)
     }
 
-    /// The rule answers the vaccination record in phase 1; the bill sends the scan into phase 2.
-    /// The rule's answer must still be there afterwards.
+    /// The rule's phase-1 answer for the record survives the phase 2 the bill sends the scan into.
     @Test func aPersonRuleStillSteersAfterTheContentPassReSuggests() async throws {
         let (m, root, reads) = try Self.makeScan(destinationTemplate: "Archive/Records")
         defer { try? FileManager.default.removeItem(at: root) }

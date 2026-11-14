@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The chip above Ask Claude's box (TE309): one at a time, never about a hidden folder, and only
+/// The chip above Ask Claude's box: one at a time, never about a hidden folder, and only
 /// while the box is free.
 @Suite struct AskClaudeSuggestionsTests {
 

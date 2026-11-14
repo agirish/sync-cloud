@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What Refine, Try Another and Refine Names cost and where it goes (TE335, E4): the chat's model,
-/// Ask Claude's prices, one monthly limit shared with the chat, and a separate Organize share.
+/// What Refine, Try Another and Refine Names cost and where it goes: the chat's model, Ask
+/// Claude's prices, one monthly limit shared with the chat, and a separate Organize share.
 @MainActor
 @Suite struct FilingRefineMoneyTests {
 

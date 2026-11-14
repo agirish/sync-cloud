@@ -117,5 +117,4 @@ import Events
         }
         #expect(try String(contentsOf: rightFile, encoding: .utf8) == "older")
     }
-
 }

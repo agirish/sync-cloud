@@ -14,7 +14,7 @@ import Foundation
         }.sorted()
     }
 
-/// Every prompt `manager(prompts:)` raised: the folder collisions and the child collisions.
+    /// Every prompt `manager(prompts:)` raised: the folder collisions and the child collisions.
     @MainActor
     private final class Prompts {
         var top: [FileCollision] = []

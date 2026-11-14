@@ -26,11 +26,9 @@ import Testing
 
     // MARK: - The park's two halves
 
-    /// The park engages, is released, and records no timeout.
-    ///
-    /// Driven from `DispatchQueue.global()`, a non-cooperative queue that overcommits when its
-    /// threads block, so the test doesn't take a thread from the pool it protects and needs no
-    /// `.parksAThread`.
+    /// The park engages, is released, and records no timeout. Driven from `DispatchQueue.global()`,
+    /// which overcommits when its threads block, so it takes no thread from the pool it protects and
+    /// needs no `.parksAThread`.
     @Test func aParkThatIsReleasedRecordsNoTimeout() async {
         let gate = ParkGate()
         DispatchQueue.global().async { gate.park(timeout: 5) }

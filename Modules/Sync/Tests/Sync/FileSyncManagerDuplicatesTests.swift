@@ -112,7 +112,7 @@ import Combine
         #expect(manager.duplicateScanRoot == nil)
         #expect(manager.hasFoundDuplicates == false)
 
-        // clearDuplicates resets it alongside the rest of the results state.
+        // And the skip figure with them.
         await manager.findDuplicates(root: root, isCloudOnly: { _ in true }, cache: nil)
         #expect(manager.duplicateScanSkips.total == 2)
         manager.clearDuplicates()
@@ -221,9 +221,8 @@ import Combine
         #expect(ok == false)                                         // nothing removed
         #expect(mockFM.virtualDisk["/b/x"] != nil)                   // file still there
         #expect(manager.duplicateGroups.count == 1)                  // group NOT dropped
-        // No false "Reclaimed" banner: a warning says the copy couldn't be trashed and the
-        // permanent delete was declined, so the file is still there. Silence would read as the
-        // click doing nothing.
+        // A warning, not a false "Reclaimed" and not silence: the copy couldn't be trashed and the
+        // permanent delete was declined.
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("Reclaimed") != true)
         #expect(manager.banner?.message.contains("Kept") == true)
@@ -336,10 +335,8 @@ import Combine
     /// - a folder that cannot be listed completely counts as drifted, which refuses: a partial
     ///   listing cannot prove a folder is still what it was.
     ///
-    /// The mock fixtures here hand-build both the group and its recorded snapshot in the mock
-    /// walk's convention (it reads no sizes or dates, so entries carry size 0 / nil mtime). They
-    /// pin the count/kind semantics; the real-tree section below holds the scan's and the
-    /// re-walk's conventions to each other.
+    /// These mock fixtures pin the count/kind semantics only (the mock walk reads no sizes or
+    /// dates); the real-tree section below holds the scan's and re-walk's conventions to each other.
     @MainActor
     @Test(arguments: [
         (4, 4, false, false, true, false),    // untouched: resolves
@@ -468,8 +465,8 @@ import Combine
                               copies: [k, r], reclaimableBytes: size)
     }
 
-    /// The drift guard must not over-refuse: a copy that simply VANISHED is not a copy that
-    /// changed — there is nothing left to destroy, and the group's other copies still resolve.
+    /// The drift guard must not over-refuse: a copy that vanished has nothing left to destroy, so
+    /// the group's other copies still resolve.
     @MainActor
     @Test func resolveStillTrashesWhenAnotherCopyMerelyVanished() async throws {
         let mockFM = MockFileManager()
@@ -876,10 +873,9 @@ import Combine
         #expect(zip(numeric, numeric.dropFirst()).allSatisfy { $0.completed <= $1.completed })  // monotonic
         #expect(numeric.contains { $0.completed >= 50 })                // mid-hash updates arrived
         #expect(numeric.allSatisfy { $0.completed <= $0.total })
-        // Deterministic terminal state: findDuplicates pins (total, total) synchronously
-        // after hashing (the unstructured done == total hop can lose the race against the
-        // scan's own resumption and be epoch-dropped), so the last numeric publish is
-        // always the full bar — never stuck at the last 50-multiple.
+        // findDuplicates pins (total, total) synchronously after hashing, so the last publish is
+        // always the full bar: the unstructured done == total hop can lose its race and be
+        // epoch-dropped, leaving the bar at the last 50-multiple.
         #expect(numeric.last! == (completed: 120, total: 120))
 
         // Nil after completion — and stays nil once any straggler main-actor hops drain
@@ -908,10 +904,9 @@ import Combine
         #expect(manager.duplicateScanProgress == nil)   // no stale republish after cancel
     }
 
-    /// The epoch guard's real case: a cancel landing mid-hash, with numeric progress live (the
-    /// 8-file test above cancels in the walk phase). A gating file manager freezes hashing at 50
-    /// completions: f50–f55 block in `sha256Hex`'s pre-hash stat and fill the 6-wide window, so
-    /// the cancel point is deterministic without sleeps. The drain can reach neither another
+    /// A cancel landing mid-hash, with numeric progress live. A gating file manager freezes hashing
+    /// at 50 completions: f50–f55 block in `sha256Hex`'s pre-hash stat and fill the 6-wide window,
+    /// so the cancel point is deterministic without sleeps. The drain can reach neither another
     /// 50-multiple nor done == total, so any numeric publish after the cancel is a straggler the
     /// epoch guard should have dropped.
     @MainActor
@@ -977,43 +972,36 @@ import Combine
         // Destination preserves the relative layout under the keeper.
         let uniqueStep = try #require(plan.steps.first { $0.src.lastPathComponent == "unique.txt" })
         #expect(uniqueStep.dst.path == keeper.appendingPathComponent("sub/unique.txt").path)
-        // The snapshot covers the redundant copy's FULL file set (including provably-shared files
-        // the steps skip) with byte sizes AND mtimes — the trash step's drift baseline.
+        // The snapshot covers the redundant copy's full file set, including the shared files the
+        // steps skip, with sizes and mtimes from the same walk: the trash step's drift baseline.
         #expect(plan.sourceSnapshot.keys.sorted() == ["shared.txt", "sub/unique.txt"])
         #expect(plan.sourceSnapshot["shared.txt"]?.size == 5000)
         #expect(plan.sourceSnapshot["sub/unique.txt"]?.size == 5000)
-        // The mtimes come from the same walk — a real fixture file always carries one.
         #expect(plan.sourceSnapshot["shared.txt"]?.modificationDate != nil)
     }
 
     /// Where a source file's name is taken, and whether its bytes already sit in the keeper folder,
     /// decides whether the fold copies it (all files 5,000 bytes; a fill byte stands for content):
-    /// - retry idempotence: run 1 collided at Keeper/a.txt (different content held the name) and
-    ///   landed at "a 2.txt". A retry re-plans from scratch and must see the content already in
-    ///   that folder and skip, not mint "a 3.txt" each time (the cancel banner promises "a retry
-    ///   skips what landed");
+    /// - retry idempotence: run 1 collided at Keeper/a.txt (different content) and landed at
+    ///   "a 2.txt"; a retry re-plans from scratch and must see the content already in that folder
+    ///   and skip, not mint "a 3.txt" each time;
     /// - the complement: the name is taken by different content and the source's bytes are NOT
     ///   yet anywhere in that folder, so the fold must still copy (landing uniquified);
     /// - name-preserving: the destination name is free but the bytes already live in that folder
-    ///   under the user's own name, so copy anyway. Losing a meaningfully named file is the worse
-    ///   surprise; a later duplicates scan reconciles the bytes. The retry skip applies only when
-    ///   the name is taken, where the fold could never have kept it;
-    /// - on a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. Exact-case
-    ///   keys would miss the collision, copy byte-identical content to a junk "a 2.txt", and mint
-    ///   more on each retry. Folded keys treat it as the same-location duplicate it is;
-    /// - the retry shape of the case fold: run 1 collided "a.txt" against keeper "A.txt"
-    ///   (different content) and landed "a 2.txt"; the retry must see the folded name as taken
-    ///   AND the bytes as present, and plan nothing;
-    /// - APFS/HFS+ name lookups are normalization-insensitive on EVERY volume (providers mix NFC
-    ///   and NFD forms — the diff engine's nearNameKey precomposes for the same reason), so an NFD
-    ///   keeper name and an NFC source rel are one on-disk name: byte-identical content must hit
-    ///   the same-location skip, not copy-and-uniquify a junk sibling;
+    ///   under the user's own name, so copy anyway: losing a meaningfully named file is the worse
+    ///   surprise. The retry skip applies only when the name is taken;
+    /// - on a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name: exact-case
+    ///   keys would copy byte-identical content to a junk "a 2.txt", and mint more on each retry;
+    /// - the retry shape of the case fold: run 1 collided "a.txt" with a different keeper "A.txt"
+    ///   and landed "a 2.txt"; the retry must see the folded name as taken AND the bytes as
+    ///   present, and plan nothing;
+    /// - APFS/HFS+ name lookups are normalization-insensitive on every volume, so an NFD keeper
+    ///   name and an NFC source name are one on-disk name and must hit the same-location skip;
     /// - the default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct names
     ///   there, so the byte-identical source still copies under its own name;
-    /// - the "name taken" gate must trigger on what the COPY loop's fileExists collides with: any
-    ///   on-disk entry, including a directory (which the hash maps can never hold). Run 1: source
-    ///   file "sub" collided with keeper DIRECTORY "sub", landed uniquified as "sub 2". The retry
-    ///   must skip, not mint "sub 3".
+    /// - the "name taken" gate must trigger on anything the copy loop's fileExists collides with,
+    ///   including a directory (which the hash maps never hold): source file "sub" landed as
+    ///   "sub 2" beside keeper directory "sub", and the retry must skip, not mint "sub 3".
     @Test(arguments: Self.planMergeCases)
     func planMergeCopiesOnlyWhatTheKeeperFolderLacks(_ c: PlanMergeCase) async throws {
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -1082,10 +1070,9 @@ import Combine
     }
 
     @Test func realHardLinksAreDetectedByLinkCountAndNeverGroup() throws {
-        // End-to-end on a real volume: link(2) entries carry linkCount 2 and land in
-        // multiLinkPaths (the finder's drop of them is
-        // `DuplicateFinderTests.hardLinkedEntriesLeaveDuplicateCandidacyEntirely`).
-        // A singly-linked file is NOT flagged (the negative control).
+        // On a real volume, link(2) entries land in multiLinkPaths and a singly-linked file does
+        // not (the control). The finder's drop of them is
+        // `DuplicateFinderTests.hardLinkedEntriesLeaveDuplicateCandidacyEntirely`.
         let base = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let a = base.appendingPathComponent("Docs/a.bin")
@@ -1416,16 +1403,11 @@ import Combine
         #expect(FileManager.default.fileExists(atPath: group.keeper.path))
     }
 
-    /// A same-length rewrite is drift. Count and total bytes are unchanged (`sed -i` over
-    /// fixed-width text, one 5,000-byte export replaced by another), so a count+bytes check would
-    /// trash the only copy of the new content. Like the file-level check, the folder check
-    /// compares size and mtime, per file.
-    ///
-    /// The keeper side of the same gate (`rewriteKeeper`): a rewrite inside the folder being kept
-    /// makes the "redundant" copy the last intact instance of the scanned content. Count,
-    /// membership and byte totals are unchanged, so only the per-entry mtime half of
-    /// `folderContentsMatchScan` catches it, and only because `driftedFolderInGroup` checks the
-    /// keeper too.
+    /// A same-length rewrite is drift. Count and total bytes are unchanged, so a count+bytes check
+    /// would trash the only copy of the new content; the folder check compares size and mtime per
+    /// file. With `rewriteKeeper`, the "redundant" copy becomes the last intact instance of the
+    /// scanned content, and only the per-entry mtime half of `folderContentsMatchScan` catches it,
+    /// because `driftedFolderInGroup` checks the keeper too.
     @MainActor
     @Test(arguments: [false, true])
     func aSameLengthRewriteInsideAFolderOfTheGroupIsRefused(rewriteKeeper: Bool) async throws {
@@ -1591,8 +1573,7 @@ import Combine
         guard case .symlink? = snapshot.entries["link.txt"] else {
             Issue.record("link.txt recorded as \(String(describing: snapshot.entries["link.txt"]))"); return
         }
-        // The shared re-walk reproduces the scan's snapshot on an unchanged folder — and sees
-        // through it: the redundant copy carries its own equivalent baseline.
+        // The shared re-walk reproduces the scan's snapshot on an unchanged folder.
         #expect(await FileSyncManager.folderContentsMatchScan(
             path: group.keeper.path, snapshot: snapshot, fileManager: FileManager.default))
         // No baseline, no verdict: nil refuses rather than trusting an unmeasured folder.
@@ -1614,16 +1595,14 @@ import Combine
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.duplicateGroups.count == 1)
 
-        // But it can be dismissed manually ("Keep separate").
         manager.dismissDuplicateGroup(group)
         #expect(manager.duplicateGroups.isEmpty)
     }
 }
 
-/// A real FileManager that simulates external activity landing mid-merge: the FIRST copy it
-/// performs also writes a brand-new file into the (redundant) folder being merged — after
-/// `planMerge` snapshotted that folder, before the trash step re-verifies it. Everything else
-/// is stock FileManager, so the merge's real copy/trash machinery runs unmodified.
+/// A real FileManager whose first copy also writes a new file into the redundant folder being
+/// merged: after `planMerge` snapshotted it, before the trash step re-verifies it. Otherwise
+/// stock, so the merge's real copy/trash machinery runs.
 private final class MidMergeInterferingFileManager: FileManager, @unchecked Sendable {
     private let dropURL: URL
     private let dropBytes: Data
@@ -1650,10 +1629,9 @@ private final class MidMergeInterferingFileManager: FileManager, @unchecked Send
 ///
 /// It gates both `fileExists(atPath:isDirectory:)` and `attributesOfItem`, whichever `sha256Hex`
 /// reaches first: gating one alone stops parking if the verifier changes its read, and the test
-/// then cancels a finished scan. The gate is name-scoped, so covering both costs nothing. It must
-/// be a FileManager subclass: buildTree reads file sizes only on its `fileManager is FileManager`
-/// fast path, and without sizes there are no hash candidates. The walk stats regular files via
-/// URL.resourceValues, so only the hash phase can block.
+/// then cancels a finished scan. It must be a FileManager subclass: buildTree reads file sizes
+/// only on its `fileManager is FileManager` fast path, and without sizes there are no hash
+/// candidates. The walk stats regular files via URL.resourceValues, so only hashing can block.
 private final class GatingFileManager: FileManager, @unchecked Sendable {
     /// Lock-guarded flags in a box of their own: FileManager is already (unchecked) Sendable,
     /// and a subclass may not add mutable stored state to a Sendable class directly.

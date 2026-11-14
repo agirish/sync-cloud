@@ -21,10 +21,9 @@ import Foundation
         return (manager, await manager.applyFilingSuggestion(suggestion, to: dest))
     }
 
-    /// The headline case: the anchor (`Documents/Vehicles`) is gone, so the two new segments have
-    /// nothing legitimate to hang off. Nothing is created and nothing moves. With the anchor PRESENT
-    /// the same call must still move the file and create the new segments, or the guard could be
-    /// satisfied by refusing everything.
+    /// The anchor (`Documents/Vehicles`) is gone, so the two new segments have nothing legitimate to
+    /// hang off: nothing is created and nothing moves. With the anchor PRESENT the same call must
+    /// still move the file, or the guard could be satisfied by refusing everything.
     @MainActor
     @Test(arguments: [false, true])
     func aVanishedAnchorRefusesTheMoveAndCreatesNothing(anchorLive: Bool) async throws {
@@ -54,8 +53,8 @@ import Foundation
                 "the vanished tree must NOT be recreated")
         // The suggestion stays listed so the user can retry once the volume is back.
         #expect(manager.filingSuggestions.count == 1)
-        // And the alert names the actual condition rather than a generic failure. `SyncError`
-        // carries the cause in `reason`; `message` is always the "Couldn't sync …" headline.
+        // The alert names the actual condition: `SyncError` carries the cause in `reason`;
+        // `message` is always the "Couldn't sync …" headline.
         #expect(manager.currentError?.reason?.contains("no longer available") == true)
     }
 
@@ -97,10 +96,8 @@ import Foundation
     }
 
     /// The clamp. An over-long `newSegments` would otherwise walk past the provider root and
-    /// saturate at "/", which always exists — the guard would still "pass" while checking nothing.
-    /// `FilingEngine` builds `newSegments` as a suffix of the destination's own segments so it
-    /// cannot over-count today; this keeps that a property of the anchor function rather than of a
-    /// caller far away.
+    /// saturate at "/", which always exists, so the guard would "pass" while checking nothing.
+    /// `FilingEngine` cannot over-count today; this keeps that a property of the anchor function.
     @Test func anOverLongNewSegmentsListIsClampedToTheProviderRoot() {
         let dest = FilingDestination(path: "/root/Documents/Vehicles",
                                      confidence: .medium, reasons: [],
@@ -110,10 +107,9 @@ import Foundation
         #expect(FileSyncManager.filingAnchor(for: dest, under: nil).path == "/")
     }
 
-    /// An EMPTY provider root is no root at all. `URL(fileURLWithPath: "")` resolves against the
-    /// process working directory, so clamping to it would aim the guard at an unrelated folder,
-    /// and `PathBoundary.contains(_, under: "")` is false, which makes the empty case easy to fall
-    /// into. The anchor must simply stay unclamped.
+    /// An EMPTY provider root is no root at all: `URL(fileURLWithPath: "")` resolves against the
+    /// process working directory, so clamping to it would aim the guard at an unrelated folder. The
+    /// anchor must stay unclamped.
     @Test func anEmptyProviderRootDoesNotClampTheAnchorToTheWorkingDirectory() {
         let dest = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
                                      confidence: .high, reasons: [], newSegments: ["Tesla"])
@@ -133,11 +129,10 @@ import Foundation
 
     // MARK: Batch path and message routing
 
-    /// The batch path is what automations drive, so it gets its own coverage rather than riding on
-    /// the single-file test: a vanished anchor must refuse there too, leaving every file in place.
-    /// "Nothing moved" is only evidence of a refusal if these suggestions would otherwise have been
-    /// filed, so the live case, differing ONLY in the anchor, files them: an ineligible batch (wrong
-    /// confidence, `fromContent`, `fromAI`) would move nothing for reasons unrelated to the anchor.
+    /// The batch path, which automations drive, must refuse a vanished anchor too, leaving every
+    /// file in place. "Nothing moved" is only evidence of a refusal if these suggestions would
+    /// otherwise be filed, so the live case, differing ONLY in the anchor, files them: an ineligible
+    /// batch (wrong confidence, `fromContent`, `fromAI`) would move nothing for unrelated reasons.
     @MainActor
     @Test(arguments: [false, true])
     func theRecommendedBatchAlsoRefusesAVanishedAnchor(anchorLive: Bool) async throws {
@@ -176,9 +171,8 @@ import Foundation
         #expect(manager.filingSuggestions.count == 2, "nothing filed, nothing dropped from the list")
     }
 
-    /// The specific "no longer available" wording is reserved for the vanished-tree refusal. Any
-    /// OTHER failure must still get the generic message — without this, threading a reason through
-    /// could quietly relabel every filing failure as a missing volume.
+    /// The "no longer available" wording is reserved for the vanished-tree refusal; any OTHER
+    /// failure keeps the generic message, not relabelled as a missing volume.
     @MainActor
     @Test func anUnrelatedFailureKeepsTheGenericReason() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGeneric")
@@ -222,9 +216,8 @@ import Foundation
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty, "something was filed")
     }
 
-    /// `newSegments` is scan-time data and can be stale. When the whole path has since been created,
-    /// the guard stats a shallower ancestor that exists and lets the move through — a stale plan must
-    /// not refuse a destination that is demonstrably there.
+    /// `newSegments` is scan-time data and can be stale: when the whole path has since been created,
+    /// the guard must not refuse a destination that is demonstrably there.
     @MainActor
     @Test func aStaleNewSegmentsListStillAllowsAnExistingDestination() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorStale")

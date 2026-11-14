@@ -111,9 +111,9 @@ import EventsTestSupport
         #expect(fm.attemptedRemovePaths.isEmpty) // removeItem never even attempted
     }
 
-    /// A staging file the Trash refuses is reported at WARN once per launch, then Debug: every
-    /// scan retries it, and on a volume with no Trash it can never succeed. At the shipped level
-    /// the Debug-only line it used to be left no trace of a file the sweep could not clear.
+    /// A staging file the Trash refuses is reported at WARN once per launch, then Debug: every scan
+    /// retries it, and on a volume with no Trash it can never succeed. Debug alone would leave no
+    /// trace at the shipped level of a file the sweep could not clear.
     @MainActor
     @Test func anUntrashableStagingFileIsWarnedOncePerLaunch() async {
         let fm = MockFileManager()

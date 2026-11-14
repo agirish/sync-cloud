@@ -17,7 +17,6 @@ import Foundation
 /// in place" about files that were filed.
 @Suite @MainActor struct FilingBatchReentrancyTests {
 
-
     /// Two loose files, each with a high-confidence filename-derived home — the only kind the
     /// blind batch touches. Built by hand rather than scanned so eligibility is a property of the
     /// fixture and not of the router's current scoring.
@@ -57,8 +56,8 @@ import Foundation
         let m = FileSyncManager()
         m.filingSuggestions = suggestions
 
-        // Occupy the file-operation queue. Every move the batch orders chains behind this, so the
-        // first batch cannot finish before the second one has entered.
+        // Every move the batch orders chains behind this park, so the first batch cannot finish
+        // before the second one has entered.
         let gate = Flag(), gateTimedOut = Flag()
         let park = Task { @MainActor in
             await m.enqueueFileOperation { await parkUntilReleased(gate, timedOut: gateTimedOut) }
@@ -68,12 +67,9 @@ import Foundation
             m.activeFileOperationsCount > 0
         }
 
-        // Whether each invocation found a batch already latched when it entered.
-        //
-        // Recorded on both sides and compared as "exactly one", because `async let` fixes no
-        // order: either child can win the race to the main actor and be the batch the other finds
-        // latched. It still proves the two overlapped; without it a run where they didn't would
-        // look like one the latch refused.
+        // Whether each invocation found a batch already latched when it entered, compared as
+        // "exactly one" because `async let` fixes no order. It proves the two overlapped; without
+        // it a run where they didn't would look like one the latch refused.
         let firstSawLatch = Flag(), secondSawLatch = Flag()
         let entered = CallCounter()
         async let first: Void = { @MainActor in
@@ -97,10 +93,8 @@ import Foundation
         _ = await park.value
         #expect(!gateTimedOut.value, "the parked operation timed out, so nothing was held open")
 
-        // Both files really were filed — once.
         #expect(filed(root, "Tesla Policy.pdf"))
         #expect(filed(root, "Tesla Registration.pdf"))
-        // …and nothing claimed otherwise.
         let reported = m.currentError.map(String.init(describing:)) ?? "none"
         #expect(m.currentError == nil,
                 "a file that was filed was reported as left in place: \(reported)")
@@ -114,13 +108,9 @@ import Foundation
                 "exactly one invocation should have found the other already running, but they saw \(sawLatch) — they never overlapped, so this test proved nothing")
     }
 
-    /// The release has to cover the no-move exit too, not just the two banner paths.
-    ///
-    /// `applyRecommendedFiling` returns early when the batch produced no moves at all (every file
-    /// already in its suggested folder, or every one failed), above both banner assignments. A
-    /// release written after the banner instead of in a `defer` leaks the latch on that path and
-    /// disables "File all" for the session; the other tests here still pass, since their batches
-    /// end at the success banner.
+    /// The release covers the no-move exit too. `applyRecommendedFiling` returns early, above both
+    /// banner assignments, when the batch produced no moves. Fails if the release moves out of its
+    /// `defer` to after the banner: the latch leaks and "File all" is disabled for the session.
     @Test func aBatchThatMovedNothingStillReleasesTheLatch() async throws {
         let (root, suggestions) = try fixture("nomove")
         defer { try? FileManager.default.removeItem(at: root) }

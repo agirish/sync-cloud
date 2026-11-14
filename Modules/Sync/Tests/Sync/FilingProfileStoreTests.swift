@@ -62,8 +62,7 @@ import Testing
         #expect(year.anchors == ["income", "tax"])
         // Aliases are the same person under two names: `Family/Mom` is Immigration's `Granny`.
         #expect(loaded.profile.personTokens.isSuperset(of: ["father", "mother", "mom", "granny"]))
-        // The pairing survives decode too; without it nothing downstream can tell they are one
-        // person.
+        // The pairing survives decode; without it nothing downstream can tell they are one person.
         #expect(loaded.profile.personAliases["mom"] == "granny")
 
         let entry = try #require(loaded.memory?.folders["Finance/US/Income Tax/2023"])
@@ -224,19 +223,16 @@ import Testing
 struct RealFilingProfileTests {
 
     /// Measures the registry against the token rule on the real corpus, where each filed document's
-    /// folder is the right answer. False vetoes (refusing the document's own folder) must not rise.
-    /// The number held is over-attribution: `Granny Elder - Resume.pdf` names one person, but the
-    /// token rule reads two because `elder` is her surname and his given name (36 of 1,375 here).
-    /// Each such file can slip into the wrong person's folder, unseen. Skipped where the corpus is
-    /// absent; prints both numbers so a regression reads as a number.
+    /// folder is the right answer. False vetoes (refusing the document's own folder) must not rise,
+    /// and over-attribution must halve: `Granny Elder - Resume.pdf` names one person, but the token
+    /// rule reads two because `elder` is her surname and his given name. Prints both numbers.
     @Test func theRegistryRefusesFewerCorrectFoldersThanTheTokenRule() throws {
         let dir = try #require(FilingProfileStore.defaultDirectory())
         let loaded = try #require(FilingProfileStore.active(in: dir))
         let corpusURL = dir.appendingPathComponent("\(loaded.profile.profileId)/filing-corpus.json")
         try #require(FileManager.default.fileExists(atPath: corpusURL.path),
                      "no filing corpus on this machine")
-        // Only the keys (the paths) are needed; the values are of mixed shape, so the file is read as
-        // opaque JSON.
+        // Only the keys (the paths) are needed; the values are of mixed shape, so read opaque JSON.
         let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: corpusURL))
         let documents = try #require((raw as? [String: Any])?["documents"] as? [String: Any])
 
@@ -250,13 +246,13 @@ struct RealFilingProfileTests {
             guard let goldPerson = loaded.registry.person(forAxisValue: axis) else { continue }
             considered += 1
 
-            // The rule as it shipped: intersect the filename's tokens with a flat bag of names.
+            // The token rule: intersect the filename's tokens with a flat bag of names.
             let tokenPeople = FilingEngine.nameTokens(fileName)
                 .intersection(loaded.profile.personTokens)
             if !tokenPeople.isEmpty, !tokenPeople.contains(axis) { oldFalseVetoes += 1 }
             if tokenPeople.count > 1 { oldOverAttributed += 1 }
 
-            // The rule now: resolve through the registry, phrases first.
+            // The registry rule: resolve through the registry, phrases first.
             let named = loaded.registry.detect(in: (fileName as NSString).deletingPathExtension)
             if !named.isEmpty, !named.contains(goldPerson) { newFalseVetoes += 1 }
             if named.count > 1 { newOverAttributed += 1 }
@@ -283,9 +279,8 @@ struct RealFilingProfileTests {
         #expect(!memory.salt.isEmpty)
         #expect(memory.folders.count > 500)
 
-        // The two artifacts are snapshots that can be taken at different times, so the memory may
-        // name folders the profile has never seen. That must degrade, not break: the path rule still
-        // answers and the router has no axes for them. A large divergence means different trees.
+        // The artifacts are snapshots taken at different times, so the memory may name folders the
+        // profile never saw: the path rule still answers them. A large divergence means other trees.
         let unknown = memory.folders.keys.filter { loaded.profile.folders[$0] == nil }
         let drift = Double(unknown.count) / Double(memory.folders.count)
         #expect(drift < 0.05, "memory and profile disagree on \(unknown.count) folders — re-survey")
@@ -305,8 +300,7 @@ struct RealFilingProfileTests {
 /// A profile's identity is the folder it was loaded from (`profiles/<activeProfileId>/`), not the
 /// `profileId` field inside it, which decodes to `"default"` when absent and goes stale on a folder
 /// rename. Built from the field, roster edits would be written where nothing reads them, and the
-/// fingerprint would hash an empty folder, keying every cached verdict against artifacts not in
-/// use.
+/// fingerprint would hash an empty folder.
 @Suite struct FilingProfileIdentityTests {
 
     private func makeProfiles(activeId: String, folderId: String?) throws -> URL {

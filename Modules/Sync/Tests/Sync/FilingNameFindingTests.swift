@@ -9,7 +9,6 @@ import Events
 /// outside the inbox.
 @Suite struct FilingNameFindingTests {
 
-
     @MainActor
     @Test func theFilingScanReportsRiskyNamesFromTheWholeProviderNotJustTheInbox() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingNames")
@@ -31,7 +30,7 @@ import Events
 
     @MainActor
     @Test func theFindingIsEmptyWhenEveryNameIsSafe() async throws {
-        // The chip should be absent on the common day, so a clean tree must give an empty finding.
+        // A clean tree gives an empty finding, so the chip is absent.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesClean")
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBytes(root.appendingPathComponent("Downloads/Statement.pdf"), bytes: 500)

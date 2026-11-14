@@ -3,12 +3,10 @@ import Foundation
 import CryptoKit
 @testable import Sync
 
-/// Coverage for FileContentVerifier, the SHA-256 checksum layer behind the "Verify with checksum"
-/// flows (GUI verify buttons and the CLI --verify option). It stream-reads real bytes via
-/// `FileHandle` and guards on directory / missing / cloud-only / partial-read, so these tests
-/// exercise it against real files in a temp directory rather than the virtual mock disk.
+/// FileContentVerifier, the SHA-256 checksum layer behind "Verify with checksum" (GUI and CLI
+/// `--verify`). It stream-reads real bytes via `FileHandle`, so these run against real files in a
+/// temp directory rather than the virtual mock disk.
 @Suite struct FileContentVerifierTests {
-
 
     @Test func testSha256HexMatchesKnownDigest() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
@@ -102,14 +100,12 @@ import CryptoKit
 
     /// The first side that cannot be hashed stops the other: the answer is nil either way. The
     /// left is missing, and its stat waits until the right is inside its first check, which then
-    /// waits — bounded — to be cancelled. So the stop always lands mid-wait. Without the stop the
+    /// waits, bounded, to be cancelled, so the stop always lands mid-wait. Without the stop the
     /// check waits out its bound and the file is read whole and cached.
     ///
-    /// The wait ends at the stop, not its bound. The check runs on the hash lane's detached task,
-    /// which `onHashLane` cancels along with its flag; otherwise `Task.isCancelled` here stays false
-    /// and the check holds a pool thread for the whole 10 s. Each of the two waits takes
-    /// milliseconds, but each needs another pool thread to end it, so the test declares
-    /// `.parksAThread`.
+    /// The check runs on the hash lane's detached task, which `onHashLane` cancels along with its
+    /// flag; otherwise `Task.isCancelled` stays false and the check holds a pool thread for 10 s.
+    /// Each wait needs another pool thread to end it, so the test declares `.parksAThread`.
     @Test(.parksAThread) func aPairWithAnUnhashableSideStopsReadingTheOther() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -142,8 +138,8 @@ import CryptoKit
     }
 
     /// A caller cancelled before it reaches the hash lane cancels the lane's task too, though the
-    /// cancel lands before there is a task to cancel. The pair test above pins a cancel that lands
-    /// mid-read; through `hashOutcome` this one is unobservable, since its flag answers first.
+    /// cancel lands before there is a task to cancel. Through `hashOutcome` this is unobservable,
+    /// since its flag answers first.
     @Test func aCallerCancelledBeforeTheHashLaneCancelsItsTaskToo() async {
         let caller = Task {
             withUnsafeCurrentTask { $0?.cancel() }
@@ -249,12 +245,10 @@ import CryptoKit
     }
 
     /// Cancelling the calling task reaches the read, though it runs on a detached task that doesn't
-    /// inherit cancellation. Deterministic: the task is cancelled from inside its own second check
-    /// (the one before chunk one), and the next check must see it through the forwarded
-    /// cancellation alone; the closure keeps answering no. Without the forwarding the whole file is
-    /// hashed. It is exactly the next check under any load because `onHashLane` installs the
-    /// handler before the read starts; spawning the read first would let the count reach 3 under
-    /// load.
+    /// inherit cancellation. The task is cancelled from inside its own second check, and the next
+    /// check must see it through the forwarded cancellation alone; the closure keeps answering no.
+    /// It is exactly the next check under any load because `onHashLane` installs the handler before
+    /// the read starts; spawning the read first would let the count reach 3 under load.
     @Test func cancellingTheCallerStopsTheReadAtTheNextChunk() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -334,8 +328,7 @@ import CryptoKit
         let outcome = await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in true })
         #expect(outcome == .skippedCloudOnly)
 
-        // Same file, not flagged → hashed normally (the default seam returns false for real
-        // local files, so this also mirrors production behavior on materialized content).
+        // Same file, not flagged: hashed, and the default seam agrees for a real local file.
         let local = await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in false })
         #expect(local.hash != nil)
         let production = await FileContentVerifier.hashOutcome(filePath: f.path)
@@ -391,9 +384,8 @@ import CryptoKit
         let file = dir.appendingPathComponent("real.txt")
         try Data("x".utf8).write(to: file)
 
-        // Right side is a directory -> unhashable -> the nil short-circuits the whole comparison.
+        // A directory on either side is unhashable, and so is a missing file.
         #expect(await FileContentVerifier.filesHaveSameContent(leftPath: file.path, rightPath: dir.path) == nil)
-        // Left side missing -> nil.
         let missing = dir.appendingPathComponent("gone.txt").path
         #expect(await FileContentVerifier.filesHaveSameContent(leftPath: missing, rightPath: file.path) == nil)
     }

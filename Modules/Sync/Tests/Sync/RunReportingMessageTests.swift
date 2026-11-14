@@ -5,7 +5,7 @@ import Events
 
 /// The message an operation posts names the Sync History run it recorded, by id, so Activity's
 /// Events draws the message as that run's sentence: never another run's, and none when nothing
-/// was recorded. Replaced a 30-second guess that linked a run to whichever message came next.
+/// was recorded.
 @MainActor
 @Suite struct RunReportingMessageTests {
 

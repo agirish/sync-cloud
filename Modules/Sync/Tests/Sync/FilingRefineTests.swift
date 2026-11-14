@@ -11,7 +11,6 @@ import Testing
     /// What the classifier was asked, and at which tier.
     private typealias Asked = LockedBox<[(names: [String], tier: FilingClassifierTier)]>
 
-
     /// A provider with two destination folders and `count` loose files. Two folders let the free and
     /// refine passes disagree, which makes "changed" testable.
     private func fixture(_ name: String, looseFiles count: Int = 2) throws -> URL {
@@ -24,7 +23,7 @@ import Testing
     private func manager(_ asked: Asked, freeDestination: String = "Documents/Family",
                          refineDestination: String = "Archive/2026") -> FileSyncManager {
         let m = FileSyncManager()
-        // The single-call pass asks this where the app's plan card has a Send (TE335); these tests are the click.
+        // The single-call pass asks this where the app's plan card has a Send; these tests are the click.
         m.filingCloudSpendConfirmer = { _ in true }
         m.filingBackendIdentity = { tier in
             tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity
@@ -57,7 +56,6 @@ import Testing
         let m = manager(asked)
         _ = await scan(m, root: root)
 
-        // The free pass placed both files, on-device.
         #expect(m.filingSuggestions.count == 2)
         #expect(m.filingSuggestions.allSatisfy { $0.best?.path.hasSuffix("Documents/Family") == true })
         #expect(m.filingLastRefine == nil)
@@ -162,15 +160,13 @@ import Testing
         let steered = try #require(m.filingSuggestions.first { $0.fileName == "tesla-invoice.pdf" })
         #expect(steered.best?.remembered == true)
 
-        // Both the eligibility answer the button counts
         let eligible = m.filingSuggestionsEligibleForRefine(m.filingSuggestions)
         #expect(eligible.map(\.fileName) == ["mystery-0.pdf"])
 
-        // and what the pass actually sends.
         let summary = try #require(await m.refineFilingSuggestions(m.filingSuggestions))
         #expect(summary.asked == 1)
         #expect(asked.refines == [["mystery-0.pdf"]])
-        // The steered file still points where the rule said, not where the model would have.
+        // The steered file still points where the rule said.
         let after = try #require(m.filingSuggestions.first { $0.fileName == "tesla-invoice.pdf" })
         #expect(after.best?.path.hasSuffix("Documents/Family") == true)
         // The one that was sent moved, so "not sent" isn't just "nothing happened".
@@ -287,7 +283,7 @@ import Testing
         await gate.open()
         let results = await [first, second]
 
-        // Exactly one pass ran: one of the two returned a summary, the other refused outright.
+        // Exactly one pass ran; the other refused outright.
         #expect(results.compactMap { $0 }.count == 1)
         #expect(asked.refines.count == 1)
         #expect(!m.isRefiningFilingSuggestions)   // and the guard was released, not latched
@@ -335,8 +331,6 @@ import Testing
         await gate.open()
         await reask
 
-        // The re-ask's answer is about the pre-refine list, so it is dropped and the card keeps the
-        // refine's home.
         #expect(m.filingSuggestions.first?.best?.path.hasSuffix("Archive/2026") == true,
                 "an in-flight Try another overwrote the refine that republished after it started")
     }
@@ -389,7 +383,6 @@ private actor AsyncGate {
 
     private typealias Probe = LockedBox<Int>
 
-
     private func fixture(_ name: String) throws -> URL {
         try refineFixture(prefix: "RefineReview-\(name)", looseFiles: 1)
     }
@@ -427,9 +420,8 @@ private actor AsyncGate {
 
     /// The same state, seen from the button. `filingCloudRefineAvailable` picks between "Refine N
     /// with Claude" and the "set up Claude" invitation. With no `filingCloudRefineConfigured` seam
-    /// (the CLI and test shape) it asks the real route, so a route that goes on-device offers the
-    /// invitation, and one that reaches Claude offers the button. (With the seam set, a saved key is
-    /// the answer: see the test below.)
+    /// (the CLI and test shape) it asks the real route: on-device offers the invitation, Claude the
+    /// button. With the seam set, a saved key is the answer (the test below).
     @Test func withNoSeamTheButtonFollowsTheRoute() async throws {
         let m = FileSyncManager()
         m.filingContentDefaults = ScratchDefaults("refineDowngradeLabel")
@@ -470,9 +462,8 @@ private actor AsyncGate {
         #expect(m.banner?.severity == .warning)       // and the banner names the key rather than
         #expect(m.banner?.message.contains("couldn’t be read") == true)   // claiming a Claude answer
 
-        // The durable summary, which the pill reads, carries the downgrade too. `classified` is 0
-        // because nothing reached Claude, right for billing but not an explanation: without the
-        // cause the tooltip would read that 0 as an exhausted cache.
+        // The durable summary, which the pill reads, carries the downgrade too: without the cause
+        // the tooltip would read `classified == 0` as an exhausted cache.
         let summary = try #require(m.filingLastRefine, "a downgraded refine recorded no summary")
         #expect(summary.outcome == .downgraded,
                 "the summary calls a downgraded pass “\(summary.outcome.rawValue)”")
@@ -548,7 +539,6 @@ private actor AsyncGate {
         #expect(m.configuredFilingBackendIdentity(for: .refine).hasPrefix("cloud:"))
         #expect(!m.filingRoutesToCloud(.free))
         #expect(m.filingRoutesToCloud(.refine))
-
     }
 
     // MARK: A declined charge is not a result
@@ -582,7 +572,6 @@ private actor AsyncGate {
                                       providerRoot: root)
         let asksBeforeRefine = asked.count
 
-        // The user declines.
         m.filingCloudSpendConfirmer = { _ in false }
         m.banner = nil
         await m.refineFilingSuggestions(m.filingSuggestions)
@@ -634,15 +623,15 @@ private actor AsyncGate {
 }
 
 /// A cost assertion, machine-pinned (`calibratedTiming`): the bar is a ratio between two calls in
-/// one run, so it scales with the machine, but it is still a latency claim. The empty-verdicts early-out must come before the taxonomy overload's full walk of the
-/// provider; skipping it changes only the cost, which only a clock can see.
+/// one run, so it scales with the machine, but it is still a latency claim. The empty-verdicts
+/// early-out must come before the taxonomy overload's full walk of the provider; skipping it
+/// changes only the cost, which only a clock can see.
 @Suite(.machinePinned(.calibratedTiming)) struct FilingApplyVerdictsCostTests {
 
     /// With no verdicts (the backend declined, as on a Mac without Apple Intelligence),
     /// `applyVerdicts(taxonomy:)` must not walk the provider tree to build a folder set nothing
     /// reads. Timed, because the result is identical either way.
     @Test func anEmptyVerdictSetDoesNotWalkTheTaxonomy() {
-        // A tree big enough that the difference is unmistakable, and a suggestion list to map over.
         let taxonomy = (0..<2000).map {
             FileNode(id: "/root/f\($0)", name: "f\($0)", isDirectory: true)
         }
@@ -668,7 +657,6 @@ private actor AsyncGate {
         #expect(empty < populated / 4,
                 "empty verdicts cost \(empty) vs \(populated) populated — the walk was not skipped")
     }
-
 }
 
 /// Reads of the persisted rejection store must not scale with the number of suggestions.
@@ -693,7 +681,6 @@ private actor AsyncGate {
         }
         var reads: Int { lock.lock(); defer { lock.unlock() }; return n }
     }
-
 
     @Test func theRejectionStoreIsDecodedOncePerLoopNotOncePerSuggestion() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RefineRejectionReads")

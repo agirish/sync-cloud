@@ -107,9 +107,8 @@ import Testing
         #expect(out[0].best == taught)
     }
 
-    /// A weaker router answer must not displace a strong model answer. (It does displace a word
-    /// match, carrying its own Low onto the card:
-    /// `FilingSuggestionLearningTests.anUnsureSurveyHomeStillLeadsOverAWordMatch`.) The fixture must
+    /// A weaker router answer must not displace a strong model answer (a word match it does:
+    /// `FilingSuggestionLearningTests.anUnsureSurveyHomeStillLeadsOverAWordMatch`). The fixture must
     /// produce a real low-margin candidate: with none, the overlay returns before the guard and the
     /// test can't fail.
     @Test func aLowMarginRouteDoesNotDemoteAConfidentModelAnswer() {
@@ -141,10 +140,9 @@ import Testing
         #expect(out[0].best?.path == "\(Self.root)/Health/Medical/Kaiser/Surgery")
     }
 
-    /// And for a model's answer: one the router matches in confidence gives way to it, as only a
-    /// weaker one is kept (`aLowMarginRouteDoesNotDemoteAConfidentModelAnswer`). The word match in
-    /// the test above takes the branch every guess takes, whatever the confidence, so it cannot
-    /// tell `>=` from `>` here.
+    /// A model's answer the router matches in confidence gives way to it; only a weaker one is kept.
+    /// The word match in the test above takes the branch every guess takes, so it cannot tell `>=`
+    /// from `>` here.
     @Test func anEquallyConfidentRouteReplacesAModelAnswer() {
         let tied = Self.tied
         let snippets = ["\(Self.root)/TODO/ambiguous.pdf": "statement"]
@@ -191,9 +189,9 @@ import Testing
         #expect(out[0].best == nil)
     }
 
-    /// A confident word match gives way to the survey: on real filed documents a keyword High was
-    /// right 4% of the time against the router's 42% (`FilingCardReplayTests`). The file leaves the
-    /// batch, which is right for a home read out of the document, and is still ranked for the menu.
+    /// A confident word match gives way to the survey, far more often right on real filed documents
+    /// (`FilingCardReplayTests`). The file leaves the batch, as a home read out of the document
+    /// should, and is still ranked for the menu.
     @Test func aConfidentWordMatchGivesWayToTheSurvey() {
         let strong = Self.destination("Finance/US/Income Tax/2023", .high)
         let s = [Self.suggestion("op.pdf", best: strong)]
@@ -228,8 +226,7 @@ import Testing
 
     /// An existing folder full of the same documents beats inventing one from a filename word. The
     /// keyword engine returns `.high` for rules as generic as "receipt or invoice, filed by year", so
-    /// confidence can't arbitrate between a new folder and the router's existing one; `newSegments`
-    /// does.
+    /// `newSegments` arbitrates, not confidence.
     @Test func aRouterHomeReplacesAHighConfidenceProposalToCreateAFolder() {
         let creating = FilingDestination(path: "/prov/Purchases/2025", confidence: .high,
                                          reasons: ["Receipt or invoice — filed by year"],
@@ -274,10 +271,9 @@ import Testing
         #expect(out.suggestions == files)
     }
 
-    /// The refine pass ranks through the peer-name rerank too. `refineFilingSuggestions` builds the
-    /// classifier's folder menu by ranking the same files again; ranked raw, it would hand the paid
-    /// backend a differently ordered menu than the scan's. Asserted at the source, since the
-    /// behavioural setup needs a live classifier, a spend budget and peer files on disk.
+    /// `refineFilingSuggestions` ranks the same files again through the peer-name rerank; ranked raw,
+    /// it would hand the paid backend a differently ordered menu than the scan's. Asserted at the
+    /// source, since the behavioural setup needs a live classifier, a spend budget and peer files.
     @Test func theRefinePassAlsoRanksThroughThePeerNameRerank() throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

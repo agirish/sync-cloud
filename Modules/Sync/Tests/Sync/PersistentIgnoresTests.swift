@@ -228,11 +228,9 @@ import Foundation
 
     // MARK: - Which pane's root the entries are measured from
 
-    /// The entries survive a pane swap, as the unordered pair key promises. Quoted against
-    /// whichever source is on the left, one item is `Family/draft.txt` one way and
-    /// `Documents/Family/draft.txt` the other, so a swap would match nothing and bring every
-    /// ignored row back. Asserted through `effectiveIgnoredPaths`, since the promise is that the
-    /// row stays hidden, not a particular spelling on disk.
+    /// The entries survive a pane swap, as the unordered pair key promises: quoted against the left
+    /// source, a swap would match nothing and bring every ignored row back. Asserted through
+    /// `effectiveIgnoredPaths`, since the promise is that the row stays hidden.
     @MainActor
     @Test func theDurableSetSurvivesAPaneSwap() {
         let (manager, store) = makeManagerWithStore(

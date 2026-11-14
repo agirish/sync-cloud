@@ -322,7 +322,6 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: url.path) == false,
                 "the unreadable file was left in place after a set-aside that reported success")
     }
-
 }
 
 /// `StorageLensStore`'s injected `FileManager` must reach the read as well as the moves. A seam

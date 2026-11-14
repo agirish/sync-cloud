@@ -14,7 +14,6 @@ private final class CallLog: @unchecked Sendable {
 
 @Suite struct FilingVerdictCacheTests {
 
-
     private func cacheURL(_ name: String) throws -> URL {
         let dir = try makeCanonicalTempRoot(prefix: "VerdictCache-\(name)")
         return dir.appendingPathComponent("verdicts.json")
@@ -237,7 +236,7 @@ private final class CallLog: @unchecked Sendable {
                          identity: String = "test-model",
                          refineIdentity: String? = nil) -> FileSyncManager {
         let m = FileSyncManager()
-        // The single-call pass asks this where the app's plan card has a Send (TE335); these tests are the click.
+        // The single-call pass asks this where the app's plan card has a Send; these tests are the click.
         m.filingCloudSpendConfirmer = { _ in true }
         m.filingVerdictCacheURL = url
         m.filingBackendIdentity = { tier in tier == .refine ? (refineIdentity ?? identity) : identity }
@@ -371,7 +370,7 @@ private final class CallLog: @unchecked Sendable {
 
     @MainActor
     @Test func switchingBetweenClaudeModelsReusesTheSavedAnswers() async throws {
-        // Any Claude model's saved answer counts (TE335, KR-C), so a model change doesn't pay again.
+        // Any Claude model's saved answer counts, so a model change doesn't pay again.
         let (root, url, downloads) = try scanFixture("claudeModels")
         defer { remove(root, url) }
 

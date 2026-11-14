@@ -105,8 +105,7 @@ import Testing
         #expect(m.filingRouterIndex != nil)
         #expect(m.filingRouterIndexBuilds == 1)
 
-        // Same set, different order. Only the counter can see a rebuild here, since the new index
-        // would equal the old.
+        // Same set, different order: only the counter sees a rebuild, the new index being equal.
         m.prepareFilingRouter(destinations: ["A/C", "A/B"])
         #expect(m.filingRouterIndexBuilds == 1, "the index was rebuilt for an unchanged taxonomy")
 
@@ -128,10 +127,9 @@ import Testing
         #expect(m.filingRouterIndex == nil)
     }
 
-    /// A real tree is wider than the classifier's folder budget, so a menu filled shallowest-first
-    /// can't contain a deep document's home. Here 300 shallow decoys crowd out a depth-4 folder the
-    /// router wants, and the model must be shown it anyway. Also, the page routing already read is
-    /// handed to the classifier, even when the filename looks meaningful.
+    /// A menu filled shallowest-first can't contain a deep document's home: 300 shallow decoys crowd
+    /// out a depth-4 folder the router wants, and the model must be shown it anyway, along with the
+    /// page routing already read, even when the filename looks meaningful.
     @Test func theFolderTheRouterWantsReachesTheModelPastTheDepthCap() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingMenu")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -151,20 +149,17 @@ import Testing
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let seen = seenBox.withLock { $0 }
 
-        // For contrast, the depth-ordered list the scan caches: 250 folders, without the target, so
-        // the tree really does truncate.
+        // The control: the depth-ordered list the scan caches truncates before the target.
         #expect(m.filingLastTaxonomyFolders.count == 250)
         #expect(!m.filingLastTaxonomyFolders.contains(target),
                 "the decoys no longer crowd out the target — the fixture has gone stale")
         #expect(seen.menu.contains(target), "the router's own pick never reached the model: \(seen.menu.count) folders")
-        // A meaningful filename no longer costs the model the page that was already read for it.
         #expect(seen.snippets.contains { $0 == vocabulary })
     }
 
-    /// Only files with no confident home pay for entity tokenization. `filingTokensFromText` runs
-    /// NaturalLanguage over up to 20,000 characters, and its only consumer is the keyword re-suggest
-    /// for homeless files; for every read file it would burn minutes of CPU and change suggestions
-    /// for files that had a home. Counted, since the tokens look the same either way.
+    /// Only files with no confident home pay for entity tokenization: `filingTokensFromText` runs
+    /// NaturalLanguage over up to 20,000 characters for the keyword re-suggest of homeless files
+    /// alone. Counted, since the tokens look the same either way.
     @Test func onlyTheHomelessFilesPayForEntityTokenization() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingCost")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -190,10 +185,9 @@ import Testing
                 "only the file the keyword engine could not place has a consumer for these tokens")
     }
 
-    /// A file that already has a home is still ranked and read. Skipped, the model would judge it
-    /// from its filename alone against a menu built for every other file, while the router, given
-    /// page 1, ranks its real home first. The loose file's name is one the keyword engine can place,
-    /// so it reaches routing with a confident home.
+    /// A file that already has a home is still ranked and read; skipped, the model would judge it
+    /// by its filename alone while the router, given page 1, ranks its real home first. The fixture's
+    /// name is one the keyword engine can place, so it reaches routing with a confident home.
     @Test func aFileThatAlreadyHasAHomeStillGetsRankedAndRead() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingHomed")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -331,8 +325,7 @@ import Testing
         #expect(after.best == nil,
                 "Read scan routed provider A's card onto \(after.best?.path ?? "-") from provider B's index")
         #expect(!(after.best?.path.hasPrefix(rootB.path) ?? false))
-        // The refusal isn't silent: it says to scan again, and stops offering a read this list
-        // can't make.
+        // The refusal says to scan again and stops offering a read this list can't make.
         let banner = try #require(m.banner, "Read scan was refused without a word")
         #expect(banner.message.contains("Scan this folder again"), "\(banner.message)")
         #expect(!m.filingUnreadableScans.contains(s.filePath), "the dead offer stayed up")

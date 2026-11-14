@@ -4,7 +4,7 @@ import Testing
 import Events
 import EventsTestSupport
 
-/// Notes for Claude's file and its guards (TE307). Each test has its own file and defaults, never
+/// Notes for Claude's file and its guards. Each test has its own file and defaults, never
 /// the per-process default: the engine's tests read that one.
 @Suite struct AskClaudeNotesTests {
 

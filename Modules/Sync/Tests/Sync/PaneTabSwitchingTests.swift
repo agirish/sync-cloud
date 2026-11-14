@@ -8,12 +8,9 @@ import Foundation
 /// tab it left is still where it was left.
 @Suite struct PaneTabSwitchingTests {
 
-    /// One pane holds a selection at a time, and a tab arriving with its own must keep that true:
-    /// the transfer verbs rely on it, and it decides what ⌘⌫ and the copy arrows act on.
-    ///
-    /// Both directions are checked, so clearing the sibling unconditionally fails too: an empty
-    /// arriving selection already satisfies the rule, and clearing there would discard a selection
-    /// the switch never touched.
+    /// One pane holds a selection at a time, and a tab arriving with its own must keep that true: it
+    /// decides what ⌘⌫ and the copy arrows act on. Both directions are checked, so clearing the
+    /// sibling unconditionally fails too.
     @MainActor
     @Test func arrivingWithASelectionClearsTheSiblingsAndArrivingWithoutOneLeavesIt() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"), PaneTab(providerId: "iCloud")])
@@ -399,12 +396,9 @@ import Foundation
                 "the pane kept cached subtrees of the source it just left, or dropped the other pane's walk")
     }
 
-    /// A tab switch reloads only the pane it moved; walking the other again would rebuild something
-    /// identical. `.both` stays the default for every other caller, so a file operation, a forced
-    /// rescan and a sort change still rebuild both panes. The switch does drop the comparison: it
-    /// was computed for the folder pair the pane is leaving, and a stale "in sync" is the most
-    /// expensive wrong answer this app can give. The tabs are at different folders, since a
-    /// same-folder switch keeps the comparison.
+    /// A tab switch reloads only the pane it moved, but drops the comparison: it was computed for the
+    /// folder pair the pane is leaving, and a stale "in sync" is the most expensive wrong answer this
+    /// app can give. The tabs are at different folders, since a same-folder switch keeps it.
     @MainActor
     @Test func aTabSwitchInvalidatesOnlyThePaneItMoved() async throws {
         let manager = manager(tabs: [PaneTab(providerId: "iCloud"),

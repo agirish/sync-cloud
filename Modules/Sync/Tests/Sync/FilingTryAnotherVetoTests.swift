@@ -5,8 +5,8 @@ import Testing
 /// "Try another" is a paid call and needs the cross-person rule like the scan and the refine:
 /// otherwise the model could answer `Immigration/OCI/Son` for a document named for Daughter, on the
 /// click most likely to produce that, a re-ask about a file it already got wrong. The rule is one
-/// member, `FilingEngine.personVeto`, so no paid path can lack it. These test the rule and pin both
-/// call sites.
+/// member, `FilingEngine.personVeto`, so no paid path can lack it. These test the rule;
+/// `FilingTryAnotherVetoDrivenTests` drives its call sites.
 @Suite struct FilingTryAnotherVetoTests {
 
     static let root = "/root"

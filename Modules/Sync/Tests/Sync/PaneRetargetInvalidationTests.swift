@@ -143,12 +143,9 @@ import Foundation
         #expect(manager.duplicateGroups == [group])
     }
 
-    /// `invalidateComparisonState(reloading:)` drops the named panes' trees and no others. A
-    /// Settings Location edit asks `ContentView.paneRootEdits` which pane's root moved and uses
-    /// the answer here and on the rescan, so editing one source doesn't re-walk the other.
-    ///
-    /// Both arms of both scopes are checked, so swapping the `scope != .rightOnly` /
-    /// `scope != .leftOnly` guards fails. `.both`, the default, is covered by the test above.
+    /// `invalidateComparisonState(reloading:)` drops the named panes' trees and no others, so a
+    /// Settings Location edit doesn't re-walk the other source. Both arms of both scopes are checked,
+    /// so swapping the `scope != .rightOnly` / `scope != .leftOnly` guards fails.
     @MainActor
     @Test func aScopedInvalidationDropsOnlyTheNamedPanesTree() async throws {
         for scope in [FileSyncManager.PaneReloadScope.leftOnly, .rightOnly] {

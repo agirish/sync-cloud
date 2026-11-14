@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The Refine card's words and moves (TE335, C3): what each state says, which buttons it allows, and
+/// The Refine card's words and moves: what each state says, which buttons it allows, and
 /// what a send does to it. Built from real plans, so the sentences are about real numbers.
 extension HandBuiltRefineSuites {
 @MainActor
@@ -11,7 +11,6 @@ extension HandBuiltRefineSuites {
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
     private static var shared: FileSyncManager { HandBuiltFiling.manager }
     private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
-
 
     private func manager(limit: Double? = nil, model: String? = nil) -> FileSyncManager {
         let m = Self.shared

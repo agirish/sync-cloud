@@ -3,17 +3,7 @@ import Testing
 @testable import Sync
 
 /// Pins for the ScanLifecycle seam: the state machine all six lenses share, answering idle the
-/// same way for every one of them.
-///
-/// Three sections:
-/// - "State machine" pins exercise each of the six lifecycles through the manager's
-///   `beginScan` / `updateScan` / `endScan` / `completeScan` helpers. They read only the
-///   lifecycle objects, so they are independent of which forwarders survive.
-/// - "Idle spelling" pins record that an idle status is nil for every lens, and that an empty
-///   or whitespace-only status normalizes to that same nil however it is written — the
-///   invariant every reader's `status ?? "Analyzing…"` fallback rests on.
-/// - "Surviving forwarders" pins record that the per-lens forwarders still stand exactly in
-///   front of their own lifecycle's fields, through the whole scan cycle.
+/// same way for every one of them, with the per-lens forwarders in front of their own fields.
 ///
 /// Every mid-scan status string here is distinct from the UI fallbacks ("Analyzing…",
 /// "Previewing…") and from the idle spellings ("" / nil), so no assertion can pass by
@@ -126,13 +116,9 @@ import Testing
 
     // MARK: Idle spelling — nil, and nothing else, however it is written
 
-    /// An empty status can never reach a reader. Every lens's spinner line spells its fallback
-    /// `status ?? "Analyzing…"`, so a writer passing `""` would paint a blank line under a live
-    /// spinner. `ScanLifecycle.status` normalizes empty-or-whitespace to nil on write, at the one
-    /// boundary all three write paths go through, so that can't be built at all.
-    ///
-    /// Exercised at `beginScan` and `updateScan` here, and by direct assignment below — the
-    /// third path, open to every file in the module because the setter is `internal(set)`.
+    /// An empty status can never reach a reader: every spinner line falls back with
+    /// `status ?? "Analyzing…"`, so a `""` would paint a blank line under a live spinner.
+    /// `beginScan` and `updateScan` here; direct assignment, the third write path, below.
     @MainActor
     @Test func anEmptyOrBlankStatusNormalizesToNilAtEveryWritePath() {
         let manager = FileSyncManager()
@@ -156,10 +142,9 @@ import Testing
         }
     }
 
-    /// Direct assignment is normalized too — the path `FileSyncManager+Filing`'s "Try another"
-    /// re-ask uses, and the one no helper can guard. And a status that merely *contains*
-    /// whitespace is stored verbatim: normalizing means collapsing the blank cases to nil, not
-    /// trimming what the lens chose to say.
+    /// Direct assignment is normalized too (the path "Try another" uses, which no helper guards),
+    /// but a status that merely contains whitespace is stored verbatim: blank becomes nil, nothing
+    /// is trimmed.
     @MainActor
     @Test func aDirectStatusAssignmentIsNormalizedButNeverTrimmed() {
         let manager = FileSyncManager()

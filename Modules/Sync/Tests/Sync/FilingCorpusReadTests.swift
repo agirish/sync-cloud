@@ -42,7 +42,7 @@ import Testing
         try Data(#"{"profileId":"t","salt":"ab","documents":{}}"#.utf8).write(to: url)
         try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: url.path)
 
-        // The premise: it really is unopenable, or this asserts nothing.
+        // Premise: it really is unopenable.
         #expect((try? Data(contentsOf: url)) == nil, "fixture: the corpus was still readable")
 
         guard case .unreadable = FilingSurveyStore.corpusRead(id: "t", in: dir) else {
@@ -66,7 +66,7 @@ import Testing
         try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
         try FileManager.default.removeItem(at: target)
 
-        // The premise, measured: this is exactly the case `fileExists` cannot see.
+        // Premise: this is exactly the case `fileExists` cannot see.
         #expect((try? Data(contentsOf: url)) == nil, "fixture: the link still resolved")
         #expect(FileManager.default.fileExists(atPath: url.path) == false,
                 "fixture: fileExists no longer follows the link, so it would have caught this")
@@ -100,11 +100,10 @@ import Testing
         #expect(corpus.salt == "ab")
     }
 
-    /// The shared probe behind the memory's refusal, on the case only `attributesOfItem` sees.
-    ///
-    /// Its own test because the corpus tests exercise `corpusRead`, not this helper: a probe that
-    /// fell back to `fileExists` would read `filing-memory.json`, behind a link whose target is
-    /// gone, as absent, and it would be atomically replaced.
+    /// The shared probe behind the memory's refusal, on the case only `attributesOfItem` sees. The
+    /// corpus tests exercise `corpusRead`, not this helper: a probe that fell back to `fileExists`
+    /// would read `filing-memory.json`, behind a link whose target is gone, as absent, and it would
+    /// be atomically replaced.
     @Test func theSharedProbeSeesADanglingSymlink() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }

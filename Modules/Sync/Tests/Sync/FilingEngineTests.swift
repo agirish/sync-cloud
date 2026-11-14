@@ -32,7 +32,7 @@ import Testing
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Documents/Vehicles/Tesla")
         #expect(best.newSegments.isEmpty)
-        #expect(best.confidence == .high)   // two of the folder's words; one alone is Medium (GS)
+        #expect(best.confidence == .high)   // two of the folder's words; one alone is Medium
     }
 
     // MARK: A package is a document, not a home (FR3)
@@ -74,9 +74,8 @@ import Testing
     // MARK: A bare year must not stand up a batch-eligible taxonomy home
 
     @Test func bareYearMatchIsNotBatchEligible() throws {
-        // Two same-year folders and a file whose only taxonomy overlap is the year. Filing on the
-        // year alone would blindly move it into whichever folder sorts first (Archive < Projects) —
-        // so it must NOT be a confident, batch-eligible home.
+        // Two same-year folders and a file whose only overlap is the year: filing on it would move
+        // the file into whichever folder sorts first (Archive < Projects).
         let taxonomy = [dir("/root/Archive", [dir("/root/Archive/2024", [])]),
                         dir("/root/Projects", [dir("/root/Projects/2024", [])])]
         let loose = [file("/root/Downloads/2024-overview.pdf", modified: y2024)]
@@ -89,7 +88,7 @@ import Testing
     // MARK: Universal rules
 
     @Test func photoIsFiledByYearUnderExistingPhotos() throws {
-        let taxonomy = [dir("/root/Photos", [dir("/root/Photos/2023", [])])]   // files by year (GS)
+        let taxonomy = [dir("/root/Photos", [dir("/root/Photos/2023", [])])]   // files by year
         let loose = [file("/root/Downloads/IMG_2831.HEIC", modified: y2024)]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
         #expect(best.path == "/root/Photos/2024")
@@ -106,10 +105,9 @@ import Testing
     }
 
     @Test func cameraSequenceYearIsAShotCounterNotAFilingYear() throws {
-        // IMG_2023.jpg is shot #2023 off a camera, not a 2023 photo: reading its digits as the
-        // filename year would file whole camera rolls into Photos/2023 at high confidence, batch
-        // eligible (mtime 2024 here). Same for DSC_1995 ("dsc" is not a stopword, so the token
-        // guard alone can't catch it). A real year in a real name ("Wedding 2023") still wins.
+        // IMG_2023.jpg is shot #2023, not a 2023 photo: read as the filename year it would file
+        // whole camera rolls into Photos/2023, batch eligible. DSC_1995 too ("dsc" is not a
+        // stopword, so the token guard alone can't catch it). "Wedding 2023" still wins.
         let taxonomy = [dir("/root/Photos", [])]
         let loose = [
             file("/root/Downloads/IMG_2023.jpg", modified: y2024),
@@ -132,8 +130,7 @@ import Testing
         #expect(FilingEngine.isCameraSequenceStem("PXL_0421"))
         #expect(FilingEngine.isCameraSequenceStem("MVIMG_2020"))
         #expect(FilingEngine.isCameraSequenceStem("GOPR0042"))
-        // GoPro shapes as the cameras actually write them: GOPR + 4-digit file number, or
-        // GP/GH/GX/GS + 2-digit chapter + 4-digit file number, no separator.
+        // GoPro shapes as written: GOPR + 4 digits, or GP/GH/GX/GS + 2-digit chapter + 4 digits.
         #expect(FilingEngine.isCameraSequenceStem("GOPR0001"))
         #expect(FilingEngine.isCameraSequenceStem("GP010001"))
         #expect(FilingEngine.isCameraSequenceStem("GH010001"))
@@ -145,9 +142,8 @@ import Testing
         #expect(!FilingEngine.isCameraSequenceStem("IMG_1234567"))     // counter too long
         #expect(!FilingEngine.isCameraSequenceStem("IMG_2023 edit"))   // trailing words = a real name
         #expect(!FilingEngine.isCameraSequenceStem("screenshot 2023"))
-        // Multi-word hand-named files must never count as camera sequences: a loose `gopr\w*`
-        // alternative backtracks through "o_hawaii"/"o_Backup" and eats the real year, breaking
-        // both year filing and "mentions 2023" automation rules for those files.
+        // Hand-named files are never camera sequences: a loose `gopr\w*` backtracks through
+        // "o_hawaii"/"o_Backup" and eats the real year, breaking year filing and automation rules.
         #expect(!FilingEngine.isCameraSequenceStem("gopro_hawaii_2023"))
         #expect(!FilingEngine.isCameraSequenceStem("GoPro_Backup_2023"))
         #expect(!FilingEngine.isCameraSequenceStem("gopro_2023"))      // gopro-the-word + year is a real name
@@ -162,8 +158,7 @@ import Testing
         #expect(!FilingEngine.fileTokens("DSC_1995.jpg").contains("1995"))
         #expect(FilingEngine.fileTokens("Wedding 2023.jpg").contains("2023"))
         // A hand-named GoPro video keeps its real year token, which a loose `gopr\w*` stem match
-        // would swallow. (Genuine GoPro counters, GOPR2023 and GX010023, never tokenize their
-        // digits separately, so the stem guard has nothing to shed for them.)
+        // would swallow.
         #expect(FilingEngine.fileTokens("gopro_hawaii_2023.mp4").contains("2023"))
         #expect(FilingEngine.fileTokens("GoPro_Backup_2023").contains("2023"))
         #expect(FilingEngine.filenameYear(in: FilingEngine.fileTokens("IMG_2023.jpg"),
@@ -192,8 +187,7 @@ import Testing
     /// Rows: (a folder chain under /root, each holding the next; the loose file's name; the home).
     /// Every file's mtime is 2024.
     @Test(arguments: [
-        // A 2022 receipt downloaded in 2024 belongs in Receipts/2022: the filename names the
-        // document's year; the mtime only says when the bytes last changed.
+        // The filename names the document's year; the mtime only says when the bytes last changed.
         (["Documents", "Receipts"], "amazon invoice 2022.pdf", "/root/Documents/Receipts/2022"),
         (["Taxes"], "1099-INT 2023.pdf", "/root/Taxes/2023"),
         // A range names no single year, so the mtime year stands.
@@ -228,11 +222,9 @@ import Testing
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles", [])])]
         let loose = [file("/root/Downloads/scan0012.pdf", modified: y2024)]
 
-        // Filename alone → no confident home.
         let byName = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
         #expect(byName[0].candidates.isEmpty)
 
-        // Content extraction found the entities; now it lands where a name match would.
         let content = ["/root/Downloads/scan0012.pdf": Set(["tesla", "policy", "geico"])]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                      providerRoot: "/root", contentTokens: content).first?.best)
@@ -254,15 +246,14 @@ import Testing
         #expect(s.isBatchEligible == false)    // but never auto-filed by the batch
         #expect(best.fromContent == true)
         #expect(best.reasons.first?.contains("read from the file") == true)
-        #expect(best.evidenceToken == "Invoices")   // G4: the read-from-content word is surfaced for highlighting
+        #expect(best.evidenceToken == "Invoices")   // the read-from-content word is surfaced for highlighting
         #expect(best.neighborMatches == 0)          // the target has no files, so no neighbor corroboration
     }
 
     // MARK: Content evidence (G4)
 
     @Test func contentMatchSurfacesEvidenceTokenAndSimilarNeighbors() throws {
-        // The target already holds three invoices; a content-detected invoice should name the
-        // evidence word AND how many similar files already live there.
+        // The target already holds three invoices: a content match names the word AND the count.
         let invoiceFolder = dir("/root/Documents/Invoice", [
             file("/root/Documents/Invoice/Invoice-Jan.pdf"),
             file("/root/Documents/Invoice/Invoice-Feb.pdf"),
@@ -283,8 +274,7 @@ import Testing
     }
 
     @Test func nameMatchHasNoEvidenceToken() throws {
-        // A plain filename match must NOT carry an evidence token — that decoration is reserved for
-        // the stronger, less-obvious content signal.
+        // A plain filename match carries no evidence token: that is reserved for the content signal.
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
                           [dir("/root/Documents/Vehicles/Tesla", [])])])]
         let loose = [file("/root/Downloads/tesla registration card.pdf", modified: y2024)]
@@ -370,8 +360,7 @@ import Testing
     }
 
     @Test func rememberedRuleOutranksAHeuristicMatchOfEqualConfidence() throws {
-        // Heuristic would send "tesla registration" into the existing Tesla folder (high). A rule
-        // that says these go somewhere else must win.
+        // The heuristic picks the existing Tesla folder (high); a rule saying otherwise must win.
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
                           [dir("/root/Documents/Vehicles/Tesla", [])])])]
         let loose = [file("/root/Downloads/tesla registration.pdf", modified: y2024)]
@@ -385,11 +374,9 @@ import Testing
     @Test func ruleMatchesOnlyWhenAllTriggerTokensPresent() {
         let taxonomy = [dir("/root/Documents", [])]
         let rule = rememberedRule(["geico", "policy"], "/root/Insurance/Geico")
-        // Has "geico" but not "policy" → no match.
         let miss = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico letter.pdf", modified: y2024)],
                                         taxonomy: taxonomy, providerRoot: "/root", automations: [rule])
         #expect(!(miss.first?.candidates.contains { $0.remembered } ?? false))
-        // Has both (plus extras) → matches.
         let hit = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico policy renewal.pdf", modified: y2024)],
                                        taxonomy: taxonomy, providerRoot: "/root", automations: [rule])
         #expect(hit.first?.best?.path == "/root/Insurance/Geico")
@@ -411,9 +398,8 @@ import Testing
     // MARK: Rule construction
 
     @Test func ruleBuilderPicksTheDistinctiveAnchor() throws {
-        // Tesla insurance filed into …/Vehicles/Tesla/Insurance → the rule keys on the single token
-        // the filename shares with the destination folders ("tesla"), so it generalizes to the next
-        // Tesla document without keying on incidental words ("auto", "policy") or the year.
+        // The rule keys on the one token the filename shares with the destination ("tesla"), so it
+        // generalizes, not on incidental words ("auto", "policy") or the year.
         let rule = try #require(FilingEngine.rule(forFileNamed: "Tesla — Auto Policy 2024.pdf",
                                                   filedInto: "/root/Documents/Vehicles/Tesla/Insurance"))
         #expect(rule.tokens == ["tesla"])
@@ -481,10 +467,9 @@ import Testing
     }
 
     @Test func verdictEchoingASiblingOfTheRootIsNotStrippedIntoASubfolder() {
-        // providerRoot "/root"; the model echoes "/rootArchive/Foo" — a SIBLING that shares the
-        // string prefix but is NOT under the root. Stripping on a raw-string boundary would rewrite
-        // it to "/root/Archive/Foo" and misfile the document into a real subfolder. The root prefix
-        // is stripped only on a path-component boundary, so this can't happen.
+        // "/rootArchive/Foo" is a SIBLING of "/root" sharing its string prefix. Stripping the root
+        // on a raw-string boundary would rewrite it to "/root/Archive/Foo" and misfile the document
+        // into a real subfolder; only a path-component boundary may strip.
         let taxonomy = [dir("/root/Archive", [])]
         let loose = [file("/root/Downloads/x.pdf", modified: y2024)]
         let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
@@ -515,7 +500,6 @@ import Testing
         let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
         #expect(base.first?.best?.path == "/root/Insurance")
 
-        // Reject /root/Insurance → it's gone and the next candidate leads.
         let rejected = ["/root/Downloads/insurance renewal.pdf": Set(["/root/Insurance"])]
         let out = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                        providerRoot: "/root", rejectedByFile: rejected)
@@ -550,7 +534,6 @@ import Testing
 
     @Test func rejectedPathsMatchBySalientTokenSignature() {
         let rejections = [FilingRejection(tokens: ["policy", "tesla"], path: "/p/Wrong")]
-        // A file sharing all the trigger tokens matches; one missing a token does not.
         #expect(FileSyncManager.rejectedPaths(forFileNamed: "Tesla Policy Renewal.pdf", in: rejections).contains("/p/Wrong"))
         #expect(FileSyncManager.rejectedPaths(forFileNamed: "Tesla Insurance.pdf", in: rejections).isEmpty)
     }

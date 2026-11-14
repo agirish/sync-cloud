@@ -103,9 +103,8 @@ import Events
 
     // MARK: The single resolve's pre-check refusals log paths, like every sibling refusal
 
-    /// Three copies named `IMG_0421.jpg` can't be told apart by a log line naming `IMG_0421.jpg`.
-    /// The single resolve's pre-checks log keeper path and culprit path, as the gate and the batch
-    /// do, so the two report identically.
+    /// Three copies named `IMG_0421.jpg` can't be told apart by a log line naming `IMG_0421.jpg`,
+    /// so the single resolve's pre-checks log keeper and culprit paths, as the gate and batch do.
     @MainActor
     @Test func theSingleResolveDriftRefusalLogsBothPaths() async throws {
         let mockFM = MockFileManager()
@@ -139,10 +138,9 @@ import Events
     /// first pass has trashed what it could. A group whose remaining copy is refused there must not
     /// be called "left alone" by the partial banner: some of its copies are already in the Trash.
     ///
-    /// The fixture: one group, two redundant copies. `/b/x` (shortest, so it is attempted first)
-    /// hits a Trash-less failure; `/ccc/x` trashes. The user is then asked to confirm the
-    /// permanent delete of `/b/x`, and while the sheet is up the KEEPER goes away — so the
-    /// post-confirmation gate refuses the group, with one of its copies already trashed.
+    /// The fixture: `/b/x` (shortest, so attempted first) hits a Trash-less failure; `/ccc/x`
+    /// trashes. While the permanent-delete sheet for `/b/x` is up the KEEPER goes away, so the
+    /// post-confirmation gate refuses the group with one of its copies already trashed.
     @MainActor
     @Test func aGroupRefusedAfterPartOfItWasRemovedIsNotReportedAsLeftAlone() async throws {
         let mockFM = MockFileManager()
@@ -164,7 +162,7 @@ import Events
 
         await manager.applyRecommendedDuplicates([g])
 
-        // The premise: one copy really did go, the other really was refused.
+        // Premise: one copy went, the other was refused.
         try #require(mockFM.virtualDisk["/ccc/x"] == nil, "no copy was trashed — this is not the partial case")
         try #require(mockFM.virtualDisk["/b/x"] != nil, "the refused copy was destroyed anyway")
 

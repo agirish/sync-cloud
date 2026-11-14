@@ -2,15 +2,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Golden test for `FileDiffEngine.computeDifferences`: pins the full diff of one broad two-pane
-/// fixture as a single snapshot, so any change to which rows appear, their type or their direction
-/// flips it and must be re-blessed on purpose. Catches collateral changes the focused tests miss.
-///
-/// The snapshot serializes every row field a consumer depends on: relativePath, type, action, both
-/// item paths, both sizes, the enclosed count and the description. The item paths matter to the
-/// CLI: its `targetRelativePath` derives the validated path from the target item path, so a change
-/// to how `.nameConflict` rows carry each side's real spelling would silently break the
-/// trailing-space doppelganger sync.
+/// Golden test for `FileDiffEngine.computeDifferences`: one broad two-pane fixture as a single
+/// snapshot of every row field a consumer depends on, so any change to which rows appear, their
+/// type or direction flips it and must be re-blessed on purpose. The item paths matter to the CLI:
+/// `targetRelativePath` derives the validated path from the target item path, so a change to how
+/// `.nameConflict` rows carry each side's real spelling would silently break the trailing-space
+/// doppelganger sync.
 @Suite struct FileDiffEngineGoldenTests {
 
     private let d1 = Date(timeIntervalSince1970: 1_600_000_000)
@@ -97,7 +94,7 @@ import Testing
             leftFilesInfo: leftInfo, rightFilesInfo: rightInfo
         )
 
-        // GOLDEN — captured, hand-verified, pinned. Load-bearing details:
+        // Golden, hand-verified. Load-bearing details:
         //  · identical files (same.txt) produce no row; onlyleftdir collapses its child (encl=1);
         //  · note.txt/"note.txt " surface as ONE nameConflict, not two "missing" rows, and its
         //    L/R item paths carry each side's REAL spelling (the CLI validates the TARGET's);
@@ -165,8 +162,8 @@ import Testing
             caseInsensitive: true
         )
 
-        // GOLDEN — captured, hand-verified, pinned. Notably ABSENT: any row for Docs/docs or
-        // their identical children, and any missing-row double for the case-variant leaves.
+        // Golden, hand-verified. Notably ABSENT: any row for Docs/docs or their identical
+        // children, and any missing-row double for the case-variant leaves.
         let expected = """
         Notes.txt | differs | ←L | L=/left/Notes.txt | R=/right/notes.TXT | sz=100/100 | Right file is newer (names differ only by case)
         Readme.md | differs | →R | L=/left/Readme.md | R=/right/readme.md | sz=100/100 | Names differ only by case

@@ -55,8 +55,7 @@ import Testing
 
     /// Every rebuild site goes through the member, asserted at the source because three of the four
     /// can't be driven from here (they need a live `FileSyncManager`, a provider root and a
-    /// published list). Reverting `replaceFilingSuggestion` to a member-by-member rebuild must fail
-    /// this.
+    /// published list). Fails if `replaceFilingSuggestion` rebuilds member by member.
     @Test func everyRebuildSiteGoesThroughTheMember() throws {
         let dir = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

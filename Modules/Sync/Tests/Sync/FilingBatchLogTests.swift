@@ -6,8 +6,8 @@ import EventsTestSupport
 
 /// A filing batch says where each file went, and its lines never take the Activity Log's
 /// per-card fold prefix, `"Filing: filed "`. Batch filing writes no per-file line, so these lines
-/// are the only record of which file landed where; and a summary that matched the prefix folded in
-/// with neighbouring cards, so the fold's header counted lines, not files.
+/// are the only record of which file landed where; and a summary matching the prefix would fold in
+/// with neighbouring cards, so the fold's header would count lines, not files.
 @Suite struct FilingBatchLogTests {
 
     private func filed(_ name: String, in folder: String, source: String = "its name") -> FilingBatchLog.Filed {

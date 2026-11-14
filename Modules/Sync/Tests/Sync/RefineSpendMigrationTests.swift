@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine's own caps and spend history give way to Ask Claude's one limit (TE335, E5): this month's
+/// Refine's own caps and spend history give way to Ask Claude's one limit: this month's
 /// spend is carried into the total once, the old keys go, and one notice says what the old limits were.
 @Suite struct RefineSpendMigrationTests {
 

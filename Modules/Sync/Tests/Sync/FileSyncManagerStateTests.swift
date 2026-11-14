@@ -3,9 +3,8 @@ import Foundation
 import Combine
 @testable import Sync
 
-/// Coverage for FileSyncManager state-machine behavior: the Google Drive date-noise filter in
-/// applyFilters(), the verified-same-content suppression (and its reset on a fresh scan), and the
-/// bulk syncAll happy path with its per-item undo registration.
+/// FileSyncManager state: the Google Drive date-noise filter in applyFilters(), verified-same
+/// suppression (reset by a fresh scan), and the bulk syncAll happy path with its undo.
 @Suite struct FileSyncManagerStateTests {
 
     private func dateDiff(_ rel: String, action: FileDifference.SyncAction, leftSize: Int?, rightSize: Int?) -> FileDifference {
@@ -100,10 +99,9 @@ import Combine
         // First pass settles the published state.
         await manager.applyFilters()
 
-        // A load+scan cycle runs several filter passes over unchanged inputs. Each rebuilds
-        // fresh arrays, but republishing an equal tree makes SwiftUI rebuild the pane List,
-        // and a rebuild landing mid-click drops it ("dead clicks"). So an identical pass must
-        // touch no @Published property — ObservableObject must not announce a change.
+        // A load+scan cycle runs several filter passes over unchanged inputs, and republishing an
+        // equal tree makes SwiftUI rebuild the pane List, which drops a click landing mid-rebuild
+        // ("dead clicks"). So an identical pass must touch no @Published property.
         var willChangeCount = 0
         let cancellable = manager.objectWillChange.sink { _ in willChangeCount += 1 }
         defer { cancellable.cancel() }
@@ -154,8 +152,7 @@ import Combine
         #expect(manager.differences.map(\.relativePath) == ["z.txt"])
         #expect(manager.undoManager?.canUndo == true)
 
-        // Every item is recorded in Sync History under one run id, with the size carried from the
-        // differences.
+        // Every item is recorded in Sync History under one run id, with its size.
         #expect(store.records.count == 3)
         #expect(Set(store.records.map(\.runId)).count == 1)
         #expect(store.records.allSatisfy { $0.action == .copy && $0.direction == "→ Right" })
@@ -168,10 +165,9 @@ import Combine
         // left would pass a run registered as three groups.
         manager.undoManager?.undo()
         #expect(manager.undoManager?.canUndo == false, "the bulk run was registered as more than one undo")
-        // A bound, not a pace: the copy-undo's removals run as file-queue operations, which a
-        // loaded full-suite run can hold up for seconds (docs/flaky-tests.md, "Fixed pumps and
-        // fixed sleeps"). The copies are asserted present above, so this waits on a real
-        // transition.
+        // A bound, not a pace: the removals run as file-queue operations, which a loaded run can
+        // hold up for seconds (docs/flaky-tests.md, "Fixed pumps and fixed sleeps"). The copies are
+        // asserted present above, so this waits on a real transition.
         await waitUntil("every copied destination removed") { remainingDst() == 0 }
         for n in names { #expect(mockFM.virtualDisk["/src/\(n)"] != nil) }
     }

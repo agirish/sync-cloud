@@ -148,8 +148,8 @@ public final class ParkGate: @unchecked Sendable {
         return everParked
     }
 
-    /// True while a call is blocked inside `park()`. Only `ParkBudgetTests` reads it; a consumer
-    /// waits on `entered` and `release`, never on this.
+    /// True while a call is blocked inside `park()`, for asserting a premise. A consumer waits on
+    /// `entered` and `release`, never on this.
     public var isParked: Bool {
         lock.lock(); defer { lock.unlock() }
         return parked
@@ -206,11 +206,9 @@ let parkThreadBudget = max(1, cooperativePoolWidth / 4)
 /// without a limit the gated tests park in the same instant, nearly filling the pool, and the async
 /// side that would signal `release` can't get a thread, so parks hit their bound instead.
 ///
-/// A limiter, not a rewrite: a park can't stop blocking a thread, and a continuation-backed latch
-/// (like `DuplicateBatchRedesignTests`' `Latch`, for async operations) would need `FileManaging`
-/// to be async, which is production API. The wait must be asynchronous and on the test side:
-/// `park()` queueing for a slot would hold the same pool thread as parking. So the test reserves
-/// in async context before the work that reaches the seam starts (``ParksThreads``).
+/// A limiter, not a rewrite: a continuation-backed latch would need `FileManaging` to be async,
+/// and `park()` queueing for a slot would hold the same pool thread as parking. So the test
+/// reserves in async context before the work that reaches the seam starts (``ParksThreads``).
 ///
 /// FIFO, so a wide reservation can't be starved by a stream of narrow ones: a waiter only tries
 /// once it is at the head of the queue. Waiting suspends and costs no thread.
@@ -218,18 +216,13 @@ actor ParkThreadBudget {
     static let shared = ParkThreadBudget()
 
     /// How long a reservation waits before giving up and going ahead anyway: far longer than any
-    /// legitimate queue, so reaching it means the budget itself is wedged. Bounded, and the bound
-    /// records itself: letting an extra park through is a smaller failure than hanging the package
-    /// run, but a limiter that has stopped limiting must not look like one that works. Pinned by
-    /// `aReservationThatCanNeverBeServedGivesUpAndSaysSo`; without the deadline check that test
-    /// never finishes.
+    /// legitimate queue, so reaching it means the budget is wedged. An extra park beats a hung
+    /// package run, but the give-up records itself, so a limiter that stopped limiting shows.
     let giveUpAfter: Duration
 
-    /// Where a give-up is reported. The default is a real test failure, so a limiter that has
-    /// stopped limiting can't look like one that works. Injectable only so `ParkBudgetTests` can
-    /// exercise the give-up without `withKnownIssue`, which would put "with 1 known issue" on every
-    /// `Modules/Sync` run's summary line; `theGiveUpDefaultsToARealTestFailure` checks the default by
-    /// reading this source.
+    /// Where a give-up is reported: a real test failure by default. Injectable only so
+    /// `ParkBudgetTests` can exercise the give-up without `withKnownIssue`, which would put "with 1
+    /// known issue" on every `Modules/Sync` run's summary line.
     private let report: @Sendable (String) -> Void
 
     init(giveUpAfter: Duration = .seconds(60),

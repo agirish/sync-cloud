@@ -10,7 +10,6 @@ import EventsTestSupport
 /// claim re-derived against the disk at apply time.
 @Suite struct FilingRenamePassTests {
 
-
     /// A profile marking `rel` as an `ordinal-month` year bucket.
     private func profile(root: String, rel: String, year: String) -> FolderProfile {
         FolderProfile(profileId: "t", root: root,
@@ -122,10 +121,9 @@ import EventsTestSupport
         #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         // One grouped undo for the whole pass: a single ⌘Z puts all three back, not just the last.
         #expect(undo.canUndo)
-        // The `undoable:` flag shows the banner's Undo button, which wears the ⌘Z keycap (so the
-        // sentence doesn't repeat it), and lets `invalidateUndoableBanner` retire the offer once
-        // another operation registers its own undo; unflagged, the banner would offer ⌘Z for the
-        // wrong operation.
+        // `undoable:` shows the Undo button (it wears the ⌘Z keycap, so the sentence doesn't repeat
+        // it) and lets `invalidateUndoableBanner` retire the offer once another operation registers
+        // its own undo; unflagged, the banner would offer ⌘Z for the wrong operation.
         let banner = try #require(manager.banner)
         #expect(!banner.message.contains("⌘Z"), "the Undo button says ⌘Z; the sentence repeats it: \(banner.message)")
         #expect(banner.isUndoable, "the ⌘Z offer is not flagged, so nothing retires it: \(banner.message)")
@@ -146,15 +144,13 @@ import EventsTestSupport
         let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.steps.count == 2)
 
-        // The tree changes while the plan is open: March is renamed by hand onto the name the plan
-        // wanted for it.
+        // While the plan is open, March is renamed by hand onto the name the plan wanted for it.
         try FileManager.default.moveItem(at: bucket.appendingPathComponent("1. Mar 2021.pdf"),
                                          to: bucket.appendingPathComponent("01. Mar 2021.pdf"))
 
         await manager.applyRenamePlans([plan])
 
-        // April still gets its padding; March's step is dropped rather than applied onto the file
-        // now holding its target, and nothing is overwritten.
+        // April still gets its padding; March's step is dropped, and nothing is overwritten.
         #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf"])
         // The banner says so rather than reporting a clean pass.
         #expect(manager.banner?.message.contains("had already changed") == true)
@@ -162,8 +158,7 @@ import EventsTestSupport
 
     /// The re-derivation stops the clobber here, not the uniquify beneath it: the fresh plan sees
     /// the occupant and the step never runs. The `generateUniqueURL` fallback covers only the window
-    /// between re-derive and move, which no deterministic test can open; this suite doesn't
-    /// exercise it.
+    /// between re-derive and move, which no deterministic test can open.
     @MainActor
     @Test func applyLeavesAFileSittingOnTheTargetUntouched() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
@@ -202,8 +197,7 @@ import EventsTestSupport
 
         await manager.applyRenamePlans([plan])
 
-        // February took slot 01 and the three months after it each moved up one. Every rename
-        // happened, or the numbering would be incoherent.
+        // February took slot 01 and each month after it moved up one: every rename happened.
         #expect(try names(in: bucket) == ["01. Feb 2021.pdf", "02. Mar 2021.pdf",
                                           "03. Apr 2021.pdf", "04. May 2021.pdf"])
         #expect(undo.canUndo)
@@ -226,9 +220,8 @@ import EventsTestSupport
         let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
         #expect(plan.steps.count == 4)
 
-        // May is renamed by hand to slot 01 while the plan is open. Three of the four steps would
-        // still apply, but letting them through would put February and May both on slot 01, the
-        // corruption a cascade must prevent.
+        // May is renamed by hand to slot 01 while the plan is open. The three steps that still
+        // apply would put February and May both on slot 01, the corruption a cascade must prevent.
         try FileManager.default.moveItem(at: bucket.appendingPathComponent("03. May 2021.pdf"),
                                          to: bucket.appendingPathComponent("01. May 2021.pdf"))
 
@@ -255,19 +248,17 @@ import EventsTestSupport
 
         manager.clearFiling()
 
-        // The backlog is that scan's finding and shares its scope: `clearFiling` also drops
-        // `filingLastProviderRoot`, which the backlog's chip names, so a kept backlog couldn't say
-        // which tree it was about.
+        // The backlog shares the scan's scope: `clearFiling` drops `filingLastProviderRoot`, which
+        // the backlog's chip names, so a kept backlog couldn't say which tree it was about.
         #expect(manager.renamePlans.isEmpty)
         #expect(manager.filingLastProviderRoot == nil)
     }
 
     // MARK: A case-only tidy
 
-    /// `07. jul 2016.pdf` → `07. Jul 2016.pdf` is a real tidy: ``OrdinalMonthName`` respells the
-    /// month, changing only case. On a case-insensitive volume (the macOS default),
-    /// `fileExists("07. Jul 2016.pdf")` is true because it is the source itself, and
-    /// `standardizedFileURL` never folds case. The never-overwrite guard must ask
+    /// `07. jul 2016.pdf` → `07. Jul 2016.pdf` is a real tidy, changing only case. On a
+    /// case-insensitive volume `fileExists("07. Jul 2016.pdf")` is true because it is the source
+    /// itself, and `standardizedFileURL` never folds case. The never-overwrite guard must ask
     /// ``isCaseOnlyRenaming``, as `safeMoveItem` does, or it invents `07. Jul 2016 2.pdf`, which
     /// later scans keep as part of the name.
     @MainActor
@@ -291,17 +282,15 @@ import EventsTestSupport
         await manager.applyRenamePlans([plan])
 
         #expect(try names(in: bucket) == ["07. Jul 2016.pdf", "08. Aug 2016.pdf", "09. Sep 2016.pdf"])
-        // Named in the negative too: " 2" is the specific wrong answer, which a later scan would
-        // keep as though a user had typed it.
+        // Not " 2", the specific wrong answer, which a later scan would keep as if typed.
         #expect(!(try names(in: bucket).contains("07. Jul 2016 2.pdf")))
         #expect(manager.banner?.message == "Renamed 1 file")
     }
 
     /// The mover underneath the pass, on a real case-insensitive volume. `validateFileOperation`
-    /// compares paths after `resolvingSymlinksInPath`, which returns each component as the
-    /// directory spells it, so both spellings resolve to the one on disk. Unless it allows a
-    /// case-only rename, `safeMoveItem` throws `identicalSourceAndDestination` and the tidy never
-    /// lands the cased name. The case-sensitive test double can't show this.
+    /// compares paths after `resolvingSymlinksInPath`, which spells each component as on disk, so
+    /// unless it allows a case-only rename `safeMoveItem` throws `identicalSourceAndDestination`
+    /// and the tidy never lands. The case-sensitive test double can't show this.
     @Test func theMoverPerformsACaseOnlyRenameOnACaseInsensitiveVolume() throws {
         let root = try makeCanonicalTempRoot(prefix: "RenameCase")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -347,9 +336,8 @@ import EventsTestSupport
     // MARK: A cohort that fails half way
 
     /// A renumbering is all-or-nothing, during the moves as well as at re-derive. A move can throw
-    /// mid-cohort (a busy iCloud placeholder is routine); carrying on would leave two files on one
-    /// slot, `02. Mar` and `02. Apr`. The end state must be one of the two coherent ones; here, the
-    /// original.
+    /// mid-cohort (a busy iCloud placeholder is routine); carrying on would leave `02. Mar` and
+    /// `02. Apr` on one slot. The end state must be a coherent one; here, the original.
     @MainActor
     @Test func aCohortThatFailsPartWayIsRolledBackToTheNumberingItStartedWith() async throws {
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
@@ -395,10 +383,9 @@ import EventsTestSupport
         #expect(await log.holds(.warning, containing: "renumbering of 4 file(s) in 2021"))
     }
 
-    /// The one way a half-applied renumbering survives the pass, and it must not be silent. The
-    /// rollback won't move a file back onto a name something else has taken since: a stranded file
-    /// is recoverable, a clobbered stranger is not. So March stays put, the banner names the count,
-    /// the log names the folder, and the file stays in the undo group as the user's way back.
+    /// The one way a half-applied renumbering survives, and it must not be silent. The rollback
+    /// won't move a file back onto a name taken since: a stranded file is recoverable, a clobbered
+    /// stranger is not. The banner and log say so, and the file stays in the undo group.
     @MainActor
     @Test func aRollbackThatCannotPutAFileBackSaysSoRatherThanOverwriting() async throws {
         let original = ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf",
@@ -473,7 +460,6 @@ import EventsTestSupport
         #expect(manager.banner?.message == "Renamed 2 files; 1 couldn’t be renamed")
     }
 
-
     // MARK: The outcome sentence
 
     @MainActor
@@ -490,9 +476,8 @@ import EventsTestSupport
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 2)
                 == "Couldn’t rename 2 files.")
 
-        // An abandoned renumbering is about a group, and the user must hear it even when the rest
-        // went fine. It isn't folded into `failed`: one member threw, and calling that four
-        // failures is as wrong as calling it one.
+        // An abandoned renumbering is reported even when the rest went fine, apart from `failed`:
+        // one member threw, and calling that four failures is as wrong as calling it one.
         #expect(FileSyncManager.renameOutcome(renamed: 0, stale: 0, failed: 0, abandoned: 4)
                 == "A renumbering of 4 files couldn’t be completed, so the folder was left as it was.")
         #expect(FileSyncManager.renameOutcome(renamed: 2, stale: 0, failed: 0, abandoned: 3)
@@ -646,8 +631,7 @@ import EventsTestSupport
 
     /// A destination that can't be listed falls back to the file's own name, never to slot 01. An
     /// enumerator is non-nil and yields nothing for an unreadable directory, so `liveFiles` must
-    /// tell it from an empty one. One test, two halves: same file, folder and profile, differing
-    /// only in whether the folder can be read.
+    /// tell it from an empty one. Two halves differing only in whether the folder can be read.
     @Test func anUnreadableDestinationOffersNoSlotRatherThanTheFirstOne() throws {
         let fm = try mockBucket("/prov/Bills", ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         let bills = URL(fileURLWithPath: "/prov/Bills")
@@ -669,27 +653,24 @@ import EventsTestSupport
             for: "9829custbill06182021.pdf", destination: bills.path, providerRoot: "/prov",
             profile: profile, fileManager: fm)
         #expect(blocked == nil, "the caller must fall back to the file's own name")
-        // Named in the negative too: 01, the slot an empty folder hands out, would collide with the
-        // March bill already on it.
+        // Not 01, the slot an empty folder hands out, which would collide with the March bill.
         #expect(blocked != "01. Jun 2021.pdf")
     }
 }
 
 /// The rollback's occupancy probe must not fold case. Putting a cohort member back strands it when
-/// `fileExists` finds something at its old name, and on a case-insensitive volume (the macOS
-/// default) a member whose move was case-only is its own "occupant". The rollback suites use
-/// `MockFileManager`, which is case-sensitive, so these run on the real volume. The planner can't
-/// produce this today (a case-only step keeps cohort 0 and is never rolled back), so the guard is
-/// pinned on the decision itself.
+/// `fileExists` finds something at its old name, and on a case-insensitive volume a member whose
+/// move was case-only is its own "occupant". The rollback suites use the case-sensitive
+/// `MockFileManager`, so these run on the real volume. The planner can't produce this (a case-only
+/// step keeps cohort 0), so the guard is pinned on the decision itself.
 @Suite struct RenameRollbackOccupancyTests {
 
     private func makeDir() throws -> URL {
         try makeCanonicalTempRoot(prefix: "RollbackOccupancy")
     }
 
-    /// The guard itself: the file being put back is not a stranger occupying its own old name. The
-    /// premise, on the real volume: after a case-only rename the old spelling still answers
-    /// `fileExists`, so the bare probe can't tell a stranger from the file being put back.
+    /// The file being put back is not a stranger on its own old name. The premise, on the real
+    /// volume: after a case-only rename the old spelling still answers `fileExists`.
     @Test func aCaseOnlyMemberIsNotItsOwnOccupant() throws {
         let dir = try makeDir()
         defer { try? FileManager.default.removeItem(at: dir) }

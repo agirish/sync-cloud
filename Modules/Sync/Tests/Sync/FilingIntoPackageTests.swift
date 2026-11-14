@@ -32,16 +32,14 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: data.path).isEmpty)
         #expect(manager.currentError?.reason?.contains("is a document, not a folder") == true,
                 "the refusal says why, not \"couldn't file this item\"")
-        // A filing's alert.
         #expect(manager.currentError?.title == "Filing Failed")
     }
 
     /// A folder the filing would create can be a document too. `enclosingPackage` asks the disk,
-    /// and a segment not made yet has nothing on disk to ask, so `Notes.rtfd` as a new segment
-    /// would be created as a plain folder and the file moved into what Finder shows as one
-    /// document. The extension is what makes it a package, so the extension is what is asked. The
-    /// other side: a new segment whose name only LOOKS like it has an extension — a dotted name, an
-    /// unknown one — is an ordinary folder and is still created.
+    /// and a segment not made yet has nothing there, so `Notes.rtfd` as a new segment would become
+    /// a plain folder holding the file inside what Finder shows as one document; the extension is
+    /// what is asked. A name that only LOOKS like it has an extension (a dotted name, an unknown
+    /// one) is an ordinary folder and is still created.
     @MainActor
     @Test(arguments: [(["Notes.rtfd", "2025"], true), (["Helper.app", "2025"], true),
                       (["Acme Inc. 2.0"], false)])

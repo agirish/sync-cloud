@@ -211,9 +211,7 @@ import Testing
 
     /// A folder whose path names the value twice is one folder. `folderCount` orders the list and
     /// is what the dialog reports, so a doubled count is a wrong number and can be a wrong order.
-    /// The other three parents get `US` proposed; ten folders carry it (two per single-depth
-    /// branch, plus `Taxes/US`, `…/Consulate`, `…/Consulate/US`, `…/Visa`). Counting per path
-    /// component would give twelve.
+    /// Ten folders carry `US` here; counting per path component would give twelve.
     @Test func aValueRepeatedInOnePathCountsThatFolderOnce() throws {
         let candidates = JurisdictionCandidates.propose(tree: FixtureTree.of([
             "Finance/US/Tax", "Legal/US/Contracts", "School/US/Transcripts",

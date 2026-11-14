@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The rename pass's rules, against names taken from the real tree.
-///
-/// Every fixture here is a name that exists (or existed) in the surveyed `~/Documents`, because the
-/// rules were derived from it and a synthetic name proves only that the code does what it does. The
-/// two that matter most must produce nothing: a `descriptive` folder, and a raw original sitting
-/// beside its already-renamed copy.
+/// The rename pass's rules, against names from the surveyed `~/Documents`: the rules were derived
+/// from it, and a synthetic name proves only that the code does what it does. The two that matter
+/// most must produce nothing: a `descriptive` folder, and a raw original beside its renamed copy.
 /// `names` as the files of `folder`.
 private func files(_ names: [String], in folder: String = "/T") -> [FolderFile] {
     names.map { FolderFile(path: folder + "/" + $0, name: $0) }
@@ -258,10 +255,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
                                "2. Apr 2021.pdf": "02. Apr 2021.pdf"])
         // `10.` was already two digits and is left completely alone — the pass proposes the minimum.
         #expect(p.steps.allSatisfy { $0.kind == .tidied })
-        // A folder nobody is adding to is never renumbered. `10. Dec` beside `1. Mar` and `2. Apr`
-        // is not a clean 1…N, and a renumbering pass that normalised it would rewrite a number
-        // somebody chose by hand for no reason at all. The cascade exists to make ROOM; with
-        // nothing arriving there is none to make.
+        // A folder nobody is adding to is never renumbered: the cascade exists to make room, and
+        // normalising `10. Dec` beside `1. Mar` would rewrite a number somebody chose by hand.
         #expect(p.renumbered == 0)
     }
 
@@ -339,11 +334,9 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         #expect(settled.steps.isEmpty)
         #expect(settled.skips.isEmpty)
 
-        // That folder is silent whether or not the planner partitions by extension, so it cannot on
-        // its own show that it does. A raw csv arriving into a GAPPED folder of pairs can. Apr and
-        // Jul are slots 01 and 02 — position numbering, as `HDFC Credit/2010` really is — so the
-        // September csv is the third csv and takes slot 03. Ranked against all four files instead it
-        // would take slot 05, and disagree with the pdf it belongs beside.
+        // A raw csv arriving into a gapped folder of pairs shows the partition by extension: the
+        // September csv is the third csv and takes slot 03; ranked against all four files it would
+        // take 05, and disagree with the pdf it belongs beside.
         let p = plan(["01. Apr 2010.csv", "01. Apr 2010.pdf",
                       "02. Jul 2010.csv", "02. Jul 2010.pdf",
                       "activity20100901.csv"], year: "2010")
@@ -577,10 +570,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
 
     @Test("PG&E 2022, not renamed at all, is numbered end to end")
     func pgeTwentyTwentyTwo() {
-        // The survey's third PG&E shape and the one with no conforming sibling to anchor on:
-        // eleven raw bills, nothing else. Every one is mined and placed in date order, which is
-        // only possible because placements are ranked against each other rather than against the
-        // original file list — ranked against the list, all eleven compute slot 1.
+        // Eleven raw bills and no conforming sibling: placed in date order only because placements
+        // rank against each other; ranked against the original list, all eleven compute slot 1.
         let raw = (1...11).map { m in String(format: "9829custbill%02d182022.pdf", m) }
         let p = plan(raw, year: "2022")
         #expect(p.steps.count == 11)
@@ -761,10 +752,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
 
     @Test("A day-keyed folder is never read as month-numbered")
     func dayFoldersAreAlwaysPositional() {
-        // `Salary Statements/2019` starts in October (`01. Oct 15 · 02. Oct 31`), and a stretch
-        // that runs one file per month would read as `.monthNumber`, whose premise (the ordinal is
-        // the month) can't describe this folder. The fixture has gaps on purpose: `inferScheme`
-        // calls a contiguous 01·02·03 run `.position`, so it would pass with the guard removed.
+        // A stretch of one file per month would read as `.monthNumber`. The gaps are on purpose:
+        // `inferScheme` calls a contiguous 01·02·03 run `.position`, which would pass unguarded.
         let gappy = ["03. Mar 15 2021.pdf", "05. May 15 2021.pdf", "11. Nov 15 2021.pdf"]
         #expect(RenamePlanner.inferScheme(files: files(gappy), granularity: .day) == .position)
         // The same shape read month-keyed DOES infer monthNumber, which is what makes the line

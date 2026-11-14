@@ -82,13 +82,9 @@ import Testing
         #expect(filled.first { $0.id == "/r/b" }?.isUnexplored == true, "the wrong node was grafted")
     }
 
-    /// The descent doesn't enter a prefix-sharing sibling. The graft rebuilds the nodes on its
-    /// path, so entering one would copy its whole subtree to find nothing, a real cost on trees
-    /// large enough to be budgeted out.
-    ///
-    /// Measured by buffer identity, not a clock: an untouched node keeps its children array's
-    /// storage and a rebuilt one allocates. `subject` stays alive throughout, so its buffer can't be
-    /// freed and reused at the same address.
+    /// The descent doesn't enter a prefix-sharing sibling, which would copy its whole subtree to find
+    /// nothing. Measured by buffer identity, not a clock: an untouched node keeps its children's
+    /// storage. `subject` stays alive throughout, so its buffer can't be reused at the same address.
     @Test func theDescentSkipsSiblingsSharingANamePrefix() throws {
         func storage(_ node: FileNode?) -> UInt? {
             guard let children = node?.children else { return nil }
@@ -230,12 +226,9 @@ private func graftFixture(prefix: String) throws -> URL {
         return nil
     }
 
-    /// A listing started before a swap must not land after it. `loadColumnChildren` captures
-    /// `isLeft` and lands on the main actor later; after a swap the capture names the other pane,
-    /// and two panes on one source would fill the wrong column with plausible rows.
-    ///
-    /// Bumps the generation directly instead of calling `swapPanes`, which also exchanges the trees,
-    /// so a green could come from the path no longer being found rather than from the guard.
+    /// A listing started before a swap must not land after it: the captured `isLeft` would name the
+    /// other pane and fill the wrong column with plausible rows. Bumps the generation directly, since
+    /// `swapPanes` also exchanges the trees and a green could come from the path going missing.
     @MainActor
     @Test func aListingIsDroppedWhenThePanesSwappedWhileItRan() async throws {
         let root = try fixture()
@@ -321,14 +314,9 @@ private func graftFixture(prefix: String) throws -> URL {
                 "the cached tree is still the ungrafted one — walking away and back re-blanks the column")
     }
 
-    /// A listing must not land on a folder that was fully walked while it ran. A refresh or the
-    /// deep walk can publish the node fully walked before the listing lands, with the path still
-    /// present, so `grafting` alone would overwrite the deep subtree with a one-level listing,
-    /// re-mark its child folders unexplored, and cache that poorer tree for the next warm scan.
-    /// The outline row's open fires the request ungated, so the race is ordinary.
-    ///
-    /// The raw tree is replaced synchronously after the request, before the graft's task first
-    /// runs, as in the swap test above.
+    /// A listing must not land on a folder a refresh or the deep walk fully walked while it ran, or
+    /// it would overwrite the deep subtree with one level, re-mark its child folders unexplored, and
+    /// cache that poorer tree. The raw tree is replaced synchronously, before the graft's task runs.
     @MainActor
     @Test func aListingIsDroppedWhenTheFolderWasFullyWalkedWhileItRan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "graftstale")
@@ -372,14 +360,9 @@ private func graftFixture(prefix: String) throws -> URL {
                 "the cache took the stale graft — the next warm scan compares a poisoned tree")
     }
 
-    /// A sort change during the listing lands the graft in the live order. The listing is built in
-    /// the option captured at request time, and a graft in the old order would be the one
-    /// out-of-order column on screen.
-    ///
-    /// Real filesystem, because a mock-built tree carries no sizes (`TreeBuilder.stat` reads them
-    /// only from a real `FileManager`). The change is made synchronously after the request. Only
-    /// the grafted children are asserted: `resortTreesAndRefilter` discards itself when the graft's
-    /// generation bump beats it, so the root level's order depends on scheduling.
+    /// A sort change during the listing lands the graft in the live order, not the one captured at
+    /// request time. Real filesystem, since a mock-built tree carries no sizes. Only the grafted
+    /// children are asserted: the root level's order depends on scheduling (`resortTreesAndRefilter`).
     @MainActor
     @Test func aListingLandsReSortedWhenTheSortChangedWhileItRan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "graftsort")

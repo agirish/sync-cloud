@@ -17,11 +17,10 @@ import Foundation
 /// proves nothing; 300 put the miss chance near 1e-4 for a few seconds.
 @Suite struct FileOperationQueueOrderTests {
 
-    /// Two operations requested in a fixed order from two main-actor tasks spawned in that order,
-    /// the shape `undo()` produces, must run in that order and must not overlap. The same race
-    /// causes both: the loser can land ahead of the winner, or chain on the same predecessor and
-    /// overlap. Each body yields between entry and exit (a queue turn, never a wall-clock window)
-    /// so an overlap has somewhere to show.
+    /// Two operations requested in order from two main-actor tasks spawned in that order (the shape
+    /// `undo()` produces) must run in that order without overlapping; one race causes both. Each
+    /// body yields between entry and exit (a queue turn, never a wall-clock window) so an overlap
+    /// has somewhere to show.
     @MainActor
     @Test func theOperationRequestedSecondNeverRunsFirstOrAlongsideTheFirst() async throws {
         let manager = FileSyncManager(fileManager: FileManager.default)
@@ -78,14 +77,12 @@ import Foundation
                 "two operations queued back-to-back overlapped in \(overlaps) of \(completed) pairs (\(overlapping) by interleaved log, \(concurrent) by two bodies inside at once) — the queue is not serializing them")
     }
 
-    /// The order holds across an inverted enqueue from off the main actor.
-    ///
-    /// Every call site is on the main actor today, but nothing in `enqueueFileOperation` enforces
-    /// it, and a `Task.detached { await manager.enqueueFileOperation { … } }` would bring the race
-    /// back silently. `claimFileOperationSlot()` makes the order structural: it is synchronous, so
-    /// the caller fixes its position in its own main-actor turn, before the work's `Task` exists.
-    /// This claims slots 1 and 2, then enqueues them from detached tasks in the wrong order; they
-    /// must still run 1 then 2. 300 trials for the same reason as above.
+    /// The order holds across an inverted enqueue from off the main actor. Nothing in
+    /// `enqueueFileOperation` enforces main-actor callers, and a `Task.detached` enqueue would
+    /// bring the race back silently. `claimFileOperationSlot()` makes the order structural: it is
+    /// synchronous, so the caller fixes its position in its own main-actor turn, before the work's
+    /// `Task` exists. Slots 1 and 2 are enqueued from detached tasks in the wrong order and must
+    /// still run 1 then 2. 300 trials for the same reason as above.
     @MainActor
     @Test func slotsRunInClaimOrderEvenWhenEnqueuedOutOfOrderFromOffTheMainActor() async throws {
         let manager = FileSyncManager(fileManager: FileManager.default)

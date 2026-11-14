@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The request shapes Refine can use (TE335, E1): today's request stays byte-for-byte what it was,
+/// The request shapes Refine can use: today's request stays byte-for-byte what it was,
 /// the 5.5 shape differs only where the API needs it, and the parsers read every tool call and a
 /// number the model wrote loosely.
 @Suite struct CloudFilingRequestShapeTests {

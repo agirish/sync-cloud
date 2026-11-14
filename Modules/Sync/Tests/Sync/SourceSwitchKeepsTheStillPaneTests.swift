@@ -3,16 +3,12 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A source switch keeps the walk the other pane is showing, so the Compare after it stays warm.
-/// The scan uses cached pane trees only when both sides hit (`executeScan` asks `prefetchedTrees`
-/// for both foci together), and the refresh after a switch reloads only the pane that moved. Drop
-/// the still pane's walk and the scan walks both folders cold, which is slower and can stop at the
-/// entry budget somewhere other than the pane's walk did, so the answer changes. Keeping it costs
-/// no memory: it is the array the pane shows (`theKeptEntryIsTheArrayThePaneIsShowing`).
-///
-/// A kept walk can be old, and the comparison read from it is as old: it is dated by its walks
-/// (`lastScanReadAt`), not by when it ran. Every fixture is on `MockFileManager` with an empty link
-/// table, so nothing depends on the iCloud links or folders of the Mac it runs on.
+/// A source switch keeps the walk the other pane is showing, so the Compare after it stays warm:
+/// the scan uses cached trees only when both sides hit, and the refresh reloads only the pane that
+/// moved. Drop the still pane's walk and the scan walks both cold, and can stop at the entry
+/// budget somewhere other than the pane's walk did, so the answer changes. A comparison read from
+/// a kept walk is dated by its walks (`lastScanReadAt`). Every fixture is on `MockFileManager`
+/// with an empty link table, so nothing depends on the Mac it runs on.
 @Suite struct SourceSwitchKeepsTheStillPaneTests {
 
     /// Two sources for the pane that moves, and one for the pane that stays. No root is a prefix of

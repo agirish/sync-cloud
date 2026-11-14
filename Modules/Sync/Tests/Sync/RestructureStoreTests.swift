@@ -690,7 +690,6 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
         dir.appendingPathComponent("p/restructure.json")
     }
 
-
     private func record(id: String) -> RestructureStore.AppliedRecord {
         RestructureStore.AppliedRecord(manifest: manifest(id: id),
                                        inverse: manifest(id: id).inverse, at: "t",

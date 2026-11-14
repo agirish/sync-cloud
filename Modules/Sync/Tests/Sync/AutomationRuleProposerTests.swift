@@ -429,8 +429,6 @@ import Foundation
         init(floatLiteral value: Double) { self.init(value) }
     }
 
-    /// A router index over a memory given as folder → anchor → weight/share (and optionally folder →
-    /// identifier → the same). Destinations default to the memory's own folders.
     // MARK: - Rules only a household can express
 
     /// The roster and a tree where each person has their own OCI folder.
@@ -517,6 +515,8 @@ import Foundation
         }
     }
 
+    /// A router index over a memory given as folder → anchor → weight/share (and optionally folder →
+    /// identifier → the same). Destinations default to the memory's own folders.
     private static func index(memory: [String: [String: Anchor]],
                               ids: [String: [String: Anchor]] = [:],
                               destinations: [String]? = nil) -> FilingRouter.Index {

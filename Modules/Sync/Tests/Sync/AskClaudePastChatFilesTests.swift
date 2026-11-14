@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Past Chats' folder (TE306): kept by the last question's date, pruned and cleared as Settings says.
+/// Past Chats' folder: kept by the last question's date, pruned and cleared as Settings says.
 @Suite struct AskClaudePastChatFilesTests {
 
     private func files() -> AskClaudePastChatFiles {

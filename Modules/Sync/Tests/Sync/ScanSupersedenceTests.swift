@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Regression coverage for superseded scans: a scan queued behind an in-flight one must still
+/// Superseded scans: a scan queued behind an in-flight one must still
 /// publish (the drain must not inherit the predecessor's cancellation), and a superseded scan's
 /// disk walk must abort instead of holding `isScanning` for results nobody will read.
 @Suite struct ScanSupersedenceTests {

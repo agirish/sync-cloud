@@ -32,11 +32,9 @@ import EventsTestSupport
     }
 
     /// The copy leaves permanently and the merge still succeeds, but nothing may offer the undo:
-    /// taking it would delete the only remaining copy of the folded files. Not the banner, and not
-    /// the registration: `undoable: !anyPermanentlyDeleted` hides only the banner's button; if the
-    /// registration still ran, Edit ▸ Undo would read "Undo Merge Keeper" and firing it would delete
-    /// the folded files out of the keeper while the original is permanently gone. This asserts the
-    /// banner and the registration, then fires the undo to prove the folded file survives.
+    /// taking it would delete the only remaining copy of the folded files. `undoable:` hides only the
+    /// banner's button, so the registration is checked too (Edit ▸ Undo would read "Undo Merge
+    /// Keeper"), and the undo is fired to prove the folded file survives.
     @MainActor
     @Test func aMergeWhoseCopyWasDestroyedPermanentlyRegistersNoUndoAtAll() async throws {
         let log = LogCapture()

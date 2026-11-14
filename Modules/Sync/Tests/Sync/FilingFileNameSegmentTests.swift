@@ -29,10 +29,9 @@ import Testing
         #expect(!FilingEngine.looksLikeAFileName(".hidden"))
     }
 
-    /// The precedence case. A non-ASCII digit after the final dot is not an extension; the rule's
-    /// own doc says 1–5 *ASCII* alphanumerics. Mis-grouped, these all answer true, and a real
-    /// folder (Devanagari, Arabic-Indic, fullwidth or a Roman numeral) would be stripped off the
-    /// destination and the document filed one level up.
+    /// The precedence case: a non-ASCII digit after the final dot is not an extension. Mis-grouped,
+    /// these all answer true, and a real folder (Devanagari, Arabic-Indic, fullwidth or a Roman
+    /// numeral) would be stripped off the destination and the document filed one level up.
     @Test func aNonAsciiDigitIsNotAnExtension() {
         for segment in ["Taxes.٢٠٢٥", "Bills.２０２５", "Notes.Ⅷ", "Chai.½", "Records.१२"] {
             #expect(!FilingEngine.looksLikeAFileName(segment),

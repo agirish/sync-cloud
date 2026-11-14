@@ -17,7 +17,6 @@ import EventsTestSupport
         await log.entries.contains { $0.message == message }
     }
 
-
     @MainActor
     @Test func testDeleteUndoAndRedoLogTheirOwnDirection() async throws {
         let log = LogCapture()

@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Manager-level coverage for the Storage Lens lifecycle (`FileSyncManager+StorageLens.swift`):
-/// start / cancel / clear / restart against real temp trees, mirroring the duplicates lifecycle
-/// tests. The pure analyzer already has its own suite (`StorageLensTests`); these pin the glue —
-/// task replacement, the stale-report guard, and the publish-with-results discipline.
+/// The Storage Lens lifecycle (`FileSyncManager+StorageLens.swift`): start, cancel, clear and
+/// restart against real temp trees. The analyzer has its own suite (`StorageLensTests`); these pin
+/// task replacement, the stale-report guard, and publishing the labels with the results.
 @Suite struct FileSyncManagerStorageLensTests {
 
     @MainActor
@@ -26,7 +25,6 @@ import Foundation
         #expect(report.treemap.map(\.name) == ["Docs", "Files"])
         #expect(report.treemap.first?.bytes == 8000)
         #expect(report.largest.first?.name == "a.pdf")
-        // Completion labels: root + has-completed publish WITH the results.
         #expect(manager.storageLensRoot == root)
         #expect(manager.storageLensLifecycle.hasCompleted)
         #expect(manager.isBuildingStorageLens == false)

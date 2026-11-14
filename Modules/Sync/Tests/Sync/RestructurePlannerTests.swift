@@ -384,7 +384,6 @@ private struct FakeTree {
                 "Slips drains before Extra fills it")
     }
 
-
     /// A same-named subfolder on both sides merges one level down; two levels down it is `keep`
     /// and reported rather than guessed at (the collision policy for subfolders).
     @Test func sameNamedSubfoldersMergeOneLevelDownThenKeep() throws {

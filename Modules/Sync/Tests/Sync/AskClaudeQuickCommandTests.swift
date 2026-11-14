@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// The on-device lane's half that isn't the model (TE338): which questions it looks at, and which
+/// The on-device lane's half that isn't the model: which questions it looks at, and which
 /// answers become one of Ask Claude's tool calls. Everything else goes to Claude.
 @Suite struct AskClaudeQuickCommandTests {
 

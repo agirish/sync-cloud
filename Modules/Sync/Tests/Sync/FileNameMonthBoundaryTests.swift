@@ -4,15 +4,12 @@ import Testing
 
 /// When a run of letters ending in "mar" is March, and when it is a surname.
 ///
-/// `FileNameDate.monthSuffix` reads a letter run that ends with a month name, to reach glued
-/// provider names like `DetailedBillApr2025`. Ordinary words end that way too (`Kumar`, `Rajan`,
-/// `codec`), and with a plausible year beside one (`Sanjay Kumar 2023.pdf`) the rename pass would
-/// propose a date for a file that has none. The rule is a word boundary, which inside one letter
-/// run only a change of case marks: a title-cased month carries its own (`HDFC|Apr`), an all-caps
-/// month needs a lowercase character before it (`KU|MAR` has none).
-///
-/// The uppercase and acronym cases are what tell the candidate rules apart; the simple cases
-/// alone pass under all of them.
+/// `FileNameDate.monthSuffix` reads a letter run ending in a month name, to reach glued provider
+/// names like `DetailedBillApr2025`. Ordinary words end that way too (`Kumar`, `codec`), and beside
+/// a year (`Sanjay Kumar 2023.pdf`) the rename pass would propose a date for a file with none.
+/// Inside one run only a change of case marks a word boundary: a title-cased month carries its own
+/// (`HDFC|Apr`), an all-caps month needs a lowercase character before it (`KU|MAR` has none). The
+/// uppercase and acronym cases tell the candidate rules apart; the simple cases pass under all.
 @Suite struct FileNameMonthBoundaryTests {
 
     // MARK: What must still be read as a month

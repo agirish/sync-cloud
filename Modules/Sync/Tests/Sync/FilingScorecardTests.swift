@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE341: the filing scorecard's verdicts and its summary, on records built by hand.
+/// The filing scorecard's verdicts and its summary, on records built by hand.
 @Suite struct FilingScorecardVerdictTests {
     static let root = "/R"
     static let offeredAt = Date(timeIntervalSince1970: 1_000_000)

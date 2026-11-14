@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE342: File with Claude's card for a selection: its rows' states, what carries over when the
+/// File with Claude's card for a selection: its rows' states, what carries over when the
 /// card is updated, Claude's folders and Refine's picks on it, and what Claude is told.
 @Suite struct AskClaudeSelectionCardTests {
     /// Real folders, so a folder the card makes is the missing leaf alone, never every level up to
@@ -184,7 +184,7 @@ import Testing
 
     // MARK: Saved chats
 
-    /// A card saved before TE342 still opens, and saving it again writes none of the new fields:
+    /// A card saved without the newer fields still opens, and saving it again writes none of them:
     /// every one is optional (synthesized decoding refuses a missing non-optional key).
     @Test func aCardSavedBeforeThisChangeStillOpens() throws {
         let old = #"{"title":"File 2 Loose Files","subtitle":"into Documents","state":"proposed","rows":[{"id":0,"name":"a.pdf","change":{"move":{"from":"/d/a.pdf","toFolder":"/D/T"}},"ticked":true,"choices":[{"label":"T","path":"/D/T"}],"chosen":false,"alreadyFiled":false}]}"#

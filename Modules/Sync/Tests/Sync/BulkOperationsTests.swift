@@ -3,34 +3,34 @@ import Foundation
 @testable import Sync
 
 @Suite struct BulkOperationsTests {
-    
+
     @MainActor
     @Test func testBulkCopyPruning() async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
-        
+
         // Setup Source: /src/folder containing /src/folder/file.txt
         mockFM.virtualDisk["/src/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["file.txt"])
         mockFM.virtualDisk["/src/folder/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         let folderNode = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [
             FileNode(id: "/src/folder/file.txt", name: "file.txt", isDirectory: false)
         ])
         let fileNode = FileNode(id: "/src/folder/file.txt", name: "file.txt", isDirectory: false)
-        
+
         // User selects BOTH the folder and the file inside it
         let selection = [folderNode, fileNode]
-        
+
         await manager.copyItems(nodes: selection, fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
-        
+
         // The copy landed with no error: without `pruneNestedNodes` the nested file would be
         // copied twice, and the second copy could fail on the first.
         #expect(mockFM.virtualDisk["/dst/folder/file.txt"] != nil)
         #expect(manager.currentError == nil)
     }
-    
+
     /// `deleteItems` returns the count actually removed, a pruned nested family counting once via
     /// its ancestor. Callers compare it with what they asked for to tell partial success from full,
     /// so double-counting a child would make a partial batch read as complete.
@@ -78,7 +78,7 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/report copy.txt"] == nil)
         #expect(mockFM.trashedPaths.count == 2)
     }
-    
+
     @MainActor
     @Test(arguments: [CollisionResolution.keepBoth, .replace, .skip])
     func testCollisionResolution(_ resolution: CollisionResolution) async throws {
@@ -157,19 +157,19 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         let srcURL = URL(fileURLWithPath: "/src/data.bin")
         let dstURL = URL(fileURLWithPath: "/dst/data.bin")
-        
+
         // Force cross-volume fallback
         mockFM.shouldFailMove = true
         // Disable trash support
         mockFM.shouldFailTrash = true
-        
+
         try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
-        
+
         // The source is gone: removed directly, since the Trash failed.
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
         // Verify destination exists

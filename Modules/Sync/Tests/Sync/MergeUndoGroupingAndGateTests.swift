@@ -456,9 +456,7 @@ import Events
             return true
         }
 
-        // Windowed: "at the last check before removal" is written by seven call sites, three
-        // without "no longer", and this suite's siblings write them too, so a last-match read over
-        // the whole process log would depend on test order.
+        // Windowed, as in `aCopyThatDriftsWhileTheConfirmationIsOpenIsNotPermanentlyDeleted`.
         let tag = UUID().uuidString
         var ok = true
         let mine = try await logLines(tag: tag) {
@@ -473,10 +471,7 @@ import Events
         #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("unique0.txt").path),
                 "the only remaining instance of the folded file is gone")
         #expect(ok == false, "the merge claimed success over a copy it refused to remove")
-        // …and filtered to this fixture's temp root. The window bounds time, not authorship: in a
-        // parallel run another suite's refusal can land inside it. `base` carries a per-test UUID
-        // and appears in every path the refusal names. Neither assertion below is circular on it;
-        // they read the wording and the copy's name.
+        // …and filtered to this fixture's temp root, for the same reason.
         let line = mine.last { $0.contains("at the last check before removal") && $0.contains(base.path) }
         #expect(line?.contains("no longer") == true,
                 "the keeper-side refusal was not logged: “\(line ?? "nil")”")

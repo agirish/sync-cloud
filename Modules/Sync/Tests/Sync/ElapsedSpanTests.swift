@@ -17,15 +17,13 @@ import Foundation
         #expect(Elapsed.describe(active: 73.61, wall: 73.61) == "73.61 s")
     }
 
-    /// A span the machine slept through says so, instead of reporting the sleep as work. The
-    /// fixture is 84 ms of walking across a two-and-a-half-hour sleep. As one number it would look
-    /// like a walk that really took that long, hiding the genuinely slow cases.
+    /// A span the machine slept through says so, instead of reporting the sleep as work: 84 ms of
+    /// walking across a two-and-a-half-hour sleep must not read as a walk that took that long.
     @Test func aSpanTheMachineSleptThroughNamesTheSleep() {
         let text = Elapsed.describe(active: 0.084, wall: 8887.98)
         #expect(text.hasPrefix("84.0 ms"), "the work is no longer the headline number: “\(text)”")
         #expect(text.contains("asleep"), "the sleep is folded into the duration: “\(text)”")
         #expect(text.contains("8887.90 s"), "the sleep is not reported: “\(text)”")
-        // And it doesn't lead with the wall-clock number.
         #expect(!text.hasPrefix("8887"),
                 "the span still leads with wall-clock time: “\(text)”")
     }

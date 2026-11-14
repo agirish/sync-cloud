@@ -3,7 +3,7 @@ import Testing
 import Events
 @testable import Sync
 
-/// Regression coverage for a batch of review findings whose fixes have no other natural home.
+/// Review fixes with no other natural home, one rule per section.
 @Suite struct ReviewFixesTests {
 
     // MARK: Case sensitivity of a destination that does not exist yet
@@ -127,21 +127,12 @@ import Events
 
     // MARK: Regressions found reviewing the fixes above
 
-    /// Which local paths a provider's Location claims, by one provider of `type` rooted at `root`:
-    /// - a provider's Location can be any folder. Pointed at home, a claim on every path under it
-    ///   would make `synccloud sync -L ~/scratch -R ~/scratch2`, two local folders, silently skip
-    ///   every name OneDrive forbids;
-    /// - a bare "CloudStorage" component anywhere must not count, or a project folder of that name
-    ///   hands its siblings Dropbox's rules. Its own root still claims, as before;
-    /// - `/Volumes/<mount>` is an ordinary provider Location. A depth rule would make it claim
-    ///   nothing, not even its own tree, so a CLI root inside it would fall back to `.iCloud`'s empty
-    ///   rule set and lose the destination-name guard. A sibling volume is still nobody's business
-    ///   but its own;
-    /// - `~/Documents` is deep enough to pass a depth rule yet covers as much local ground as `~`.
-    ///   What matters is what the root contains, so it claims its own tree and nothing beside it;
-    /// - "/" and "/Users" are above every home directory; claiming one types the whole machine;
-    /// - the control: the real account folder still claims its siblings, the case the widening
-    ///   exists for.
+    /// Which local paths a provider's Location claims, by one provider of `type` rooted at `root`.
+    /// A Location can be any folder, so it claims its own tree and nothing beside it: pointed at
+    /// home, `synccloud sync -L ~/scratch -R ~/scratch2` would silently skip every name OneDrive
+    /// forbids. A bare "CloudStorage" component elsewhere doesn't count, `/Volumes/<mount>` still
+    /// claims its own tree (or a CLI root inside it loses the destination-name guard), and "/" or
+    /// "/Users" claim nothing. The control: the real account folder still claims its siblings.
     @Test(arguments: [
         ("OneDrive-Personal", CloudProvider.ProviderType.oneDrive, "/Users/u", "/Users/u/scratch", CloudProvider.ProviderType?.none),
         ("Dropbox", .dropBox, "/Users/u/Projects/CloudStorage/notes/deep/root", "/Users/u/Projects/CloudStorage/notes/other", nil),

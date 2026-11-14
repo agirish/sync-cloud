@@ -188,9 +188,8 @@ import Testing
     }
 
     /// The route site's name branch, the only router home the blind batch may move: with no
-    /// snippet the destination is built `.name`, and a `.high` margin leaves it batch-eligible. The
-    /// filename is a checkable signal, so this is intended, and pinned because it moves files
-    /// unseen. With the test above, both arms of the `evidence:` ternary are pinned.
+    /// snippet the destination is built `.name`, and a `.high` margin leaves it batch-eligible.
+    /// Pinned because it moves files unseen; with the test above, both `evidence:` arms are pinned.
     @Test func aRouterHomeRankedFromTheFilenameAloneStaysInTheBlindBatch() throws {
         let root = "/prov"
         let index = FilingRouterTests.index()
@@ -216,15 +215,13 @@ import Testing
     // MARK: - Merge discipline when two candidates name the same folder
 
     /// One folder named by a remembered rule (filename, `.high`) and a taxonomy content match
-    /// (`.medium`, `fromContent`). The winner's provenance stands, so the merge isn't `fromContent`,
-    /// keeps `.high` and stays in the blind batch. OR-merging `fromContent` would flip
-    /// `isBatchEligible`.
+    /// (`.medium`, `fromContent`). The winner's provenance stands, so the merge keeps `.high` and
+    /// stays in the blind batch. Fails if `fromContent` is OR-merged.
     @Test func sameFolderNamedByARuleAndByContentKeepsTheWinnersProvenance() throws {
         let rule = rememberedRule(["invoice"], "/root/Receipts")
         let taxonomy = [dir("/root/Receipts", [])]
         let path = "/root/inbox/invoice march.pdf"
         // "invoice" is in the name (rule match); "receipts" only in the content (taxonomy match).
-        // Both name /root/Receipts.
         let s = try #require(FilingEngine.suggest(
             looseFiles: [file(path, modified: y2024)], taxonomy: taxonomy, providerRoot: "/root",
             contentTokens: [path: ["receipts"]], automations: [rule]).first)

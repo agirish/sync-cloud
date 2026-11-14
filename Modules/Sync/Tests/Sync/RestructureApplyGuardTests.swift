@@ -116,11 +116,9 @@ import Testing
 
     // MARK: - Step 6 failing for real
 
-    /// The re-derive fails on the real path (the profiles root refuses the new directory), and
-    /// the record left behind has the exact shape the chain machinery keys on: finalised
-    /// (`summary` set, suffixed), un-repointed (`producedProfileId` nil), and still offered by
-    /// `undoableReorganisation`, anchored on the directory it was applied under. Driven for real
-    /// so this branch can't drift from the hand-built records other tests use.
+    /// A re-derive that fails for real (the profiles root refuses the new directory) leaves the
+    /// record the chain keys on: finalised, `producedProfileId` nil, and still offered by
+    /// `undoableReorganisation` under the directory it was applied in.
     @Test @MainActor func aStepSixFailureStillLandsFinalisedAndUndoable() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer {
@@ -313,10 +311,8 @@ import Testing
                                             dst: "Tax/2013/Forms", evidence: "e")])
     }
 
-    /// The flag is held across a real landing, which the hand-set test above can't see. This parks
-    /// a live landing inside step 3 and checks a second entry gets the flag's own sentence: the
-    /// operation count also refuses in this window, in other words. Removing the
-    /// `restructureLandingInProgress = true` assignments must fail this.
+    /// The flag is held across a live landing parked inside step 3: a second entry gets the flag's
+    /// own sentence. Removing the `restructureLandingInProgress = true` assignments must fail this.
     @Test(.parksAThread) @MainActor func theFlagIsHeldAcrossALiveLanding() async throws {
         let gate = GateFileManager()
         let (manager, base) = try Self.gatedWorld(gate)
@@ -376,11 +372,9 @@ import Testing
                 "⌘Z after a removal must not replay the previous landing's moves into folders the removal just trashed")
     }
 
-    /// The handlers' side of the landing flag: the session group is live while a landing suspends
-    /// (armed at step 5, then the re-derive awaits), and a ⌘Z replayed then would race the
-    /// landing's walk, corrupting the derived profile and wedging the ledger undo. The handlers
-    /// give way while the flag is up; deleting the `undoReplayBlockedByLanding` guard must fail
-    /// this.
+    /// A ⌘Z replayed while a landing suspends would race its walk, corrupting the derived profile
+    /// and wedging the ledger undo, so the session undo handlers give way while the flag is up.
+    /// Deleting the `undoReplayBlockedByLanding` guard must fail this.
     @Test @MainActor func theSessionUndoHandlersGiveWayWhileALandingIsInFlight() async throws {
         let world = try await RestructureApplyTests.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -513,17 +507,12 @@ import Testing
 
     // MARK: - A profile that does not say which folder it describes
 
-    /// Every landing refuses a profile that records no folder, rather than acting under `~`. A file
-    /// without `root` decodes as `~`, so a nil-root check alone would let it through: the scaffold
-    /// would create folders under home, a plan would move whatever shares a name there, "make the
-    /// survey catch up" would walk all of home, and the re-derive would write `"~"` into its
-    /// profile. A root still relative once `~` is expanded resolves against the working directory,
-    /// and is refused the same way, as Refresh refuses both.
-    ///
-    /// Driven through all four landings. The fixture keeps a regression off the real home folder:
-    /// with no profiles directory, a landing that skipped the guard stops at "No folder survey is
-    /// loaded." (a different sentence, so it still fails) before any walk or move, and the
-    /// scaffold's subject is a folder no home holds, so its create-without-intermediates fails.
+    /// Every landing refuses a profile that records no folder, or a root still relative once `~` is
+    /// expanded, rather than acting under home: a file without `root` decodes as `~`, so a nil-root
+    /// check alone would let the scaffold, a plan and the re-derive loose on the home folder.
+    /// Driven through all four landings. The fixture keeps a regression off the real home: with no
+    /// profiles directory, a landing that skipped the guard stops at "No folder survey is loaded."
+    /// (a different sentence, so it still fails) before any walk or move.
     @Test(arguments: [#"{"profileId": "t", "folders": []}"#,
                       #"{"profileId": "t", "root": "Documents", "folders": []}"#])
     @MainActor func aProfileThatRecordsNoFolderRefusesEveryLanding(profileJSON: String) async throws {

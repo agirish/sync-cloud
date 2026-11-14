@@ -659,12 +659,9 @@ import Testing
     }
 
     @Test func independentMarkerClustersInDifferentFoldersNeverPoolUnmarkedOriginals() {
-        // Markers in TWO different folders are two independent duplication events (ClientA
-        // duplicated its report; ClientB duplicated its own), not one document's history.
-        // Pooling both folders' plain files would make the newest file anywhere the keeper and
-        // recommend trashing the OTHER folder's unmarked original, an unrelated document. Only
-        // the marker-bearers may group cross-folder (their names carry their own evidence);
-        // each folder's unmarked report.pdf must never ride along.
+        // Markers in TWO folders are two independent duplication events, not one document's
+        // history. Pooling both folders' plain files would recommend trashing the OTHER folder's
+        // unmarked original, an unrelated document: only the marker bearers may group cross-folder.
         let tree = [
             dir("/root/ClientA", [
                 file("/root/ClientA/report.pdf", size: 9_000, modified: Date(timeIntervalSince1970: 1_500_000)),
@@ -695,11 +692,9 @@ import Testing
     }
 
     @Test func bearersOfHashStarvedClustersStillPoolCrossFolder() {
-        // A marker folder with same-stem company forms a per-folder cluster — but when that
-        // cluster can't prove drift (its companions are unknown-hash: too large, cloud-only),
-        // the guard kills it, and the bearer must FALL THROUGH to the cross-folder pool
-        // rather than silently vanish: its marked name still carries its own evidence, and a
-        // lone bearer elsewhere may prove the drift the home folder couldn't.
+        // A per-folder cluster that can't prove drift (its companions are unknown-hash) is
+        // dropped, and its marker bearer must fall through to the cross-folder pool rather than
+        // vanish: a lone bearer elsewhere may prove the drift the home folder couldn't.
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
         let tree = [
@@ -848,11 +843,9 @@ import Testing
     }
 
     @Test func versionsKeeperDoesNotPenalizeTransientDownloadLocations() {
-        // The newest revision of a drifted document routinely sits in Downloads (just saved from
-        // mail/browser); penalizing "downloads" like an archive would keep the STALE Documents
-        // copy and trash the only copy of the new content. Only true archive/backup/trash
-        // segments may demote a versions keeper. Exercises newestIndex directly:
-        // Documents/report.pdf (old) vs Downloads/report-v2.pdf (new, differs).
+        // The newest revision routinely sits in Downloads; penalizing "downloads" like an archive
+        // would keep the STALE Documents copy and trash the only copy of the new content. Only
+        // true archive/backup/trash segments may demote a versions keeper.
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
         func info(_ path: String, modified: Date, hash: String) -> DuplicateFinder.NodeInfo {
@@ -946,9 +939,8 @@ import Testing
     /// A repository and a ZIP of its working tree hold the same files; only the repository holds
     /// `.git`. The archive penalty makes the repository the copy a folder group would trash.
     ///
-    /// This pins the folder: no folder group forms, so the repository is never offered for removal
-    /// whole. The files inside are not protected: the archive penalty still recommends removing its
-    /// tracked `a.txt` and `b.txt`. The last assertion says so, so changing either is deliberate.
+    /// No folder group forms, so the repository is never offered for removal whole. Its tracked
+    /// files are not protected; the last assertion says so, so changing either is deliberate.
     @Test func aRepositoryFolderIsNeverOfferedAsAFolderCopyOfItsWorkingTree() {
         let tree = [
             dir("/root/Archive/proj", [
@@ -1407,15 +1399,11 @@ import Testing
         #expect(g.removingRedundantCopy(atPath: "/nope")! == g)
     }
 
-
     // MARK: Folder-keeper protection must not distort the groups it protects
 
     @Test func versionsStillKeepTheNewestWhenAProtectedFileIsInTheCluster() {
         // The keeper is the real newest; protection only takes protected files off the removable
-        // side. Choosing the newest of the protected subset would break the card's "Keep newest,
-        // Trash older": an older file in the kept folder would win and the real newest go to the
-        // Trash.
-        //
+        // side. The newest of the protected subset would send the real newest to the Trash.
         // Three marker bearers in three folders, which is what pools them into ONE cluster.
         let oldest = Date(timeIntervalSince1970: 100_000_000)
         let middle = Date(timeIntervalSince1970: 500_000_000)
@@ -1448,12 +1436,9 @@ import Testing
     }
 
     @Test func aFileDroppedByProtectionDoesNotReappearAsAVersion() {
-        // The identical pass marks everything it accounted for, protected copies included, so the
-        // versions pass skips it. Marking only the copies that survive protection would let a
-        // dropped protected file resurface in a versions group.
-        //
-        // Dates make the NON-marker file the identical group's keeper, so the marker bearer is the
-        // one protection drops — the member that can go on to form a version cluster.
+        // The identical pass marks everything it accounted for, protected copies included, so a
+        // dropped protected file can't resurface in a versions group. Dates make the NON-marker
+        // file the keeper, so the marker bearer is the one protection drops.
         let newer = Date(timeIntervalSince1970: 1_700_000_000)
         let older = Date(timeIntervalSince1970: 100_000_000)
         let f1 = dir("/root/Docs/F1", [

@@ -21,10 +21,9 @@ final class Flag: @unchecked Sendable {
 /// test fails on its assertions instead of spinning until the CI job times out.
 ///
 /// The bound's expiry is recorded in `timedOut`, never discarded: a park that quietly gives up
-/// lets the round-trip complete before the test has staged its state (the clearFiling + rescan,
-/// the begin/endScan pair), so the guard under test is never evaluated and a positive control
-/// passes asserting nothing. As with `awaitSignal` and ``FirstStatGate/releasedByTimeout``,
-/// callers must `#expect(!timedOut.value, …)` once the awaited work is done.
+/// lets the round-trip complete before the test has staged its state, so the guard under test is
+/// never evaluated and a positive control passes asserting nothing. As with `awaitSignal` and
+/// ``FirstStatGate/releasedByTimeout``, callers must `#expect(!timedOut.value, …)` afterwards.
 ///
 /// Bounded by ``parkTurnFloor`` scheduler turns as well as seconds: the parked closures run on
 /// the cooperative pool (a classifier, or an operation `enqueueFileOperation` runs detached) while
@@ -63,15 +62,14 @@ func awaitArrival(_ what: Comment, timeout: TimeInterval = 10,
     }
 }
 
-/// A tiny thread-safe call counter for injected closures, lock-backed for the same reason as
-/// ``Flag``: it is written from a classifier closure in another isolation domain and read from
-/// the test's spins.
+/// A thread-safe call counter for injected closures, lock-backed for the same reason as ``Flag``:
+/// written from a closure in another isolation domain and read from the test's spins.
 final class CallCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
-    /// Increments and returns the new value — atomic, so concurrent callers each see a distinct
-    /// ordinal (1 for the first call, 2 for the second, …).
+    /// Increments and returns the new value, atomically, so concurrent callers each see a distinct
+    /// ordinal.
     func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
 }
 
@@ -86,8 +84,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
     var tier: FilingClassifierTier? { withLock { $0.tier } }
 }
 
-/// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path
-/// (real move, creating new folders, undoable).
+/// Filing at the manager level: the end-to-end scan over real folders, and the apply path (a real,
+/// undoable move that creates new folders).
 @Suite struct FileSyncManagerFilingTests {
 
     /// A manager for a "Try another" re-ask: its settings and rules on `defaults` (a scratch suite
@@ -129,7 +127,6 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         let tesla = manager.filingSuggestions.first { $0.fileName.hasPrefix("Tesla") }
         #expect(tesla?.best?.path.hasSuffix("Documents/Vehicles/Tesla/Insurance") == true)
         #expect(tesla?.best?.newSegments == ["Tesla", "Insurance"])
-        // The unrecognized file appears but with no confident home.
         let junk = manager.filingSuggestions.first { $0.fileName == "zxqw9.bin" }
         #expect(junk?.hasConfidentHome == false)
     }
@@ -163,7 +160,7 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
     @Test func applyRecommendedFilesConfidentOnlyLeavesTheRest() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeBytes(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)   // High: two words (GS)
+        try writeBytes(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)   // High: two words
         try writeBytes(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         let junkPath = root.appendingPathComponent("Downloads/zxqw9.bin")
         try writeBytes(junkPath)
@@ -174,7 +171,7 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
 
         await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
 
-        // The Tesla file moved; the unrecognized one stays put and stays in the list.
+        // The unrecognized file stays put and stays in the list.
         #expect(FileManager.default.fileExists(atPath: junkPath.path))
         #expect(manager.filingSuggestions.count == 1)
         #expect(manager.filingSuggestions.first?.fileName == "zxqw9.bin")
@@ -191,15 +188,10 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
 
     /// Filing into the file's own folder is a no-op success, not a move or a rename.
     ///
-    /// Reached through a destination whose case differs from the folder on disk: automation
-    /// destination templates match case-insensitively by design, so a rule destination typed
-    /// "downloads" for the on-disk "Downloads" is expected input. Compared exactly, it reads as a
-    /// different folder on the default case-insensitive volume: the move finds the file itself,
-    /// the unique-name helper steps around it, and the file is renamed in place to
-    /// "report 2.pdf" under a "Filed" banner.
-    ///
-    /// Reached through a symbolic link: `namesSameDirectory` folds case but resolves no links, so
-    /// unresolved, `Filing` → `Downloads` reads as a different folder, with the same rename.
+    /// Automation templates match case-insensitively, so "downloads" for the on-disk "Downloads"
+    /// is expected input. Compared exactly, or through an unresolved symbolic link, it reads as a
+    /// different folder: the move finds the file itself, the unique-name helper steps around it,
+    /// and the file is renamed in place to "report 2.pdf" under a "Filed" banner.
     @MainActor
     @Test(arguments: Self.ownFolderSpellings)
     func applyingToTheFilesOwnFolderIsANoOpNotARename(_ spelling: OwnFolderSpelling) async throws {
@@ -231,8 +223,7 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(names == ["report.pdf"], "the file was renamed in place: \(names)")
         #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
         if spelling == .link {
-            // And it says so: the card goes, and without a word that looks like a click that did
-            // nothing, or a file that went somewhere.
+            // The card goes with a word, or it looks like a click that did nothing.
             let banner = try #require(manager.banner, "the card vanished without a word")
             #expect(banner.message == "“report.pdf” is already in that folder — nothing to move.")
         }
@@ -313,9 +304,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
             } ?? false
         }
         #expect(offersTheParent(suggestions) == false)
-        // And the case-sensitive volume keeps its honest answer: there, the two really do differ,
-        // so the candidate stands — which is also what proves the assertion above measures the
-        // filter rather than the rule simply never producing this candidate.
+        // Control: on a case-sensitive volume the two really differ, so the candidate stands, which
+        // proves the assertion above measures the filter, not a rule that never produced it.
         let sensitive = FilingEngine.suggest(
             looseFiles: [file], taxonomy: taxonomy, providerRoot: "/root",
             automations: [rule], options: FilingOptions(caseSensitiveVolume: true))
@@ -343,7 +333,7 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(!FileManager.default.fileExists(atPath: tesla.path))
         #expect(!FileManager.default.fileExists(atPath: toyota.path))
 
-        // A single ⌘Z reverts the whole batch.
+        // One ⌘Z reverts the whole batch.
         #expect(undo.canUndo)
         undo.undo()
         await waitUntil("both files restored") {
@@ -360,7 +350,6 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         try writeBytes(srcPath)
 
         let manager = FileSyncManager()
-        // Simulate on-device extraction finding the entities inside the uninformatively-named scan.
         manager.filingContentExtractor = { $0.hasSuffix("scan0012.pdf") ? ["tesla", "policy", "geico"] : [] }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
@@ -407,8 +396,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(manager.filingSuggestions.isEmpty)
         #expect(manager.filingScanFolder == nil)
         #expect(manager.hasSuggestedFiling == false)
-        // Session rejections are keyed by file path; a provider switch invalidates them (another
-        // provider can legitimately host a same-named path), so clearFiling must drop them.
+        // Session rejections are keyed by file path, and another provider can host a same-named
+        // path, so a provider switch must drop them.
         #expect(manager.filingSessionRejections.isEmpty)
     }
 
@@ -454,7 +443,6 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
 
         let manager = manager(withScratchRules: "FilingRules")
 
-        // File it into Archive/Tesla and ask Filing to remember the correction.
         let s = FilingSuggestion(filePath: srcPath.path, fileName: "Tesla Policy.pdf", size: 5000,
                                  modificationDate: nil, candidates: [])
         manager.filingSuggestions = [s]
@@ -462,12 +450,11 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
                                      confidence: .high, reasons: [], newSegments: [])
         _ = await manager.applyFilingSuggestion(s, to: dest, remember: true)
 
-        // An automation keyed on "tesla" now exists…
         #expect(manager.automationRules.count == 1)
         #expect(manager.automationRules.first?.conditions == [.mentionsAll(["tesla"])])
 
-        // …and a fresh scan of another Tesla file files it into that same remembered folder,
-        // high-confidence & batch-eligible, carrying the "remembered" flag.
+        // A fresh scan files another Tesla file into the remembered folder, high-confidence and
+        // batch-eligible.
         try writeBytes(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let renewal = manager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
@@ -504,10 +491,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(manager.automationRules.contains { $0.name == "Other" })
     }
 
-    /// Value-unchanged guard: `setAutomationRule` with the stored value must be a no-op, with no
-    /// re-persist and (the observable pin) no duplicate "enabled/disabled" audit-log line. The
-    /// card's Toggle fires only on a real flip, but any other caller of this seam must not
-    /// double-log.
+    /// `setAutomationRule` with the stored value is a no-op: no re-persist and no duplicate
+    /// "enabled/disabled" audit-log line, whoever calls it.
     @MainActor
     @Test func settingAnUnchangedEnabledStateDoesNotDoubleLog() async {
         let log = LogCapture()
@@ -525,19 +510,18 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         let disabledLine = "Automation rule disabled: “Tesla”"
         let baseline = await logCount(disabledLine)
 
-        // A real flip logs exactly once…
         manager.setAutomationRule(id: rule.id, enabled: false)
         #expect(manager.automationRules.first?.enabled == false)
         #expect(await logCount(disabledLine) == baseline + 1)
 
-        // …and repeating the same value changes nothing and logs nothing.
+        // Repeating the same value logs nothing.
         manager.setAutomationRule(id: rule.id, enabled: false)
         #expect(manager.automationRules.first?.enabled == false)
         #expect(await logCount(disabledLine) == baseline + 1)
     }
 
-    /// An automation with an absolute destination pointing into a DIFFERENT provider must never
-    /// steer this provider's scan — the same scoping the legacy rules had.
+    /// An automation with an absolute destination pointing into a different provider must never
+    /// steer this provider's scan.
     @MainActor
     @Test func automationsAreScopedToTheProviderTheyPointInto() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
@@ -591,9 +575,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(steered.first?.best?.fromContent == true)   // content-derived → medium, no blind batch
     }
 
-    /// Legacy parity for the learned shape: a mixed match (one trigger word in the name) counts as
-    /// name-derived, high confidence and batch-eligible, as the legacy rules did. A content-only
-    /// match is pinned in `FilingProvenancePinTests`.
+    /// A mixed match of a learned rule (one trigger word in the name) counts as name-derived, high
+    /// confidence and batch-eligible. A content-only match is pinned in `FilingProvenancePinTests`.
     @Test func aMixedRuleMatchCountsAsNameDerived() {
         let mixedRule = AutomationRule(name: "Acme", conditions: [.mentionsAll(["acme", "invoice"])],
                                        destinationTemplate: "/p/Acme")
@@ -688,7 +671,6 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         try writeBytes(root.appendingPathComponent("Downloads/Physician's Report - Son.pdf"))
 
         let manager = FileSyncManager()
-        // A stand-in for the on-device model: it "reasons" Son → Family/Son.
         manager.filingClassifier = { context, files, _ in
             #expect(context.taxonomyFolders.contains("Documents/Family/Son"))  // the real taxonomy
             // With no profile loaded, destinations is the taxonomy unchanged, so a never-surveyed
@@ -830,11 +812,9 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
 
     // MARK: - The paid re-ask must not go out blind
 
-    /// "Try another" is a `.refine` call, the paid tier, so it sends the file's content snippet.
-    /// As in the refine pass, a name-only verdict is one the overlay refuses anyway
-    /// (`contentBlind`): a paid round-trip that changes nothing. The evidence is free:
-    /// `filingPageSamples` holds page 1 of every file the scan read, and `tryAnotherFolder` reads
-    /// it anyway for the person veto.
+    /// "Try another" is a `.refine` call, the paid tier, so it sends the file's content snippet: a
+    /// name-only verdict is one the overlay refuses anyway (`contentBlind`). The page is free:
+    /// `filingPageSamples` holds page 1 of every file the scan read.
     @MainActor
     @Test func tryAnotherFolderSendsThePageTheScanAlreadyRead() async throws {
         let manager = reaskManager()
@@ -900,11 +880,9 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         return (manager, seen)
     }
 
-    /// A re-ask is billable, so it passes the spend gate. A pass of the limit refuses, logs the specifics,
-    /// puts the remedy in a banner, and the click keeps the free on-device suggestion it had. No
-    /// modal per card click; the refine pass keeps its dialog. The banner is asserted, not just the
-    /// refusal: a silent refusal with the remedy only in `~/sync-cloud.log` passes a test that
-    /// checks only that the classifier wasn't reached.
+    /// A re-ask past the limit refuses, puts the remedy in a banner (no modal per card click), and
+    /// keeps the free on-device suggestion. The banner is asserted, not just the refusal: a silent
+    /// refusal with the remedy only in `~/sync-cloud.log` passes a check on the classifier alone.
     @MainActor
     @Test func tryAnotherFolderStandsDownWhenTheLimitWouldBePassed() async throws {
         // A limit below the cost of any real call, so one priced file passes it. Seeding spend just
@@ -930,8 +908,7 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         let (manager, seen) = await cloudReask("reaskRoom")
 
         #expect(seen.tier == .refine, "a re-ask with budget left was refused")
-        // And the banner must stay OUT of the ordinary path: a warning on every successful re-ask
-        // would be the noise that trains the user to ignore the one that matters.
+        // No banner on the ordinary path: a warning on every re-ask trains the user to ignore it.
         #expect(manager.banner == nil, "a re-ask that went through posted a banner anyway")
     }
 
@@ -972,9 +949,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh")
         #expect(manager.filingTryAnotherInFlight.isEmpty, "the completed re-ask must release its id")
 
-        // The guard must be a latch that opens again: a third click, after the first round-trip
-        // returned, has to reach the classifier. Without this the suite stays green with
-        // `tryAnotherFolder`'s releasing `defer` deleted, a "Try another" that works once per card.
+        // The latch opens again: a click after the first round-trip returned reaches the
+        // classifier. Fails if `tryAnotherFolder`'s releasing `defer` is deleted.
         let refreshed = try #require(manager.filingSuggestions.first)
         await manager.tryAnotherFolder(for: refreshed)
         #expect(calls.value == 2, "once the first re-ask returned, the next click must re-ask again")
@@ -1069,27 +1045,22 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
 
     /// A late "Try another" RESULT lands only in the cards it was computed against.
     ///
-    /// `clearAndRecreate`, the other half of the hole above: A's verdict was computed against the
-    /// pre-clear taxonomy and rejections, but `replaceFilingSuggestion` keys on the suggestion id —
-    /// the stable file path — so after clearFiling + rescan recreate the card, A's stale write
-    /// lands in the NEW session's card. A verdict from an invocation that no longer owns its
-    /// in-flight entry must be dropped.
+    /// `clearAndRecreate`: `replaceFilingSuggestion` keys on the suggestion id, the stable file
+    /// path, so after clearFiling + rescan recreate the card, A's verdict, computed against the
+    /// pre-clear state, lands in the new session's card. A verdict from an invocation that no
+    /// longer owns its in-flight entry must be dropped.
     ///
-    /// `completedRescan`, the third way the state moves on mid-round-trip: a Filing rescan assigns
-    /// `filingSuggestions` directly WITHOUT touching `filingTryAnotherInFlight`, so the stale
-    /// invocation still owns its entry and an ownership check alone lets its write through. What a
-    /// COMPLETED rescan does move is `filingSuggestionsGeneration`, bumped with the publish itself
-    /// — that is the currency that must gate the result write.
+    /// `completedRescan`: a rescan assigns `filingSuggestions` without touching
+    /// `filingTryAnotherInFlight`, so an ownership check alone lets the stale write through. A
+    /// completed rescan moves `filingSuggestionsGeneration`, bumped with the publish, and that
+    /// must gate the result write.
     ///
     /// `cancelledRescan`, the other side of that guard: drop a verdict only when the list really
-    /// was republished, not merely when a scan ran. `endScan` runs in the scan body's `defer` and
-    /// bumps the epoch however the scan ended, so a cancelled rescan bumps it twice without
-    /// publishing, and `cancelFindFilingSuggestions` leaves the old cards standing. Gating on the
-    /// epoch would throw away a verdict computed against exactly the state on screen, and the card
-    /// would silently keep the folder the user just rejected. This is a POSITIVE control — it
-    /// asserts a verdict DOES land — so a park that gave up on its own is invisible without the
-    /// timeout check: A would complete before begin/endScan ever moved the epoch, and the
-    /// assertion would pass having never put the guard in front of a bumped epoch at all.
+    /// was republished. A cancelled rescan bumps the epoch twice (`beginScan`, then `endScan` in
+    /// the scan's `defer`) without publishing, leaving the old cards standing; gating on the epoch
+    /// would throw away a verdict about exactly the cards on screen, and the card would keep the
+    /// folder the user just rejected. This is a positive control, so it needs the timeout check: a
+    /// park that gave up lets A complete before the epoch moved, and the assertion passes vacuously.
     @MainActor
     @Test(arguments: [MidReaskChange.clearAndRecreate, .completedRescan, .cancelledRescan])
     func aLateTryAnotherResultLandsOnlyInTheCardsItWasComputedAgainst(_ change: MidReaskChange) async throws {
@@ -1126,9 +1097,8 @@ private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet
             manager.filingLastTaxonomyFolders = ["Docs"]
             manager.publishFilingSuggestions([s])
         case .completedRescan:
-            // A rescan runs to COMPLETION while A is parked — the real state machine: begin, the
-            // single publish that recreates the card (same id, new session state), then the
-            // `defer`'s end.
+            // A rescan runs to completion while A is parked, as the real state machine does: begin,
+            // the one publish that recreates the card, then the `defer`'s end.
             manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
             manager.publishFilingSuggestions([s])
             manager.endScan(\.filingScanLifecycle)

@@ -52,8 +52,8 @@ import Foundation
 
     // MARK: Invalidation — the part that matters
 
-    /// The core regression: resolve once (filling the cache), replace the tree, resolve again, and
-    /// the answer must come from the new tree. A cache keyed on something that stops changing
+    /// Resolve once (filling the cache), replace the tree, resolve again, and the answer must
+    /// come from the new tree. A cache keyed on something that stops changing
     /// would keep returning the old node.
     @Test func testCacheInvalidatesWhenTheTreeIsReplaced() {
         let m = FileSyncManager()

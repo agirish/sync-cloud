@@ -2,18 +2,18 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// A To File list built by hand, with no folder on disk and no scan (TE335's tests).
+/// A To File list built by hand, with no folder on disk and no scan.
 ///
 /// The Refine plan, Undo and Try Another suites are about what the manager does with a list, not
 /// about the walk that makes one. Scanning a fixture on disk runs on the main actor, where every
 /// `@MainActor` suite queues, and the parking suites' releases queue behind it: a few dozen scans at
-/// the start of the package run was enough to turn them red (docs/flaky-tests.md, "Every gate parks
+/// the start of the package run push them past their bound (docs/flaky-tests.md, "Every gate parks
 /// at once"). A hand-built list costs microseconds.
 enum HandBuiltFiling {
 
     /// The one manager and the one defaults suite all four hand-built suites use, one at a time: each
-    /// costs 0.1 to 2 s to make on the main actor, and four of each at the start of the package run
-    /// was part of what pushed the parking suites past their bound.
+    /// costs 0.1 to 2 s to make on the main actor, and making four of each at the start of the
+    /// package run helps push the parking suites past their bound.
     @MainActor static let manager = FileSyncManager()
     @MainActor static let defaults = ScratchDefaults("HandBuiltFiling")
 
@@ -50,13 +50,12 @@ enum HandBuiltFiling {
         })
     }
 
-    /// Whether this suite's manager has been made: `FileSyncManager()` costs 0.1 to 0.7 s on the main
-    /// actor, and a few dozen of them at the start of the package run took the parking suites' releases
-    /// past their bound. Each of these suites keeps ONE manager, serialized, and resets it per test.
+    /// Resets the shared manager per test rather than making one: `FileSyncManager()` costs 0.1 to
+    /// 0.7 s on the main actor, and a few dozen at the start of the package run push the parking
+    /// suites' releases past their bound.
     ///
-    /// The defaults too are the suite's one, emptied: a `ScratchDefaults` wipes its domain when it is
-    /// released, through cfprefsd and the file system under a process-wide lock, about 0.1 s each, on
-    /// the main actor. Two per test, across fifty tests, was most of what these suites cost.
+    /// The defaults are emptied, not replaced: a released `ScratchDefaults` wipes its domain through
+    /// cfprefsd and the file system under a process-wide lock, about 0.1 s each, on the main actor.
     @MainActor
     static func reset(_ m: FileSyncManager, defaults: ScratchDefaults) {
         if let domain = defaults.persistentDomain(forName: defaults.scratchSuiteName) {

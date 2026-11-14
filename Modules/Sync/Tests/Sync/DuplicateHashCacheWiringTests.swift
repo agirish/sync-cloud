@@ -104,12 +104,11 @@ import Foundation
 
         let shared = ContentHashCache()
 
-        // Verify's own entry point, through the cache.
         let same = await FileContentVerifier.filesHaveSameContent(
             leftPath: a.path, rightPath: b.path, cache: shared)
         #expect(same == true)
 
-        // Both digests are now cached — and they are the REAL ones, so the scan must group.
+        // The real digests are cached, so the scan must group.
         #expect(await shared.hash(for: try key(for: a)) != nil)
         #expect(await shared.hash(for: try key(for: b)) != nil)
 
@@ -117,8 +116,8 @@ import Foundation
         await manager.findDuplicates(root: root, cache: shared)
         #expect(manager.duplicateGroups.count == 1)
 
-        // The direction of the claim: overwrite one of the digests Verify left behind and the
-        // scan's answer changes, so the scan read Verify's entries rather than re-hashing.
+        // Overwrite one of Verify's digests and the scan's answer changes, so the scan read
+        // Verify's entries rather than re-hashing.
         await shared.store(String(repeating: "c", count: 64), for: try key(for: b))
         let after = FileSyncManager()
         await after.findDuplicates(root: root, cache: shared)
@@ -161,8 +160,8 @@ import Foundation
     }
 
     /// `planMerge` decides "the keeper already has this content at this path" from a hash compare,
-    /// and it re-hashes the WHOLE keeper tree once per redundant copy — the merge path's real cost.
-    /// Plant matching digests for a keeper/copy pair and the step disappears from the plan.
+    /// re-hashing the whole keeper tree once per redundant copy. Planted matching digests make the
+    /// step disappear from the plan.
     @Test func planMergeReadsTheSessionCache() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheMerge")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -176,7 +175,6 @@ import Foundation
                                                      fileManager: FileManager.default, cache: nil)
         #expect(honest.steps.count == 1, "differing content must be planned for copying")
 
-        // Plant one shared digest for both, so the planner believes the keeper already has it.
         let cache = ContentHashCache()
         let digest = String(repeating: "b", count: 64)
         await cache.store(digest, for: try key(for: keeper.appendingPathComponent("doc.txt")))

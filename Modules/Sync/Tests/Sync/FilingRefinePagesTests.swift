@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What the plan card lets the person choose for one Refine pass (TE335, C3): which pages go, which
-/// files wait for them, saved answers asked again, the pass cut to what fits, and folders left out of
-/// the list. Each choice is shown changing what the request holds, and what the plan says about it.
+/// What the plan card lets the person choose for one Refine pass: which pages go, which files wait
+/// for them, saved answers asked again, the pass cut to what fits, and folders left out of the list.
+/// Each choice is shown changing what the request holds, and what the plan says about it.
 extension HandBuiltRefineSuites {
 @MainActor
 @Suite struct FilingRefinePagesTests {
@@ -12,7 +12,6 @@ extension HandBuiltRefineSuites {
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
     private static var shared: FileSyncManager { HandBuiltFiling.manager }
     private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
-
 
     /// What each request carried, and the "avoid: …" folders it named.
     private typealias Seen = LockedBox<[PagesRequest]>
@@ -184,7 +183,7 @@ extension HandBuiltRefineSuites {
         let all = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         guard case .quote(let full) = all.billing else { Issue.record("no quote"); return }
 
-        // A limit a little over half of what this pass costs: some of it fits.
+        // A limit of 60% of the pass's cost: some of it fits.
         m.filingContentDefaults.set(full.estCostUSD * 0.6, forKey: AskClaudeSpend.limitDefaultsKey)
         let over = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         guard case .quote(let overQuote) = over.billing else { Issue.record("no quote"); return }

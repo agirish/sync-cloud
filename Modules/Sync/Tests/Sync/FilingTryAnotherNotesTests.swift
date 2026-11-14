@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What Try Another says on a card, and the one click that sends a page to Claude (TE335, LX-A, LT-B):
-/// a folder that asks each time stays on this Mac and offers the page; the click sends it; a failure or
-/// a reached limit is the card's own note; and each request that reached Claude is reported.
+/// What Try Another says on a card, and the one click that sends a page to Claude: a folder that
+/// asks each time stays on this Mac and offers the page; the click sends it; a failure or a reached
+/// limit is the card's own note; and each request that reached Claude is reported.
 extension HandBuiltRefineSuites {
 @MainActor
 @Suite struct FilingTryAnotherNotesTests {

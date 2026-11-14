@@ -2,8 +2,6 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What a Refine pass and a Try Another do with how Claude's request ended (TE335, E2): a failure or
-/// a Stop says so, what arrived is kept, and the on-device model never answers in Claude's place.
 /// What Claude would have answered for the files named, in `folder`.
 private func answers(_ files: [FilingCandidateFile], answering names: [String], to folder: String = "Archive/2026") -> [String: FilingVerdict] {
     Dictionary(uniqueKeysWithValues: files.filter { names.contains($0.fileName) }.map {
@@ -11,6 +9,8 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
     })
 }
 
+/// What a Refine pass and a Try Another do with how Claude's request ended: a failure or a Stop
+/// says so, what arrived is kept, and the on-device model never answers in Claude's place.
 @MainActor
 @Suite struct FilingRefineHonestTests {
 

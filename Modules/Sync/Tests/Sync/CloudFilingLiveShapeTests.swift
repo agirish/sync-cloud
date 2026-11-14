@@ -5,26 +5,15 @@ import Testing
 /// The key the live check spends, from the environment and nowhere else.
 private let liveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_LIVE_KEY"].flatMap { $0.isEmpty ? nil : $0 }
 
-/// Which request shape each Ask Claude model accepts for Refine, asked for real (TE335, E1).
+/// Which request shape each Ask Claude model accepts for Refine, asked for real: one small Refine
+/// batch and one folder-name batch per model and shape in `CloudFilingProtocol.RequestShape.variants`,
+/// one printed line per try. The shape `RequestShape.current(for:)` returns must work on all three
+/// models; the others are reported, not asserted. A try works when the request is accepted, the
+/// answer isn't cut off, and every file or folder name has an answer. Sonnet 5.5 and Opus 5.5
+/// refuse a forced tool with a 400, and `strict` cut answers short, so both stay off.
 ///
-/// Refine's request forces one tool, which Opus 5.5 and Sonnet 5.5 refuse with a 400; the chat's
-/// own 5.5 requests use API version 2026-10-21, low effort, server-side fallbacks and a streamed
-/// reply. This sends one small Refine batch and one folder-name batch to each of the chat's three
-/// models in each shape in `CloudFilingProtocol.RequestShape.variants`, and prints one line per
-/// try: status, stop reason, placements read, tokens, estimated cost and seconds. The shape that
-/// `RequestShape.current(for:)` returns must work on all three; the other shapes are reported, not
-/// asserted, so a failing control (today’s forced tool) shows what the API said. A try works when the
-/// request is accepted, the answer isn't cut off, and every file or folder name has an answer.
-///
-/// **First run, 2026-11-07:** the forced tool was a 400 on Sonnet 5.5 and Opus 5.5 (`tool_choice:
-/// type "tool" and "any" are not supported for this model`), `any` the same. Leaving the tool to the
-/// model worked on all three. `strict` cut answers short on Sonnet 5.5 (1 of 6) and Haiku 5.5, so it
-/// stays off.
-///
-/// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key (never the
-/// Keychain, which a test must never touch) and never on CI. It spends real money, a few cents in
-/// all. A skipped run is a vacuous green: the gate quotes the printed table.
-///
+/// Off unless `ASK_CLAUDE_LIVE_KEY` holds an API key (never the Keychain, which a test must never
+/// touch), and never on CI: it spends real money. A skipped run is a vacuous green.
 /// Run: `read -s "ASK_CLAUDE_LIVE_KEY?Key: " && export ASK_CLAUDE_LIVE_KEY`, then
 /// `scripts/build-slot swift test --package-path Modules/Sync --filter CloudFilingLiveShapeTests`.
 @Suite(.serialized, .enabled(if: liveKey != nil, "no ASK_CLAUDE_LIVE_KEY — the live check is skipped"))

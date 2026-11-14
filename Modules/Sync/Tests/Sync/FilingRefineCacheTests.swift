@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Refine's saved answers (TE335, E3): any Claude model's answer counts, the page going is part of
-/// the question, an answer naming a hidden folder is not a hit, and answers written before this
-/// change are neither trusted as Claude's nor lost for the on-device model.
+/// Refine's saved answers: any Claude model's answer counts, the page going is part of the
+/// question, an answer naming a hidden folder is not a hit, and an older cache file's answers are
+/// neither trusted as Claude's nor lost for the on-device model.
 @MainActor
 @Suite struct FilingRefineCacheTests {
 
@@ -12,8 +12,8 @@ import Testing
 
     private func fixture(_ name: String) throws -> URL { try refineFixture(prefix: "RefineCache-\(name)", looseFiles: 2) }
 
-    /// Claude (via `filingRefineClassifier`) answers Archive/2026 for everything. `identity` is the
-    /// backend identity the app would report; a test changes it between passes to change the model.
+    /// Claude (via `filingRefineClassifier`) answers Archive/2026 for everything. A test changes
+    /// `filingBackendIdentity` between passes to change the model.
     private func manager(_ asked: Asked, cacheDir: URL, reads: Bool = false) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingContentDefaults = ScratchDefaults("FilingRefineCacheTests-\(UUID().uuidString)")
@@ -71,7 +71,6 @@ import Testing
         let root = try fixture("page"); defer { try? FileManager.default.removeItem(at: root) }
         let cache = try makeCanonicalTempRoot(prefix: "RefineCacheDir"); defer { try? FileManager.default.removeItem(at: cache) }
         let asked = Asked()
-        // First, the page goes.
         let withPage = manager(asked, cacheDir: cache, reads: true)
         AskClaudePrivacy.shareWithoutAsking(root.path, in: withPage.filingContentDefaults)   // so its page goes
         await scan(withPage, root: root)
@@ -126,8 +125,8 @@ import Testing
 
     // MARK: Old files
 
-    /// A cache file written before this change: its Claude entry (keyed `cloud:<model>`, with no
-    /// `pageSent`) is never matched again, and its on-device entry still is.
+    /// An older cache file: its Claude entry (keyed `cloud:<model>`, with no `pageSent`) is never
+    /// matched again, and its on-device entry still is.
     @Test func anOldCacheFileLoadsOnDeviceAnswersStillHitAndOldClaudeAnswersDoNot() throws {
         let when = Date(timeIntervalSince1970: 1_800_000_000)
         func oldEntry(model: String, path: String) -> [String: Any] {
@@ -167,7 +166,7 @@ import Testing
 
     // MARK: The request
 
-    /// Refine runs on the chat's model (E4), so every request is the 5.5 shape, streamed.
+    /// Refine runs on the chat's model, so every request is the 5.5 shape, streamed.
     @Test func refineSendsTheFiveFiveRequestToEveryModelAskClaudeOffers() {
         for option in AskClaudeModels.options {
             let shape = CloudFilingProtocol.RequestShape.current(for: option)

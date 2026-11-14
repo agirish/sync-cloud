@@ -792,5 +792,4 @@ import EventsTestSupport
                                               from: try Data(contentsOf: store.fileURL))
         #expect(reread.tags.isEmpty, "the withdrawal did not reach disk")
     }
-
 }

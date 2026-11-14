@@ -61,13 +61,10 @@ import Testing
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// A real `FileManager` with a hole in it: one path that `fileExists(atPath:)` denies.
-    ///
-    /// The landing's verifier re-lists the touched folders through the manager's OWN file
-    /// manager, so a hole here is a mismatch the verifier must find and report — which is how a
-    /// test can drive the unhappy branch on a tree the executor moves correctly. Everything else
-    /// is passed straight through, including the two-argument existence probe the executor uses
-    /// for directories, so nothing else in the landing behaves differently.
+    /// A real `FileManager` with one path that `fileExists(atPath:)` denies. The verifier re-lists
+    /// through the manager's own file manager, so the hole is a mismatch it must report on a tree
+    /// the executor moved correctly. Everything else, including the two-argument probe the executor
+    /// uses for directories, passes straight through.
     final class HidingFileManager: ForwardingFileManaging<FileManager>, @unchecked Sendable {
         let hidden: Set<String>
         init(hiding: Set<String>, over inner: FileManager) {
@@ -80,11 +77,9 @@ import Testing
         }
     }
 
-    /// The flagship-shaped fixture: an era to converge (rename + merge + a seeded collision), a
-    /// keep, a refused folder with its reason, and a Singapore folder for the jurisdiction rule.
-    ///
-    /// `fileManager` is handed the world's own Trash to build on, so a double a test layers over
-    /// it still trashes into the temp root.
+    /// An era to converge (rename + merge + a seeded collision), a keep, a refused folder with its
+    /// reason, and a Singapore folder for the jurisdiction rule. `fileManager` is handed the world's
+    /// own Trash, so a double layered over it still trashes into the temp root.
     static func makeWorld(fileManager: (ScratchTrash) -> FileManaging = { $0 }) async throws -> World {
         let base = try makeCanonicalTempRoot(prefix: "RestructureApply")
         let trash = ScratchTrash(in: base)
@@ -167,10 +162,9 @@ import Testing
 
     // MARK: - The landing, with the tree moving underneath it
 
-    /// The proof's core: a listed file is deleted and an unlisted one added between plan and
-    /// apply. The unlisted folder is skipped and NAMED, the deleted file's own move is skipped,
-    /// the rest lands, the counts match a walk of the result, and the collision is a counted
-    /// fact with the file kept under a unique name.
+    /// Drift between plan and apply: the unlisted folder is skipped and named, the deleted file's
+    /// move is skipped, the rest lands, the counts match a walk of the result, and the collision is
+    /// counted with the file kept under a unique name.
     @Test func theLandingSkipsAndNamesDriftAndTheRestLands() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -229,14 +223,9 @@ import Testing
         }, "skipped actions are not in the landed manifest — its inverse must not reverse them")
     }
 
-    /// Step 6 and 7: the derived profile is active under a fresh id with the chain recorded, the
-    /// judgements carried — for a surviving refused folder AND for the renamed one — Singapore
-    /// survives via the entries, the corpus key moved without its stamp, and the fingerprint moved.
-    ///
-    /// The same clean landing also pins the call sites around it: step 4's verdict reaches the
-    /// ledger; the stages are published in the checklist's order and cleared; the trend is stamped
-    /// and marked as a landing; the journal goes; the replayed memory becomes the live one; and the
-    /// re-derive records the lineage the undo follows.
+    /// After a clean landing the derived profile is active under a fresh id with its chain, the
+    /// judgements carried (for a surviving refused folder and for the renamed one), and the corpus
+    /// key and fingerprint moved. Also pins the call sites around it: verdict, stages, trend, journal.
     @Test func theProfileFollowsTheTreeAndTheJudgementsFollowTheProfile() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -312,9 +301,7 @@ import Testing
         #expect(world.manager.restructureApplyProgress == nil,
                 "and nothing is left showing a checklist over a finished landing")
 
-        // The trend stamp, read from the store the re-derive produced. Its dedupe and the chart's
-        // rules have their own tests; without the call every landing would be invisible on a line
-        // whose point is showing what caused the drops. Not `total == structureFindings.count`:
+        // The trend stamp, from the store the re-derive produced. Not `total == structureFindings.count`:
         // both are zero here, so that would be vacuous (`RestructureTrendStampTests` owns counts).
         let stamped = try #require(world.manager.restructureStore?.trend.last)
         #expect(stamped.landing, "the point a landing produced carries its cause")
@@ -1072,11 +1059,9 @@ import Testing
         #expect(with.refusal?.contains(journal.path) == true, "\(with.refusal ?? "no refusal")")
     }
 
-    /// The journal goes only once the finalised record is on disk. When the finalising
-    /// write fails, the record on disk has no summary, the next launch refuses Undo as a landing
-    /// that never finished, and the refusal points at this journal — so it must still be there.
-    /// The write is broken mid-landing (the ledger's path becomes a folder at the first move), so
-    /// the landing's own step-2 record is written and only the finalise fails.
+    /// The journal goes only once the finalised record is on disk: when finalising fails, the next
+    /// launch refuses Undo and points at this journal, so it must still be there. The ledger's path
+    /// becomes a folder at the first move, so only the finalise fails.
     @Test func aLandingWhoseRecordCouldNotBeFinalisedKeepsItsJournal() async throws {
         let breaker = LedgerBreaker()
         let world = try await Self.makeWorld { trash in
@@ -1696,14 +1681,10 @@ import Testing
                 "the first plan was deleted because the active folder held another of its name")
     }
 
-    /// A landing that can still be undone pins the profile it was applied under. Undo re-points at
-    /// `appliedUnderProfileId` and `repointActiveProfile` requires that profile on disk, so
-    /// retiring it would make a reversible reorganisation permanent.
-    ///
-    /// It refreshes before it applies, and that ordering is the test. Applied straight to the
-    /// fixture, the undo target is `t`, hand-built and protected by its own provenance rule, so the
-    /// test would pass with the whole `appliedUnderProfileId` loop deleted. One refresh first makes
-    /// the undo target a derived profile, superseded by the next refresh, kept only by the ledger.
+    /// A landing that can still be undone pins the profile it was applied under, or retiring it would
+    /// make a reversible reorganisation permanent. It refreshes before it applies, and that ordering
+    /// is the test: applied to the hand-built `t`, provenance alone would keep it, so the test would
+    /// pass with the whole `appliedUnderProfileId` loop deleted.
     @Test func aRefreshAfterALandingKeepsWhatUndoNeeds() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1730,12 +1711,9 @@ import Testing
                 "repointActiveProfile would refuse: the target is not readable on disk")
     }
 
-    /// A re-derivation reads the household file, not the profile's leftovers.
-    /// `PersonRegistry.seeded(from:)` is `FilingProfileStore.personRegistry`'s fallback for a
-    /// machine with no `people.json`. Called directly, it would rebuild the person axis from
-    /// whatever aliases the last profile kept, and `carryOver` writes that axis back, so the loss
-    /// would compound with each refresh. The alias here is one the profile axis does not carry: it
-    /// can only reach the re-derived profile by way of `people.json`.
+    /// A re-derivation reads the household file, not the profile's leftovers: seeding from the last
+    /// profile's aliases would compound a loss on each refresh, since `carryOver` writes that axis
+    /// back. The alias here can reach the re-derived profile only by way of `people.json`.
     @Test func aReDerivationSeedsPeopleFromTheHouseholdFile() async throws {
         let world = try await Self.makeWorld()
         defer { try? FileManager.default.removeItem(at: world.root.deletingLastPathComponent()) }
@@ -1757,13 +1735,10 @@ import Testing
     }
     // MARK: - Step 4's verdict, and step 7's memory
 
-    /// The verifier's verdict reaches the outcome and the ledger. The verify runs through the same
-    /// serial file-operation queue the executor used, not the main actor, so it reads the tree
-    /// strictly after the moves and before anything else the app does to it, and is awaited. A
-    /// correct landing has nothing to report, so a call replaced with `[]` would keep every
-    /// green-path test green. This drives the unhappy branch, a file manager with a hole where the
-    /// carried `Refund/` lands, and checks the mismatch on the outcome, in the log-bound list, and
-    /// in the ledger record the Applied card reads.
+    /// The verifier's verdict reaches the outcome and the ledger. It runs on the executor's serial
+    /// file-operation queue, so it reads the tree strictly after the moves. A correct landing has
+    /// nothing to report, so this drives the unhappy branch: a hole where the carried `Refund/` lands.
+    /// Replacing the verify call with `[]` must fail it.
     @Test func theVerifiersVerdictReachesTheOutcomeAndTheLedger() async throws {
         let world = try await Self.makeWorld {
             Self.HidingFileManager(hiding: ["Tax/2013/Forms/Refund"], over: $0)

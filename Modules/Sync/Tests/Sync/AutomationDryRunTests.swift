@@ -135,7 +135,7 @@ import Testing
 
         let outcome = await m.applyAutomationFiling(rows: report.rows)
         #expect(outcome.filed == 1)
-        // The filing scorecard counts it apart, as the rules' (TE341).
+        // The filing scorecard counts it apart, as the rules'.
         #expect(m.filingScorecard.records.map(\.picker) == [.rules])
         #expect(m.filingScorecard.records.first?.fileName == "bill.pdf")
         // Filed into the provider-root tree; nothing created under the scanned subfolder.

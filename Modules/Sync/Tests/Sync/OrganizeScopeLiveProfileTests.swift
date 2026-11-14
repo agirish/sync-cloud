@@ -2,23 +2,11 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// The scope predicate, dry-run against the live folder profile and the real tree.
-///
-/// Fixtures aren't enough: the live profile propagates axes down the whole subtree, while a
-/// synthetic fixture puts each value only on the folder that owns it, so fixtures can pass while a
-/// real dry run finds nothing. A scope predicate is entirely about how real paths nest, so it is
-/// checked against them.
-///
-/// The assertions pin shape, not counts: the tree is the user's live `~/Documents`, which he edits
-/// as he works, so exact counts would trip on his filing rather than on this code. What is pinned
-/// can't drift without the predicate being wrong: monotonicity, partition, and the non-vacuity of
-/// each answer. Skips, rather than fails, when the profile is absent.
-///
-/// Machine-pinned as well as gated on the profile: the self-hosted CI runner is the same user on
-/// the same Mac, so the profile is there, but under Rosetta the suite runs about ten times slower
-/// and, running in parallel, starves the timing-sensitive suites beside it into false reds. So it
-/// carries `.machinePinned(.liveProfile)`, which CI's `SYNCCLOUD_SKIP_MACHINE_PINNED` names;
-/// locally, the only place these assertions mean anything, it runs in full.
+/// The scope predicate, dry-run against the live folder profile and the real tree, since the live
+/// profile propagates axes down whole subtrees as fixtures don't. Pins shape, not counts (the tree
+/// is his live `~/Documents`): monotonicity, partition, and each answer's non-vacuity. Skips when the
+/// profile is absent. Machine-pinned: under Rosetta on the CI runner it runs about ten times slower
+/// and starves the timing-sensitive suites beside it into false reds.
 @Suite(.enabled(if: LiveProfile.isAvailable,
                 "no live folder profile on this machine — dry run skipped"),
        .machinePinned(.liveProfile))
@@ -109,14 +97,8 @@ struct OrganizeScopeLiveProfileTests {
     }
 
     @Test func noScopeClaimsASiblingSharingAPrefix() throws {
-        // The `Legal` / `LegalArchive` hazard, hunted for in the real tree, where it is common:
-        // under `Finance/IN/Accounts/HDFC Bank/Archive` a folder named `HDFC` sits beside
-        // `HDFC Credit`, `HDFC Demat`, `HDFC Forex` and `HDFC Savings`. A scope built on a bare
-        // `hasPrefix` and pointed at `HDFC` would silently swallow all four and every year-folder
-        // beneath them.
-        //
-        // Sorted with an early break rather than an O(n²) sweep: any path sharing a string prefix
-        // with `a` is contiguous with it in sorted order, so the scan stops at the first non-match.
+        // The `Legal` / `LegalArchive` hazard, common in the real tree (`HDFC` beside `HDFC Credit`).
+        // Sorted with an early break: paths sharing a string prefix are contiguous in sorted order.
         let root = Self.root
         let all = Self.absoluteFolders.sorted()
         var checked = 0

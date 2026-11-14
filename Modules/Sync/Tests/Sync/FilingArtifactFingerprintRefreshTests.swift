@@ -6,14 +6,11 @@ import Testing
 /// Re-deriving the artifact digest after a roster edit, under the right id.
 ///
 /// `FilingArtifacts.attach` builds every store from `loaded.id`, the folder the artifacts were
-/// read from, because `profile.profileId` (the field inside `folder-profile.json`) can disagree,
-/// and then writes go where nothing reads. `refreshFilingArtifactFingerprint` must use the same id.
-///
-/// From the wrong folder the digest is `""`, not nil (`fingerprint` answers `""` for a directory
-/// holding none of the three artifacts), so both cache gates (`FileSyncManager+Filing`,
-/// `FileSyncManager+FilingRefine`) stay open. Every later verdict would be recorded under
-/// `artifacts: ""`, billed and unreachable at the next launch, and a `""`-keyed verdict from one
-/// artifact set could be served against another.
+/// read from, since `profile.profileId` (the field inside `folder-profile.json`) can disagree;
+/// `refreshFilingArtifactFingerprint` must use the same id. From the wrong folder the digest is
+/// `""`, not nil, so both cache gates (`FileSyncManager+Filing`, `FileSyncManager+FilingRefine`)
+/// stay open: every later verdict would be recorded under `artifacts: ""`, billed and unreachable
+/// at the next launch, and could be served against another artifact set.
 @Suite @MainActor struct FilingArtifactFingerprintRefreshTests {
 
     /// A profiles directory whose ACTIVE folder is `work` while the profile inside calls itself
@@ -45,13 +42,10 @@ import Testing
         return manager
     }
 
-    /// In one run: the launch digest is real, an edit lands, and the digest must still name the
-    /// folder the roster was written into. This is also the guard on the call site: the refresh
-    /// follows `$savedRevision`, and a refresh moved to `$people` (which publishes before the save)
-    /// would hash the previous roster and leave the digest at `atLaunch`.
-    ///
-    /// The sharp half: whatever else the refresh does, it must never leave `""`, a perfectly
-    /// recurring digest that keeps the cache ON while naming an empty artifact set.
+    /// After a roster edit the digest must name the folder the roster was written into, and never
+    /// be `""`, a recurring digest that keeps the cache ON while naming an empty artifact set. Also
+    /// guards the call site: a refresh moved from `$savedRevision` to `$people` (which publishes
+    /// before the save) would hash the previous roster and leave the digest at `atLaunch`.
     @Test func aRosterEditRefreshesTheDigestUnderTheFolderItWasWrittenTo() throws {
         let dir = try makeSplitProfiles()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -81,9 +75,8 @@ import Testing
                 "the registry is no longer recompiled when the roster changes")
     }
 
-    /// And when the profile goes away the previous digest must not stay behind with the cache
-    /// still on: a stale key is the same "recorded under a digest that no longer describes the
-    /// question" failure, held one step longer.
+    /// When the profile goes away the previous digest must not stay behind with the cache still
+    /// on, recording verdicts under a digest that no longer describes the question.
     @Test func aVanishedProfileTurnsTheCacheOffRatherThanKeepingAStaleDigest() throws {
         let dir = try makeSplitProfiles()
         defer { try? FileManager.default.removeItem(at: dir) }

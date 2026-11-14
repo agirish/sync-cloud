@@ -300,7 +300,6 @@ import Testing
 
 @Suite @MainActor struct FilingSuggestionLearningDiskTests {
 
-
     static func manager(_ root: URL, folders: [String]) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingRuleDefaults = ScratchDefaults("learning-\(UUID().uuidString)")
@@ -457,7 +456,7 @@ import Testing
         let seen = Seen()
         let settings = ScratchDefaults("gz-\(UUID().uuidString)")
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
-        // Its page goes with its name only because its folder is shared without asking (TE335).
+        // Its page goes with its name only because its folder is shared without asking.
         AskClaudePrivacy.shareWithoutAsking(root.path, in: settings)
         m.filingContentDefaults = settings
         m.filingBackendIdentity = { tier in tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity }

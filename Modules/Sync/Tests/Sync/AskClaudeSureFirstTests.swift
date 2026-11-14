@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// TE343: a loose-files card takes the sure files first, from a light read of the next files; a
+/// A loose-files card takes the sure files first, from a light read of the next files; a
 /// heading ticks a folder's sure rows; files a card left are skipped by Next for that place.
 @Suite struct AskClaudeSureFirstTests {
 
@@ -24,7 +24,7 @@ import Testing
         #expect(page.files.first?.name == "f3" && page.files.map(\.name).contains("f47") && page.total == 60)
     }
 
-    /// Nothing read ahead: the newest, as before TE343.
+    /// Nothing read ahead: the newest first.
     @Test func withNothingReadAheadTheCardHoldsTheNewest() {
         let all = files(25)
         #expect(AskClaudeLooseFiles.sureFirst(all, path: \.path, ahead: [:]).map(\.name) == all.map(\.name))
@@ -113,7 +113,7 @@ import Testing
         #expect(plain.groups.map(\.group) == [.folder("Health"), .folder("Work")])
     }
 
-    /// The files a card left are saved with the chat; a chat saved before TE343 still opens.
+    /// The files a card left are saved with the chat; a chat saved without them still opens.
     @Test func leftFilesAreSavedAndOldChatsStillOpen() throws {
         var plan = AskClaudePlan(title: "File 1", subtitle: "into Documents", rows: [row(0, to: "Sep", .high, ticked: true)])
         plan.leftPaths = .init(place: "/docs", paths: ["/d/x.png", "/d/y.pdf"])

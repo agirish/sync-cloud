@@ -13,7 +13,7 @@ private let askClaudeLiveKey = ProcessInfo.processInfo.environment["ASK_CLAUDE_L
 /// in a refusal ("I can only copy nothing"). Only the tools are stubbed; nothing on disk is read or
 /// changed.
 ///
-/// **Off unless asked for.** It runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key (never the
+/// Off unless asked for: it runs only when `ASK_CLAUDE_LIVE_KEY` holds an API key (never the
 /// Keychain, which a test must never touch) and never on CI. It spends real money, and prints what
 /// it cost. A skipped run is a vacuous green: the gate quotes the count line, 19 prompts × 2 models
 /// × 3 runs.

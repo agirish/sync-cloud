@@ -9,7 +9,6 @@ import Testing
 /// Automations' apply does. Real disk throughout: the identity is a real stat.
 @Suite @MainActor struct FilingSourceIdentityTests {
 
-
     /// A scanned tree with one loose file and one existing folder to file it into.
     ///
     /// `contentTokens` is what the on-device reader returns for every file; empty (the default)

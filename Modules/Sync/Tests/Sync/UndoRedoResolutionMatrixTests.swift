@@ -2,19 +2,10 @@ import Testing
 import Foundation
 @testable import Sync
 
-/// Undo→redo resolution matrix across the three registrar chains (move, copy, delete), pinning
-/// exactly which items each redo acts on for three batch shapes:
-///
-///   (a) every item succeeds → the redo re-applies the full batch;
-///   (b) one item's undo is refused (an occupant at the move-back target, or a changed copy) →
-///       the redo re-applies only the items actually undone, never what the undo left alone;
-///   (c) the same path twice in one batch → one effective item end to end (one trash, one
-///       restore, one redo), never a double operation or a phantom second undo state.
-///
-/// The refusal cases mirror the single-item tests in RedoFailureReportingTests,
-/// CopyUndoDriftAndTransientTests and DeleteRedoOccupantTests in a mixed batch, so resolving redo
-/// params from the wrong item set (the original list, or the refused subset) flips the untouched
-/// sibling's assertions even when the single-item pins stay green.
+/// Undo→redo resolution across the move, copy and delete chains: which items each redo acts on
+/// when (a) every item succeeds, (b) one item's undo is refused, so the redo re-applies only what
+/// was undone, and (c) one path appears twice, which must act as one item end to end. In a mixed
+/// batch, redo params resolved from the wrong item set flip the untouched sibling's assertions.
 ///
 /// Batches use ≥2 distinct items throughout: `UndoRedoLogLabelTests` pins the "Move to Trash"
 /// labels against the shared Logger, and a parallel one-item delete would trip its "no Redo

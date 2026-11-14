@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Undo Refine (TE335, C4): the on-device suggestions come back for the files a pass moved, except
-/// where the person has chosen since; a rescan makes the list another one and Undo goes with it.
+/// Undo Refine: the on-device suggestions come back for the files a pass moved, except where the
+/// person has chosen since; a rescan makes the list another one and Undo goes with it.
 extension HandBuiltRefineSuites {
 @MainActor
 @Suite struct FilingRefineUndoTests {
@@ -11,7 +11,6 @@ extension HandBuiltRefineSuites {
     /// One manager for the suite, reset per test (see `HandBuiltFiling.reset`).
     private static var shared: FileSyncManager { HandBuiltFiling.manager }
     private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
-
 
     private func manager() -> FileSyncManager {
         let m = Self.shared

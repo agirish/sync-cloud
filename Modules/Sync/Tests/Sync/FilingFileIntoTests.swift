@@ -31,8 +31,7 @@ import Testing
         (false, "/C/Docs", "/U/Cloud/Documents", ["src": "/U/Chosen"], "/U/Chosen"),
         (true, "/U", "/U/Cloud/Documents", ["src": "/U/Chosen"], "/U/Chosen"),
         (false, "/C/Docs", "/U/Cloud/Documents", ["other": "/U/Chosen"], "/C/Docs"),
-        // A chosen folder that was renamed or unplugged falls back to the default rather than
-        // handing the scan a root it would walk as empty.
+        // A chosen folder renamed or unplugged falls back: the scan would walk it as empty.
         (false, "/C/Docs", "/U/Cloud/Documents", ["src": "/U/Unplugged"], "/C/Docs"),
         (true, "/U", "/U/Cloud/Documents", ["src": "/U/Unplugged"], "/U/Cloud/Documents"),
     ] as [(Bool, String, String?, [String: String], String)])
@@ -119,9 +118,9 @@ import Testing
         return (m, root, cloud, ticket)
     }
 
-    /// The scan records the cloud-only file and offers it no Read Scan: it gave nothing because
-    /// it was never opened, and rendering it would download it. The real scan with no text layer
-    /// beside it is still offered one — which is what makes the first half capable of failing.
+    /// The scan records the cloud-only file and offers it no Read Scan, since rendering it would
+    /// download it. The real scan with no text layer beside it is still offered one, which is what
+    /// lets the first half fail.
     @Test func theScanRecordsCloudOnlyFilesAndOffersThemNoReadScan() async throws {
         let (m, root, cloud, ticket) = try await Self.makeScan()
         defer { try? FileManager.default.removeItem(at: root) }

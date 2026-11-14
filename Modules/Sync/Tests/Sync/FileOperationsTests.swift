@@ -3,35 +3,35 @@ import Foundation
 @testable import Sync
 
 @Suite struct FileOperationsTests {
-    
+
     @Test func testSafeMoveCrossVolumeFallback() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         // Fail the plain rename, as across volumes (EXDEV)
         mockFM.shouldFailMove = true
-        
+
         let srcURL = URL(fileURLWithPath: "/src/data.bin")
         let dstURL = URL(fileURLWithPath: "/dst/data.bin")
-        
-        // This should trigger the fallback: copyItem -> removeItem
+
+        // The fallback: copyItem, then removeItem.
         try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
-        
+
         #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
         #expect(mockFM.calledCopyItem == true)
     }
-    
+
     @MainActor
     @Test func testDeleteItemsTriggersPermanentRemovalOnTrashFailure() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        // Simulate a network volume that doesn't support the trash bin
+        // A network volume with no Trash.
         mockFM.shouldFailTrash = true
 
         let targetURL = URL(fileURLWithPath: "/src/data.bin")
@@ -41,9 +41,9 @@ import Foundation
         // refuses, so mock the user confirming.
         manager.permanentDeleteConfirmer = { _ in true }
         await manager.deleteItems(at: [targetURL.path], fileManager: mockFM)
-        
+
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
-        // Verify it didn't end up in the `.trashedPaths` mock stub array but was physically deleted instead
+        // Deleted outright, not trashed.
         #expect(mockFM.trashedPaths.isEmpty == true)
     }
 
@@ -60,12 +60,11 @@ import Foundation
         let removed = await manager.deleteItems(at: ["/src/a.bin", "/src/b.bin"], fileManager: mockFM).removed
 
         #expect(removed == 1)                                // one trashed, one transiently busy
-        // The item that trashed still gets its undoable success banner despite the busy failure...
+        // The trashed item still gets its undoable success banner...
         #expect(manager.banner?.severity == .success)
         #expect(manager.banner?.isUndoable == true)
         // ...and the failure is still surfaced (not swallowed).
         #expect(manager.currentError != nil)
-        // Exactly one file remains on disk.
         #expect(["/src/a.bin", "/src/b.bin"].filter { mockFM.virtualDisk[$0] != nil }.count == 1)
     }
 
@@ -88,11 +87,11 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
         mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
         mockFM.shouldFailTrash = true
-        
+
         let src = URL(fileURLWithPath: "/src/new.txt"), dst = URL(fileURLWithPath: "/dst/new.txt")
         let overwritten = isMove
             ? try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: mockFM)
@@ -130,7 +129,7 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
         #expect(mockFM.virtualDisk["/dst/data.bin"] == nil)
     }
-    
+
     /// Replacing a link that points at the source's folder replaces the link, not the folder it
     /// leads to, so it isn't "a folder the source sits in" and isn't refused. The real folder in the
     /// same place still is.
@@ -151,10 +150,9 @@ import Foundation
         }
     }
 
-    /// The Replace the test above lets through really happens, copy and move alike: `T/Photos` is
-    /// a link to `Elsewhere/Photos`, and `T/Photos/Photos` (through the link) replaces it. The link
-    /// goes to the Trash, the folder it led to keeps everything else, and `T/Photos` is now the
-    /// real folder. `replaceItemAt` can't replace a link ("The file “Photos” doesn’t exist.").
+    /// The Replace the test above lets through works, copy and move alike: `T/Photos/Photos`
+    /// (through the link) replaces the link `T/Photos`. The link goes to the Trash and the folder
+    /// it led to keeps everything else. `replaceItemAt` can't replace a link ("doesn’t exist").
     @Test(arguments: [false, true])
     func aLinkToTheSourcesFolderIsReplacedOnDisk(isMove: Bool) throws {
         let base = try makeCanonicalTempRoot(prefix: "b1-\(isMove ? "move" : "copy")")
@@ -207,10 +205,9 @@ import Foundation
                                                   caseSensitiveVolume: true)
     }
 
-    /// The same shape through a paste's move, Replace answered: the outer folder and everything in
-    /// it stay put. A real disk, because the mock stores flat paths and a moved folder leaves its
-    /// children listed, so the test would pass without the guard. The Trash is refused, so a
-    /// regression leaves the replaced folder beside the fixture, not in the real Trash.
+    /// The same shape through a paste's move, Replace answered: the outer folder stays put. Real
+    /// disk, because the mock's flat paths leave a moved folder's children listed, so the test
+    /// would pass without the guard. The Trash is refused, keeping a regression out of the real one.
     @MainActor
     @Test func replacingTheSourcesOwnParentLeavesItAlone() async throws {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("fr30-\(UUID().uuidString)")
@@ -290,7 +287,6 @@ import Foundation
         let parentDir = URL(fileURLWithPath: "/src/folder")
         let targetChildDir = URL(fileURLWithPath: "/src/folder/child")
 
-        // You cannot move/copy `/src/folder` INTO `/src/folder/child`
         #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
             try FileSyncManager.validateFileOperation(source: parentDir, destination: targetChildDir)
         }
@@ -299,10 +295,9 @@ import Foundation
     }
 
     /// A source whose parent is the volume root. The nesting guard builds the source prefix from
-    /// the resolved parent plus the leaf, so a symlinked leaf isn't followed (see
-    /// `testMovingASymlinkIntoTheDirectoryItPointsAtIsAllowed`). At the root the parent is already
-    /// `"/"`, and a naive join spells `//Users`, which matches no destination, so a folder could be
-    /// moved into itself. Only this depth can double the separator.
+    /// the resolved parent plus the leaf (so a symlinked leaf isn't followed). At the root the
+    /// parent is already `"/"`, and a naive join spells `//Users`, which matches no destination, so
+    /// a folder could be moved into itself. Only this depth can double the separator.
     @Test func testRecursivePathValidationHoldsForASourceAtTheVolumeRoot() async throws {
         let atRoot = URL(fileURLWithPath: "/Users")
 
@@ -345,12 +340,10 @@ import Foundation
         ) == ())
     }
 
-    /// A symlink is not a container, so moving one into the directory it points at is legal:
-    /// nothing traverses the link, so there is no cycle. The nesting guard must not resolve the
-    /// source's last component, or `/base/alias` → `/base/realDir/sub` reads as moving `realDir`
-    /// into itself. The identity check does follow the link
-    /// (`testRecursivePathValidationResolvesSymlinks`): an alias and its target are one item, and
-    /// moving one onto the other would replace the real directory with a link to itself.
+    /// A symlink is not a container, so moving one into the directory it points at makes no cycle.
+    /// The nesting guard must not resolve the source's last component, or `/base/alias` →
+    /// `/base/realDir/sub` reads as moving `realDir` into itself. The identity check does follow
+    /// the link: moving an alias onto its target would replace the directory with a link to itself.
     @Test func testMovingASymlinkIntoTheDirectoryItPointsAtIsAllowed() async throws {
         let fm = FileManager.default
         let base = fm.temporaryDirectory.appendingPathComponent("ValidateLinkMove-\(UUID().uuidString)")
@@ -400,40 +393,38 @@ import Foundation
         // A sibling destination behind the same symlinked base stays allowed.
         try #expect(FileSyncManager.validateFileOperation(source: realDir, destination: base.appendingPathComponent("elsewhere")) == ())
     }
-    
+
     @MainActor
     @Test func testRenameFileCollision() async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/fileA.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/fileB.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // Rename A to B, causing a collision
+
         await manager.renameItem(at: "/src/fileA.txt", to: "fileB.txt", fileManager: mockFM)
-        
+
         let errStr = manager.currentError?.message ?? ""
-        // Ensure error was set since fileB exists and wasn't case only rename
         #expect(errStr.contains("already exists"))
-        
-        // Both files should still exist intact
+
+        // Both files survive.
         #expect(mockFM.virtualDisk["/src/fileA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/fileB.txt"] != nil)
     }
-    
+
     @MainActor
     @Test func testCreateFolder() async throws {
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        
+
         await manager.createFolder(named: "New Folder", in: "/src", fileManager: mockFM)
-        
+
         #expect(mockFM.virtualDisk["/src/New Folder"] != nil)
         #expect(manager.undoManager?.canUndo == true)
-        
+
         manager.undoManager?.undo()
         // The undo removes the folder inside `Task { await enqueueFileOperation … }`, at a time the
         // test can't predict, so wait on the effect: a fixed window runs short under full-suite
@@ -443,13 +434,11 @@ import Foundation
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
     }
-    
-    /// An empty parent path means the pane's provider vanished from settings while its stale
-    /// tree was still showing. `URL(fileURLWithPath: "")` resolves against the process CWD, so
-    /// without a guard New Folder would create `<CWD>/<name>` — nothing may be created and the
-    /// destination-unavailable error must be presented instead. A parent that vanished from disk
-    /// (provider unmounted or removed, `/gone`) must fail the same way, not be silently recreated
-    /// as a dead local tree or surface a raw file-system error.
+
+    /// An empty parent path (the pane's provider left settings while its stale tree showed)
+    /// resolves against the process CWD, so New Folder would create `<CWD>/<name>`. A parent gone
+    /// from disk (`/gone`) must not be recreated as a dead local tree. Both create nothing and
+    /// present the destination-unavailable error.
     @MainActor
     @Test(arguments: ["", "/gone"])
     func testCreateFolderWithNoParentCreatesNothingAndPresentsError(parent: String) async throws {
@@ -469,28 +458,26 @@ import Foundation
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/f1.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/f2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         let node1 = FileNode(id: "/src/f1.txt", name: "f1.txt", isDirectory: false)
         let node2 = FileNode(id: "/src/f2.txt", name: "f2.txt", isDirectory: false)
-        
+
         await manager.moveItems(nodes: [node1, node2], toPath: "/dst", fileManager: mockFM)
-        
-        // Assert moved to dest
+
         #expect(mockFM.virtualDisk["/dst/f1.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/f2.txt"] != nil)
-        
-        // Assert removed from src
+
         #expect(mockFM.virtualDisk["/src/f1.txt"] == nil)
         #expect(mockFM.virtualDisk["/src/f2.txt"] == nil)
     }
-    
-    /// The toPath variants must tilde-expand once and use the expanded value for both the
-    /// root-existence guard and the per-item targets (like paneTargetURL). Whether
-    /// URL(fileURLWithPath:) expands "~" depends on the Foundation version; where it doesn't, items
-    /// would land at "<cwd>/~/…" while the guard passed, and a move would also remove the sources.
+
+    /// The toPath variants tilde-expand once, for both the root-existence guard and the per-item
+    /// targets. Whether URL(fileURLWithPath:) expands "~" depends on the Foundation version; where
+    /// it doesn't, items would land at "<cwd>/~/…" while the guard passed, and a move would also
+    /// remove the sources.
     @MainActor
     @Test func testCopyAndMoveToTildePathExpandBeforeDerivingTargets() async throws {
         let manager = FileSyncManager()
@@ -533,90 +520,82 @@ import Foundation
         mockFM.virtualDisk["\(from)/cross.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         let node = FileNode(id: "\(from)/cross.txt", name: "cross.txt", isDirectory: false)
 
-        // Move from one pane to the other.
         await manager.moveItems(nodes: [node], fromLeft: fromLeft, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
 
         #expect(mockFM.virtualDisk["\(to)/cross.txt"] != nil)
         #expect(mockFM.virtualDisk["\(from)/cross.txt"] == nil)
     }
-    
+
     @MainActor
     @Test(arguments: [false, true])
     func testTransferDirectoryWithChildren(isMove: Bool) async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
-        
-        // Mock a deep nested directory structure in source
+
         mockFM.virtualDisk["/src"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["deep_folder"])
         mockFM.virtualDisk["/src/deep_folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["child_folder", "doc.txt"])
         mockFM.virtualDisk["/src/deep_folder/child_folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["data.bin"])
         mockFM.virtualDisk["/src/deep_folder/child_folder/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/deep_folder/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         let folderNode = FileNode(id: "/src/deep_folder", name: "deep_folder", isDirectory: true)
-        
-        // The user moves or copies the entire deep_folder to /dst
+
         if isMove {
             await manager.moveItems(nodes: [folderNode], toPath: "/dst", fileManager: mockFM)
         } else {
             await manager.copyItems(nodes: [folderNode], toPath: "/dst", fileManager: mockFM)
         }
-        
-        // /dst contains the tree
+
         #expect(mockFM.virtualDisk["/dst/deep_folder"] != nil)
         #expect(mockFM.virtualDisk["/dst/deep_folder/child_folder"] != nil)
         #expect(mockFM.virtualDisk["/dst/deep_folder/child_folder/data.bin"] != nil)
         #expect(mockFM.virtualDisk["/dst/deep_folder/doc.txt"] != nil)
-        
+
         // A move removes the original tree; a copy leaves it
         #expect((mockFM.virtualDisk["/src/deep_folder"] != nil) == !isMove)
         #expect((mockFM.virtualDisk["/src/deep_folder/child_folder"] != nil) == !isMove)
         #expect((mockFM.virtualDisk["/src/deep_folder/child_folder/data.bin"] != nil) == !isMove)
     }
-    
+
     @MainActor
     @Test func testRenameDirectory() async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
-        
+
         mockFM.virtualDisk["/src/media"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["movies"])
         mockFM.virtualDisk["/src/media/movies"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["vid.mp4"])
         mockFM.virtualDisk["/src/media/movies/vid.mp4"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // Rename "media" directory to "Entertainment"
+
         await manager.renameItem(at: "/src/media", to: "Entertainment", fileManager: mockFM)
-        
+
         #expect(mockFM.virtualDisk["/src/Entertainment"] != nil)
         #expect(mockFM.virtualDisk["/src/Entertainment/movies/vid.mp4"] != nil)
-        
+
         #expect(mockFM.virtualDisk["/src/media"] == nil)
     }
-    
+
     @MainActor
     @Test func testRenameCaseOnly() async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/Notes.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // Case-only rename: Notes.txt -> notes.txt
+
+        // Case-only: Notes.txt -> notes.txt is no collision.
         await manager.renameItem(at: "/src/Notes.txt", to: "notes.txt", fileManager: mockFM)
-        
-        // Verify current error is nil (meaning no collision error occurred)
+
         #expect(manager.currentError == nil)
-        
-        // Verify the file was physically relinked in RAM dictionary to notes.txt
+
         #expect(mockFM.virtualDisk["/src/notes.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/Notes.txt"] == nil)
     }
 
-    /// On a case-SENSITIVE volume "foo" and "Foo" are distinct files, so renaming onto the
-    /// case variant is a collision like any other: the rename must stop at the "already
-    /// exists" alert instead of skipping the check as a case-only rename and then failing
-    /// the plain move with a raw "file exists" error. (The mock's disk is case-sensitive.)
+    /// On a case-SENSITIVE volume (as the mock's disk is) "foo" and "Foo" are distinct files, so
+    /// renaming onto the variant must stop at the "already exists" alert, not skip the check as a
+    /// case-only rename and fail the move with a raw "file exists" error.
     @MainActor
     @Test func testRenameOntoCaseVariantCollidesOnCaseSensitiveVolume() async throws {
         let manager = FileSyncManager()
@@ -724,70 +703,65 @@ import Foundation
     }
 
     // MARK: - Safe Move & Copy Rollback Logic
-    
+
     @Test func testSafeCopyItemRollbackOnError() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/dst/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) // Already exists, forces a replacement
-        
+
         let srcURL = URL(fileURLWithPath: "/src/doc.txt")
         let dstURL = URL(fileURLWithPath: "/dst/doc.txt")
-        
-        // Setup mock to fail during the critical `.tmp_` rename phase
+
+        // Fail the final `.tmp_` rename.
         mockFM.shouldFailMoveOnTempRename = true
-        
+
         #expect(throws: (any Error).self) {
             try FileSyncManager.safeCopyItem(at: srcURL, to: dstURL, fileManager: mockFM)
         }
-        
-        // Core verification: The original destination file MUST have been restored from trash
+
+        // The original destination must be restored from the Trash.
         #expect(mockFM.virtualDisk["/dst/doc.txt"] != nil)
-        
-        // Also ensure source is untouched (since it was a copy)
+
+        // A copy leaves the source untouched.
         #expect(mockFM.virtualDisk["/src/doc.txt"] != nil)
-        
-        // Ensure our temp file cleanup deferred block ran correctly by inspecting disk
+
+        // The temp file is cleaned up.
         let tmpExists = mockFM.virtualDisk.keys.contains { $0.contains(".tmp_") }
         #expect(tmpExists == false)
     }
-    
+
     @Test func testSafeMoveItemRollbackOnError() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) // Target exists
-        
+
         let srcURL = URL(fileURLWithPath: "/src/data.bin")
         let dstURL = URL(fileURLWithPath: "/dst/data.bin")
-        
-        // 1. Force initial moveItem to fail to trigger EXDEV fallback
+
+        // Fail the direct move (the EXDEV fallback), then the fallback's final rename.
         mockFM.shouldFailMove = true
-        
-        // 2. Force the fallback temp copy to fail during the final rename
         mockFM.shouldFailMoveOnTempRename = true
-        
+
         #expect(throws: (any Error).self) {
             try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
         }
-        
-        // Rollback check: Dest should be restored securely
+
+        // The destination is restored, and the source survives: the failure came before it was
+        // trashed.
         #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
-        
-        // Source should still exist safely because it failed before we trashed the source
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
     }
-    
-    /// TOCTOU: a file that appears at the destination after the backup existence check (cloud
-    /// placeholder hydration, another sync client, a parallel bulk worker) makes the final
-    /// move throw "file exists". With no backup taken, rollback has nothing to restore and
-    /// must not delete the newly-appeared file. Through safeMoveItem the direct move throws
-    /// "file exists", the same-volume fallback's final move throws again, and rollback
-    /// (backup == nil) must leave both the appeared destination file and the source intact.
+
+    /// TOCTOU: a file that appears at the destination after the backup existence check (placeholder
+    /// hydration, another sync client, a parallel bulk worker) makes the final move throw "file
+    /// exists". With no backup taken, rollback has nothing to restore and must not delete the newly
+    /// appeared file; both it and the source stay intact, through safeMoveItem's fallback too.
     @Test(arguments: [false, true])
     func testSafeTransferPreservesDestinationThatAppearedAfterBackupCheck(isMove: Bool) async throws {
         let mockFM = MockFileManager()
@@ -849,10 +823,10 @@ import Foundation
     @Test func testSafeMoveNonExistentSource() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
+
         let srcURL = URL(fileURLWithPath: "/src/phantom.txt")
         let dstURL = URL(fileURLWithPath: "/dst/phantom.txt")
-        
+
         do {
             try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
             Issue.record("Expected to throw NSFileReadNoSuchFileError")
