@@ -16,13 +16,14 @@ public struct FilingArchiveOffer: Sendable, Equatable {
 extension FilingDestination {
     /// This home with `old` (a folder) replaced by `new` wherever it begins a path: its own, its
     /// account's and its copies'.
-    func repointed(from old: String, to new: String) -> FilingDestination {
+    func repointed(from old: String, to new: String, intoArchive: Bool = false) -> FilingDestination {
         func swap(_ p: String) -> String {
             p == old ? new : (p.hasPrefix(old + "/") ? new + p.dropFirst(old.count) : p)
         }
         func swapAccount(_ a: FilingAccount) -> FilingAccount {
+            // Moved, it is in the archive exactly when it moved into one.
             var b = FilingAccount(root: swap(a.root), ending: a.ending, institution: a.institution,
-                                  archived: a.archived && swap(a.root) == a.root, kind: a.kind)
+                                  archived: swap(a.root) == a.root ? a.archived : intoArchive, kind: a.kind)
             b.institutionName = a.institutionName
             return b
         }
@@ -101,11 +102,17 @@ extension FileSyncManager {
             banner = .refusal("Wait for the filing or Verify All in progress to finish", log: .info)
             return 0
         }
+        guard let root = filingLastProviderRoot ?? group.members.first?.providerRoot else { return 0 }
+        // Held from here to the end: no other filing starts between the move and the filing.
+        filingBatchInFlight.insert(ObjectIdentifier(self))
+        defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
         guard !fm.fileExists(atPath: offer.target) else {
             banner = .refusal("“\((offer.target as NSString).lastPathComponent)” is already beside \(offer.archiveName); filed nothing", log: .info)
             return 0
         }
-        if filingHoldsCloudOnlyFile(offer.accountFolder) {
+        let probe = filingHoldsCloudOnlyFile
+        let folder = offer.accountFolder
+        if await Task.detached(priority: .userInitiated, operation: { probe(folder) }).value {
             banner = .refusal("Some files in “\((offer.accountFolder as NSString).lastPathComponent)” are only in iCloud. Download them first, or file in \(offer.archiveName).", log: .info)
             return 0
         }
@@ -129,7 +136,7 @@ extension FileSyncManager {
         }
         filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
         Logger.shared.info("Filing: moved \(from.path) out of \(offer.archiveName) → \(to.path)")
-        repointFiling(from: offer.accountFolder, to: offer.target, registersUndo: false)
+        repointFiling(from: offer.accountFolder, to: offer.target, root: root, intoArchive: false, registersUndo: false)
         let members = group.members.map { s in
             s.replacingCandidates(s.candidates.map { $0.repointed(from: offer.accountFolder, to: offer.target) })
         }
@@ -139,13 +146,18 @@ extension FileSyncManager {
         // Snapshotted now, before anything is filed into it: what ⌘Z finds once the files are out.
         let prior = PriorFolderMove(move: (from: from, to: to, overwritten: nil),
                                     identityBeforeFiling: ItemIdentity.snapshot(at: to, fileManager: fm),
-                                    createdParents: parents, old: offer.accountFolder, new: offer.target)
-        let n = await fileFilingGroup(moved, priorFolderMove: prior)
+                                    createdParents: parents, old: offer.accountFolder, new: offer.target, root: root)
+        let n = await fileFilingGroup(moved, priorFolderMove: prior, holdsGuard: true)
         if n == 0 {
-            // Nothing filed: the account goes back where it was, so the move isn't left without a ⌘Z.
-            if (try? fm.moveItem(at: to, to: from)) != nil {
-                Self.removeIfEmpty(parents)
-                repointFiling(from: offer.target, to: offer.accountFolder, registersUndo: false)
+            // Nothing filed: the account goes back where it was, in the queue, so the move isn't
+            // left without a ⌘Z; said so if it can't.
+            let back: Bool = await enqueueFileOperation {
+                do { try FileManager.default.moveItem(at: to, to: from); Self.removeIfEmpty(parents); return true } catch { return false }
+            }
+            if back {
+                repointFiling(from: offer.target, to: offer.accountFolder, root: root, intoArchive: true, registersUndo: false)
+            } else {
+                banner = .warning("Filed nothing, and “\(to.lastPathComponent)” couldn’t go back into \(offer.archiveName); it is beside it now", log: .warn)
             }
         }
         return n
@@ -161,32 +173,45 @@ extension FileSyncManager {
         return false
     }
 
-    /// Learned accounts and open cards that point inside `old` now point inside `new`. Registers
-    /// its own reverse, so the ⌘Z that moves the folder back points them back too.
-    func repointFiling(from old: String, to new: String, registersUndo: Bool = true) {
-        guard let root = filingLastProviderRoot,
-              let oldRel = Self.relativePath(old, under: root), let newRel = Self.relativePath(new, under: root) else { return }
-        var learned = filingLearnedAccounts
-        var changed = false
-        for i in learned.indices where learned[i].surveyRoot == root
-            && (learned[i].folder == oldRel || learned[i].folder.hasPrefix(oldRel + "/")) {
-            learned[i].folder = newRel + learned[i].folder.dropFirst(oldRel.count)
-            changed = true
+    /// Learned accounts, the open cards and the account index that point inside `old` now point
+    /// inside `new`. `root` is the tree learned accounts are relative to, as it was at the move,
+    /// so a scan of another tree since doesn't stop it. `intoArchive`: the folder went into an
+    /// archive, so what points at it is archived again.
+    func repointFiling(from old: String, to new: String, root: String, intoArchive: Bool, registersUndo: Bool = true) {
+        if let oldRel = Self.relativePath(old, under: root), let newRel = Self.relativePath(new, under: root) {
+            var learned = filingLearnedAccounts
+            var changed = false
+            for i in learned.indices where learned[i].surveyRoot == root
+                && (learned[i].folder == oldRel || learned[i].folder.hasPrefix(oldRel + "/")) {
+                learned[i].folder = newRel + learned[i].folder.dropFirst(oldRel.count)
+                changed = true
+            }
+            if changed { filingLearnedAccounts = learned }
+            if filingLastProviderRoot == root, let index = filingAccountIndex {
+                let accounts = index.accounts.map { a -> AccountIndex.Account in
+                    guard a.root == oldRel || a.root.hasPrefix(oldRel + "/") else { return a }
+                    var b = AccountIndex.Account(root: newRel + a.root.dropFirst(oldRel.count), identities: a.identities,
+                                                 institution: a.institution, archived: intoArchive)
+                    b.institutionName = a.institutionName
+                    return b
+                }
+                filingAccountIndex = AccountIndex(accounts: accounts, institutionTokens: index.institutionTokens,
+                                                  genericWords: index.genericWords)
+            }
         }
-        if changed { filingLearnedAccounts = learned }
         filingSuggestions = filingSuggestions.map { s in
-            s.replacingCandidates(s.candidates.map { $0.repointed(from: old, to: new) })
+            s.replacingCandidates(s.candidates.map { $0.repointed(from: old, to: new, intoArchive: intoArchive) })
         }
         filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
-        if registersUndo { registerRepointUndo(from: new, to: old) }
+        if registersUndo { registerRepointUndo(from: new, to: old, root: root, intoArchive: !intoArchive) }
     }
 
     /// An undo that points learned accounts and cards from `new` back to `old`, once the folder
     /// is back: queued behind the moves the same ⌘Z queued first, and skipped if the folder
     /// stayed where it was (its move-back refused). Registers its own redo.
-    func registerRepointUndo(from new: String, to old: String) {
+    func registerRepointUndo(from new: String, to old: String, root: String, intoArchive: Bool) {
         undoManager?.registerUndo(withTarget: self) { target in
-            target.registerRepointUndo(from: old, to: new)
+            target.registerRepointUndo(from: old, to: new, root: root, intoArchive: !intoArchive)
             // The slot is claimed in a task, not here: after every other action of the same ⌘Z
             // or ⇧⌘Z has claimed its own, whichever order they run in, so the folder has moved.
             Task { @MainActor in
@@ -194,7 +219,7 @@ extension FileSyncManager {
                 let back = await target.enqueueFileOperation(slot: slot) {
                     FileManager.default.fileExists(atPath: old) && !FileManager.default.fileExists(atPath: new)
                 }
-                if back { target.repointFiling(from: new, to: old, registersUndo: false) }
+                if back { target.repointFiling(from: new, to: old, root: root, intoArchive: intoArchive, registersUndo: false) }
             }
         }
     }

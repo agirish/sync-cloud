@@ -20,7 +20,7 @@ struct FilingCopiesRow: View {
                 Button("Just This Time") { onFileOnce(nil) }
                 Divider()
                 ForEach(copies, id: \.account.root) { c in
-                    Button("Always for \(FilingCopiesText.accountName(c)) ••\(c.account.ending)") {
+                    Button("Always for " + FilingCopiesText.accountLabel(c)) {
                         onFileOnce(.account(institution: c.account.institution, ending: c.account.ending))
                     }
                 }
@@ -49,6 +49,12 @@ enum FilingCopiesText {
     }
 
     static func accountName(_ c: FilingCopy) -> String { (c.account.root as NSString).lastPathComponent }
+
+    /// "Roth IRA 4657", or "Roth IRA ••4657" when the folder's name doesn't carry the number.
+    static func accountLabel(_ c: FilingCopy) -> String {
+        let name = accountName(c)
+        return name.contains(c.account.ending) ? name : name + " ••" + c.account.ending
+    }
 
     /// "Fidelity ••4657", "Fidelity", "statements", "everything", for a preference's row.
     static func label(_ scope: FilingPreference.Scope, copies: [FilingCopy]) -> String {
@@ -84,7 +90,7 @@ struct FilingPreferencesSection: View {
                         Spacer(minLength: 8)
                         Button("Remove") { syncManager.removeFilingPreference(id: p.id) }
                             .controlSize(.small)
-                            .help("Forget this preference; such statements are copied into each account again")
+                            .help("Forget this preference")
                     }
                 }
             }

@@ -7,34 +7,57 @@ extension FileSyncManager {
     /// Copies `landed` into each of `copies`, under the name that account's statements take (" 2"
     /// on a clash), making the folder if it isn't there. A copy that fails is skipped and logged;
     /// the main filing stands. The set is marked as kept apart in Duplicates: copies on purpose.
-    func performFilingCopies(of landed: URL, copies: [FilingCopy]) -> [CopyItemState] {
+    func performFilingCopies(of landed: URL, copies: [FilingCopy]) async -> [CopyItemState] {
         guard !copies.isEmpty else { return [] }
-        let fm = fileManager
-        var done: [CopyItemState] = []
-        for copy in copies {
-            let folder = URL(fileURLWithPath: copy.path)
-            let name = copy.proposedName ?? landed.lastPathComponent
-            do {
-                try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
-                var target = folder.appendingPathComponent(name)
-                var n = 2
-                let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
-                while fm.fileExists(atPath: target.path) {
-                    target = folder.appendingPathComponent(stem + " \(n)" + (ext.isEmpty ? "" : "." + ext))
-                    n += 1
+        // In the file-operation queue, like the move it follows.
+        let done: [CopyItemState] = await enqueueFileOperation {
+            let fm = FileManager.default
+            var done: [CopyItemState] = []
+            for copy in copies {
+                // The account must still be there: renamed or moved in Finder since the scan, the
+                // copy would make its old folder again.
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: copy.account.root, isDirectory: &isDir), isDir.boolValue else {
+                    Logger.shared.warning("Filing: no copy to \(copy.account.root): the folder isn’t there any more")
+                    continue
                 }
-                try fm.copyItem(at: landed, to: target)
-                done.append((source: landed, destination: target, overwritten: nil))
-            } catch {
-                Logger.shared.warning("Filing: couldn’t copy “\(landed.lastPathComponent)” to \(copy.path): \(error.localizedDescription)")
+                let folder = URL(fileURLWithPath: copy.path)
+                let name = copy.proposedName ?? landed.lastPathComponent
+                do {
+                    try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
+                    var target = folder.appendingPathComponent(name)
+                    var n = 2
+                    let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+                    while fm.fileExists(atPath: target.path) {
+                        target = folder.appendingPathComponent(stem + " \(n)" + (ext.isEmpty ? "" : "." + ext))
+                        n += 1
+                    }
+                    try fm.copyItem(at: landed, to: target)
+                    done.append((source: landed, destination: target, overwritten: nil))
+                } catch {
+                    Logger.shared.warning("Filing: couldn’t copy “\(landed.lastPathComponent)” to \(copy.path): \(error.localizedDescription)")
+                }
             }
+            return done
         }
         if !done.isEmpty {
             var keys = ignoredDuplicateKeys
-            keys.insert(([landed.path] + done.map(\.destination.path)).sorted().joined(separator: "\n"))
+            keys.insert(Self.copySetKey(landed: landed, copies: done))
             ignoredDuplicateKeys = keys
         }
         return done
+    }
+
+    /// The Duplicates "kept separate" key for a statement and its copies.
+    nonisolated static func copySetKey(landed: URL, copies: [CopyItemState]) -> String {
+        ([landed.path] + copies.map(\.destination.path)).sorted().joined(separator: "\n")
+    }
+
+    /// What ⌘Z of a filing does to the lesson it taught (``registerLessonUndo(taught:previous:batch:)``).
+    struct LessonUndo {
+        let taught: LearnedAccount
+        let previous: LearnedAccount?
+        let batch: [LearnedAccount.Teaching]
     }
 
     /// An account folder moved out of its archive just before a filing (`moveOutOfArchiveThenFile`):
@@ -46,6 +69,8 @@ extension FileSyncManager {
         let createdParents: [String]
         let old: String
         let new: String
+        /// The tree learned accounts are relative to, as it was at the move.
+        let root: String
     }
 
     /// The folders filing into `folders` would make: each one, and each of its ancestors, not on
@@ -69,31 +94,34 @@ extension FileSyncManager {
     /// nothing else registers into the step.
     func registerFilingUndo(moves: [MoveItemState], copies: [CopyItemState], actionName: String,
                             createdFolders: [String] = [], priorFolderMove: PriorFolderMove? = nil,
-                            forgetsLesson: Bool = false) {
-        let grouped = undoManager != nil && (!copies.isEmpty || !createdFolders.isEmpty || priorFolderMove != nil || forgetsLesson)
+                            lesson: LessonUndo? = nil) {
+        let grouped = undoManager != nil && (!copies.isEmpty || !createdFolders.isEmpty || priorFolderMove != nil || lesson != nil)
         if grouped { undoManager?.beginUndoGrouping() }
-        // The lesson this filing taught is forgotten by the same ⌘Z, once the files are back.
-        if forgetsLesson { registerForgetUndoneLesson() }
+        // The lesson this filing taught goes back to what it was, by the same ⌘Z, once the files are.
+        if let lesson { registerLessonUndo(taught: lesson.taught, previous: lesson.previous, batch: lesson.batch) }
         if let prior = priorFolderMove {
-            registerRepointUndo(from: prior.new, to: prior.old)
+            registerRepointUndo(from: prior.new, to: prior.old, root: prior.root, intoArchive: true)
             registerRemoveCreatedFolders(prior.createdParents)
             registerMoveUndo(items: [prior.move], landedIdentities: [prior.move.to: prior.identityBeforeFiling],
                              actionName: actionName, fileManager: fileManager)
         }
         registerRemoveCreatedFolders(createdFolders)
         registerMoveUndo(items: moves, actionName: actionName, fileManager: fileManager)
-        if !copies.isEmpty { registerCopyUndo(items: copies, actionName: actionName, fileManager: fileManager) }
+        if !copies.isEmpty {
+            registerCopyUndo(items: copies, actionName: actionName, fileManager: fileManager)
+            registerForgetCopySets(copies)
+        }
         if grouped { undoManager?.endUndoGrouping() }
     }
 
-    /// Undo checks, once every move of the same step has run, whether a lesson's filing was
-    /// undone, and forgets it (``forgetUndoneLearnedAccounts()``). Redo doesn't teach it again.
-    func registerForgetUndoneLesson() {
+    /// Undo drops the Duplicates "kept separate" keys of copies it takes away; redo puts them back.
+    func registerForgetCopySets(_ copies: [CopyItemState]) {
+        let keys = Set(Dictionary(grouping: copies, by: \.source).map { Self.copySetKey(landed: $0.key, copies: $0.value) })
         undoManager?.registerUndo(withTarget: self) { target in
-            Task { @MainActor in
-                let slot = target.claimFileOperationSlot()
-                await target.enqueueFileOperation(slot: slot) {}
-                target.forgetUndoneLearnedAccounts()
+            target.ignoredDuplicateKeys.subtract(keys)
+            target.undoManager?.registerUndo(withTarget: target) { t in
+                t.ignoredDuplicateKeys.formUnion(keys)
+                t.registerForgetCopySets(copies)
             }
         }
     }
@@ -116,8 +144,13 @@ extension FileSyncManager {
             let slot = target.claimFileOperationSlot()
             Task {
                 await target.enqueueFileOperation(slot: slot) {
-                    for f in folders.reversed() {
-                        try? FileManager.default.createDirectory(atPath: f, withIntermediateDirectories: true)
+                    // Shallowest first, each only under a parent that is there: a folder whose own
+                    // move refused to redo is not made empty beside where it should be.
+                    for f in folders.sorted(by: { $0.count < $1.count }) {
+                        var isDir: ObjCBool = false
+                        guard FileManager.default.fileExists(atPath: (f as NSString).deletingLastPathComponent, isDirectory: &isDir),
+                              isDir.boolValue else { continue }
+                        try? FileManager.default.createDirectory(atPath: f, withIntermediateDirectories: false)
                     }
                 }
             }

@@ -69,8 +69,10 @@ import Foundation
                 "a masked ending that reads like a year is still an ending")
         #expect(!DocumentFacts(page: "XXX7782 XXX-XX-7396").ownNumbers.contains { $0.digits.hasSuffix("7396") },
                 "a taxpayer mask inside a masked run")
-        #expect(DocumentFacts(page: "transfer to SAV account ******4121").ownNumbers.contains { $0.digits == "4121" },
+        #expect(DocumentFacts(page: "Savings account ******4121").ownNumbers.contains { $0.digits == "4121" },
                 "a contiguous mask is an account's, not a taxpayer's")
+        #expect(!DocumentFacts(page: "Transfer to SAV account ******4121").ownNumbers.contains { $0.digits == "4121" },
+                "on a transfer line, masked or not, it is the other account's")
         #expect(DocumentFacts(page: "Card XXXXXXXXXXXX1768").ownNumbers.contains { $0.digits == "1768" })
         #expect(!DocumentFacts(page: "Card XXXX XXXX XXXX 1768\n01/03 Payment").ownNumbers.contains { $0.digits.hasSuffix("6801") },
                 "a mask doesn't run onto the next line")
@@ -180,7 +182,7 @@ import Foundation
         Account Number 300036285203
         Transfer to DISCOVER BANK SAV account ******4121
         """)
-        #expect(marcus.ownNumbers.contains { $0.digits == "4121" && !$0.labelled }, "the mention is read, so the rule is what decides")
+        #expect(!marcus.ownNumbers.contains { $0.digits == "4121" }, "a transfer line's number is never the page's own")
         #expect(index.match(marcus) == .none, "\(index.match(marcus))")
     }
 

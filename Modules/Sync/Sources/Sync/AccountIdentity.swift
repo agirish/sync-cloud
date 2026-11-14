@@ -55,21 +55,22 @@ public struct DocumentFacts: Sendable, Equatable {
     // MARK: Own numbers
 
     private static let label = try! NSRegularExpression(pattern:
-        #"\b(?:(?:account|acct|loan|card|policy|member|contract)\b[^|\n]{0,12}?\b(?:number|no\.?|#)(?:\s*ending\s*in)?|account\s*(?:ending(?:\s*in)?|#)|ending\s+in)[\s:#.]*"#,
+        #"\b(?:(?:account|acct|loan|card|policy|member|contract)\b(?:[^|\n]{0,12}?|\s*\n\s*)(?:\bnumber|\bno\b\.?|#)(?:\s*ending\s*in)?|account\s*(?:ending(?:\s*in)?|#)|ending\s+in|(?:account|acct)\s*(?=:))[\s:#.()]*"#,
         options: [.caseInsensitive])
     private static let numberAfterLabel = try! NSRegularExpression(pattern: #"^[Xx\*•]{0,24}[\dXx\*•][\dXx\*• \-]{1,24}\d"#)
     /// A masked run (`XXXX XXXX XXXX 1768`, `******4121`, `XXXX-XXXXX6-22002`), bounded so a page of
     /// asterisks can't make the match backtrack for seconds.
     private static let maskedAnywhere = try! NSRegularExpression(pattern:
         #"(?<![\w*•])[Xx\*•]{3,24}+(?:[ \-]{0,2}+[Xx\*•\d]{1,8}+){0,6}+"#)
-    private static let ssnMask = try! NSRegularExpression(pattern: #"[Xx\*•]{3}-[Xx\*•]{2}-\d{4}"#)
+    private static let ssnMask = try! NSRegularExpression(pattern: #"[Xx\*•]{3}[- ][Xx\*•]{2}[- ]\d{4}"#)
     private static let routingLabel = try! NSRegularExpression(pattern: #"\b(?:routing|aba|rtn|transit)\b"#, options: [.caseInsensitive])
     /// The person's number, not an account's.
     private static let taxpayerWords = try! NSRegularExpression(pattern: #"\b(?:tin|ssn|social|taxpayer)\b"#, options: [.caseInsensitive])
     /// A number named on a payment or transfer line belongs to the other account
     /// (`AutoPay from account ending in 5696`, `Transfer to account number 4121`).
+    /// Payment and transfer phrases, not a bare "from" (`Statement From 01/01 To 01/31`).
     private static let otherAccountWords = try! NSRegularExpression(pattern:
-        #"\b(?:from|autopay|auto[- ]pay|transfer(?:red|s)?|linked|funding|paid|debit(?:ed)?|deposit(?:ed)?)\b"#,
+        #"\b(?:auto[- ]?pay|transfer(?:red|s)?|linked|(?:paid|payments?|debit(?:ed)?|deposit(?:ed)?|fund(?:ed|ing)?|draft(?:ed)?)\s+(?:from|to|into)|from\s+(?:your\s+)?(?:account|acct|checking|savings))\b"#,
         options: [.caseInsensitive])
 
     static func ownNumbers(in page: String) -> [OwnNumber] {
@@ -96,26 +97,41 @@ public struct DocumentFacts: Sendable, Equatable {
             // A taxpayer number is the person's, not the account's.
             if taxpayerWords.firstMatch(in: before, range: NSRange(location: 0, length: (before as NSString).length)) != nil { continue }
             // The same line, before the label: a payment or transfer names another account.
-            let lineStart = ns.range(of: "\n", options: .backwards,
-                                     range: NSRange(location: 0, length: m.range.location)).location
-            let from = lineStart == NSNotFound ? max(0, m.range.location - 40) : max(lineStart + 1, m.range.location - 40)
-            let line = ns.substring(with: NSRange(location: from, length: m.range.location - from))
-            if otherAccountWords.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil { continue }
+            if onPaymentLine(ns, before: m.range.location) { continue }
             let end = m.range.location + m.range.length
             var after = ns.substring(with: NSRange(location: end, length: min(60, ns.length - end)))
             // The value may sit on the next line (`Account Number\n3841-7863`) or carry one letter
             // of prefix (`Z26-141750`).
             after = String(after.drop(while: { $0.isWhitespace || $0 == "|" || $0 == ":" }))
+            let raw0 = ns.substring(with: NSRange(location: end, length: min(60, ns.length - end)))
+            // The label's own trailing whitespace may hold the line break (`Account Number:\n…`).
+            let labelTail = ns.substring(with: m.range).reversed().prefix { !$0.isLetter && $0 != "#" && $0 != ")" }
+            let crossedLine = labelTail.contains("\n") || raw0.prefix { $0.isWhitespace || $0 == "|" || $0 == ":" }.contains("\n")
             if let first = after.first, first.isLetter, first.isASCII,
                after.dropFirst().first?.isNumber == true { after = String(after.dropFirst()) }
             let a = after as NSString
             if let n = numberAfterLabel.firstMatch(in: after, range: NSRange(location: 0, length: a.length)) {
-                var raw = a.substring(with: n.range)
-                // `1234-5678 03/31/2026`: the last group ran into a date; it isn't the number's.
+                var groups = a.substring(with: n.range).split(separator: " ").map(String.init)
                 let next = n.range.location + n.range.length
-                if next < a.length, "/.".contains(a.substring(with: NSRange(location: next, length: 1))),
-                   let space = raw.lastIndex(of: " ") {
-                    raw = String(raw[..<space])
+                let nextChar = next < a.length ? a.substring(with: NSRange(location: next, length: 1)) : ""
+                // The last group ran into what follows: a date (`03/31/2026`, `2026-03-31`), an
+                // amount's first digits (`1,234.56`), a page count (`2 of 6`).
+                if groups.count > 1, let last = groups.last {
+                    let digits = last.filter(\.isNumber)
+                    let intoDate = nextChar == "/" || last.range(of: #"^\d{4}-\d{2}"#, options: .regularExpression) != nil
+                        || (DocumentFacts.isYear(digits) && nextChar == "-")
+                    let intoAmount = (nextChar == "," || nextChar == ".") && digits.count <= 3
+                    if intoDate || intoAmount || digits.count < 3 { groups.removeLast() }
+                }
+                // Then any stray short run left at the end (`3841-7863 2`).
+                while groups.count > 1, let last = groups.last, last.filter(\.isNumber).count < 3 { groups.removeLast() }
+                let raw = groups.joined(separator: " ")
+                // A value on the next line must be the line's own (`Account Number\n3841-7863`),
+                // not the start of an address (`73210 VIA VICENZA`).
+                if crossedLine {
+                    let rest = a.substring(from: n.range.location + n.range.length)
+                    let restOfLine = rest.prefix { $0 != "\n" }
+                    if restOfLine.contains(where: { $0.isLetter }) { continue }
                 }
                 add(raw.trimmingCharacters(in: .whitespaces), at: m.range.location, labelled: true)
             }
@@ -126,9 +142,20 @@ public struct DocumentFacts: Sendable, Equatable {
             // A taxpayer mask (`XXX-XX-7396`) inside the run is the person's: cut it out.
             s = ssnMask.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: (s as NSString).length), withTemplate: " ")
             guard (s.reversed().prefix { $0.isNumber }).count >= 3 || s.filter(\.isNumber).count >= 3 else { continue }
+            // `AutoPay from account ending in ****4121`: another account's, masked or not.
+            if onPaymentLine(head, before: m.range.location) { continue }
             add(s, at: m.range.location, labelled: false)
         }
         return out
+    }
+
+    /// Whether the line holding `location`, up to 60 characters before it, is a payment or
+    /// transfer line naming another account.
+    static func onPaymentLine(_ ns: NSString, before location: Int) -> Bool {
+        let lineStart = ns.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: location)).location
+        let from = lineStart == NSNotFound ? max(0, location - 60) : max(lineStart + 1, location - 60)
+        let line = ns.substring(with: NSRange(location: from, length: location - from))
+        return otherAccountWords.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
     }
 
     /// The numbers to match an account by: the labelled ones when the page has any, since a page
@@ -154,21 +181,37 @@ public struct DocumentFacts: Sendable, Equatable {
     // MARK: Kind and period
 
     private static let monthRE = #"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"#
-    private static let dateRE = #"(?:\d{1,2}/\d{1,2}/\d{2,4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
+    /// `03/31/2026`, `31/03/2026`, `2026-03-31`, `March 31, 2026`, `March 1-31, 2026`,
+    /// `31 March 2026`, `31-Mar-2026`.
+    private static let dateRE = #"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}[ -]"# + monthRE + #"[a-z]*\.?[ -]\d{4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
     private static let taxRE = try! NSRegularExpression(pattern: #"form\s*(1099|1098|5498|w-2)|tax year \d{4}"#)
     private static let statementWordsRE = try! NSRegularExpression(pattern:
         #"statement period|billing period|statement date|closing date|opening/closing|statement closing|account summary|summary of your account"#)
-    private static let rangeRE = try! NSRegularExpression(pattern: dateRE + #"[\s|]*(?:to|through|-|–)[\s|]*"# + dateRE)
+    private static let rangeRE = try! NSRegularExpression(pattern: dateRE + #"[\s|]*(?:to|through|thru|-|–|ending)[\s|:]*"# + dateRE)
     private static let monthDayRangeRE = try! NSRegularExpression(pattern: #"\b"# + monthRE + #"[a-z]* \d{1,2}\s*-\s*\d{1,2}, \d{4}"#)
 
     static func kind(of lower: String) -> Kind {
         // A form names itself at the top; a statement saying "your 2025 Form 1099 is available"
         // further down is still a statement.
-        if matches(taxRE, String(lower.prefix(300))) { return .taxForm }
+        if namesItselfATaxForm(String(lower.prefix(300))) { return .taxForm }
         let statement = matches(statementWordsRE, lower) || matches(rangeRE, lower) || matches(monthDayRangeRE, lower)
         if statement { return .statement }
-        if matches(taxRE, String(lower.prefix(800))) { return .taxForm }
+        if namesItselfATaxForm(String(lower.prefix(800))) { return .taxForm }
         return .other
+    }
+
+    /// A tax form's own title, not a notice that one is ready (`Your 2025 Form 1099 is now
+    /// available`).
+    static func namesItselfATaxForm(_ text: String) -> Bool {
+        let ns = text as NSString
+        for m in taxRE.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let after = ns.substring(with: NSRange(location: m.range.location, length: min(60, ns.length - m.range.location)))
+            let before = ns.substring(with: NSRange(location: max(0, m.range.location - 20), length: min(20, m.range.location)))
+            if after.range(of: #"\b(?:is|are)\s+(?:now\s+)?(?:available|ready|online)\b"#, options: .regularExpression) != nil
+                || before.range(of: #"\byour\b"#, options: .regularExpression) != nil { continue }
+            return true
+        }
+        return false
     }
 
     private static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
@@ -190,11 +233,11 @@ public struct DocumentFacts: Sendable, Equatable {
     /// Dates the page labels as something other than the period, matched as words ("vest" is not
     /// in "investment").
     private static let nonPeriodLabel = try! NSRegularExpression(pattern:
-        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|beginning)\b"#, options: [.caseInsensitive])
+        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|beginning\s+balance|opening\s+balance)\b"#, options: [.caseInsensitive])
     private static let periodLabel = try! NSRegularExpression(pattern:
         #"\b(?:statement|billing|period|cycle)\b"#, options: [.caseInsensitive])
     private static let labelledDateRE = try! NSRegularExpression(pattern:
-        #"(?:closing date|statement date|statement closing date|period ending|period end|through|as of)[\s:|]*("# + dateRE + ")")
+        #"(?:closing date|statement date|statement closing date|period ending|period end|ending|through|thru|as of)[\s:|]*("# + dateRE + ")")
     private static let numericDateRE = try! NSRegularExpression(pattern: #"^(\d{1,2})/(\d{1,2})/(\d{2,4})"#)
 
     /// The period end: the end of a labelled range, else a date after a period label. Every
@@ -217,6 +260,11 @@ public struct DocumentFacts: Sendable, Equatable {
             let s = ns.substring(with: m.range)
             if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
         }
+        // A date the page labels (`Closing Date 01/27/2026`, `Statement Date: 10/15/2026`) next:
+        // ahead of any range it merely prints (`0% APR 01/15/2025 through 01/15/2027`).
+        for m in labelledDateRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
+            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
+        }
         // `March 1-31, 2026`: a month with a day range.
         for m in monthDayRangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
             if let p = parseDate(ns.substring(with: m.range), endOfRange: true) { return p }
@@ -227,15 +275,12 @@ public struct DocumentFacts: Sendable, Equatable {
             let s = ns.substring(with: m.range)
             if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
         }
-        // `Closing Date 01/27/2026`, `Statement Date: 10/15/2026`, `through October 31, 2026`.
-        for m in labelledDateRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
-            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
-        }
         return nil
     }
 
+    private static let compiled = RegexCache()
     private static func matchesOf(_ pattern: String, in s: String) -> [String] {
-        let re = try! NSRegularExpression(pattern: pattern)
+        let re = compiled.regex(pattern)
         let ns = s as NSString
         return re.matches(in: s, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
     }
@@ -244,15 +289,33 @@ public struct DocumentFacts: Sendable, Equatable {
     static func parseDate(_ raw: String, endOfRange: Bool = false) -> Period? {
         let s = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let sn = s as NSString
+        if let iso = s.range(of: #"^\d{4}-\d{2}-\d{2}"#, options: .regularExpression) {
+            let p = s[iso].split(separator: "-").compactMap { Int($0) }
+            guard p.count == 3, (1990...2100).contains(p[0]), (1...12).contains(p[1]), (1...31).contains(p[2]) else { return nil }
+            return Period(year: p[0], month: p[1], day: p[2])
+        }
         if let m = numericDateRE.firstMatch(in: s, range: NSRange(location: 0, length: sn.length)) {
             let n = sn.substring(with: m.range)
-            let p = n.split(separator: "/").compactMap { Int($0) }
-            guard p.count == 3, (1...12).contains(p[0]), (1...31).contains(p[1]) else { return nil }
+            var p = n.split(separator: "/").compactMap { Int($0) }
+            guard p.count == 3 else { return nil }
+            // Month first, as US statements print it; day first when that is the only reading
+            // (`31/03/2026`).
+            if !(1...12).contains(p[0]), (1...12).contains(p[1]) { p.swapAt(0, 1) }
+            guard (1...12).contains(p[0]), (1...31).contains(p[1]) else { return nil }
             let year = p[2] < 100 ? 2000 + p[2] : p[2]
             return (1990...2100).contains(year) ? Period(year: year, month: p[0], day: p[1]) : nil
         }
-        let words = s.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        var words = s.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        // `31 March 2026`, `31-Mar-2026`: the day first.
+        var leadingDay: Int?
+        if words.count >= 3, let d = Int(words[0]), (1...31).contains(d), FilingPeriod.month(of: words[1]) != nil {
+            leadingDay = d
+            words.removeFirst()
+        }
         guard let first = words.first, let month = FilingPeriod.month(of: first) else { return nil }
+        if let leadingDay, let year = words.dropFirst().compactMap({ Int($0) }).last, (1990...2100).contains(year) {
+            return Period(year: year, month: month, day: leadingDay)
+        }
         let numbers = words.dropFirst().compactMap { Int($0) }
         guard let year = numbers.last, (1990...2100).contains(year) else { return nil }
         let days = numbers.dropLast().filter { (1...31).contains($0) }
@@ -302,8 +365,7 @@ public struct AccountIndex: Sendable {
         let lower = name.lowercased()
         var out: [String] = []
         let ns = lower as NSString
-        let re = try! NSRegularExpression(pattern: #"\d+"#)
-        for m in re.matches(in: lower, range: NSRange(location: 0, length: ns.length)) {
+        for m in digitRuns.matches(in: lower, range: NSRange(location: 0, length: ns.length)) {
             let run = ns.substring(with: m.range)
             // A year-like run is a year (`Statements 2024`), even where it might be an account.
             guard run.count >= 3, !DocumentFacts.isYear(run) else { continue }
@@ -314,7 +376,10 @@ public struct AccountIndex: Sendable {
         return out
     }
 
-    static func isArchiveName(_ name: String) -> Bool { name.lowercased() == "archive" }
+    private static let digitRuns = try! NSRegularExpression(pattern: #"\d+"#)
+
+    /// `Archive`, `Archives`, `Archived`.
+    static func isArchiveName(_ name: String) -> Bool { ["archive", "archives", "archived"].contains(name.lowercased()) }
 
     /// A folder below `node`, not a year or month, whose own name carries account digits and that
     /// holds a regular statement family.
@@ -364,7 +429,23 @@ public struct AccountIndex: Sendable {
         var accounts: [Account] = []
         var categoryWords: [String: Set<String>] = [:]
         for (path, digits) in named {
-            guard let (institutionFolder, archived) = institutionFolder(of: path, isArchived: isArchived) else { continue }
+            // A flat tree names the bank in the account folder itself (`Chase Checking 1234`):
+            // its own words, less the generic ones (`checking`), when no bank folder is above it
+            // or the only one is a top-level category (`Finance`).
+            let leaf = (path as NSString).lastPathComponent
+            let ownWords = words(leaf).filter { !$0.contains(where: \.isNumber) && !generic.contains($0) && !stopWords.contains($0) && $0.count >= 3 }
+            let found = institutionFolder(of: path, isArchived: isArchived)
+            let leafWords = words(leaf).filter { !$0.contains(where: \.isNumber) }
+            if !ownWords.isEmpty, found == nil || (!found!.0.contains("/") && leafWords.count >= 2) {
+                let name = ownWords.joined(separator: " ")
+                let archived = found?.1 ?? false
+                var account = Account(root: path, identities: digits, institution: name, archived: archived)
+                account.institutionName = leaf.split(separator: " ").filter { w in ownWords.contains(w.lowercased()) }.joined(separator: " ")
+                accounts.append(account)
+                categoryWords[name, default: []].formUnion(path.split(separator: "/").dropLast().flatMap { words(String($0)) })
+                continue
+            }
+            guard let (institutionFolder, archived) = found else { continue }
             let components = institutionFolder.split(separator: "/").map(String.init)
             let name = components.last!.lowercased()
             categoryWords[name, default: []].formUnion(components.dropLast().flatMap(words))
@@ -658,7 +739,9 @@ extension AccountIndex {
         let statements = read.filter { $0.facts.kind == .statement }
         var byEnding: [String: [(Sample, DocumentFacts)]] = [:]
         for (s, f) in statements {
-            for e in Set(f.ownNumbers.map(\.ending)) { byEnding[e, default: []].append((s, f)) }
+            // The page's own numbers, as matching uses: a pay-from account printed every month
+            // isn't this account's identity.
+            for e in Set(f.matchingNumbers.map(\.ending)) { byEnding[e, default: []].append((s, f)) }
         }
         let perCandidate = Dictionary(grouping: statements, by: { $0.sample.candidate }).mapValues(\.count)
         var learned: [String: (endings: Set<String>, institution: String, archived: Bool)] = [:]
@@ -690,7 +773,8 @@ extension AccountIndex {
             // many folder names (`Statements`, a household name): `Citi`, `ScholarShare`.
             if institution == nil {
                 for (i, seg) in segments.enumerated().reversed() {
-                    guard !AccountIndex.isArchiveName(seg), !seg.contains(where: { $0.isNumber }) else { continue }
+                    // Never the top level: that is a category (`Investments`), not a bank.
+                    guard i > 0, !AccountIndex.isArchiveName(seg), !seg.contains(where: { $0.isNumber }) else { continue }
                     let words = AccountIndex.words(seg).filter {
                         $0.count >= 4 && !AccountIndex.stopWords.contains($0) && !genericWords.contains($0)
                     }
@@ -732,5 +816,19 @@ extension AccountIndex {
             common = Array(zip(common, parts).prefix { $0 == $1 }.map(\.0))
         }
         return common.joined(separator: "/")
+    }
+}
+
+
+/// Compiled regular expressions by pattern, for helpers handed a pattern string.
+final class RegexCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: [String: NSRegularExpression] = [:]
+    func regex(_ pattern: String) -> NSRegularExpression {
+        lock.lock(); defer { lock.unlock() }
+        if let r = cache[pattern] { return r }
+        let r = try! NSRegularExpression(pattern: pattern)
+        cache[pattern] = r
+        return r
     }
 }

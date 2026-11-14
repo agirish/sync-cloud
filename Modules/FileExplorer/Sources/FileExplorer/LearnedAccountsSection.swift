@@ -31,7 +31,6 @@ struct LearnedAccountsSection: View {
             .padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .lensCard()
-            .onAppear { syncManager.forgetUndoneLearnedAccounts() }
         }
     }
 }
@@ -59,7 +58,7 @@ private struct LearnedAccountRow: View {
             Spacer(minLength: 8)
             Button("Remove", action: onRemove)
                 .controlSize(.small)
-                .help("Forget this account; its statements are matched by their folder names again")
+                .help("Forget this account; its statements are filed as they were before you chose this folder")
         }
     }
 }

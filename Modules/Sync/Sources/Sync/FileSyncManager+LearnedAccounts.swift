@@ -60,10 +60,14 @@ extension FileSyncManager {
     /// The number a filing of `members` would teach: the ending most of them print for themselves.
     /// nil when none prints one: "Nothing to remember: no account number on page 1".
     public func rememberableEnding(for members: [FilingSuggestion]) -> String? {
+        rememberableEnding(for: members, facts: filingDocumentFacts)
+    }
+
+    func rememberableEnding(for members: [FilingSuggestion], facts: [String: DocumentFacts]) -> String? {
         var counts: [String: Int] = [:]
         for m in members {
             // Statements only: a 1099 sent to Income Tax says nothing about where statements go.
-            guard let f = filingDocumentFacts[m.filePath], f.kind == .statement else { continue }
+            guard let f = facts[m.filePath], f.kind == .statement else { continue }
             for e in Set(f.matchingNumbers.map(\.ending)) { counts[e, default: 0] += 1 }
         }
         guard let top = counts.max(by: { ($0.value, $1.key) < ($1.value, $0.key) }) else { return nil }
@@ -79,19 +83,38 @@ extension FileSyncManager {
     public func teachAccount(from members: [FilingSuggestion], landed: [LearnedAccount.Teaching],
                              into folder: String, by taughtBy: LearnedAccount.TaughtBy,
                              now: Date = Date()) -> LearnedAccount? {
-        guard !landed.isEmpty, let ending = rememberableEnding(for: members),
+        teachingAccount(from: members, landed: landed, into: folder, by: taughtBy, now: now)?.taught
+    }
+
+    /// ``teachAccount(from:landed:into:by:now:)``, with the entry as it was before (nil when the
+    /// lesson is new): what ⌘Z of this filing restores.
+    /// `facts`: the page facts as they were when filing began; a scan finishing meanwhile replaces
+    /// the manager's.
+    func teachingAccount(from members: [FilingSuggestion], landed: [LearnedAccount.Teaching],
+                         into folder: String, by taughtBy: LearnedAccount.TaughtBy,
+                         facts snapshot: [String: DocumentFacts]? = nil,
+                         now: Date = Date()) -> (taught: LearnedAccount, previous: LearnedAccount?)? {
+        let pageFacts = snapshot ?? filingDocumentFacts
+        guard !landed.isEmpty, let ending = rememberableEnding(for: members, facts: pageFacts),
               let root = members.first?.providerRoot ?? filingLastProviderRoot,
               var relative = Self.relativePath(folder, under: root), !relative.isEmpty else { return nil }
         relative = Self.accountFolder(of: relative)
         guard !relative.isEmpty else { return nil }
         let index = filingAccountIndex
-        let facts = members.compactMap { filingDocumentFacts[$0.filePath] }
+        let facts = members.compactMap { pageFacts[$0.filePath] }
         // The bank the pages name, else the bank folder he chose.
         let named = facts.compactMap { index?.headerInstitution($0) }
         let byPage = Dictionary(grouping: named, by: { $0 }).max { $0.value.count < $1.value.count }?.key
-        let folderBank = AccountIndex.institutionFolder(of: relative, isArchived: { _ in false })?.0
-        let institution = byPage ?? folderBank.map { ($0 as NSString).lastPathComponent.lowercased() }
-        guard let institution else { return nil }
+        // Else a folder above the one chosen that the tree already knows as a bank: never a guess
+        // from a folder that only sits above it (`…/Checking/Statements` is not a bank "checking").
+        let known = Set(index?.institutionTokens.keys.map { $0 } ?? [])
+        let folderBank = relative.split(separator: "/").map(String.init).reversed()
+            .first { known.contains($0.lowercased()) }
+        let institution = byPage ?? folderBank.map { $0.lowercased() }
+        guard let institution else {
+            Logger.shared.info("Filing: nothing learned for ••\(ending): no bank named on the page or above “\(relative)”")
+            return nil
+        }
         // A folder whose name carries this number at this bank outranks any lesson
         // (`AccountIndex.adding(learned:)`): one taught here would be listed and never used.
         if let named = index?.accounts.first(where: { a in
@@ -104,13 +127,14 @@ extension FileSyncManager {
         }
         let displayName = relative.split(separator: "/").map(String.init).last { $0.lowercased() == institution }
             ?? index?.accounts.first { $0.institution == institution }?.institutionName
-            ?? folderBank.map { ($0 as NSString).lastPathComponent } ?? institution
+            ?? folderBank ?? institution
         var all = filingLearnedAccounts
         let entry: LearnedAccount
+        var previous: LearnedAccount?
         if let i = all.firstIndex(where: { $0.institution == institution && $0.ending == ending
                                            && $0.folder == relative && $0.surveyRoot == root }) {
-            // Counted already as each file landed (`noteFiledIntoLearnedAccount`). Each filing's
-            // files are kept: undoing a later one leaves the lesson an earlier one taught.
+            // Counted already as the files landed (`noteFiledIntoLearnedAccounts`).
+            previous = all[i]
             all[i].teaching = Array((all[i].teaching + landed).suffix(200))
             all[i].taughtAt = now
             entry = all[i]
@@ -124,7 +148,45 @@ extension FileSyncManager {
         }
         filingLearnedAccounts = all
         Logger.shared.info("Filing: learned \(displayName) ••\(ending) → \(relative)")
-        return entry
+        return (entry, previous)
+    }
+
+    /// What the ⌘Z of a filing that taught a lesson does to it: once the files are back (each at
+    /// its source, none where it landed), the lesson is as it was before, or gone if the filing
+    /// made it. ⇧⌘Z, once they've landed again, teaches it again. Nothing else forgets a lesson:
+    /// a file later renamed or moved in Finder says nothing about where statements go.
+    func registerLessonUndo(taught: LearnedAccount, previous: LearnedAccount?, batch: [LearnedAccount.Teaching]) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerLessonRedo(taught: taught, previous: previous, batch: batch)
+            Task { @MainActor in
+                let slot = target.claimFileOperationSlot()
+                let undone = await target.enqueueFileOperation(slot: slot) {
+                    batch.allSatisfy { !FileManager.default.fileExists(atPath: $0.landed) && FileManager.default.fileExists(atPath: $0.source) }
+                }
+                guard undone else { return }
+                var all = target.filingLearnedAccounts
+                if let previous, let i = all.firstIndex(where: { $0.id == taught.id }) { all[i] = previous }
+                else if previous == nil { all.removeAll { $0.id == taught.id } }
+                target.filingLearnedAccounts = all
+                Logger.shared.info("Filing: forgot what an undone filing taught (\(taught.institutionName) ••\(taught.ending))")
+            }
+        }
+    }
+
+    private func registerLessonRedo(taught: LearnedAccount, previous: LearnedAccount?, batch: [LearnedAccount.Teaching]) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerLessonUndo(taught: taught, previous: previous, batch: batch)
+            Task { @MainActor in
+                let slot = target.claimFileOperationSlot()
+                let redone = await target.enqueueFileOperation(slot: slot) {
+                    batch.allSatisfy { FileManager.default.fileExists(atPath: $0.landed) }
+                }
+                guard redone else { return }
+                var all = target.filingLearnedAccounts
+                if let i = all.firstIndex(where: { $0.id == taught.id }) { all[i] = taught } else { all.append(taught) }
+                target.filingLearnedAccounts = all
+            }
+        }
     }
 
     /// `relative` without the year and month levels at its end: the account, not its 2026.
@@ -135,20 +197,6 @@ extension FileSyncManager {
             parts.removeLast()
         }
         return parts.joined(separator: "/")
-    }
-
-    /// Forgets each account whose teaching was undone: every file it taught with is back where it
-    /// came from and gone from where it landed. Moving them on later, elsewhere, forgets nothing.
-    public func forgetUndoneLearnedAccounts() {
-        let all = filingLearnedAccounts
-        let fm = fileManager
-        let kept = all.filter { a in
-            guard !a.teaching.isEmpty else { return true }
-            return !a.teaching.allSatisfy { !fm.fileExists(atPath: $0.landed) && fm.fileExists(atPath: $0.source) }
-        }
-        guard kept.count != all.count else { return }
-        Logger.shared.info("Filing: forgot \(all.count - kept.count) learned account(s) whose filing was undone")
-        filingLearnedAccounts = kept
     }
 
     /// Why a lesson isn't in use, for its row: taught for another tree than the one the last scan
@@ -177,12 +225,18 @@ extension FileSyncManager {
         return fileManager.fileExists(atPath: account.absoluteFolder, isDirectory: &isDir) && isDir.boolValue
     }
 
-    /// Counts a filing into a learned account's folder, for the "N filed" on its row.
-    func noteFiledIntoLearnedAccount(folder: String) {
+    /// Counts filings into learned accounts' folders, for the "N filed" on their rows: one write
+    /// for a whole filing, not one per file.
+    func noteFiledIntoLearnedAccounts(folders: [String]) {
         var all = filingLearnedAccounts
-        guard let i = all.firstIndex(where: { PathBoundary.contains(folder, under: $0.absoluteFolder) }) else { return }
-        all[i].filedCount += 1
-        filingLearnedAccounts = all
+        guard !all.isEmpty else { return }
+        var changed = false
+        for folder in folders {
+            guard let i = all.firstIndex(where: { PathBoundary.contains(folder, under: $0.absoluteFolder) }) else { continue }
+            all[i].filedCount += 1
+            changed = true
+        }
+        if changed { filingLearnedAccounts = all }
     }
 }
 

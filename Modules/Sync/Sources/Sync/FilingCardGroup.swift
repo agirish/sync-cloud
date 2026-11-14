@@ -19,6 +19,12 @@ public struct FilingCardGroup: Identifiable, Sendable, Equatable {
     /// What File N moves.
     public var toFile: [FilingSuggestion] { members.filter { !$0.isAlreadyFiled && $0.duplicateOf == nil } }
 
+    /// Every other account File N copies into, across all the members, one per account.
+    public var allCopies: [FilingCopy] {
+        var seen = Set<String>()
+        return toFile.flatMap { $0.best?.alsoCopiesTo ?? [] }.filter { seen.insert($0.account.root).inserted }
+    }
+
     /// The statements' periods, earliest and latest, from their proposed names or file names.
     public var dateRange: (first: DocumentFacts.Period, last: DocumentFacts.Period)? {
         let periods = members.compactMap { s in
@@ -58,7 +64,9 @@ public enum FilingCardGrouping {
             guard !pulledOut.contains(s.id), let best = s.best, let account = best.account,
                   best.confidence >= .medium else { return nil }
             // The same own number too: a card says "account ••X on page 1 of all N".
+            // And the same kind: a 1099 doesn't join "3 Schwab statements".
             return account.root + "\u{0}" + best.path + "\u{0}" + best.confidence.rawValue + "\u{0}" + account.ending
+                + "\u{0}" + account.kind.rawValue
         }
         var members: [String: [FilingSuggestion]] = [:]
         for s in suggestions { if let k = key(s) { members[k, default: []].append(s) } }

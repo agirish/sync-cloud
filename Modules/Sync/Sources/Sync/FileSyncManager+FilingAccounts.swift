@@ -38,8 +38,13 @@ extension FileSyncManager {
                 if case .high = match, !place.yearUnknown { confidence = .high } else { confidence = .medium }
                 let dest = destination(for: account, number: number, place: place, kind: f.kind,
                                        confidence: confidence, root: root, match: match)
-                // A Medium match on a page that isn't a statement (a tax return naming its refund
-                // account, a credit report) is one more option, behind the homes found for it.
+                // A tax form printing its account's own number, from the bank the page names, leads:
+                // its account is certain, whatever a word match says (Medium, as tax forms are).
+                if case .medium(_, _, .notAStatement) = match, f.kind == .taxForm {
+                    return s.replacingCandidates(leading(dest, in: s.candidates))
+                }
+                // A Medium match on another page that isn't a statement (a tax return naming its
+                // refund account, a credit report) is one more option, behind the homes found for it.
                 if case .medium(_, _, .notAStatement) = match {
                     return s.replacingCandidates(appending(dest, to: s.candidates))
                 }
@@ -121,13 +126,14 @@ extension FileSyncManager {
             used.insert(chosen.lowercased())
             taken[best.path] = used
             guard chosen != name else { return s }
-            let renamed = FilingDestination(path: best.path, confidence: best.confidence,
+            var renamed = FilingDestination(path: best.path, confidence: best.confidence,
                                             reasons: best.reasons + ["Kept as “\(chosen)”: “\(name)” is taken there"],
                                             newSegments: best.newSegments, fromContent: best.fromContent,
                                             remembered: best.remembered, fromAI: best.fromAI,
                                             evidenceToken: best.evidenceToken, neighborMatches: best.neighborMatches,
                                             proposedName: chosen, fromSurvey: best.fromSurvey,
                                             account: best.account, nameOrigin: .template)
+            renamed.alsoCopiesTo = best.alsoCopiesTo
             return s.replacingCandidates([renamed] + s.candidates.dropFirst())
         }
     }
@@ -256,6 +262,14 @@ extension FileSyncManager {
         let rest = others.dropFirst(ruled.count)
         let surer = rest.prefix { $0.confidence > dest.confidence }
         return Array(ruled) + Array(surer) + [dest] + Array(rest.dropFirst(surer.count))
+    }
+
+    /// `dest` first, after only the user's own rules.
+    nonisolated static func leading(_ dest: FilingDestination, in candidates: [FilingDestination]) -> [FilingDestination] {
+        if candidates.contains(where: { $0.remembered && $0.path == dest.path }) { return candidates }
+        let others = candidates.filter { $0.path != dest.path }
+        let ruled = others.prefix { $0.remembered }
+        return Array(ruled) + [dest] + Array(others.dropFirst(ruled.count))
     }
 
     /// `dest` after every home already offered, unless one of them is the same folder.

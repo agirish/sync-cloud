@@ -4495,8 +4495,8 @@ public struct LensWorkspaceView: View {
             archiveName: syncManager.archiveOffer(for: group)?.archiveName ?? "Archive",
             onFileOnce: { scope in
                 filedThisSession = true
-                rememberFileOnce(scope, copies: group.destination.alsoCopiesTo)
-                let skip = Self.copiesSkipped(by: scope, copies: group.destination.alsoCopiesTo)
+                rememberFileOnce(scope, copies: group.allCopies)
+                let skip = Self.copiesSkipped(by: scope, copies: group.allCopies)
                 Task { await syncManager.applyFilingGroup(group, exceptCopiesTo: skip) }
             }
         )
@@ -4900,8 +4900,12 @@ public struct LensWorkspaceView: View {
     /// filename has something distinctive to key on, offers to remember it. Shared by the picker
     /// and the system panel, so one path reaches the transfer whichever answered.
     private func file(_ suggestion: FilingSuggestion, into destination: String) {
-        let dest = FilingDestination(path: destination, confidence: .high,
+        var dest = FilingDestination(path: destination, confidence: .high,
                                      reasons: ["You chose this folder"], newSegments: [])
+        // The copies into the other accounts it names stay, except one into where it now goes.
+        dest.alsoCopiesTo = (suggestion.best?.alsoCopiesTo ?? []).filter {
+            !PathBoundary.contains(destination, under: $0.account.root)
+        }
         filedThisSession = true
         let teachable = FilingOverride.isOverride(suggestion, chosenPath: destination)
             && FilingEngine.canRemember(fileName: suggestion.fileName)

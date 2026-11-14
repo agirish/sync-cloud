@@ -18,7 +18,12 @@ extension FileSyncManager {
         // the tree.
         if let folder, let first = group.toFile.first,
            case .failure(let refusal) = filingDestination(typed: folder, for: first) {
-            banner = .refusal(refusal.sentence, log: .info)
+            // Said as a choice, not something typed.
+            if case .outsideTree(let root) = refusal {
+                banner = .refusal("Choose a folder inside “\((root as NSString).lastPathComponent)”", log: .info)
+            } else {
+                banner = .refusal(refusal.sentence, log: .info)
+            }
             return 0
         }
         return await fileFilingGroup(group, into: folder, typed: typed, teach: teach, fileOnce: fileOnce,
@@ -30,18 +35,23 @@ extension FileSyncManager {
     func fileFilingGroup(_ group: FilingCardGroup, into folder: String? = nil,
                          typed: FilingDestination? = nil, teach: Bool = false, fileOnce: Bool = false,
                          exceptCopiesTo: Set<String> = [],
-                         priorFolderMove: PriorFolderMove? = nil) async -> Int {
+                         priorFolderMove: PriorFolderMove? = nil, holdsGuard: Bool = false) async -> Int {
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
         }
-        guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else {
-            banner = .refusal("Another filing is still running — try again when it finishes", log: .info)
-            return 0
+        // `holdsGuard`: the caller (moving an account out of its archive first) holds it already.
+        if !holdsGuard {
+            guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else {
+                banner = .refusal("Another filing is still running — try again when it finishes", log: .info)
+                return 0
+            }
+            filingBatchInFlight.insert(ObjectIdentifier(self))
         }
-        filingBatchInFlight.insert(ObjectIdentifier(self))
-        defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
+        defer { if !holdsGuard { filingBatchInFlight.remove(ObjectIdentifier(self)) } }
 
+        // Page facts as they are now: a scan finishing while this runs replaces the manager's.
+        let factsAtStart = filingDocumentFacts
         var moves: [MoveItemState] = []
         var copied: [CopyItemState] = []
         // The folders filing these makes, copies' included: ⌘Z removes them again.
@@ -56,14 +66,19 @@ extension FileSyncManager {
         for s in group.toFile {
             guard let own = s.best else { continue }
             // A typed path keeps the levels it creates; the first member makes them.
-            let dest = typed ?? folder.map {
+            var dest = typed ?? folder.map {
                 FilingDestination(path: $0, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
             } ?? own
+            // A folder he chose for the main home: the copies into the other accounts it names stay,
+            // except one into where it now goes.
+            if dest.path != own.path {
+                dest.alsoCopiesTo = own.alsoCopiesTo.filter { !PathBoundary.contains(dest.path, under: $0.account.root) }
+            }
             switch await performFiling(s, to: dest) {
             case .moved(let move):
                 moves.append(move)
                 if !fileOnce {
-                    copied += performFilingCopies(of: move.to, copies: dest.alsoCopiesTo.filter { !exceptCopiesTo.contains($0.account.root) })
+                    copied += await performFilingCopies(of: move.to, copies: dest.alsoCopiesTo.filter { !exceptCopiesTo.contains($0.account.root) })
                 }
                 if let offer = s.firstOffer {
                     scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
@@ -93,14 +108,19 @@ extension FileSyncManager {
         let chosen = typed?.path ?? folder
         // Filed into the new account it proposed (not a folder he chose instead).
         let makesAccount = (typed ?? (folder == nil ? group.destination : nil))?.createsAccountFolder ?? false
-        var taught: LearnedAccount?
+        noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
+        var lesson: LessonUndo?
         if teach || makesAccount, let into = chosen ?? (makesAccount ? group.destination.account?.root : nil) {
-            taught = teachAccount(from: group.toFile, landed: moves.map { .init(source: $0.from.path, landed: $0.to.path) },
-                                  into: into, by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect)
+            let batch: [LearnedAccount.Teaching] = moves.map { .init(source: $0.from.path, landed: $0.to.path) }
+            if let t = teachingAccount(from: group.toFile, landed: batch, into: into,
+                                       by: chosen == nil || (makesAccount && !teach) ? .newAccount : .groupRedirect,
+                                       facts: factsAtStart) {
+                lesson = LessonUndo(taught: t.taught, previous: t.previous, batch: batch)
+            }
         }
         registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
                            createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
-                           priorFolderMove: priorFolderMove, forgetsLesson: taught != nil)
+                           priorFolderMove: priorFolderMove, lesson: lesson)
         for line in FilingBatchLog.lines(operation: "Filing group", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
                                                                                     alreadyHome: alreadyHome)) {

@@ -27,7 +27,7 @@ public enum AccountPlacement {
         if taxForm {
             // A child whose name says tax (`Tax`, `Tax Forms`), else the root: the root counts as
             // the tax home of an account that keeps its 1099s beside its statements.
-            let tax = (node.children ?? []).first { $0.isDirectory && AccountIndex.words($0.name).contains("tax") }
+            let tax = (node.children ?? []).first { $0.isDirectory && AccountIndex.words($0.name).contains { $0.hasPrefix("tax") } }
             guard let tax else { return Placement(folder: "", newSegments: [], name: nil) }
             let years = (tax.children ?? []).filter { $0.isDirectory && FolderProfileEntry.looksLikeYear($0.name) }
             if !years.isEmpty, let year = period?.year {
@@ -50,7 +50,14 @@ public enum AccountPlacement {
         var segments: [String] = []
         for seg in newest.folder.split(separator: "/").map(String.init) {
             // A year inside a longer name (`Statements 2025`, `Tax Year 2025`) moves with it too.
-            if seg.count > 4, FilingPeriod.monthSlot(ofFolderNamed: seg) == nil, let period, let r = seg.range(of: #"\b(19|20)\d\d\b"#, options: .regularExpression) {
+            if seg.count > 4, FilingPeriod.monthSlot(ofFolderNamed: seg) == nil,
+               let r = seg.range(of: #"\b(19|20)\d\d\b"#, options: .regularExpression) {
+                // No period known: the account is right, but not which year's folder.
+                guard let period else {
+                    return Placement(folder: segments.joined(separator: "/"),
+                                     newSegments: resolve(segments.joined(separator: "/"), in: node, name: nil).newSegments,
+                                     name: nil, yearUnknown: true)
+                }
                 segments.append(seg.replacingCharacters(in: r, with: String(period.year)))
                 continue
             }

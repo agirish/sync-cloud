@@ -122,7 +122,8 @@ import Foundation
             card, to: FilingDestination(path: f.docs.path + "/Bank Accounts/Chase/Joint Checking", confidence: .high,
                                         reasons: ["r"], newSegments: []), teachAccount: true) == .moved)
         #expect(f.m.filingLearnedAccounts.count == 1)
-        f.m.forgetUndoneLearnedAccounts()
+        // A new statement arriving where the taught one came from forgets nothing: only ⌘Z does.
+        await f.m.findFilingSuggestions(folder: f.inbox, providerRoot: f.docs)
         #expect(f.m.filingLearnedAccounts.count == 1, "still filed: still taught")
         #expect(f.m.filingLearnedAccounts.first?.filedCount == 1, "counted once")
         undo.undo()

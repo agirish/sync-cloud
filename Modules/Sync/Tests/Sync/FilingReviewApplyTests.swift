@@ -88,7 +88,9 @@ import Foundation
         let docs = root.appendingPathComponent("Docs")
         let file = root.appendingPathComponent("In/03. Mar 2026.pdf")
         try writeBytes(file, Data(repeating: 3, count: 40))
-        try FileManager.default.createDirectory(at: docs.appendingPathComponent("Fidelity/Brokerage 1750"), withIntermediateDirectories: true)
+        for a in ["Brokerage 1750", "Roth IRA 4657", "HSA 0012"] {
+            try FileManager.default.createDirectory(at: docs.appendingPathComponent("Fidelity/" + a), withIntermediateDirectories: true)
+        }
         func acct(_ name: String, _ ending: String) -> FilingCopy {
             FilingCopy(path: docs.path + "/Fidelity/\(name)", proposedName: nil,
                        account: FilingAccount(root: docs.path + "/Fidelity/\(name)", ending: ending, institution: "fidelity", archived: false, kind: .statement))

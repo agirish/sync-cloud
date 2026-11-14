@@ -182,32 +182,47 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
             return self
         }
         let parent = (path as NSString).deletingLastPathComponent
-        return FilingDestination(path: parent + "/" + trimmed, confidence: confidence,
-                                 reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],
-                                 fromContent: fromContent, remembered: remembered, fromAI: fromAI,
-                                 evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                                 proposedName: proposedName, fromSurvey: fromSurvey,
-                                 account: account, nameOrigin: nameOrigin)
+        let renamed = parent + "/" + trimmed
+        // The account folder itself renamed (`Checking 0779` → `Chase Checking`): its account
+        // follows, so what this teaches names the folder that is made.
+        var acct = account
+        if let a = account, a.root == path {
+            acct = FilingAccount(root: renamed, ending: a.ending, institution: a.institution, archived: a.archived, kind: a.kind)
+            acct?.institutionName = a.institutionName
+        }
+        var d = FilingDestination(path: renamed, confidence: confidence,
+                                  reasons: reasons, newSegments: newSegments.dropLast() + [trimmed],
+                                  fromContent: fromContent, remembered: remembered, fromAI: fromAI,
+                                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                                  proposedName: proposedName, fromSurvey: fromSurvey,
+                                  account: acct, nameOrigin: nameOrigin)
+        d.alsoCopiesTo = alsoCopiesTo
+        return d
     }
 
     /// A copy of this destination at a different confidence, for capping a claim its evidence can't
     /// support (see
     /// ``FilingEngine/applyVerdicts(_:to:existingRelative:providerRoot:rejectedByFile:contentBlind:routerShortlists:)``).
     public func withConfidence(_ c: FilingConfidence) -> FilingDestination {
-        FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
-                          fromContent: fromContent, remembered: remembered, fromAI: fromAI,
-                          evidenceToken: evidenceToken, neighborMatches: neighborMatches,
-                          proposedName: proposedName, fromSurvey: fromSurvey,
-                          account: account, nameOrigin: nameOrigin)
+        var d = FilingDestination(path: path, confidence: c, reasons: reasons, newSegments: newSegments,
+                                  fromContent: fromContent, remembered: remembered, fromAI: fromAI,
+                                  evidenceToken: evidenceToken, neighborMatches: neighborMatches,
+                                  proposedName: proposedName, fromSurvey: fromSurvey,
+                                  account: account, nameOrigin: nameOrigin)
+        d.alsoCopiesTo = alsoCopiesTo
+        return d
     }
 
     /// A copy of this destination carrying `name` as the rename it would apply.
     public func naming(_ name: String?, origin: NameOrigin = .planner) -> FilingDestination {
-        FilingDestination(path: path, confidence: confidence, reasons: reasons,
-                          newSegments: newSegments, fromContent: fromContent,
-                          remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
-                          neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey,
-                          account: account, nameOrigin: name == nil ? .planner : origin)
+        var d = FilingDestination(path: path, confidence: confidence, reasons: reasons,
+                                  newSegments: newSegments, fromContent: fromContent,
+                                  remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
+                                  neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey,
+                                  account: account, nameOrigin: name == nil ? .planner : origin)
+        // Copies into the other accounts it names travel with every rebuild of the home.
+        d.alsoCopiesTo = alsoCopiesTo
+        return d
     }
 }
 

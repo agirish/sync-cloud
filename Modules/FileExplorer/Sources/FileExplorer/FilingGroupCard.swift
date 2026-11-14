@@ -102,8 +102,8 @@ struct FilingGroupCard: View {
                 .buttonStyle(.borderless).controlSize(.small)
                 .accessibilityLabel(isExpanded ? "Hide the \(group.members.count) files" : "Show the \(group.members.count) files")
             }
-            if let onFileOnce, !group.destination.alsoCopiesTo.isEmpty {
-                FilingCopiesRow(copies: group.destination.alsoCopiesTo, onFileOnce: onFileOnce)
+            if let onFileOnce, !group.allCopies.isEmpty {
+                FilingCopiesRow(copies: group.allCopies, onFileOnce: onFileOnce)
             }
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
             if isExpanded { memberList }
@@ -253,7 +253,7 @@ enum FilingGroupText {
         if filed > 0 { parts.append("\(filed) \(filed == 1 ? "is" : "are") already in your folders") }
         let copies = g.copies.count
         if copies > 0 { parts.append("\(copies) \(copies == 1 ? "is a copy" : "are copies") of another file here") }
-        return parts.joined(separator: "; ") + ". File \(g.toFile.count) leaves \(filed + copies == 1 ? "it" : "them") where \(filed + copies == 1 ? "it is" : "they are")."
+        return parts.joined(separator: "; ") + ". Filing the other \(g.toFile.count) leaves \(filed + copies == 1 ? "it" : "them") where \(filed + copies == 1 ? "it is" : "they are")."
     }
 
     /// Where one member lands: its new name, or what keeps it from moving.
