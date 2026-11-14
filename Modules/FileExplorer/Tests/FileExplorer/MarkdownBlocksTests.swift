@@ -4,9 +4,9 @@ import Foundation
 
 /// The Markdown walk: source in, preview blocks out.
 ///
-/// Fixtures rather than round-trips: the claim is not that swift-markdown parses Markdown (its own
-/// project's problem) but that this walk turns what it parses into the blocks the preview draws,
-/// the half that can silently drop a construct.
+/// Fixtures rather than round-trips: the claim is not that swift-markdown parses Markdown but that
+/// this walk turns what it parses into the blocks the preview draws, the half that can silently
+/// drop a construct.
 @Suite struct MarkdownBlocksTests {
 
     private func blocks(_ source: String) -> [MarkdownBlock] {
@@ -177,9 +177,8 @@ import Foundation
         #expect(rows.map { $0.map(\.plain) } == [["Ada", "People/Ada"], ["Alan", "People/Alan"]])
     }
 
-    /// A short row is padded to the header's width, so the missing cell stays in its own column.
-    /// Left-packed, a gap in the middle would shift every cell after it and show the absence at the
-    /// end of the row, the one place it isn't.
+    /// A short row is padded to the header's width, so a missing cell stays in its own column
+    /// rather than shifting every cell after it.
     @Test func aRaggedRowKeepsItsCellsInTheRightColumns() {
         let parsed = blocks("| A | B | C |\n|---|---|---|\n| 1 | 2 |\n")
         guard case .table(let header, let rows) = parsed.first?.kind else {
@@ -238,9 +237,8 @@ import Foundation
         #expect(text.runs.count == 1, "an unstyled sentence came back as \(text.runs.count) runs")
     }
 
-    /// A lone image is its own block, carrying the source and alt text, but nothing here fetches
-    /// anything and a remote source is refused. The refusal is decided in `MarkdownImageSource`;
-    /// this checks both halves so the promise doesn't rest on that suite alone.
+    /// A lone image is its own block with its source and alt text; nothing here fetches it, and a
+    /// remote source is refused (decided in `MarkdownImageSource`, checked here too).
     @Test func aRemoteImageIsCarriedButNeverFetched() {
         let parsed = blocks("![a diagram](https://example.com/x.png)\n")
         guard case .image(let source, let alt) = parsed.first?.kind else {
@@ -290,10 +288,9 @@ import Foundation
     /// A line starting with `@` is prose, not a directive.
     ///
     /// With `.parseBlockDirectives` (a DocC extension, not Markdown) the parser opens a directive
-    /// on a bare `@` plus a name, and the walk's fallback arm renders an unknown node with
-    /// `markup.format()`, which wraps a directive's arguments in parentheses and drops the inline
-    /// styling. A note's `@channel ping me about **the invoice**`, `@media` in unfenced CSS, `@2x`
-    /// or an `@username` at the start of a line would show brackets never typed and lose its bold.
+    /// on a bare `@` plus a name, and the walk's fallback renders it with `markup.format()`, which
+    /// wraps the arguments in parentheses and drops inline styling: an `@channel` or `@media` line
+    /// would show brackets never typed and lose its bold.
     @Test func aLineBeginningWithAnAtSignIsRenderedAsTheProseItIs() {
         let parsed = blocks("@channel ping me about **the invoice**\n")
         let text = try? #require(parsed.first.flatMap { block -> MarkdownText? in
@@ -308,9 +305,8 @@ import Foundation
                 "the bold run was flattened away")
     }
 
-    /// Nesting is carried as a number and the document decides how deep it goes. The preview clamps
-    /// what it draws, but the walk must report the real depth rather than capping or crashing. A
-    /// forwarded mail thread is routinely eight to fifteen levels.
+    /// The walk reports the real nesting depth rather than capping or crashing (a forwarded mail
+    /// thread runs eight to fifteen levels); only the preview clamps what it draws.
     @Test func deepNestingIsCountedRatherThanClamped() {
         let quoted = String(repeating: "> ", count: 20) + "deep\n"
         let block = try? #require(blocks(quoted).first)
@@ -323,9 +319,8 @@ import Foundation
 
     // MARK: Source lines
 
-    /// Every caller of the outline, the task toggle and the split sync asks for the line, so first
-    /// pin that the parser reports one at all: a walk answering `nil` everywhere would leave all
-    /// three features inert and passing.
+    /// The outline, the task toggle and the split sync all ask for the line: a walk answering `nil`
+    /// everywhere would leave all three inert and passing.
     @Test func everyBlockKnowsTheLineItStartsOn() {
         let parsed = blocks("""
         # Title
@@ -341,9 +336,9 @@ import Foundation
                 "the walk reported lines \(parsed.map(\.line))")
     }
 
-    /// Lines are counted in the whole document, not within the construct: a heading after a
-    /// twenty-line fence is on line 22, not line 2. A walk that re-parsed fragments would get this
-    /// wrong, and look correct in every short fixture.
+    /// Lines are counted in the whole document, not within the construct. A walk that re-parsed
+    /// fragments would get the heading after a twenty-line fence wrong, and look correct in every
+    /// short fixture.
     @Test func linesAreCountedFromTheTopOfTheDocument() {
         let source = "```\n" + String(repeating: "x\n", count: 20) + "```\n\n# Late\n"
         let parsed = blocks(source)

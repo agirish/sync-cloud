@@ -3,10 +3,8 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// Merging changed cells into pointable regions, and putting them on screen where the change is.
-///
-/// Two halves: the merge, because a cell is not a region, and the aspect-fit mapping, because an
-/// outline near the change rather than on it looks just like a working feature.
+/// Merging changed cells into pointable regions, and putting them on screen where the change is:
+/// an outline near the change rather than on it looks just like a working feature.
 @Suite struct ChangedRegionCalloutTests {
 
     // MARK: The merge
@@ -94,12 +92,9 @@ import Testing
     }
 
     /// A square image in a wide frame is letterboxed left and right, so the callouts are offset by
-    /// the same margin the image is.
-    ///
-    /// A region at the image's top-left lands at the letterbox's top-left, scaled, and the y axis
-    /// is **not** flipped: a `CGBitmapContext`'s buffer starts at the image's top row, the
-    /// direction SwiftUI lays out in. A flip would look right on a symmetric page and be wrong on
-    /// every real one.
+    /// the same margin the image is. The y axis is not flipped: a `CGBitmapContext`'s buffer starts
+    /// at the image's top row, the direction SwiftUI lays out in. A flip would look right on a
+    /// symmetric page and be wrong on every real one.
     @Test func aRegionMapsOntoTheSamePixelsTheImageIsDrawnOn() throws {
         let drawn = ChangedRegionCallouts.drawable(
             regions: [CGRect(x: 10, y: 20, width: 30, height: 40)],

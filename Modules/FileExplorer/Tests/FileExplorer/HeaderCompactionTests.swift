@@ -1,24 +1,22 @@
 import Testing
 @testable import FileExplorer
 
-/// The differences header's shedding ladder and label rules. These are the design decisions the
-/// bar is built from, asserted directly rather than through a rendered row: `ViewThatFits` picks
-/// which rung applies, but which rung means what is decided here.
+/// The differences header's shedding ladder and label rules, asserted directly rather than
+/// through a rendered row: `ViewThatFits` picks which rung applies, but what each rung means is
+/// decided here.
 @Suite struct HeaderCompactionTests {
 
     @Test func testLadderIsOrderedWidestFirst() {
-        // The view lists one ViewThatFits candidate per case in `allCases` order, so a reordering
-        // here silently reorders what the header gives up. Pin the sequence.
+        // The view lists one ViewThatFits candidate per case in `allCases` order, so reordering
+        // here silently reorders what the header gives up.
         #expect(HeaderCompaction.allCases == [
             .full, .foldVerify, .foldReview, .shortReverse, .glyphFilter, .shortPrimary,
         ])
         #expect(HeaderCompaction.allCases == HeaderCompaction.allCases.sorted())
         #expect(HeaderCompaction.full < HeaderCompaction.shortPrimary)
 
-        // Destination names are shed after everything else: a rule the pinned order only happens
-        // to satisfy, so it is stated on its own. Verify and Review name no destination, so both
-        // are gone before either transfer button gives up a word; the widest button never loses
-        // its destination first, as a middle truncation would make it.
+        // Destination names are shed last, stated apart from the pinned order: Verify and Review
+        // name none, so both fold before either transfer button gives up a word.
         #expect(HeaderCompaction.foldVerify < .shortReverse)
         #expect(HeaderCompaction.foldReview < .shortReverse)
         // And the primary's destination outlives the reverse's and the filter's.
@@ -43,10 +41,8 @@ import Testing
         #expect(BulkActionLabel.text(count: 4, destination: nil, isMove: true) == "Move 4")
     }
 
-    /// The mutation this file exists to catch: if `text` spelled Copy out at the narrow rung too,
-    /// the row would grow at exactly the widths that had no room to begin with. Asserting the
-    /// lengths rather than the strings makes the intent, "the shed label is never longer than a
-    /// bare count", the checked property.
+    /// The shed label is never longer than a bare count. Mutation: spelling Copy out at the narrow
+    /// rung must fail it; the row would grow exactly where there is no room.
     @Test func testShedCopyLabelIsNoLongerThanBeforeTheVerbExisted() {
         let shed = BulkActionLabel.text(count: 560, destination: nil, isMove: false)
         let named = BulkActionLabel.text(count: 560, destination: "Dropbox", isMove: false)
@@ -90,10 +86,9 @@ import Testing
         #expect(!BulkActionLabel.primaryNamesDestination(compaction: .shortPrimary))
     }
 
-    /// The view's ladder is a hand-maintained mirror of the enum: `ViewThatFits` treats a `ForEach`
-    /// as one child, so the rows cannot be looped and a new rung has to be added in two places.
-    /// Added to the enum only, the header would silently never render it while every test above
-    /// still passed.
+    /// The view's ladder hand-mirrors the enum (`ViewThatFits` treats a `ForEach` as one child, so
+    /// the rungs cannot be looped). A rung added to the enum only would never render, with every
+    /// test above still green.
     @Test func testTheViewRendersEveryCompactionRung() {
         #expect(DifferencesView.renderedCompactionLadder == HeaderCompaction.allCases,
                 "HeaderCompaction.allCases and the ViewThatFits ladder in DifferencesView have drifted")

@@ -423,7 +423,7 @@ import Sync
         #expect(ids.contains("com.apple.dock") || ids.contains("com.apple.finder"), "found \(ids.count) bundles, but neither the Dock nor Finder")
     }
 
-    // MARK: Review fixes, 2026-10-30
+    // MARK: Review fixes
 
     /// The same problem coming back is a change. Dismiss "OneDrive isn't running", OneDrive
     /// runs again, then quits again: the row is back. And iCloud's row, whose words never change.
@@ -530,10 +530,9 @@ import Sync
         #expect(model.watchedPaths == ["/x/Report.docx"])
     }
 
-    /// An account folder File Provider no longer knows is a leftover whose account is gone: it
-    /// gets nothing, while a live account of the same app does. A failed check is asked again, so
-    /// a moment it was unavailable doesn't hide a source until the next wake; a "known" answer is
-    /// kept.
+    /// An account folder File Provider no longer knows is a leftover and gets nothing, while a live
+    /// account of the same app does. A failed check is asked again, so a moment's unavailability
+    /// doesn't hide a source until the next wake; a "known" answer is kept.
     @Test func aFailedAccountCheckIsAskedAgain() async {
         let fake = Fake()
         fake.set(running: .oneDrive, false)
@@ -590,8 +589,7 @@ import Sync
         fake.set(running: .oneDrive, true)
         monitor.requestRefresh()
         // Bounded, and generous: the claim is that the fast half runs at all while the slow one
-        // hangs, not how fast. A tight bound flakes on hosted CI's 3 vCPUs ("Tests racing a
-        // real-time window", docs/flaky-tests.md).
+        // hangs, not how fast (docs/flaky-tests.md, "Tests racing a real-time window").
         let deadline = ContinuousClock.now + .seconds(60)
         while !monitor.problems.isEmpty, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
@@ -613,7 +611,7 @@ import Sync
         #expect(CloudAppNotice.Action.show(["/a", "/b"]).title == "Show Them")
     }
 
-    // MARK: Asked about at once (decision DN)
+    // MARK: Asked about at once
 
     /// A source the user picks says "not running" at once; one restored at launch waits. The
     /// launch's own refresh with OneDrive already quit shows nothing (the grace), and picking a
@@ -663,10 +661,9 @@ import Sync
         #expect(monitor.problems.isEmpty, "said \(monitor.problems)")
     }
 
-    /// The four places that ask, and the one that must not. A pick in the source menu, the pointer
-    /// reaching its chip, a click on a sidebar source, and Settings ▸ Sources on screen all check
-    /// at once; the window's own provider restore doesn't, so ContentView's one call is the
-    /// Settings one.
+    /// The four places that ask, and the one that must not: a pick in the source menu, the pointer
+    /// reaching its chip, a sidebar click and Settings ▸ Sources on screen check at once; the
+    /// window's own provider restore doesn't, so ContentView's one call is the Settings one.
     @Test func theUserGesturesAskAndARestoreDoesNot() throws {
         let root = AppCopyScan.repoRoot
         func source(_ path: String) throws -> String { try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) }

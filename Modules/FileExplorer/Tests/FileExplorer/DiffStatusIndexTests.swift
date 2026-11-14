@@ -56,10 +56,9 @@ private func diff(
     }
 
     @Test func testFoldedFallbackBadgesCaseVariantDestinationFolders() {
-        // A missing row's expected path carries the source side's ancestor casing ("Docs"), so
-        // the destination's real folder "docs" matches no exact key. With foldsCase (a
-        // case-insensitive volume) the folded fallback finds it; without it, where "Docs" and
-        // "docs" are distinct folders, the exact match stands.
+        // A missing row's expected path carries the source side's ancestor casing ("Docs"), so the
+        // destination's real folder "docs" matches no exact key. With foldsCase (a case-insensitive
+        // volume) the folded fallback finds it; without it, the exact match stands.
         let differences = [diff("Docs/x.txt", type: .missingOnRight)]
 
         let folding = DiffStatusIndex(differences: differences, rootPath: "/r", foldsCase: true)
@@ -74,8 +73,7 @@ private func diff(
     @Test func testFoldedCountsMergeSplitCasingsOfOneRealFolder() {
         // One real folder's differences can be keyed under two casings at once: an existing pair
         // under the pane's real spelling (sideAlignedPath), a missing row under the source side's.
-        // On a folding pane the folded sum is authoritative, whatever casing the node id uses;
-        // an exact-first shortcut would return only one casing's share.
+        // On a folding pane the folded sum is authoritative; exact-first would return one share.
         let differences = [
             diff("Docs/x.txt", type: .missingOnRight),     // source-cased ancestor: /r/Docs
             diff("docs/y.txt", type: .differentDates),     // pane-cased ancestor:   /r/docs
@@ -130,8 +128,7 @@ private func diff(
     }
 
     @Test func testDifferentRootsIndexTheSameDifferencesIndependently() {
-        // The same differences list is indexed once per pane; each pane resolves
-        // only its own absolute paths.
+        // The same list is indexed once per pane; each pane resolves only its own absolute paths.
         let differences = [diff("sub/a.txt")]
         let left = DiffStatusIndex(differences: differences, rootPath: "/left-root")
         let right = DiffStatusIndex(differences: differences, rootPath: "/right-root")
@@ -150,8 +147,7 @@ private func diff(
         #expect(noRoot.status(forNodeId: "/a.txt") == nil)
         #expect(noRoot.status(forNodeId: "a.txt") == nil)
 
-        // An empty relative path (degenerate diff) is skipped rather than
-        // badging the root itself.
+        // An empty relative path (degenerate diff) is skipped rather than badging the root.
         let emptyRelative = DiffStatusIndex(differences: [diff("")], rootPath: "/root")
         #expect(emptyRelative.status(forNodeId: "/root") == nil)
         #expect(emptyRelative.containedDiffCount(forNodeId: "/root") == 0)
@@ -164,8 +160,7 @@ private func diff(
     }
 
     @Test func testSiblingDirectoryNamePrefixesDoNotCollide() {
-        // "/root/sub" is a string prefix of "/root/subfolder"; containment must
-        // follow path components, not string prefixes.
+        // "/root/sub" is a string prefix of "/root/subfolder"; containment follows components.
         let index = DiffStatusIndex(
             differences: [diff("subfolder/a.txt")],
             rootPath: "/root"
@@ -191,8 +186,7 @@ private func diff(
 
         #expect(left.status(forNodeId: "/left/Sub/File.txt") == .differentDates)
         #expect(left.containedDiffCount(forNodeId: "/left/Sub") == 1)
-        // Badge and ancestor count must land on the right pane's actual node ids, not on
-        // a left-cased join that matches no row.
+        // Badge and count land on the right pane's node ids, not a left-cased join.
         #expect(right.status(forNodeId: "/right/sub/file.txt") == .differentDates)
         #expect(right.containedDiffCount(forNodeId: "/right/sub") == 1)
         #expect(right.status(forNodeId: "/right/Sub/File.txt") == nil)

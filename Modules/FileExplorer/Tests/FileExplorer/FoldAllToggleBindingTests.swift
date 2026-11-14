@@ -6,42 +6,35 @@ import Testing
 import FileExplorerTestSupport
 @testable import FileExplorer
 
-/// Proves the header's master disclosure is wired, and sits where it was put.
+/// The header's master disclosure is wired and sits where it was put: this mounts the real
+/// `DifferencesView` and reads back the controls its header laid out (`FoldAllActionTests` pins the
+/// rule).
 ///
-/// `FoldAllActionTests` pins the rule; a pure rule nothing calls is still a rule. This mounts the
-/// real `DifferencesView` and reads back the controls its header laid out.
+/// Not accessibility: a never-ordered-in `NSHostingView` has an empty accessibility tree, so "the
+/// control is absent" would pass vacuously. SwiftUI does lay out one `_FocusRingView` per focusable
+/// control offscreen, sized to it and in document order. That class is private, so every case is
+/// written against a baseline: if SwiftUI stops making focus rings these fail loudly.
 ///
-/// What it measures, and why not accessibility: an `NSHostingView` that is never ordered in has an
-/// empty accessibility tree (no assistive client has asked for one), so a search by announced name
-/// finds nothing and "the control is absent" passes vacuously. What SwiftUI does lay out offscreen
-/// is one `_FocusRingView` per focusable control, sized to that control and in document order, so
-/// that is what this reads. The class name is private, which is why every case is written against a
-/// baseline: the ungrouped header still draws five controls, so if SwiftUI stops making focus rings
-/// these fail loudly instead of quietly agreeing that the button isn't there.
+/// From `DifferencesTableIdentityTests`: the tests are `async` (a `@MainActor` test that spins
+/// `RunLoop.run` starves the `.task(id:)` it waits on), and the window is never ordered in, because
+/// the owner drives the real app while these run. Nothing sleeps a fixed duration and then
+/// measures: `headerControls` waits on the table's own row count.
 ///
-/// Both harness lessons from `DifferencesTableIdentityTests` are kept: the tests are `async` and
-/// yield with `Task.sleep` (a `@MainActor` test that spins `RunLoop.run` starves the `.task(id:)`
-/// it waits on), and the window is created but never ordered in, because this machine's owner
-/// drives the real app while these run. Nothing sleeps a fixed duration and then measures: see
-/// `headerControls`, which waits on the table's own row count and asserts it.
-///
-/// `.serialized` orders the cases here; `.oneMountedDifferencesTable` keeps this suite's mounts
-/// from stacking on the other mounting suites' (see that trait). Isolation needs neither: every
-/// mount seeds its own `ScratchDefaults` suite (see `mount`), so no other suite, and no leftover
-/// plist from a previous run, can reach the grouping preference this one renders.
+/// `.oneMountedDifferencesTable` keeps these mounts from stacking on other mounting suites'. Each
+/// mount seeds its own `ScratchDefaults` suite, so no other suite or leftover plist can reach the
+/// grouping preference.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable) struct FoldAllToggleBindingTests {
 
-    /// The toggle's laid-out size: a 24×24 hit target, matching `collapseToggle`'s. Distinct from
-    /// every other control in the row, which is what makes it findable by measurement.
+    /// The toggle's 24×24 hit target, distinct from every other control in the row, which makes it
+    /// findable by measurement.
     private static let toggleSize = "24x24"
 
     // MARK: Fixture
 
-    /// Three folders of four rows. Clears `isWorthGrouping` (sections must average >= 3 rows), so
-    /// the grouped mount really is sectioned; `theToggleSitsBetweenTheCountPillAndTheFilter` checks that,
-    /// because a fixture that silently failed the gate would make every "absent when there is
-    /// nothing to fold" case vacuously true.
+    /// Three folders of four rows: clears `isWorthGrouping` (sections must average >= 3 rows), or
+    /// every "absent when there is nothing to fold" case would be vacuously true.
+    /// `theToggleSitsBetweenTheCountPillAndTheFilter` checks it.
     private static let folders = ["Documents", "Photos", "Projects"]
     private static let rowsPerFolder = 4
 
@@ -60,20 +53,15 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The view reads its preferences from a fresh `ScratchDefaults` suite, seeded before the view
-    /// exists, via `.defaultAppStorage`. `UserDefaults.standard` is never touched: `@AppStorage`'s
-    /// process-wide storage location for a (store, key) pair outlives every view that used it and
-    /// can re-attach to a fresh view without re-reading the defaults, so a `grouped: false` mount
-    /// could draw the grouped rows whatever the standard domain's plist said. A location born from
-    /// this mount's own store can hold only this test's value. Full account:
-    /// `DifferencesTableIdentityTests`.
+    /// Preferences come from a fresh `ScratchDefaults` suite, seeded before the view exists, never
+    /// `UserDefaults.standard`: `@AppStorage`'s process-wide location for a (store, key) pair outlives
+    /// its views and can re-attach to a fresh view without re-reading defaults, so a `grouped: false`
+    /// mount could draw grouped rows. Full account: `DifferencesTableIdentityTests`.
     private func mount(grouped: Bool, width: CGFloat) -> (host: NSHostingView<AnyView>, window: NSWindow) {
         let store = ScratchDefaults("FoldAllToggleBindingTests")
         store.set(grouped, forKey: "differencesGroupByFolder")
-        // Cards, so the toolbar is its own top-level card, the shallow branch `focusRingSizes`
-        // reads as the header. In Unified the toolbar and the table are one region
-        // (`columnRegionFrame`), so no child of the host is header-sized and the walk finds
-        // nothing. The controls are the same in both styles; only the frame around them moves.
+        // Cards, so the toolbar is its own top-level card, the branch `focusRingSizes` reads as the
+        // header. In Unified the toolbar and table are one region, so the walk would find nothing.
         store.set(SurfaceStyle.cards.rawValue, forKey: LiquidGlass.surfaceStyleKey)
         let manager = FileSyncManager()
         manager.differences = differences()
@@ -94,8 +82,7 @@ import FileExplorerTestSupport
 
     // MARK: Reading the header back
 
-    /// Rows the differences table has drawn. A sectioned `Table` counts its section headers as
-    /// rows, so grouped is one per folder more than flat.
+    /// A sectioned `Table` counts its section headers as rows, so grouped is one per folder more.
     private static var flatRowCount: Int { folders.count * rowsPerFolder }
     private static var groupedRowCount: Int { flatRowCount + folders.count }
 
@@ -108,33 +95,21 @@ import FileExplorerTestSupport
         return nil
     }
 
-    /// The header's focusable controls, `WxH`, left to right.
+    /// The header's focusable controls, `WxH`, left to right, scoped to the header strip so the
+    /// table's rows can never contribute a coincidentally-24×24 ring.
     ///
-    /// Scoped to the header strip (the shallow, ~48pt-tall branch of the hierarchy), so the table's
-    /// own rows below can never contribute a coincidentally-24×24 ring.
-    ///
-    /// Why it waits on the table rather than on a clock: the rows are built by an async
-    /// `.task(id:)`, and the header's shape depends on them. `sections` is empty until they land,
-    /// so a mount measured too early draws a header with no fold toggle, indistinguishable here
-    /// from a header that correctly withheld one, and every "the toggle is absent" case would pass
-    /// vacuously whenever a fixed wait lost. A duration is not a fact about the view; the row count
-    /// is.
-    ///
-    /// So the wait is a bounded poll on `NSTableView.numberOfRows`, and the expected count is
-    /// asserted rather than assumed: if the table never reaches it, the test fails saying the rows
-    /// never landed instead of quietly reporting a header the user would never see. The signal is
-    /// neutral to everything this suite asserts (all header chrome), so waiting on it cannot beg
-    /// the question the way waiting for the toggle itself would.
+    /// Waits on the table, not a clock: the rows come from an async `.task(id:)`, and until they land
+    /// `sections` is empty, so a header measured too early has no toggle and every "absent" case
+    /// passes vacuously. A bounded poll on `NSTableView.numberOfRows`, with the count asserted; the
+    /// signal is neutral to the header chrome asserted, unlike waiting for the toggle itself.
     private func headerControls(grouped: Bool, width: CGFloat = 1200,
                                 sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
         let (host, window) = mount(grouped: grouped, width: width)
         defer { window.contentView = nil }
 
-        // Waiting for the exact row count is what keeps a half-built table from being measured.
-        //
-        // The wait is floored on passes, not bounded by seconds: what the rows need is main-actor
-        // turns, and a congested run has fewer of them per second, not more. See
-        // `LayoutPumpWait.pumpFloor` and "Fixed pumps and fixed sleeps" in `docs/flaky-tests.md`.
+        // Floored on passes, not bounded by seconds: the rows need main-actor turns, and a congested
+        // run has fewer per second. See `LayoutPumpWait.pumpFloor` and "Fixed pumps and fixed
+        // sleeps" in `docs/flaky-tests.md`.
         let expected = grouped ? Self.groupedRowCount : Self.flatRowCount
         let settled = await LayoutPumpWait.pump(host, upTo: 15) { tableRowCount(host) == expected }
         let drew = tableRowCount(host).map(String.init) ?? "no"
@@ -148,11 +123,10 @@ import FileExplorerTestSupport
 
     /// The header strip's focus-ring sizes, collected by walking down from `host`.
     ///
-    /// A method, not a local function: nested inside an `async` member of a `@MainActor` type,
-    /// `walk` would capture `host` and, under whole-module optimization only, be inferred to cross
-    /// an isolation boundary, so `swift test -c release` fails to compile (`sending 'host' risks
-    /// causing data races`) while Debug is clean. As a method it inherits the type's isolation
-    /// explicitly.
+    /// A method, not a local function: nested inside an `async` member of a `@MainActor` type it
+    /// would capture `host` and, under whole-module optimization only, be inferred to cross an
+    /// isolation boundary, so `swift test -c release` fails to compile (`sending 'host' risks causing
+    /// data races`) while Debug is clean.
     private func focusRingSizes(in view: NSView, host: NSView, insideHeader: Bool = false) -> [String] {
         var sizes: [String] = []
         if insideHeader, FocusRings.isRing(view) {
@@ -168,11 +142,8 @@ import FileExplorerTestSupport
 
     // MARK: Tests
 
-    /// The placement, stated as one comparison: grouping inserts the toggle into the header
-    /// immediately after the count pill and immediately before the filter, changing nothing else. A
-    /// toggle placed elsewhere (say trailing, beside the pane's show/hide chevron) fails here. The
-    /// flat header is also the ungrouped case: with no sections there is nothing to fold, and the
-    /// same emptiness covers "isWorthGrouping declined it".
+    /// Grouping inserts the toggle right after the count pill and before the filter, changing
+    /// nothing else. The flat header is also the ungrouped case: with no sections nothing folds.
     @Test func theToggleSitsBetweenTheCountPillAndTheFilter() async throws {
         let flat = await headerControls(grouped: false)
         let grouped = await headerControls(grouped: true)
@@ -184,8 +155,8 @@ import FileExplorerTestSupport
                 "expected \(expected), got \(grouped)")
     }
 
-    /// It yields when the row runs out of width. Measured at a width narrow enough to force the
-    /// filter down to its glyph, which is the rung `FoldAllAction.isOffered` names.
+    /// It yields at a width narrow enough to force the filter to its glyph, the rung
+    /// `FoldAllAction.isOffered` names.
     @Test func aNarrowHeaderYieldsTheToggle() async {
         let narrow = await headerControls(grouped: true, width: 460)
         let wide = await headerControls(grouped: true, width: 1200)

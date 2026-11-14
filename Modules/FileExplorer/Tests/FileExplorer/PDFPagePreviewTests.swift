@@ -3,20 +3,15 @@ import Foundation
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The two rules behind the PDF preview: which files it draws, and how big a page comes out.
-///
-/// Quick Look scales a PDF page to the preview's width and lets the height overflow, so a wider
-/// preview shows less of the page (a letter page in an 820×560pt preview renders about 1060pt
-/// tall). The drawing can only be judged by eye, but which renderer runs and what scale it picks
-/// would fail silently: a page fitted to the wrong dimension still looks like a working preview.
+/// The two rules behind the PDF preview: which files it draws, and how big a page comes out. Both
+/// fail silently: a page fitted to the wrong dimension (Quick Look fits a PDF to the width and lets
+/// the height overflow) still looks like a working preview.
 @Suite struct PDFPagePreviewTests {
 
     // MARK: - Which renderer
 
-    /// PDFKit draws a PDF. Everything Quick Look already handles well stays with it: images come
-    /// out whole (a 900×2400 PNG in a 500×560 preview shows both ends), and text opens in a
-    /// scrolling text view. An unresolved type is Quick Look's too: the fallback must be the
-    /// renderer that can draw anything, not the one that understands a single format.
+    /// PDFKit draws a PDF; everything else, an unresolved type included, stays with Quick Look,
+    /// which can draw anything.
     @Test(arguments: [
         (.pdf, .pdfPages), (.png, .quickLook), (.jpeg, .quickLook), (.plainText, .quickLook),
         (.movie, .quickLook), (.rtf, .quickLook), (.zip, .quickLook), (nil, .quickLook),

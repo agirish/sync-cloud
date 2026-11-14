@@ -4,16 +4,9 @@ import SwiftUI
 @testable import FileExplorer
 import Sync
 
-/// The carry-over, driven through a real mounted pane.
-///
-/// `FileTreeView.carryOver` can be perfect while nothing calls it, and the call it needs is a
-/// SwiftUI `onAppear`, a seam a unit test can't reach. `PaneColumnCarryOverTests` guards that call
-/// at source level, a blunt instrument with a known blind spot; this renders the two arrivals and
-/// compares what a person would see.
-///
-/// The assertion is a pixel difference between the arms, not a committed reference image: nothing
-/// here should pin the outline's typography or row metrics. The arms differ in one input, whether
-/// the pane arrives with a parked column stack, so every differing pixel is that difference.
+/// The carry-over, driven through a real mounted pane: `PaneColumnCarryOverTests` scans its
+/// `onAppear` call; this renders the arrivals and compares them. A pixel difference between arms
+/// that differ in one input (a parked column stack), not a reference image.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct PaneColumnCarryOverRenderTests {
 
@@ -68,19 +61,15 @@ import Sync
                 childrenIndex: nil,
                 browsePath: $browse,
                 onColumnNavigate: { browse = $0 })
-                // Place the carry's scroll outright instead of easing it. This window is offscreen
-                // and never key, so an animation in it never advances with the display asleep or in
-                // Low Power Mode, and the scroll never lands; the test would stay green with the
-                // reveal inert, both arms drawing the unscrolled tree. See
-                // `EnvironmentValues.paneColumnRevealAnimation`.
+                // Place the carry's scroll outright: in this offscreen, never-key window an animation
+                // never advances with the display asleep or in Low Power Mode
+                // (`EnvironmentValues.paneColumnRevealAnimation`).
                 .environment(\.paneColumnRevealAnimation, nil)
         }
     }
 
-    /// Mounts a Tree pane that arrives holding `stack`, lets the deferred reveal settle, and
-    /// returns what it drew. The pumping matters: the carry-over's scroll is deferred twice
-    /// (SwiftUI is still applying the update that opens the folders), so an immediate capture would
-    /// miss it.
+    /// Mounts a Tree pane that arrives holding `stack` and returns what it drew, after pumping: the
+    /// carry-over's scroll is deferred twice, so an immediate capture would miss it.
     private func render(arrivingWith stack: PaneBrowsePath,
                         tree: PaneTree? = nil,
                         settlingAfterALoad: Bool = false) throws -> NSBitmapImageRep {
@@ -115,9 +104,8 @@ import Sync
         return rep
     }
 
-    /// Differing pixels between two reps of the same size, compared channel-exactly: both arms
-    /// render in this process in the same pass, so there is no anti-aliasing jitter for a tolerance
-    /// to absorb.
+    /// Differing pixels between two same-size reps, channel-exactly: both arms render in this
+    /// process in the same pass.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) throws -> Int {
         try #require(a.pixelsWide == b.pixelsWide && a.pixelsHigh == b.pixelsHigh,
                      "different canvas sizes cannot be compared pixel for pixel")
@@ -134,14 +122,9 @@ import Sync
         return differing
     }
 
-    /// Arriving mid-scan must end in the same picture as arriving settled. The carry is refused
-    /// while the tree is still arriving, since deciding from a half-built list can move the columns
-    /// somewhere the user never was. The refusal must be re-asked when the load lands, or the
-    /// folders stay shut for the rest of the session.
-    ///
-    /// Observes row arrival, as the reveal suites do: an offscreen, never-key window's scroll
-    /// position isn't a reliable instrument (see `PaneColumnsScrollTests`). Expansion is the half
-    /// that decides whether the folders you were in are on screen at all.
+    /// Arriving mid-scan ends in the same picture as arriving settled: the carry refused while the
+    /// tree arrives is re-asked when the load lands. Observes row arrival: an offscreen, never-key
+    /// window's scroll position isn't a reliable instrument.
     @Test func testALoadThatFinishesUnderThePaneStillCarriesTheColumnsOver() throws {
         let stack = PaneBrowsePath(components: ["Home", "Accessories"])
         let settled = try render(arrivingWith: stack)

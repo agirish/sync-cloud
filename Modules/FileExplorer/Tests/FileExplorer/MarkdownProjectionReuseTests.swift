@@ -26,7 +26,7 @@ import AppKit
     /// The parser gives the rest of the paragraph no place in the file, so the two are read as one;
     /// otherwise every keystroke near it would re-read the whole note.
     ///
-    /// Mutation: stop joining a block with no place to the next, and the overlap guard declines.
+    /// Mutation: stop joining a block with no place to the next.
     @Test func aTableUnderAParagraphIsStillReReadInPart() throws {
         let source = "Intro.\n\nHere it is:\n| a | b |\n|---|---|\n| c | d |\n\nMiddle.\n\nEnd."
         let old = MarkdownProjection.project(source)
@@ -38,8 +38,7 @@ import AppKit
         }
     }
 
-    /// Mutation: drop the right neighbour's check, and the fence that now swallows the rest is
-    /// taken for a paragraph and kept.
+    /// Mutation: drop the right neighbour's check.
     @Test(arguments: [
         // A fence typed open runs on through every block after it.
         ("A paragraph.\n\nNext.\n\nAnd more.\n\nEnd.", "A paragraph.", "```"),
@@ -154,9 +153,7 @@ import AppKit
 
     /// Every path a re-read can take is taken, and each is held to the whole re-read; a share of
     /// partial re-reads alone would pass with one path never taken. Half the seeds use documents
-    /// wider than the translator's: nested lists, lists in quotes, blocks straight under one
-    /// another, HTML, a fence left open for an edit to close, underlined headings, a table missing
-    /// its delimiter row.
+    /// wider than the translator's (`wider`).
     @Test func randomEditsReadAsTheWholeDocumentWould() {
         var paths: [String: Int] = [:]
         var checked = 0
@@ -297,8 +294,7 @@ import AppKit
     /// `sameComparable` — which compares only what lies between the two strings' shared ends — always
     /// agrees with comparing them whole, through smart punctuation and with `structural` trimming.
     ///
-    /// Mutation: cut anywhere, not only between two plain letters, and a `--` split across the cut
-    /// or a space beside a break disagrees.
+    /// Mutation: cut anywhere, not only between two plain letters.
     @Test func comparingTheMiddleAgreesWithComparingTheWhole() {
         let pieces = ["a", "b", "1", " ", "\n", "\u{2028}", "-", "--", "–", "—", "...", "…", "'", "’", "\"", "“",
                       "é", "e\u{301}", "中", "😀", "\t"]

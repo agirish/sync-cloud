@@ -5,16 +5,13 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// The palette's results list, rendered and read back in light and dark.
-///
-/// `CommandPaletteTests` proves the routing; only pixels show whether the rows draw and whether the
-/// highlight is on the selected row and only there. The list is driven entirely by ↑ ↓ ↩, so a
-/// highlight that did not render would leave every keystroke landing somewhere invisible.
+/// The palette's results list, rendered and read back in light and dark. `CommandPaletteTests`
+/// proves the routing; only pixels show whether the rows draw and whether the highlight is on the
+/// selected row and only there. The list is driven entirely by ↑ ↓ ↩, so a highlight that did not
+/// render would leave every keystroke landing somewhere invisible.
 ///
 /// The subject is `PaletteResultsList` alone, the list under ⌘K's Go to field
 /// (`GoToResultsPanel`), mounted without glass so the highlight is measurable.
-///
-/// `.machinePinned(.pixelSampling)`: it reads pixels out of a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct CommandPaletteRenderTests {
 
@@ -54,7 +51,6 @@ import Design
                                         : Color(red: 0.98, green: 0.98, blue: 0.99))
             .environment(\.colorScheme, scheme)
             .environment(\.controlActiveState, .active)
-        // Laid out twice before it is cached.
         guard let rep = offscreenBitmap(subject, size: CGSize(width: width, height: height), appearance: scheme == .dark ? .darkAqua : .aqua,
                                         layoutPasses: 2) else {
             fatalError("no bitmap rep")
@@ -98,11 +94,10 @@ import Design
 
     // MARK: It draws at all, in both schemes
 
-    /// A blank-render smoke check only. An empty list paints nothing at all, which keeps the floor
-    /// below meaningful. The floor tells blank from drawn and nothing finer: one row inks ~109,000
-    /// and twenty ~151,000, so a list cut to one row still passes. Row-level regressions are caught
-    /// by `theHighlightFollowsTheSelection`, `theSelectionMovesDownTheScreenAsTheIndexRises` and
-    /// the two differing-pixel tests.
+    /// A blank-render smoke check only: an empty list paints nothing, so the floor tells blank from
+    /// drawn and nothing finer (one row inks ~109,000, twenty ~151,000). Row-level regressions are
+    /// caught by `theHighlightFollowsTheSelection`, `theSelectionMovesDownTheScreenAsTheIndexRises`
+    /// and the two differing-pixel tests.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func theListDrawsItsRows(scheme: ColorScheme) {
         let rows = Self.rows("")
@@ -159,7 +154,7 @@ import Design
         #expect(PixelProbe.count(in: rep, inner) { $0.isDark } == 0, "the selected row's label is dark ink in \(scheme)")
     }
 
-    /// A list with **nothing** selected draws no highlight. Without this, the test above is
+    /// A list with nothing selected draws no highlight. Without this, the test above is
     /// satisfied by a view that fills every row.
     @Test(arguments: [ColorScheme.light, ColorScheme.dark])
     func nothingSelectedDrawsNoHighlight(scheme: ColorScheme) {

@@ -20,11 +20,10 @@ import Testing
     @Test("Time spent asleep is never counted, however long the wait")
     func sleepIsNotWork() {
         fresh()
-        // Wake, do 1ms of work, sleep.
         MainThreadHitchMonitor.note(.afterWaiting, at: 100.000)
         let hitch = MainThreadHitchMonitor.note(.beforeWaiting, at: 100.001)
         #expect(hitch == nil)
-        // ...and stay asleep for five seconds. Nothing here is a turn.
+        // Five seconds asleep: nothing here is a turn.
         let duringSleep = MainThreadHitchMonitor.note(.beforeWaiting, at: 105.000)
         #expect(duringSleep == nil)
         #expect(MainThreadHitchMonitor.hitchCount == 0)
@@ -68,14 +67,13 @@ import Testing
     @Test("Worst and total accumulate across turns, and short turns don't pollute them")
     func accumulatesAcrossTurns() {
         fresh()
-        // The third turn is under `threshold`, expressed relative to the constant so retuning the
-        // threshold can't silently turn this into a four-hitch expectation.
+        // The third turn is set relative to `threshold`, so retuning it can't make this a
+        // four-hitch expectation.
         let short = MainThreadHitchMonitor.threshold / 2
         for (start, end) in [(500.0, 500.2), (501.0, 501.9), (502.0, 502.0 + short), (503.0, 503.3)] {
             MainThreadHitchMonitor.note(.afterWaiting, at: start)
             MainThreadHitchMonitor.note(.beforeWaiting, at: end)
         }
-        // 0.2, 0.9 and 0.3 clear the threshold; the deliberately short one does not.
         #expect(MainThreadHitchMonitor.hitchCount == 3)
         #expect(abs(MainThreadHitchMonitor.worst - 0.9) < 0.001)
         #expect(abs(MainThreadHitchMonitor.totalHitchTime - 1.4) < 0.001)

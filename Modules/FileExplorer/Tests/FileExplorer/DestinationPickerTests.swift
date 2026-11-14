@@ -53,7 +53,7 @@ import Sync
         }
     }
 
-    // MARK: - Recents that share a name (BR20)
+    // MARK: - Recents that share a name
 
     /// Two recents named Legal each say where they sit; a recent with a name of its own says
     /// nothing more, and one directly under the provider names the provider.
@@ -142,7 +142,7 @@ import Sync
         #expect(DestinationColumn.entries(made, ghost: ghost).count == made.count)
     }
 
-    // MARK: - Review fixes, 2026-11-01
+    // MARK: - Review fixes
 
     /// Items not in the opening folder (a Downloads file filed into iCloud; a selection from two
     /// folders): nothing claims "now here", just the root row with no rung named.

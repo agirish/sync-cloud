@@ -4,17 +4,13 @@ import SwiftUI
 @testable import Sync
 @testable import FileExplorer
 
-/// How often does drawing the Organize toolbar ask the app which backend a refine would use?
+/// Drawing the Organize toolbar must not ask the app which backend a refine would use.
 ///
-/// The question matters because of what answering it costs in the real app. `filingBackendIdentity`
-/// is wired to `FilingBackendRouter.route(cloudEnabled:hasCloudKey:)`, and `hasCloudKey` is
-/// `AnthropicKeychain.hasKey`, which reads the secret: a Keychain decrypt that, on a locked or
-/// ACL-guarded item, raises the password prompt. `AnthropicKeychain` says so itself and points
-/// display-only callers at `isConfigured` instead.
-///
-/// So this is not a micro-benchmark; it is a correctness net for "the toolbar must not interrogate
-/// the Keychain while you type", since a view that re-renders on every keystroke would do so on
-/// every keystroke.
+/// In the app `filingBackendIdentity` is `FilingBackendRouter.route(cloudEnabled:hasCloudKey:)`,
+/// and `hasCloudKey` is `AnthropicKeychain.hasKey`, which reads the secret: a Keychain decrypt that,
+/// on a locked or ACL-guarded item, raises the password prompt. Display-only callers use
+/// `isConfigured`. A correctness net, not a benchmark: a view that re-renders on every keystroke
+/// would otherwise interrogate the Keychain on every keystroke.
 @MainActor
 @Suite(.serialized) struct FilingRefineRouteCostTests {
 
@@ -60,11 +56,8 @@ import SwiftUI
         m.filingClassifier = { _, _, _ in [:] }
 
         let size = CGSize(width: 900, height: 620)
-        // Organize opens on its overview, so a filing fixture has to name its lens. The rail
-        // selection lives in defaults, and with the key unset `railLens` is nil, the overview,
-        // where no lens's own controls are drawn. Without this the mount renders a summary page and
-        // every assertion about a filing control fails as "painted nothing", indistinguishable from
-        // the control being broken.
+        // Organize opens on its overview (`railLens` nil with the key unset), where no lens's
+        // controls are drawn, so a filing fixture must name its lens or nothing here is measured.
         defaults.set(OrganizeLens.toFile.rawValue, forKey: OrganizeLens.defaultsKey)
         let (host, _) = HostedView.framed(
             LensWorkspaceView(syncManager: m, lens: .filing, providerName: "Projects",
@@ -87,16 +80,14 @@ import SwiftUI
         let asked = routes.count
         #expect(asked == 0,
                 "the Organize toolbar asked the router \(asked) times; in the app each is a Keychain decrypt that can raise the password prompt")
-        // The positive control. Without it, "the router was never asked" is equally consistent
-        // with a toolbar that stopped drawing the button at all.
+        // The positive control: "never asked" is equally consistent with a toolbar that stopped
+        // drawing the button.
         #expect(display.count > 0, "nothing asked whether cloud is configured — the button is gone, not cheap")
     }
 
     @Test func anUnwiredDisplaySeamStillAnswersCorrectlyByResolvingTheRoute() throws {
-        // The CLI/test shape. The fallback is the expensive path by design: it is the honest
-        // answer, and keeping it as the fallback keeps `filingCloudRefineAvailable` meaningful for
-        // callers with no Keychain. The app must wire the seam; this pins that the unwired
-        // behaviour is "correct but costly" rather than "silently no button".
+        // The CLI/test shape: with the seam unwired the fallback is the expensive, honest path,
+        // "correct but costly" rather than "silently no button". The app must wire the seam.
         let routes = RouteCounter()
         _ = mountToolbar(routes: routes, displayChecks: nil, configured: nil)
         #expect(routes.count > 0)

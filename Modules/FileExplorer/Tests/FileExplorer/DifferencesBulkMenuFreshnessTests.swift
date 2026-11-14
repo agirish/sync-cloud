@@ -7,9 +7,8 @@ import Foundation
 /// or a row's action flipping behind it would leave the click acting on the old table.
 /// `DifferencesView` applies the same rule at `focusedSceneValue` and in `runCopyOrMove`.
 ///
-/// `DifferencesShortcutRulesTests` covers the rules; this pins that the view calls them at fire
-/// time. A source scan: it proves the action bodies name `ids` and not the snapshot bindings. That
-/// `bulkTransfer` resolves live rows is
+/// `DifferencesShortcutRulesTests` covers the rules; this source scan pins that the action bodies
+/// name `ids`, not the snapshot bindings. That `bulkTransfer` resolves live rows is
 /// `transferItemsReturnsTheCurrentRowNotTheOneTheCallerRemembers`' job.
 @Suite struct DifferencesBulkMenuFreshnessTests {
 
@@ -55,10 +54,8 @@ import Foundation
     /// not the whole function, because the labels legitimately mention it.
     @Test func noBulkMenuActionActsOnTheBuildTimeSnapshot() throws {
         let body = try Self.bulkMenuBody()
-        // The premise: the snapshot bindings exist and the labels use them, or the absence below
-        // passes on a function that no longer has them.
-        // In full, so the labels count with the rule the actions send: "Copy 3" cannot sit over a
-        // run that copies two.
+        // The premise: the snapshot bindings exist, in full, and the labels use them, so "Copy 3"
+        // can't sit over a run that copies two; without them the absence below passes vacuously.
         #expect(body.contains("let toRight = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToRight)"),
                 "the snapshot bindings are gone — this absence is no longer measuring anything")
         #expect(body.contains("let toLeft = DifferencesShortcutRules.transferItems(rows: selected, selection: ids, direction: .copyToLeft)"))

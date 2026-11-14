@@ -3,20 +3,11 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// The editor's half of "a rule can say whose document it is".
-///
-/// The condition itself is pinned in `Sync` (`PersonRuleTests`: matching, completeness, the wire
-/// shape, a removed person). These pin what the editor lets a user build, three rules that would
-/// fail silently:
-///
-/// - A person condition needs a roster: with nobody to point at, the row could never be completed
-///   and Save would be blocked with nothing saying why.
-/// - A row's own type is always among its picker's options, even a type nobody may add: a `Picker`
-///   whose selection matches no tag renders blank and reads as broken.
-/// - A fresh person row starts empty and stays incomplete until somebody is chosen. Defaulting to
-///   the first person would save a rule about someone the user never picked.
-///
-/// `AutomationRuleEditorTests` covers the editor's other seams, none of which involve a person.
+/// The editor's half of "a rule can say whose document it is"; the condition itself is pinned in
+/// `Sync` (`PersonRuleTests`). Three rules that would fail silently: a person condition needs a
+/// roster, or Save is blocked with nothing saying why; a row's own type is always among its
+/// picker's options, since a `Picker` whose selection matches no tag renders blank; and a fresh
+/// person row starts empty, since a default would save a rule about someone the user never picked.
 @Suite struct AutomationRuleEditorPersonTests {
 
     private static let household = [

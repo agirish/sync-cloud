@@ -6,15 +6,11 @@ import DesignTestSupport
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// The document header's ＋ and ×: where they are drawn, what they call, what they say, and what
-/// they cost the file name.
-///
-/// Drawn, not read: a hosted SwiftUI tree exposes no labels or tooltips under `swift test`, and a
-/// synthetic click doesn't reach a SwiftUI `Button` here (see
-/// `PaneBackgroundDeselectMountedTests`). It does expose one `_FocusRingView` per button, so the
-/// row's buttons can be counted and ordered, and pixels, which tell identical-looking 18pt glyphs
-/// apart by what each alone does. What the ＋ and × do is the host's ⌘N and close, scanned in the
-/// app target (`EditorHeaderDoorsWiringTests`, `EditorDocumentCloseTests`).
+/// The document header's ＋ and ×: where they are drawn, what they say, and what they cost the
+/// file name. Drawn, not read: a hosted SwiftUI tree exposes no labels and takes no synthetic
+/// click under `swift test`, but it has one `_FocusRingView` per button, and pixels tell
+/// identical-looking glyphs apart. What they do is scanned in the app target
+/// (`EditorHeaderDoorsWiringTests`, `EditorDocumentCloseTests`).
 @MainActor
 @Suite(.serialized) struct EditorHeaderDoorsTests {
 
@@ -62,10 +58,8 @@ import FileExplorerTestSupport
         #expect(EditorWorkspaceView.newTextFileTitle(folderName: "") == "Pick a folder in the sidebar first")
     }
 
-    /// Greyed where it shows. `.disabled` alone leaves a `.glyph` hover-affordance button
-    /// pixel-identical at rest, so a ＋ with no ⌘N closure takes the tertiary style, and its pixels
-    /// differ, on an open document and the empty page. Dropping the ＋'s `.foregroundStyle` fails
-    /// both.
+    /// Greyed where it shows. `.disabled` alone leaves a `.glyph` button pixel-identical at rest, so
+    /// a ＋ with no ⌘N closure takes the tertiary style, on an open document and the empty page.
     @Test func thePlusLooksGreyedWithNoFolder() throws {
         let doc = try document(named: "note.md")
         for subject in [doc, EditorDocument()] {
@@ -80,10 +74,8 @@ import FileExplorerTestSupport
 
     // MARK: The empty page
 
-    /// With no document open the header keeps the ＋ and, while lit, Expand, and nothing else: one
-    /// button unlit, two lit. The first draws an open file's ＋ pixels; the second wears as much
-    /// accent as an open file's lit Expand. Withholding the ＋, drawing Expand unlit, or drawing a
-    /// stray Find each fails.
+    /// With no document open the header keeps the ＋ and, while lit, Expand, and nothing else: the
+    /// ＋ draws an open file's pixels, and Expand wears as much accent as an open file's lit one.
     @Test func theEmptyPageKeepsThePlusAndOnlyALitExpand() throws {
         let doc = try document(named: "note.md")
         let empty = EditorDocument()
@@ -107,12 +99,9 @@ import FileExplorerTestSupport
 
     // MARK: Where it is drawn
 
-    /// The ＋ leads the header's buttons: `＋ · Find`, then the capsule, then Expand, then ×. The ＋
-    /// and Find have identical rings, so each is told apart by what only it does: Expand lights
-    /// with the rail bit (every changed pixel in the ring before the ×), and Find is withheld in
-    /// Preview, so survivors draw the same pixels one slot over. `.disabled` doesn't grey a
-    /// `.glyph` button at rest, so the ＋'s `.disabled` is pinned by the scan below. Expand in the ＋
-    /// / Find capsule, or after the ×, fails.
+    /// The header's buttons run `＋ · Find`, the capsule, Expand, then ×. Identical rings are told
+    /// apart by what only each does: Expand lights with the rail bit, and Find is withheld in
+    /// Preview. The ＋'s `.disabled`, invisible at rest, is pinned by the scan below.
     @Test func thePlusLeadsTheHeadersButtonsAndExpandSitsBeforeTheClose() throws {
         let doc = try document(named: "note.md")
         #expect(doc.isMarkdown, "the fixture is not Markdown — Preview would resolve back to Source")
@@ -241,14 +230,9 @@ import FileExplorerTestSupport
 
     // MARK: What the two glyphs cost the file name
 
-    /// The name row still fits with a long (55-character) name at every text size, at the narrowest
-    /// document column (260pt) and at the 760pt window floor's (~390pt). The ＋ and × cost the name
-    /// 48pt; at 260pt the row's fixed chrome leaves the name little more than its ellipsis. The
-    /// capsule is icons-only at both widths, so shedding words buys nothing here
-    /// (``theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits`` covers wider columns).
-    ///
-    /// Held: nothing drawn past the edge (the × included), the row never wraps, and a floor on the
-    /// name at each width (see the two constants). Forcing the worded capsule fails at 260pt.
+    /// The name row fits a 55-character name at every text size, at the narrowest column (260pt)
+    /// and the 760pt window floor's (~390pt): nothing past the edge, no wrap, and a floor on the
+    /// name at each width (the two constants). The capsule is icons-only at both.
     @Test(.machinePinned(.layoutMetrics)) func theNameRowFitsWithALongNameAtEveryTextSize() throws {
         let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
         let short = try document(named: "a.md")
@@ -297,23 +281,18 @@ import FileExplorerTestSupport
     /// measures it ("~391pt"), rounded down.
     static let floorWindowDocumentColumn: CGFloat = 390
 
-    /// The floor at the narrowest column (260pt), at all four text sizes: the name is drawn, with
-    /// at least 5pt of ink, its ellipsis (measured down to 5.5pt under glass). No higher, because
-    /// the capsule is already icons-only there and dropping or folding a glyph is ruled out; this
-    /// keeps the name from being pushed out entirely, which draws no ink at all.
+    /// The floor at the narrowest column (260pt): at least 5pt of the name's ink, its ellipsis
+    /// (measured down to 5.5pt under glass), so the name is never pushed out entirely. No higher:
+    /// the capsule is already icons-only there.
     static let minimumNameInkAtTheNarrowestColumn: CGFloat = 5
 
     /// At the floor-window column the name keeps a real run of characters either side of the
     /// ellipsis. Measured 134–153pt; 60 is roughly ten characters.
     static let minimumNameInkAtTheFloorWindow: CGFloat = 60
 
-    /// The capsule's words are drawn only when the whole file name fits beside them (see
-    /// `nameRow`). Swept where the worded capsule itself fits, at every text size, on a
-    /// 55-character name: wherever words are drawn, the name's ink is its full width, and at 700pt,
-    /// where the capsule's own fit would draw words over a cut name, icons are drawn. A short name
-    /// keeping its words at 560pt is the control. The columns are the boundaries
-    /// (`capsuleColumns`), not every 20pt. `forcedRung` nil in the worded row finds words over a
-    /// cut name; icons everywhere fails the short name.
+    /// The capsule's words are drawn only when the whole file name fits beside them (`nameRow`):
+    /// swept over `capsuleColumns` at every text size on a 55-character name, with a short name
+    /// keeping its words at 560pt as the control.
     @Test func theCapsuleKeepsItsWordsOnlyWhenTheWholeNameFits() throws {
         let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
         let short = try document(named: "a.md")
@@ -359,12 +338,9 @@ import FileExplorerTestSupport
         print("[words] \(report.joined(separator: " "))")
     }
 
-    /// The buttons' words are drawn only when the whole name fits beside every word, all four
-    /// together, and shed before the capsule's. The rungs are every word, then the capsule's alone,
-    /// then none (`EditorWorkspaceView.nameRowRungs`), so no button keeps its word once the capsule
-    /// has lost its own, none are worded while others are bare, and worded means the whole name
-    /// shows. The columns run past where the words return at Largest; the test prints each size's.
-    /// The bare rung first, worded buttons beside a glyph-only capsule, or Find worded alone fails.
+    /// The buttons' words come all four together, only when the whole name fits beside them, and
+    /// go before the capsule's (`EditorWorkspaceView.nameRowRungs`). The columns run past where the
+    /// words return at Largest; the test prints each size's.
     @Test(.machinePinned(.pixelSampling))
     func theButtonsKeepTheirWordsOnlyWhenTheWholeNameFitsAndShedThemFirst() throws {
         let long = try document(named: "Quarterly household budget reconciliation notes for 2026.md")
@@ -445,9 +421,8 @@ import FileExplorerTestSupport
     }
 
     /// The empty page keeps "No document open" whole at the narrowest column, at every text size:
-    /// the lit Files drops its word before the title is cut, as the document header does. Measured
-    /// as the title's ink against the same title with room; with room, the word is there. Drawing
-    /// the worded Files unconditionally cuts the title at every size.
+    /// the lit Files drops its word before the title is cut. Measured as the title's ink against the
+    /// same title with room.
     @Test(.machinePinned(.pixelSampling))
     func theEmptyPageKeepsItsTitleWholeAtTheNarrowestColumn() throws {
         let empty = EditorDocument()
@@ -485,11 +460,9 @@ import FileExplorerTestSupport
 
     // MARK: Glass between the capsules
 
-    /// In Frosted and Clear every glass capsule on the name row keeps 4pt from the next, the gap
-    /// `ChromeGlass.smallGlyphOutset` was chosen for: two 2pt outsets at the row's 6pt spacing
-    /// would leave only 2pt between Expand and the ×. Read under the probe appearance, which paints
-    /// each capsule flat cyan, across Expand worded and glyph, lit and not, both file kinds and the
-    /// empty page. Solid keeps the row's 6pt, no more. Dropping the extra room beside the × fails.
+    /// In Frosted and Clear every glass capsule on the name row keeps 4pt from the next
+    /// (`ChromeGlass.smallGlyphOutset`); Solid keeps the row's 6pt. Read under the probe appearance,
+    /// which paints each capsule flat cyan, across every Expand state and both file kinds.
     @Test(.machinePinned(.pixelSampling))
     func everyGlassCapsuleOnTheNameRowKeepsFourPointsFromTheNext() throws {
         let md = try document(named: "note.md")
@@ -601,16 +574,11 @@ import FileExplorerTestSupport
     }
 }
 
-/// A header laid out and drawn in a real window: its buttons' rings, and its pixels. Shared by the
-/// × tests and the fit test so all read the same geometry. Coordinates are points, top-left origin:
-/// the hosting view is flipped and the bitmap converted by the backing scale, so a ring's frame and
-/// a differing pixel share one space.
-///
-/// The pixels are read once, from the bitmap's bytes, and the window is closed; per-pixel
-/// `colorAt` is too slow for the capsule sweep under load. Each distinct colour is still converted
-/// once through `colorAt` + `usingColorSpace(.sRGB)`, which is not a no-op: `colorAt` reports this
-/// sRGB bitmap as calibrated RGB, and converting moves a component by up to 22/255, enough to shift
-/// the ink and accent thresholds below.
+/// A header laid out and drawn in a real window: its rings and pixels, in points, top-left origin.
+/// The pixels are read once from the bitmap's bytes; per-pixel `colorAt` is too slow under load.
+/// Each distinct colour still goes once through `colorAt` + `usingColorSpace(.sRGB)`, which is not
+/// a no-op: `colorAt` reports this sRGB bitmap as calibrated RGB, and converting moves a component
+/// by up to 22/255, enough to shift the ink and accent thresholds below.
 @MainActor
 struct Rendered {
     /// Each distinct colour in the image, in sRGB as `colorAt` and its conversion give it.

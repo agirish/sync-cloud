@@ -12,9 +12,8 @@ import Testing
         #expect(FoldAllAction.next(collapsedOnScreen: 4, sectionCount: 4) == .expand)
     }
 
-    /// The rule the single-button shape exists to answer, and the one a majority-flip would get
-    /// backwards. Mixed is what you get after collapsing everything and opening one folder, so the
-    /// way back out is closing it again, at any ratio, including one lone expanded section.
+    /// Any expanded section offers Collapse, at any ratio: mixed is what you get after collapsing
+    /// everything and opening one folder, and a majority-flip would get it backwards.
     @Test func anyExpandedSectionOffersCollapse() {
         for collapsed in 0..<4 {
             #expect(FoldAllAction.next(collapsedOnScreen: collapsed, sectionCount: 4) == .collapse,
@@ -22,14 +21,13 @@ import Testing
         }
     }
 
-    /// Not "all collapsed": there is nothing to expand. Unreachable while `isOffered` gates the
-    /// control, and pinned so a future caller can't be handed a surprising `.expand`.
+    /// Nothing to expand. Unreachable while `isOffered` gates the control; pinned so a future caller
+    /// can't be handed a surprising `.expand`.
     @Test func anUnsectionedTableOffersCollapseRatherThanExpand() {
         #expect(FoldAllAction.next(collapsedOnScreen: 0, sectionCount: 0) == .collapse)
     }
 
-    /// `collapsedOnScreen` is counted from the visible sections, but nothing stops a stale count
-    /// arriving one render early. Saturating rather than trapping keeps that a cosmetic glitch.
+    /// A stale count can arrive one render early; saturating rather than trapping keeps that cosmetic.
     @Test func aCountAboveTheSectionTotalStillResolves() {
         #expect(FoldAllAction.next(collapsedOnScreen: 9, sectionCount: 4) == .expand)
     }
@@ -61,8 +59,7 @@ import Testing
 
     // MARK: How it presents
 
-    /// Three controls in this row collapse something: the section triangles, the pane's show/hide
-    /// chevron, and this. The other two are chevrons; this one must not become a third.
+    /// The section triangles and the pane's show/hide control are chevrons; this one must not be.
     @Test func theGlyphsAreNotChevrons() {
         #expect(!FoldAllAction.collapse.systemImage.contains("chevron"))
         #expect(!FoldAllAction.expand.systemImage.contains("chevron"))

@@ -5,12 +5,9 @@ import AppKit
 import Design
 @testable import FileExplorer
 
-/// The editor's small pure seams: the ones the app target calls, and the ones a doc comment calls
-/// "the one place that decides it".
-///
-/// Each is two or three lines of production code that another file's doc comment leans on: too
-/// small to look wrong in review, and load-bearing enough that inverting it changes what the app
-/// does with somebody's file.
+/// The editor's small pure seams, the ones the app target calls or another file's doc comment leans
+/// on: too small to look wrong in review, and load-bearing enough that inverting one changes what
+/// the app does with somebody's file.
 @Suite struct EditorSeamTests {
 
     private func scratch() throws -> URL {
@@ -22,11 +19,9 @@ import Design
 
     // MARK: The seam the app target actually calls
 
-    /// `load(path:into:)` maps each `Opened` to the right `OpenResult`.
-    ///
-    /// `EditorFileStoreTests` covers `open` → `Opened` and stops there; this mapping is what the
-    /// host switches on to decide what to log and show. Swapping the `.readOnly` and `.refused`
-    /// arms must make this test fail.
+    /// `load(path:into:)` maps each `Opened` to the right `OpenResult`, which the host switches on to
+    /// decide what to log and show (`EditorFileStoreTests` covers `open` → `Opened`).
+    /// Mutation: swapping the `.readOnly` and `.refused` arms must fail it.
     @MainActor
     @Test func loadingReportsWhatActuallyHappenedToTheDocument() throws {
         let folder = try scratch()
@@ -62,9 +57,8 @@ import Design
         #expect(document.text.isEmpty, "a refused document kept the previous file's text")
     }
 
-    /// `write(_ document:)` refuses a document with no encoding rather than assuming UTF-8.
-    ///
-    /// That guard is the only thing between a read-only or closed document and the disk.
+    /// `write(_ document:)` refuses a document with no encoding rather than assuming UTF-8: that guard
+    /// is the only thing between a read-only or closed document and the disk.
     @MainActor
     @Test func writingRefusesADocumentThatWasNeverOpenedForWriting() throws {
         let folder = try scratch()
@@ -107,10 +101,8 @@ import Design
         }
     }
 
-    /// `textVersion` bumps on every write to the buffer.
-    ///
-    /// The preview's `.task(id:)` is keyed on it, so without the `didSet` the parse stops
-    /// restarting and the rendered document silently freezes while you type.
+    /// `textVersion` bumps on every write to the buffer: the preview's `.task(id:)` is keyed on it, so
+    /// without the `didSet` the parse stops restarting and the preview silently freezes as you type.
     @MainActor
     @Test func everyEditBumpsTheVersionThePreviewIsKeyedOn() {
         let document = EditorDocument()
@@ -126,11 +118,9 @@ import Design
 
     // MARK: The mode a file opens in
 
-    /// `EditorMode.resolved` narrows for display and nothing else.
-    ///
-    /// Both mutations are silent: `isMarkdown ? stored : .preview` leaves a `.txt` showing a
-    /// preview with no way back to the text, and `isMarkdown ? .edit : stored` throws away the
-    /// remembered mode on every Markdown file.
+    /// `EditorMode.resolved` narrows for display and nothing else. Both mutations are silent:
+    /// `isMarkdown ? stored : .preview` leaves a `.txt` showing a preview with no way back to the
+    /// text, and `isMarkdown ? .edit : stored` throws away the remembered mode on every Markdown file.
     @Test func aNonMarkdownFileIsAlwaysEditAndAMarkdownFileKeepsTheMode() {
         for stored in EditorMode.allCases {
             #expect(EditorMode.resolved(stored, isMarkdown: true) == stored,
@@ -142,10 +132,8 @@ import Design
 
     // MARK: The text surface
 
-    /// The editor's font goes through the app's ramp, not a bare multiply.
-    ///
-    /// `base * scale` agrees with the ramp at and below 1.0, so it reads fine at Small and Default
-    /// and parts company only at the larger sizes, the ones people choose because they need them.
+    /// The editor's font follows the app's ramp, not `base * scale`, which agrees with it at and below
+    /// 1.0 and parts company only at the larger sizes, the ones people choose because they need them.
     @MainActor
     @Test func theEditorsFontFollowsTheAppsTypeRampAtEverySize() {
         var divergedSomewhere = false
@@ -159,16 +147,15 @@ import Design
                 "the ramp and a bare multiply agree at every size the app offers — this test cannot fail")
     }
 
-    /// The wipe must not come back: with a stack per document, `removeAllActions()` on a
-    /// document change would silently throw away the history this feature exists to keep.
+    /// No wipe on a document change: with a stack per document, `removeAllActions()` there would
+    /// silently throw away the history this feature exists to keep.
     @Test func theEditorNoLongerWipesTheStackWhenTheDocumentChanges() throws {
         let source = try SourceText.fileExplorer("PlainTextEditor.swift")
         try #require(source.contains("func updateNSView"), "the scan is not reading updateNSView")
         try #require(source.contains("context.coordinator.documentID != documentID"),
                      "the document-identity branch is gone — this scan is checking nothing")
 
-        // Comments are stripped first, so a note that names `removeAllActions()` can't pass for
-        // code.
+        // Comments stripped first, so a note naming `removeAllActions()` can't pass for code.
         let code = SourceText.codeOnly(source)
         #expect(!code.contains("removeAllActions()"),
                 "the per-document undo history is being wiped on a document change again")

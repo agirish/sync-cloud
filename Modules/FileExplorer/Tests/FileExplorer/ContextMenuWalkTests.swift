@@ -195,8 +195,7 @@ import Sync
 
     /// Renders one real `FileContextMenu` per row and lays them out so every body runs. Hosted
     /// directly, as `OpenInEditorVerbTests` does, because in a test window SwiftUI runs a row's
-    /// `.contextMenu` closure but never the menu's body. In the app the body runs for every visible
-    /// row on each click.
+    /// `.contextMenu` closure but never the menu's body.
     private func renderMenus(_ rows: [PaneRow], selection: Set<String>, tree: PaneTree,
                              otherTree: PaneTree, otherSelection: Set<String>,
                              resolver: PaneSelectionResolver) {

@@ -15,10 +15,8 @@ enum PaneBarHostHarness {
     }
 
     /// Stands in for the app's `FileSyncManager` + `ContentView` state. `selection` and
-    /// `hostSelection` are separate on purpose, as in the app: the pane's List holds the clicked
-    /// row at once, while the host's `barSelectionNodes` is empty for a pane that isn't the active
-    /// one, which includes the just-clicked pane for the turn before the other side's selection is
-    /// cleared.
+    /// `hostSelection` differ on purpose: the List holds the clicked row at once, while the host's
+    /// `barSelectionNodes` stays empty for the just-clicked pane for a turn.
     final class Box: ObservableObject {
         @Published var tree: PaneTree
         @Published var selection: Set<String> = []
@@ -108,14 +106,10 @@ enum PaneBarHostHarness {
         return (window, placement)
     }
 
-    /// Pumps the runloop, re-laying out by hand each turn.
-    ///
-    /// The manual `layoutIfNeeded` disarms AppKit's runaway guards: a never-settling sibling
-    /// ping-pong survives hundreds of rounds of it without raising, while the runloop alone raises
-    /// on the first cycle. So these tests pin the action-bar anchor rule and do not bound the
-    /// window's update-constraints budget; `ColumnsDisplayCycleTests` does (see
-    /// `docs/columns-layout-loop.md`). A synchronous `CFRunLoopRunInMode` inside a `@MainActor`
-    /// test never drains the main queue, where the flip callback is dispatched.
+    /// Pumps the runloop, re-laying out by hand each turn. The manual `layoutIfNeeded` disarms
+    /// AppKit's runaway guards, so these tests pin the anchor rule, not the update-constraints
+    /// budget (`ColumnsDisplayCycleTests`, `docs/columns-layout-loop.md`). A synchronous
+    /// `CFRunLoopRunInMode` in a `@MainActor` test never drains the main queue, where flips land.
     static func pump(_ window: NSWindow, seconds: Double) {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {

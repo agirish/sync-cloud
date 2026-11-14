@@ -21,9 +21,8 @@ import FileExplorerTestSupport
     }
 
     /// A source scan, since a SwiftUI `Button`'s action and tooltip can't be read from a hosted
-    /// tree (see `EditorHeaderDoorsTests`). Comments are dropped and whitespace collapsed, so prose
-    /// can't satisfy a check and a reflow can't fail one. Fails if the rail's ＋ sets
-    /// `isNaming = true`, the workspace drops either value, or a site still names `folderName`.
+    /// tree. Comments are dropped and whitespace collapsed, so prose can't satisfy a check and a
+    /// reflow can't fail one.
     @Test func everyPlusAndNamingRowNamesTheDestination() throws {
         let workspace = try Self.source("EditorWorkspaceView.swift")
         #expect(workspace.contains("onNewTextFile: onNewTextFile, newFileFolderName: newFileFolderName,"),

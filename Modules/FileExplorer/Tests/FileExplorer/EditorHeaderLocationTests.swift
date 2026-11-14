@@ -141,10 +141,8 @@ import FileExplorerTestSupport
     }
 
     /// The folded middle is a menu of the whole path, the document's folder first, climbing to the
-    /// source, like Finder's path menu and the folder menu over the Files list, so no level is more
-    /// than a click away; its tooltip is the whole path. With no folded level the pane can reach it
-    /// stays a word. `.text("…")` for every fold fails the first two; the folded levels alone, or
-    /// top-first, fail both.
+    /// source, like Finder's path menu, and its tooltip is the whole path. With no folded level the
+    /// pane can reach it stays a word.
     @Test func theFoldedMiddleIsAMenuOfTheWholePathDeepestFirst() {
         let parts = Self.location(Self.finance, .crumb).parts(rung: [0, nil, 2])
         #expect(parts[2] == .folded(Self.finance.reversed(), help: "iCloud › Documents › Finance"))
@@ -169,10 +167,9 @@ import FileExplorerTestSupport
         #expect(unreachable == [.init(name: "Backup", isTicked: true, door: nil)])
     }
 
-    /// The folded middle is drawn as a control and costs the row no height. A rung folding two
-    /// levels draws two doors and the menu (three controls), at the height of the same rung
-    /// unfolded, at every text size: a `Menu` with AppKit's pop-up chrome would grow the pinned
-    /// header's row. `.text("…")` in place of `.folded` draws two controls.
+    /// The folded middle is a control that costs the row no height: two doors and the menu, at the
+    /// unfolded rung's height, at every text size. A `Menu` with AppKit's pop-up chrome would grow
+    /// the pinned header's row.
     @Test func theFoldedMiddleIsDrawnAsAMenuThatCostsNoHeight() {
         let location = Self.location(Self.deep, .crumb)
         let label = EditorLocationLabel(location: location, accent: .blue, onDoor: { _ in })
@@ -226,11 +223,9 @@ import FileExplorerTestSupport
         #expect(collapsed == none + 3, "pane collapsed: \(collapsed) controls against \(none) with no location")
     }
 
-    /// A long path shortens and never wraps the header, or its neighbours, taller. In the narrowest
-    /// column the deep crumb draws fewer doors than it has levels, and the header is exactly as
-    /// tall as one with no location, at every text size, in both readings. The baseline has no
-    /// location because two locations can both squeeze "Autosave" onto two lines and still agree.
-    /// Dropping the location's `layoutPriority(-1)` fails at 135%.
+    /// A long path folds and never makes the header taller: in the narrowest column, as tall as one
+    /// with no location, at every text size. The baseline has no location because two locations can
+    /// both squeeze "Autosave" onto two lines and still agree.
     @Test func aLongPathFoldsAndNeverGrowsTheHeader() throws {
         let doc = try document(named: "Test.md")
         let width = EditorLayoutMetrics.minDocumentWidth
@@ -259,10 +254,9 @@ import FileExplorerTestSupport
 
     // MARK: The header card
 
-    /// The header card is the pane toolbar card's height, `LiquidGlass.headerHeight`, at every text
-    /// size, for Markdown and plain text, in both readings, measured on the laid-out card. The rows
-    /// must fit too: a pinned frame over taller content would clip the meta row. Dropping
-    /// `.frame(height: LiquidGlass.headerHeight)` from `headerCard` fails the first expectation.
+    /// The header card is `LiquidGlass.headerHeight`, the pane toolbar card's, at every text size,
+    /// for Markdown and plain text, measured on the laid-out card. The rows must fit too: a pinned
+    /// frame over taller content would clip the meta row.
     @Test func theHeaderCardIsTheToolbarCardsHeightAtEveryTextSize() throws {
         let markdown = try document(named: "note.md")
         let plain = try document(named: "note.txt")
@@ -345,15 +339,9 @@ import FileExplorerTestSupport
         return try #require(top, "no text view mounted — the measurement would be vacuous")
     }
 
-    /// The text card starts under the header card, by the pane's own arithmetic. In `.cards`: the
-    /// header card's two insets and the header, plus the text card's top inset, matching the list
-    /// card beside it. In `.unified`: the header alone, the text flush under it (the window
-    /// supplies the inset above, outside this fixture). At every text size, with and without the
-    /// rail. `EditHeaderMatchesPaneHeaderTests` (Dashboard) checks this against the real pane card.
-    ///
-    /// One card in `.cards`, or two in `.unified`, fails by a gutter. With the format bar on, the
-    /// text starts lower by exactly the bar's inset and height; padding the bar's bottom fails
-    /// that.
+    /// The text card starts under the header card by the pane's own arithmetic: in `.cards` the
+    /// header card's insets and the text card's top inset, in `.unified` the header alone; with the
+    /// format bar, lower by exactly its inset and height. `EditHeaderMatchesPaneHeaderTests` checks the real pane.
     @Test func theTextCardStartsWhereThePanesListCardDoes() throws {
         let doc = try document(named: "note.md")
         let inset = LiquidGlass.cardInset
@@ -399,11 +387,9 @@ import FileExplorerTestSupport
 
     // MARK: The empty page
 
-    /// With no document open the header card is still drawn at the same height, its rows as tall as
-    /// a Markdown document's (the tallest header), so nothing jumps when a file opens or closes. At
-    /// every text size, with the pane open, collapsed and with no folder. Dropping the hidden
-    /// capsule from the empty title row, or the hidden switch from its meta row, makes the rows
-    /// shorter.
+    /// With no document open the header card keeps its height and its rows a Markdown document's,
+    /// so nothing jumps when a file opens or closes: at every text size, with the pane open,
+    /// collapsed and with no folder.
     @Test func theEmptyPageKeepsTheHeaderCardAndItsRowsAtEveryTextSize() throws {
         let empty = EditorDocument()
         let markdown = try document(named: "note.md")
@@ -426,9 +412,8 @@ import FileExplorerTestSupport
     }
 
     /// The empty page draws its header in both surface styles and names the pane's folder, counted
-    /// in controls on the mounted workspace (the header is the only thing there with any). The ＋ is
-    /// one; the folder's own level is words, so a three-level crumb adds two doors and `in Finance`
-    /// none. A one-card branch for the empty page in `documentColumn` would draw no header.
+    /// in controls: the ＋, plus two doors for a three-level crumb and none for `in Finance`, since
+    /// the folder's own level is words.
     @Test func theEmptyPageDrawsItsHeaderAndNamesThePanesFolder() throws {
         let empty = EditorDocument()
         let paneFolder = Array(Self.finance.dropLast()) + [.init(name: "Finance", target: nil)]

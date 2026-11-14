@@ -77,11 +77,10 @@ import Sync
         while Date() < end { try? await Task.sleep(nanoseconds: 8_000_000) }
     }
 
-    /// Waits for `condition` to arrive, never giving up before `LayoutPumpWait.pumpFloor` main-actor
-    /// turns, however long they take: a fixed pump or a ceiling in seconds alone asserts against a
-    /// pane that hasn't laid out under load (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
-    /// `poll`, not `pump`, since these waits don't drive layout. Fixed pumps remain only where a test
-    /// asserts that something did not happen.
+    /// Waits for `condition`, never giving up before `LayoutPumpWait.pumpFloor` main-actor turns: a
+    /// fixed pump or a ceiling in seconds alone asserts against a pane that hasn't laid out under load
+    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). `poll`, since these waits don't drive
+    /// layout; fixed pumps remain only where a test asserts that something did not happen.
     @discardableResult
     private func waitUntil(_ timeout: Double = 15, _ condition: () -> Bool) async -> Bool {
         await LayoutPumpWait.poll(upTo: timeout, until: condition).held
@@ -261,10 +260,9 @@ import Sync
         #expect(ColumnListProbe.reportableRows(tableRows: 5, rowsCount: 5, visible: NSRange(location: NSNotFound, length: 0))?.isEmpty == true)
     }
 
-    /// The pane leaving the window takes every row back. A closing column collapses first and
-    /// clears itself, but a pane detached intact reports nothing on its way out, and the placement
-    /// is `ContentView`'s, outliving the pane across a workspace switch; without the withdrawal the
-    /// next mount would inherit the old rows at the old positions.
+    /// The pane leaving the window takes every row back. A pane detached intact reports nothing on
+    /// its way out, and the placement is `ContentView`'s, outliving the pane across a workspace
+    /// switch, so without the withdrawal the next mount would inherit the old rows and positions.
     @Test func leavingTheWindowWithdrawsEveryRow() async throws {
         let m = await mount()
         try #require(!m.placement.rowBottoms.isEmpty, "nothing was reported, so a withdrawal would prove nothing")

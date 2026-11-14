@@ -7,13 +7,9 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Fill & Sign's finer points: a way out, a question before a saved signature goes, a form's
-/// signature field that signs, tools that grey out where they change nothing, the leave question's
-/// Save that leaves, one accent, the first signature straight to the sheet, and the right-click
-/// menu, resize cursor and menu words.
-///
-/// Serialized: the saves run in `PDFKitSerialAccess`'s one lane, and the overlay tests lay out a
-/// `PDFView` on the main thread.
+/// Fill & Sign's finer points: ways out, questions before work goes, tools greyed where they change
+/// nothing, one accent, and the right-click menu, cursors and menu words. Serialized: the saves run
+/// in `PDFKitSerialAccess`'s one lane, and the overlay tests lay out a `PDFView` on the main thread.
 @MainActor
 @Suite(.serialized) final class EditorPDFFillPolishTests {
 

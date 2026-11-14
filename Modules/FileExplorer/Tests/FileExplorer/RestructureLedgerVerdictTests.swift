@@ -146,7 +146,6 @@ import Testing
                 "the disk probe alone can withdraw the button")
     }
 
-
     private static func ledgerLens(verifier: Bool, blocked: Bool) -> RestructureLens {
         RestructureLens(
             findings: [], hasProfile: true, folderCount: 10,

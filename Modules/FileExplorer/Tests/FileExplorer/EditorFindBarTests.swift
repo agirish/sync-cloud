@@ -11,14 +11,13 @@ import SwiftUI
 @Suite(.serialized) struct EditorFindBarTests {
 
     /// A text view in a window, set up the way ``PlainTextEditor`` sets its own up. A window is
-    /// required: `performTextFinderAction` on a detached view does nothing, which would make every
-    /// assertion below vacuous.
+    /// required: `performTextFinderAction` on a detached view does nothing.
     ///
     /// A test that opens the bar must retire it as it ends (`PlainTextEditor.retireFindBar`):
     /// opening it searches for whatever the machine-wide Find pasteboard holds, and a match landing
     /// as the rig is freed leaves AppKit's find indicator a redraw for a freed finder, crashing a
     /// later test (`docs/flaky-tests.md`, "A find indicator's redraw outlives the text view it was
-    /// asked for"). `theEditorReallyMarksItsScrollView` checks the real editor applies the mark too.
+    /// asked for").
     private func hosted() -> (scroll: NSScrollView, view: NSTextView, window: NSWindow) {
         EditorTestRigs.markedTextView(text: "one two three\nfour five six\n", allowsUndo: false)
     }

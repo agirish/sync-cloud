@@ -3,12 +3,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The panes' two Compare items: which pair a row offers, and how it reaches the viewer.
-///
-/// Every test here is really about an item that must not appear. A Compare item wrongly absent
-/// looks exactly like one correctly withheld, so each refusal is paired with the nearest case that
-/// must still be offered, and neither a rule wired to `nil` nor one wired to "always" would survive
-/// the suite.
+/// The panes' two Compare items: which pair a row offers, and how it reaches the viewer. An item
+/// wrongly absent looks like one correctly withheld, so each refusal is paired with the nearest
+/// case still offered: neither a rule wired to `nil` nor one wired to "always" survives the suite.
 @MainActor
 @Suite struct PaneComparePairMenuTests {
 
@@ -66,10 +63,8 @@ import Testing
 
     // MARK: Same pane
 
-    /// The entry that needs no new rules: a pane's selection is a `Set`, so two files in one tree
-    /// is already reachable. The counterpart is found by id, not index, because `selectedNodes` is in tree order and the
-    /// clicked row isn't reliably its head. Clicking either end must give the other; an index-based
-    /// rule passes one of these and fails the other.
+    /// Two files selected in one pane: clicking either end gives the other. Found by id, not
+    /// index, since `selectedNodes` is in tree order and the clicked row isn't reliably its head.
     @Test func eitherRowOfThePairFindsTheOther() throws {
         let nodes = [file("/L/a.pdf"), file("/L/b.pdf")]
         let fromFirst = try #require(PaneComparePairMenu.samePaneCounterpart(
@@ -95,9 +90,8 @@ import Testing
 
     // MARK: How the pair reaches the viewer
 
-    /// Ordered by pane side, not by which row was clicked. The viewer names its two columns
-    /// left-to-right in the subtitle; a clicked-row-leads rule would put the right pane's file in
-    /// the left column half the time and make the subtitle disagree with what is drawn.
+    /// Ordered by pane side, not by which row was clicked, so the subtitle's left-to-right names
+    /// agree with the columns drawn.
     @Test(arguments: [true, false])
     func aCrossPanePairIsOrderedByPaneSide(clickedPaneIsLeft: Bool) {
         let clicked = file(clickedPaneIsLeft ? "/L/lease.pdf" : "/R/scan.pdf")
@@ -126,9 +120,8 @@ import Testing
 
     // MARK: The title, which the header's glyph is derived from
 
-    /// The header glyph reads the title's extension, so the title must stay a file name. Two
-    /// differently named files take the left one's, and the facts strip's Name row shows the
-    /// difference; a title like "a.pdf ↔ b.png" would draw one of the two types over both.
+    /// The header glyph reads the title's extension, so the title stays a file name: two
+    /// differently named files take the left one's ("a.pdf ↔ b.png" would draw one type over both).
     @Test func aPairOfDifferentlyNamedFilesTakesTheLeftName() {
         let pair = PaneComparePairMenu.pair(
             clicked: file("/L/Lease — Signed.pdf"), counterpart: file("/R/lease-final-scan.pdf"),

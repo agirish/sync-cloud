@@ -2,17 +2,10 @@ import AppKit
 import Testing
 @testable import FileExplorer
 
-/// Pins how the pane's two AppKit attachments recover their table when SwiftUI stops calling them.
-///
-/// `PaneListSelectionStyler` and `PaneBackgroundDeselect` both find their `NSTableView` by an
-/// ancestor scan, bounded by a burst budget so an unresolvable hierarchy can't burn a full scan on
-/// every layout pass. `FileTreeView` is `Equatable`, so the pane rarely re-renders and
-/// `updateNSView` can't be relied on to refill that budget. Without a periodic retry, a spent
-/// budget gives up for good and the OS selection highlight shows under the app's accent wash: blue
-/// with key focus, gray without, the accent only on lists that resolved in time.
-///
-/// These drive `resolveTableView()` directly, not through SwiftUI, because the case is precisely
-/// that SwiftUI stops calling.
+/// How the pane's two AppKit attachments (`PaneListSelectionStyler`, `PaneBackgroundDeselect`)
+/// recover their table when SwiftUI stops calling them. Their ancestor scan has a burst budget, and
+/// `FileTreeView` is `Equatable`, so `updateNSView` can't be relied on to refill it: without a
+/// periodic retry the OS highlight shows for good. Driven through `resolveTableView()` directly.
 @MainActor
 @Suite struct PaneListStylerRecoveryTests {
 
@@ -54,12 +47,8 @@ import Testing
         }
     }
 
-    /// The budget is spent while no table can be found; then the list arrives (or is swapped in)
-    /// beneath a stationary anchor. Without the periodic retry this returns nil forever and the row
-    /// keeps the OS highlight for the rest of the session.
-    ///
-    /// `PaneBackgroundDeselect` shares the pattern, and its failure is worse because it is
-    /// invisible: no recognizer is installed and clicking empty space silently stops deselecting.
+    /// The budget is spent while no table can be found, then the list arrives beneath a stationary
+    /// anchor. For `PaneBackgroundDeselect` the failure is invisible: empty clicks stop deselecting.
     @Test("A list that appears after the budget is spent is still found", arguments: Anchor.allCases)
     func recoversAfterBudgetExhaustion(anchor: Anchor) {
         let (view, resolve) = make(anchor)
@@ -72,15 +61,13 @@ import Testing
         let (scroll, table) = list(at: Self.listFrame)
         window.contentView?.addSubview(scroll)
 
-        // The periodic retry has to carry this: the anchor hasn't moved and there was never a
-        // cached table, so neither change signal fires.
+        // Only the periodic retry can carry this: neither change signal fires.
         var found: NSTableView?
         for _ in 0..<40 where found == nil { found = resolve() }
         #expect(found === table)
     }
 
-    /// The cheaper of the two recovery paths, and the common one: SwiftUI rebuilds the column stack,
-    /// so the table this anchor had is replaced by a different instance in the same place.
+    /// The common recovery: SwiftUI rebuilds the column stack, replacing the table in the same place.
     @Test("A table replaced in place is re-resolved immediately")
     func recoversWhenItsTableIsReplaced() {
         let styler = PaneListSelectionStyler.StylerView(frame: Self.listFrame)
@@ -92,8 +79,7 @@ import Testing
         let (secondScroll, secondTable) = list(at: Self.listFrame)
         window.contentView?.addSubview(secondScroll)
 
-        // Losing the table it had is a hierarchy change, so this takes the immediate path, without
-        // waiting on the periodic retry.
+        // Losing the table it had is a hierarchy change: the immediate path.
         #expect(styler.resolveTableView() === secondTable)
     }
 
@@ -115,10 +101,8 @@ import Testing
 
     // MARK: The bound the budget exists for
 
-    /// Everything above would also pass with the budget deleted and every call scanning, which
-    /// would mean a six-ancestor walk per layout pass on every column of both panes. So the steady
-    /// state is asserted too: with nothing to find and nothing changing, scans must be rare, not
-    /// continuous.
+    /// The budget itself: with nothing to find and nothing changing, scans are rare, not one per
+    /// layout pass (everything above would pass with the budget deleted).
     @Test("An unresolvable hierarchy settles into rare retries, not a scan per pass")
     func unresolvableHierarchyStopsScanningContinuously() {
         let styler = PaneListSelectionStyler.StylerView(frame: Self.listFrame)
@@ -127,9 +111,8 @@ import Testing
         // Burn the burst.
         for _ in 0..<10 { _ = styler.resolveTableView() }
 
-        // Count how many of the next 100 passes reach the scan. A table is present but placed where
-        // the anchor is not, so any scan comes back empty and the count measures only how often we
-        // looked.
+        // How many of the next 100 passes scan. The table sits away from the anchor, so every scan
+        // comes back empty.
         let (elsewhere, _) = list(at: Self.listFrame.offsetBy(dx: 600, dy: 0))
         window.contentView?.addSubview(elsewhere)
 

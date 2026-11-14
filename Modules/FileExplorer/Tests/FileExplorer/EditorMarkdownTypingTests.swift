@@ -7,12 +7,9 @@ import cmark_gfm
 import FileExplorerTestSupport
 
 /// Markdown typing (list keys, link and image paste, image drop) through the real text view and
-/// coordinator: the key reaching the delegate, the paste reaching the subclass, what one ⌘Z takes
-/// back, and every door that must still do what it always did.
-///
-/// Driven directly, not through SwiftUI, because mounting the representable in this process
-/// segfaults (see `PlainTextEditorBridgeTests`). `doCommand(by:)` is a key's path to the delegate;
-/// the paste gets a private pasteboard, so the test never touches the clipboard.
+/// coordinator, and what one ⌘Z takes back. Driven directly, not through SwiftUI, because mounting
+/// the representable in this process segfaults (see `PlainTextEditorBridgeTests`); the paste gets
+/// a private pasteboard, so the test never touches the clipboard.
 @MainActor
 @Suite(.serialized) struct EditorMarkdownTypingTests {
 

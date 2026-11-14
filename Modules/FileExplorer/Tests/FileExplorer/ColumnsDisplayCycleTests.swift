@@ -27,11 +27,9 @@ import Sync
     }
 
     private struct StubDelegate: NoOpFileActions {
-        /// Whether every row carries a risky-name badge. Off by default, matching the protocol
-        /// extension's nil `riskyNameReason`, under which no row badges.
+        /// Whether every row carries a risky-name badge; off matches the protocol's nil default.
         var badgesEveryName = false
-        /// Counts the badges handed to rows, so the badged arm can't silently measure the pane
-        /// without the badge and report "the badge changes nothing".
+        /// Counts badges handed out, so the badged arm can't silently measure the pane without them.
         var badgesHandedOut: Counter? = nil
         func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
             guard badgesEveryName else { return nil }
@@ -40,8 +38,7 @@ import Sync
         }
     }
 
-    /// A reference box, because `FileActionDelegate` conformers here are structs and SwiftUI
-    /// copies them into the view tree.
+    /// A reference box: the `FileActionDelegate` conformers here are structs, copied into the tree.
     final class Counter: @unchecked Sendable { var count = 0 }
 
     /// The column width from the app's real defaults (`com.abhishekgirish.SyncCloud`), the
@@ -111,13 +108,11 @@ import Sync
         return window
     }
 
-    /// Spins the run loop, and nothing else, until the window has spent `quietTurns` consecutive
-    /// turns without an update-constraints pass. Returns the passes seen on each turn.
-    ///
-    /// No `layoutIfNeeded`, so not `LayoutPumpWait`: manual layout disarms AppKit's guard and would
-    /// perturb the count. Bounded by turns, not seconds (`docs/flaky-tests.md`, "Fixed pumps and
-    /// fixed sleeps"), and quiescence is observed, not assumed. Expiry is a failure naming the call
-    /// site: a window still churning is the finding.
+    /// Spins the run loop, and nothing else, until the window spends `quietTurns` consecutive turns
+    /// without an update-constraints pass; returns the passes per turn. No `layoutIfNeeded`, so not
+    /// `LayoutPumpWait`: manual layout disarms AppKit's guard and would perturb the count. Bounded by
+    /// turns, not seconds (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"); expiry is a
+    /// failure naming the call site, since a window still churning is the finding.
     @discardableResult
     private func pumpUntilQuiet(_ window: PassCountingWindow,
                                 quietTurns: Int = 8,
@@ -183,8 +178,7 @@ import Sync
         let views = PaneLayoutSettle.viewCount(window.contentView!)
         let worst = perTurn.max() ?? 0
         let total = perTurn.reduce(0, +)
-        // Printed unconditionally: a green check over an instrument that never fired would look
-        // like a healthy pane.
+        // Printed always: a green check over an instrument that never fired would look healthy.
         print("[cycle] views=\(views) worst=\(worst) total=\(total) turns=\(perTurn.count)")
         let detail = "worst display cycle spent \(worst) update-constraints passes against "
             + "\(views) views (total \(total) to quiescence); AppKit raises once passes exceed views"
@@ -353,10 +347,9 @@ import Sync
         }
         pumpUntilQuiet(window)
 
-        // The arm must really be in its claimed configuration: passing a browse path isn't a pane
-        // that drilled, and a plainer pane would report similar numbers. (`onBarEdgeFlip` is wired
-        // as in `ContentView` but never fires here, so it is not ruled out.) Checked against what
-        // AppKit laid out.
+        // The arm must really be drilled, as AppKit laid it out: a browse path isn't a pane that
+        // drilled, and a plainer pane would report similar numbers. (`onBarEdgeFlip` is wired as in
+        // `ContentView` but never fires here, so it is not ruled out.)
         let tables = PaneLayoutSettle.tableRowCounts(window.contentView!)
         #expect(tables.count >= 4,
                 "both panes were meant to be drilled to a two-column stack; tables: \(tables)")

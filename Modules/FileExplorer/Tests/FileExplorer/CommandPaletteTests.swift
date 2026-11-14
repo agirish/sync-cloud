@@ -3,12 +3,10 @@ import Foundation
 @testable import Sync
 @testable import FileExplorer
 
-/// The ⌘K palette's routing table.
-///
-/// A routing decision inside an `onSubmit` can't be fired from a unit test, so `PaletteRouter` is a
-/// pure function returning a value, the pattern `PaneSearchSubmit` follows. Every test asserts a
-/// route, not a row's existence: a palette that lists the right destination and routes it
-/// somewhere else is the failure that matters.
+/// The ⌘K palette's routing table. A routing decision inside an `onSubmit` can't be fired from a
+/// unit test, so `PaletteRouter` is a pure function returning a value, as `PaneSearchSubmit` is.
+/// Every test asserts a route, not a row's existence: a palette that lists the right destination
+/// and routes it somewhere else is the failure that matters.
 @Suite struct CommandPaletteTests {
 
     // MARK: Fixtures — the real tree's shapes, cut to size
@@ -73,8 +71,7 @@ import Foundation
         #expect(rows[opening].isAvailable, "the palette opens with ↩ aimed at a row it cannot run")
         #expect(rows[opening].group != .folders)
 
-        // The awake control, so the mark is not just "unavailable is whatever we passed": with the
-        // root awake the very same folders are live rows.
+        // The awake control: with the root awake the very same folders are live rows.
         let awake = PaletteRouter.rows(query: "", index: Self.rootIndex(
             recent: ["Legal", "Finance/US"], pinned: ["Archive/2019/Legal"], unavailable: nil))
             .filter { $0.group == .folders }
@@ -144,7 +141,7 @@ import Foundation
     }
 
     /// "rename" reaches Renames, the place that fixes names, even though nothing is called
-    /// "rename". Names folded into Renames as its "to fix" section, and its vocabulary moved too.
+    /// "rename".
     @Test func renameReachesTheNamesLensEvenThoughNothingIsCalledRename() {
         #expect(Self.routes("rename").contains(.organize(lens: .renames, scope: nil)))
         // The folded lens's words reach the same landing, so no muscle memory dead-ends.
@@ -356,9 +353,7 @@ import Foundation
                                unavailable: "Nope"),
                     PaletteRow(id: "c", group: .places, title: "C", symbol: "x",
                                route: .organize(lens: nil, scope: nil))]
-        // ↓ from the first choosable row skips the disabled one entirely.
         #expect(PaletteSelection.moved(from: 0, by: 1, in: rows) == 2)
-        // ...and wraps at the end rather than stopping dead.
         #expect(PaletteSelection.moved(from: 2, by: 1, in: rows) == 0)
         #expect(PaletteSelection.moved(from: 0, by: -1, in: rows) == 2)
     }
@@ -381,10 +376,9 @@ import Foundation
 
     // MARK: The folder index — the defect the installed app found
 
-    /// A tilde-spelled profile root (`~/Documents`) still matches an expanded provider root.
-    /// Compared as plain strings, the palette would index no folders at all, and every folder query
-    /// would answer nothing with no error. The routing tests can't see this: they are handed the
-    /// folder list.
+    /// A tilde-spelled profile root (`~/Documents`) still matches an expanded provider root. As plain
+    /// strings the palette would index no folders, and every folder query would answer nothing with
+    /// no error, which the routing tests, handed the folder list, can't see.
     @Test func aTildeSpelledProfileRootStillMatchesTheProviderRoot() {
         let home = NSHomeDirectory()
         #expect(PaletteIndex.folders(profileRoot: "~/Documents",
@@ -412,12 +406,10 @@ import Foundation
         #expect(PaletteIndex.folders(profileRoot: "/a", providerRoot: "", keys: ["Legal"]).isEmpty)
     }
 
-    /// A profile rooted inside the provider root contributes its folders, re-based. This is the
-    /// ordinary case: a cloud source's root is its account folder, and the profile is surveyed over
-    /// the landing folder inside it, so the two differ by the source's `openAt`.
-    ///
-    /// Routes join the provider root to what this returns, so a key left unchanged would name
-    /// `<account>/Legal` for `<account>/Documents/Legal`. Returning nothing instead would leave ⌘K's
+    /// A profile rooted inside the provider root contributes its folders, re-based: the ordinary
+    /// case, since a cloud source's root is its account folder and the profile is surveyed over the
+    /// landing folder inside it (the source's `openAt`). A key left unchanged would route to
+    /// `<account>/Legal` for `<account>/Documents/Legal`; returning nothing would leave ⌘K's
     /// Folders group and the "organize &lt;folder&gt;" lede silently empty.
     @Test func aProfileInsideTheProviderRootContributesItsFoldersRebased() {
         #expect(PaletteIndex.folders(profileRoot: "/a/Documents", providerRoot: "/a",
@@ -428,12 +420,10 @@ import Foundation
                                      keys: ["Legal"]) == ["My Drive/Documents/Legal"])
     }
 
-    /// The index's `folderPrefix` is the segment its folders actually carry. The ranker subtracts
-    /// it before scoring, which works only while it matches what `folders` prepended; a drift is
-    /// silent, and every folder would score its whole path again (see the ranker tests below).
-    ///
-    /// Also pinned: `folderPrefix` is nil on exactly the inputs that make `folders` empty, so a
-    /// `?? ""` at the call site means "no re-base", never "re-base of an unusable pair".
+    /// The index's `folderPrefix` is the segment its folders carry. The ranker subtracts it before
+    /// scoring, so a drift is silent and every folder scores its whole path again. It is nil on
+    /// exactly the inputs that make `folders` empty, so a `?? ""` at the call site means "no
+    /// re-base", never "re-base of an unusable pair".
     @Test func theIndexedFoldersAllCarryTheIndexPrefix() {
         let cases: [(profile: String?, provider: String)] = [
             ("/a/Documents", "/a"),                 // OneDrive / Dropbox
@@ -463,11 +453,9 @@ import Foundation
 
     // MARK: The folder ranker — scored below the landing folder
 
-    /// A query that only matches the shared prefix ranks nothing. Every key begins `Documents`, and
-    /// `rankedFolders` scores the path with slashes as spaces, so without the prefix off, `doc`
-    /// would match every surveyed folder and the group would show arbitrary rows.
-    ///
-    /// Dropping the `below(index.folderPrefix, folder)` call must fail this: all four folders rank.
+    /// A query that only matches the shared prefix ranks nothing. `rankedFolders` scores the path
+    /// with slashes as spaces, so with every key under `Documents`, `doc` would match every folder.
+    /// Fails if the `below(index.folderPrefix, folder)` call is dropped: all four folders rank.
     @Test func aQueryMatchingOnlyTheSharedPrefixRanksNothing() {
         let index = PaletteIndex(
             providerRoot: "/a",

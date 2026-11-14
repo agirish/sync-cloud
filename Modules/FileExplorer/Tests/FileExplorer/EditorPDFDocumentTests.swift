@@ -77,9 +77,8 @@ enum PDFURLOpens {
 ///
 /// Serialized, because these open through `PDFKitSerialAccess`'s one lane, and lane work in
 /// parallel suites starves sibling waits. Every wait is bounded in lane turns, not seconds
-/// (`docs/flaky-tests.md`, "The wait that hangs instead of failing"): in a full-package run the
-/// lane can queue behind other suites for minutes, which is congestion, not failure, while a load
-/// that never comes still fails after its turns, naming what it waited for.
+/// (`docs/flaky-tests.md`, "The wait that hangs instead of failing"): the lane can queue behind
+/// other suites for minutes, which is congestion, not failure.
 @MainActor
 @Suite(.serialized) final class EditorPDFDocumentTests {
 

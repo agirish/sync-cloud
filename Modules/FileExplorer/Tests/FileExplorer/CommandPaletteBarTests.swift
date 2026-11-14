@@ -4,16 +4,12 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The toolbar's ⌘K pill, rendered and read back in light and dark.
-///
-/// The claim that matters is about pixels: the key is drawn at rest, unlike every other badged
-/// control, which shows its chord only under the ⌥-hold reveal. A `.shortcutKeycap(_:)` applied by
-/// mistake would pass every structural check and draw nothing until a modifier went down.
-///
-/// Widths are checked against `CommandPaletteBarMetrics`, which the toolbar's shedding ladder
-/// spends: under-measuring folds the whole row behind macOS's overflow chevron, with no error.
-///
-/// `.machinePinned(.pixelSampling)`: it reads pixels out of a live renderer.
+/// The toolbar's ⌘K pill, rendered and read back in light and dark. The key is drawn at rest,
+/// unlike every other badged control, which shows its chord only under the ⌥-hold reveal; a
+/// `.shortcutKeycap(_:)` applied by mistake would pass every structural check and draw nothing
+/// until a modifier went down. Widths are checked against `CommandPaletteBarMetrics`, which the
+/// toolbar's shedding ladder spends: under-measuring folds the whole row behind macOS's overflow
+/// chevron, with no error. `.machinePinned(.pixelSampling)`: it reads pixels from a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct CommandPaletteBarTests {
 
@@ -29,7 +25,6 @@ import Design
             // Materials desaturate in a window that is not key, and a borderless test window never
             // is. The app pins this on its own window for the same reason.
             .environment(\.controlActiveState, .active)
-        // Laid out twice before it is cached.
         guard let rep = offscreenBitmap(subject, size: CGSize(width: width, height: height), appearance: scheme == .dark ? .darkAqua : .aqua,
                                         layoutPasses: 2) else {
             fatalError("no bitmap rep")

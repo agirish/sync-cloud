@@ -291,11 +291,10 @@ import EventsTestSupport
         #expect(r.view.string == "oneか\ntwo", "the commit left \(String(reflecting: r.view.string))")
         #expect(r.box.text == r.view.string)
         #expect(r.view.selectedRange() == NSRange(location: 4, length: 0))
-        // Two steps, not one: the price of never converting a file nobody edits. The word's typing
-        // step was opened by the event that started the composition, so the commit's conversion
-        // can't join it, and converting at the start would rewrite the file for a composition then
-        // cancelled with Esc. So ⌘Z puts the carriage returns back, and the next takes the word:
-        // every state between is a file Edit could have written.
+        // Two steps, not one: the price of never converting a file nobody edits. The event that
+        // started the composition opened the word's typing step, so the commit's conversion can't
+        // join it, and converting at the start would rewrite the file for a composition cancelled
+        // with Esc. So ⌘Z puts the carriage returns back and the next takes the word.
         r.undo.undo(); spin()
         #expect(r.view.string == "oneか\r\ntwo", "the first ⌘Z left \(String(reflecting: r.view.string))")
         r.undo.undo(); spin()
@@ -411,12 +410,10 @@ import EventsTestSupport
         #expect(r.box.text == r.view.string)
     }
 
-    /// Every door that converts tells the buffer, once, which puts "Converted to LF line endings —
-    /// ⌘Z undoes" on the status line. Typing, a Markup verb, a tick, Preview's own conversion; and
-    /// an LF file, or the second edit to a converted one, tells nothing.
-    ///
-    /// Dropping `buffer?.convertedToLF.send()` from `noteConversion`, or having the text view log
-    /// without it, must fail the doors.
+    /// Every door that converts tells the buffer once, which puts "Converted to LF line endings —
+    /// ⌘Z undoes" on the status line; an LF file, or the second edit to a converted one, tells
+    /// nothing. Mutation: dropping `buffer?.convertedToLF.send()` from `noteConversion`, or having
+    /// the text view log without it, must fail the doors.
     @Test func everyConversionIsToldToTheBufferOnce() {
         let crlf = "- [ ] one\r\n- [ ] two\r\n"
         let doors: [(String, (Rig) -> Void)] = [
@@ -515,10 +512,9 @@ import EventsTestSupport
         #expect(locked.view.string == text)
     }
 
-    /// Find (opening the bar, finding next) reads; it doesn't convert.
-    ///
-    /// The bar is retired as the test ends: Find Next leaves AppKit's find indicator a redraw to
-    /// make, which must not outlive the rig (`PlainTextEditor.retireFindBar`).
+    /// Find (opening the bar, finding next) reads; it doesn't convert. The bar is retired as the
+    /// test ends: Find Next leaves AppKit's find indicator a redraw to make, which must not outlive
+    /// the rig (`PlainTextEditor.retireFindBar`).
     @Test func findingInAFileChangesNothing() {
         let text = "one\r\ntwo\r\none\r\n"
         let r = rig(text, caret: 0)
@@ -805,10 +801,9 @@ import EventsTestSupport
 
     // MARK: What AppKit does after an edit the net made (2026-10-09)
 
-    /// A long paste the net writes scrolls to the caret, as AppKit's own paste does. When the net
-    /// makes the edit itself it tells AppKit no, so AppKit's follow-up (scrolling the caret into
-    /// view) never runs, and a two-hundred-line CRLF paste would leave the caret off screen. Every
-    /// paste holding a CR takes this route, LF files included.
+    /// A long paste the net writes scrolls to the caret, as AppKit's own paste does: the net tells
+    /// AppKit no when it makes the edit itself, so AppKit's follow-up scroll never runs. Every paste
+    /// holding a CR takes this route, LF files included.
     ///
     /// No AppKit paste as the control: in a window that isn't key (every test window) AppKit's own
     /// paste doesn't scroll either, so the control is the mutation instead.
@@ -889,9 +884,7 @@ import EventsTestSupport
 
     /// Text dragged within the note is the file's own, and keeps its separators: moving a line that
     /// holds a U+2028 must not turn it into a line break nobody typed. The same drop from anywhere
-    /// else still comes in as LF (above).
-    ///
-    /// Reading every drop as incoming must make the moved text lose its U+2028.
+    /// else still comes in as LF (above). Mutation: reading every drop as incoming must fail it.
     @Test func aDragOfTheFilesOwnTextKeepsItsSeparators() throws {
         let r = rig("one\n", caret: 3)
         let board = board { $0.setString("x\u{2028}y", forType: .string) }

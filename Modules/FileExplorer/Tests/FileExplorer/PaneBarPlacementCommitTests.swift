@@ -4,22 +4,11 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Who commits the action bar's edge, and why a selection change never calls `onBarEdgeFlip`.
-///
-/// `PaneBarPlacement.flipIfEdgeMoved` calls back only when `reresolveMovedEdge()` finds the
-/// committed `atTop` moved. The host commits synchronously from its own `body` (`ContentView`
-/// computes `placement.resolveAtTop(…)` on every render), so by the time a geometry callback runs
-/// the answer already agrees: a selection change can never produce a flip. Only geometry moving
-/// under an unchanged selection can, which in the app is a scroll, and a scroll doesn't re-render
-/// the host, because `PaneBarPlacement` is a plain class whose per-frame writes invalidate nothing.
-/// That asymmetry is deliberate: it stops the bar showing at one edge and hopping to the other.
-///
-/// A fixture that passes `onBarEdgeFlip` (as `ColumnsDisplayCycleTests.TwoPaneHarness` does) isn't
-/// covering it. In the Tree no headless lever can arm the callback: moving geometry either
-/// re-renders the root, so the host commits first, or moves AppKit's clip view without re-driving
-/// SwiftUI's geometry preferences. Columns reads its rows' bottoms from each column's table
-/// (`ColumnListProbe`), which observes the clip, so a scroll there can be armed; the last two
-/// tests pin that.
+/// Who commits the action bar's edge, and why a selection change never calls `onBarEdgeFlip`: the
+/// host commits `placement.resolveAtTop(…)` synchronously from `body`, so a geometry callback finds
+/// it already agrees. Only a scroll under an unchanged selection flips, and it doesn't re-render the
+/// host. In Columns a scroll can be armed headlessly (`ColumnListProbe` observes the clip), which the
+/// last two tests pin.
 @MainActor
 @Suite struct PaneBarPlacementCommitTests {
 
@@ -34,9 +23,8 @@ import Sync
         PaneBarHostHarness.pump(window, seconds: seconds)
     }
 
-    /// The bar's edge changes on a selection change, without a flip callback, because the host
-    /// committed it synchronously from `body`. Both halves are asserted: without the first this
-    /// would pass over a dormant path, and without the second it wouldn't say what it is for.
+    /// A selection change moves the bar's edge without a flip callback, because the host committed
+    /// it synchronously from `body`.
     @Test func aSelectionChangeMovesTheEdgeWithoutAskingForAFlip() throws {
         let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let counter = Counter()
@@ -48,8 +36,7 @@ import Sync
 
         #expect(placement.atTop == false, "nothing is selected yet, so the bar rests at the bottom")
 
-        // The lowest row inside the viewport, the one a bottom-docked bar would cover. Taken from
-        // live geometry, not by index, so a density or font change can't move it off the band.
+        // The lowest row inside the viewport, which a bottom-docked bar would cover, from live geometry.
         let target = try #require(
             placement.rowBottoms
                 .filter { $0.value - placement.viewportGlobalMinY <= placement.viewportHeight }
@@ -67,13 +54,9 @@ import Sync
         // The edge really did move, so this is not a test of a dormant path…
         #expect(placement.atTop, "selecting a covered row must put the bar at the top")
 
-        // …and this is why no callback follows: a fresh resolve agrees with what the host already
-        // committed, so `PaneBarPlacement.flipIfEdgeMoved` returns (`reresolveMovedEdge()` is
-        // false).
-        //
-        // This is the load-bearing assertion, not the flip count below: the callback is dispatched
-        // with `DispatchQueue.main.async` and lands after this synchronous pump, so `flips == 0`
-        // holds even if the agreement check is removed. The count only corroborates.
+        // …and no callback follows, because a fresh resolve agrees with the host's commit. This is
+        // the load-bearing assertion: the callback is dispatched async and lands after this
+        // synchronous pump, so `flips == 0` below holds even without the agreement check.
         #expect(placement.reresolveAtTop() == placement.atTop,
                 "a re-resolve must agree with the committed edge — that agreement is what makes the callback return")
         #expect(counter.flips == 0,
@@ -90,10 +73,8 @@ import Sync
         await LayoutPumpWait.pump(window, upTo: timeout, until: condition).held
     }
 
-    /// Columns' row bottoms are in the viewport's own space: the first row ends about a row below
-    /// the viewport's top. A probe converting into another space (the window's bottom-up one, the
-    /// clip's) would be hundreds of points off and the bar would flip early or never; every other
-    /// assertion about bottoms is relative and wouldn't notice.
+    /// Columns' row bottoms are in the viewport's own space; a probe in another space would be
+    /// hundreds of points off, which every relative assertion would miss.
     @Test func columnRowBottomsAreInTheViewportsSpace() async throws {
         let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let (window, placement) = mount(box, counter: Counter())
@@ -105,9 +86,8 @@ import Sync
         #expect(below > 10 && below < 60, "the first row ends \(below)pt below the viewport's top, not about a row")
     }
 
-    /// Scrolling a column flips the bar once. The lowest visible row is selected, so the bar goes
-    /// to the top; the column then scrolls until that row rises clear of the band, and the bar is
-    /// asked back down exactly once.
+    /// Scrolling a column flips the bar once: with the lowest row selected the bar is at the top,
+    /// and once that row scrolls clear of the band it is asked back down exactly once.
     @Test func scrollingAColumnFlipsTheBarOnce() async throws {
         let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let counter = Counter()

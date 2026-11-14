@@ -6,15 +6,12 @@ import Sync
 
 /// The row's trailing detail (a folder's date, a file's size) and which presentation carries it:
 /// Columns withholds both, the tree keeps both. Measured in pixels, since the detail sits behind a
-/// `Spacer` and a row is equally wide with or without it. Positive controls
-/// (the tree cases of `eachPresentationPaintsOrWithholdsTheDetail`,
-/// `aRowWithoutAChevronDoesNotReachTheEdge`) stop a harness
-/// that paints nothing from passing the zero-difference checks.
+/// `Spacer` and a row is equally wide with or without it. The tree cases of
+/// `eachPresentationPaintsOrWithholdsTheDetail` and `aRowWithoutAChevronDoesNotReachTheEdge` are
+/// positive controls, so a harness that paints nothing can't pass the zero-difference checks.
 ///
 /// Known boundary: these build `ColumnRowView` directly, so they don't pin that
-/// `PaneColumnsView.columnRow` still uses it. No pane-mounting suite checks what a row draws, and
-/// closing that would mean a whole pane per assertion (`FileRowAccessoryStabilityTests` draws the
-/// same line).
+/// `PaneColumnsView.columnRow` still uses it (`FileRowAccessoryStabilityTests` draws the same line).
 @MainActor
 @Suite struct ColumnRowDateTests {
 
@@ -83,10 +80,9 @@ import Sync
 
     // MARK: - The rule
 
-    /// All four cases of `secondaryText`, the one place that picks a date or a size, pinned apart
-    /// from anything that draws it. The flag gates the whole detail. The tree's answers are checked
-    /// by kind (a date for the folder, the size for the file), so they can't swap while "not nil"
-    /// stays true.
+    /// All four cases of `secondaryText`, the one place that picks a date or a size. The tree's
+    /// answers are checked by kind (a date for the folder, the size for the file), so they can't
+    /// swap while "not nil" stays true.
     @Test func theRuleWithholdsBothDetailsInColumnsAndNeitherInTheTree() {
         let datedFolder = FileRowInfo(folder(dated: true))
         let sizedFile = FileRowInfo(file(sized: true))
@@ -111,14 +107,13 @@ import Sync
 
     // MARK: - The call sites
 
-    /// What withholding the date buys the name. The date ("Nov 14, 2023", `caption` with monospaced
-    /// digits) plus its 10pt gap costs the name about 76pt, enough at the 210pt
-    /// `PaneViewMode.defaultColumnWidth` to truncate "Vehicle Registration Card", which fits
-    /// without it.
+    /// What withholding the date buys the name: the date ("Nov 14, 2023", `caption` with
+    /// monospaced digits) plus its 10pt gap costs the name about 76pt, enough to truncate "Vehicle
+    /// Registration Card" at the 210pt `PaneViewMode.defaultColumnWidth`.
     ///
     /// Asserted as a shape, not a pixel count: at 260pt only the date's region differs, and at
-    /// 210pt the name's region differs too, which only different glyphs can do. Totals would pass
-    /// if the date merely widened; exact counts would break on a font revision.
+    /// 210pt the name's region differs too. Totals would pass if the date merely widened; exact
+    /// counts would break on a font revision.
     @Test(.machinePinned(.pixelSampling)) func theFoldersDateCostsA210ptColumnItsName() throws {
         let name = "Vehicle Registration Card"
         func info(_ dated: Bool) -> FileRowInfo {
@@ -159,10 +154,9 @@ import Sync
 
     /// Which presentation paints the detail: the tree row paints a folder's date and a file's
     /// size, and the Columns row paints neither, identically to a row without one. The tree cases
-    /// are the positive controls for the zero-difference ones. They also pin the default:
-    /// `FileTreeView.treeRow` passes no `showsSecondaryText`, so a default of false would strip
-    /// dates from both tree panes and the Organize rail. `treeRow` passing `false` explicitly would
-    /// be a design change, so it isn't guarded.
+    /// are the positive controls, and pin the default: `FileTreeView.treeRow` passes no
+    /// `showsSecondaryText`, so a default of false would strip dates from both tree panes and the
+    /// Organize rail.
     @Test(.machinePinned(.pixelSampling), arguments: [
         (true, false, true),    // a folder's date, tree row: painted
         (true, true, false),    // a folder's date, Columns row: not painted
@@ -209,8 +203,7 @@ import Sync
 
     /// The same measurement without the chevron, so "flush" is shown to be the chevron's doing and
     /// not every row's. The same folder with `showsChevron` flipped, not a file row, which reserves
-    /// the cloud badge's slot (`reservesCloudSlot: !isDirectory`) and would confound it. Synthetic
-    /// on purpose: it changes exactly one thing.
+    /// the cloud badge's slot (`reservesCloudSlot: !isDirectory`) and would confound it.
     @Test(.machinePinned(.pixelSampling)) func aRowWithoutAChevronDoesNotReachTheEdge() throws {
         let rep = try #require(bitmap(ColumnRowView(
             row: row(folder(dated: true)), isIgnored: false, diffStatus: nil,

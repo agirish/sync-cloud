@@ -7,10 +7,9 @@ import UniformTypeIdentifiers
 /// thousands of nodes never grows the cache past a handful of images.
 @Suite struct FileIconCacheTests {
 
-    /// Directories key by `/` plus their lowercased extension, so bundle-style folders (.app,
-    /// .photoslibrary) get their own entry and plain ones share `/`. Files key by their last
-    /// extension, lowercased, so every name with one extension collapses to one entry; no
-    /// extension, or a dotfile, is the generic `""`.
+    /// Directories key by `/` plus their lowercased extension, so bundles (.app, .photoslibrary) get
+    /// their own entry and plain folders share `/`. Files key by their last extension, lowercased;
+    /// no extension, or a dotfile, is the generic `""`.
     @Test(arguments: [
         ("Photos", true, "/"), ("Documents", true, "/"),
         ("My App.app", true, "/app"), ("Pictures.photoslibrary", true, "/photoslibrary"),
@@ -34,10 +33,9 @@ import UniformTypeIdentifiers
     }
 
     @Test func directoryIconTypeResolvesOnlyDeclaredDirectoryTypes() {
-        // Plain folders and unknown-extension folders stay generic folders…
+        // Plain folders, and folders whose "extension" yields only an undeclared dyn.* type, stay
+        // generic: a folder named "v1.2" or "notes.txt" must not pick up a document icon.
         #expect(FileIconCache.iconType(forKey: "/") == .folder)
-        // …including folders whose "extension" only yields an undeclared dyn.* type
-        // (a folder named "v1.2" or "notes.txt" must not pick up a document icon).
         #expect(FileIconCache.iconType(forKey: "/2") == .folder)
         #expect(FileIconCache.iconType(forKey: "/txt") == .folder)
         // Bundle-style extensions resolve to their real (directory-conforming) type.

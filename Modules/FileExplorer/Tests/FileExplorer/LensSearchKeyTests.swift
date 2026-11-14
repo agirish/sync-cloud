@@ -6,13 +6,13 @@ import Foundation
 ///
 /// `LensWorkspaceView` keeps one query per lens and has two names for "which lens": `lens` is the
 /// workspace's (always `.filing` inside Organize, whatever the rail shows), and `effectiveLens`
-/// resolves the rail item on top of it. With Duplicates and Rules as rail items, a write keyed on
-/// `lens` lands in To File's slot: a chip's ✕ would rewrite To File's parked query, and the
-/// "Nothing matches" button would clear To File's query and leave the one hiding the rows.
+/// resolves the rail item on top of it. A write keyed on `lens` lands in To File's slot: a chip's ✕
+/// would rewrite To File's parked query, and the "Nothing matches" button would clear To File's
+/// query and leave the one hiding the rows.
 ///
-/// The mounted suites can't see this, since the only one mounting the duplicates apparatus passes
-/// `lens: .duplicates`, where the two names are equal. So these are source-level, using the harness
-/// in ``OrganizeScopeCallSiteTests``, which names its file and fails when it can't read it.
+/// Source-level, through ``SourceText`` (which names its file and fails when it can't read it),
+/// because the only mounted suite with the duplicates apparatus passes `lens: .duplicates`, where
+/// the two names are equal.
 @Suite struct LensSearchKeyTests {
 
     static func workspaceSource() throws -> String { try SourceText.fileExplorer("LensWorkspaceView.swift") }
@@ -83,9 +83,7 @@ import Foundation
         // One predicate, so the chooser and the wording cannot drift apart.
         #expect(view.contains("private var filterIsNarrowing: Bool { effectiveLens == .duplicates && filter != .all }"))
         // Over a scope holding nothing, neither the query nor the filter is the cause: their
-        // sentences would read "hides all 0 …" and offer a click that changes nothing, while the
-        // scope's sentence names what is elsewhere. Pinned on the message text, not only the
-        // predicate.
+        // sentences would read "hides all 0 …" and offer a click that changes nothing.
         #expect(body.contains("total == 1 ? \"\" : \"s\""),
                 "the empty state no longer counts what it claims to be hiding")
         #expect(try SourceText.body(of: "private var isFiltered: Bool {", in: view)
@@ -93,10 +91,10 @@ import Foundation
                 "`isFiltered` restates the filter rule instead of sharing it")
     }
 
-    /// The Refine button names no model: Refine runs on the chat's (TE335), read out elsewhere. A
-    /// pixel diff can't show that, since the label is the same for every model, so the source is
-    /// read: the title says Claude, and nothing here reads a model setting of Organize's own. Here,
-    /// not in the pixel-pinned `FilingRefineControlTests`, so it runs on every push.
+    /// The Refine button names no model: Refine runs on the chat's, read out elsewhere. A pixel
+    /// diff can't show that, so the source is read: the title says Claude, and nothing reads a model
+    /// setting of Organize's own. Not in the pixel-pinned `FilingRefineControlTests`, so it runs on
+    /// every push.
     @Test func theButtonSaysClaudeAndTheModelIsTheChatsNotOrganizes() throws {
         let source = SourceText.codeOnly(try SourceText.fileExplorer("LensWorkspaceView.swift"))
         #expect(source.contains(#"Label("Refine \(batch.count) with Claude…""#))

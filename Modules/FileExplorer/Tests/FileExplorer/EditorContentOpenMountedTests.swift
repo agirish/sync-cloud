@@ -4,12 +4,9 @@ import SwiftUI
 @testable import FileExplorer
 
 /// Opening a Contents result, end to end: the real workspace scanning a real folder, ↩ in the
-/// filter's field (a genuine `keyDown`, the one input a test window takes), then the text view
-/// itself, with the match selected and the find bar up holding the word.
-///
-/// Two arrivals, because they take different roads: from the empty page the file's text view is
-/// built in the same update as the request (which is why the request waits a turn), and from
-/// another open file the text view is kept and re-pointed.
+/// filter's field (a genuine `keyDown`), then the text view with the match selected and the find
+/// bar up holding the word. From the empty page the text view is built in the same update as the
+/// request, which is why the request waits a turn; from another file it is re-pointed.
 @MainActor
 @Suite(.serialized) struct EditorContentOpenMountedTests {
 

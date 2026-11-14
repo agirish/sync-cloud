@@ -5,15 +5,11 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// The badge is in the rows it ships on. `RiskyNameBadgePredicateTests` covers the verdict and
-/// `theBadgeIsEmptyForACleanName` the badge alone; these cover the hand-off between them, so
-/// passing `nil` for `reason:` at either call site fails here: `FileRowView` (the tree panes and,
-/// through `ColumnRowView`, the Columns stack) or `DifferenceNameCell`. They assert what AppKit
-/// laid out, and prove the assertion can fail.
-///
-/// Width, then pixels. The width delta catches a row that stopped reserving space for the badge;
-/// it can't catch a badge that reserves space and paints nothing (an `Image(systemName:)` whose
-/// name resolves to no symbol does that), so the caution-colour sample is the second assertion.
+/// The badge is in the rows it ships on: passing `nil` for `reason:` at either call site,
+/// `FileRowView` (tree panes and, through `ColumnRowView`, Columns) or `DifferenceNameCell`, fails
+/// here. The width delta catches a row that stopped reserving the badge's space; the caution-colour
+/// sample catches a badge that reserves space and paints nothing (an `Image(systemName:)` naming no
+/// symbol does that).
 @MainActor
 @Suite(.serialized) struct RiskyNameBadgeWiringTests {
 

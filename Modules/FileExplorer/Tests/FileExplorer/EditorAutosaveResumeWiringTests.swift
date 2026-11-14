@@ -1,17 +1,10 @@
 import Testing
 import Foundation
 
-/// **Turning autosave back on asks for the write that is waiting.**
-///
-/// The debounce is a `.task(id:)` keyed on the buffer's version, so a setting changing does not
-/// re-fire it: the header's switch calls `onAutosaveResumed` when `toggle` says autosave is now on,
-/// and the host writes then. Without the call, the file stays unwritten until the next keystroke.
-/// `EditorAutosavePolicyTests` holds `toggle`'s answer; this holds that the switch acts on it.
-///
-/// **A source scan, and that is its limit.** The switch is a SwiftUI `Button` in the header, and a
-/// hosted header offers no element a test can press: mounted under `swift test`, its accessibility
-/// tree has no "Autosave this file" (tried, 2026-11-06). So this pins the one line, read with
-/// comments dropped so a comment quoting it cannot stand in for it.
+/// Turning autosave back on asks for the write that is waiting. The debounce `.task(id:)` is keyed
+/// on the buffer's version, so a setting change doesn't re-fire it: the switch calls
+/// `onAutosaveResumed` when `toggle` says autosave is now on, or the file stays unwritten until the
+/// next keystroke. A source scan, comments dropped: a hosted header has no element a test can press.
 @Suite struct EditorAutosaveResumeWiringTests {
 
     private static func autosaveSwitchAction() throws -> String {

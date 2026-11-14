@@ -820,5 +820,4 @@ enum PDFTextFixtures {
         EditorPDFPageView.dismantleNSView(new, coordinator: EditorPDFPageView.Coordinator(state: state))
         #expect(state.reader == nil)
     }
-
 }

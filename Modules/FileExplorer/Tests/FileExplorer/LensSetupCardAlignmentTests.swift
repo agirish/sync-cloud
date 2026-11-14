@@ -9,14 +9,11 @@ import DesignTestSupport
 /// Every lens's before-scan card, rendered and read back, to check the one thing they share: they
 /// all start at the same height.
 ///
-/// ## Why pixels
-///
-/// The failure to catch is a lens quietly opening lower than the others, and nothing in the view
-/// tree need say so: a sibling row outside a card (To File's cloud spend row, placed above it, was one
-/// until TE335 retired it) can push it down while the card's own geometry is right. So this measures the composed screen as a
-/// person sees it: render the pane, find the topmost row of ink, and require the lenses to agree.
-/// `firstInkRow` measures paint, not frames: a header laid out at y=30 and drawn nowhere reads as
-/// no ink at all.
+/// Pixels, because the failure is a lens quietly opening lower than the others, and nothing in the
+/// view tree need say so: a sibling row outside a card can push it down while the card's own
+/// geometry is right. So this renders the pane as a person sees it, finds the topmost row of ink,
+/// and requires the lenses to agree. `firstInkRow` measures paint, not frames: a header laid out at
+/// y=30 and drawn nowhere reads as no ink at all.
 ///
 /// The rendering tests are `.machinePinned(.pixelSampling)`: they read pixels out of a live renderer.
 @MainActor
@@ -125,10 +122,8 @@ import DesignTestSupport
                                             appearance: scheme == .dark ? .darkAqua : .aqua, layoutPasses: 2))
     }
 
-    /// The topmost row holding ink, in points from the top of the pane.
-    ///
-    /// Returns nil for a blank render, which is a broken harness, never a pass; the callers say so
-    /// rather than treating "no ink" as "aligned".
+    /// The topmost row holding ink, in points from the top of the pane, or nil for a blank render:
+    /// a broken harness, which the callers report rather than treating "no ink" as "aligned".
     static func firstInkRow(_ rep: NSBitmapImageRep, threshold: Double = 0.06) -> Int? {
         let scale = rep.pixelsHigh / Int(canvas.height)
         guard let base = rep.colorAt(x: 2, y: 2) else { return nil }
@@ -145,13 +140,10 @@ import DesignTestSupport
     }
 
     /// The topmost row carrying the accent fill: in practice the top of the trigger button, the
-    /// only saturated blue on these cards.
-    ///
-    /// This is what the header-height claim needs. Where a card starts (its icon and title) is the
-    /// same whatever the prose does; a message wrapping to a third line moves everything below it.
-    /// It looks for a wide band of accent, not the first accent pixel: the header icon is accent
-    /// too, so "topmost blue" would find the icon on every card and pass whatever the prose did.
-    /// The trigger is a filled capsule over a hundred points across; the icon is thirty-four.
+    /// only saturated blue on these cards. The header-height claim needs it, since a message
+    /// wrapping to a third line moves everything below it but not the card's top. A wide band, not
+    /// the first accent pixel: the 34pt header icon is accent too, so "topmost blue" would pass
+    /// whatever the prose did. The trigger is a filled capsule over a hundred points across.
     static func firstAccentRow(_ rep: NSBitmapImageRep, minRun: Int = 70) -> Int? {
         let scale = max(rep.pixelsHigh / Int(canvas.height), 1)
         for y in 0..<rep.pixelsHigh {
@@ -170,12 +162,9 @@ import DesignTestSupport
     // MARK: The claims
 
     /// The header block is the same height on every lens, so the whole card lines up, not just its
-    /// first pixel.
-    ///
-    /// The budget is two lines of message and one of safety. A longer message or safety line puts
-    /// that lens's trigger a full line below the rest, and prose is edited by people not looking at
-    /// five screens side by side, so the check lives here. Rules is included though it has no scan:
-    /// its trigger writes the first rule, and it sits in the same rail.
+    /// first pixel. The budget is two lines of message and one of safety; prose is edited by people
+    /// not looking at five screens side by side, so the check lives here. Rules is included though
+    /// it has no scan: its trigger writes the first rule, and it sits in the same rail.
     @Test(.machinePinned(.pixelSampling)) func everyLensTriggerLandsAtTheSameHeight() throws {
         let panes: [(name: String, rep: NSBitmapImageRep)] = [
             ("To File", try Self.render(Self.toFilePane())),
@@ -227,12 +216,9 @@ import DesignTestSupport
         return PixelDiff.differingPixels(a, b, tolerance: 0.01)
     }
 
-    /// The no-survey card draws no trigger, and still draws everything else.
-    ///
-    /// It has no button because nothing in the app can produce a folder profile, so any button
-    /// would land the user somewhere that can't help. But "no button" must not become "no card":
-    /// the pitch, samples and note remain, and a state collapsed to a bare header would satisfy a
-    /// test that only checked the button was gone.
+    /// The no-survey card draws no trigger, since nothing in the app can produce a folder profile,
+    /// and still draws its pitch, samples and note: a state collapsed to a bare header would satisfy
+    /// a test that only checked the button was gone.
     @Test(.machinePinned(.pixelSampling)) func restructureDrawsItsCardWithoutATrigger() throws {
         let noSurvey = try Self.render(Self.restructurePane())
         #expect(Self.firstInkRow(noSurvey) != nil, "the no-survey card drew nothing at all")

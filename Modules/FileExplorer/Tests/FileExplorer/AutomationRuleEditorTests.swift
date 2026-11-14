@@ -36,7 +36,6 @@ import Testing
         // saves in exactly the form a filename can match.
         #expect(AutomationRuleEditor.canonicalized(.mentionsAll(["Tesla-Model-3, Insurance"]))
                 == .mentionsAll(["insurance", "model", "tesla"]))
-        // Non-mentions conditions pass through untouched.
         #expect(AutomationRuleEditor.canonicalized(.contentContains("Final Draft")) == .contentContains("Final Draft"))
     }
 
@@ -58,7 +57,6 @@ import Testing
         #expect(!AutomationRuleEditor.canSave(
             isRunnable: true,
             conditions: [.kindIs(.pdf), .mentionsAll(["the"])]))
-        // Matchable mentions plus a runnable rule saves as before.
         #expect(AutomationRuleEditor.canSave(
             isRunnable: true,
             conditions: [.kindIs(.pdf), .mentionsAll(["tesla"])]))
@@ -73,12 +71,10 @@ import Testing
         // must block Save: silently dropping the condition would broaden an all-of rule.
         #expect(AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["the, draft, 3"])))
         #expect(AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["1099"])))   // bare number, not a year
-        // Words that survive canonicalization are fine.
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll(["tesla"])))
         // A blank row is plain "incomplete", not a trap: it never looked filled.
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll([""])))
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.mentionsAll([])))
-        // Other condition types are never flagged.
         #expect(!AutomationRuleEditor.isUnmatchableMentions(.kindIs(.pdf)))
     }
 }

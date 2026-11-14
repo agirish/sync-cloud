@@ -1008,10 +1008,9 @@ extension PDFFixtures {
         }
     }
 
-    /// The toggle follows the header button and Save the pill's: greyed with no file, live and
-    /// ticked as the button is lit, Save live only with something placed and no tool running. A menu
-    /// item fires only in the app host, where
-    /// `PDFMenuBarTests.fillAndSignsLinesDoWhatTheButtonAndTheSaveDo` chooses each one.
+    /// The menu bar's toggle follows the header button and Save the pill's: greyed with no file,
+    /// ticked as the button is lit, Save live only with something placed and no tool running
+    /// (pressed in the app host by `PDFMenuBarTests`).
     @Test func theMenuBarsItemsFollowTheButtonAndTheToolbarsSave() async throws {
         let idle = EditorPDFFillSign(store: EditorPDFSignatureStore(defaults: defaults))
         #expect(menuLines(idle, EditorPDFTools()) == ["(Fill & Sign)", "Fill & Sign Tool ▸", "(Save Filled Copy)"],

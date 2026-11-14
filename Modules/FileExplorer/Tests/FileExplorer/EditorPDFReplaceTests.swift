@@ -269,11 +269,9 @@ enum ReplaceFixtures {
         #expect(!dots.plainBackground, "a dotted ground passed for a plain one")
     }
 
-    /// Light ink, under twice `inkDistance` from the ground, has faint shades of the ground that
-    /// are also near the ink. In the ring past the cover such a shade is still a pattern: a
-    /// texture that colour can't be told from the ink by colour, and glyphs stay inside the cover,
-    /// so the exception for the ink's own colour covers only what is off the blend. Light words on
-    /// a plain page still read as plain.
+    /// Light ink (under twice `inkDistance` from the ground) shares faint shades with the ground. In
+    /// the ring past the cover such a shade is still a pattern, since glyphs stay inside the cover;
+    /// light words on a plain page still read as plain.
     @Test func aFaintShadeNearLightInkIsStillAPatternInTheRing() throws {
         let ink = EditorPDFRGB(red: 0.62, green: 0.62, blue: 0.62)
         let shade = EditorPDFRGB(red: 0.8, green: 0.8, blue: 0.8)
@@ -662,10 +660,9 @@ enum ReplaceFixtures {
         #expect(lines.chip == "Stand-in")
     }
 
-    /// The line under the box follows View ▸ Text Size, and its chip's words read on their wash. The
-    /// chip's words are drawn in the label's ink, its hue kept to the wash: the bare system green
-    /// and orange on their 16% wash read about 2:1 on white, and `ChromeInk.bodyText` falls short of
-    /// AA on a 0.96 sheet.
+    /// The line under the box follows View ▸ Text Size, and its chip's words, in the label's ink,
+    /// read on their wash: bare system green and orange on a 16% wash read about 2:1 on white, and
+    /// `ChromeInk.bodyText` falls short of AA on a 0.96 sheet.
     @Test func theLineUnderTheBoxFollowsTextSizeAndItsChipReads() throws {
         let one = EditorPDFRetypeHint.fonts(scale: 1), larger = EditorPDFRetypeHint.fonts(scale: 1.5)
         #expect(one.font.pointSize == 11 && one.chip.pointSize == 10 && one.keys.pointSize == 10)
@@ -891,10 +888,9 @@ enum ReplaceFixtures {
         #expect(try ink(copy, in: CGRect(x: 260, y: 600, width: 30, height: 10)) > 10, "the picture lost the new words")
     }
 
-    /// A correction over a link says the link still opens where it did: the toolkit puts the page's
-    /// links back on the copy, so the old address stays live under the new words. Both halves are
-    /// checked: the copy keeps the link when the page stays text, and loses it when the page is
-    /// made a picture, whose note therefore doesn't say it.
+    /// A correction over a link says the link still opens where it did, since the toolkit puts the
+    /// page's links back on the copy. A page made a picture loses the link, and its note doesn't
+    /// say it.
     @Test func aCorrectionOverALinkSaysTheLinkStillOpens() async throws {
         let file = invoice("Linked.pdf")
         let document = try #require(PDFDocument(url: URL(fileURLWithPath: file)))
@@ -1035,10 +1031,9 @@ enum ReplaceFixtures {
         (0..<rep.pixelsHigh).flatMap { y in (0..<rep.pixelsWide).map { rep.colorAt(x: $0, y: y) } }
     }
 
-    /// "Keep comments as comments" is in the note card, bound to the choice, and greyed while a page
-    /// is saved as a picture, since the picture pass would rewrite them, saying why. Unticked then,
-    /// whatever was chosen: ticking it draws nothing different; making the page text again gives the
-    /// choice back.
+    /// "Keep comments as comments" is bound to the choice, and greyed and unticked, saying why, while
+    /// a page is saved as a picture, since that pass would rewrite them. Making the page text again
+    /// gives the choice back.
     @Test func keepingCommentsIsGreyedWhileAPageIsAPicture() async throws {
         let file = invoice("Commented.pdf")
         // In the PDFKit lane, as the app's reads and writes are; off it, they race the package's
@@ -1121,11 +1116,9 @@ enum ReplaceFixtures {
         }
     }
 
-    /// "Keep comments as comments" is greyed, saying why, while "Also remove links under
-    /// corrections" is ticked over a link: taking the link out rewrites the copy through PDFKit,
-    /// which rewrites a kept comment and, on macOS 26, drops what the keep tooltip says stays. With
-    /// both ticked the save draws the comments in and takes the link out; unticking the links gives
-    /// the choice back. The log names what was done, not what was asked.
+    /// "Keep comments as comments" is greyed, saying why, while "Also remove links under corrections"
+    /// is ticked over a link: that rewrites the copy through PDFKit, which rewrites a kept comment
+    /// and, on macOS 26, drops what the keep tooltip says stays. The log names what was done.
     @Test func keepingCommentsIsGreyedWhileLinksUnderCorrectionsAreRemoved() async throws {
         let file = try await linkedAndCommented("Both.pdf")
         let (pdf, id, pick) = try await correcting(file)
@@ -1191,9 +1184,8 @@ enum ReplaceFixtures {
     }
 
     /// The engine finds a link under a patch on a turned page (the toolkit puts links back upright,
-    /// so the patch's page rect is mapped before the test), and from macOS 27 the copy keeps the
-    /// page labels the toolkit carried. Assembled by hand: a page turned 90° labelled "i", with one
-    /// link under the patch and one away from it.
+    /// so the patch's rect is mapped first), and from macOS 27 the copy keeps the page labels.
+    /// Assembled by hand: a page turned 90° labelled "i", one link under the patch and one away.
     @Test func linksUnderAPatchGoOnATurnedPageAndTheLabelsStay() async throws {
         let file = path("Turned.pdf")
         let stream = "BT /F1 14 Tf 100 305 Td (Old address) Tj ET"

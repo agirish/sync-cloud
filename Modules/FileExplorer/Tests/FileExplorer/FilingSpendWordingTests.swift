@@ -4,14 +4,9 @@ import Foundation
 @testable import FileExplorer
 
 /// The two tooltips that explain what the filing scan spent: `refineHelp` on the "refined" pill,
-/// `reuseHelp` on "reused".
-///
-/// They describe the same cache from two pills a few points apart, so a reader comparing them sees
-/// both sentences at once, and the halves must agree in number: "1 had already been answered by
-/// this model, so they cost nothing" is the disagreement to keep out.
-///
-/// Pure functions of their summaries, which is why these are assertions about strings rather than a
-/// render: nothing else about them is view-shaped.
+/// `reuseHelp` on "reused". They describe the same cache a few points apart, so they must agree in
+/// number: "1 had already been answered by this model, so they cost nothing" is the disagreement
+/// to keep out. Pure functions of their summaries, so string assertions rather than a render.
 @MainActor
 @Suite struct FilingSpendWordingTests {
 
@@ -24,10 +19,8 @@ import Foundation
         LensWorkspaceView.reuseHelp(FileSyncManager.FilingCacheReuse(reused: reused, classified: 2))
     }
 
-    /// Neither tooltip says "they" about one file.
-    ///
-    /// A sweep for plural pronouns rather than a match on the exact sentence: the wording is meant
-    /// to be editable, and what must not come back is the disagreement.
+    /// Neither tooltip says "they" about one file. A sweep for plural pronouns rather than the exact
+    /// sentence, so the wording stays editable.
     @Test func neitherTooltipIsPluralAboutASingleFile() {
         for text in [Self.refine(reused: 1), Self.reuse(reused: 1)] {
             #expect(!text.contains(" they "), "“\(text)” says “they” about one file")
@@ -37,8 +30,7 @@ import Foundation
         }
     }
 
-    /// And both are plural above one, the direction that would otherwise be "fixed" by making every
-    /// sentence singular, which reads just as wrong at 340.
+    /// Both are plural above one, so the fix above cannot be making every sentence singular.
     @Test func bothTooltipsArePluralAboveOne() {
         #expect(Self.refine(reused: 6).contains("so they cost nothing"))
         #expect(Self.reuse(reused: 6).contains("their suggestions were reused"))
@@ -58,15 +50,9 @@ import Foundation
     }
 
     /// "Nothing needed sending" is a claim about the cache, and only one of three ways to reach
-    /// `classified == 0` earns it.
-    ///
-    /// The other two are a declined charge and an unreadable Claude key; reading them as the first
-    /// would tell a user who just pressed Cancel that every answer came from the cache. The banner
-    /// goes away, but this rides on the durable "refined" pill, so a wrong claim here would still
-    /// be wrong an hour later.
-    ///
-    /// Asserted as "does not claim the cache" rather than on exact wording, because what must not
-    /// come back is the false claim, not any particular replacement for it.
+    /// `classified == 0` earns it. The other two, a declined charge and an unreadable Claude key,
+    /// must not tell a user who just pressed Cancel that every answer came from the cache; this
+    /// rides on the durable "refined" pill. Asserted as "does not claim the cache", not exact wording.
     @Test func onlyAnExhaustedCacheIsExplainedByTheCache() {
         let cached = Self.refine(classified: 0, outcome: .ran)
         #expect(cached.contains("every answer came from the cache"),
@@ -81,8 +67,8 @@ import Foundation
         }
     }
 
-    /// Each of the two says which one it was, rather than sharing one vague sentence: a declined
-    /// pass cost nothing and can be re-run, an unreadable key is a setting to go and fix.
+    /// Each refusal says which it was: a declined pass cost nothing and can be re-run, an unreadable
+    /// key is a setting to go and fix.
     @Test func theTwoRefusalsAreToldApart() {
         #expect(Self.refine(classified: 0, outcome: .declined).contains("declined"))
         #expect(Self.refine(classified: 0, outcome: .downgraded).contains("key"))
@@ -90,9 +76,8 @@ import Foundation
                 "the downgraded pass does not say where the answers actually came from")
     }
 
-    /// And the clause about *why nothing moved* follows the same rule one sentence on: "the free
-    /// pass had already found the same homes" describes an answer that came back, which a declined
-    /// pass does not have.
+    /// "The free pass had already found the same homes" describes an answer that came back, which a
+    /// declined pass does not have.
     @Test func aDeclinedPassDoesNotCreditTheFreePassForFindingTheSameHomes() {
         #expect(!Self.refine(classified: 0, outcome: .declined)
                     .contains("already found the same homes"))

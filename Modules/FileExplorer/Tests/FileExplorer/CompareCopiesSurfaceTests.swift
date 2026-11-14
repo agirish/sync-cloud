@@ -29,15 +29,11 @@ import Testing
 
     // MARK: The clamp
 
-    /// At the window floor, 810×560, the overlay must be usable. That is why it is an overlay, not a
-    /// sheet: macOS would silently squeeze a 1080pt sheet to the window's width. It stops growing:
-    /// a 27-inch window must not hand two previews 1,900 points each. And below the minimum it
-    /// overhangs rather than shrinking: a 40pt-wide preview pane hides the bug, an overhanging card
-    /// shows it.
-    ///
-    /// A remembered size is honoured, but clamped on every render, not only when written: the
-    /// window can shrink between sessions or displays, and a card that trusted its stored size
-    /// would open wider than the window, its verdict bar and grip off screen. Zero is what
+    /// At the window floor, 810×560, the overlay must be usable; it is an overlay because macOS
+    /// would silently squeeze a 1080pt sheet to the window's width. It stops growing on a large
+    /// window, and below the minimum it overhangs rather than shrinking, so the bug shows. A
+    /// remembered size is clamped on every render, not only when written: the window can shrink
+    /// between sessions, and an unclamped card would put its verdict bar off screen. Zero is what
     /// `@AppStorage` holds before the first drag, and it reads as "unset", not as a 0×0 card.
     @Test(arguments: [
         (CGSize(width: 810, height: 560), nil, CGSize(width: 762, height: 512)),
@@ -113,7 +109,7 @@ import Testing
     }
 
     /// A stale payload, a keeper path naming neither side, has no target, so the title must not
-    /// guess an age. (The verdict is disabled here anyway.)
+    /// guess an age.
     @Test func aTitleWithNoTargetClaimsNoAge() {
         let pair = DuplicateComparePair(keeper: copy("/root/a/x.md", keeper: true),
                                         other: copy("/root/b/x.md"),
@@ -256,14 +252,11 @@ import Testing
 
     // MARK: The card's gate is gone
 
-    /// The card offers Compare to every group, not just folders. A gate like
-    /// `if group.isDirectory { compareControl }` would break the feature for files while every
-    /// test above still passed, since the card's button is what reaches them.
-    ///
-    /// A source check, because a mounted `DuplicateGroupCard` has no `NSButton` (these buttons
-    /// draw in `_NSGraphicsView`) and no accessibility tree without an assistive client, as with
-    /// `OrganizeScopeCallSiteTests`. `compareControl` must sit at the same indentation as the
-    /// unconditional Reveal button beside it; any gate would indent it deeper.
+    /// The card offers Compare to every group, not just folders; a gate like
+    /// `if group.isDirectory { compareControl }` would break files while every test above passed.
+    /// A source check, because a mounted `DuplicateGroupCard` has no `NSButton` (these buttons draw
+    /// in `_NSGraphicsView`) and no accessibility tree without an assistive client.
+    /// `compareControl` must sit at the Reveal button's indentation; a gate would indent it deeper.
     @Test func theCardOffersCompareToEveryGroupNotJustFolders() throws {
         let source = try SourceText.fileExplorer("DuplicateGroupCard.swift")
         let lines = source.components(separatedBy: "\n")
@@ -591,12 +584,10 @@ import Testing
         var paths: Set<String> { lock.lock(); defer { lock.unlock() }; return seen }
     }
 
-    /// The spinner stops for a corrupt file of a decodable type, which renders no raster; the page
-    /// strip already calls the page `.unrenderable`, and the pane must not keep saying "wait".
-    ///
-    /// Asserted as a transition: no spinner also describes a pane that never mounted, so the test
-    /// waits for the spinner to appear first, then to go. A SwiftUI `Text` can't be read back from
-    /// a hosting view, so `ComparePairViewingTests` holds the message's wording.
+    /// The spinner stops for a corrupt file of a decodable type: the strip already calls the page
+    /// `.unrenderable`, and the pane must not keep saying "wait". Asserted as a transition, since
+    /// no spinner also describes a pane that never mounted. A SwiftUI `Text` can't be read back
+    /// from a hosting view, so `ComparePairViewingTests` holds the message's wording.
     @MainActor
     @Test func aPairThatCannotBeRenderedStopsSpinningAndSaysWhy() async throws {
         let fixture = try CorruptImageFixture()
@@ -610,8 +601,7 @@ import Testing
                 [$0].compactMap { $0 as? NSProgressIndicator } + spinners($0)
             }
         }
-        // The positive control: while the render is in flight, the spinner is there. Without it
-        // the check below proves nothing.
+        // Positive control: while the render is in flight, the spinner is there.
         let (spun, spinPumps) = await LayoutPumpWait.pump(window, upTo: 5) {
             !spinners(host).isEmpty
         }

@@ -68,9 +68,8 @@ import FileExplorerTestSupport
                 "a click on a file takes the keys from the document")
     }
 
-    /// The focus ring is drawn, in the hue, only while focused. Rendered both ways: the focused ring
-    /// puts the accent on the list's edge, the unfocused one nothing. Mutation: a constant
-    /// `opacity(1)` must fail it.
+    /// The focus ring is drawn, in the hue, only while focused. Mutation: a constant `opacity(1)` must
+    /// fail it.
     @Test func theFocusRingIsTheHueAndOnlyWhileFocused() throws {
         let size = CGSize(width: 120, height: 80)
         let on = try #require(Rendered(EditorRailFocusRing(isOn: true, accent: .blue), size: size))
@@ -113,8 +112,7 @@ import FileExplorerTestSupport
     // MARK: TE138 — the filter button greyed
 
     /// An empty folder's filter button looks greyed, not only refuses the press: `.disabled` leaves
-    /// a `.glyph` button drawn at full strength. Rendered with and without files, the button's own
-    /// pixels differ. Mutation: dropping its `.foregroundStyle` must fail it.
+    /// a `.glyph` button drawn at full strength. Mutation: dropping its `.foregroundStyle` must fail it.
     @Test func anEmptyFoldersFilterButtonLooksGreyed() throws {
         let entry = EditorRailEntry(path: "/n/a.md", name: "a.md", size: 1, isCloudOnly: false)
         let size = CGSize(width: 232, height: 90)
@@ -145,8 +143,7 @@ import FileExplorerTestSupport
     // MARK: TE96 — Download where the file is refused
 
     /// The refusal a Download answers is the cloud one, read from `BoundedTextRead`'s own sentence;
-    /// another refusal, or none, offers nothing. Mutation: answering `true` for any refusal must
-    /// fail it.
+    /// another refusal, or none, offers nothing. Mutation: `true` for any refusal must fail it.
     @Test func onlyTheCloudRefusalOffersADownload() {
         #expect(EditorWorkspaceView.isNotDownloaded(BoundedTextRead.Outcome.cloudOnly.caption))
         #expect(!EditorWorkspaceView.isNotDownloaded(BoundedTextRead.Outcome.tooLarge(bytes: 10_000_000).caption))
@@ -158,7 +155,6 @@ import FileExplorerTestSupport
     /// a button in a hosted card can't be pressed from `swift test`.
     @Test func bothCardsDrawTheDownload() throws {
         let workspace = try SourceText.fileExplorer("EditorWorkspaceView.swift")
-        // The text card's buttons under a refusal: Download first for a cloud refusal.
         #expect(EditorWorkspaceView.refusalButtons(for: try #require(BoundedTextRead.Outcome.cloudOnly.caption),
                                                    canTryAgain: false).first == .download)
         #expect(workspace.contains("caption(refused, refusalButtons: Self.refusalButtons(for: refused, canTryAgain: onTryAgain != nil),")

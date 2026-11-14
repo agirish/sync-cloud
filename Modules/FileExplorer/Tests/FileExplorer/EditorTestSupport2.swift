@@ -42,9 +42,9 @@ extension PDFFixtures {
 @MainActor
 enum EditorTestRigs {
 
-    /// A `ReaderPDFView` filling a titled window of `size`, at a fixed `scale` (no auto-scaling),
-    /// laid out over `document` with `fill` attached (none when `nil`). `bury` orders the window in, key and under
-    /// everything on screen, before the document goes in, for the tests that need a first responder.
+    /// A `ReaderPDFView` filling a titled window of `size`, at a fixed `scale` (no auto-scaling), laid
+    /// out over `document` with `fill` attached (none when `nil`). `bury` orders the window in, key and
+    /// under everything on screen, before the document goes in, for tests that need a first responder.
     static func readerWindow(_ document: PDFDocument?, fill: EditorPDFFillSign?, size: CGSize,
                              scale: CGFloat, bury: Bool = false) -> (window: NSWindow, reader: ReaderPDFView) {
         let frame = NSRect(origin: .zero, size: size)

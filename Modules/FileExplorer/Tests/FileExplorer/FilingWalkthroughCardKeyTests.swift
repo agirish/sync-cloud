@@ -4,18 +4,14 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// The filing walkthrough card's keys, exercised through a real window's responder chain.
+/// The filing walkthrough card's keys, through a real window's responder chain. Window-level key
+/// equivalents are consulted before the first responder (a ⏎ typed into the search field would move
+/// a file on disk) and fire on key-repeat; `BareKeyEquivalentScanTests` bans them at source level.
+/// This is the behavioural half: the `.onKeyPress` handlers hear the keys when the card holds focus,
+/// not when a text field does, and do not auto-repeat.
 ///
-/// Window-level key equivalents (`.keyboardShortcut(.return, modifiers: [])` and the like) are
-/// consulted before the first responder, so a ⏎ typed into the lens header's search field would
-/// move the current file on disk, and they fire on key-repeat, so a held ⏎ would approve file after
-/// file. `BareKeyEquivalentScanTests` bans that shape at source level; this suite is the
-/// behavioural half: the `.onKeyPress` handlers receive the keys when the card holds focus, do not
-/// receive them when a text field does, and do not auto-repeat.
-///
-/// Harness borrowed from `DifferencesTableBindingTests`: a borderless, never-ordered-in window,
-/// events injected with `sendEvent`. Every negative assertion is paired in-test with a positive
-/// from the same harness: a probe that cannot report presence cannot report absence either.
+/// A borderless, never-ordered-in window, events injected with `sendEvent`. Every negative is paired
+/// with a positive from the same harness: a probe that cannot report presence cannot report absence.
 @MainActor
 @Suite(.serialized) struct FilingWalkthroughCardKeyTests {
 
@@ -36,9 +32,8 @@ import Sync
             onCancel: { recorder.cancels += 1 })
     }
 
-    /// Test-mutable stand-in for the host's `@State`: `NudgedHost` reads its nudge from here the
-    /// way `FilingWalkthroughCard` reads `AutomationsLens.filingFocusNudge`, so a test can play the
-    /// host's `advanceFiling` bump from outside the hierarchy.
+    /// Stand-in for the host's `filingFocusNudge` `@State`, so a test can play the host's
+    /// `advanceFiling` bump from outside the hierarchy.
     @MainActor
     private final class HostState: ObservableObject {
         @Published var focusNudge = 0
@@ -70,9 +65,8 @@ import Sync
         return (window, host)
     }
 
-    /// Waits for the card's own deferred `FocusState` claim to land, the same acquisition the app
-    /// relies on when the walkthrough appears, not a `makeFirstResponder` shortcut past it. So a
-    /// green here also says the card takes focus on appearance.
+    /// Waits for the card's own deferred `FocusState` claim, not a `makeFirstResponder` shortcut, so
+    /// a green also says the card takes focus on appearance.
     private func waitForCardFocus(in window: NSWindow) async -> Bool {
         let (held, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
             window.firstResponder !== window && !(window.firstResponder is NSText)
@@ -95,16 +89,11 @@ import Sync
         send(window, keyCode: 36, characters: "\r", modifiers: modifiers, isARepeat: isARepeat)
     }
 
-    /// Arrows always carry `.function` and `.numericPad`. AppKit sets both on every arrow-key event
-    /// (`NSEvent.ModifierFlags.numericPad`: "also set if any of the arrow keys are pressed"), so an
-    /// arrow with `modifierFlags: []` is a shape the real keyboard cannot produce, and a handler
-    /// guarded on `press.modifiers.isEmpty` would pass such a test while skipping nothing for a
-    /// real →. The caller's `modifiers` are unioned with the intrinsic pair, so `.option` here
-    /// means the ⌥→ AppKit would actually deliver.
-    ///
-    /// Measured through this harness (`SwiftUI.EventModifiers` raw values, from a probe view on
-    /// this window's responder chain): arrow flags `[]` → 0; `[.function, .numericPad]` → 96;
-    /// `[.capsLock, .function, .numericPad]` → 97.
+    /// Arrows always carry `.function` and `.numericPad`: AppKit sets both on every arrow-key event,
+    /// so an arrow with `modifierFlags: []` is a shape the real keyboard cannot produce, and a handler
+    /// guarded on `press.modifiers.isEmpty` would pass such a test while skipping nothing for a real
+    /// →. The caller's `modifiers` are unioned with the pair, so `.option` means a real ⌥→. Measured
+    /// here as `EventModifiers` raw values: `[]` → 0, the pair → 96, with `.capsLock` → 97.
     private static let arrowIntrinsicFlags: NSEvent.ModifierFlags = [.function, .numericPad]
 
     private func sendRightArrow(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
@@ -118,24 +107,11 @@ import Sync
         send(window, keyCode: 53, characters: "\u{1B}", modifiers: modifiers, isARepeat: isARepeat)
     }
 
-    /// The numeric keypad's Enter is not a carriage return. It is keyCode 76 and sends
-    /// `NSEnterCharacter` (U+0003), not U+000D, and like the arrows it always carries `.numericPad`
-    /// and `.function`. Measured through this harness (a probe view reporting what `onKeyPress`
-    /// receives on this window's responder chain):
-    ///
-    /// | sent | delivered `press.key` | `press.characters` | `press.modifiers` raw |
-    /// |---|---|---|---|
-    /// | keyCode 36, `"\r"`, `[]` | `KeyEquivalent("\r")` | U+000D | 0 |
-    /// | keyCode 76, `"\u{3}"`, `[.numericPad, .function]` | `KeyEquivalent("\u{3}")` | U+0003 | 96
-    /// |
-    ///
-    /// So `keys: [.return]`, which matches on the delivered `KeyEquivalent`, never matches the
-    /// keypad's Enter, while `keys: [KeyEquivalent("\u{3}")]` does. The event is delivered to
-    /// `onKeyPress`; it is the key set that misses it. Hence `KeyEquivalent.keypadEnter` in the
-    /// handler's set rather than a monitor.
-    ///
-    /// The caller's `modifiers` are unioned with the intrinsic pair, as in `sendRightArrow`, so
-    /// `.command` here means the ⌘-keypad-Enter AppKit would actually deliver.
+    /// The keypad's Enter is not a carriage return: keyCode 76, `NSEnterCharacter` (U+0003), and like
+    /// the arrows it always carries `.numericPad` and `.function` (raw 96, measured here). `onKeyPress`
+    /// receives it as `KeyEquivalent("\u{3}")`, so `keys: [.return]` never matches it; hence
+    /// `KeyEquivalent.keypadEnter` in the handler's set rather than a monitor. The caller's
+    /// `modifiers` are unioned with the pair, as in `sendRightArrow`.
     private static let keypadEnterIntrinsicFlags: NSEvent.ModifierFlags = [.numericPad, .function]
 
     private func sendKeypadEnter(_ window: NSWindow, modifiers: NSEvent.ModifierFlags = [],
@@ -146,20 +122,16 @@ import Sync
 
     // MARK: The keypad's Enter is the same decision as the main row's
 
-    /// A full-size keyboard has two Enter keys, and the card must hear both: a card deaf to the
-    /// keypad's would file nothing, silently, under a hint advertising ⏎.
-    ///
-    /// The modifier rule for the keypad's Enter: ⌘⏎/⇧⏎ are "open"/"extend" chords whichever keycap
-    /// produced them, and this Enter arrives with `.numericPad` and `.function` already set, so the
-    /// guard has to be `isPlainKeystroke` (⌘⌥⌃⇧ only) and not `modifiers.isEmpty`, which would
-    /// refuse every keypad Enter. Caps Lock is in the volley for the same reason.
+    /// The card hears the keypad's Enter too, but not a chord on it. It arrives with `.numericPad` and
+    /// `.function` set, so the guard must be `isPlainKeystroke` (⌘⌥⌃⇧ only), not `modifiers.isEmpty`,
+    /// which would refuse every keypad Enter. Caps Lock is in the volley for the same reason.
     @Test func aModifiedKeypadEnterDecidesNothing() async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
         guard await waitForCardFocus(in: window) else { return }
 
-        // Positive control first: the plain keypad Enter really reaches the handler, so the
-        // no-decision readings below measure the modifier filter, not a dead key.
+        // Positive control: the plain keypad Enter reaches the handler, so the readings below
+        // measure the modifier filter, not a dead key.
         sendKeypadEnter(window)
         #expect(recorder.decisions == [true],
                 "plain keypad Enter never arrived — the readings below are vacuous")
@@ -183,24 +155,19 @@ import Sync
 
     // MARK: The keys, with the card focused
 
-    /// A modified key is not a decision. ⌘⏎ / ⇧⏎ are "open"/"add to selection" chords all over
-    /// macOS, and ⌥→ / ⌃→ are word-wise and Space-switch navigation; none of them is the plain
-    /// keystroke the keycaps advertise, and ⏎ files a real file while → skips one no back-step can
-    /// revisit. **No `onKeyPress` overload filters modifiers**, neither `keys:phases:` nor the
-    /// single-key `onKeyPress(_:)`, so the handlers must check `press.modifiers` themselves.
+    /// A modified key is not a decision: ⌘⏎/⇧⏎ and ⌥→/⌃→ are chords, and ⏎ files a real file while →
+    /// skips one no back-step can revisit. **No `onKeyPress` overload filters modifiers**, so the
+    /// handlers must check `press.modifiers` themselves.
     ///
-    /// Measured on this harness, the single-key overload fires for ⏎ with ⌘/⇧/⌥/⌃/caps-lock and on
-    /// key-repeat too; the two overloads differ only in that the single-key one does not fire on
-    /// `.up`. ⌘esc, ⌃esc and ⌘. never arrive at all: AppKit takes those as `cancelOperation:` ahead
-    /// of the responder chain, so neither overload sees them. That is a per-key routing effect, not
-    /// a property of an overload.
+    /// Measured here: the single-key overload fires for ⏎ with any modifier and on key-repeat, and
+    /// differs from `keys:phases:` only in not firing on `.up`. ⌘esc, ⌃esc and ⌘. never arrive:
+    /// AppKit takes them as `cancelOperation:` ahead of the responder chain.
     @Test func aModifiedKeyDecidesNothing() async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
         guard await waitForCardFocus(in: window) else { return }
 
-        // The positive control first: an unmodified ⏎ reaches the handler, so the no-decision
-        // readings below measure the modifier filter, not a dead harness.
+        // Positive control: an unmodified ⏎ reaches the handler.
         sendReturn(window)
         #expect(recorder.decisions == [true], "unmodified ⏎ never arrived — the readings below are vacuous")
 
@@ -215,9 +182,8 @@ import Sync
         #expect(recorder.cancels == 0)
     }
 
-    /// ⌫ skips too: Compare's one-at-a-time review skips on ⌫, so someone who learned that one
-    /// presses it here. Plain only, once per press, like →: ⌘⌫ and ⌥⌫ are text-editing chords, and
-    /// a held ⌫ must not run through the queue.
+    /// ⌫ skips too, as in Compare's one-at-a-time review. Plain only, once per press, like →: ⌘⌫ and
+    /// ⌥⌫ are text-editing chords, and a held ⌫ must not run through the queue.
     @Test func deleteSkipsLikeTheArrow() async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
@@ -240,12 +206,9 @@ import Sync
 
     enum HeldKey: CaseIterable, Sendable { case returnKey, keypadEnter, rightArrow, escape }
 
-    /// Key-repeat decides nothing. ⏎ moves a real file and → skips one no back-step can revisit, so
-    /// the handlers are `.down`-phase only: a held key must act exactly once. Each key is its own
-    /// case because each is its own handler or its own entry in a key set, where a `.repeat` phase
-    /// could be re-admitted unnoticed (→ regressing to `[.down, .repeat]` with ⏎'s case green). And
-    /// esc: cancel tears the walkthrough down, so in the app a second delivery lands on nothing, but
-    /// the handler's contract should not depend on that.
+    /// Key-repeat decides nothing: the handlers are `.down`-phase only, so a held key acts once. Each
+    /// key is its own case because each is its own handler or key-set entry, where `.repeat` could be
+    /// re-admitted unnoticed. Esc is included although in the app cancel tears the walkthrough down.
     @Test(arguments: HeldKey.allCases)
     func aHeldKeyActsExactlyOnce(_ key: HeldKey) async {
         let recorder = Recorder()
@@ -268,17 +231,15 @@ import Sync
             #expect(recorder.decisions == [key != .rightArrow], "got \(recorder.decisions)")
         }
 
-        // The honesty control: fresh presses still arrive, so the single act above is the phase
-        // filter, not the harness dropping events after the first.
+        // Control: fresh presses still arrive, so the single act above is the phase filter, not the
+        // harness dropping events.
         for _ in 0..<3 { press(isARepeat: false) }
         #expect(acts() == 4, "fresh presses stopped arriving: \(recorder.decisions), \(recorder.cancels) cancels")
     }
 
-    /// Caps Lock is not a chord. `.capsLock` is present on every event while the lock is engaged,
-    /// so a guard written as `press.modifiers.isEmpty` would kill ⏎, → and esc outright for anyone
-    /// who left it on, with no way to tell why. Measured on this harness: `return` with
-    /// `[.capsLock]` arrives as `EventModifiers` rawValue 1, `isEmpty == false`. Only the four
-    /// intent modifiers (⌘⌥⌃⇧) may refuse a decision.
+    /// Caps Lock is not a chord. `.capsLock` rides on every event while engaged (measured: raw 1,
+    /// `isEmpty == false`), so a `press.modifiers.isEmpty` guard would kill ⏎, → and esc for anyone
+    /// who left it on. Only ⌘⌥⌃⇧ may refuse a decision.
     @Test func capsLockDoesNotDisableTheCardsKeys() async {
         let recorder = Recorder()
         let (window, _) = host(card(into: recorder))
@@ -296,27 +257,19 @@ import Sync
 
     // MARK: The keys, with a text field focused
 
-    /// With key focus in a text field (the lens header's search, the Settings overlay), ⏎, → and
-    /// esc belong to the field. A window-level key equivalent is consulted before the first
-    /// responder, so this exact keystroke would move the current file on disk. esc is in the volley
-    /// for the same reason: a `.keyboardShortcut(.cancelAction)` on Cancel would be bare esc at
-    /// window level, and an esc typed to clear the field would discard the walkthrough's approvals.
+    /// With key focus in a text field (the search, the Settings overlay), ⏎, → and esc belong to the
+    /// field: a ⏎ would move the current file on disk, an esc would discard the approvals.
     ///
-    /// Honest scope: re-adding `.cancelAction` to Cancel leaves this test green, because
-    /// window-level equivalents never fire in this never-key window, so what the esc volley pins is
-    /// the `.onKeyPress` handlers honouring focus. The `.cancelAction` shape itself is banned
-    /// statically, by
-    /// `BareKeyEquivalentScanTests.noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll`, which
-    /// that mutation does turn red.
+    /// Scope: window-level equivalents never fire in this never-key window, so re-adding
+    /// `.cancelAction` to Cancel leaves this green; that shape is banned statically by
+    /// `BareKeyEquivalentScanTests.noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll`.
     @Test func aTextFieldElsewhereKeepsItsReturnArrowAndEsc() async throws {
         let recorder = Recorder()
         let (window, hostView) = host(VStack {
             TextField("Search", text: .constant("inv"))
             card(into: recorder)
         })
-        // Let the card claim focus first, the positive half, proving this hosting can deliver keys
-        // to the card at all. Without it an empty `decisions` below would also be the signature of
-        // a card that never wired its handlers.
+        // The positive half: this hosting delivers keys to the card at all.
         guard await waitForCardFocus(in: window) else { return }
         sendReturn(window)
         try #require(recorder.decisions == [true],
@@ -342,43 +295,32 @@ import Sync
 
     // MARK: The recovery hatch
 
-    /// The focus-recovery hatch, as far as this harness can take it. In the app: type in the lens
-    /// header's search field (which lives outside the lens body and stays mounted through the
-    /// walkthrough), then click "File N…" or the card's File/Skip. On macOS a click on a plain
-    /// button does not dislodge the field's editor, an NSTextView, from first responder, and the
-    /// card has no passive per-row focus claim to fall back on (deliberately: every advance arrives
-    /// with a nudge bump, so a guarded per-row claim beside the unconditional `onChange` one would
-    /// be dead code; see the comment at the card's `.onAppear`). So without the host-driven
-    /// `focusNudge` hatch, ⏎/→/esc would stay dead for the whole walkthrough.
+    /// The focus-recovery hatch. On macOS a click on a plain button does not dislodge a text field's
+    /// editor from first responder, and the card has no per-row focus claim (see its `.onAppear`),
+    /// so after typing in the search field ⏎/→/esc would stay dead without `focusNudge`.
     ///
-    /// What this pins is the hatch's whole contract against a real responder chain: with an
-    /// NSTextField's editor holding first responder, one nudge bump (what the host sends for every
-    /// File/Skip decision and every Preview/Reveal inspection) must take key focus back from the
-    /// editor and land it on the card, proven the only non-vacuous way: ⏎ reaching the card's
-    /// handler again.
+    /// With the field editor holding first responder, one nudge bump (sent for every decision and
+    /// every Preview/Reveal) must land key focus on the card, proven by ⏎ reaching its handler again.
     @Test func aFocusNudgeReclaimsFocusFromATextFieldEditor() async throws {
         let recorder = Recorder()
         let hostState = HostState()
         let (window, hostView) = host(NudgedHost(
             state: hostState, row: Self.row("a.pdf"),
             onDecision: { recorder.decisions.append($0) }))
-        // The positive half first: this hosting really delivers keys to the focused card, so the
-        // reclaim below is measured by key delivery rather than by responder identity alone.
+        // The positive half: the reclaim below is measured by key delivery, not responder identity.
         guard await waitForCardFocus(in: window) else { return }
         sendReturn(window)
         try #require(recorder.decisions == [true],
                      "the card never received keys in this harness — the reclaim below would be vacuous")
 
-        // Hand focus to the field, the way clicking into the search field would. From here the
-        // window's field editor (an NSText) is what actually holds first responder.
+        // Hand focus to the field; the window's field editor (an NSText) now holds first responder.
         let field = try #require(firstTextField(in: hostView), "no NSTextField in the hierarchy")
         try #require(window.makeFirstResponder(field), "the field refused first responder")
         sendReturn(window)
         try #require(recorder.decisions == [true],
                      "⏎ reached the card while the field held focus — the card never lost it, so the nudge would prove nothing")
 
-        // The host's half of the hatch: bump the nudge, exactly what `advanceFiling` does for every
-        // decision. The card must claim key focus back from the field editor.
+        // The host's half: bump the nudge, as `advanceFiling` does for every decision.
         hostState.focusNudge += 1
         let (reclaimed, pumps) = await LayoutPumpWait.pump(window, upTo: 10) {
             window.firstResponder !== window && !(window.firstResponder is NSText)
@@ -397,16 +339,13 @@ import Sync
 
     // MARK: Non-destructive gestures recover focus too
 
-    /// `recoveringFocus` preserves the host's "closure absent hides the affordance" contract: a
-    /// nil inspection gesture must stay nil, or wrapping would conjure Preview/Reveal buttons for
-    /// a host that offers neither.
+    /// A nil inspection gesture stays nil, or wrapping would conjure Preview/Reveal buttons for a host
+    /// that offers neither.
     @Test func recoveringFocusPreservesAnAbsentGesture() {
         #expect(FilingWalkthroughCard.recoveringFocus(via: {}, nil) == nil)
     }
 
-    /// The wrap's whole contract: the nudge bump comes first, exactly once, and the inner gesture
-    /// still runs with the same path. Order matters: the bump is the focus recovery, and without it
-    /// only a File/Skip would bring ⏎/→/esc back.
+    /// The nudge bump comes first, exactly once, and the inner gesture still runs with the same path.
     @Test func recoveringFocusBumpsTheNudgeBeforeRunningTheGesture() {
         var calls: [String] = []
         let wrapped = FilingWalkthroughCard.recoveringFocus(
@@ -417,16 +356,10 @@ import Sync
                 "expected the nudge bump first, then the gesture — got \(calls)")
     }
 
-    /// A Preview does not cost a decision. If File/Skip were the only gestures that recovered key
-    /// focus, a user who clicked into the header's search field would have to spend a file or an
-    /// unrevisitable skip to get ⏎/→/esc back; the non-destructive Preview/Reveal recover it too,
-    /// through the same wrapper the lens installs.
-    ///
-    /// The card's buttons cannot be clicked under `swift test` (see `docs/flaky-tests.md`, "When
-    /// you fix one": this window can never be key), so the test fires the exact closure the Preview button's action would:
-    /// the wrapped gesture, built with `recoveringFocus` the way
-    /// `AutomationsLens.filingReviewState` builds it, bumping the same host state the card reads.
-    /// The reclaim is proven the only non-vacuous way: ⏎ reaching the card's handler again.
+    /// Preview recovers key focus too, so getting ⏎/→/esc back does not cost a file or an
+    /// unrevisitable skip. The buttons cannot be clicked under `swift test` (`docs/flaky-tests.md`,
+    /// "When you fix one": this window can never be key), so this fires the closure the Preview
+    /// button would, built with `recoveringFocus` as `AutomationsLens.filingReviewState` builds it.
     @Test func aPreviewGestureReclaimsFocusWithoutSpendingADecision() async throws {
         let recorder = Recorder()
         let hostState = HostState()
@@ -465,11 +398,9 @@ import Sync
         #expect(recorder.decisions.count == 2, "the Preview gesture itself must not decide anything")
     }
 
-    /// The lens installs the wrapper on both inspection gestures. Source-level, because
-    /// `filingReviewState` is private view glue inside `AutomationsLens`, hosting the whole lens
-    /// needs a live `FileSyncManager`, and the buttons could not be clicked anyway (above). Pinned
-    /// to the exact spelling on purpose: if the wiring is renamed, rename it here, and keep the
-    /// bump-inside-`recoveringFocus` shape.
+    /// The lens installs the wrapper on both inspection gestures. Source-level: `filingReviewState` is
+    /// private view glue, and the buttons cannot be clicked here. If the wiring is renamed, rename it
+    /// here and keep the bump-inside-`recoveringFocus` shape.
     @Test func theLensWiresBothInspectionGesturesThroughTheRecovery() throws {
         let text = try SourceText.fileExplorer("AutomationsLens.swift")
         #expect(text.contains("onQuickLook: FilingWalkthroughCard.recoveringFocus(via: { filingFocusNudge += 1 }, onQuickLook)"),
@@ -479,17 +410,13 @@ import Sync
     }
 }
 
-/// What the walkthrough card says to VoiceOver.
-///
-/// Same reasoning as `ReviewCardKeyHintSpeechTests`: it is the string that is tested rather than
-/// the tree, because there is no assistive client under `swift test`, so an assertion on the
-/// rendered accessibility tree would pass whatever the card announces. The strings are the only
-/// place any of this is checkable, so a missing container label could otherwise go unnoticed with
-/// every suite green.
+/// What the walkthrough card says to VoiceOver. As in `ReviewCardKeyHintSpeechTests`, the strings
+/// are tested rather than the tree: with no assistive client under `swift test`, an assertion on the
+/// accessibility tree would pass whatever the card announces.
 @Suite struct FilingWalkthroughCardSpeechTests {
 
-    /// The label answers the question the card asks: which file, where to, and where in the queue.
-    /// All four facts, because a label that silently lost one still reads as a sentence.
+    /// The label names the file, the destination, and the position: all four facts, because a label
+    /// that lost one still reads as a sentence.
     @Test func theCardLabelNamesTheFileTheDestinationAndThePosition() {
         let label = FilingWalkthroughCard.cardSpeech(
             fileName: "Invoice 2026-03.pdf", destination: "Documents/Finance", position: 2, total: 7)
@@ -498,10 +425,8 @@ import Sync
         }
     }
 
-    /// A row with no resolved destination still says something. `destinationLabel` is optional on
-    /// `AutomationDryRunRow` and the card draws "its destination" in that case, so the spoken label
-    /// must not go silent, or trail off, where the visible one does not. An `Optional` interpolated
-    /// straight into the string would announce "to nil" here.
+    /// A row with no `destinationLabel` says "its destination", as the card draws; an `Optional`
+    /// interpolated straight into the string would announce "to nil".
     @Test func anUnresolvedDestinationFallsBackToWhatTheCardDraws() {
         let label = FilingWalkthroughCard.cardSpeech(
             fileName: "scan.pdf", destination: nil, position: 1, total: 1)
@@ -509,8 +434,7 @@ import Sync
         #expect(!label.contains("nil"), "the Optional leaked into the spoken label: \(label)")
     }
 
-    /// All three keys are named, and as infinitives: a hint that conjugated would produce "Return
-    /// copys", and nothing on screen would show it.
+    /// Every key is named, as infinitives: a hint that conjugated would produce "Return copys".
     @Test func everyWalkthroughKeyIsNamed() {
         let hint = FilingWalkthroughCard.keyHintSpeech
         for key in ["Return", "Right Arrow", "Delete", "Escape"] {
@@ -519,9 +443,8 @@ import Sync
         #expect(hint.contains("Return to file"), "got: \(hint)")
     }
 
-    /// The card installs both, at the card level. Source-level for the same reason as
-    /// `theLensWiresBothInspectionGesturesThroughTheRecovery` above: the tree is unreadable here,
-    /// so without this the two strings could be correct and unused.
+    /// The card installs both. Source-level, since the tree is unreadable here and the strings could
+    /// otherwise be correct and unused.
     @Test func theCardInstallsTheContainerLabelAndHint() throws {
         let text = try SourceText.fileExplorer("AutomationsLens.swift")
         // `.contain` specifically: `.combine` would fold the card's Skip/File/Cancel/Preview/Reveal

@@ -26,12 +26,10 @@ import Sync
     }
 
     @Test func testChangedFiltersOnTypeAndAction() {
-        // changedCopyToRight requires differentDates AND copyToRight.
         #expect(DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToRight), failedIDs: []))
         #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.differentDates, .copyToLeft), failedIDs: []))   // wrong action
         #expect(!DifferenceFilter.changedCopyToRight.matches(diff(.missingOnRight, .copyToRight), failedIDs: []))  // wrong type
 
-        // changedCopyToLeft requires differentDates AND copyToLeft.
         #expect(DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToLeft), failedIDs: []))
         #expect(!DifferenceFilter.changedCopyToLeft.matches(diff(.differentDates, .copyToRight), failedIDs: []))
     }

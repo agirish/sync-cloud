@@ -5,17 +5,11 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// Pins `PaneListKeyFocus`: a click in a pane list hands that list the keyboard.
-///
-/// Every mounted test starts by taking focus away. A test window is not a real one: AppKit makes
-/// the first key view the first responder on its own, so a freshly mounted pane already has its
-/// table focused, a state the app never reaches after a click, and a probe would pass while the app
-/// ignored the key. `unfocused(_:)` puts the window where the app's is after a click, and asserts
-/// it got there.
-///
-/// `.serialized` because first responder is per-window state these tests move deliberately, and
-/// key events sent through a shared `NSApp` by parallel tests land in each other's windows, which
-/// can fake a reproduction.
+/// Pins `PaneListKeyFocus`: a click in a pane list hands that list the keyboard. Every mounted test
+/// first takes focus away (`unfocused(_:)`): AppKit makes a fresh window's first key view the first
+/// responder, a state the app never reaches after a click. `.serialized` because key events sent
+/// through a shared `NSApp` by parallel tests land in each other's windows and can fake a
+/// reproduction.
 @MainActor
 @Suite(.serialized) struct PaneListKeyFocusTests {
 
@@ -94,9 +88,8 @@ import Sync
 
     // MARK: - Where the claim stops
 
-    /// A caret in a field inside the list keeps the keys. Driven through the door, because the
-    /// caret rule lives in one place: `target(forHit:)` doesn't repeat it, so asking that function
-    /// about a field would pass whatever the door does.
+    /// A caret in a field inside the list keeps the keys. Driven through the door: the caret rule
+    /// lives there, not in `target(forHit:)`.
     @Test("A click into an editable field inside the list does not take its keys")
     func editableFieldKeepsTheClick() async {
         guard let (_, window, table) = await mountedPane(.tree) else { return }
@@ -104,8 +97,7 @@ import Sync
         let inWindow = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
         let field = NSTextField(frame: NSRect(x: inWindow.x - 40, y: inWindow.y - 11, width: 80, height: 22))
         field.isEditable = true
-        // On the window, not inside the table: the point is in window coordinates, and a field
-        // parented to the table would sit somewhere else entirely, so the click would miss it.
+        // On the window, not the table: the click point is in window coordinates.
         window.contentView?.addSubview(field)
         defer { field.removeFromSuperview() }
         #expect(unfocused(window))
@@ -142,9 +134,8 @@ import Sync
         #expect(window.firstResponder === editor)
     }
 
-    /// A list can leave the window between the click and the claim: two runloop turns is long
-    /// enough for a Columns drill to close the clicked column. The claim asks whose window the
-    /// table is in now, not which window the click came from.
+    /// A list can leave the window between the click and the claim (a drill closes the column within
+    /// two turns): the claim asks whose window the table is in now.
     @Test("The claim refuses a list that is no longer in the clicked window")
     func claimRefusesATableFromAnotherWindow() async {
         guard let (_, window, table) = await mountedPane(.tree) else { return }
@@ -159,8 +150,7 @@ import Sync
                 "control: the same table in its own window is claimable, so the refusal was the window check")
     }
 
-    /// The monitor has to ask for both buttons; `noteClick` being right about a right-click proves
-    /// nothing if no right-click ever reaches it.
+    /// The monitor asks for both buttons, or `noteClick`'s right-click handling is never reached.
     @Test("The monitor watches the left button's up and the right button's down")
     func theMonitorWatchesBothButtons() {
         #expect(PaneListKeyFocus.watchedEvents.contains(.leftMouseUp))
@@ -204,9 +194,7 @@ import Sync
 
     // MARK: - The call site
 
-    /// Every list a Columns pane opens is registered, not only the first (see `PaneListResolver`'s
-    /// doc). A claim that worked in the root column and nowhere a user had drilled to would look
-    /// fixed in exactly the place anyone tries it first.
+    /// Every list a Columns pane opens is registered, not only the root column's (`PaneListResolver`).
     @Test("Every column of a Columns pane registers its list")
     func everyColumnRegisters() async {
         let box = Fixture.Box()

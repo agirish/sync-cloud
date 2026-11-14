@@ -259,10 +259,9 @@ import Testing
 
 /// Esc must close the overlay while its opening stat is still outstanding. The surface's keys live
 /// on the pair view, which isn't mounted until the stat lands, and a dead SMB or unmounted cloud
-/// volume can block that stat indefinitely: exactly when the reader wants out.
-///
-/// Driven through a real window's responder chain, like `CompareCopiesKeyTests`, because the
-/// question is whether the key arrives.
+/// volume can block that stat indefinitely: exactly when the reader wants out. Driven through a
+/// real window's responder chain, like `CompareCopiesKeyTests`, because the question is whether the
+/// key arrives.
 @MainActor
 @Suite(.serialized) struct DifferencesPairCompareWaitingKeyTests {
 
@@ -307,11 +306,9 @@ import Testing
             })
     }
 
-    /// esc closes while the surface is still only a spinner. The pair view, which owns the keys,
-    /// mounts only after both sides are statted, and a dead SMB or unmounted cloud volume can block
-    /// that stat forever, so a focusable placeholder carries its own esc handler. A modified esc is
-    /// refused by `isPlainKeystroke` (the guard every handler on the pair view carries), while a
-    /// plain one on the same view still closes.
+    /// esc closes while the surface is still only a spinner, so a focusable placeholder carries its
+    /// own esc handler. A modified esc is refused by `isPlainKeystroke` (the guard every handler on
+    /// the pair view carries), while a plain one on the same view still closes.
     @Test func aModifiedEscIsIgnored() async {
         let recorder = Recorder()
         let window = host(blockedOverlay(recorder))

@@ -167,9 +167,8 @@ import EventsTestSupport
     /// A style change is not a deletion. Font ▸ Show Fonts, Colors, Underline, the alignment and
     /// writing-direction items, a colour swatch dropped on the text: AppKit asks the delegate about
     /// the whole selection with `nil` replacement strings, meaning "change the attributes, keep the
-    /// characters". Through the real actions, over a one-paragraph note selected whole.
-    ///
-    /// Mutation: map `nil` strings to `""`, and the note is emptied.
+    /// characters". Through the real actions, over a one-paragraph note selected whole. Mutation:
+    /// map `nil` strings to `""`, and the note is emptied.
     @Test func aStyleChangeFromAppKitLeavesTheTextAlone() {
         defer { forgetTheColorPanelsGeometry() }
         let text = "Salt the **pasta** well."
@@ -267,9 +266,8 @@ import EventsTestSupport
 
     /// A request handed over in a view update reports back a turn later: going to a line puts the
     /// caret there and reports it, and a follow scrolls, both into the workspace's state, which
-    /// must not be written while SwiftUI is updating. Nothing reports inside the call; the caret and
-    /// the report arrive on the next turn. A request already taken is not taken twice.
-    ///
+    /// must not be written while SwiftUI is updating. Nothing reports inside the call; the caret
+    /// and the report arrive on the next turn. A request already taken is not taken twice.
     /// Mutation: act on the request at once, and the first check fails.
     @Test func aRequestFromAnUpdateReportsOnTheNextTurn() async throws {
         let paragraphs = (1...30).map { "Paragraph number \($0) with some words in it." }
@@ -292,9 +290,8 @@ import EventsTestSupport
     /// A triple-clicked paragraph, or a run over several blocks, is reported to the format bar. A
     /// triple-click selects the paragraph and the break after it, which maps to no one block; it is
     /// reported as a verb maps it, or the bar keeps the last caret's state (dark over a bold
-    /// paragraph whose Bold press would take the bold off).
-    ///
-    /// Mutation: have the session map with `sourceSelection` alone, and nothing is reported.
+    /// paragraph whose Bold press would take the bold off). Mutation: have the session map with
+    /// `sourceSelection` alone, and nothing is reported.
     @Test func aTripleClickedParagraphIsReportedToTheBar() throws {
         let r = rig("**para**\n\nNext.")
         var reported: [NSRange] = []
@@ -315,11 +312,9 @@ import EventsTestSupport
     }
 
     /// A style set for what is typed next is reported, and lit on the bar. ⌘B with a bare caret
-    /// writes nothing in Preview (it sets Bold for the next character), so unlit, a second press
-    /// to check would turn it off unseen. The workspace lights what Preview reports while the bar
-    /// acts on Preview.
-    ///
-    /// Mutation: drop `reportPending()` from `apply`, and the first report never comes.
+    /// writes nothing in Preview (it sets Bold for the next character), so unlit, a second press to
+    /// check would turn it off unseen. The workspace lights what Preview reports while the bar acts
+    /// on Preview. Mutation: drop `reportPending()` from `apply`, and the first report never comes.
     @Test func aPendingStyleIsReportedForTheBarToLight() throws {
         let r = rig("Salt the pasta.")
         var pending: [Set<MarkupVerb>] = []
@@ -348,9 +343,8 @@ import EventsTestSupport
 
     /// A Markup verb Preview refuses says so in the log at INFO, as Source's refusals do, so a menu
     /// verb that did nothing leaves a trace. One line, naming the verb as the menu does. Bold over
-    /// two paragraphs crosses blocks.
-    ///
-    /// Mutation: log the session's refusals at debug, and the capture holds nothing at INFO.
+    /// two paragraphs crosses blocks. Mutation: log the session's refusals at debug, and the
+    /// capture holds nothing at INFO.
     @Test func aRefusedMarkupVerbIsLogged() async {
         let log = LogCapture()
         let r = rig("one\n\ntwo")
@@ -584,9 +578,8 @@ import EventsTestSupport
 
     /// A double-click on a task box is one tick, not a tick and an untick: the second click arrives
     /// as a mouse-down of its own with a click count of 2, and ticking on it would make two undo
-    /// steps for what reads as one press.
-    ///
-    /// Mutation: tick on every click count, and the box ends unticked.
+    /// steps for what reads as one press. Mutation: tick on every click count, and the box ends
+    /// unticked.
     @Test func aDoubleClickOnATaskBoxTicksItOnce() throws {
         let r = rig("- [ ] salt")
         let box = try #require((0..<(r.display as NSString).length).first {
@@ -609,9 +602,8 @@ import EventsTestSupport
 
     /// The arrow cursor over text Preview can't edit (HTML here), so it doesn't look typeable until
     /// a keystroke is refused. Editable text is left to AppKit's own cursor. Through `mouseMoved`,
-    /// the view's own door.
-    ///
-    /// Mutation: drop the `NSCursor.arrow.set()`, and the cursor stays the I-beam.
+    /// the view's own door. Mutation: drop the `NSCursor.arrow.set()`, and the cursor stays the
+    /// I-beam.
     @Test func theCursorIsTheArrowOverReadOnlyText() throws {
         let r = rig("Plain words here.\n\n<div>raw html</div>")
         func move(over needle: String) throws {
@@ -666,9 +658,8 @@ import EventsTestSupport
     }
 
     /// Past 256 KB Preview is read-only, and the pill says so: still offered (the setting is kept),
-    /// but the gate the workspace and the menus mount by says no.
-    ///
-    /// Mutation: drop `isTooLong` from `editsInPreview`, and the over-long note is editable.
+    /// but the gate the workspace and the menus mount by says no. Mutation: drop `isTooLong` from
+    /// `editsInPreview`, and the over-long note is editable.
     @Test func aDocumentOverTheLimitIsReadOnlyInPreview() {
         func edits(_ length: Int) -> Bool {
             EditorWorkspaceView.editsInPreview(preference: true, hasDocument: true, isRefused: false,
@@ -1139,9 +1130,8 @@ import EventsTestSupport
     }
 
     /// A Markdown file's Preview is editable for someone who never touched the setting: the default
-    /// reaches the workspace through its `@AppStorage`, not only the constant.
-    ///
-    /// Mutation: `editsInPreviewDefault = false`, and Preview is the read-only one.
+    /// reaches the workspace through its `@AppStorage`, not only the constant. Mutation:
+    /// `editsInPreviewDefault = false`, and Preview is the read-only one.
     @Test func previewIsEditableWhenTheSettingWasNeverChosen() async throws {
         let m = try Mounted("Salt the pasta.", mode: .preview, editing: nil)
         await m.settle { m.preview != nil }
@@ -1163,11 +1153,9 @@ import EventsTestSupport
     /// The intro shows the first time Preview becomes editable in the default setup, Preview with
     /// the format bar on. Turning editing on moves the pill from its own row into the bar's, so the
     /// workspace, not the pill, holds the popover's state, or the intro is raised on the pill that
-    /// goes away. Turned on here by the setting, as Text ▸ Edit in Preview does (the pill writes the
-    /// same binding).
-    ///
-    /// Mutations: drop the workspace's `onChange(of: editsInPreview)`, and no popover opens and the
-    /// intro is never marked seen.
+    /// goes away. Turned on here by the setting, as Text ▸ Edit in Preview does (the pill writes
+    /// the same binding). Mutations: drop the workspace's `onChange(of: editsInPreview)`, and no
+    /// popover opens and the intro is never marked seen.
     @Test func theIntroShowsWhenEditingIsTurnedOnWithTheBarShowing() async throws {
         let m = try Mounted("Salt the pasta.", mode: .preview, editing: false, introSeen: false)
         // Ordered in (the intro is a popover, which presents only from a visible window) and
@@ -1200,9 +1188,8 @@ import EventsTestSupport
     ///
     /// Here the caret `makeNSView` places a turn later may overwrite the request's, an ordering of
     /// SwiftUI's update passes against a main-queue hop, so the symptom may not show; the last
-    /// check pins that the request isn't sent to the editable Preview at all.
-    ///
-    /// Mutation: send the mode switch's request to the editable Preview, and the last check fails.
+    /// check pins that the request isn't sent to the editable Preview at all. Mutation: send the
+    /// mode switch's request to the editable Preview, and the last check fails.
     @Test func aModeSwitchKeepsTheCaretMidParagraph() async throws {
         let paragraph = String(repeating: "Salt the pasta water well before it boils. ", count: 12)
         let m = try Mounted("# Title\n\n" + paragraph + "\n\nThe end.", mode: .edit)
@@ -1228,13 +1215,12 @@ import EventsTestSupport
         #expect(back.selectedRange().location == mid, "Source came back at \(back.selectedRange().location)")
     }
 
-    /// The 256 KB limit is decided when Preview is opened, and held: a note that grows past it while
-    /// being edited stays editable (the caret, the bar and the pill where they were) until it is
-    /// next opened in Preview, then it is read-only. In Split, typing in Source past it doesn't
-    /// rebuild Preview's half. The decision is handed up, so the menus gate on it too.
-    ///
-    /// Mutation: read the length live (drop the hold), and the first check fails: Preview goes
-    /// read-only mid-edit.
+    /// The 256 KB limit is decided when Preview is opened, and held: a note that grows past it
+    /// while being edited stays editable (the caret, the bar and the pill where they were) until it
+    /// is next opened in Preview, then it is read-only. In Split, typing in Source past it doesn't
+    /// rebuild Preview's half. The decision is handed up, so the menus gate on it too. Mutation:
+    /// read the length live (drop the hold), and the first check fails: Preview goes read-only
+    /// mid-edit.
     @Test func theLengthLimitIsHeldWhilePreviewStaysOpen() async throws {
         let line = String(repeating: "x", count: 99) + "\n"
         let start = String(repeating: line, count: PreviewEditToggle.maximumLength / 100 - 1)
@@ -1274,13 +1260,12 @@ import EventsTestSupport
         #expect(!PreviewLengthHold.isTooLong(nil, key: key) { 10 })
     }
 
-    /// Split: the format bar acts on the half the caret is in. With foo selected in Source, then bar
-    /// in Preview's half, Bold must wrap bar, not Source's old selection: the bar's handle targets
-    /// Preview's half while the caret was last there, and Source's again once Source reports a
-    /// selection of its own. Through the mounted workspace's own handle and both real text views.
-    ///
-    /// Mutations: drop the Preview report's `caretInSplitPreview = true`, and Bold wraps foo; drop
-    /// Source's reset, and the last step wraps Preview's selection again.
+    /// Split: the format bar acts on the half the caret is in. With foo selected in Source, then
+    /// bar in Preview's half, Bold must wrap bar, not Source's old selection: the bar's handle
+    /// targets Preview's half while the caret was last there, and Source's again once Source
+    /// reports a selection of its own. Through the mounted workspace's own handle and both real
+    /// text views. Mutations: drop the Preview report's `caretInSplitPreview = true`, and Bold
+    /// wraps foo; drop Source's reset, and the last step wraps Preview's selection again.
     @Test func splitsFormatBarActsOnTheHalfWithTheCaret() async throws {
         let m = try Mounted("foo bar\n", mode: .split)
         let source = try #require(m.source)
@@ -1306,12 +1291,10 @@ import EventsTestSupport
         #expect(handle.splitPreview == nil)
     }
 
-    /// Split: typing in Preview's half moves the caret Preview reopens at. Source's own selection is
-    /// nudged as Preview's edit lands in the text before it, and Preview reports after that, so the
-    /// caret typed at is the one kept.
-    ///
-    /// Mutation: hand Preview's half no selection callback in Split, and the remembered caret is
-    /// Source's.
+    /// Split: typing in Preview's half moves the caret Preview reopens at. Source's own selection
+    /// is nudged as Preview's edit lands in the text before it, and Preview reports after that, so
+    /// the caret typed at is the one kept. Mutation: hand Preview's half no selection callback in
+    /// Split, and the remembered caret is Source's.
     @Test func typingInSplitsPreviewMovesTheRememberedCaret() async throws {
         let lines = (1...40).map { "Line number \($0)." }
         let m = try Mounted(lines.joined(separator: "\n\n"), mode: .split)
@@ -1333,9 +1316,8 @@ import EventsTestSupport
     }
 
     /// Preview follows Check Spelling While Typing: Help says the switch is the text's, so
-    /// underlines on in Source are on in Preview too.
-    ///
-    /// Mutation: drop the setting from `update`, and the first check fails.
+    /// underlines on in Source are on in Preview too. Mutation: drop the setting from `update`, and
+    /// the first check fails.
     @Test func previewFollowsCheckSpelling() async throws {
         let m = try Mounted("Salt teh pasta.", mode: .preview)
         m.defaults.set(true, forKey: EditorTextSettings.checksSpellingKey)
@@ -1349,10 +1331,9 @@ import EventsTestSupport
 
     /// A follow Source hasn't acted on is not replayed later. Split with editing on, Preview
     /// scrolled, Source follows; editing off, Source, back to Split (Source rebuilt, knowing no
-    /// follow), editing on: an uncleared follow would make the new Source jump to a line scrolled to
-    /// minutes before.
-    ///
-    /// Mutation: stop clearing the follow when editing goes off, and Source jumps.
+    /// follow), editing on: an uncleared follow would make the new Source jump to a line scrolled
+    /// to minutes before. Mutation: stop clearing the follow when editing goes off, and Source
+    /// jumps.
     @Test func aStaleFollowIsNotReplayedToSource() async throws {
         let lines = (1...120).map { "Line number \($0) of the note." }
         let m = try Mounted(lines.joined(separator: "\n\n"), mode: .split)

@@ -5,10 +5,8 @@ import Sync
 @testable import FileExplorer
 
 /// The facts strip states the page count. `ComparePairFacts.make` takes `pages:`, and
-/// `Row.isPending` covers the late answer, but a tested rule with no caller never draws.
-///
-/// Three checks, because the wiring can break at three heights: the rule, the view's reading of
-/// it, and the call that hands it to `make`.
+/// `Row.isPending` covers the late answer, but a tested rule with no caller never draws. Three
+/// checks, for the three heights the wiring can break at: the rule, the view, and the call site.
 @Suite struct ComparePageFactsWiringTests {
 
     private func copy(_ path: String) -> DuplicateCopy {

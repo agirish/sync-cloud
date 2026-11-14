@@ -14,11 +14,10 @@ import EventsTestSupport
 /// deepened Green on their bezels. The tint sits on the default button alone (`AccentFillScanTests`
 /// holds the source).
 ///
-/// Rendered and read back: the Clean Metadata sheet as `PanePDFTools` presents it, at Green, its
+/// Rendered at Green and read back: the Clean Metadata sheet as `PanePDFTools` presents it, its
 /// button row (the first rows below the last field that differ from the ground) measured for its
-/// darkest (light) or brightest (dark) pixel against the bezel. A root tint is the control:
-/// measured at about 4.3:1 light and 3.5:1 dark, against 13.0:1 and 9.9:1 without.
-/// `.machinePinned(.pixelSampling)`, like every suite here that samples a live renderer.
+/// darkest (light) or brightest (dark) pixel against the bezel. A root tint is the control, reading
+/// under the floor. `.machinePinned(.pixelSampling)`, like every suite that samples a live renderer.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) final class EditorPDFSheetButtonWordsTests {
 

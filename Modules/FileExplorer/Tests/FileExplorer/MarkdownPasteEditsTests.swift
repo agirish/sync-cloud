@@ -47,7 +47,7 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(paste("https://en.wikipedia.org/wiki/Foo_(bar)", over: "«Foo»")).0
                 == "[Foo](https://en.wikipedia.org/wiki/Foo_(bar))")
         #expect(try #require(paste("https://e.com/a)b", over: "«x»")).0 == "[x](<https://e.com/a)b>)")
-        // And the preview reads both back as the address pasted.
+        // The preview reads both back as the address pasted.
         for text in ["[Foo](https://en.wikipedia.org/wiki/Foo_(bar))", "[x](<https://e.com/a)b>)"] {
             guard case .paragraph(let line)? = MarkdownBlocks.blocks(from: text).first?.kind else {
                 Issue.record("not a paragraph: \(text)")
@@ -135,8 +135,7 @@ struct MarkdownPasteEditsTests {
         // Across a line, or only whitespace.
         ("https://e.com", "«one\ntwo»"),
         ("https://e.com", "a«   »b"),
-        // Brackets, a backtick or a trailing backslash: each ends the link text early or nests a
-        // link in a link, which CommonMark does not allow.
+        // Brackets, a backtick or a trailing backslash end the link text early or nest a link.
         ("https://e.com", "«a] b»"),
         ("https://e.com", "«[a b»"),
         ("https://e.com", "«see [1]»"),
@@ -252,8 +251,7 @@ struct MarkdownPasteEditsTests {
     // MARK: - Found by the 2026-10-15 review (IMG-7)
 
     /// Words that cut through an emphasis run are a plain paste: `**[Note:** read](url)` reads as
-    /// two literal asterisks and a link, the bold gone. Asked of the parser, so every delimiter's
-    /// own flanking rule decides it: a run cut at either end, intraword emphasis, strikethrough.
+    /// two literal asterisks and a link. Asked of the parser, so its flanking rules decide it.
     @Test(arguments: ["**«Note:** read» this", "*«foo* bar»", "foo*«bar»*baz", "~~«gone~~ here»",
                       "«a **b» c**", "_«x_ y»"])
     func wordsThatCutThroughEmphasisAreAPlainPaste(_ marked: String) {
@@ -317,8 +315,8 @@ struct MarkdownPasteEditsTests {
         #expect(try #require(image(before)).0 == after)
     }
 
-    /// The real check: the preview draws it as a picture, an image paragraph (the only shape
-    /// `MarkdownBlocks` turns into one), with the text either side still its own paragraph.
+    /// The preview draws it as a picture: an image paragraph, the only shape `MarkdownBlocks` turns
+    /// into one.
     @Test(arguments: ["foo|bar", "- list item|", "# Heading|\nText", "> quote|", "foo|", "foo\r\n|bar",
                       "- a\n  - b|\n  - c"])
     func thePreviewDrawsWhatWasInserted(_ marked: String) throws {
@@ -341,8 +339,7 @@ struct MarkdownPasteEditsTests {
         #expect(selection == NSRange(location: (result as NSString).length, length: 0))
     }
 
-    /// A selection is replaced, as any paste replaces it, and the image goes where the caret then
-    /// is, by the same rule.
+    /// A selection is replaced, and the image goes where the caret then is, by the same rule.
     @Test func aSelectionIsReplaced() throws {
         let text = "keep this, drop this\nand this line"
         let range = NSRange(location: 11, length: 9)
@@ -404,8 +401,8 @@ struct MarkdownPasteEditsTests {
                                                                 in: text as NSString))
         let result = splice.applied(to: text)
         #expect(result == expected)
-        // The rest of the document reads as it did (the same words, every item at its depth), and
-        // the picture is one block of its own (an image paragraph has no words of its own).
+        // The rest reads as it did (the same words, every item at its depth), and the picture is
+        // one block of its own.
         func shape(_ text: String) -> [String] {
             MarkdownSourceContext.leaves(in: text as NSString).compactMap { leaf in
                 leaf.kind == CMARK_NODE_ITEM.rawValue ? "item at \(leaf.depth)" : leaf.text.isEmpty ? nil : leaf.text

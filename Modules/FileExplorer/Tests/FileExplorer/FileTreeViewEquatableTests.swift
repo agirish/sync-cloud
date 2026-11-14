@@ -4,18 +4,13 @@ import Sync
 import Design
 @testable import FileExplorer
 
-/// Mutation-tests `FileTreeView.==`, the pane's re-render gate.
+/// Mutation-tests `FileTreeView.==`, the pane's re-render gate. When `==` answers true SwiftUI keeps
+/// the pane it has, so a stored property the comparison forgets is a value the pane silently stops
+/// noticing (a stale badge, a selection that doesn't highlight).
 ///
-/// The conformance is an optimization with a correctness cliff behind it. When `==` answers true,
-/// SwiftUI keeps the pane it has and does not re-evaluate it, so a stored property the comparison
-/// forgets is a value the pane silently stops noticing. The symptom shows up elsewhere: a stale
-/// badge, or a selection that doesn't highlight, only under whatever sequence of renders happens to
-/// skip.
-///
-/// So this suite does not assert that equality "works". It changes each compared input in turn and
-/// requires `==` to notice, the only shape of test that fails when someone adds a property and
-/// forgets the comparison. The inputs deliberately left out (the delegate and the host callbacks)
-/// are pinned in the last section.
+/// Each compared input is changed in turn and `==` must notice: the only shape of test that fails
+/// when someone adds a property and forgets the comparison. The inputs deliberately left out (the
+/// delegate and the host callbacks) are pinned in the last section.
 @MainActor
 @Suite struct FileTreeViewEquatableTests {
 
@@ -97,15 +92,9 @@ import Design
 
     // MARK: The mutation sweep
 
-    /// The open folders, held by the host.
-    ///
-    /// The one entry in the sweep whose absence would be catastrophic rather than subtle. Held by
-    /// `ContentView`, the set arrives as a binding, so omitting it here means the host's write
-    /// rebuilds the pane, `==` answers true, SwiftUI keeps the old one, and every disclosure
-    /// triangle in the tree stops responding to clicks.
-    ///
-    /// Compared by value: two bindings onto the same storage are fresh structs on every render, so
-    /// anything else either never differs or always does.
+    /// The open folders arrive from `ContentView` as a binding; left out of `==`, every disclosure
+    /// triangle in the tree would stop responding to clicks. Compared by value: two bindings onto the
+    /// same storage are fresh structs on every render, so anything else never differs or always does.
     @Test("The open folders are noticed — the host owns them now, so the gate must see them")
     func hostExpansionIsCompared() {
         #expect(pane(hostExpanded: []) != pane(hostExpanded: ["/root/Documents"]))
@@ -120,14 +109,9 @@ import Design
                 "a hosted pane and an unhosted one read as the same view")
     }
 
-    /// A write through `expanded`'s setter lands in the host's set, not in the pane's own.
-    ///
-    /// The check above proves the gate notices the host's value; it says nothing about where a
-    /// write goes. The disclosure triangles write through the binding, which resolves the host
-    /// directly, while the search reveal, the columns carry-over and the prune on a root change go
-    /// through the property's setter. Invert the condition there and a hosted pane writes its dead
-    /// `ownExpanded`: the host's set never moves, `==` sees no difference, every test above stays
-    /// green, and revealing a search hit silently stops opening its ancestors.
+    /// A write through `expanded`'s setter (the search reveal, the columns carry-over, the prune on a
+    /// root change) lands in the host's set, not the pane's own. Mutation: inverting the setter's
+    /// condition, so a hosted pane writes its dead `ownExpanded`, must fail it.
     ///
     /// Drives the property, not the binding: a write through the binding skips the setter, so the
     /// mutation would pass.
@@ -150,13 +134,9 @@ import Design
                 "the pane cannot read back what it just wrote")
     }
 
-    // The unhosted half of that setter is deliberately not tested here. The fallback is `@State`,
-    // and a `@State` write on a struct never installed in the view tree goes nowhere: the storage
-    // does not exist yet, so the write is discarded and the read comes back empty, and a round-trip
-    // test fails against correct code. Its real coverage is every other suite in this package: they
-    // mount panes with no host, and expand, reveal and prune through it.
-
-
+    // The unhosted half of that setter is deliberately not tested: the fallback is `@State`, and a
+    // `@State` write on a struct never installed in the view tree is discarded, so a round-trip test
+    // fails against correct code. Every suite that mounts an unhosted pane covers it.
 
     /// Each input the gate compares, changed alone against the reference pane.
     enum Input: String, CaseIterable {
@@ -179,8 +159,7 @@ import Design
         case rootPath
         /// Empties the diff index and reshapes the row menu.
         case isSingleSource
-        /// Changes what every row draws (the emphasis, the dimming, the annotations); a pane that
-        /// kept its view would go on showing the previous query's answer.
+        /// Changes what every row draws; a kept view would show the previous query's answer.
         case search
         /// What fires the reveal: kept, ↩ would move the hit and the reveal's `.onChange` would
         /// never fire.
@@ -264,11 +243,8 @@ import Design
         #expect(pane() != pane(onNeedChildren: noChildren))
     }
 
-    /// The set of directories being read right now. It drives the column's spinner, which changes
-    /// twice per graft: on when the listing starts, off when it lands. Left out of the gate,
-    /// neither edge redraws the pane on its own, so the spinner appears or clears only when some
-    /// unrelated republish re-renders it: a folder reads "Can't be read" while it is being read, or
-    /// spins after it is filled.
+    /// The directories being read right now drive the column's spinner, on when a listing starts and
+    /// off when it lands. Left out of the gate, neither edge redraws the pane on its own.
     @Test("The in-flight graft set is noticed — it is what turns the column's spinner on and off")
     func graftsInFlightIsCompared() {
         #expect(pane() != pane(graftsInFlight: ["/root/deep"]))
@@ -279,11 +255,9 @@ import Design
 
     // MARK: What is deliberately NOT compared
 
-    /// The four host callbacks are compared for presence only, and this pins that as a decision
-    /// rather than an oversight. Each dispatches through the host's reference types and property
-    /// wrappers, so a closure built on an earlier render reads the same live state as a fresh one;
-    /// closures are not `Equatable` anyway, and treating a new closure instance as a change would
-    /// make the gate open on every render.
+    /// The host callbacks are compared for presence only, by decision: each reads the host's live
+    /// state through reference types, so an old closure behaves like a fresh one, and treating a new
+    /// closure instance as a change would open the gate on every render.
     @Test("Rebuilt callbacks alone do not count as a change")
     func freshClosuresDoNotDefeatTheGate() {
         let a = pane(onOpenSettings: {}, onBarEdgeFlip: {},
@@ -293,29 +267,26 @@ import Design
         #expect(a == b)
     }
 
-    /// The whole point, stated as an assertion: the host rebuilds the delegate on every render, and
-    /// a delegate that vouches for itself must not drag the pane into a re-render with it.
+    /// The host rebuilds the delegate on every render; one that vouches for itself must not force a
+    /// re-render.
     @Test("A rebuilt but equivalent delegate does not count as a change")
     func equivalentDelegateDoesNotDefeatTheGate() {
         #expect(pane(delegate: StubDelegate(id: 7)) == pane(delegate: StubDelegate(id: 7)))
     }
 
-    /// A conformer that has not opted in gets the protocol's default `false`, so the pane
-    /// re-renders with it. Asserted because the default is what stands between a future delegate
-    /// and a silent staleness bug.
+    /// A conformer that has not opted in gets the protocol's default `false`, so the pane re-renders
+    /// rather than going stale.
     @Test("A delegate that has not opted in blocks the gate rather than being assumed equivalent")
     func nonOptedInDelegateBlocksTheGate() {
         #expect(pane(delegate: NoOpFileActionDelegate()) != pane(delegate: NoOpFileActionDelegate()))
     }
 
-    /// Presence of the host's Quick Look callback decides where the row menu's preview goes: the
-    /// host's panel, or this pane's own fallback state. A pane that gained or lost it renders a
-    /// different menu action, so the gate has to notice.
+    /// Presence of the host's Quick Look callback decides where the row menu's preview goes (the
+    /// host's panel or the pane's own fallback), so the gate has to notice it.
     @Test("Gaining or losing the host's Quick Look presenter is noticed")
     func quickLookPresenterPresenceIsCompared() {
         #expect(pane() != pane(onQuickLook: nil))
-        // And presence only: two different closures are the same pane, or the gate would open on
-        // every render (the host builds a fresh closure each time).
+        // Presence only: the host builds a fresh closure each render.
         #expect(pane(onQuickLook: { _ in }) == pane(onQuickLook: { _ in }))
     }
 }

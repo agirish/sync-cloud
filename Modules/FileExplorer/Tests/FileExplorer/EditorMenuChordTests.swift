@@ -169,10 +169,8 @@ import EventsTestSupport
     }
 
     /// In a file that isn't Markdown the verbs do nothing, and say so, rather than writing `****`,
-    /// `- ` or tables into it. The menu bar greys its items (`EditorVerbs.canMarkUp`, in the app),
-    /// the right-click submenu is greyed, and the surface refuses, so ⌘I opens the inspector
-    /// instead. The `.md` case is the control. `isMarkdownDocument` always answering `true` fails
-    /// every refusal.
+    /// `- ` or tables into it: the right-click submenu greys and the surface refuses, so ⌘I opens
+    /// the inspector instead. The `.md` case is the control.
     @Test func aVerbDoesNothingInAFileThatIsNotMarkdown() async throws {
         let log = LogCapture()
         for (path, isMarkdown) in [("/scratch/notes.txt", false), ("/scratch/config.yaml", false),

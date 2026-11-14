@@ -45,13 +45,10 @@ import Sync
         #expect(treeView(isLeft: true, otherPaneName: nil, isSingleSource: true).paneToken == .singleSource)
     }
 
-    /// The receiving half of the shipped default: a pane built the way `ContentView` builds one,
-    /// passing no `downloadChannel`, subscribes to the app's own `NotificationCenter`.
-    ///
-    /// Every suite that mounts a pane hands it a private channel instead ("A mounted view is a live
-    /// subscriber, in every suite at once" in `docs/flaky-tests.md`), so none of them touches this
-    /// default. Retarget it (`= NotificationCenter()` on the parameter) and every one of those
-    /// suites stays green while the app's panes go deaf to the app's own Download button.
+    /// A pane built the way `ContentView` builds one, passing no `downloadChannel`, subscribes to the
+    /// app's own `NotificationCenter`. Every suite that mounts a pane hands it a private channel ("A
+    /// mounted view is a live subscriber, in every suite at once" in `docs/flaky-tests.md`), so only
+    /// this test sees the default. Mutation: `= NotificationCenter()` on the parameter must fail it.
     ///
     /// Constructed, not mounted: a `FileTreeView` value holds no subscription until SwiftUI builds
     /// its body, so reading the property here puts nothing on `.default`.
@@ -59,13 +56,11 @@ import Sync
         #expect(treeView(isLeft: true, otherPaneName: nil).downloadChannel === NotificationCenter.default)
     }
 
-    /// A republish's badge-memo clear is scoped to the folder the pane is showing, not to its
-    /// provider root. The two diverge whenever a pane is focused on a subfolder, and clearing the
-    /// provider root would drop entries no row of this pane can serve.
+    /// A republish's badge-memo clear is scoped to the folder the pane shows, not its provider root;
+    /// the two diverge whenever a pane is focused on a subfolder.
     @Test func testTheBadgeMemoClearIsScopedToTheShownFolder() {
         let focused = treeView(isLeft: true, otherPaneName: nil,
                                currentPath: "/provider/sub", rootPath: "/provider")
-
         #expect(focused.badgeMemoRoot == "/provider/sub")
         #expect(focused.rootPath == "/provider")   // the two really do differ here
     }

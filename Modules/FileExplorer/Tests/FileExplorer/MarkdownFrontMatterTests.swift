@@ -33,9 +33,8 @@ import Foundation
         #expect(split.bodyStartLine == 4)
     }
 
-    /// A file with classic Mac line endings (`\r` alone) is recognised too. Split on `\n` alone it
-    /// would be one line, and the block's last key, underlined by the closer, would become a setext
-    /// heading in the outline and the status line. The body starts on the file's own line.
+    /// Classic Mac line endings (`\r` alone): split on `\n` it would be one line, and the last key,
+    /// underlined by the closer, would become a setext heading in the outline and the status line.
     @Test func aClassicMacFileIsRecognisedToo() {
         let source = "---\rtitle: Plan\rauthor: A\r---\r\r# Real\rbody\r"
         let split = MarkdownFrontMatter.split(source)

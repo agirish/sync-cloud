@@ -4,22 +4,12 @@ import Testing
 
 /// No window-level key equivalent may claim a bare key, in any module.
 ///
-/// A SwiftUI `.keyboardShortcut` registers a window-level key equivalent, consulted before the
-/// first responder. With no modifier it claims a key people type: a bare ⏎ on a filing button
-/// would move a file on disk when ⏎ is pressed in a search field, and key equivalents fire on
-/// key-repeat, so holding the key repeats the action.
-///
-/// The rule is the whole class: any `.keyboardShortcut(…, modifiers: [])` eats that key everywhere
-/// in the window. A bare key belongs to whoever has key focus; a surface that wants one uses a
-/// focusable anchor and `.onKeyPress`, as `ReviewCardView` and the filing walkthrough card do. The
-/// repo-wide scan has no allowlist, since the shape has no legitimate use. The narrower
-/// `.defaultAction`/`.cancelAction` ban has one, for modal sheets, each entry named, justified and
-/// asserted to still be needed.
-///
-/// Source-level because the registration is invisible to a hosted view (`swift test` has no key
-/// window to type into), and swept over every module's Sources plus `MacApp/`. It follows
-/// `OrganizeScopeCallSiteTests`' habits: name what you scan, fail when it can't be read, and keep a
-/// positive control so a rename can't hollow the scan out.
+/// A `.keyboardShortcut` with no modifier is consulted before the first responder, so it eats that
+/// key typed into every field in the window (a bare ⏎ on a filing button would move a file when ⏎
+/// is pressed in a search field) and fires on key-repeat. A surface that wants a bare key uses a
+/// focusable anchor and `.onKeyPress`, as `ReviewCardView` does. The repo-wide scan has no
+/// allowlist; the narrower `.defaultAction`/`.cancelAction` ban has one, for modal sheets.
+/// Source-level because `swift test` has no key window to type into.
 @Suite struct BareKeyEquivalentScanTests {
 
     /// The repo's `Modules/` directory, derived from this file's own path.
@@ -72,84 +62,52 @@ import Testing
                 and fires on key-repeat. Give the surface a focusable anchor and `.onKeyPress` \
                 instead (see ReviewCardView / FilingWalkthroughCard). Do not allowlist it here.
                 """)
-        // The positive control: `.keyboardShortcut` is still in real use (⌘ chords,
-        // `.defaultAction`/`.cancelAction` on modal sheets). If the sweep sees none, the API moved
-        // out from under the regex and this test is blind.
-        //
-        // A hole this scan can't close: `.defaultAction` is bare ⏎ and `.cancelAction` bare esc,
-        // but their uses here sit on modal sheets and alerts, the platform convention. A regex
-        // can't tell a sheet from an always-mounted surface, so
-        // `noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll` below covers that.
+        // Positive control: `.keyboardShortcut` is still in real use (⌘ chords, modal sheets); if
+        // the sweep sees none, the regex is blind. A regex can't tell a sheet's bare ⏎/esc from an
+        // always-mounted surface's; `noAlwaysMountedSurfaceRegistersAnyKeyEquivalentAtAll` does.
         #expect(keyboardShortcutSeen,
                 "no `.keyboardShortcut(` anywhere in Modules — the scan is measuring nothing")
     }
 
     /// The always-mounted surfaces of `FileExplorer` register no key equivalents: no
-    /// `.keyboardShortcut(` in any spelling, no `.defaultAction`, no `.cancelAction`.
-    ///
-    /// An always-mounted surface shares the window with text fields taking typing (the filing
-    /// walkthrough beside the header's search, `ReviewCardView` beside the differences search), so
-    /// a window-level equivalent would eat a keystroke aimed at a field: an esc typed to clear the
-    /// search would cancel the walkthrough and discard its approvals. The repo-wide scan can't ban
-    /// these spellings because modal sheets use them; this scoped ban lists its exemptions.
-    ///
-    /// The net is every file minus a written-down exemption, not a filename glob: a glob decides by
-    /// what a file is called and misses always-mounted views without "Lens" in the name. It
-    /// defaults to in, so a new view is covered the day it is added; taking it out costs an entry
-    /// and a reason here. `aFileInASubdirectoryOfSourcesIsStillInTheNet` checks the net's depth.
-    ///
-    /// Not extended past `FileExplorer/Sources/FileExplorer`: the other modules' uses haven't been
-    /// read one by one, and guessed exemptions would defeat the net. The repo-wide
-    /// `modifiers: []` ban already covers them for the narrower shape.
+    /// `.keyboardShortcut(` in any spelling, no `.defaultAction`, no `.cancelAction`. They share
+    /// the window with text fields, so an esc typed to clear the search would cancel the filing
+    /// walkthrough and discard its approvals. The net is every file minus a written-down exemption,
+    /// not a filename glob, so a new view is covered the day it is added. Limited to
+    /// `FileExplorer/Sources/FileExplorer`: the other modules' uses haven't been read one by one,
+    /// and guessed exemptions would defeat the net.
     private static let exemptFromTheKeyEquivalentBan: [String: String] = [
-        // Presented as a `.sheet`: modal, so nothing else in the window can hold key focus, and
-        // ⏎/esc on its Save/Cancel pair are the platform convention.
+        // Each is presented with `.sheet`: modal, so nothing else in the window can hold key focus,
+        // and ⏎/esc on its buttons are the platform convention.
         "AutomationRuleEditor.swift":
             "modal sheet: the rule editor's Cancel/Save pair (.cancelAction/.defaultAction)",
-        // Also a sheet. Its ⇧⌘N is a real chord, not a bare key, and its Cancel/Choose pair is
-        // the same modal convention.
         "DestinationPicker.swift":
             "modal sheet: Cancel/Choose pair, plus ⇧⌘N (a chord, not a bare key)",
-        // One-way sync's sheets, each presented with `.sheet` over the window that asked
-        // for it: ⏎ on the primary, esc on Later/Cancel, the platform convention for a modal.
         "OneWaySyncSheets.swift":
             "modal sheets: each primary carries .defaultAction, Later/Cancel .cancelAction",
-        // Restructure's plan sheet, presented via `.sheet` over the lens: modal, so ⏎ on
-        // `Export plan` is the platform convention and can't eat a key from the lens below.
         "RestructurePlanSheet.swift":
             "modal sheet: Export plan carries .defaultAction beside Close/Cancel",
-        // Restructure's removal sheet, the same modal convention: Escape on Cancel can't eat a
-        // key from the lens below a `.sheet`.
         "RestructureRemovalSheet.swift":
             "modal sheet: Cancel carries .cancelAction so Escape dismisses",
-        // The cross-parent pair's confirm sheet, presented the same way and by the same rule as
-        // the two above it.
         "RestructurePairMergeSheet.swift":
             "modal sheet: Cancel carries .cancelAction so Escape dismisses",
-        // The PDF tools' sheets, each presented with `.sheet` from the header's Tools menu:
-        // modal, and kept in a file of their own so the always-mounted menu stays in the net.
+        // Kept in a file of their own so the always-mounted Tools menu stays in the net.
         "EditorPDFToolSheets.swift":
             "modal sheets: each tool's Cancel/run pair (.cancelAction/.defaultAction)",
-        // The batch's one sheet, presented with `.sheet` by the window for a pane-launched run:
-        // modal, and apart from `PanePDFTools.swift`, whose layer is always mounted.
+        // Apart from `PanePDFTools.swift`, whose layer is always mounted.
         "EditorPDFBatchSheet.swift":
             "modal sheet: the batch's Cancel/run pair (.cancelAction/.defaultAction)",
         // Combine's and Split's sheet, presented with `.sheet` by `PanePDFCombineSplitLayer`.
         "EditorPDFCombineSplitSheet.swift":
             "modal sheet: Combine's and Split's Cancel/run pair (.cancelAction/.defaultAction)",
-        // Add Signature / Add Initials, presented with `.sheet` by Fill & Sign's palette: modal,
-        // and apart from `EditorPDFFillPalette.swift`, which is mounted while the palette is up.
+        // Apart from `EditorPDFFillPalette.swift`, which is mounted while the palette is up.
         "EditorPDFSignatureSheet.swift":
             "modal sheet: Add Signature's Cancel/Add pair (.cancelAction/.defaultAction)",
     ]
 
-    /// Whether this file is in `FileExplorer`'s shipped source tree, at any depth under it.
-    ///
-    /// Depth matters: checking only the parent directory's name would let a file in a
-    /// subdirectory of `Sources/FileExplorer/` leave the net unannounced, and a big lens split into
-    /// a folder is the likely first case.
-    ///
-    /// One predicate for every place that filters, so a fix can't land in only some of them.
+    /// Whether this file is in `FileExplorer`'s shipped source tree, at any depth: checking only
+    /// the parent directory's name would let a lens split into a subfolder leave the net
+    /// unannounced. One predicate for every place that filters, so a fix lands in all of them.
     static func isFileExplorerSource(_ url: URL) -> Bool {
         let components = url.pathComponents
         guard let sources = components.lastIndex(of: "Sources"), sources + 1 < components.count
@@ -174,9 +132,8 @@ import Testing
 
     private static let bannedSpellings = [".keyboardShortcut(", ".defaultAction", ".cancelAction"]
 
-    /// The ban itself, over whatever files it is handed, so the test below runs it on the real
-    /// tree and `aFileInASubdirectoryOfSourcesIsStillInTheNet` runs the same code on a planted
-    /// file.
+    /// The ban itself, over whatever files it is handed, so the real tree and the plant in
+    /// `aFileInASubdirectoryOfSourcesIsStillInTheNet` run the same code.
     private static func offenders(in files: [(url: URL, text: String)]) -> [String] {
         var found: [String] = []
         for (url, text) in files {
@@ -217,17 +174,11 @@ import Testing
         }
     }
 
-    /// The other half of the rule: a surface that wants a bare key uses `.onKeyPress`, but that
-    /// doesn't refuse chords as an equivalent does. No overload filters modifiers (see
-    /// `KeyPress.isPlainKeystroke`), and keyed on `.return` alone none matches the keypad's Enter,
-    /// whose keyCode 76 sends U+0003, not U+000D.
-    ///
-    /// So the panes' ↩-rename must take both keycaps and refuse chords, or ⌘↩/⌥↩ would open the
-    /// rename editor and steal a chord another surface owns, and the keypad's Enter would do
-    /// nothing while the File menu's Rename advertises ↩.
-    ///
-    /// Source-level because `MacApp/` is in no SPM package and this sweep is the only test that
-    /// can read it.
+    /// `.onKeyPress` doesn't refuse chords as an equivalent does (see `KeyPress.isPlainKeystroke`),
+    /// and keyed on `.return` alone it misses the keypad's Enter (keyCode 76 sends U+0003, not
+    /// U+000D). So the panes' ↩-rename must take both keycaps and refuse chords, or ⌘↩/⌥↩ would
+    /// open the rename editor and the keypad's Enter would do nothing while the File menu
+    /// advertises ↩. Source-level because `MacApp/` is in no SPM package.
     @Test func thePanesRenameKeyTakesBothEnterKeycapsAndRefusesChords() throws {
         let contentView = try #require(
             try Self.sweptSources().first { $0.url.path.hasSuffix("/MacApp/ContentView.swift") },
@@ -248,15 +199,10 @@ import Testing
                 """)
     }
 
-    /// Depth is no way out of the net: a file below the first level of `Sources/FileExplorer/`
-    /// is netted like any other, so "a new view is covered the day it is added" holds there too.
-    ///
-    /// The plant is a synthesized entry, not a file written into the source tree, which every
-    /// other scan in this package reads and a dying test could leave debris in. It goes through
-    /// the real `isFileExplorerSource`, exemption map and `offenders(in:)`.
-    ///
-    /// Non-vacuity both ways: the same plant in another module's tree
-    /// (`Design/Sources/Design/Sub/`) must not be netted, or a filter that nets everything passes.
+    /// Depth is no way out of the net: a file below the first level of `Sources/FileExplorer/` is
+    /// netted like any other. The plant is a synthesized entry, not a file written into the source
+    /// tree, which other scans read and a dying test could leave debris in. Non-vacuity: the same
+    /// plant in another module (`Design/Sources/Design/Sub/`) must not be netted.
     @Test func aFileInASubdirectoryOfSourcesIsStillInTheNet() throws {
         let modules = Self.modulesDir
         let planted = modules.appendingPathComponent(

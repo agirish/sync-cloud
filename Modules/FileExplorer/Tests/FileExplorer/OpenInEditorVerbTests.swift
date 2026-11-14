@@ -70,16 +70,9 @@ import FileExplorerTestSupport
         #expect(listed == ["notes.md", "readme.txt", "paper.pdf"], "the rail lists \(listed)")
     }
 
-    /// The menu as drawn, in order, not the source that describes it. The app target pins the order
-    /// too (`PaneTabWiringTests.openInEditLeadsTheRowMenusSingleFileBranch`), but by reading the
-    /// file as text, which can't see a `@ViewBuilder` branch that never builds. Hosted in a
-    /// `VStack`, `FileContextMenu`'s `Group` flattens, so each item is one focus-ring view at its
-    /// own y: the drawn order.
-    ///
-    /// The hosted rows carry no readable text (`accessibilityChildren()` returns an empty group
-    /// here, as `OrganizeRailTests` notes), so a row is recognised by its width: each item rendered
-    /// alone, then matched in the whole menu. No hard-coded pixel counts, so not machine-pinned; it
-    /// assumes the three labels measure differently, and fails loudly if they stop.
+    /// The menu as drawn, in order, not the source that describes it (a source read can't see a
+    /// `@ViewBuilder` branch that never builds). The hosted rows carry no readable text, so a row is
+    /// recognised by its width: each item rendered alone, then matched in the whole menu.
     @Test func theDrawnMenuPutsOpenInEditAboveGetInfo() throws {
         let delegate = NoOpFileActionDelegate()
         let editorWidth = Self.soloWidth(SharedFileMenuItems.openInEditor("/a/notes.md", delegate: delegate))

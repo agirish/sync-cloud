@@ -1,15 +1,9 @@
 import Testing
 @testable import FileExplorer
 
-/// What a column with no rows says about itself.
-///
-/// "Empty" is a claim only the walk can make. `loadTree` paints at `maxDepth: 1` first so the pane
-/// appears at once (browsing `~` means deep-walking Library and all of CloudStorage), so every
-/// child directory arrives with no children and `isUnexplored` set. A column that always said
-/// "Empty" would announce each of them as empty until the deep walk caught up.
-///
-/// Three states, one caption each. The wording is `DestinationFolderListing.emptyMessage`'s: an app
-/// that says two different things about one state is worse than one that says nothing.
+/// What a column with no rows says about itself. "Empty" is a claim only the walk can make:
+/// `loadTree` paints at `maxDepth: 1` first, so every child directory arrives childless and
+/// `isUnexplored`. Three states, one caption each, worded as `DestinationFolderListing.emptyMessage`.
 @Suite struct PaneColumnsEmptyCaptionTests {
 
     /// An empty tree at depth 0 already draws the pane's "Folder is empty" placeholder in the same
@@ -24,8 +18,8 @@ import Testing
         }
     }
 
-    /// The caption's purpose: a column opened into a folder with nothing in it must say so, because
-    /// the pane placeholder doesn't show once the tree has rows.
+    /// A column opened into a folder with nothing in it says so: the pane placeholder doesn't show
+    /// once the tree has rows.
     @Test func drilledIntoAGenuinelyEmptyFolderStillSaysEmpty() {
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1,
                                              isUnexplored: false, isLoading: false, isBeingRead: false) == .empty)
@@ -50,12 +44,8 @@ import Testing
                                              isUnexplored: true, isLoading: false, isBeingRead: false) == .unreadable)
     }
 
-    /// The pane's walk outranks unexplored, and that ordering is what keeps the caption true.
-    /// During the shallow first paint every directory is unexplored, so without it the column would
-    /// say "can't be read" about folders that are merely next in the queue.
-    ///
-    /// And the answer is silence, not a spinner: the walk has one busy indicator, the pane's corner
-    /// chip (`PaneBusyIndicator`), so a column says nothing.
+    /// The pane's walk outranks unexplored: during the shallow first paint every directory is
+    /// unexplored. The answer is silence; the walk's one busy indicator is `PaneBusyIndicator`.
     @Test func thePanesWalkSilencesEveryEmptyColumn() {
         for unexplored in [true, false] {
             for beingRead in [true, false] {
@@ -66,9 +56,8 @@ import Testing
         }
     }
 
-    /// Under a type filter a column with no rows is a filtered one, not an empty one: a folder's
-    /// column stays open when the filter changes, and its files are hidden, not gone. An unread
-    /// folder still says it can't be read, since the filter knows nothing about it either.
+    /// Under a type filter a column with no rows is filtered, not empty; an unread folder still says
+    /// it can't be read.
     @Test func aColumnTheTypeFilterEmptiedSaysSo() {
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: false,
                                              isLoading: false, isBeingRead: false, typeFiltered: true) == .filteredOut)
@@ -82,10 +71,8 @@ import Testing
 
     // MARK: - Wording
 
-    /// The loading state draws a spinner and no text: a caption beside it would say the same thing
-    /// twice. The apostrophe is the typographic one (U+2019), matching
-    /// `DestinationFolderListing.emptyMessage` exactly: an ASCII `'` would be two surfaces phrasing
-    /// one state two ways, in the one character nobody proofreads.
+    /// The loading state draws a spinner and no text. The apostrophe is U+2019, matching
+    /// `DestinationFolderListing.emptyMessage` exactly.
     @Test func onlyTheTwoSettledStatesCarryText() {
         #expect(PaneColumnsView.Caption.empty.text == "Empty")
         #expect(PaneColumnsView.Caption.unreadable.text == "Can’t be read")
@@ -93,9 +80,8 @@ import Testing
     }
 }
 
-/// A folder being read is not a folder that can't be read. A column opening a directory past the
-/// node budget waits for its listing, briefly on a warm cache and longer on a cold one, and must
-/// show a spinner meanwhile, not "Can't be read".
+/// A folder being read is not a folder that can't be read: a column waiting for its listing shows a
+/// spinner, not "Can't be read".
 @Suite struct PaneColumnBeingReadCaptionTests {
 
     /// Unexplored, the pane's own walk finished, and a listing on its way.
@@ -114,24 +100,16 @@ import Testing
                                              isLoading: false, isBeingRead: true) == nil)
     }
 
-    /// A genuinely empty folder stays "Empty" even if something asked about it: the request is
-    /// idempotent and can be outstanding for a folder that turns out to have nothing in it.
+    /// A genuinely empty folder stays "Empty" while a request about it is outstanding.
     @Test func anEmptyWalkedFolderIsStillEmptyWhileARequestIsOutstanding() {
         #expect(PaneColumnsView.emptyCaption(rowsEmpty: true, depth: 1, isUnexplored: false,
                                              isLoading: false, isBeingRead: true) == .empty)
     }
 }
 
-/// When a column asks for a directory the walk didn't read: the other half of the same rule.
-///
-/// The caption says what the column draws; this says what it does, and the two failures are
-/// opposite. Too eager: during the shallow first paint every folder is unexplored, so a rule
-/// without the `isLoading` term queues a listing per visible row and duplicates the deep walk. Too
-/// rare: a column past `FileSyncManager.paneNodeBudget` stays blank for as long as the pane is on
-/// that root.
-///
-/// The call sites are `.onAppear` and `.onChange`, which a test can't fire, so the decision is a
-/// pure static and this checks it.
+/// When a column asks for a directory the walk didn't read. Too eager duplicates the deep walk
+/// during the shallow first paint; too rare leaves a column past `FileSyncManager.paneNodeBudget`
+/// blank. The call sites (`.onAppear`, `.onChange`) can't be fired, so the rule is a pure static.
 @Suite struct PaneColumnRequestRuleTests {
 
     /// Every cell of the table, pinned, so a third term added later has to decide about each.
@@ -140,9 +118,7 @@ import Testing
         (false, true, true),
         // Never mid-walk: every directory is unexplored during the shallow paint.
         (true, true, false), (true, false, false),
-        // Never for a folder that was read. An empty folder is not a missing one: a request here
-        // would relist the same empty directory on every render, since the answer can never clear
-        // a mark that isn't set.
+        // Never for a folder that was read, or an empty one would be relisted on every render.
         (false, false, false),
     ])
     func theRequestRule(isLoading: Bool, isUnexplored: Bool, asks: Bool) {

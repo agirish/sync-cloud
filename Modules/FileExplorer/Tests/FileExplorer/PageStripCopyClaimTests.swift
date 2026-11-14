@@ -2,13 +2,9 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// What the shipped words promise about the page strip, held against what the strip draws: no text
-/// may say a page carries a dot before it is compared, since `PageDiffState.dot` returns nil for
-/// `.pending`. Prose has no compiler, so this is the only thing that keeps it in step.
-///
-/// Source-level because the claim lives in prose, in files no Swift test otherwise reads. Built
-/// like `BareKeyEquivalentScanTests`: name what is scanned, fail loudly when a file can't be read,
-/// and keep a positive control so a rename can't hollow the scan out.
+/// The shipped words about the page strip, held against what it draws: no text may say a page
+/// carries a dot before it is compared (`PageDiffState.dot` is nil for `.pending`). A prose scan
+/// like `BareKeyEquivalentScanTests`, failing loudly on an unreadable file, with a positive control.
 @Suite struct PageStripCopyClaimTests {
 
     /// The repo root, derived from this file's own path.
@@ -19,9 +15,8 @@ import Testing
         .deletingLastPathComponent()   // …/Modules
         .deletingLastPathComponent()   // …/
 
-    /// Every place the strip is described to a person: the in-app Help, the notes, and the page
-    /// GitHub Pages serves. `MacApp/` is in no SPM package, so a sweep from here is the only test
-    /// that reads it at all.
+    /// Every place the strip is described: in-app Help, the notes, and the Pages site. `MacApp/` is
+    /// in no SPM package, so this is the only test that reads it.
     private static let shippedTexts = [
         "MacApp/HelpBook.swift",
         "RELEASE_NOTES.md",
@@ -47,10 +42,9 @@ import Testing
                             "cannot read \(url.path) — this check would be vacuous")
     }
 
-    /// The rule: nothing that describes the strip, prose or doc comment, says a page is marked
-    /// before it is compared. The pattern is deliberately narrow: "until" is what makes it a
-    /// promise about the waiting state. Banning "grey dot" outright would also ban the sentences
-    /// that say a grey dot is exactly what this strip doesn't draw.
+    /// Nothing that describes the strip says a page is marked before it is compared. Narrow on
+    /// purpose: "until" makes it a promise about waiting; banning "grey dot" would ban the
+    /// sentences saying the strip doesn't draw one.
     @Test(arguments: shippedTexts) func nothingPromisesAPendingDot(_ file: String) throws {
         let text = try Self.read(file).lowercased()
         for claim in ["grey until", "gray until"] {

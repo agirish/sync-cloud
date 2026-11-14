@@ -3,12 +3,10 @@ import Foundation
 @testable import FileExplorer
 
 /// The background half of autosave: what a write carries, what it commits, and what it refuses to
-/// commit because something newer got there first.
-///
-/// Autosave writes a snapshot off the main actor, and three things can happen while the bytes are
-/// in flight: more typing, a ⌘S or quit flush writing the newer buffer, or another file opening.
-/// Each has a silent wrong answer (a dirty document reading clean, an older version landing on a
-/// newer one, an alert about the app's own change), so each gets a test.
+/// commit because something newer got there first. While the bytes are in flight there may be more
+/// typing, a ⌘S or quit flush, or another file opening; each has a silent wrong answer (a dirty
+/// document reading clean, an older version landing on a newer one, an alert about the app's own
+/// change).
 @MainActor
 @Suite struct EditorAutosaveSnapshotTests {
 
@@ -161,12 +159,9 @@ import Foundation
     // MARK: - A synchronous save meeting a background write that has landed (FR50)
 
     /// Opens a note, types, dispatches autosave's background write, and returns once its bytes are
-    /// on disk, holding the main actor from the moment it left so the commit (a main-actor hop)
-    /// can't have run. Until its first `await`, the caller is inside the window between swap and
-    /// commit.
-    ///
-    /// Retried when there is no window: awaiting an already-finished task doesn't suspend, so on a
-    /// loaded machine the commit can run in the write's own turn. That attempt is discarded.
+    /// on disk, holding the main actor so the commit (a main-actor hop) can't have run: until its
+    /// first `await`, the caller is between swap and commit. Retried when there is no window:
+    /// awaiting a finished task doesn't suspend, so under load the commit can run in the write's turn.
     private func landedAndUncommitted(in folder: URL)
         async throws -> (EditorDocument, URL, Task<EditorAutosave.Outcome, Never>) {
         for attempt in 0..<8 {

@@ -5,10 +5,8 @@ import Testing
 /// Work on the compare card must not outlive it, or be redone for nothing. Two long jobs are out
 /// of `.task(id:)`'s reach: the line diff is a `Task.detached`, which doesn't inherit
 /// cancellation, and the ↑/↓ page walk is a `Task` from a button handler. A token only discards a
-/// stale result while the work runs on, so each needs cancelling too.
-///
-/// A scan, not a mounted test, for `CompareRasterTokenScanTests`' reason: proving a task stopped
-/// would be a timing test over an absence.
+/// stale result while the work runs on, so each needs cancelling too. A scan, not a mounted test,
+/// for `CompareRasterTokenScanTests`' reason: proving a task stopped would time an absence.
 @Suite struct CompareWorkLifetimeTests {
 
     private func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }
@@ -30,8 +28,7 @@ import Testing
                 the page walk checks only its token, so a cancelled search still renders up to \
                 `PageDifferenceStepper.renderBudget` page pairs
                 """)
-        // The positive control: the token guard is still there, so green can't mean the loop lost
-        // its guards altogether.
+        // Positive control: the token guard is still there, so green can't mean no guards at all.
         #expect(body.contains("pageSearchToken == token"),
                 "the search no longer guards on its token — re-aim this scan")
     }
@@ -95,8 +92,7 @@ import Testing
                 """)
     }
 
-    /// Leaving the difference mode must not downgrade what was computed. The rule is a value so it
-    /// can be asserted without a mounted surface, two PDFs and a dot's colour.
+    /// Leaving the difference mode must not downgrade what was computed.
     @Test func anAlignedVerdictSurvivesAModeToggleAndAnUnalignedOneIsUpgraded() {
         let page = "pair|3|pdf|true|true|12"
         // Difference → swipe: aligned in hand, alignment no longer wanted. Keep it.

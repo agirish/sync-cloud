@@ -5,9 +5,8 @@ import AppKit
 import FileExplorerTestSupport
 
 /// The selection's two answers, derived beside the workspace: the status line's counts and the
-/// format bar's lit state, from the length a drag writes into ``EditorLiveSelection``. Mounted with
-/// a live box and bindings, so what is tested is the view the workspace draws, fed the way a drag
-/// feeds it; then the whole path in a mounted workspace, read off its status line.
+/// format bar's lit state, from the length a drag writes into ``EditorLiveSelection``. The view the
+/// workspace draws, fed as a drag feeds it; then the whole path in a mounted workspace.
 ///
 /// Waits await, never spin. The answers come from main-actor tasks, and a synchronous run-loop spin
 /// on the main actor starves them: they wake only after the test has returned, cancelled.
@@ -104,10 +103,9 @@ import FileExplorerTestSupport
 
     /// A selection is not counted beside the document's counts of another text. Just after an edit
     /// those are the last text's for their own debounce, and the pair would read "13 of 12 words".
-    /// It waits, and is counted the moment they catch up, reusing them for a select-all.
-    ///
-    /// The marker counts are deliberately wrong for the text, so a reuse shows as 900 words and a
-    /// fresh count as 3. The current rig is the probe the stale one is waited out on.
+    /// It waits, and is counted the moment they catch up, reusing them for a select-all. The marker
+    /// counts are wrong for the text on purpose, so a reuse shows as 900 words and a fresh count as 3.
+    /// The current rig is the probe the stale one is waited out on.
     @Test func aSelectionWaitsForTheDocumentsCountsOfThisText() async throws {
         let text = "one two three"
         let marker = EditorDocumentFacts(words: 900, characters: 901, lines: 902, lineEnding: nil, encoding: nil)

@@ -3,19 +3,14 @@ import Testing
 @testable import FileExplorer
 
 /// Pins `LayoutPumpWait.poll`'s pass floor, the non-pumping wait `PaneColumnsScrollTests` uses to
-/// watch for the overscroll pull home.
+/// watch for the overscroll pull home. The flake the floor prevents shows only under load, but the
+/// guarantee is deterministic: a counter and an already-spent deadline prove it in under a second.
 ///
-/// The flake the floor prevents shows only under load, but the floor's guarantee is deterministic:
-/// a property of this loop, provable with a counter and an already-spent deadline in well under a
-/// second.
+/// No test checks that `poll` avoids pumping layout: it takes no view or window, so the signature
+/// carries that, and the doc comment on `LayoutPumpWait.poll` stops it being folded into `pump`.
 ///
-/// There is deliberately no test that `poll` avoids pumping layout: it takes no view and no window,
-/// so the signature carries that. What stops someone folding `poll` into `pump` is the doc comment
-/// on `LayoutPumpWait.poll`.
-///
-/// The loop evaluates `condition()` once more after the deadline, so the real guarantee is
-/// `floor + 1` evaluations. Dropping `passes < floor` from the loop must fail
-/// `theFloorOutlivesAnExpiredDeadline`.
+/// The loop re-checks `condition()` once after the deadline, so the guarantee is `floor + 1`
+/// evaluations. Mutation: dropping `passes < floor` must fail `theFloorOutlivesAnExpiredDeadline`.
 @MainActor
 @Suite struct LayoutPumpWaitPollTests {
 
@@ -66,14 +61,13 @@ import Testing
                 """)
     }
 
-    /// While the deadline is live, the wait continues past the floor. Deleting
-    /// `|| now() < deadline` would cap every wait at the floor, and must fail this test.
+    /// While the deadline is live, the wait continues past the floor. Mutation: deleting
+    /// `|| now() < deadline` caps every wait at the floor and must fail it.
     ///
-    /// Driven by a frozen clock, which makes it a test rather than a bet: through real time no
-    /// deadline is safe, because seconds don't convert to passes at any fixed rate under load
-    /// (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps"). The demand is `floor + 2`: a
-    /// floor-only loop reaches `floor + 1` through the post-deadline re-check, so two past is the
-    /// smallest demand it can't meet.
+    /// A frozen clock, because through real time no deadline is safe: seconds don't convert to
+    /// passes at any fixed rate under load (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
+    /// The demand is `floor + 2`: a floor-only loop reaches `floor + 1` through the post-deadline
+    /// re-check, so two past is the smallest demand it can't meet.
     @Test func aLiveDeadlineCarriesTheWaitPastTheFloor() async {
         var passes = 0
         let needed = Self.testFloor + 2

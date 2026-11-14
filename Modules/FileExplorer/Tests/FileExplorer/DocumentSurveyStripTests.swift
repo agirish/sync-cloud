@@ -59,11 +59,9 @@ import Testing
     }
 }
 
-/// The strip is drawn where the workspace's header ends, on every lens.
-///
-/// A source scan, because no unit test notices a view that is never instantiated.
-/// `DocumentSurveyStripTests` checks which states the strip appears for, not that anything draws
-/// it; showing on the five lenses without the card is a property of the call site.
+/// The strip is drawn where the workspace's header ends, on every lens. A source scan, because no
+/// unit test notices a view that is never instantiated; showing on the five lenses without the
+/// card is a property of the call site.
 @Suite struct DocumentSurveyStripCallSiteTests {
 
     private static func lensWorkspaceSource() throws -> String {

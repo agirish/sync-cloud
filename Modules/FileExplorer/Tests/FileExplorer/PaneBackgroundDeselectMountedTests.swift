@@ -6,11 +6,8 @@ import Sync
 @testable import FileExplorer
 
 /// Where the deselect target lands once the pane is mounted: `PaneBackgroundDeselectTests` pins the
-/// decision, this pins the wiring.
-///
-/// Neither can pin the click itself. A `swift test` process can't make a window key, so a synthetic
-/// click never commits a selection; the end-to-end proof is a `[deselect]` line in a live session's
-/// log.
+/// decision, this the wiring. Neither pins the click: a `swift test` process can't make a window
+/// key, so a synthetic click never commits a selection.
 @MainActor
 @Suite struct PaneBackgroundDeselectMountedTests {
 
@@ -56,12 +53,8 @@ import Sync
         }
     }
 
-    /// Polls for a condition instead of sleeping a fixed interval; a fixed settle holds the main
-    /// thread long enough to starve other mounted suites in the parallel run. Returns whether the
-    /// condition held, so a caller can assert on it.
-    ///
-    /// The loop is `LayoutPumpWait.pump`; see `pumpFloor` there for why a wall-clock deadline alone
-    /// doesn't bound a congested main actor.
+    /// Polls for a condition (`LayoutPumpWait.pump`) instead of a fixed settle, which would starve
+    /// other mounted suites. Returns whether it held.
     @discardableResult
     private func settle(_ window: NSWindow, timeout: Double = 5,
                         until condition: () -> Bool) async -> Bool {
@@ -101,18 +94,14 @@ import Sync
         view.gestureRecognizers.filter { $0.delegate is PaneBackgroundDeselect.CatcherView }
     }
 
-    /// Every column carries the target, on its own table, exactly once. Fails if `column` drops its
-    /// `.background(PaneBackgroundDeselect { … })`, if `PaneListResolver` resolves only the first
-    /// column, or if a rebuilt list keeps its old recognizer: drilling replaces the column stack,
-    /// and a recognizer kept per drill would fire the deselect many times per click.
+    /// Every column carries the target, on its own table, exactly once: a recognizer kept per drill
+    /// would fire the deselect many times per click.
     @Test func testEveryColumnCarriesTheDeselectTarget() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }
 
         #expect(columns.count == 3, "fixture should open three columns, got \(columns.count)")
-        // Waiting for a recognizer to appear can't make this pass falsely: the assertion below
-        // still runs, and fails, if the wait times out. It only stops a slow install reading as a
-        // missing one.
+        // The wait only stops a slow install reading as a missing one; the assertion below still runs.
         let tables = columns.compactMap { $0.documentView as? NSTableView }
         await settle(window) { tables.allSatisfy { self.deselectRecognizers($0).count == 1 } }
         for (index, table) in tables.enumerated() {
@@ -121,10 +110,8 @@ import Sync
         }
     }
 
-    /// The premise for putting the recognizer on the table, not the clip view: SwiftUI stretches
-    /// its table to fill the viewport, so the empty area below the rows belongs to the table and a
-    /// click there hit-tests straight to it. If a future SwiftUI stops stretching, this fails and
-    /// the attachment point needs revisiting.
+    /// The premise for putting the recognizer on the table: SwiftUI stretches it to fill the
+    /// viewport, so a click below the rows hit-tests to it.
     @Test func testTheColumnTablesFillTheirViewports() async throws {
         let (window, _, columns, _) = try await mount(paneWidth: 520, depth: ["a2", "b1"])
         defer { _ = window }

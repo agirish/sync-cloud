@@ -3,16 +3,14 @@ import Foundation
 import CoreGraphics
 @testable import FileExplorer
 
-/// Does the estimator recover a transform it was given? Asked on synthetic pairs where the answer
-/// is known exactly: a page rendered once, then re-rendered shifted and skewed by amounts this file
-/// chose. A test over real scans could only say the number looked plausible; these say how close
-/// the estimate came, or fail.
+/// Does the estimator recover a transform it was given? Synthetic pairs where the answer is known
+/// exactly: a page re-rendered shifted and skewed by amounts this file chose.
 @Suite struct PageRegistrationTests {
 
     typealias Grid = PageRegistrationEstimator.Grid
 
-    /// A synthetic page: paper with text-like bars and a rule, enough structure for correlation to
-    /// have something to lock onto. Deterministic — no randomness, so a failure is reproducible.
+    /// A deterministic synthetic page: paper with text-like bars and a rule for correlation to lock
+    /// onto.
     private func page(width: Int = 256, height: Int = 331) -> Grid {
         var samples = [Double](repeating: 1, count: width * height)
         func fill(_ x0: Int, _ y0: Int, _ w: Int, _ h: Int, _ value: Double) {
@@ -113,9 +111,8 @@ import CoreGraphics
                 "an identical pair claimed an alignment (\(got.degrees)°, \(got.dx), \(got.dy), confidence \(got.confidence))")
     }
 
-    /// Two different pages must not be forced into agreement. A search always returns its best
-    /// candidate, and "best" over two unrelated pages is meaningless; the confidence floor stops
-    /// it.
+    /// Two different pages must not be forced into agreement: a search always returns its best
+    /// candidate, and the confidence floor stops it.
     @Test func twoDifferentPagesReportLowConfidence() {
         let a = page()
         var other = [Double](repeating: 1, count: 256 * 331)
@@ -189,15 +186,10 @@ import CoreGraphics
                 "the declined alignment still changed what was compared")
     }
 
-    /// The glow and the outlines come from one comparison on every path out of `compareAligning`.
-    /// The picture is the per-channel distance, so counting its pixels that clear
-    /// ``BitmapDiff/tolerance`` must reproduce `changedFraction` exactly. Fails if the picture is
-    /// drawn from the unaligned pair while the figures come from the aligned one.
-    ///
-    /// Covers all three returns, since the estimator refuses most real pairs and the fallback is
-    /// what a reader usually gets. Two guards keep it from going vacuous: each case must take the
-    /// branch it is named for, and on the aligned case the unaligned picture must actually
-    /// disagree.
+    /// The glow and the outlines come from one comparison on all three returns of
+    /// `compareAligning`: the picture's pixels over ``BitmapDiff/tolerance`` reproduce
+    /// `changedFraction` exactly. Each case must take its branch, and on the aligned one the
+    /// unaligned picture must disagree. Mutation: drawing the picture from the unaligned pair.
     @Test func thePictureAndTheFigureAreOfTheSamePair() throws {
         let left = try barPage(edited: false)
 
@@ -244,9 +236,8 @@ import CoreGraphics
         }
     }
 
-    /// A caller that didn't ask for the picture must not get one on the aligned path. The
-    /// difference raster is a third full-page image (~13 MB at the sheet's size) that the swipe and
-    /// onion modes never draw; `CompareCopiesSheet.wantsAlignedDifference` exists to spare them it.
+    /// A caller that didn't ask for the picture gets none on the aligned path: a third full-page
+    /// image (~13 MB) that swipe and onion never draw (`CompareCopiesSheet.wantsAlignedDifference`).
     @Test func askingForNoPictureOnAnAlignedPairAllocatesNone() throws {
         let left = try barPage(edited: false)
         let right = try skewed(barPage(edited: true), degrees: -1.0)

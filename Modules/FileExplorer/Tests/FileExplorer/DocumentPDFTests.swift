@@ -3,15 +3,12 @@ import Foundation
 import PDFKit
 @testable import FileExplorer
 
-/// The printed document, read back out of the bytes it was rendered into.
-///
-/// PDFKit is the check, not a snapshot. File ▸ Print… and File ▸ Export as PDF… promise what is on
-/// the page (the words, as text, with no break inside a heading), and the rendered file can be asked
-/// that directly; a snapshot would pass just as happily on three blank sheets.
+/// The printed document, read back out of the bytes it was rendered into. PDFKit is the check,
+/// not a snapshot: File ▸ Print… and File ▸ Export as PDF… promise what is on the page (the words,
+/// as text, with no break inside a heading), and a snapshot would pass on three blank sheets.
 ///
 /// An `NSHostingView` handed to `NSPrintOperation` produces correctly paginated, entirely empty
-/// paper. Extracted text is empty in that state, so every test reads the text back rather than
-/// trusting a byte count.
+/// paper, so every test reads the text back rather than trusting a byte count.
 @MainActor
 @Suite struct DocumentPDFTests {
 

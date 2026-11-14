@@ -3,11 +3,8 @@ import Testing
 @testable import FileExplorer
 
 /// The gate that makes clicking a pane's empty space safe: `acceptsClick` decides whether the
-/// deselect recognizer engages at all, and a refusal leaves the click to the list's own mouse
-/// handling, untouched.
-///
-/// The predicate the whole feature rests on. Two things claiming one click is how this pane breaks,
-/// so the case that matters most is the negative one: a click on a row must be invisible to this.
+/// deselect recognizer engages, and a refusal leaves the click to the list. The case that matters
+/// most is the negative one: a click on a row must be invisible to this.
 @MainActor
 @Suite struct PaneBackgroundDeselectTests {
 
@@ -21,12 +18,8 @@ import Testing
 
     private var source: Source?
 
-    /// A table with 200pt of empty area below its last row: the shape a pane list has when its rows
-    /// don't fill the viewport, and the case this file is about.
-    ///
-    /// Row positions are read back from the table, not computed. A row's pitch is `rowHeight` plus
-    /// `intercellSpacing`, and hand-computed points meant for row 4 can land in the empty area
-    /// below.
+    /// A table with 200pt of empty area below its last row. Row positions are read back from the
+    /// table, not computed: a row's pitch includes `intercellSpacing`.
     private mutating func table(rows: Int) -> NSTableView {
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
         table.addTableColumn(NSTableColumn(identifier: .init("name")))
@@ -62,8 +55,8 @@ import Testing
 
     // MARK: The refusals
 
-    /// A click on a row is refused: every row and both its edges, not just a midpoint: an off-by-one at a row boundary would
-    /// leave a sliver of a row deselecting instead of selecting, an intermittent dead click.
+    /// A click on a row is refused, at every row and both its edges: an off-by-one at a boundary
+    /// would leave a sliver that deselects instead of selecting.
     @Test mutating func testNoPointOverAnyRowIsAccepted() {
         let table = table(rows: 5)
         for row in 0..<5 {
@@ -77,11 +70,8 @@ import Testing
 
     // MARK: The acceptance
 
-    /// A click `below` points under the last row, with `modifiers` held. The first pixel past the
-    /// last row already counts: no gap between "the list ends" and "the click deselects". ⌘ and ⇧
-    /// are the list's own extend and range-select, so deselecting when one misses a row by a pixel
-    /// would collapse the selection being built; ⌥, the pane's mirror modifier held routinely while
-    /// navigating, must not disable the gesture.
+    /// A click `below` points under the last row with `modifiers` held. The first pixel past the last
+    /// row counts; ⌘ and ⇧ (extend, range-select) refuse, while ⌥, the mirror modifier, does not.
     @Test(arguments: [
         (150, [], true), (0.5, [], true),
         (150, .command, false), (150, .shift, false), (150, .option, true),

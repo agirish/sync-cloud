@@ -7,9 +7,8 @@ import Sync
 
 /// Clicking a folder must open its column, whichever half of the click fires. `TapGesture` fails
 /// if the pointer drifts even slightly, while `NSTableView` selects on mouse-down regardless, so a
-/// click can select without tapping: the folder highlights and its column never opens (`[sel]`
-/// log lines with no `[tap]`). Navigation therefore follows whichever source commits. These pin
-/// the source the gesture can't cover: a selection driven through the real `NSTableView`.
+/// click can select without tapping. Navigation therefore follows whichever source commits; these
+/// pin the source the gesture can't cover, a selection driven through the real `NSTableView`.
 @MainActor
 @Suite struct ColumnDrillSourceTests {
 
@@ -72,14 +71,11 @@ import Sync
     }
 
     /// Pumps layout until `condition` holds, letting the main dispatch queue drain between polls.
-    ///
     /// The `await` matters: a `@MainActor` test body occupies the main queue, so the pane's
-    /// `DispatchQueue.main.async` navigation can't run until the body suspends. Spinning the run
-    /// loop instead leaves the block queued until teardown.
-    ///
-    /// The deadline bounds only a failing run, and `LayoutPumpWait`'s pass floor keeps a starved
-    /// one from giving up early. On timeout it `#require`s, naming the wait, because falling
-    /// through would report "browse = []", the very defect the suite catches.
+    /// `DispatchQueue.main.async` navigation can't run until the body suspends; spinning the run
+    /// loop instead leaves the block queued until teardown. `LayoutPumpWait`'s pass floor keeps a
+    /// starved run from giving up early. On timeout it `#require`s, because falling through would
+    /// report "browse = []", the very defect the suite catches.
     private func settle(_ window: NSWindow, _ premise: String, deadline: TimeInterval = 20,
                         until condition: () -> Bool) async throws {
         let wait = await LayoutPumpWait.pump(window, upTo: deadline, until: condition)
@@ -88,7 +84,7 @@ import Sync
 
     private func tables(_ view: NSView) -> [NSTableView] { PaneSearchTreeRevealTests.tables(view) }
 
-    /// The reported bug: a folder selected without the tap firing must still open its column.
+    /// A folder selected without the tap firing must still open its column.
     @Test func testAListCommittedFolderSelectionOpensItsColumn() async throws {
         let box = Box()
         let window = mount(box)
@@ -153,10 +149,9 @@ import Sync
 
     /// The other half of the rule: a ⇧-click selects and does not navigate, because ⇧ is the list's
     /// range-select and navigating would collapse the selection to the clicked row. Unpinned, a ⇧
-    /// held at the Mac would make the tests above fail this way.
-    ///
-    /// Not vacuous: `selection` is written before the guard, so waiting for it proves the commit
-    /// reached the guard, and the missing navigation is then about the guard, not the clock.
+    /// held at the Mac would make the tests above fail this way. Not vacuous: `selection` is
+    /// written before the guard, so waiting for it proves the commit reached the guard, and the
+    /// missing navigation is then about the guard, not the clock.
     @Test func testAShiftHeldSelectionSelectsWithoutOpeningAColumn() async throws {
         let box = Box()
         let window = mount(box, modifiers: .shift)

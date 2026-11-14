@@ -6,9 +6,7 @@ import Foundation
 /// invalidation can land while one is in flight; a resuming stat must not write its superseded
 /// answer back into the cleared memo, where it would serve the row until the next republish.
 /// `forget(_:)` is the sharp case: it runs because a download was requested, so the answer it races
-/// is the stale "still cloud-only" one.
-///
-/// `.serialized` because the cache is process-wide static state and these tests write it.
+/// is the stale "still cloud-only" one. `.serialized`: the cache is process-wide and these write it.
 @Suite(.serialized) struct CloudOnlyBadgeCacheTests {
 
     /// Clears every root these fixtures use, and nothing else. `.serialized` orders this suite only
@@ -125,11 +123,9 @@ import Foundation
     }
 
     /// Another path's `record` leaves this stat free to memoize, which is why the check above is
-    /// per-entry, not a generation bump in `record`. A `List` realizes rows by the dozen, each
-    /// stat-and-record, so a bump would leave the memo writing almost nothing while scrolling.
-    /// Contrast the `.forgetOfAnotherPath` window of
-    /// `aStatIsMemoizedOnlyIfNothingInvalidatedItsWindow`: a forget throws an answer away, so it
-    /// is global; a record only adds one.
+    /// per-entry, not a generation bump in `record`: a `List` realizes rows by the dozen, each
+    /// stat-and-record, so a bump would leave the memo writing almost nothing while scrolling. A
+    /// forget throws an answer away, so it is global (the `.forgetOfAnotherPath` window).
     @MainActor
     @Test func anotherPathsRecordDoesNotStopThisStatMemoizing() async {
         reset()
@@ -149,15 +145,13 @@ import Foundation
 
     // MARK: - A stat that could not answer
 
-    /// A stat that can't answer memoizes nothing. The badge's stat must not fold "can't stat" into
-    /// `false`, or a row for a just-vanished path memoizes "local content" for a missing file and is
-    /// served it without a syscall. The caller still gets `false` (no badge either way), so this is
-    /// purely a caching rule. Uses the production stat, since that mapping is what's under test.
+    /// A stat that can't answer memoizes nothing: folding "can't stat" into `false` would memoize
+    /// "local content" for a just-vanished file and serve it without a syscall. The caller still
+    /// gets `false` (no badge either way). Uses the production stat, since that mapping is under test.
     ///
     /// On a `Table` of its own so it can't go vacuous: the real stat suspends off the main actor,
     /// and on the shared table any parallel `forget` or `clear` (`PaneDownloadWatch.begin` forgets
-    /// per request) would bump the generation and make `record(path, answer ?? false)` decline for
-    /// the wrong reason. `anInjectedStatWithNoAnswerIsNotMemoized` pins the rule at the seam.
+    /// per request) would bump the generation and make the record decline for the wrong reason.
     @MainActor
     @Test func aStatThatCouldNotAnswerIsNotMemoized() async {
         let gone = "/fixture/vanished-\(UUID().uuidString).bin"
@@ -184,7 +178,7 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached(path) == nil)
     }
 
-    // MARK: - Root-scoped clear (C11)
+    // MARK: - Root-scoped clear
 
     /// One pane's republish drops every answer under its root, at any depth, and none the other
     /// pane's rows still serve from. Prefixes match per path component: `/a/bc` is not under
@@ -235,8 +229,7 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
         #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == false)
 
-        // The same guard as a rule: only an absolute root scopes a clear. A relative string can't
-        // prefix a key the walk produced, so matching it would take nothing or, like `""`,
+        // Only an absolute root scopes a clear: a relative one would take nothing or, like `""`,
         // everything.
         CloudOnlyBadgeCache.clear(underRoot: "left")
         #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
@@ -278,10 +271,9 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/memo-root/x.bin") == nil)
     }
 
-    /// The capacity wipe is a bulk invalidation and must bump the generation like any other.
-    /// `isCloudOnly` memoizes only if the generation hasn't moved and the entry is still nil. A wipe
-    /// can remove an answer written while the stat was out (a watch's landed `false`), leaving the
-    /// entry nil; without a bump the stat would write its pre-download `true` back in.
+    /// The capacity wipe is a bulk invalidation and must bump the generation: it can remove an
+    /// answer written while the stat was out (a watch's landed `false`), leaving the entry nil, and
+    /// without a bump the stat would write its pre-download `true` back in.
     ///
     /// On a `Table` of its own: reaching the wipe means filling the table, and filling the
     /// process-wide memo would drop entries parallel suites assert on (`docs/flaky-tests.md`, "A
@@ -298,10 +290,8 @@ import Foundation
             return true
         })
 
-        // The caller still gets its answer: it is the best truth available.
         #expect(answer)
-        // But the wipe dropped whatever was written while this stat was out, so the answer must not
-        // be adopted.
+        // The wipe dropped what was written while the stat was out, so its answer isn't adopted.
         #expect(table.cached(path) == nil)
     }
 

@@ -54,12 +54,10 @@ struct CloudDownloadRoutingTests {
 
     /// `post`'s default channel, which the app uses and no other test reaches: a default of
     /// `NotificationCenter()` would pass every other test while the Download button announced to
-    /// nobody. The pane's half is
-    /// `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault`.
-    /// Observing `.default` is safe only because the path is unique per run. This post is harmless
-    /// only while no test mounts a pane on `.default`; one that did would arm a real watch on a
-    /// missing path for the poll's whole budget, which is why every mounting test takes a private
-    /// channel.
+    /// nobody. The pane's half is `FileTreeViewPaneNameTests.testAPaneMountsOnTheAppsChannelByDefault`.
+    /// Observing `.default` is safe because the path is unique per run; the post is harmless only
+    /// while no test mounts a pane on `.default`, which would arm a real watch on a missing path for
+    /// the poll's whole budget.
     @Test func theDefaultChannelIsTheAppsOwn() {
         let path = "/iCloud/default-channel-\(UUID().uuidString).pdf"
         var received: CloudDownloadRequest?

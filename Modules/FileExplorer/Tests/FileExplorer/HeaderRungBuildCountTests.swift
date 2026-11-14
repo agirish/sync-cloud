@@ -5,16 +5,14 @@ import Testing
 @testable import FileExplorer
 
 /// How many header rows the Compare header builds to lay itself out. `ViewThatFits` builds each
-/// child in turn until one fits, so searching the six rungs pays for a whole toolbar per rung down
-/// to the one chosen; the computed rung (`HeaderLadder`) builds the rung it chose, and the narrowest
-/// one behind it only when the layout engine's veto has to be asked. Nothing else fails if the
-/// search comes back.
+/// child until one fits, a whole toolbar per rung; the computed rung (`HeaderLadder`) builds its
+/// rung, plus the narrowest behind it only when the layout engine's veto has to be asked. Nothing
+/// else fails if the search comes back.
 ///
-/// Counted, not timed. The host's accessory is a probe that counts its body evaluations, and every
-/// header row draws the accessory once, so the mounted header's count over a lone row's count is
-/// how many rows it built. Measured: one or two at these widths; with the six-child search put
-/// back in `hedged`, three, four and six. The widths are where the search reaches past its first
-/// rung: in a pane wide enough for `.full` it builds one row too, and nothing can tell them apart.
+/// Counted, not timed: every header row draws the accessory, a probe counting its bodies, once, so
+/// the header's count over a lone row's is how many rows it built (one or two here; three to six
+/// with the search put back in `hedged`). The widths are where the search reaches past its first
+/// rung: at `.full` width it builds one row too, and nothing can tell them apart.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable)
 struct HeaderRungBuildCountTests {

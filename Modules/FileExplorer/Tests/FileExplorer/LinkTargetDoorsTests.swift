@@ -6,11 +6,10 @@ import Sync
 /// Every door asks about the file a link points to, not the link.
 ///
 /// `lstat` and `attributesOfItem` describe a link itself, always local and always tiny, so a door
-/// asking them about the link would open and download a cloud-only target unasked, or let a huge
-/// text file past Edit's cap. Each test makes real links in a temp folder and says "cloud-only"
-/// through the door's own `isCloudOnly` seam, only for the target file, matched by inode so neither
-/// the link nor a respelling of its path satisfies it. Asked about the link, each door answers
-/// "local".
+/// asking them about the link would download a cloud-only target unasked, or let a huge text file
+/// past Edit's cap. Each test makes real links and says "cloud-only" through the door's
+/// `isCloudOnly` seam for the target only, matched by inode so neither the link nor a respelling
+/// of its path satisfies it: a door that asks about the link answers "local".
 @MainActor
 @Suite(.serialized) final class LinkTargetDoorsTests {
     /// The suite's own reader, with a deadline no loaded run reaches: on the shared one a read

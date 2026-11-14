@@ -39,11 +39,8 @@ import Sync
     }
 
     /// The two ways this app makes an invisible affix visible must not disagree about how many
-    /// spaces a name has: `NameDisplay` is the panes' text form, `InvisibleNameMarking` (Sync) is
-    /// the same claim rendered as tinted cells by the Rename lens and the kept-names list.
-    ///
-    /// It lives here, not in Sync's `InvisibleNameMarkingTests`, because `NameDisplay` is a
-    /// FileExplorer type and Sync cannot see it.
+    /// spaces a name has: `NameDisplay` (the panes' text) and `InvisibleNameMarking` (Sync's
+    /// tinted cells). Here because Sync cannot see `NameDisplay`.
     @Test func markingAgreesWithNameDisplayOnPlainSpaces() {
         for name in ["Swimming", "Swimming ", "Swimming  ", " Swimming", "  x  ", " ", "   ", "a b"] {
             let marked = InvisibleNameMarking.cells(for: name).map(\.glyph).joined()

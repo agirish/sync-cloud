@@ -46,7 +46,7 @@ import Sync
         #expect(sides.map(\.paneName) == ["iCloud (left)", "iCloud (right)"])
     }
 
-    // MARK: Which sides offer Open in Edit (TE31)
+    // MARK: Which sides offer Open in Edit
 
     private func textRow(_ type: FileDifference.DifferenceType, enclosedItemCount: Int? = nil,
                          leftIsDirectory: Bool = false, rightIsDirectory: Bool = false) -> FileDifference {
@@ -259,7 +259,6 @@ import Sync
         let fire = try SourceText.block(opening: "private func copyRowFromMenu(", in: source)
         #expect(fire.contains("DifferenceRowMenu.copyRefusal(for: found, direction: direction)"),
                 "the item no longer re-checks the live row when it fires")
-        // A refusal is logged and said, not a silent return.
         #expect(fire.contains("Logger.shared.info(\"Row copy from its menu did nothing: \\(refusal)\")")
                 && fire.contains("syncManager.banner = .refusal(refusal, log: .warn)"),
                 "a Copy to … item that finds nothing to do returns silently again")
@@ -275,10 +274,9 @@ import Sync
                 "the item no longer copies the checked row, with its newer-file note")
     }
 
-    /// The Review table's menu has the Copy to … items its banner sends the user to ("right-click
-    /// its row to choose which to keep"). At source level: an undecided row offers the rule's
-    /// directions, and the item resolves the row when it fires, sends it as the Compare row does,
-    /// and marks it copied only when the copy lands.
+    /// The Review table's menu has the Copy to … items its banner sends the user to. At source
+    /// level: an undecided row offers the rule's directions, and the item resolves the row when it
+    /// fires, sends it as the Compare row does, and marks it copied only when the copy lands.
     @Test func theReviewTableMenuOffersAndSendsTheRowDirections() throws {
         let source = try SourceText.fileExplorer("DifferencesView.swift")
         let table = try SourceText.block(opening: "private func reviewTable(", in: source)

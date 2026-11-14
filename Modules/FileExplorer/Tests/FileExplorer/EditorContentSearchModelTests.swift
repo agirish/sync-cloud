@@ -38,12 +38,9 @@ import Sync
         try? await Task.sleep(for: .milliseconds(30))
     }
 
-    /// Waits for what the next assertion needs, bounded by `LayoutPumpWait`'s floor of passes
-    /// rather than by seconds, and fails at the caller when it never comes.
-    ///
-    /// All of it arrives on scheduler turns: the typing settle's task, the scan's events, and a
-    /// stream's end, counted by the `Task` its `onTermination` starts. A fixed `settle()` can fall
-    /// short under load. See `docs/flaky-tests.md`, "Fixed pumps and fixed sleeps".
+    /// Waits for what the next assertion needs, bounded by `LayoutPumpWait`'s floor of passes, not
+    /// seconds, and fails at the caller. It all arrives on scheduler turns, which a fixed settle can
+    /// fall short of under load (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     private func waitFor(_ what: String, sourceLocation: SourceLocation = #_sourceLocation,
                          until condition: () -> Bool) async {
         let wait = await LayoutPumpWait.poll(upTo: 5, until: condition)

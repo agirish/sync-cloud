@@ -36,7 +36,7 @@ struct DefaultsChangeObserverTests {
             for value in 1...50 { scratch.set(value, forKey: "probe") }
             written.signal()
         }
-        // The main thread, held, so nothing scheduled can run until the burst is over.
+        // Held, so nothing scheduled can run until the burst is over.
         #expect(holdingTheMainThread(until: written) == .success,
                 "a background defaults write waited on the main thread")
 

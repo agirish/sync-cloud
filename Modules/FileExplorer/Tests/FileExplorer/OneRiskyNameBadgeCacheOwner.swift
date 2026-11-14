@@ -18,8 +18,6 @@ import Testing
 /// fixture's.
 ///
 /// Applied as a trait so a new suite that touches the memo only has to add it to its declaration.
-/// Every current one does: `RiskyNameBadgePredicateTests`, `DifferencesRiskyNameRulesTests`,
-/// `RiskyNameBadgeMemoTests` and `RiskyNameBadgeColumnsMemoTests`.
 struct OneRiskyNameBadgeCacheOwner: SuiteTrait, TestTrait, TestScoping {
 
     /// `OneMountedDifferencesTable`'s cooperative gate, a separate instance: the two locks guard

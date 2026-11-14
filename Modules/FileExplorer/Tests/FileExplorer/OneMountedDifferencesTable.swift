@@ -2,11 +2,9 @@ import Testing
 
 /// Admits one mounted `DifferencesView` at a time across the suites that build them.
 ///
-/// Not a correctness gate: every mount seeds its own `ScratchDefaults` suite, so the suites share
-/// no state. It limits load. A `DifferencesView` mount is the most expensive main-actor job in this
-/// target, and with several such suites interleaving at their await points, other tests'
-/// run-loop-hop deadlines start missing under load. Anything on the main actor with a clock pays
-/// for unbounded concurrent mounts; this trait declines to make those odds worse.
+/// Not a correctness gate (every mount seeds its own `ScratchDefaults`): it limits load. A
+/// `DifferencesView` mount is the most expensive main-actor job in this target, and several
+/// interleaving at their await points make other tests' run-loop-hop deadlines miss under load.
 ///
 /// Applied as a trait so a new mounting suite only has to add it to its declaration.
 struct OneMountedDifferencesTable: SuiteTrait, TestTrait, TestScoping {

@@ -7,14 +7,10 @@ import Sync
 
 /// A row the host selects on the user's behalf is brought into view.
 ///
-/// The open document is selected in the left pane (by Edit's rail, every hand-off into Edit, Reveal
-/// in Browse, the header's "in <folder>", ⌘N), and a selection is not a reveal: a row 70 down can
-/// be selected far below the viewport. These tests measure arrival, as the search suite does: the
-/// row inside its `NSTableView`'s visible rectangle, and in Columns the column inside the stack's
-/// visible span, never a call returning.
-///
-/// Each case first establishes that its fixture could have failed: the row starts off screen, and
-/// selecting it alone (no reveal) leaves it there.
+/// A selection is not a reveal: a row 70 down can be selected far below the viewport. These tests
+/// measure arrival (the row inside its table's visible rectangle, in Columns the column inside the
+/// stack's visible span), never a call returning. Each case first shows its fixture could fail:
+/// the row starts off screen, and selecting it alone leaves it there.
 @MainActor
 @Suite(.serialized) struct PaneRowRevealTests {
 
@@ -143,8 +139,7 @@ import Sync
         return found
     }
 
-    /// The table listing `folder`'s files (the one with `rowCount` rows), and the row's index in
-    /// it.
+    /// The table listing `folder`'s files (the one with `rowCount` rows), and the row's index in it.
     static func table(listing count: Int, in window: NSWindow) -> NSTableView? {
         tables(window.contentView!).first { $0.numberOfRows == count }
     }
@@ -321,11 +316,9 @@ import Sync
         #expect(box.answered == [box.reveal].compactMap { $0 }, "the appearance's answer was not reported")
     }
 
-    /// Answered once: a host that retires the reveal when told, as the app does, gets a pane that,
-    /// mounted again with the row still selected, doesn't scroll back to it. Otherwise every
-    /// appearance (Browse and back, the pane collapsed and expanded) would jump the pane back to
-    /// the document. The control is the test above: the same mount with the reveal still standing
-    /// does scroll.
+    /// Answered once: a host that retires the reveal when told gets a pane that, mounted again with
+    /// the row still selected, doesn't scroll back to it, or every appearance would jump the pane
+    /// back to the document. The control is the test above, with the reveal still standing.
     @Test(arguments: [PaneViewMode.tree, .columns])
     func anAnsweredRevealIsNotScrolledBackToOnReappearing(mode: PaneViewMode) async throws {
         let box = Box()

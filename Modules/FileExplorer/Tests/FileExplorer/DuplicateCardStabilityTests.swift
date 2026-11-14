@@ -108,11 +108,10 @@ import Testing
 
     /// A long file name must not make the card taller. The path is one concatenated `Text`, which
     /// truncates as a single string; an `HStack` of one `Text` per crumb can't truncate and wraps
-    /// instead. Height is checked because growth is the harm: it pushes the thumbnail, fate chip
-    /// and actions apart.
+    /// instead, pushing the thumbnail, fate chip and actions apart.
     ///
     /// Not pinned: that the path line drops the file name. `crumbs(path)` in place of
-    /// `crumbs(path).dropLast()` survives this test, since the line truncates either way.
+    /// `crumbs(path).dropLast()` survives this, since the line truncates either way.
     @MainActor
     @Test func aVeryLongFileNameDoesNotGrowTheCard() {
         // Over 90 characters, wider than the 460pt card, shaped like a real name
@@ -145,11 +144,10 @@ import Testing
 
     // MARK: The grid tile
 
-    /// Why the stacked layout exists, measured: at a grid column's width the one-line header doesn't
-    /// fit, and a SwiftUI view that doesn't fit draws at the width it wants, not the one given. A
-    /// row header in a two-column grid would draw over the tile beside it.
-    ///
-    /// 220pt is the minimum the duplicates lens asks `LensCardGrid` for, the narrowest tile drawn.
+    /// Why the stacked layout exists: at a grid column's width the one-line header doesn't fit, and
+    /// a SwiftUI view that doesn't fit draws at the width it wants, not the one given, so a row
+    /// header in a two-column grid would draw over the tile beside it. 220pt is the minimum the
+    /// duplicates lens asks `LensCardGrid` for, the narrowest tile drawn.
     @MainActor
     @Test func theRowHeaderOverflowsAGridColumnAndTheStackedOneDoesNot() {
         let offered: CGFloat = 220
@@ -221,7 +219,7 @@ import Testing
     /// Every kind of note stays within the length budget, the only checkable form of "too long": a
     /// note grows a clause at a time, each defensible, until nobody reads any of them.
     @Test func everyNoteStaysInsideItsLengthBudget() {
-        // A real name from his cards, not a five-character stand-in.
+        // A real name from his cards.
         let realistic = "Passport Old - Mother - All Pages (Jul 2020) - Compressed.pdf"
         #expect(realistic.count > 55, "a positive control: this is the length that went over")
         for matchType: DuplicateMatchType in [.identical, .versions, .sameText,

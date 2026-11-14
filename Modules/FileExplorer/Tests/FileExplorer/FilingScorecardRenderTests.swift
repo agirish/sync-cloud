@@ -4,7 +4,7 @@ import Testing
 @testable import FileExplorer
 @testable import Sync
 
-/// TE341: the scorecard's line and Details sheet, rendered and read back.
+/// The scorecard's line and Details sheet, rendered and read back.
 @Suite(.serialized) @MainActor struct FilingScorecardRenderTests {
     static let root = "/R"
     static let now = Date()

@@ -5,20 +5,11 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Organize's overview, in pixels. Model assertions can be right while the screen is mostly empty,
-/// so these read the render back. Three claims: the offer is a control, not grey text; the findings
-/// carry real evidence, not a sample of one; and the pane is used.
-///
-/// ## Why this mounts `OrganizeOverview` and not `LensWorkspaceView`
-///
-/// Through `LensWorkspaceView` the first claim is untestable: a `.borderedProminent` button renders
-/// unfilled in an offscreen host, so "is there a filled accent control" reads false with the
-/// control on screen. Mounted directly, ``OrganizeOverview/runnablePasses`` is exactly the
-/// difference between drawing that button and not, so two renders differ only in the element
-/// under test.
-///
-/// Its pixel tests are `.machinePinned(.pixelSampling)`, like every test here that samples a live
-/// renderer; the source scan is not.
+/// Organize's overview, in pixels: the offer is a control, not grey text; the findings carry real
+/// evidence; and the pane is used. Mounts `OrganizeOverview`, not `LensWorkspaceView`: there a
+/// `.borderedProminent` button renders unfilled offscreen, while mounted directly
+/// ``OrganizeOverview/runnablePasses`` is exactly the difference between drawing it and not.
+/// Pixel tests are `.machinePinned(.pixelSampling)`; the source scan is not.
 @MainActor
 @Suite(.serialized) struct OrganizeOverviewRenderTests {
 
@@ -80,9 +71,8 @@ import Design
         return PixelDiff.differingPixels(a, b, tolerance: 0.04)
     }
 
-    /// Rows carrying real ink, measured against a background sampled where content never reaches.
-    /// Rows, not a pixel tally, because an ink count can't tell a tall card from a dense one, and
-    /// the claims below are about how far down content reaches and how many lines a card grew by.
+/// Rows carrying real ink, against a background sampled where content never reaches. Rows, not a
+/// pixel tally, which can't tell a tall card from a dense one.
     private func inkedRows(_ rep: NSBitmapImageRep, background: NSColor) -> [Int] {
         var rows: [Int] = []
         for y in 0..<rep.pixelsHigh {
@@ -98,10 +88,8 @@ import Design
 
     // MARK: The offer is a control, not a caption
 
-    /// An unrun pass takes a card of its own. Measured against the same screen with that pass
-    /// answered, so the diff is the card itself. The button needs no pixel test:
-    /// `noPassIsOfferedWithoutAWayToRunIt` pins `pendingPasses ⊆ runnablePasses`, so a card without
-    /// its button can't be represented.
+/// An unrun pass takes a card of its own, measured against the same screen with that pass answered.
+/// `noPassIsOfferedWithoutAWayToRunIt` pins that a card without its button can't be represented.
     @Test(.machinePinned(.pixelSampling)) func anUnrunPassTakesACardOfItsOwn() throws {
         let band = Self.fullBand
         let pending = Self.sections(examples: 3)
@@ -117,42 +105,31 @@ import Design
         let scale = CGFloat(a.pixelsHigh) / band.height
         let grew = CGFloat(inkedRows(a, background: bg).count
                            - inkedRows(b, background: bg).count) / scale
-        // Heading, lede, two lens rows, two dividers and a cost line is ~130pt of card against
-        // the one "to file checked · names checked" line it replaces. 60 clears that comfortably.
+// The card is ~130pt against the one line it replaces; 60 clears that comfortably.
         #expect(grew > 60,
                 "an unrun file pass added only \(Int(grew))pt of content — no card drawn")
     }
 
-    /// How many rows the card drew, counted off the screen, not asked of the model. A diff can't
-    /// see a row whose words come from a hard-coded fallback in the view (both renders match), and
-    /// the pass's lens list can be right while the view iterates something else. So this counts the
-    /// one mark a lens row can't be drawn without, the accent bracket on its leading edge, and
-    /// requires one per lens. Other accent ink is on the screen too, so ``accentRowBrackets`` keys
-    /// on a row's height (56 device pixels).
+/// How many rows the card drew, counted off the screen: a diff can't see rows drawn from a
+/// hard-coded fallback. Counts the accent bracket on each lens row's leading edge, one per lens,
+/// keyed on a row's height by ``accentRowBrackets``.
     @Test(.machinePinned(.pixelSampling)) func theFileCardDrawsOneRowPerLens() throws {
         let mounted = mount(Self.sections(examples: 3))
         let rep = try #require(bitmap(mounted, Self.fullBand))
         let runs = Self.accentRowBrackets(rep)
         #expect(runs.count == OrganizePass.file.lenses.count,
                 "the file card drew \(runs.count) lens rows for \(OrganizePass.file.lenses.count) lenses — heights \(runs)")
-        // A detector reading the wrong shape can land on the right count by luck, and a bare "did
-        // it find anything" can't tell. One card draws its rows to one height, so runs that
-        // disagree about their height are not that card's brackets.
+// One card draws its rows to one height, so runs that disagree are not that card's brackets.
         #expect(!runs.isEmpty, "found no row bracket at all — the detector is measuring nothing")
         #expect((runs.max() ?? 0) - (runs.min() ?? 0) <= 4,
                 "the runs counted as rows are \(runs) — differing heights mean this is not one card's brackets")
     }
 
-    /// Heights of the vertical accent runs that are the height of a lens row, in whichever column
-    /// carries the most of them. One per row.
-    ///
-    /// Not "the column with the most accent pixels": a reporting section draws its own accent bar,
-    /// several rows tall, which outvotes the brackets. The row height is the discriminator: a row's
-    /// bracket is 28pt (56 device pixels), a section's bar is several rows tall, and a tinted meter
-    /// segment is a few points. Accepting 30...120 keeps exactly the first.
+/// Heights of the vertical accent runs that are a lens row tall (28pt, 56 device pixels), in the
+/// column carrying the most of them. A section's accent bar is several rows tall and a meter
+/// segment a few points, so 30...120 keeps only the brackets.
     private static func accentRowBrackets(_ rep: NSBitmapImageRep) -> [Int] {
-        // A lens row is 28pt tall; the bounds are wide enough to survive a text-size change and
-        // far from both other accent shapes on this screen.
+// Bounds wide enough to survive a text-size change and far from the other accent shapes.
         let rowHeights = 30...120
         func isAccent(_ x: Int, _ y: Int) -> Bool {
             guard let c = rep.colorAt(x: x, y: y) else { return false }
@@ -161,8 +138,7 @@ import Design
         func rowRuns(inColumn x: Int) -> [Int] {
             var runs: [Int] = []
             var start: Int?
-            // One `colorAt` per pixel: this walks every pixel of the canvas once per column, and
-            // asking twice would double the test's time.
+// One `colorAt` per pixel: asking twice would double the test's time.
             for y in 0..<rep.pixelsHigh {
                 let hit = isAccent(x, y)
                 if hit, start == nil { start = y }
@@ -174,10 +150,8 @@ import Design
         return (0..<rep.pixelsWide).map(rowRuns(inColumn:)).max { $0.count < $1.count } ?? []
     }
 
-    /// A running pass shows its progress here, and stops offering to start. A button that starts
-    /// work and leaves the screen unchanged is a dead end, and an unchanged `Run the file pass`
-    /// under a scan in flight invites the second click that `rescanFilingButton` disables itself to
-    /// prevent.
+/// A running pass shows its progress here, and stops offering to start: an unchanged `Run the file
+/// pass` under a scan in flight invites a second click.
     @Test(.machinePinned(.pixelSampling)) func aRunningPassReplacesItsOfferWithProgress() throws {
         let band = Self.fullBand
         let idle = Self.sections(examples: 3)
@@ -193,35 +167,29 @@ import Design
                 "a scan in flight changed only \(Int(points))pt² — the card still reads idle")
     }
 
-    /// Every lens answered, so no pass card is on offer: the fixture that isolates the rows.
-    /// Without it, `runnablePasses` moves both the pass cards and the row controls, and a render
-    /// diff couldn't say which it measured.
+/// Every lens answered, so no pass card is on offer and `runnablePasses` moves only the rows.
     private static func allAnswered() -> [OrganizeOverviewSection] {
         OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, .findings(count: 7, headline: "7 things", examples: ["evidence line"]))
         }
     }
 
-    /// A lens that has already answered can re-run its own scan, so Duplicates, whose answer ages
-    /// fastest, can be re-hashed from here and not only the file pass. Measured on a fixture where
-    /// nothing is pending, so `runnablePasses` moves only the row controls.
+/// A lens that has already answered can re-run its own scan from here, so Duplicates, whose answer
+/// ages fastest, can be re-hashed. On a fixture where nothing is pending.
     @Test(.machinePinned(.pixelSampling)) func anAnsweredLensCanRerunItsOwnPass() throws {
         let band = Self.fullBand
         let a = try #require(bitmap(mount(Self.allAnswered()), band))
         let b = try #require(bitmap(mount(Self.allAnswered(), runnable: []), band))
         let scale = CGFloat(a.pixelsHigh) / band.height
         let points = CGFloat(differingPixels(a, b)) / (scale * scale)
-        // Two rows earn a control here — Duplicates and Restructure — at roughly 60×18 and
-        // 150×18pt of chrome, and since the cost line is priced off the same runnability each of
-        // them also gains a rule and a line of small print. 600pt² is well above noise and well
-        // under the smallest of those pieces on its own.
+// Duplicates and Restructure each gain a control, a rule and a cost line; 600pt² is above noise
+// and under the smallest piece on its own.
         #expect(points > 600,
                 "no rescan control on an answered row (\(Int(points))pt² moved)")
     }
 
-    /// A row says so while its scan runs: the count gives way to a spinner rather than a stale
-    /// figure in bold. This can't also pin that the rescan control is withdrawn: the spinner
-    /// changes the row so much that any threshold catching the button is met without it.
+/// A row says so while its scan runs: the count gives way to a spinner. The withdrawn rescan can't
+/// be pinned here, since the spinner meets any threshold without it.
     @Test(.machinePinned(.pixelSampling)) func aRunningLensSaysSoInItsRow() throws {
         let band = Self.fullBand
         let idle = Self.allAnswered()
@@ -237,17 +205,13 @@ import Design
                 "a running Duplicates scan left its row unchanged (\(Int(points))pt² moved)")
     }
 
-    // No pixel test here pins that a scanning row withdraws its rescan: runnability also moves the
-    // cost line, and `isScanning` turns the count into a spinner, so every A/B axis carries a
-    // second change. `OverviewCardConsistencyTests.aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn`
-    // pins it on `OrganizeOverview.actions(for:)`, the card's `actions:`, and names which control
-    // survives.
+// No pixel test pins that a scanning row withdraws its rescan (every A/B axis carries a second
+// change); `OverviewCardConsistencyTests.aScanInFlightWithdrawsTheRescanAndKeepsTheWayIn` does.
 
     // MARK: The evidence is real
 
-    /// A finding draws every example it is given, up to the limit. Measured by changing how many
-    /// there are, one against three: a single fixture would be satisfied by a view that drew one
-    /// line and ignored the rest.
+/// A finding draws every example it is given, up to the limit: one against three, so a view drawing
+/// one line fails.
     @Test(.machinePinned(.pixelSampling)) func aFindingDrawsEveryExampleItIsGiven() throws {
         let band = Self.fullBand
         let one = try #require(bitmap(mount(Self.sections(examples: 1)), band))
@@ -256,8 +220,7 @@ import Design
         let scale = CGFloat(one.pixelsHigh) / band.height
         let grew = CGFloat(inkedRows(three, background: bg).count
                            - inkedRows(one, background: bg).count) / scale
-        // Two extra monospaced lines at 11.5pt with 2pt spacing are ~30pt of inked rows. 18 clears
-        // rounding while staying well under the real figure.
+// Two extra lines are ~30pt of inked rows; 18 clears rounding.
         #expect(grew > 18,
                 "three examples drew only \(Int(grew))pt more than one — the extra lines are lost")
     }
@@ -274,9 +237,8 @@ import Design
 
     // MARK: The pane is used
 
-    /// The content reaches down the column instead of stopping a fifth of the way. The floor is far
-    /// below what the layout produces: a guard against collapse to a near-empty pane, not a
-    /// pixel-accurate lock on the design.
+/// The content reaches down the column instead of stopping a fifth of the way: a guard against
+/// collapse, not a lock on the design.
     @Test(.machinePinned(.pixelSampling)) func theOverviewFillsMoreThanTheTopOfThePane() throws {
         let band = Self.fullBand
         let rep = try #require(bitmap(mount(Self.sections(examples: 3)), band))
@@ -290,9 +252,8 @@ import Design
 
     // MARK: The backlog nudge (proposal O15)
 
-    /// The sentence itself is drawn, not merely a row of the right height. "No nudge" against "a
-    /// nudge" only proves the layout got taller, which a blank row would pass. Two nudges of the
-    /// same height with different sentences can't be passed that way.
+/// The sentence itself is drawn: two same-height nudges with different sentences, so a blank row
+/// of the right height fails.
     @Test(.machinePinned(.pixelSampling)) func theNudgesOwnSentenceIsDrawn() throws {
         func mounted(_ sentence: String) -> Mounted {
             mount(Self.sections(examples: 1),

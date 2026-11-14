@@ -5,21 +5,15 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// A row must not change shape when its cloud badge lands.
+/// A row must not change shape when its cloud badge lands: `FileRowView` resolves `isCloudOnly`
+/// with a per-row `lstat` off the main actor, so the answer arrives after the row is on screen.
 ///
-/// `FileRowView` resolves `isCloudOnly` with a per-row `lstat` off the main actor, so the answer
-/// arrives after the row is on screen, one row at a time, in bursts, whenever a column opens or the
-/// list scrolls. Any geometry change then happens long after the user has stopped expecting the
-/// pane to move.
-///
-/// These measure the laid-out result (`NSHostingView.fittingSize`), not the declaration: the
-/// question is what AppKit ends up with, and a reservation that doesn't survive layout is no
-/// reservation at all.
+/// These measure the laid-out result (`NSHostingView.fittingSize`), not the declaration: a
+/// reservation that doesn't survive layout is no reservation at all.
 @MainActor
 @Suite struct FileRowAccessoryStabilityTests {
 
-    /// - Parameter leadingGap: the gap each drawn item keeps before it: 10pt in a comfortable row,
-    /// which is what the rows pass, so that is what is measured unless a case says otherwise.
+    /// - Parameter leadingGap: the gap before each drawn item; 10pt is what a comfortable row passes.
     private func size(cloudOnly: Bool, reserves: Bool, diff: FileDifference.DifferenceType? = nil,
                       contained: Int = 0, leadingGap: CGFloat = 10) -> NSSize {
         let view = HStack(spacing: 8) {
@@ -31,8 +25,7 @@ import Sync
         return host.fittingSize
     }
 
-    /// The reservation's whole point: a file row's badge zone is the same size before and after the
-    /// lstat answers.
+    /// A file row's badge zone is the same size before and after the lstat answers.
     @Test func testAFileRowsBadgeZoneIsTheSameSizeWithAndWithoutTheCloudBadge() {
         // At the gap the rows use, and at none: a gap applied in only one cloud state would shift
         // the row by exactly that gap when the answer lands.
@@ -68,8 +61,7 @@ import Sync
     }
 
     /// Directories never show the badge (`FileRowView` forces it false for them), so they must not
-    /// pay for a slot that can never be filled; a folder-heavy pane would otherwise gain a column
-    /// of permanent blank space.
+    /// reserve a slot that can never be filled.
     @Test func testDirectoryRowsDoNotReserveASlotTheyCanNeverFill() {
         let reserved = size(cloudOnly: false, reserves: true, contained: 3)
         let unreserved = size(cloudOnly: false, reserves: false, contained: 3)
@@ -77,8 +69,8 @@ import Sync
                 "a directory row is holding space for a badge it can never show")
     }
 
-    /// The positive control: an unreserved zone does change size, so the measurement above means
-    /// something, and this is what the reservation is worth.
+    /// The positive control: an unreserved zone does change size, so the measurements above mean
+    /// something.
     @Test func testWithoutTheReservationTheZoneReallyDoesResize() {
         let before = size(cloudOnly: false, reserves: false)
         let after = size(cloudOnly: true, reserves: false)

@@ -45,8 +45,7 @@ import Sync
                  nodes: [FileNode(id: "\(root)/row.bin", name: "row.bin", isDirectory: false)])
     }
 
-    /// Mounts a pane on a channel of its own and returns it with its window and that channel, all
-    /// kept alive by the caller. The channel makes this pane the only thing this test's posts reach.
+    /// Mounts a pane on a channel of its own, so it is the only thing this test's posts reach.
     private func mount(isLeft: Bool, isSingleSource: Bool = false,
                        currentPath: String, rootPath: String? = nil) -> (NSWindow, Box, NotificationCenter) {
         let box = Box(Self.tree(1, root: currentPath))
@@ -63,14 +62,12 @@ import Sync
         return (window, box, channel)
     }
 
-    /// Tears a mounted pane down at the end of its test. Left to ARC, the pane's live
-    /// `.cloudDownloadRequested` subscription outlives the test; with a private channel per mount
-    /// nobody can post to it, so this is belt and braces.
+    /// Tears a mounted pane down at the end of its test, so its live `.cloudDownloadRequested`
+    /// subscription doesn't outlive it.
     private func teardown(_ window: NSWindow) {
         // Just the content view: `close()` releases a `.titled` window by default
         // (`isReleasedWhenClosed`), over-releasing the local reference and crashing the test
-        // process. The hosting view is the last reference to the SwiftUI graph, so the subscription
-        // goes with it.
+        // process. The hosting view is the last reference to the SwiftUI graph.
         window.contentView = nil
     }
 
@@ -100,11 +97,10 @@ import Sync
     /// Mounts a pane at `root`, posts one request it must ignore and then one it must take, and
     /// asserts the first path is untouched once the second has been acted on.
     ///
-    /// The absence is bounded by the second post, not a clock: under load a wrongly accepted
-    /// `forget` could land after any settle and pass. Posts arrive in order and acceptance forgets
-    /// synchronously in `PaneDownloadWatch.begin`, so once the second is seen the first had its
-    /// chance. The taken post is the positive control, and on this mount's private channel only
-    /// the pane under test can satisfy it, so a pane that drops every post fails here.
+    /// The absence is bounded by the second post, not a clock: posts arrive in order and acceptance
+    /// forgets synchronously in `PaneDownloadWatch.begin`, so once the second is seen the first had
+    /// its chance. The taken post is the positive control: on this mount's private channel only the
+    /// pane under test can satisfy it, so a pane that drops every post fails.
     private func expectIgnored(mounting surface: (isLeft: Bool, isSingleSource: Bool),
                                at root: String, from ignoredToken: PaneToken,
                                whileTaking takenToken: PaneToken) async {
@@ -161,12 +157,10 @@ import Sync
 
     /// The same file asked for twice is still one watch, the newer request. Keyed by request id
     /// rather than path, there would be two, and the older one's conclusion would clear the newer
-    /// one's slot. (A repeat Download still costs a second forget, rightly: the memo's answer is
-    /// stale again. See `PaneDownloadWatch`.)
+    /// one's slot.
     ///
     /// Driven directly, not through a pane: what the collection holds when the second request
-    /// arrives is a synchronous fact the memo would show only after both watches end. Paths under
-    /// a throwaway directory, so nothing another suite reads is touched.
+    /// arrives is a synchronous fact the memo would show only after both watches end.
     @Test func aSecondRequestForOneFileSupersedesRatherThanAdds() {
         let dir = "/cloud-download-watch/\(UUID().uuidString)"
         // Injected, returning at once without concluding, so the slot is held as a real poll would
@@ -191,8 +185,7 @@ import Sync
 
     /// Superseding a path cancels the watch it replaces. A leaked watch shows neither in the
     /// collection (the new request holds the slot) nor in the memo (it records what the live one
-    /// will), so the injected watch reports its own cancellation. Every wait is bounded; nothing
-    /// spins.
+    /// will), so the injected watch reports its own cancellation.
     @Test func aRepeatRequestCancelsTheWatchItReplaces() async {
         let log = WatchLog()
         // Released on the way out, so the two watches this test doesn't cancel aren't still parked,

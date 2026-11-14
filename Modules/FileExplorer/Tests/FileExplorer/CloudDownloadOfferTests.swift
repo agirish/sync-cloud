@@ -168,7 +168,7 @@ import Testing
         #expect(log.downloads == [.file(path: b.id, name: "b.pdf")])
     }
 
-    /// **The click's reads and pins never run on the main thread**, which is where it arrives: each
+    /// The click's reads and pins never run on the main thread, which is where it arrives: each
     /// is a call into iCloud Drive's File Provider, and a wedged one holds them for seconds.
     @Test func theClickReadsAndPinsOffTheMainThread() async {
         let log = await run(true, [a, b], states: [a.id: .off, b.id: .on])

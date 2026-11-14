@@ -105,9 +105,8 @@ import Sync
         #expect(AutomationSearch.chips("kind:jpg").isEmpty)
     }
 
-    /// `rule.summary` is built from the conditions and destination and never reads the name, so a
-    /// rule named "Invoices" whose conditions say only "bill" must still be found by `invoice`.
-    /// Free text matches name ∪ summary.
+    /// Free text matches name ∪ summary: `rule.summary` never reads the name, so a rule named
+    /// "Invoices" whose conditions say only "bill" must still be found by `invoice`.
     @Test func automationsFreeTextFindsRulesByName() {
         let byName = rule("Invoices", conditions: [.contentContains("bill")], destination: "Documents/Paid")
         #expect(!byName.summary.localizedCaseInsensitiveContains("invoice"),
@@ -172,9 +171,8 @@ import Sync
         #expect(StorageSearch.removing(">100mb kind:mov", word: ">100mb") == "kind:mov")
     }
 
-    /// Last-wins dimming within a family, as Duplicates, Compare and Log do it: two `is:` words
-    /// mean the last one, and the earlier chip reads as superseded. Asked of Automations, whose two
-    /// `is:` words are mutually exclusive; the `kind:` half is pinned by `DuplicateSearchTests` and
+    /// Last-wins dimming within a family: two `is:` words mean the last one, and the earlier chip
+    /// reads as superseded. The `kind:` half is pinned by `DuplicateSearchTests` and
     /// `DifferenceSearchTests`.
     @Test func supersededChipsDimPerFamily() {
         let chips = AutomationSearch.chips("is:enabled is:disabled")

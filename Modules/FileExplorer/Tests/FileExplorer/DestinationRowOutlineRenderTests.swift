@@ -11,15 +11,9 @@ import Sync
 ///
 /// The wash itself can't be rendered here: `.onHover` needs an `NSTrackingArea`, and synthesised
 /// mouse events in an offscreen window move the render by zero pixels. So three checks, none
-/// sufficient alone:
-///
-/// 1. `HoverAffordanceOutlineTests`: the outline draws what the style draws, and a capsule
-///    differs visibly from a `Radius.chip` rounded rect at this size.
-/// 2. `theChosenRowsGroundHasTheOutlineTheStyleIsHanded`: the ground the row paints matches
-///    rendered references. Blind to the wash: it stays green if `shape:` is dropped.
-/// 3. `theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom`: the style is handed the constant the
-///    ground is drawn from.
-///
+/// sufficient alone: `HoverAffordanceOutlineTests` (the outline draws what the style draws), the
+/// render test below (the ground, blind to the wash), and a source scan (the style is handed the
+/// constant the ground is drawn from).
 /// `.machinePinned(.pixelSampling)` is per test, so the two that read no pixels still run on CI.
 @MainActor
 @Suite(.serialized) struct DestinationRowOutlineRenderTests {
@@ -57,7 +51,6 @@ import Sync
             .background(Color.white)
             .environment(\.colorScheme, .light)
             .environment(\.controlActiveState, .active)
-        // Laid out twice before it is cached.
         return offscreenBitmap(subject, size: size, appearance: .aqua, layoutPasses: 2)
     }
 
@@ -137,12 +130,9 @@ import Sync
     }
 
     /// The two surfaces that draw a non-capsule ground name their outline once, and neither is a
-    /// capsule.
-    ///
-    /// They don't share a radius, on purpose: a tab chip takes `PaneTabStripLadder.chipRadius` to
-    /// nest concentrically in the strip card (`theChipNestsConcentricallyInsideTheCard`), while a
-    /// picker row sits in a card of its own. Tying them would drag the picker along with the strip.
-    /// What is invariant: each derives its drawable outline from the value it hands the style.
+    /// capsule. They don't share a radius on purpose: a tab chip nests concentrically in the strip
+    /// card (`theChipNestsConcentricallyInsideTheCard`), a picker row sits in a card of its own.
+    /// Each derives its drawable outline from the value it hands the style.
     @Test func eachSurfaceNamesItsOutlineOnceAndNeitherIsACapsule() {
         // The picker's radius is the shared token, so naming it is a claim, not an echo.
         #expect(DestinationRowShape.kind == .roundedRect(Radius.chip))
@@ -197,13 +187,11 @@ import Sync
 
     // MARK: - What the render above cannot see
 
-    /// The half the render test can't see. Dropping `shape:` from a `DestinationPicker` button style
-    /// leaves `theChosenRowsGroundHasTheOutlineTheStyleIsHanded` green: the ground still draws from
-    /// `DestinationRowShape.outline`, and the wash that would disagree is never painted offscreen.
-    ///
-    /// So the shared value is checked where it is written, by a source scan that counts the
-    /// `.segment` sites in each file it names; a new site fails here. It knows only these two
-    /// files: the rule for any other control is prose, on `HoverAffordanceShape.default(for:)`.
+    /// The half the render test can't see: dropping `shape:` from a `DestinationPicker` button
+    /// style leaves it green, since the ground still draws from `DestinationRowShape.outline` and
+    /// the wash is never painted offscreen. So a source scan counts the `.segment` sites in each
+    /// file it names; a new site fails here. Other controls' rule is prose, on
+    /// `HoverAffordanceShape.default(for:)`.
     @Test func theStyleIsHandedTheSameOutlineTheGroundIsDrawnFrom() throws {
         let repo = AppCopyScan.repoRoot
 
@@ -219,19 +207,15 @@ import Sync
         ]
         for site in sites {
             let text = try String(contentsOf: repo.appendingPathComponent(site.path), encoding: .utf8)
-            // The positive control: a renamed constant or moved file would otherwise make every
-            // check below pass by matching nothing.
+            // Positive control: a renamed constant or moved file would make every check vacuous.
             guard text.contains(site.declaration) else {
                 Issue.record("`\(site.declaration)` is gone from \(site.path) — this list is stale, not clean")
                 continue
             }
-            // `.segment` is not always written `.segment`, and a call is not always one line: a
-            // site may spell `isSelected ? .filled : .segment`, which a grep for
-            // `hoverAffordance(.segment` misses, and wrap `shape:` onto a continuation line, which a
-            // line scan misreads. Whole call expressions, matched by parenthesis balance, get both.
-            //
-            // `selectionLensChoiceButtonStyle` also takes `.segment` unless told otherwise (the
-            // destination rail's rows), without spelling it.
+            // Whole call expressions, matched by parenthesis balance: a site may spell
+            // `isSelected ? .filled : .segment` or wrap `shape:` onto a continuation line, which a
+            // grep or a line scan misses. `selectionLensChoiceButtonStyle` also takes `.segment`
+            // unless told otherwise (the destination rail's rows), without spelling it.
             let styled = Self.hoverAffordanceCalls(in: text).filter { $0.contains(".segment") }
                 + Self.calls(of: "selectionLensChoiceButtonStyle(", in: text)
                     .filter { !$0.contains("unselected:") || $0.contains("unselected: .segment") }

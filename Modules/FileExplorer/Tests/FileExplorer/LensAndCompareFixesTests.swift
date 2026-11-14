@@ -6,13 +6,10 @@ import Sync
 import SwiftUI
 @testable import FileExplorer
 
-/// Fixes to Organize's lenses and Compare.
-///
-/// Each fix is pinned twice where it can be: the rule it rests on, called directly, and a scan of
-/// the one call site that uses it, because a rule extracted for a test is one revert away from
-/// unused, and SwiftUI gives a unit test no way to press the button that reaches it. The storage
-/// totals are pinned in Sync (`StorageLensTests`) and through the Overview model
-/// (`OrganizeOverviewWiringTests`).
+/// Fixes to Organize's lenses and Compare, each pinned twice where it can be: the rule called
+/// directly, and a scan of the one call site using it, because an extracted rule is one revert from
+/// unused and SwiftUI gives a unit test no button to press. Storage totals are pinned in Sync
+/// (`StorageLensTests`) and through the Overview model (`OrganizeOverviewWiringTests`).
 @Suite struct LensAndCompareFixesTests {
 
     // MARK: Source scans
@@ -226,12 +223,11 @@ import SwiftUI
     }
 
     @Test func anOverlapGroupOffersNoKeeperChoiceOnTheOtherSide() throws {
-        // An overlap group: it has a keeper, but no choice.
+        // An overlap group has a keeper, but no choice.
         let inert = DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false)
         #expect(CompareKeeperControl.control(isKeeper: false, marker: inert) == .nothing)
         #expect(CompareKeeperControl.control(isKeeper: true, marker: inert) == .keeping,
                 "an overlap group does have a keeper, and the kept side still says so")
-        // A group with a choice keeps its button.
         let selectable = DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false)
         #expect(CompareKeeperControl.control(isKeeper: false, marker: selectable) == .keepInstead)
         #expect(CompareKeeperControl.control(isKeeper: true, marker: .keeper) == .keeping)

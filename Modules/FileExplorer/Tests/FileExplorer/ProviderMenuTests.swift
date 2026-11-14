@@ -5,16 +5,11 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Pins `ProviderMenu`, the source picker every pane header and lens source bar opens. Its items
-/// are read through `NSHostingMenu`, which builds the real `NSMenu` (titles, order, check state);
-/// two invariants it can't see are scans of the source:
-///
-/// - One inline `Picker` over the whole list. A second Picker over the same binding shows the check
-///   column only in the group holding the selection, and re-spaces the list as the selection
-///   crosses groups; the menu's titles and ticks would read the same.
-/// - `.fixedSize(horizontal: false, vertical: true)`, vertical only. The full `.fixedSize()`
-///   ignores the width proposal, so a long provider name pushes the label past the pane edge and
-///   the header's nav cluster out of view.
+/// Pins `ProviderMenu`, the source picker every pane header and lens source bar opens. Items are
+/// read through `NSHostingMenu` (titles, order, check state); two invariants it can't see are
+/// source scans: one inline `Picker` over the whole list (a second one shows the check column only
+/// in the group holding the selection, and re-spaces the list), and the vertical-only `.fixedSize`
+/// (the full form ignores the width proposal, so a long name pushes the nav cluster out of view).
 @MainActor
 @Suite struct ProviderMenuTests {
 
@@ -46,14 +41,10 @@ import Sync
                 "the inline style is what renders the picker as menu rows with the native check column")
     }
 
-    /// "Go to <source>" leads the menu, above the sources, and only for a caller that asks for it.
-    /// It is about where you are rather than which source you're on, and the commoner act. The
-    /// pane breadcrumb's whole first chip opens this menu, so the root has to be reachable from it.
-    /// Order is the assertion, not presence: an item below the sources won't be read as being about
-    /// position. A caller with no pane to move (the lens source bar) gets no item rather than a
-    /// door onto a no-op.
-    ///
-    /// `Choose Folder…` is optional on the same terms; `Manage Sources…` is not, from any surface.
+    /// "Go to <source>" leads the menu, above the sources, and only for a caller that asks for it:
+    /// the breadcrumb's first chip opens this menu, so the root must be reachable from it. Order is
+    /// the assertion: an item below the sources wouldn't read as about position. A caller with no
+    /// pane to move gets none. `Choose Folder…` is optional too; `Manage Sources…` never is.
     @Test func goingToTheTopLeadsAndChooseFolderIsOptionalButManageSourcesIsNot() throws {
         #expect(try Self.lines(chooseFolder: true, goToRoot: true)
                 == ["Go to iCloud", "Dropbox", "✓ iCloud", "Choose Folder…", "Manage Sources…"])

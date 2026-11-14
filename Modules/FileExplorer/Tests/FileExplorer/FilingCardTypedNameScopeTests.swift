@@ -3,17 +3,13 @@ import Foundation
 @testable import FileExplorer
 
 /// A name typed into "Create as" belongs to the destination it was typed for.
+/// `FilingSuggestionCard.editedFolderName` is `@State` and the card's identity is the suggestion, so
+/// "Try another" replaces `best` under the same card; without a reset the old name would apply to
+/// the new destination.
 ///
-/// `FilingSuggestionCard.editedFolderName` is `@State`, and the card's identity is the suggestion,
-/// so "Try another" replaces `best` underneath the same card and the field keeps its contents.
-/// Without a reset, a name meant for `Finance › HDFC › <new>` would be applied to whatever came
-/// back next, with the only clue the old name in the field against the new folder's placeholder.
-///
-/// A scan, and honest about its reach: `@State` cannot be driven from here without mounting the
-/// card in a host that can serve it a second destination, and the mounted-view harnesses in this
-/// target drive tables, not lens cards. What is checkable is that the reset exists, is keyed on the
-/// destination, and that the button still reads the field: a reset that fired on every render would
-/// "fix" this by making the field useless, and would pass a one-sided test.
+/// A source scan: `@State` cannot be driven without mounting the card in a host that serves a second
+/// destination. It checks the reset exists, is keyed on the destination, and that the button still
+/// reads the field: a reset that fired on every render would make the field useless.
 @Suite struct FilingCardTypedNameScopeTests {
 
     private static func cardSource() throws -> String { try SourceText.fileExplorer("FilingSuggestionCard.swift") }
@@ -34,9 +30,8 @@ import Foundation
         #expect(source.contains("onFileHere(best.renamingNewFolder(to: editedFolderName))"),
                 "File here stopped applying the typed name — the field is decorative")
 
-        // And the reset is keyed on the destination, not fired unconditionally: an `onChange` with
-        // no key, or one on something that moves every render, would clear the field as the user
-        // typed.
+        // Keyed on the destination: an unkeyed `onChange`, or one on something that moves every
+        // render, would clear the field as the user typed.
         let resets = source.components(separatedBy: "editedFolderName = \"\"").count - 1
         #expect(resets == 1, "expected exactly one place to clear the typed name, found \(resets)")
         #expect(!source.contains(".onAppear { editedFolderName = \"\" }"),

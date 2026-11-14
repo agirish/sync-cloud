@@ -8,23 +8,20 @@ import FileExplorerTestSupport
 
 /// The differences header's ladder, whose rung is computed rather than searched.
 ///
-/// `HeaderLadder` chooses the rung by arithmetic instead of handing six candidate toolbars to
-/// `ViewThatFits`, so the claim is that its numbers describe the row actually drawn: the width
-/// `HeaderLadder` computes for a rung is the width the row laid out at that rung occupies
-/// (`NSHostingView.fittingSize`), never a constant against another constant. That the ladder picks
+/// `HeaderLadder` chooses the rung by arithmetic instead of handing six toolbars to `ViewThatFits`,
+/// so the claim is that the width it computes for a rung is the width the row laid out at that rung
+/// occupies (`NSHostingView.fittingSize`), never a constant against another constant. That it picks
 /// the rung `ViewThatFits` would is `HeaderLadderRuleTests`' half.
 ///
-/// Controls are located by `_FocusRingView`, the handle `PaneBarLadderTests` reaches for: a SwiftUI
-/// `Button` with a custom style draws into a layer and puts no `NSControl` in the AppKit tree, and
-/// an offscreen `NSHostingView` has an empty accessibility tree.
+/// Controls are located by `_FocusRingView`, as in `PaneBarLadderTests`: a SwiftUI `Button` with a
+/// custom style puts no `NSControl` in the AppKit tree, and an offscreen `NSHostingView` has an
+/// empty accessibility tree.
 ///
-/// Every hosting view here gets a real window: a detached `NSHostingView` mis-measures SF Symbols
-/// in both directions, so a suite without one would fail against correct numbers.
-/// `.oneMountedDifferencesTable`, though nothing here mounts a whole `DifferencesView`, because
-/// this suite hosts more views than any other in the target, and that trait stops the priciest
-/// main-actor work stacking up and starving the deadlines the mounting suites wait on.
-/// `.machinePinned(.pixelSampling)` for `PaneBarLadderTests`' reason: every assertion reads
-/// laid-out geometry back out of a live renderer, so another Mac fails it for machine reasons.
+/// Every hosting view gets a real window: a detached `NSHostingView` mis-measures SF Symbols in
+/// both directions. `.oneMountedDifferencesTable` though nothing mounts a whole `DifferencesView`:
+/// this suite hosts more views than any other in the target, and the trait stops that main-actor
+/// work starving the deadlines the mounting suites wait on. `.machinePinned(.pixelSampling)`:
+/// every assertion reads laid-out geometry back out of a live renderer.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable, .machinePinned(.pixelSampling))
 struct HeaderLadderTests {
@@ -70,8 +67,7 @@ struct HeaderLadderTests {
     }
 
     /// The dressings the count pill can wear. Each changes the pill's width, so the ladder has to
-    /// price all three: no scan yet, a fresh age run, and a stale one, which wears an inset capsule
-    /// worth `2 × 6pt` more than the bare run.
+    /// price every one; a stale run wears an inset capsule worth `2 × 6pt` more than the bare run.
     fileprivate static func dressings() -> [(name: String, value: DifferencesView.CountPillDressing)] {
         let accent = SemanticCapsuleStyle.onAccent(fill: .blue, label: .white)
         return [
@@ -182,7 +178,6 @@ struct HeaderLadderTests {
                         failures.append("\(leftName)/\(rightName) \(dressingName) \(rung): "
                                         + "computed \(ladder.width(of: rung))pt, drew \(drawn)pt")
                     }
-
                 }
             }
         }
@@ -227,14 +222,11 @@ struct HeaderLadderTests {
         #expect(failures.isEmpty, "at scale \(scale), \(failures.count) rung(s) mispriced:\n\(report)")
     }
 
-    /// Two runs the everyday fixture is too small to exercise:
-    ///
-    /// - A four-figure count. The Review button interpolates its count plainly (`Review 1284`)
-    ///   while the count pill beside it formats (`1,284`). Pricing Review with `.formatted()` looks
-    ///   right and is 4pt too wide, invisible below a thousand targets and routine on a real
-    ///   comparison.
-    /// - The expanded per-side totals, the one run whose text comes from view state rather than the
-    ///   data, so it is measurable only because the row is handed the `facts` the ladder priced.
+    /// Two runs the everyday fixture is too small to exercise: a four-figure count, where Review
+    /// interpolates plainly (`Review 1284`) while the pill formats (`1,284`), so pricing Review with
+    /// `.formatted()` is 4pt too wide, invisible below a thousand targets; and the expanded per-side
+    /// totals, whose text comes from view state, measurable only because the row is handed the
+    /// `facts` the ladder priced.
     @Test func aLargeComparisonWithTheTotalsExpandedIsPricedExactly() {
         let names = PaneProviderNames(leftName: "OneDrive — Personal", rightName: "iCloud Drive")
         let rows = differences(toRight: 1_284, toLeft: 976, verifiable: 431)
@@ -262,13 +254,11 @@ struct HeaderLadderTests {
         }
     }
 
-    /// The states every other case here leaves at their defaults, each a whole control or label
-    /// vocabulary nothing else measures: a selection chip (`isSelectionScoped`), the Move labels
-    /// (`isMove`, true only while ⇧/⌘ is held), the pre-scan pill (no chevron), an empty
-    /// comparison, an ungrouped table (no fold-all toggle), and a host binding no collapse state.
-    ///
-    /// Swept as a matrix, because the interesting failures are interactions, such as a selection
-    /// chip present alongside a folded overflow.
+    /// The states every other case leaves at their defaults, each a vocabulary nothing else
+    /// measures: a selection chip (`isSelectionScoped`), the Move labels (`isMove`, while ⇧/⌘ is
+    /// held), the pre-scan pill (no chevron), an empty comparison, an ungrouped table (no fold-all
+    /// toggle), and no collapse binding. Swept as a matrix, because the interesting failures are
+    /// interactions, such as a selection chip beside a folded overflow.
     @Test func everyHeaderStateIsPricedExactly() {
         let names = PaneProviderNames(leftName: "OneDrive — Personal", rightName: "iCloud Drive")
         var failures: [String] = []
@@ -340,19 +330,11 @@ struct HeaderLadderTests {
     /// Mounts the real `DifferencesView` and checks that the header on screen is a rung of this
     /// ladder, and that it sheds as the window narrows.
     ///
-    /// The cases above measure `standardHeaderRow` in isolation, leaving the join untested: the
-    /// rung is chosen from a `GeometryReader`'s width inside the header card, and if that width
-    /// isn't the width the row is offered, every rung boundary moves. The assertion doesn't
-    /// hard-code the card's inner width; it asks whether one inset explains every observation
-    /// through the ladder.
-    ///
-    /// Two limits:
-    ///
-    /// - "It got narrower" is not enough. With `rung(fitting:)` broken to always answer `.full`,
-    ///   the row still sheds, because the hedge's `ViewThatFits` drops it to the terminal rung.
-    ///   Only a working ladder produces the middle rungs, so those are asserted explicitly.
-    /// - A uniform error in every rung's width is invisible here, because the inset search absorbs
-    ///   it. `everyRungMeasuresWhatItDraws`, comparing absolute widths, catches that class.
+    /// The cases above leave the join untested: the rung is chosen from a `GeometryReader`'s width
+    /// inside the header card, and if that isn't the width the row is offered, every boundary
+    /// moves. Rather than hard-code the card's inner width, it asks whether one inset explains
+    /// every observation through the ladder. That search absorbs a uniform error in every rung's
+    /// width; `everyRungMeasuresWhatItDraws`, comparing absolute widths, catches that class.
     @Test func theMountedHeaderDrawsARungAndShedsAsThePaneNarrows() async {
         let names = PaneProviderNames(leftName: "OneDrive — Personal", rightName: "iCloud Drive")
         let rows = differences()
@@ -454,12 +436,11 @@ struct HeaderLadderTests {
         return (host, window)
     }
 
-    /// Waits for the differences table to settle at exactly `expected` rows. The header's shape
-    /// depends on `sections`, empty until the rows land, so measuring early reads a header the user
-    /// never sees. Bounded by `LayoutPumpWait`'s pass floor as well as its deadline, and reports
-    /// the passes so a failure says whether it was starved or disproved: the rows arrive on
-    /// main-actor turns, which a congested run gets fewer of. See `docs/flaky-tests.md`, "Fixed
-    /// pumps and fixed sleeps".
+    /// Waits for the table to settle at exactly `expected` rows: the header's shape depends on
+    /// `sections`, empty until the rows land. Bounded by `LayoutPumpWait`'s pass floor as well as
+    /// its deadline, since the rows arrive on main-actor turns a congested run gets fewer of, and
+    /// returns the passes so a failure says starved or disproved (`docs/flaky-tests.md`, "Fixed
+    /// pumps and fixed sleeps").
     private func settle(_ view: NSView, atRows expected: Int,
                         timeout: TimeInterval = 15) async -> (rows: Int, pumps: Int) {
         var last = 0
@@ -526,7 +507,7 @@ struct HeaderLadderTests {
             let need = ladder.width(of: chosen)
             #expect(chosen == ladder.terminal || need <= width,
                     "chose \(chosen) at \(width)pt, which needs \(need)pt")
-        // Nothing above the chosen rung may fit, or the search would have taken it first.
+            // Nothing above the chosen rung may fit, or the search would have taken it first.
             for earlier in DifferencesView.renderedCompactionLadder where earlier < chosen {
                 #expect(ladder.width(of: earlier) > width,
                         "\(earlier) fits at \(width)pt but \(chosen) was chosen")
@@ -540,17 +521,14 @@ struct HeaderLadderTests {
         }
     }
 
-    /// This ladder is monotonically non-increasing, a measured fact about it, not a property of
-    /// shedding ladders in general.
+    /// This ladder never widens as it sheds: a measured fact about it, not about shedding ladders in
+    /// general. In `PaneBarLadder`, dropping a control narrower than the ⋯ pill it gains can widen
+    /// the bar; here every rung sheds text or is a no-op, and the widest addition is the 28pt
+    /// overflow in place of a Verify button never under ~90pt. A rung that does widen the row
+    /// shows up here rather than becoming unreachable.
     ///
-    /// In `PaneBarLadder`, dropping a control narrower than the ⋯ pill it gains can make the bar
-    /// wider. Nothing here can: every rung sheds a run of text or is a no-op, and the widest thing
-    /// any rung adds is the 28pt overflow in place of a Verify button never narrower than ~90pt. A
-    /// rung added later that does widen the row shows up here rather than becoming unreachable.
-    ///
-    /// Ties are expected, and are why declaration order still matters: a rung whose concession
-    /// doesn't apply (no reverse button to shorten, nothing verifiable to fold) costs nothing, and
-    /// a tie must resolve to the earlier rung to match `ViewThatFits`.
+    /// Ties are expected, and why declaration order still matters: a concession that doesn't apply
+    /// (nothing verifiable to fold) costs nothing, and a tie must resolve to the earlier rung.
     @Test func theLadderNeverWidensAsItSheds() {
         for (leftName, rightName) in HeaderLadderTests.paneNamePairs {
             let names = PaneProviderNames(leftName: leftName, rightName: rightName)

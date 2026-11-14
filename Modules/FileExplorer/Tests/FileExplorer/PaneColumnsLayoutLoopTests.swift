@@ -4,17 +4,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// A click in a column must leave the pane's layout settled.
-///
-/// AppKit runs update-constraints and layout passes until a window stops dirtying itself, and
-/// raises `NSGenericException` ("…already had more … passes than there are views in the window")
-/// when it never does: a hard crash. A drill in Columns can cause one if the pane's geometry
-/// callback and its host resolve the action bar's edge from different selections, each commits its
-/// answer to the shared anchor, and the pane writes host state from inside the layout pass that
-/// called it.
-///
-/// These pin both halves: the anchor is committed from one source, and a drill on a low row doesn't
-/// flip an edge the host would immediately un-flip.
+/// A click in a column must leave the pane's layout settled. AppKit raises `NSGenericException`
+/// ("…more … passes than there are views in the window") when a window never stops dirtying
+/// itself, which a drill can cause if pane and host resolve the bar's edge from different
+/// selections. These pin one source for the anchor, and no flip the host would un-flip.
 @MainActor
 @Suite struct PaneColumnsLayoutLoopTests {
 
@@ -35,17 +28,14 @@ import Sync
         let box = Box(tree: PaneBarHostHarness.tree(folders: 40))
         let counter = Counter()
         let (window, placement) = mount(box, counter: counter)
-        // Drops the last reference to the SwiftUI graph, and with it the pane's live subscription,
-        // rather than leaving it to ARC. Not `close()`: see `docs/flaky-tests.md`, "The wait that
-        // hangs instead of failing".
+        // Drops the SwiftUI graph and the pane's live subscription rather than leaving it to ARC.
+        // Not `close()`: see `docs/flaky-tests.md`, "The wait that hangs instead of failing".
         defer { window.contentView = nil }
         pump(window, seconds: 0.3)
 
         // Proof the pane really laid out: the root column's rows, and nothing else yet.
         #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [40])
-        // The lowest row inside the viewport: the one a bottom-docked bar would cover, whose click
-        // asks for the flip. Taken from live geometry, not a row index, so a density or font change
-        // can't move the test off the band.
+        // The lowest row inside the viewport, which a bottom-docked bar would cover, from live geometry.
         let target = try #require(
             placement.rowBottoms
                 .filter { $0.value - placement.viewportGlobalMinY <= placement.viewportHeight }
@@ -66,9 +56,8 @@ import Sync
 
         // The drilled column is open: the click did what a click does.
         #expect(PaneLayoutSettle.tableRowCounts(window.contentView!) == [40, 4])
-        // …and the pane asked for no edge flip, because the bar it would move isn't showing. Fails
-        // if the pane resolves from its own raw selection while the host commits from its empty
-        // one.
+        // …and no edge flip, because the bar isn't showing. Fails if the pane resolves from its own
+        // raw selection while the host commits from its empty one.
         #expect(counter.flips == 0)
         #expect(placement.atTop == false)
         let cost = counter.bodies - settledBodies

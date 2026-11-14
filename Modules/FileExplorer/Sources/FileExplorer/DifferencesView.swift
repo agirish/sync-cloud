@@ -670,7 +670,7 @@ public struct DifferencesView: View {
             // A `GeometryReader` is greedy in both axes and reports nothing, so state the narrowest
             // rung's width (what the card reserves) and a height, or the row and card would grow.
             // `ActionBarMetrics.height`, because the filter menu is an action-bar capsule on every
-            // rung (`HeaderLadderTests.theRowIsAlwaysTheActionBarHeight`).
+            // rung (`HeaderLadderTests.everyRungMeasuresWhatItDrawsAtOtherFontScales`).
             .frame(minWidth: ladder.width(of: ladder.terminal),
                    minHeight: ActionBarMetrics.height,
                    maxHeight: ActionBarMetrics.height)

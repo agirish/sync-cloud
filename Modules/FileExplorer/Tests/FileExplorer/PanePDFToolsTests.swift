@@ -151,9 +151,7 @@ private struct PDFToolDelegate: NoOpFileActions {
                 "one PDF draws no submenu: \(one)")
     }
 
-    /// Three PDFs draw the batch submenu, first after Refresh, holding four items: Rotate All
-    /// Pages, Compress 3 Files…, Clean Metadata of 3 Files…, Combine 3 Files…, and no password
-    /// item.
+    /// Three PDFs draw the batch submenu, first after Refresh, with four items and no password item.
     @Test func threePDFsDrawTheBatchSubmenuWithFourItems() throws {
         let paths = ["One.pdf", "Two.pdf", "Three.pdf"].map(path)
         for file in paths { PDFFixtures.write(file, pages: 1) }
@@ -187,9 +185,8 @@ private struct PDFToolDelegate: NoOpFileActions {
 
     // MARK: The menu bar's half — File ▸ PDF Tools outside a PDF open in Edit
 
-    /// File ▸ PDF Tools asks the row's own question: `forSelection` is what both the row menu and
-    /// the menu bar's resolver call, so the cases the row hides are the cases the menu bar greys,
-    /// and one file's protection is probed for both.
+    /// File ▸ PDF Tools asks the row's own question (`forSelection`), so the cases the row hides
+    /// are the ones the menu bar greys.
     @Test func theMenuBarAsksTheRowsQuestion() throws {
         let pdf = path("A.pdf"), other = path("B.pdf"), docx = path("Letter.docx"), cloud = path("Cloud.pdf")
         let locked = path("Locked.pdf"), restricted = path("Restricted.pdf")
@@ -240,10 +237,9 @@ private struct PDFToolDelegate: NoOpFileActions {
         }
     }
 
-    /// The lines File ▸ PDF Tools draws for a selection, as AppKit builds them: the row's own
-    /// `PanePDFToolsMenuItems`, through `NSHostingMenu`, which is how a SwiftUI menu becomes an
-    /// `NSMenu`. Each protection's lines, the reasons as lines nothing can choose, and a batch's
-    /// three tools with no password item.
+    /// The lines File ▸ PDF Tools draws, as AppKit builds them from the row's own
+    /// `PanePDFToolsMenuItems` through `NSHostingMenu`: each protection's lines, reasons as lines
+    /// nothing can choose, and a batch's tools with no password item.
     @Test func theMenuBarDrawsTheRowsLines() {
         func drawn(_ offer: PanePDFToolOffer) -> [String] {
             Self.lines(NSHostingMenu(rootView: PanePDFToolsMenuItems(offer: offer) { _, _ in }))
@@ -329,9 +325,8 @@ private struct PDFToolDelegate: NoOpFileActions {
         }
     }
 
-    /// Each tool, from a pane, writes the name it writes in Edit (Edit's own suffix table), beside
-    /// the original, which keeps its bytes and its date. Through the window's model: the lane read,
-    /// the sheet the request names, then the sheet's own run.
+    /// Each tool, from a pane, writes Edit's name for it beside the original, which keeps its bytes
+    /// and its date. Through the window's model: lane read, the named sheet, then its run.
     @Test(arguments: Single.allCases)
     func aPaneRunWritesEditsCopyAndLeavesTheOriginal(_ item: Single) async throws {
         let file = path("Invoice-\(item.rawValue).pdf")
@@ -477,10 +472,9 @@ private struct PDFToolDelegate: NoOpFileActions {
         #expect(batch.banner?.detail == nil, "the files Cancel never reached were named: \(String(describing: batch.banner?.detail))")
     }
 
-    /// A pane-launched run's doors go only to copies still there, as Edit's banner's do: Reveal
-    /// must not list a trashed copy, and Open must not open a path that is gone. The doors are the
-    /// result message's buttons, so the rule is ``PaneToolResult/stillThere(_:exists:)`` and the
-    /// window's buttons must go through it.
+    /// A pane-launched run's doors go only to copies still there: Reveal must not list a trashed
+    /// copy, nor Open a path that is gone. The window's buttons go through
+    /// ``PaneToolResult/stillThere(_:exists:)``.
     @Test func aResultsDoorsSkipCopiesThatAreGone() throws {
         let kept = path("A (rotated).pdf"), gone = path("B (rotated).pdf")
         PDFFixtures.write(kept, pages: 1)
@@ -573,9 +567,8 @@ private struct PDFToolDelegate: NoOpFileActions {
         #expect(batch.banner?.detail == "“Gone.pdf” — \(EditorPDFBatch.goneReason)", "\(batch.banner?.detail ?? "no detail")")
     }
 
-    /// A file that can't run is skipped with its reason (no smaller after Compress, locked to
-    /// open), and the banner's detail names each, with its reason, after the sheet that showed them
-    /// has closed. The skipped files come first, so a run that named only the last couldn't pass.
+    /// A file that can't run is skipped, and the banner's detail names each with its reason. The
+    /// skipped files come first, so a run that named only the last couldn't pass.
     @Test func noGainAndLockedFilesAreSkippedWithTheirReasons() async throws {
         let scan = path("Scan.pdf"), lean = path("Lean.pdf"), locked = path("Locked.pdf")
         PDFFixtures.writeScan(scan, pages: 2)
@@ -651,10 +644,9 @@ private struct PDFToolDelegate: NoOpFileActions {
         #expect(walks == 6, "a walk that gave no answer was held")
     }
 
-    /// A read the provider holds withholds the offers, not the main thread. The cloud `lstat` and
-    /// the protection probe go through `BoundedCloudRead`; while one is stuck, PDF Tools and Save
-    /// as PDF are left out for any file that would need a read. What the memos already know needs
-    /// no read and is offered; once the read returns, so is the rest.
+    /// A read the provider holds withholds the offers, never the main thread: the cloud `lstat` and
+    /// protection probe go through `BoundedCloudRead`. What the memos know is offered at once; the
+    /// rest once the read returns.
     @Test func aHeldReadWithholdsTheOffersAndTheMemosStillAnswer() async throws {
         let reads = BoundedCloudRead(deadline: .milliseconds(50))
         let known = path("Known.pdf"), fresh = path("Fresh.pdf"), unprobed = path("Unprobed.pdf")
@@ -711,9 +703,8 @@ private struct PDFToolDelegate: NoOpFileActions {
                 == "Saved 2 compressed copies · 2 have no editing restrictions")
     }
 
-    /// Clean Metadata skips an encrypted file (the toolkit refuses one) and says so, with the way
-    /// past it. Said as encrypted, not as an owner's restriction: the skip is the same for a file
-    /// encrypted with every permission allowed.
+    /// Clean Metadata skips an encrypted file (the toolkit refuses one) and says so as encrypted,
+    /// not as an owner's restriction, with the way past it.
     @Test func cleanMetadataSkipsAProtectedFile() async {
         let plain = path("Plain.pdf"), restricted = path("Restricted.pdf")
         PDFFixtures.write(plain, pages: 1)
@@ -726,9 +717,8 @@ private struct PDFToolDelegate: NoOpFileActions {
                 + EditorPDFToolEngine.decryptStep, "\(String(describing: batch.banner?.detail))")
     }
 
-    /// Encrypted, with nothing restricted: the message must not blame owner's restrictions the file
-    /// doesn't have. The fixture is checked first, so this can't pass over a file that is
-    /// restricted after all.
+    /// Encrypted, with nothing restricted: the message must not blame restrictions the file doesn't
+    /// have. The fixture is checked first.
     @Test func cleanMetadataSaysEncryptedForAFileWithNoRestrictions() async throws {
         let open = path("Open.pdf")
         PDFFixtures.writeEncryptedUnrestricted(open)

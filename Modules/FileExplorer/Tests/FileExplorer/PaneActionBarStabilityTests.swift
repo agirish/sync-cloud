@@ -4,13 +4,9 @@ import Testing
 import Design
 @testable import FileExplorer
 
-/// The action bar reads its own selection, so its summary text changes on every click. Its width is
-/// reserved so the buttons after it don't move; without that, Compare would jump ~18pt under the
-/// cursor between "10.7 MB" and "972.2 MB".
-///
-/// Asserts rendered pixels, not a computed width: the reservation renders a hidden twin to set the
-/// frame, and only a real render shows the twin and the visible text agree. A width constant would
-/// just re-assert itself.
+/// The action bar's summary changes on every click, so its width is reserved (a hidden twin) to keep
+/// the buttons after it from moving under the cursor. Asserted on rendered pixels, since only a real
+/// render shows the twin and the visible text agree.
 @MainActor
 @Suite(.serialized) struct PaneActionBarStabilityTests {
 
@@ -35,8 +31,7 @@ import Design
     }
 
     /// Renders offscreen through a real `NSHostingView`, the way the app resolves dynamic colours
-    /// and SF Symbols. Local rather than the shared harness, which compares against committed
-    /// references; here two live renders are compared with each other.
+    /// and SF Symbols.
     private func render(_ view: some View) -> NSBitmapImageRep {
         let size = CGSize(width: Self.width + 16, height: Self.height)
         let subject = view

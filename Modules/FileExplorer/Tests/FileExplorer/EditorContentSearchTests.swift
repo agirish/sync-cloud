@@ -251,13 +251,10 @@ import Sync
         #expect(walkSummary?.read == 3)
     }
 
-    /// Dropping the stream stops the search: no file is opened after the query changes.
-    ///
-    /// Held, not timed: past the first ten reads every reader waits at a gate until the stream is
-    /// dropped, so the count can't depend on how fast the consumer gets its turn. Released, the
-    /// waiting readers finish and no other file opens: past the count at the drop, at most the
-    /// readers already between the stop check and the read. The count is read once the search has
-    /// let go of its reader, not after a fixed sleep, which a slow run could pass while reads go on.
+    /// Dropping the stream stops the search: no file is opened after the query changes. Held, not
+    /// timed: past ten reads every reader waits at a gate until the drop; released, at most the
+    /// readers already past the stop check read. Counted once the search lets go of its reader,
+    /// not after a fixed sleep, which a slow run could pass while reads go on.
     @Test func droppingTheStreamStopsTheReads() async throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }

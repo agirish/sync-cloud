@@ -4,17 +4,11 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// The overlay, actually drawn: mounted in a real window and read back as pixels. It opens from a
-/// modal `NSAlert` button, which a script can't drive without assistive access, so a hosted render
-/// is the only check that the card comes up at all.
-///
-/// It does not cover the diff: `.task` doesn't fire in a hosted `NSHostingView` under `swift test`,
-/// so the pane is always its resting spinner. `EditorDivergenceRefusalTests` drives
-/// `TextPairDiffPipeline` with this overlay's labels; this suite covers the chrome around it.
-///
-/// Ink is counted as dark pixels, not inked rows: the full-bleed scrim inks every row before the
-/// card draws anything. The ink count is `.pixelSampling` because it reads a live renderer's
-/// pixels; the empty-document check reads no pixel value, so it runs everywhere.
+/// The overlay, actually drawn in a real window and read back as pixels: it opens from a modal
+/// `NSAlert` button, so a hosted render is the only check that the card comes up at all. Not the
+/// diff: `.task` doesn't fire in a hosted `NSHostingView` under `swift test`, so the pane is its
+/// resting spinner (`EditorDivergenceRefusalTests` drives the pipeline). Ink is counted as dark
+/// pixels, not inked rows: the full-bleed scrim inks every row before the card draws anything.
 @MainActor
 @Suite(.serialized) struct EditorDivergenceOverlayMountTests {
 

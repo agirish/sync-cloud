@@ -5,14 +5,10 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The Compare Copies surface's keys, driven through a real window's responder chain.
-///
-/// The rule worth a whole suite: ⏎ never trashes. As at the Restructure sheet, the safe act keeps
-/// the default and a destructive one is a deliberate click.
-///
-/// The keys are `.onKeyPress`, not key equivalents: the window stays mounted under an in-window
-/// overlay, so a `.defaultAction` would eat bare ⏎ typed into any field behind the scrim.
-/// `BareKeyEquivalentScanTests` enforces that; this suite pins that the replacement works.
+/// The Compare Copies surface's keys, driven through a real window's responder chain. ⏎ never
+/// trashes: the safe act keeps the default and a destructive one is a deliberate click. The keys
+/// are `.onKeyPress`, not key equivalents: the window stays mounted under an in-window overlay, so
+/// a `.defaultAction` would eat bare ⏎ typed into any field behind the scrim.
 @MainActor
 @Suite(.serialized) struct CompareCopiesKeyTests {
 

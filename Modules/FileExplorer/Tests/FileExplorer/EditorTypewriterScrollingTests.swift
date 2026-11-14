@@ -56,11 +56,9 @@ import AppKit
         EditorCaret.utf16Offset(ofLine: line, in: view.string)!
     }
 
-    /// Where the caret's line sits on screen: its centre's distance from the top of the clip, as a
-    /// share of the clip's height (0.5 is centred).
-    ///
-    /// Measured by AppKit's `firstRect`, not by ``EditorTextView/caretRect(at:)``, the rule's own
-    /// measure: asked of the rule, a wrong row would be centred and measured centred.
+    /// Where the caret's line sits on screen, as a share of the clip's height from its top (0.5 is
+    /// centred). Measured by AppKit's `firstRect`, not by ``EditorTextView/caretRect(at:)``, the
+    /// rule's own measure: asked of the rule, a wrong row would be centred and measured centred.
     private func caretShare(_ rig: (window: NSWindow, scroll: EditorDocumentScrollView, view: EditorTextView)) throws -> CGFloat {
         let caret = try caretRectByAppKit(rig.view, at: rig.view.selectedRange().location)
         let bounds = rig.scroll.contentView.bounds
@@ -242,10 +240,9 @@ import AppKit
                 "composing at mid-height scrolled \(before) → \(rig.scroll.contentView.bounds.minY)")
     }
 
-    /// With Page on, the room below the last line is page too: the column and its margins, the
-    /// window outside them, as above the end of the text. The room is the clip's, past the end of
-    /// the text view that draws the page, so it is drawn there. Rendered and read back against a
-    /// pixel of the page above it.
+    /// With Page on, the room below the last line is page too, column and margins as above the end of
+    /// the text. The room is the clip's, past the end of the text view that draws the page, so the
+    /// clip draws it. Rendered and read back against a pixel of the page above it.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func withPageOnTheRoomBelowTheTextIsPage(_ appearance: NSAppearance.Name) throws {
         let rig = hosted(text: (1...40).map { "line \($0)" }.joined(separator: "\n"), on: true)
@@ -430,8 +427,7 @@ import AppKit
     }
 
     /// The call site: the editor reads the switch and hands it to the text view, and a flip under a
-    /// mounted editor arrives, both ways. Without this, the rule above is one revert away from
-    /// unused.
+    /// mounted editor arrives, both ways.
     @Test func theEditorAppliesTheSwitch() {
         defaults.removeObject(forKey: EditorTextSettings.typewriterScrollingKey)
         let rig = mounted()
@@ -452,9 +448,8 @@ import AppKit
         #expect(clip?.allowsTypewriterOverscroll == false)
     }
 
-    /// Split's Preview leads, and Source follows to the line it names, at the top, not pulled to
-    /// the caret. The follow is the reader's scroll, made in the other half: it moves the clip and
-    /// never the caret, so nothing reaches the centring. This pins that it stays so.
+    /// Split's Preview leads, and Source follows to the line it names, at the top, not pulled to the
+    /// caret: the follow moves the clip and never the caret, so nothing reaches the centring.
     @Test func aPreviewLedFollowIsNotPulledBackToTheCaret() throws {
         defaults.set(true, forKey: EditorTextSettings.typewriterScrollingKey)
         let rig = mounted()
@@ -493,10 +488,9 @@ import AppKit
 
     // MARK: The mouse (decision BI)
 
-    /// A caret the mouse moves is AppKit's to scroll, never a centring: a click, or a drag that
-    /// autoscrolls. Inside ``EditorTextView/trackingMouse(_:)``, which `mouseDown(with:)` wraps
-    /// around AppKit's tracking loop, a caret low on screen stays put; outside it, the same scroll
-    /// centres (the control).
+    /// A caret the mouse moves (a click, or a drag that autoscrolls) is AppKit's to scroll, never
+    /// centred. Inside ``EditorTextView/trackingMouse(_:)``, which `mouseDown(with:)` wraps around
+    /// AppKit's tracking loop, a low caret stays put; outside it, the same scroll centres (the control).
     @Test func theMousesCaretIsNotCentred() throws {
         let rig = hosted(on: true)
         defer { withExtendedLifetime(rig.window) {} }

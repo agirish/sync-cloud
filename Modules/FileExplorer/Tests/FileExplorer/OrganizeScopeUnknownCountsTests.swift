@@ -9,9 +9,8 @@ import Foundation
 
     // MARK: The inbox offer
 
-    /// The inbox count is claimed only when the last scan covered the inbox. `filingSuggestions`
-    /// holds one scan's output, so scoped elsewhere, or before any scan, it would read "0 loose
-    /// files" for a full inbox and talk the user out of the click the offer exists for.
+/// The inbox count is claimed only when the last scan covered the inbox, or it reads "0 loose
+/// files" for a full inbox.
     @Test func anUnknownInboxCountNamesTheFolderInsteadOfClaimingZero() {
         #expect(OrganizeOverview.inboxSubtitle(nil) == "Organize just this folder")
         // The wrong-zero string must not be reachable from nil.
@@ -24,8 +23,7 @@ import Foundation
     }
 
     @Test func aKNOWNZeroStillReadsAsZero() {
-        // Nil is "we did not look"; zero is "we looked and it is empty". A real empty inbox must
-        // still say so, or the rule would hide true answers along with false ones.
+// Nil is "we did not look"; zero is "we looked and it is empty", and must still say so.
         #expect(OrganizeOverview.inboxSubtitle(0) == "0 loose files — organize just this folder")
         #expect(OrganizeOverview.inboxSubtitle(0) != OrganizeOverview.inboxSubtitle(nil))
     }
@@ -52,8 +50,7 @@ import Foundation
     }
 
     @Test func theCleanTitleDoesNotClaimTheWholeTreeUnderAScope() {
-        // "The tree agrees with itself" is a claim about the whole tree, and under a scope this
-        // lens has only looked at part of it.
+// "The tree agrees with itself" claims the whole tree, and a scoped lens looked at part of it.
         #expect(RestructureLens.cleanTitle(isScoped: false) == "The tree agrees with itself")
         #expect(RestructureLens.cleanTitle(isScoped: true) == "This folder agrees with itself")
         #expect(RestructureLens.cleanTitle(isScoped: true) != RestructureLens.cleanTitle(isScoped: false))

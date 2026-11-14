@@ -165,11 +165,10 @@ import Sync
         }
     }
 
-    /// Anywhere in the name, ignoring case and diacritics: his folders have accented names in
-    /// them, and somebody typing `rec` means `Récipes`. An empty or blank filter is no filter,
-    /// since somebody who has typed a space and stopped is mid-thought, and answering "no files"
-    /// would look like the rail emptied itself. It never reorders: the order is `entries(in:)`'s,
-    /// and a re-sort would make the list jump as you type (the `.md` case is in rail order).
+    /// Anywhere in the name, ignoring case and diacritics: typing `rec` means `Récipes`. An empty or
+    /// blank filter is no filter, so a typed space doesn't look like the rail emptied itself. It never
+    /// reorders: the order stays `entries(in:)`'s, so the list doesn't jump as you type (the `.md`
+    /// case is in rail order).
     @Test(arguments: [("plan", ["Release plan.md"]), ("PLAN", ["Release plan.md"]),
                       ("recipes", ["Récipes.md"]),
                       ("", ["Release plan.md", "scratch.txt", "Récipes.md"]),

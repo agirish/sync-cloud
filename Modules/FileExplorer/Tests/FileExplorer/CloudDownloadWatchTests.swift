@@ -4,11 +4,9 @@ import Foundation
 
 /// Pins the pane's download watch, the sequence as well as its parts. Every
 /// `CloudOnlyBadgeCache.forget` bumps the memo's generation and invalidates every in-flight badge
-/// stat in both panes, so a download must forget exactly once.
-///
-/// `.serialized` because the memo is process-wide static state and these tests write it. Fixtures
-/// live under `/iCloud`, which no other suite touches; a reset here must never wipe the whole
-/// table, or it would reach into a suite running in parallel.
+/// stat in both panes, so a download must forget exactly once. `.serialized` because the memo is
+/// process-wide; fixtures live under `/iCloud`, which no other suite touches, and a reset must
+/// never wipe the whole table, or it would reach into a suite running in parallel.
 @Suite(.serialized) struct CloudDownloadWatchTests {
 
     private static let path = "/iCloud/big.mov"
@@ -155,16 +153,14 @@ import Foundation
         #expect(await probes.count == 3, "the poll gave up instead of trying again")
     }
 
-    /// The real probe answers nil for a missing path: the production default, since that mapping is
-    /// what's under test. Nothing is seeded, as the arming forget lives in `PaneDownloadWatch.begin`
-    /// and this drives `watch` directly; a poll that read "can't stat" as landed would
-    /// `record(false)`.
+    /// The real probe (`MaterializationStatus.isCloudOnlyIfKnown`, the default) answers nil for a
+    /// missing path, so nothing is recorded; a poll that read "can't stat" as landed would
+    /// `record(false)`. Nothing is seeded: the arming forget lives in `PaneDownloadWatch.begin`.
     @MainActor
     @Test func aVanishedPathLeavesNothingInTheMemo() async {
         let gone = "/iCloud/vanished-\(UUID().uuidString).mov"
         let request = CloudDownloadRequest(path: gone, paneToken: .left)
 
-        // Default `isCloudOnly`, so this runs `MaterializationStatus.isCloudOnlyIfKnown` for real.
         _ = await CloudDownloadPoll.watch(request, attempts: 2, interval: .milliseconds(5),
                                           latch: { request })
 

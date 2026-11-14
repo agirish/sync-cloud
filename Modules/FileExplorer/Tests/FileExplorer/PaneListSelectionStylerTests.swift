@@ -30,10 +30,8 @@ import Testing
 
     // MARK: Table search
 
-    /// A list is found by the anchor laid over it. A table with no columns yet (SwiftUI mid-mount)
-    /// still counts: the pane list is single-column by construction, and refusing it would leave the
-    /// gray highlight on until a relayout. A multi-column table is a `Table` (the differences list),
-    /// not a pane list: styling it would strip the selection highlight from the wrong view.
+    /// A list is found by the anchor laid over it. A table with no columns yet (mid-mount) still
+    /// counts; a multi-column one is the differences `Table`, not a pane list.
     @Test(arguments: [(1, true), (0, true), (3, false)])
     func testTheListIsFoundByColumnCount(columns: Int, isPaneList: Bool) {
         let frame = CGRect(x: 0, y: 0, width: 210, height: 520)
@@ -47,10 +45,8 @@ import Testing
         }
     }
 
-    /// Three columns are siblings under one `HStack`, so the first ancestor holding any table holds
-    /// all three, and a walk counting tables in a subtree would refuse, leaving every column but
-    /// the first with the OS highlight. The frame resolves it: each anchor sits over exactly one
-    /// column.
+    /// Sibling columns under one `HStack` share their first table-holding ancestor; the frame tells
+    /// them apart, as each anchor sits over exactly one column.
     @Test func testSiblingColumnsEachResolveToTheirOwnList() {
         var lists: [(scroll: NSScrollView, table: NSTableView)] = []
         var anchors: [NSView] = []
@@ -88,9 +84,8 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
-    /// The differences table's styler asks for the opposite split: the one multi-column `Table`
-    /// (4 columns), never a pane list (1), whose washes would double up the pane's own selection
-    /// drawing. Same resolver, same frame anchoring, inverted column filter.
+    /// The differences table's styler inverts the column filter: the multi-column `Table`, never a
+    /// pane list.
     @Test(arguments: [(4, true), (1, false)])
     func testMultiColumnModeResolvesOnlyTheDifferencesTable(columns: Int, resolves: Bool) {
         let frame = CGRect(x: 0, y: 0, width: 800, height: 300)
@@ -111,8 +106,7 @@ import Testing
         #expect(PaneListResolver.table(matching: anchor) == nil)
     }
 
-    /// A list nowhere near the anchor is not this anchor's list, however alone it is in the
-    /// hierarchy; otherwise a single stale table would be adopted by any anchor that asked.
+    /// A list nowhere near the anchor is not its list, however alone it is in the hierarchy.
     @Test func testANonOverlappingListIsNotAdopted() {
         let (scroll, _) = list(at: CGRect(x: 0, y: 0, width: 210, height: 520))
         let anchor = anchor(at: CGRect(x: 600, y: 0, width: 210, height: 520))
@@ -152,18 +146,16 @@ import Testing
 
     // MARK: Selection wash
 
-    /// The active pane's selection must read stronger than the inactive one's: with the system
-    /// highlight off and the window pinned to `controlActiveState == .active`, that gap is the only
-    /// cue for which pane the action bar's Delete will act on.
+    /// The active pane's selection reads stronger than the inactive one's: the only cue for which
+    /// pane the action bar's Delete will act on.
     @Test func testActiveWashIsStrongerThanInactive() {
         #expect(PaneSelectionWash.opacity(isActivePane: true) > PaneSelectionWash.opacity(isActivePane: false))
         #expect(PaneSelectionWash.opacity(isActivePane: true) == PaneSelectionWash.active)
         #expect(PaneSelectionWash.opacity(isActivePane: false) == PaneSelectionWash.inactive)
     }
 
-    /// Both ends stay usable: the inactive wash must still be visible (not effectively transparent,
-    /// which would read as "nothing is selected there"), and the active one must not be so opaque
-    /// that it swallows the row's own text.
+    /// Both washes stay usable: the inactive one visible, the active one not so opaque it swallows
+    /// the row's text.
     @Test func testBothWashesStayInTheLegibleBand() {
         #expect(PaneSelectionWash.inactive >= 0.06)
         #expect(PaneSelectionWash.active <= 0.35)

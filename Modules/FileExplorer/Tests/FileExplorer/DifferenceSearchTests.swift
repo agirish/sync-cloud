@@ -107,8 +107,7 @@ import Sync
     }
 
     @Test func kindClassTableIsSharedWithTheLensSearch() {
-        // Both surfaces resolve `kind:` aliases through one table; a fork would silently break the
-        // shared vocabulary and suggestion copy.
+        // One table for both surfaces' `kind:` aliases; a fork would break the shared vocabulary.
         #expect(DuplicateSearch.kindClasses == DifferenceSearch.kindClasses)
     }
 

@@ -28,9 +28,7 @@ import Sync
         #expect(BusyPaneFixture.pane(nodes: [], isLoading: true).busyIndicator == .chip(backed: false))
         #expect(BusyPaneFixture.pane(nodes: [row], isLoading: true).busyIndicator == .chip(backed: true))
         #expect(BusyPaneFixture.pane(nodes: [row], isLoading: false).busyIndicator == PaneBusyIndicator.none)
-        // And the centre stays claimed while the walk runs, so "Folder is empty" can't show on a
-        // pane nobody has read yet: the chip replaced the centred spinner, not the empty-state
-        // rule.
+        // The centre stays claimed while the walk runs, so "Folder is empty" can't show unread.
         #expect(BusyPaneFixture.pane(nodes: [], isLoading: true).emptyState == .loading)
     }
 
@@ -94,10 +92,8 @@ enum BusyPaneFixture {
         return count
     }
 
-    /// An empty pane being read paints in its bottom-right corner and nowhere else; the centre
-    /// stays clear. Both halves matter: a centre clear because nothing rendered at all would pass
-    /// the second on its own. And it paints spinner and label, no card: a material card has nothing
-    /// to blur on an empty pane and draws a flat gray slab (~53k px here; ink is ~3.2k).
+    /// An empty pane being read paints spinner and label in its bottom-right corner and nowhere else,
+    /// no card: a material card has nothing to blur on an empty pane and draws a flat gray slab.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func anEmptyPaneBeingReadPaintsOnlyItsCorner(appearance: NSAppearance.Name) throws {
         let size = CGSize(width: 420, height: 300)
@@ -113,9 +109,7 @@ enum BusyPaneFixture {
         #expect(total < 12_000, "\(appearance.rawValue): placeholder is painting a fill (\(total) px)")
     }
 
-    /// Backed over rows, bare over nothing. The backing is a material, and on an empty pane a
-    /// material has nothing to blur and paints a flat gray box. Over rows it keeps the label
-    /// legible.
+    /// Backed over rows, to keep the label legible; bare over nothing.
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func theChipIsBackedOnlyWhenAsked(appearance: NSAppearance.Name) throws {
         let size = CGSize(width: 300, height: 120)

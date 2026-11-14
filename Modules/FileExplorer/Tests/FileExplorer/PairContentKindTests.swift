@@ -51,12 +51,9 @@ import UniformTypeIdentifiers
 
     // MARK: An image type is only an image if something can decode it
 
-    /// SVG conforms to `public.image` but ImageIO can't decode it, so a typed viewer would mount
-    /// two image views over nil, with no caption and a difference mode that never finishes. Quick
-    /// Look renders SVG, which is what `.other` gets it.
-    ///
-    /// The premise is asserted first: if a future macOS ships an SVG codec, this fails and says to
-    /// re-decide, rather than passing for the wrong reason.
+    /// SVG conforms to `public.image` but ImageIO can't decode it, so it goes to Quick Look
+    /// (`.other`), not two image views over nil. The premise is asserted first: an OS SVG codec
+    /// fails it and says to re-decide.
     @Test func svgIsAnImageThatOnlyQuickLookCanRender() throws {
         let svg = try #require(UTType(filenameExtension: "svg"))
         #expect(svg.conforms(to: .image), "premise: SVG still conforms to public.image")
@@ -64,20 +61,16 @@ import UniformTypeIdentifiers
         #expect(PairContentKind.classify(ext: "svg") == .other)
     }
 
-    /// A camera RAW is why this asks ImageIO instead of carrying a list: the answer has to track
-    /// the codecs the OS actually has. The premise is asserted apart from the answer, so if a
-    /// machine lacks the codec the first line says so instead of the test agreeing with itself.
+    /// A camera RAW is why this asks ImageIO rather than a list: the answer tracks the OS's codecs.
+    /// The premise is asserted apart, so a machine lacking the codec says so.
     @Test func aCameraRawGetsTheTypedViewer() throws {
         let raw = try #require(UTType(filenameExtension: "arw"))
         #expect(PairContentKind.imageIOCanDecode(raw), "premise: this machine decodes Sony RAW")
         #expect(PairContentKind.classify(ext: "arw") == .image)
     }
 
-    /// Covers the guard no real listing can exercise. `CGImageSourceCopyTypeIdentifiers` names only
-    /// concrete formats, no umbrella, so the drop of `public.image` in `decodableTypes(in:)` never
-    /// fires against it; the listing is supplied here. Without the drop, an umbrella in the
-    /// resolved list would answer "decodable" for `public.svg-image` and every other image type at
-    /// once.
+    /// The drop of the `public.image` umbrella in `decodableTypes(in:)`, which no real listing
+    /// exercises, so the listing is supplied: without it SVG and every image type read decodable.
     @Test func anUmbrellaInTheListingDoesNotReadmitEveryImageType() throws {
         let listing: Set<String> = ["public.image", "public.png"]
         let resolved = PairContentKind.decodableTypes(in: listing)

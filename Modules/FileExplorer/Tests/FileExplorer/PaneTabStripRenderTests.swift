@@ -4,14 +4,10 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The strip, rendered and read back, in light and dark. The ladder tests prove the arithmetic but
-/// can't see whether a chip's name is drawn, whether the active tab stands out, or whether the ✕
-/// paints, so these claims are made in pixels:
-///
-/// - The active tab is visibly active: its raised ground and the accent rule under it are the only
-///   things saying which folder the pane below shows.
-/// - Each chip draws its name, rather than being squeezed to the floor with its title clipped out.
-/// - The mark tells two same-named tabs apart: two "Documents" from different clouds.
+/// The strip, rendered and read back, in light and dark: what the ladder's arithmetic can't see.
+/// The active tab is visibly active (its raised ground and accent rule are all that say which
+/// folder the pane shows), each chip draws its name rather than clipping it at the floor, and the
+/// mark tells two same-named tabs apart.
 @MainActor
 // Pinned per test rather than per suite, so the tests that read no pixels aren't held to this
 // machine (see `OrganizeRailTests`).
@@ -109,7 +105,6 @@ import Design
         guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
         return PixelProbe.count(in: rep, box) { PixelProbe.distance($0, background) > 0.04 }
     }
-
 
     /// How accent each row of `box` is, as peak against typical. Per row, the mean blue minus red:
     /// callers render with a blue accent, and nothing else on a chip moves along that axis (slab,

@@ -4,13 +4,9 @@ import Foundation
 /// Chrome glass's call sites in FileExplorer: every bar and toolbar button here sits in glass in
 /// Frosted and Clear. The seam's behaviour is pinned in Design (`ChromeGlassTests`) and on the
 /// pane bar in Dashboard (`ChromeGlassPaneBarTests`); this scan catches a site that lost its glass,
-/// which falls back to the Solid look and would never be noticed on screen.
-///
-/// Read over `SourceText.codeOnly`, because these call sites carry comments naming
-/// the very modifiers counted here.
-///
-/// Where glass may be written (on the button, after its style, never inside a label) is pinned
-/// once for every package by the app target's `SelectionLensWiringTests`.
+/// which falls back to the Solid look and would never be noticed on screen. Read over
+/// `SourceText.codeOnly`, because these call sites carry comments naming the counted modifiers.
+/// Where glass may be written is pinned for every package by the app's `SelectionLensWiringTests`.
 @Suite struct ChromeGlassWiringTests {
 
     static func source(_ file: String) throws -> String {
@@ -93,10 +89,8 @@ import Foundation
     }
 
     /// The hidden mode bars that only reserve a header's height are drawn at Solid: no lens of their
-    /// own to run on a mode change, no glass track, and the same height either way.
-    ///
-    /// Matched across any whitespace between the two modifiers, so a reindent isn't read as a lost
-    /// one.
+    /// own to run on a mode change, no glass track, and the same height either way. Matched across
+    /// any whitespace between the two modifiers, so a reindent isn't read as a lost one.
     @Test func editsHeightReservationsRunNoLens() throws {
         let editor = try Self.source("EditorWorkspaceView.swift")
         let reservation = try NSRegularExpression(pattern: #"\.environment\(\\\.selectionLensAppearance, \.today\)\s*\.hidden\(\)"#)
@@ -109,8 +103,7 @@ import Foundation
         #expect(picker.contains(".selectionLensHost(Self.railLensChannel, selected: isSearching ? nil : railFocus"))
         #expect(picker.contains(".selectionLensStop(Self.railLensChannel, id: PaneBrowsePath.normalized(path))"))
         // Seeded at init, so opening the picker shows the highlight at rest rather than growing it
-        // in. Nothing is picked at open and the rail rests on the item's own folder ("now here"),
-        // which `railFocus` derives from the request, at rest from the first frame.
+        // in: nothing is picked at open, and `railFocus` rests on the item's own folder.
         #expect(picker.contains("_highlighted = State(initialValue: \"\")"))
         #expect(picker.contains("highlighted.isEmpty ? (itemsAreHere ? itemFolder : \"\") : highlighted"))
         // Hosted on the scroll view's content, with the region it shows, as the sidebar's lenses are.

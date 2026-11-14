@@ -2,10 +2,9 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// **An empty pair selected whole is wrapped, and comes off.** Bold pressed with nothing selected
-/// leaves `****` with the caret inside; selecting those four and pressing Bold again must take the
-/// pair away, not wrap it in a second one. The pair is exactly twice the delimiter, the one length
-/// at which `wrapState` reads "starts and ends with it" with nothing between.
+/// An empty pair selected whole (`****` after Bold over nothing) lights, and Bold again takes it
+/// away rather than wrapping it in a second pair: the one length at which `wrapState` reads
+/// "starts and ends with it" with nothing between.
 @Suite struct MarkupEmptyPairTests {
 
     @Test(arguments: [(MarkupVerb.bold, "****"), (.strikethrough, "~~~~")])

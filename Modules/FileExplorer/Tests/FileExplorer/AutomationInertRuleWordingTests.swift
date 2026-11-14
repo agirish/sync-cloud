@@ -3,13 +3,10 @@ import Testing
 @testable import FileExplorer
 import Sync
 
-/// Pins how the Automations lens explains a rule that will not run.
-///
-/// Two ways of not running need different words. "Incomplete" is advice: finish the rule and it
-/// works. A rule from a newer build already has its condition and destination; this build can't
-/// read part of it, keeps it as-is, and won't act on it. "Give the rule a condition" would send
-/// the user looking for nothing, and an edit is what would discard the newer build's data, so the
-/// tooltip warns about that.
+/// How the Automations lens explains a rule that will not run. "Incomplete" is advice: finish the
+/// rule and it works. A rule from a newer build already has its condition and destination; this
+/// build can't read part of it and won't act on it. "Give the rule a condition" would send the user
+/// looking for nothing, and an edit would discard the newer build's data, so the tooltip warns.
 @Suite struct AutomationInertRuleWordingTests {
 
     /// The only way to build a rule carrying a value this build cannot read: decode one.
@@ -39,13 +36,11 @@ import Sync
     }
 
     @Test func thePreviewTooltipNamesTheRealBlocker() throws {
-        // A half-built rule: finish it.
         #expect(AutomationsLens.previewHelp(for: Self.halfBuilt, hasDestinationRoot: true)
                 .contains("condition and destination"))
         // A complete rule with nothing focused: the folder is the blocker, not the rule.
         #expect(AutomationsLens.previewHelp(for: Self.complete, hasDestinationRoot: false)
                 .contains("Focus a provider folder"))
-        // A complete rule with a folder: no blocker at all.
         #expect(AutomationsLens.previewHelp(for: Self.complete, hasDestinationRoot: true)
                 == "Preview just this rule over the focused folder")
 

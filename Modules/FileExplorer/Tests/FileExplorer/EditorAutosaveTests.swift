@@ -34,11 +34,8 @@ import Design
     }
 
     /// A lossy decode opens read-only, and read-only must never reach the disk, autosave included.
-    ///
-    /// The absent stamp stops it here, not the `canSave` guard: `EditorDocument.open` leaves
-    /// `stamp` nil for a read-only decode, so `guard let stamp` refuses before dirtiness is read.
-    /// Removing `canSave` from the guard leaves this green. The checks below name the gate doing
-    /// the work, so a change to any of the three can't leave the others carrying the claim.
+    /// The absent stamp stops it here, before the `canSave` guard (removing that leaves this green);
+    /// the checks below name the gate doing the work.
     @Test func aReadOnlyDocumentIsNeverWritten() throws {
         let folder = try scratch()
         defer { try? FileManager.default.removeItem(at: folder) }

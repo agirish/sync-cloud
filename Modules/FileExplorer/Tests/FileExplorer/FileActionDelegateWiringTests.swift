@@ -2,9 +2,8 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// The two directions of the FileActionDelegate ↔ FileTreeView contract, both derived from the
-/// source rather than from a hand list, because the hand-listable half is the half the compiler
-/// already checks.
+/// Both directions of the FileActionDelegate ↔ FileTreeView contract, derived from the source rather
+/// than a hand list, since the hand-listable half is the half the compiler already checks.
 ///
 /// The bug class (the protocol's own doc states the rule): a member declared only in a protocol
 /// extension binds statically, through the existential, to the extension's default, so the
@@ -28,10 +27,9 @@ import Foundation
             .joined(separator: "\n")
     }
 
-    /// Every file that binds the existential, derived rather than listed, so the next consumer
-    /// joins the walk the day it declares one. `PaneColumnsView` consumes several members through
-    /// its own `delegate:`; a walk that read `FileTreeView` alone would be silent about all of
-    /// them.
+    /// Every file that binds the existential, derived rather than listed, so the next consumer joins
+    /// the walk the day it declares one. `PaneColumnsView` consumes several members through its own
+    /// `delegate:`, which a walk of `FileTreeView` alone would miss.
     private static func consumerSources() throws -> [String] {
         let fm = FileManager.default
         let files = try #require(try? fm.contentsOfDirectory(at: sourcesDirectory(),
@@ -87,10 +85,8 @@ import Foundation
 
     // MARK: The two directions
 
-    /// Every member the pane consumes through the existential is a protocol requirement. A member
-    /// that exists only in a protocol extension has no witness: the existential call binds to the
-    /// extension default at compile time, the conformer's override is never reached, and the
-    /// feature dies silently.
+    /// Every member the pane consumes through the existential is a protocol requirement: one only in
+    /// an extension has no witness, so the call binds to the extension default and the feature dies.
     @Test func everyConsumedDelegateMemberIsARequirementNotAnExtensionDefault() throws {
         let requirements = try Self.protocolRequirements()
         var consumed: Set<String> = []
@@ -108,10 +104,9 @@ import Foundation
                 """)
     }
 
-    /// The reverse walk: every requirement is consumed somewhere in this module. A requirement
-    /// nothing calls is a verb no surface can trigger (a forgotten menu item), which the forward
-    /// walk can't see, since a call never written can never be wrong. Scanned across every source
-    /// file, since the differences table and the panes consume different subsets.
+    /// The reverse walk: every requirement is consumed somewhere in this module. A requirement nothing
+    /// calls is a verb no surface can trigger (a forgotten menu item), which the forward walk can't
+    /// see. Every source file is scanned: the differences table and the panes use different subsets.
     @Test func everyRequirementIsConsumedBySomeSurface() throws {
         let requirements = try Self.protocolRequirements()
         let fm = FileManager.default

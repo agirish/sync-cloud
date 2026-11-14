@@ -44,7 +44,6 @@ import Design
             #expect(abs(column / font - 720 / 13) < 0.001,
                     "at \(scale) the column is \(column)pt for \(font)pt text — \(column / font) to the point, not \(720 / 13)")
         }
-        // And it does move: larger text, wider column.
         let large = try #require(EditorReadableColumn.column(enabled: true, wraps: true, fontScale: 1.35))
         #expect(large > 720)
     }
@@ -132,11 +131,10 @@ import Design
         #expect(abs((rig.view.textContainer?.size.width ?? 0) - (rig.view.frame.width - 28)) < 0.5)
     }
 
-    /// No oscillation where a legacy scroller comes and goes. Narrowing the column makes the text
-    /// taller, which can bring a vertical scroller that narrows the view: the classic loop. Swept
-    /// across the cap's edge in width and the text's height in height, so the scroller is both there
-    /// and not; each size settles on the rule's answer for the view's final width, and asking again
-    /// changes nothing.
+    /// No oscillation where a legacy scroller comes and goes: narrowing the column makes the text
+    /// taller, which can bring a vertical scroller that narrows the view. Swept across the cap's edge
+    /// and the text's height so the scroller is both there and not; each size settles on the rule's
+    /// answer for the view's final width, and asking again changes nothing.
     @Test func theInsetSettlesAcrossTheScrollerBoundary() {
         let rig = hosted(width: 760, column: 720, legacyScrollers: true)
         defer { withExtendedLifetime(rig.window) {} }
@@ -293,9 +291,8 @@ import Design
         try body()
     }
 
-    /// The call site: the editor reads the switch and hands the text view its column, without which
-    /// the rule above could go unused. Off (and never set) is the base 14pt at any width; on, a wide
-    /// editor centres a column scaled by Text size.
+    /// The call site: the editor reads the switch and hands the text view its column. Off (and never
+    /// set) is the base 14pt at any width; on, a wide editor centres a column scaled by Text size.
     @Test func theEditorAppliesTheSwitch() throws {
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
         withSetting(nil) {
@@ -324,8 +321,7 @@ import Design
     }
 
     /// Flipping the switch under a mounted editor re-centres it, and flipping it back restores the
-    /// base inset: the menu writes the key, every mounted editor re-renders from it, and the change
-    /// arrives through `updateNSView`, the only place the column is handed over.
+    /// base inset: the change arrives through `updateNSView`, the only place the column is handed over.
     @Test func flippingTheSwitchUnderAMountedEditorAppliesIt() {
         defaults.set(true, forKey: EditorTextSettings.wrapsKey)
         withSetting(false) {

@@ -4,12 +4,10 @@ import Testing
 @testable import FileExplorer
 
 /// Compare's table state (filter, search, sort, folds) lives in `DifferencesSession`, so it survives
-/// a workspace switch that tears `DifferencesView` down.
-///
-/// Two of those values are retired by handlers that can't fire while the view is unmounted, and a
-/// rescan from Browse or Organize happens with Compare torn down. So both are also resolved on
-/// arrival; otherwise a remembered fold could hide differences nobody has seen, and a `.failed`
-/// filter could stand over a table with nothing failed in it.
+/// a workspace switch that tears `DifferencesView` down. Two of those values are retired by handlers
+/// that can't fire while the view is unmounted, and a rescan from Browse or Organize happens with
+/// Compare torn down, so both are also resolved on arrival: otherwise a remembered fold could hide
+/// differences nobody has seen, and a `.failed` filter could stand over a table with nothing failed.
 @MainActor
 @Suite struct DifferencesSessionTests {
 
@@ -29,8 +27,7 @@ import Testing
         #expect(session.searchText.isEmpty && !session.isSearchExpanded && session.collapsedSections.isEmpty)
     }
 
-    /// What Compare opens on before anyone narrows it, and what it forgot on every workspace switch
-    /// before the session held it.
+    /// What Compare opens on before anyone narrows it.
     @Test func aFreshSessionHasTheDefaults() {
         let session = DifferencesSession()
         #expect(session.selectedFilter == .all)

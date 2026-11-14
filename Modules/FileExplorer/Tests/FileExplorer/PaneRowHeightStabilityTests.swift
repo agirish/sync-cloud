@@ -5,23 +5,11 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// A pane row's ideal height must not depend on the width it is offered.
-///
-/// AppKit raises `NSGenericException` ("…already had more … passes than there are views in the
-/// window") once a window won't stop dirtying itself. The path looks like this:
-///
-/// ```
-/// OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)
-///   ← NSHostingView.SizeConstraints.update(from:)
-///   ← NSHostingView._willUpdateConstraintsForSubtree()   // inside the pass
-/// AppKitPlatformViewHost.enqueueLayoutInvalidation()      // …which schedules another pass
-///   → NSHostingView.setNeedsUpdate() → -[NSView setNeedsUpdateConstraints:]
-/// ```
-///
-/// A row that reports a new ideal height during the update-constraints pass makes the list enqueue
-/// another, in which it reports a new height again. A row whose name can wrap has that shape: its
-/// height depends on the width the list offers, and the list's width on the total content height
-/// (the scroller). Short synthetic names never wrap, so fixtures using them always settle.
+/// A pane row's ideal height must not depend on the width it is offered. A row reporting a new
+/// ideal height during the update-constraints pass makes the list enqueue another, until AppKit
+/// raises `NSGenericException` ("…more … passes than there are views in the window"). A wrapping
+/// name has that shape: its height depends on the list's width, and that on the content height.
+/// Short synthetic names never wrap, so fixtures using them always settle.
 @MainActor
 @Suite struct PaneRowHeightStabilityTests {
 
@@ -84,12 +72,8 @@ import Sync
         return heights
     }
 
-    /// Narrowing the pane must not make a row's height a moving target.
-    ///
-    /// The width sweep is the point: a real pane's width moves (the split divider, the details
-    /// sidebar, a window resize), and each new width re-asks every wrapping name how tall it wants
-    /// to be. This walks the pane down through the widths where a long name goes from one line to
-    /// two and measures whether the window ever stops dirtying itself.
+    /// Narrowing the pane must not make a row's height a moving target: a sweep down through the
+    /// widths where a long name wraps, measuring whether the window stops dirtying itself.
     @Test func testALongNameDoesNotMakeRowHeightAMovingTarget() async {
         let window = mount(Self.tree(files: 40, long: true), width: 900)
         _ = await LayoutPumpWait.pump(window, upTo: 15) { rowCount(window.contentView!) == 40 }
@@ -109,15 +93,10 @@ import Sync
         #expect(heights.count == 1, "rows settled at disagreeing heights \(heights.sorted()) — height is width-dependent")
     }
 
-    /// A row's height must be an integer at every density and text size.
-    ///
-    /// A hosting view with a fractional ideal height can never equal the integral height the table
-    /// gives its row, so every constraints pass reports a "new" ideal height and enqueues another:
-    /// the loop this suite exists for. Asserting integrality is cheap and rules that cause out
-    /// across the whole settings matrix, which no single mounted pane test can do.
+    /// A row's height is an integer at every density and text size: a fractional ideal height never
+    /// equals the table's integral row height, so every pass reports a "new" one.
     @Test func testRowHeightIsIntegralAtEveryDensityAndTextSize() {
-        // The shipped scales, not a hardcoded list: literals drift from the sizes a user can
-        // select, and a sweep over phantom scales proves nothing about the settings matrix.
+        // The shipped scales, not a hardcoded list that could drift from what a user can select.
         for density in [ListDensity.compact, ListDensity.comfortable] {
             for scale in FontSize.allCases.map(\.scale) {
                 let row = FileRowView(

@@ -4,13 +4,10 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The boxes that stop Organize recomputing the same answer on every publish.
-///
-/// `LensWorkspaceView` gets about thirty fresh closures from its parent, so it never equals itself
-/// and SwiftUI re-runs `body` on every publish. Two caches hang off that: the counts and lists
-/// `body` derives (``LensWorkspaceView/RenderMemo``), and the plan sheet's memoized disk view,
-/// which must outlive the `.sheet` content closure (``RestructurePlanSheet/TreeBox``). Both serve
-/// the stored answer only while the inputs are identical, never a stale one.
+/// The boxes that stop Organize recomputing the same answer on every publish. `LensWorkspaceView`
+/// gets fresh closures from its parent, so it never equals itself and re-runs `body` each time.
+/// ``LensWorkspaceView/RenderMemo`` holds what `body` derives and ``RestructurePlanSheet/TreeBox``
+/// the plan sheet's disk view; both serve the stored answer only while the inputs are identical.
 @MainActor
 @Suite struct OrganizeRenderMemoTests {
 
@@ -62,9 +59,8 @@ import Testing
         #expect(key(root: "~/Documents") != key())
     }
 
-    /// The scope chip's count walks every folder in the profile, so its key carries the folder set.
-    /// A key of scope and root alone would serve the last survey's number after a re-derive, which
-    /// is exactly when the count changes.
+/// The scope chip's count walks every folder in the profile, so its key carries the folder set, or
+/// a re-derive would serve the last survey's number.
     @Test func theScopeFolderKeyMovesWithTheProfilesFolders() {
         func entry(_ path: String) -> FolderProfileEntry {
             FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
@@ -110,9 +106,8 @@ import Testing
     }
 }
 
-/// The sheet wiring the boxes above depend on, pinned by source scan. The unit tests prove
-/// `TreeBox` and the frozen plan behave; only these prove the sheet reads them, like
-/// `thePlanSheetWiringGoesThroughPlanDiskRoot` does for its call site.
+/// The sheet wiring the boxes above depend on, pinned by source scan: only these prove the sheet
+/// reads them.
 @Suite struct RestructureSheetWiringTests {
 
     private func source(_ name: String) throws -> String { try SourceText.fileExplorer(name) }
@@ -128,9 +123,8 @@ import Testing
         }
     }
 
-    /// The review is frozen for the whole of a landing, not only after it. A landing publishes up
-    /// to ~101 progress ticks, each re-rendering the sheet, and each would re-run the planner
-    /// against a tree the executor is in the middle of moving.
+/// The review is frozen for the whole of a landing: each of its ~101 progress ticks re-renders the
+/// sheet, and would re-run the planner against a tree the executor is moving.
     @Test func theReviewIsFrozenWhileTheLandingRuns() throws {
         let sheet = try source("RestructurePlanSheet.swift")
         #expect(sheet.contains("let plan = landedPlan ?? applyingPlan ?? derived"),
@@ -164,9 +158,8 @@ import Testing
 @MainActor
 @Suite struct RestructureLensPerRenderTests {
 
-    /// The chips report a count, which must agree with the list it labels; counting by filtering,
-    /// mapping and sorting the ~609-entry dead-weight map three times per render is the cost this
-    /// avoids.
+/// The chips' counts agree with the lists they label, without filtering and sorting the dead-weight
+/// map three times per render.
     @Test func theCrowdingCountAgreesWithTheListItLabels() {
         let deadWeight: [String: DeadWeightClass] = [
             "A": .empty, "B": .empty, "C": .passThrough,
@@ -178,10 +171,9 @@ import Testing
         #expect(RestructureLens.crowdingCount([:], .empty) == 0)
     }
 
-    /// The cached stamp formatters follow the system zone. A cached formatter keeps the zone
-    /// current when it was built, so after a flight a landing stamped this morning would read an
-    /// hour out. Driven through the accessor rather than by moving `NSTimeZone.default`, which is
-    /// process-wide and would race every other suite in the run.
+/// The cached stamp formatters follow the system zone, or after a flight a landing stamped this
+/// morning reads an hour out. Driven through the accessor: moving `NSTimeZone.default` is
+/// process-wide and would race every other suite.
     @Test func theStampFormattersFollowTheSystemZone() throws {
         let elsewhere = try #require([TimeZone(identifier: "Asia/Kolkata"),
                                       TimeZone(identifier: "America/Los_Angeles")]

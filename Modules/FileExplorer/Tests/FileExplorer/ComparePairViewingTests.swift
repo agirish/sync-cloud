@@ -42,7 +42,6 @@ import Testing
         #expect(ComparePairMode.available(for: .image).count == 4)
         #expect(ComparePairMode.available(for: .text) == [.sideBySide, .textDiff])
         #expect(ComparePairMode.available(for: .other) == [.sideBySide])
-        // The pixel modes are never offered where there is no raster to compare.
         for kind in [PairContentKind.text, .other] {
             #expect(!ComparePairMode.available(for: kind).contains(.difference), "\(kind)")
         }
@@ -146,8 +145,7 @@ import Testing
                 "the side that rendered fine must not be captioned as broken")
     }
 
-    /// While a render is in flight the spinner is right; removing it would be a different wrong
-    /// answer.
+    /// While a render is in flight the spinner is right, on both sides.
     @Test func aRenderInFlightStillWaits() {
         for outcome in [PairRenderOutcome.rendering, .ready] {
             #expect(outcome.fallback(for: .left, name: "a.png") == .spinner, "\(outcome)")
@@ -616,13 +614,9 @@ import Testing
         }
     }
 
-    /// A page the reader lands on is reported to the surface, so the strip and pixel modes follow
-    /// the panes.
-    ///
+    /// A page the reader lands on is reported to the surface, so the strip and pixel modes follow.
     /// The move uses `go(to:)`, not a scroll: setting a clip view's bounds doesn't make `PDFView`
-    /// recompute its current page. This pins everything after the page changes (notification,
-    /// value guard, surface); PDFKit updating `currentPage` on scroll is the one link no test here
-    /// can drive.
+    /// recompute its current page, so PDFKit updating `currentPage` on scroll stays untested.
     @MainActor
     @Test func aPageTheReaderLandsOnIsReportedToTheSurface() async throws {
         let fixture = try LetterFixture()
@@ -707,10 +701,8 @@ import Testing
         }
     }
 
-    /// A page turned while the documents open is not lost. `go` bails while `document` is nil, so
-    /// a load that used the index captured when it was queued would leave both panes on the old
-    /// page. The window is widest when a scan holds the PDFKit lane and the strip is clickable.
-    ///
+    /// A page turned while the documents open is not lost. `go` bails while `document` is nil, so a
+    /// load that used the index captured when it was queued would leave both panes on the old page.
     /// The turn is made before any await, and the require checks no document has arrived: a turn
     /// after the load would take the ordinary `go` path and prove nothing.
     @MainActor
@@ -755,13 +747,10 @@ import Testing
 // MARK: - The scroll observers a path change replaces
 
 /// Re-wiring the scroll sync must retire the previous pair's observers as it registers this pair's.
-///
 /// The `PDFView`s are reused across a path change, so their clip views can be the same objects and
 /// a second registration mirrors every scroll twice. The latch hides the duplicate, so only the
-/// registration count shows it.
-///
-/// Driven on a bare `Coordinator` against real `NotificationCenter` observers, to measure the
-/// bookkeeping rather than a PDF pair's rendering.
+/// registration count shows it. Driven on a bare `Coordinator` against real `NotificationCenter`
+/// observers, to measure the bookkeeping rather than a PDF pair's rendering.
 @Suite struct PDFPairScrollObserverTests {
 
     private final class Counter: @unchecked Sendable {

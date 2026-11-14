@@ -135,10 +135,9 @@ import Design
         return clip
     }
 
-    /// Past either end the page goes on: the column and its margins, nothing else. The clip paints
-    /// the band on its own, the clip's full height whatever its bounds, so an overscroll's strip
-    /// above or below the text is page too. With the switch off the clip paints nothing, so the
-    /// assertion can fail.
+    /// Past either end the page goes on: the clip paints the column-and-margins band itself, its full
+    /// height whatever its bounds, so an overscroll's strip above or below the text is page too.
+    /// Switched off, the clip paints nothing, so the assertion can fail.
     @Test func pastTheTextTheClipCarriesThePagesBand() throws {
         let rig = hosted(width: 1000, column: 720, appearance: .aqua)
         defer { withExtendedLifetime(rig.window) {} }

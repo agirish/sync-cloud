@@ -5,21 +5,11 @@ import Design
 @testable import Sync
 @testable import FileExplorer
 
-/// Opening Rules aims Organize at the source root, and leaving it puts the scope back, checked by
-/// mounting the lens and reading pixels.
-///
-/// `OrganizeLensTests` asserts the pure `OrganizeLens.isScoped` rule; this checks the view obeys
-/// it in all three places that must agree: the rows (`filteredRows`), the badges (`railCounts`)
-/// and the chip (`scopeChip`). Each is private to a view a test can't drive, so the instrument is
-/// pixels.
-///
-/// Every claim is a difference between two mounts of the same lens, one with a scope stored and
-/// one without. Holding the lens fixed matters: comparing Rules against To File would move the
-/// selection ring, the readout and the content card at once.
-///
-/// The fixture is the trap itself: the scope is the loose-files inbox, and the rules file out of
-/// it into `Medical/…` and `Finance/{year}`, so a scope predicate applied to Rules hides every
-/// rule. `.machinePinned(.pixelSampling)` because it reads pixels out of a live renderer.
+/// Opening Rules aims Organize at the source root, and leaving it puts the scope back, checked in
+/// pixels in all three places that must obey `OrganizeLens.isScoped`: rows, badges and chip. Each
+/// claim is a difference between two mounts of the same lens, with and without a stored scope.
+/// The fixture is the trap: the scope is the inbox and the rules file out of it, so a scope
+/// predicate applied to Rules hides every rule.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct OrganizeRulesScopeTests {
 
@@ -60,9 +50,8 @@ import Design
                       reason: "colon", isDirectory: false)
         }
         m.hasScannedNames = true
-        // The risky names render inside Renames, which shows results only after the file pass has
-        // run; without this, scoped and global would show the same setup card and the comparison
-        // would be vacuous.
+// The risky names render inside Renames only after the file pass has run; without this, both
+// mounts show the same setup card.
         m.hasSuggestedFiling = true
         return m
     }
@@ -76,8 +65,7 @@ import Design
         } else {
             defaults.removeObject(forKey: OrganizeLens.defaultsKey)
         }
-        // The scope goes through the key `LensWorkspaceView` reads, as a stored string, so the
-        // fixture exercises what a real launch reads off disk rather than the in-memory default.
+// Through the key `LensWorkspaceView` reads, as a stored string, as a real launch reads it.
         defaults.set(scope ?? "", forKey: OrganizeScopeDefaults.pathKey)
         let subject = LensWorkspaceView(syncManager: manager, lens: .filing, providerName: "Projects",
                                scanTargetFolder: Self.root, onFindDuplicates: {},
@@ -91,9 +79,8 @@ import Design
         PixelProbe.render(host, band)!
     }
 
-    /// Pixels that differ between two same-sized bands. A count, not a Bool: one stray antialiased
-    /// pixel would satisfy "they differ", so the assertions carry a floor, and the ones that demand
-    /// sameness demand exactly zero.
+/// Pixels that differ between two same-sized bands: a count, so assertions carry a floor, and the
+/// ones that demand sameness demand exactly zero.
     private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return .max }
         return PixelDiff.differingPixels(a, b, tolerance: 0.01)
@@ -108,9 +95,8 @@ import Design
 
     // MARK: The trap
 
-    /// The rule list is identical with and without a scope. Scoped to the inbox, a filtered list
-    /// would draw "nothing matches" with rules configured, and the only way out would be dropping
-    /// the scope. Zero differing pixels means the scope changed nothing at all.
+/// The rule list is identical with and without a scope; scoped to the inbox, a filtered list would
+/// draw "nothing matches" with rules configured.
     @Test func theRuleListIsTheSameWithAndWithoutAScope() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.contentZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.contentZone)
@@ -120,9 +106,7 @@ import Design
                 "the rule list changed when a scope was set — Rules is being narrowed by a folder again")
     }
 
-    /// The chip stays on screen while Rules suspends it. Hiding it would read as the scope having
-    /// been cleared, and the user would set it again. With the chip suppressed, the scoped and
-    /// unscoped rows would be identical.
+/// The chip stays on screen while Rules suspends it; hiding it would read as the scope cleared.
     @Test func theScopeChipStillDrawsOnRules() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.readoutZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.readoutZone)
@@ -130,10 +114,8 @@ import Design
                 "row 2 renders the same with and without a scope on Rules — the chip has vanished, which reads as the scope having been cleared")
     }
 
-    /// Standing on Rules must not lift the scope off the other five badges. The rail draws all six
-    /// whatever is selected; if `railCounts` read the selected lens's scope, clicking Rules would
-    /// take every other badge to its global number (Renames jumping from nothing to 7). The risky
-    /// names sit in `Legal`, outside the inbox, so an applied scope hides them.
+/// Standing on Rules must not lift the scope off the other five badges: if `railCounts` read the
+/// selected lens's scope, every other badge would jump to its global number.
     @Test func theOtherFiveBadgesKeepTheirScopeWhileRulesIsSelected() {
         let scoped = strip(mount(Self.manager(), lens: .rules, scope: Self.inbox), Self.railZone)
         let global = strip(mount(Self.manager(), lens: .rules, scope: nil), Self.railZone)
@@ -142,15 +124,9 @@ import Design
                 "the rail draws the same badges with and without a scope while Rules is selected — selecting Rules has lifted the scope off the five lenses that do use it")
     }
 
-    /// The suspended chip drops the accent wash, so it can't be mistaken for one that applies.
-    /// `theScopeChipStillDrawsOnRules` alone would pass with a chip drawn exactly as a live one:
-    /// the worst outcome, lists ignoring a chip that looks like it narrows them.
-    /// `OrganizeScopeChipTests` proves the two states render differently in isolation; this checks
-    /// the wiring.
-    ///
-    /// Counted as blue-over-red on the chip's leading run: the live capsule is an accent wash (hue
-    /// pinned to blue) and the suspended one is neutral, so the count separates them without
-    /// depending on either's geometry.
+/// The suspended chip drops the accent wash, so it can't be mistaken for one that applies.
+/// `OrganizeScopeChipTests` proves the two states differ in isolation; this checks the wiring.
+/// Counted as blue-over-red on the chip's leading run.
     @Test func theSuspendedChipDropsTheAccentWash() {
         func accentPixels(_ lens: OrganizeLens) -> Int {
             let rep = strip(mount(Self.manager(), lens: lens, scope: Self.inbox),
@@ -164,9 +140,8 @@ import Design
                 "the chip on Rules is still wearing the accent wash (\(suspended) vs \(live) accent pixels) — it looks like it is narrowing a list it is not")
     }
 
-    /// The control: on a lens that is scoped, the scope reaches the list. Without it, the tests
-    /// above pass on a build where the scope does nothing anywhere. Renames is scoped and its
-    /// findings are outside the inbox, so its list must change when the scope is set.
+/// The control: on a scoped lens the scope reaches the list, or the tests above pass on a build
+/// where the scope does nothing anywhere.
     @Test func aScopedLensStillNarrowsItsList() {
         let scoped = strip(mount(Self.manager(), lens: .renames, scope: Self.inbox), Self.contentZone)
         let global = strip(mount(Self.manager(), lens: .renames, scope: nil), Self.contentZone)

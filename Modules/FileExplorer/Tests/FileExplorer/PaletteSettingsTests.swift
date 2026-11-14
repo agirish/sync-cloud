@@ -2,18 +2,13 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// Pins the Settings rows: one destination per tab, each carrying the vocabulary of every control
-/// on it, so `appearance` lands on Appearance and `glass` lands there too.
-///
-/// The fixture is a hand-written stand-in for what `Settings` derives and `MacApp` passes through,
-/// on purpose: the router is pure, so its behaviour is a function of data a test can write down.
-/// That the real data has this shape is held by `SettingsTabDigestTests` and at the seam
-/// (`SyncCloudTests`).
+/// The Settings rows: one destination per tab, carrying the vocabulary of every control on it, so
+/// `appearance` and `glass` both land on Appearance. The fixture is hand-written (the router is
+/// pure); `SettingsTabDigestTests` holds that the real data has this shape.
 @Suite struct PaletteSettingsTests {
 
-    /// Four tabs in rail order, with the vocabulary these tests need. `appearance` sits on
-    /// Readability on purpose: it is a real keyword on the real tab, and the collision the
-    /// vocabulary penalty exists for.
+    /// Four tabs in rail order. `appearance` on Readability is a real keyword, and the collision
+    /// the vocabulary penalty exists for.
     private static let tabs: [PaletteSettingsTab] = [
         .init(id: "general", name: "General", detail: "Startup, sorting, and notifications",
               symbol: "gearshape", vocabulary: ["Sort panes by", "login", "startup", "dotfiles"]),
@@ -70,10 +65,8 @@ import Testing
         #expect(first.symbol == "paintbrush")
     }
 
-    /// The vocabulary penalty, pinned where position works against it. The test above can't pin it:
-    /// in rail order Appearance comes first, so its smaller position decrement orders the two
-    /// correctly even with the penalty deleted. Here the tab that merely knows the word is listed
-    /// first, so only the penalty can put the named tab on top.
+    /// The vocabulary penalty, pinned where position works against it: the tab that merely knows
+    /// the word is listed first, so only the penalty puts the named tab on top.
     @Test func aVocabularyMatchCannotOutrankANameNoMatterWhereItSits() {
         let stacked = [
             PaletteSettingsTab(id: "readability", name: "Readability", detail: "Text size",
@@ -97,9 +90,8 @@ import Testing
         }
     }
 
-    /// A row matched only through its vocabulary draws no emphasis, because the query isn't in the
-    /// text on screen; the detail line says what is on the tab instead. Pinned so nobody "fixes"
-    /// the missing bold by tokenizing the vocabulary into the title.
+    /// A row matched only through its vocabulary draws no emphasis: the query isn't in the text on
+    /// screen, and the detail line says what is on the tab.
     @Test func aVocabularyMatchDrawsNoEmphasis() throws {
         let first = try #require(settingsRows("glass").first)
         #expect(PaletteRouter.matchRange(first.title, "glass") == nil)
@@ -112,20 +104,16 @@ import Testing
 
     // MARK: The parent word
 
-    /// Typing `settings` lists every tab, the same shape as `organize`, where the overview and
-    /// every lens answer the parent word, in the rail's order, not alphabetically. Without the
-    /// per-position decrement every row scores the same and `sorted` falls back to the title,
-    /// reordering a list the user knows by sight.
+    /// Typing `settings` lists every tab in the rail's order, as `organize` does; without the
+    /// per-position decrement `sorted` falls back to the title.
     @Test func theParentWordKeepsTheRailsOrder() {
         #expect(settingsRows("settings").map(\.id)
                 == Self.tabs.map { "settings.\($0.id)" })
     }
 
-    /// The position decrement must never lift a row across a match tier: the last tab matched by
-    /// name beats the first tab matched only by vocabulary. Tests the property, not the arithmetic.
-    /// At 25 tabs it is the clamp: ten never reach `maxPositionDecrement`, while the last of 25
-    /// has a raw offset (24) past the penalty (20), so without the clamp a tab that merely knows
-    /// the word would outrank the tab it names, just because of where it sits in the rail.
+    /// The position decrement never lifts a row across a match tier: the last tab matched by name
+    /// beats the first matched by vocabulary. At 25 tabs the raw offset (24) passes the penalty
+    /// (20), so it is the `maxPositionDecrement` clamp that holds.
     @Test(arguments: [10, 25])
     func positionNeverOutranksHowWellSomethingMatched(count: Int) {
         let many = (0..<count).map { i in
@@ -154,8 +142,7 @@ import Testing
             .allSatisfy { $0.group != .settings })
     }
 
-    /// The tabs stay off the empty-query landing: that list is recents and places, and a row per
-    /// tab would push what you were just doing off the opening. `Settings…` is already there as the
+    /// The tabs stay off the empty-query landing (recents and places); `Settings…` is there as the
     /// action.
     @Test func theEmptyQueryLandingHasNoSettingsRows() {
         #expect(PaletteRouter.rows(query: "", index: Self.index)
@@ -164,9 +151,8 @@ import Testing
             .allSatisfy { $0.group != .settings })
     }
 
-    /// `Settings…` and `Settings ▸ General` are two rows, and they are not a duplicate landing:
-    /// the action opens the tab you were last on, the row opens a named one. Both answer
-    /// `settings`, and the ids stay distinct so `aDestinationIsNeverListedTwice` still holds.
+    /// `Settings…` (the tab you were last on) and `Settings ▸ General` are two rows with distinct
+    /// ids, so `aDestinationIsNeverListedTwice` holds.
     @Test func theSettingsActionSurvivesBesideTheTabs() throws {
         let rows = PaletteRouter.rows(query: "settings", index: Self.index)
         #expect(rows.contains { $0.route == .action(.settings) })
@@ -174,12 +160,9 @@ import Testing
         #expect(Set(rows.map(\.id)).count == rows.count)
     }
 
-    /// A folder of his named like a Settings tab still leads. Real trees have folders called
-    /// General, People, Sources or Advanced. A shallow folder wins on score; one deep enough for
-    /// its depth penalty to bring it level ties, and only ``PaletteGroup/rank`` (Folders ahead of
-    /// Settings) separates them. That tie is the one thing the group's position in `allCases`
-    /// decides, so moving `settings` earlier in the enum would put a preferences page above the
-    /// folder being looked for.
+    /// A folder named like a Settings tab still leads. A deep one ties on score, and only
+    /// ``PaletteGroup/rank`` (Folders ahead of Settings) separates them, so moving `settings`
+    /// earlier in `allCases` fails here.
     @Test func aFolderNamedLikeATabKeepsItsLead() throws {
         for folder in ["People", "Archive/Old/Family/Records/People"] {
             let rows = PaletteRouter.rows(

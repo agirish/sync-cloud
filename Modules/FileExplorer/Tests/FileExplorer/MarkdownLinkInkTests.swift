@@ -10,12 +10,10 @@ import Design
 /// Previews take `ChromeInk.bodyText`, deepened in light and lifted in dark: read-only through
 /// `MarkdownBlockView.linkInk`, editable through `PreviewEditorView.linkInk`.
 ///
-/// Preview draws no background of its own (`PreviewEditorView` turns `drawsBackground` off;
-/// `MarkdownPreview` paints none), so its ground is the pane's. Measured here: the pane at Solid
-/// and Tint 0 (`controlBackgroundColor`, white in light and 0.118 in dark) and the app's sheets
-/// either side of it (0.96 light, 0.13 dark), the grounds `SemanticInkContrastTests` uses. Glass
-/// panes and a raised Tint put the hue's own wash under the text, which nothing off screen can
-/// render (`.glassEffect` draws nothing there), so those are not measured.
+/// Preview draws no background of its own, so its ground is the pane's. Measured: the pane at
+/// Solid and Tint 0 (`controlBackgroundColor`) and the app's sheets (0.96 light, 0.13 dark), the
+/// grounds `SemanticInkContrastTests` uses. Glass panes and a raised Tint are not measured:
+/// `.glassEffect` draws nothing off screen.
 @MainActor
 @Suite struct MarkdownLinkInkTests {
 
@@ -78,7 +76,7 @@ import Design
         let hue = LiquidGlassHue.indigo.accentColor
         let ink = Color(nsColor: PreviewEditorView.linkInk(hue))
         let light = Self.resolved(ink, dark: false), dark = Self.resolved(ink, dark: true)
-        // Indigo is deepened a touch for light and lifted for dark, so the two shades differ.
+        // Indigo moves in both appearances, so the two shades differ.
         #expect(!Self.same(light, dark), "one shade in both appearances: \(light)")
         #expect(Self.same(light, Self.resolved(ChromeInk.bodyText(.light, hue), dark: false)),
                 "the light shade is \(light)")

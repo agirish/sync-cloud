@@ -66,10 +66,9 @@ import SwiftUI
         #expect(rows.first?.title.isEmpty == true)
     }
 
-    /// A heading's name leaves its inline HTML out. `## Setup <a id="setup"></a>` is the usual way
-    /// to pin an anchor, and the rail and status line must not read the markup as part of the name.
-    /// Inline code is part of a name, so it stays; the space beside the markup goes with it; and a
-    /// heading with no HTML is named exactly as written.
+    /// A heading's name leaves its inline HTML out (`## Setup <a id="setup"></a>` pins an anchor),
+    /// and the space beside the markup with it. Inline code stays, and a heading with no HTML is
+    /// named exactly as written.
     @Test func aHeadingsInlineHTMLIsNoPartOfItsName() {
         let rows = outline("""
         ## Setup <a id="setup"></a>
@@ -147,8 +146,6 @@ import SwiftUI
         #expect(EditorCaret.utf16Offset(ofLine: 1, in: "") == 0)
     }
 
-    /// CRLF is one Character and two UTF-16 units, so the offset has to count the units while the
-    /// line count counts the character.
     // MARK: Where a heading is now
 
     /// A heading chosen from an outline taken before the latest edits lands where the heading is
@@ -165,10 +162,9 @@ import SwiftUI
         #expect(MarkdownOutline.line(of: method, in: "# Title\n\nintro\n") == 5, "a heading that is gone keeps its line")
     }
 
-    /// The look is for that heading, its level and the name the outline gives it: the same words at
-    /// another level, or the level's `#`s over other words, are passed over; a setext heading, one
-    /// in a quote, and one written with emphasis are found; and the nearest of two matches wins,
-    /// below first. Lines are counted as the parser counts them.
+    /// The look matches level and name: the same words at another level, or the level's `#`s over
+    /// other words, are passed over; setext, quoted and emphasised headings are found; the nearest
+    /// of two matches wins, below first. Lines are counted as the parser counts them.
     @Test func theLookMatchesTheHeadingsLevelAndName() {
         let bold = MarkdownOutlineEntry(line: 2, level: 2, depth: 0, title: "Bold move")
         #expect(MarkdownOutline.line(of: bold, in: "# Bold move\n### Bold move\n## Other\n\n## **Bold** move\n") == 5)
@@ -182,6 +178,8 @@ import SwiftUI
         #expect(MarkdownOutline.line(of: crOnly, in: "one\rtwo\r\n## Here\r") == 3)
     }
 
+    /// CRLF is one Character and two UTF-16 units, so the offset has to count the units while the
+    /// line count counts the character.
     @Test func crlfOffsetsCountBothUnits() {
         #expect(EditorCaret.utf16Offset(ofLine: 2, in: "one\r\ntwo") == 5)
     }

@@ -3,14 +3,9 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Pins the difference accessories (a row's status glyph and a folder's contained-count pill) to
-/// the comparison panes.
-///
-/// A difference is a statement about the other pane, and the single-source rail has none; badging
-/// it from whatever Compare last scanned would show counts against a provider it isn't looking at.
-/// `FileTreeView.init` empties the index for the rail, the single gate: the tree rows and
-/// `PaneColumnsView` (handed this same stored property) both read it, so asserting on the property
-/// covers both presentations.
+/// Pins the difference accessories (status glyph, contained-count pill) to the comparison panes: the
+/// single-source rail has no other pane to differ from. `FileTreeView.init` empties the index for
+/// the rail, the single gate both presentations read.
 @MainActor
 @Suite struct PaneDiffBadgeSuppressionTests {
 
@@ -42,9 +37,8 @@ import Sync
         )
     }
 
-    /// Comparison pane: the badges survive the trip through `init` untouched. Also the proof the
-    /// fixture badges something, since `init` can only empty the index, never add to it; without it
-    /// the rail assertion below would pass against an index that was empty all along.
+    /// Comparison pane: the badges survive `init` untouched, which also proves the fixture badges
+    /// something for the rail assertion below.
     @Test func testComparisonPaneKeepsItsBadges() {
         let rendered = pane(isSingleSource: false).diffIndex
         #expect(rendered.containedDiffCount(forNodeId: "/root/Health") == 2)

@@ -5,11 +5,10 @@ import Testing
 @testable import FileExplorer
 
 /// Ask Claude's `differences` tool with `show: true` selects rows in Compare and scrolls the table
-/// to them, so a selected row below the fold doesn't look like nothing happened.
-///
-/// The mounted cases read the backing `NSTableView`'s visible rows rather than anything drawn:
-/// offscreen tables paint no cell text, but they do lay out and scroll. "The first selected row"
-/// is the table's own lowest selected index, so the check does not lean on the rule it tests.
+/// to them, so a selected row below the fold doesn't look like nothing happened. The mounted cases
+/// read the backing `NSTableView`'s visible rows: offscreen tables paint no cell text, but they do
+/// lay out and scroll. "The first selected row" is the table's own lowest selected index, so the
+/// check does not lean on the rule it tests.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable) struct DifferencesRevealTests {
 
@@ -103,11 +102,8 @@ import Testing
     }
 
     /// Collapsed to its bar, Compare has no table, so a request opens the bar and the table that
-    /// mounts shows the rows selected and scrolled to. The collapsed table is confirmed absent
-    /// first, so the pane opening is what drew it.
-    ///
-    /// The filter asked for is the one already showing, so the rows are current before the table
-    /// exists and the reveal is due the moment it mounts — the case only `initial: true` answers.
+    /// mounts shows the rows selected and scrolled to. The filter asked for is already showing, so
+    /// the reveal is due the moment the table mounts — the case only `initial: true` answers.
     @Test func aRequestOpensComparesCollapsedBarAndScrolls() async throws {
         let pane = PaneCollapse(true)
         let mounted = Self.mount(filter: .missingOnLeft, collapse: pane)

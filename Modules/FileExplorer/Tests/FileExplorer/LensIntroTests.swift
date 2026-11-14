@@ -13,9 +13,8 @@ import Testing
     private var all: [(name: String, intro: LensIntro)] { LensIntros.all }
 
     @Test func theRosterHoldsEveryIntro() {
-        // Named one by one, because "6 entries" would pass on six copies of the same intro. Each is
-        // checked against the function that produces it, so a roster entry pointing at the wrong
-        // intro fails here rather than covering one lens twice and skipping another.
+        // Named one by one, because "6 entries" would pass on six copies of one intro, and each
+        // against the function producing it, so an entry pointing at the wrong intro fails here.
         let byName = Dictionary(uniqueKeysWithValues: all.map { ($0.name, $0.intro) })
         #expect(byName["Duplicates"] == LensIntros.duplicates(targetName: "Family"))
         #expect(byName["Organize"] == LensIntros.organize(scanTargetName: "TODO"))
@@ -45,33 +44,29 @@ import Testing
         #expect(LensIntros.organize(scanTargetName: "TODO").safety.contains("undoable"))
         #expect(LensIntros.renames(providerName: nil).safety.contains("undoable"))
         #expect(LensIntros.storage(providerName: nil).safety.contains("Read-only"))
-        // Restructure's Apply moves files, so its contract is Organize's family: reviewed,
-        // recorded, undoable, and never "nothing is renamed or moved". The undo claim is scoped to
-        // a plan's landing, because a scaffold is recorded without a chain anchor (invisible to
-        // `undoableReorganisation`), so "every landing is undoable" would promise an undo it lacks.
+        // Restructure's Apply moves files, so its contract is Organize's: reviewed, recorded,
+        // undoable. The undo is scoped to a plan's landing: a scaffold is recorded without a chain
+        // anchor (invisible to `undoableReorganisation`), so it has no undo to promise.
         #expect(LensIntros.restructure(providerName: nil).safety.contains("review"))
         #expect(LensIntros.restructure(providerName: nil).safety
             .contains("a plan’s landing can be undone"))
         #expect(!LensIntros.restructure(providerName: nil).safety.contains("Nothing is created"))
         // Rules never moves a file itself: a rule steers a suggestion, which is still confirmed.
-        // Both halves, because either alone overstates or understates it. ("previewed" belongs to
-        // the message, not the contract.)
+        // Both halves, because either alone overstates or understates it.
         #expect(LensIntros.rules(providerName: nil).safety.contains("only steer"))
         #expect(LensIntros.rules(providerName: nil).safety.contains("confirmation"))
     }
 
     @Test func theProviderAndTargetReachTheTitle() {
-        // The intro is also shown from the header, with no empty state around it to say which
-        // folder is meant, so the naming has to be in the intro itself.
-        // Duplicates names the focused folder, because its scan hashes the folder you stand on.
+        // The intro is also shown from the header, with no empty state to say which folder is
+        // meant. Duplicates names the focused folder, because its scan hashes the one you stand on.
         #expect(LensIntros.duplicates(targetName: "Family").title.contains("Family"))
         #expect(LensIntros.organize(scanTargetName: "TODO").title.contains("TODO"))
         // Renames names the provider: its detectors read the provider-wide taxonomy, and a
         // folder-named title would promise a narrower answer than the one given.
         #expect(LensIntros.renames(providerName: "Dropbox").title.contains("Dropbox"))
         #expect(LensIntros.storage(providerName: "Dropbox").title.contains("Dropbox"))
-        // Restructure and Rules name the provider for the same reason Renames does: a family of
-        // sibling folders and a rule are both tree-wide, not folder-scoped.
+        // Restructure and Rules name the provider too: a sibling family and a rule are tree-wide.
         #expect(LensIntros.restructure(providerName: "Dropbox").title.contains("Dropbox"))
         #expect(LensIntros.rules(providerName: "Dropbox").title.contains("Dropbox"))
     }

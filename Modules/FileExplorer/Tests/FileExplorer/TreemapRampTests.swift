@@ -103,5 +103,4 @@ import Design
                        green: blend(label.greenComponent, fill.greenComponent),
                        blue: blend(label.blueComponent, fill.blueComponent), alpha: 1)
     }
-
 }

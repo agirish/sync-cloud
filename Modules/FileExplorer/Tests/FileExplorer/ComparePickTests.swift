@@ -65,9 +65,8 @@ import Sync
 
     // MARK: What the reader sees
 
-    /// The indicator is handed the name, not a finished sentence, because the name is the part
-    /// that truncates. A sentence with the name inside it would lose the instruction too; the strip
-    /// bounds the name alone and composes the words around it.
+    /// The indicator is handed the name, not a finished sentence, because the name is the part that
+    /// truncates; the strip bounds the name alone and composes the words around it.
     @Test func theIndicatorIsGivenTheNameAloneToBound() {
         #expect(pick().armedName == "Lease — Signed.pdf")
         let long = ComparePick(armed: node("/left/Irrigation system check 10-10-2024 ( Clock C ) readvised new templet.3-18.pdf"),

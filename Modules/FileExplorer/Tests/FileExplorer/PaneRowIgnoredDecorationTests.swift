@@ -3,13 +3,9 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// Pins the ignored row decoration to the comparison panes.
-///
-/// "Ignore in comparison" scopes the Left↔Right diff, and `FileContextMenu` drops the verb on the
-/// single-source rail, which has no other pane. A struck-through name there would mark folders as
-/// excluded from something the rail doesn't do, with no way to un-mark them.
-/// `FileTreeView.rowIsIgnored` is the one choke point both presentations (tree and columns) ask, so
-/// pinning it covers both.
+/// Pins the ignored row decoration to the comparison panes: "Ignore in comparison" scopes the
+/// Left↔Right diff, and on the single-source rail a struck-through name could never be un-marked.
+/// `FileTreeView.rowIsIgnored` is the one choke point tree and columns both ask.
 @MainActor
 @Suite struct PaneRowIgnoredDecorationTests {
 

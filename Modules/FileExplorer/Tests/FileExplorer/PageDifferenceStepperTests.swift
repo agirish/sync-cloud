@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// ↑/↓ between the pages of a pair that differ.
-///
-/// The rule the suite is built around: the strip does not already know. `pageStates` is filled by
-/// the raster refresh, which runs for the current page alone, so a fresh pair knows nothing, and a
-/// stepper using only the strip's dots would jump between pages already looked at. Every plan is
-/// therefore checked for what it examines, not just where it lands.
+/// ↑/↓ between the pages of a pair that differ. The strip does not already know: `pageStates` is
+/// filled for the current page alone, so every plan is checked for what it examines, not just where
+/// it lands.
 @Suite struct PageDifferenceStepperTests {
 
     // MARK: Order

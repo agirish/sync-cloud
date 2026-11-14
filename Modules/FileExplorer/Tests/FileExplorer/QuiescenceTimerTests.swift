@@ -2,15 +2,10 @@ import Testing
 import Foundation
 @testable import FileExplorer
 
-/// Pins `QuiescenceTimer`, which the two pane scroll watchdogs re-arm on every bounds change: at
-/// frame cadence, per open column, for the whole scroll.
-///
-/// It must arm far fewer timers than it receives reports (why it exists), and still run the action
-/// exactly `quiescence` after the last report: a correction that lands mid-gesture fights the
-/// platform on the paths the platform handles.
-///
-/// The clock and the scheduler are injected, so nothing here waits on real time; a test that slept
-/// through the 0.14 s window would be racing it.
+/// Pins `QuiescenceTimer`, which the pane scroll watchdogs re-arm on every bounds change, at frame
+/// cadence, per open column. It must arm far fewer timers than it receives reports, yet run the
+/// action exactly `quiescence` after the last one: a correction mid-gesture fights the platform.
+/// The clock and scheduler are injected: a test that slept through the 0.14 s window would race it.
 @MainActor
 @Suite struct QuiescenceTimerTests {
 
@@ -21,8 +16,8 @@ import Foundation
         var scheduled: [(delay: TimeInterval, work: @MainActor () -> Void)] = []
         var armCount: Int { scheduled.count }
 
-        /// Advances the clock and runs the block armed most recently, as the real scheduler would
-        /// once its delay elapsed.
+        /// Advances the clock and runs the oldest armed block, as the real scheduler would once its
+        /// delay elapsed.
         @MainActor func fireNext(advancingBy elapsed: TimeInterval) {
             guard !scheduled.isEmpty else { return }
             let next = scheduled.removeFirst()

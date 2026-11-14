@@ -9,8 +9,6 @@ import Foundation
 /// Both clearers call one `clearRasters()`; this pins what that can't: it rotates before it clears,
 /// and no clearer has its own copy of the assignments. A scan, not a mounted test, because racing a
 /// real render and asserting on what didn't land is a timing test over an absence.
-///
-/// Its own file, like `TrashFallbackWiringTests`, so it isn't lost inside an unrelated suite.
 @Suite struct CompareRasterTokenScanTests {
 
     private func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }

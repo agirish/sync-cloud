@@ -112,14 +112,9 @@ import FileExplorerTestSupport
                 "the workspace floor does not cover the chrome the two cards actually draw")
     }
 
-    /// The rail row wears the `.row` hover variant, and both arms wear one shape. `.inline` (a
-    /// dismiss glyph's variant) defaults to a circle, which in a full-width row is a grey disc, not
-    /// a wash; `.filled` defaults to a capsule, a pill around a rounded rectangle. Which variant a
-    /// control wears is decided per call site, so `HoverAffordanceTests` can't catch it.
-    ///
-    /// A source scan, since hover state doesn't render offscreen (`HoverTintRenderTests` drives the
-    /// phase directly). The value checks pin that the row's shape is exactly what `.row` would
-    /// choose, so passing it explicitly fixes the `.filled` arm.
+    /// The rail row wears the `.row` hover variant in one shape: `.inline` would draw a grey disc
+    /// across a full-width row, `.filled` a pill. A source scan, since hover state doesn't render
+    /// offscreen, and the variant is chosen per call site, beyond `HoverAffordanceTests`.
     @Test func theRailRowWearsTheRowHoverVariantInOneShape() throws {
         #expect(EditorFileRailView.rowShape == HoverAffordanceShape.default(for: .row),
                 "the row names a shape .row would not have chosen — one of the two is wrong")
@@ -247,13 +242,9 @@ import FileExplorerTestSupport
         760 - 150 - EditorLayoutMetrics.railWidth - 2 * LiquidGlass.cardGutter
     }
 
-    /// Where the words survive at the 760pt window floor, pinned as a boundary: the labelled rung
-    /// fits up to 130% and sheds only at 135%, the `Largest` preset, by a few points. Above it the
-    /// names stay reachable through the tooltip and accessibility label, as the workspace bar's do.
-    ///
-    /// Swept over `selectablePercents`, every slider step, not the four named presets. Pinning the
-    /// boundary fails in both directions (a longer label drags it down, any width bought back
-    /// pushes it up), and the failure names the percent.
+    /// At the 760pt window floor the labelled rung fits up to 130% and sheds only at 135%, the
+    /// `Largest` preset, pinned as a boundary both ways over every slider step. Above it the names
+    /// stay reachable through the tooltip and accessibility label.
     @Test func theWordsShedAtTheNarrowestWindowOnlyAtTheTopOfTheTextRange() {
         let column = Self.documentWidthAtWindowFloor
         let fitting = FontSize.selectablePercents.filter { percent in
@@ -364,10 +355,9 @@ import FileExplorerTestSupport
 
     // MARK: The rail's tabs
 
-    /// The words fit every segment at every text size. The bar spans the fixed-width rail in equal
-    /// segments (three with a PDF open), so the widest label in one segment decides; the bar's
-    /// ideal width would only answer for the sum. `tabs:` puts one title in every segment to
-    /// measure the worst case. ``EditorRailTab/title`` has the numbers.
+    /// The words fit every segment at every text size. The bar splits the fixed-width rail in equal
+    /// segments, so the widest label decides; `tabs:` puts one title in every segment to measure
+    /// the worst case (``EditorRailTab/title`` has the numbers).
     @Test func theRailTabsFitTheRailAtEveryTextSize() {
         // What the bar is handed: the rail, less its 10pt inset on each side.
         let available = EditorLayoutMetrics.railWidth - 20
@@ -549,11 +539,9 @@ import FileExplorerTestSupport
         }
     }
 
-
-    /// Both header rows reserve the dot's column, which gives them one left edge. A source scan,
-    /// since a view's position in a rendered SwiftUI tree isn't reachable here: both rows must ask
-    /// the same named constant, so widening the dot on one row alone fails. Comments are stripped
-    /// first, so prose can't satisfy it.
+    /// Both header rows reserve the dot's column, one named constant, which gives them one left
+    /// edge. A source scan, comments stripped: a view's position in a hosted SwiftUI tree isn't
+    /// reachable here.
     @Test func bothHeaderRowsReserveTheDotColumn() throws {
         let source = try SourceText.fileExplorer("EditorWorkspaceView.swift")
         let code = SourceText.codeOnly(source)
@@ -673,10 +661,9 @@ import FileExplorerTestSupport
         #expect(nameFields(in: mounted(workspace(doc, showsRail: true))).isEmpty)
     }
 
-    /// Expand names its next act: "Expand" while the rail is there, "Files" once it isn't, on the
-    /// button and its accessibility label, with a tooltip that spells it out and arrows that point
-    /// out, then in. Pinned on the statics the view draws from, since a hosted SwiftUI tree exposes
-    /// no labels or tooltips under `swift test`. Swapping any ternary's arms fails its lines.
+    /// Expand names its next act: "Expand" while the rail is there, "Files" once it isn't, in its
+    /// word, label, tooltip and arrows. Pinned on the statics the view draws from: a hosted SwiftUI
+    /// tree exposes no labels or tooltips under `swift test`.
     @Test func theExpandButtonNamesItsNextAct() {
         #expect(EditorWorkspaceView.expandTitle(railIsHidden: false) == "Expand")
         #expect(EditorWorkspaceView.expandTitle(railIsHidden: true) == "Files")
@@ -699,12 +686,9 @@ import FileExplorerTestSupport
         }
     }
 
-    /// The button really lights with its wash, and lighting it moves nothing else. Its word and
-    /// glyph stay label colour lit or not, since accent words on their own wash read at 2.3:1 on
-    /// Green. The wash is counted alone, as the accent's soft tint inside the ring, in square
-    /// points so the display's scale can't move it; counting every changed pixel couldn't tell a
-    /// missing wash, since the glyph and word change too. Every changed pixel is inside the ring,
-    /// the same frame lit and unlit. Dropping the wash, or the width reservation, fails.
+    /// The button lights with its wash and moves nothing else; its word and glyph stay label colour,
+    /// since accent words on their own wash read at 2.3:1 on Green. The wash is counted alone, in
+    /// square points, since the glyph and word change too.
     @Test(.machinePinned(.pixelSampling))
     func theExpandButtonLightsWhenTheRailIsHidden() throws {
         let doc = try document(named: "note.txt")

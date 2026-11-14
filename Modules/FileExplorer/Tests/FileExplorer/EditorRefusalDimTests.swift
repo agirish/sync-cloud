@@ -7,10 +7,9 @@ import Sync
 /// A row Edit cannot open recedes, and says why. Measured in pixels, because the row's `.opacity`
 /// is one ternary and a test that read the source would pass with the modifier deleted.
 ///
-/// The detector is positive-controlled against the search-dim path, the same
-/// `PaneSearchDim.opacity` applied by the same modifier: a refused row must come out exactly as dim
-/// as a search-dimmed one. A dim test that cannot tell dim from bright proves nothing, so the
-/// bright/dim ratio is asserted on the control first and the refusal is held to the same number.
+/// Positive-controlled against the search-dim path, the same `PaneSearchDim.opacity` applied by the
+/// same modifier: the control's bright/dim ratio is asserted first, since a detector that cannot
+/// tell dim from bright proves nothing, and a refused row is held to the same number.
 @MainActor
 @Suite(.serialized) struct EditorRefusalDimTests {
 
@@ -65,10 +64,9 @@ import Sync
     }
 
     /// The reason is the row's tooltip, attached unconditionally (an empty string is no tooltip) so
-    /// the row keeps one structural identity. A source scan, because a hosted SwiftUI tree exposes
-    /// no tooltip under `swift test` (`NSView.toolTip` is nil throughout), as in
-    /// `DuplicateRowPickerTests`. Sliced to `FileRowView`'s body so a `.help` elsewhere in the file
-    /// cannot stand in.
+    /// the row keeps one structural identity. A source scan, because a hosted SwiftUI tree exposes no
+    /// tooltip under `swift test` (`NSView.toolTip` is nil throughout; see `DuplicateRowPickerTests`),
+    /// sliced to `FileRowView`'s body so a `.help` elsewhere in the file cannot stand in.
     @Test func theRefusalIsTheRowsTooltip() throws {
         let source = try SourceText.fileExplorer("FileTreeView.swift")
         let start = try #require(source.range(of: "struct FileRowView: View {"), "FileRowView moved")

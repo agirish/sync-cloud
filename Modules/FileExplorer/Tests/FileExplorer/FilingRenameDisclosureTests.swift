@@ -6,14 +6,9 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// The card must say that filing also renames.
-///
-/// `FilingDestination.proposedName` is computed by the scan and honoured by the apply path, so a
-/// card that didn't render it would let "File here" move and rename the file while showing only the
-/// move, with every model-level test still passing.
-///
-/// So this asks the pixels. `FilingLensTests` covers what the card decides; this covers that the
-/// decision reaches the screen.
+/// The card must say that filing also renames: `FilingDestination.proposedName` is honoured by the
+/// apply path, so a card that didn't render it would let "File here" rename the file while showing
+/// only the move. Pixels, because every model-level test would still pass.
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct FilingRenameDisclosureTests {
 
     private static let canvas = CGSize(width: 520, height: 200)
@@ -79,8 +74,8 @@ import Testing
         #expect(disclosed > silent, "the rename must reach the screen, not just the model")
         // A whole line of text, not a stray pixel of relayout.
         #expect(disclosed - silent > 150, "gained only \(disclosed - silent) inked pixels")
-        // And a card that renames nothing says nothing: two mounts of it are pixel-identical, so
-        // the difference measured above is the row.
+        // Two mounts of a card that renames nothing are pixel-identical, so the difference above
+        // is the row.
         #expect(ink(mount(Self.suggestion(renamedTo: nil))) == silent)
     }
 }

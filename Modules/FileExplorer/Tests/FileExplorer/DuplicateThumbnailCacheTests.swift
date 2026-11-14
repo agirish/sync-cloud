@@ -4,17 +4,12 @@ import Testing
 @testable import FileExplorer
 
 /// A tile returning to Duplicates paints its cached preview on the first frame, not the file-type
-/// icon. Leaving Organize destroys every `DuplicateThumbnailView`, but the `static`
-/// `DuplicateThumbnail.imageCache` survives; the async `image(path:…)` can only be reached from a
-/// `.task` after the first render, so tiles peek synchronously with `cached`.
-///
-/// The risk is the peek and the store spelling the key differently: the cache still fills, the
-/// tile still draws the icon, and nothing reports a miss. These tests hold the two ends together.
+/// icon, by peeking synchronously with `cached`. The risk is the peek and the store spelling the
+/// key differently: nothing reports a miss, so these tests hold the two ends together.
 ///
 /// Each test stores on its own shelf, never the app's `NSCache`, which the OS may empty between a
-/// store and the next line. Stores and peeks still go through the real `store` and `cached`, and
-/// every miss is paired with a hit on the same shelf. See "An NSCache emptied by memory pressure
-/// between a store and the next line" in docs/flaky-tests.md.
+/// store and the next line, and every miss is paired with a hit on the same shelf. See "An NSCache
+/// emptied by memory pressure between a store and the next line" in docs/flaky-tests.md.
 @MainActor
 @Suite struct DuplicateThumbnailCacheTests {
 

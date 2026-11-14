@@ -5,10 +5,8 @@ import Sync
 @testable import FileExplorer
 
 /// The pane fixture and the two instruments that `RiskyNameBadgeMemoTests` (the tree pane) and
-/// `RiskyNameBadgeColumnsMemoTests` (the columns pane) both measure against.
-///
-/// Shared because both enforce one claim, that the rules run once per distinct name whichever
-/// pane is asking, and two copies of the fixture would drift where the panes must agree.
+/// `RiskyNameBadgeColumnsMemoTests` (the columns pane) both measure against. Shared because both
+/// enforce one claim, that the rules run once per distinct name whichever pane is asking.
 @MainActor
 enum BadgeMemoFixture {
 
@@ -20,10 +18,8 @@ enum BadgeMemoFixture {
     static let token = "memo-"
 
     /// The names the visible rows draw from, fewer than the rows, so a per-name memo can be told
-    /// from a per-row one.
-    ///
-    /// Three of the twelve are risky (a trailing space, a colon, a zero-width character), so the
-    /// badge draws on some rows. The token prefix changes none of those verdicts.
+    /// from a per-row one. Three of the twelve are risky (a trailing space, a colon, a zero-width
+    /// character), so the badge draws on some rows; the token prefix changes none of the verdicts.
     static let visibleFileNames = [
         "\(token)Statement 2026.pdf", "\(token)notes.txt", "\(token)Q3 final.pdf", "\(token)archive.zip",
         "\(token)receipt ", "\(token)photo.heic", "\(token)Q3: final.pdf", "\(token)budget.numbers",
@@ -73,9 +69,7 @@ enum BadgeMemoFixture {
 }
 
 /// Records the names the rules actually ran for, ignoring every name that is not this fixture's.
-///
-/// `@MainActor` explicitly: the memo it observes and the panes it observes them from are all
-/// main-actor bound.
+/// `@MainActor` explicitly: the memo and the panes it observes are main-actor bound.
 @MainActor
 final class BadgeEvaluationLog {
     private(set) var names: [String] = []
@@ -102,10 +96,8 @@ final class BadgeEvaluationLog {
 }
 
 /// Routes `riskyNameReason` through the memo exactly as `PaneActionDelegate` does, and records
-/// every name it was asked about.
-///
-/// A class, not a struct: the panes hold this as an existential and the recording has to survive
-/// being copied into the view graph.
+/// every name it was asked about. A class, not a struct: the panes hold this as an existential
+/// and the recording has to survive being copied into the view graph.
 final class BadgeRecordingDelegate: NoOpFileActions {
     let provider: CloudProvider.ProviderType
     /// Every ask, in order and with repeats: `count` is the traffic the pane generates,
@@ -128,11 +120,10 @@ final class BadgeRecordingDelegate: NoOpFileActions {
 @MainActor
 enum BadgeMemoMount {
 
-    /// Wraps `content` in a window sized like a real pane.
-    ///
-    /// `isReleasedWhenClosed` is forced false: `NSWindow` defaults it to true, and `close()` then
-    /// drops a reference ARC still owns, a segfault rather than a test failure. Each case closes
-    /// its window, so no live panes are left on the main actor for the next suite.
+    /// Wraps `content` in a window sized like a real pane. `isReleasedWhenClosed` is forced false:
+    /// `NSWindow` defaults it to true, and `close()` then drops a reference ARC still owns, a
+    /// segfault rather than a test failure. Each case closes its window, so no live panes are left
+    /// on the main actor for the next suite.
     static func window<Content: View>(_ content: Content, height: CGFloat = 700) -> NSWindow {
         let host = NSHostingView(rootView: content)
         host.frame = NSRect(x: 0, y: 0, width: 900, height: height)

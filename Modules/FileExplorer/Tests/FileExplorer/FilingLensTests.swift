@@ -15,8 +15,7 @@ import Sync
                                 size: 1, modificationDate: nil, candidates: candidates)
     }
 
-    /// The suggestion overload and the raw-confidence one, both pinned to the same tiers, so the
-    /// card's chip and its meter can never disagree.
+    /// Both overloads map to the same tiers, so the card's chip and its meter cannot disagree.
     @Test func tierMirrorsBestConfidence() {
         #expect(FilingConfidenceTier.of(suggestion("a", .high)) == .high)
         #expect(FilingConfidenceTier.of(suggestion("b", .medium)) == .medium)
@@ -100,8 +99,7 @@ import Sync
             #expect(!duplicateGlyphs.contains(glyph), "\(glyph) collides with the duplicate finder's glyphs")
         }
         #expect(Set(filingGlyphs).count == filingGlyphs.count, "Filing glyphs should be distinct from each other")
-        // A mistyped symbol renders blank at runtime; pin that every name (plus the section dot)
-        // resolves.
+        // A mistyped symbol renders blank; every name (plus the section dot) must resolve.
         for glyph in filingGlyphs + ["circle.fill"] {
             #expect(NSImage(systemSymbolName: glyph, accessibilityDescription: nil) != nil, "missing SF Symbol \(glyph)")
         }

@@ -36,8 +36,7 @@ import AppKit
     private static let longName = "Statement - Account Ending 4417 - January 2026 (final, signed).pdf"
 
     /// Hosts a one-line, middle-truncated label at `width`, as the row draws its name, measuring
-    /// only while `measuring` is true (as the row does under the pointer), and returns every
-    /// answer the probe reported.
+    /// only while `measuring` is true (as the row does under the pointer); answers go to `answers`.
     private func reports(width: CGFloat, measuring: Bool = true, name: String = longName,
                          host existing: NSHostingView<AnyView>? = nil, into answers: Box) async -> NSHostingView<AnyView> {
         let before = answers.values.count

@@ -7,10 +7,9 @@ import Testing
 
 /// In a copy row the whole row is the control, and the thumbnail and radio are pictures of state.
 /// A clickable tile inside the clickable row would mean two hit targets, two tooltips, two hover
-/// treatments, and VoiceOver announcing one action twice.
-///
-/// The compiler holds most of this (`DuplicateThumbnailView` takes no action); the rest is held
-/// here, because "this view is not a button" is not a claim a render can make.
+/// treatments, and VoiceOver announcing one action twice. The compiler holds most of this
+/// (`DuplicateThumbnailView` takes no action); the rest is held here, because "this view is not a
+/// button" is not a claim a render can make.
 @MainActor
 @Suite struct DuplicateRowPickerTests {
 
@@ -105,11 +104,10 @@ import Testing
     }
 
     /// The keeper radio takes the row's hover and can't light on its own: it is a picture, tinted
-    /// only by the enclosing button's published phase.
-    ///
-    /// Scanned, not rendered: `HoverAffordanceStyle` writes `\.hoverAffordancePhase` inside its own
-    /// body, so a value set from outside would be overwritten before the radio read it. The paint
-    /// side is `HoverTintRenderTests` in Design.
+    /// only by the enclosing button's published phase. Scanned, not rendered:
+    /// `HoverAffordanceStyle` writes `\.hoverAffordancePhase` inside its own body, so a value set
+    /// from outside would be overwritten before the radio read it. The paint side is
+    /// `HoverTintRenderTests` in Design.
     @Test func theSelectableRadioTintsFromTheRowsHoverPhase() throws {
         let card = Self.codeOnly(try Self.source("DuplicateGroupCard.swift"))
         #expect(card.contains(".hoverTint(hueAccent)"),

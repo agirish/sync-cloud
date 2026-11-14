@@ -4,11 +4,9 @@ import Testing
 /// Pins `AutomationToggleEchoGuard`: `AutomationRuleCard` mirrors `rule.enabled` into local
 /// `@State`, and without the guard an external write to `rule.enabled` (import, bulk toggle, undo)
 /// would round-trip through the mirror's `onChange` into `onToggle` → `setAutomationRule`, a model
-/// write the user never made. The guard must swallow exactly those echoes while letting genuine
-/// gestures through, in both directions.
-///
-/// The mutating calls are hoisted into locals because `#expect` captures its expression in a
-/// non-mutating closure.
+/// write the user never made. The guard must swallow exactly those echoes and let genuine gestures
+/// through, in both directions. The mutating calls are hoisted into locals because `#expect`
+/// captures its expression in a non-mutating closure.
 struct AutomationToggleEchoGuardTests {
 
     // MARK: - Genuine gestures go through, both directions

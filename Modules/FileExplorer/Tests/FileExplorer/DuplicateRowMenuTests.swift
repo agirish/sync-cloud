@@ -5,17 +5,13 @@ import Testing
 @testable import Sync
 @testable import FileExplorer
 
-/// A duplicate copy's row menu: "Open in Edit", then "Compare with Keeper".
-///
-/// The row is the keeper-pick button, so its context menu is the one place that adds no gesture,
-/// and the hand-off to Edit lives there. Four rows matter: a text copy (both items), the text
-/// keeper (Open in Edit alone, since the kept copy is the one to open), a non-text copy (Compare
-/// alone), and a non-text keeper (no menu at all, not an empty one).
+/// A duplicate copy's row menu: "Open in Edit", then "Compare with Keeper". Four rows matter: a
+/// text copy (both items), the text keeper (Open in Edit alone, since the kept copy is the one to
+/// open), a non-text copy (Compare alone), and a non-text keeper (no menu at all, not an empty one).
 ///
 /// The menus are read, not inferred: `NSHostingView.menu(for:)` answers a right-click with the real
-/// `NSMenu` SwiftUI builds under the event, or nil for a bare row. Sweeping a hosted card and
-/// reading each row's item titles fails if an item is gated right but never drawn, drawn in the
-/// wrong place, or drawn on a row that should have none.
+/// `NSMenu` SwiftUI builds under the event, or nil for a bare row, so an item gated right but never
+/// drawn, drawn in the wrong place, or drawn on a row that should have none fails.
 @MainActor
 @Suite struct DuplicateRowMenuTests {
 

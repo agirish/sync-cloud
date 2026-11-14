@@ -496,14 +496,10 @@ import EventsTestSupport
     }
 
     /// A save that renames the original aside and only then installs the new file (JetBrains'
-    /// `___jb_old___`, Word's `~WRL`, Emacs' backups), with a gap longer than the settle, is a
-    /// change. Followed at once, the document would go to the backup name and then see it deleted.
-    /// So a rename within the folder is looked at once more after another settle before it is
-    /// followed.
-    ///
-    /// Each look is taken by hand, as an event would take it: the save's steps must fall between
-    /// two looks, which a millisecond settle can't promise on a loaded runner. The settle is long
-    /// enough that no event looks on its own.
+    /// `___jb_old___`, Word's `~WRL`, Emacs' backups) is a change: followed at once, the document
+    /// would go to the backup name and then see it deleted, so a rename in the folder is looked at
+    /// once more before it is followed. Each look is taken by hand: on a loaded runner a short
+    /// settle can't promise the save's steps fall between two looks.
     @Test func aSaveThatRenamesAsideSlowlyIsAChangeNotAMove() throws {
         let rig = try Rig(settle: .seconds(3600))
         let original = rig.path

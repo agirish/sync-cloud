@@ -1,9 +1,8 @@
 import Testing
 @testable import FileExplorer
 
-/// A scope To File never read says so, rather than "Nothing in “Downloads”" or "Nothing loose to
-/// file" over a folder nobody looked at: say, scoped to iCloud ▸ Downloads with loose files in it,
-/// after a scan of Documents ▸ Finance.
+/// A scope To File never read says so, rather than "Nothing loose to file" over a folder nobody
+/// looked at: say, scoped to iCloud ▸ Downloads after a scan of Documents ▸ Finance.
 @Suite struct FilingNotScannedHereTests {
 
     private func state(rows: Int = 0, suggestions: Int, scoped: Bool = true, scanned: Bool) -> LensWorkspaceView.FilingContentState {

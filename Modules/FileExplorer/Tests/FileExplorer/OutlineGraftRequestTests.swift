@@ -42,8 +42,7 @@ import Sync
     }
 
     /// Opening is an explicit ask, never a passive one, so the manager retries a folder it found
-    /// unreadable before (a slow cloud folder may have downloaded since), where a scroll past would
-    /// not.
+    /// unreadable before (a slow cloud folder may have downloaded since).
     @MainActor
     @Test func openingAnUnreadDirectoryAsksForIt() {
         let rows = [node("/r/unread", unexplored: true, children: [])]

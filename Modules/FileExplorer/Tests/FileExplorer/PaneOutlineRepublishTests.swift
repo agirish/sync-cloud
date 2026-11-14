@@ -5,11 +5,8 @@ import Sync
 @testable import FileExplorer
 
 /// The worst failure `PaneTree`/`PaneRow` memoization can introduce: a pane that silently stops
-/// updating because a stale value compared equal to a fresh one. The other tests for it are
-/// value-level (`PaneTreeStampTests`) and would pass even if the view never re-rendered.
-///
-/// This hosts a real `FileTreeView` and asserts that the rows AppKit laid out track a republish:
-/// the laid-out result, not the constant.
+/// updating because a stale value compared equal. `PaneTreeStampTests` is value-level; this hosts a
+/// real `FileTreeView` and asserts the laid-out rows track a republish.
 @MainActor
 @Suite struct PaneOutlineRepublishTests {
 
@@ -17,11 +14,9 @@ import Sync
         FileNode(id: "/root/\(name)", name: name, isDirectory: false)
     }
 
-    /// A channel of this suite's own, so the panes it mounts are deaf to every other suite's
-    /// download posts. A mounted `FileTreeView` subscribes to `.cloudDownloadRequested` whether the
-    /// test wants it or not, and on `.default` these left panes would take the `.left` posts
-    /// `CloudDownloadWiringTests` makes and fail that suite. See `docs/flaky-tests.md`, "A mounted
-    /// view is a live subscriber, in every suite at once".
+    /// A channel of this suite's own: a mounted `FileTreeView` subscribes to `.cloudDownloadRequested`,
+    /// and on `.default` would take `CloudDownloadWiringTests`' posts (`docs/flaky-tests.md`, "A
+    /// mounted view is a live subscriber, in every suite at once").
     private let downloads = NotificationCenter()
 
     private func view(_ tree: PaneTree) -> FileTreeView {
@@ -38,9 +33,8 @@ import Sync
         )
     }
 
-    /// Lays the view out in a window and returns the row count AppKit resolved. A `List` bridges to
-    /// `NSTableView`; without a window and a layout pass it has no rows, so nil means "couldn't
-    /// observe", which the caller treats as inconclusive, not as a pass.
+    /// Lays the view out in a window and returns the row count AppKit resolved; nil means "couldn't
+    /// observe", inconclusive rather than a pass.
     private func laidOutRowCount(_ root: FileTreeView) -> Int? {
         let host = NSHostingView(rootView: root)
         host.frame = NSRect(x: 0, y: 0, width: 400, height: 600)
@@ -94,9 +88,7 @@ import Sync
             downloadChannel: downloads
         )
         guard let rows = laidOutRowCount(v) else {
-            // Same environment gate and rule as the test above: a bare `return` would report a pass
-            // in which nothing was measured (the shape `ReviewFactsTests.skippedBecauseRoot`
-            // documents).
+            // Same gate as above: a bare `return` would report a pass in which nothing was measured.
             withKnownIssue("List did not bridge to an NSTableView in this environment") {
                 Issue.record("no NSTableView")
             }

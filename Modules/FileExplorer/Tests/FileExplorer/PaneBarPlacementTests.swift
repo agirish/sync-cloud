@@ -14,11 +14,8 @@ import CoreGraphics
     }
 
     @Test func testGlobalOffsetDoesNotShiftTheThreshold() {
-        // Rows report in global (window) coordinates, so a list sitting 210pt below the window top
-        // must not flip 210pt early. The 5th row of an 11-row list (visual bottom ≈ 190 in a 430pt
-        // viewport) stays at the bottom; a row visually inside the covered zone still flips. So the
-        // global-origin subtraction happens before the on-screen clamp: an offset list must not
-        // make every one of its rows look past the fold.
+        // Rows report in window coordinates, so a list 210pt below the window top must not flip
+        // 210pt early: the origin is subtracted before the on-screen clamp.
         let p = makePlacement(viewport: 430)
         p.viewportGlobalMinY = 210
         p.rowBottoms = ["/5": 210 + 190]

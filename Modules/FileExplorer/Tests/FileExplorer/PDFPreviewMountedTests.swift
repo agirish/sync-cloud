@@ -10,16 +10,12 @@ import Testing
 import UniformTypeIdentifiers
 @testable import FileExplorer
 
-/// The PDF preview as the pane mounts it, the half `PDFPagePreviewTests` can't see.
+/// The PDF preview as the pane mounts it: the rules `PDFPagePreviewTests` pins reach a real view
+/// (PDFKit for a PDF, Quick Look otherwise, a whole page, a scrollable document). Every number is
+/// read off laid-out AppKit views, never the constants that produced them.
 ///
-/// Those tests pin the rules; these pin that the rules reach a real view: a PDF goes to PDFKit and
-/// everything else to Quick Look, the page laid out is a whole page, and the document under it can
-/// be scrolled. Every number is read off laid-out AppKit views, never from the constants that
-/// produced them, because "there is a scroll view" and "it has somewhere to scroll to" are
-/// different claims.
-///
-/// Serialized, because several of these hold PDFKit's one lane: a hold stops every parse in the
-/// process, so two in parallel can wait out their whole budget behind each other.
+/// Serialized: several hold PDFKit's one lane, which stops every parse in the process, so two in
+/// parallel can wait out their whole budget behind each other.
 @MainActor
 @Suite(.serialized) struct PDFPreviewMountedTests {
 
@@ -148,11 +144,8 @@ import UniformTypeIdentifiers
         #expect(pdfView(in: mounted.host) == nil)
     }
 
-    /// The page is whole in a preview far wider than tall (fitted to the width, a letter page in
-    /// 560pt would be about 1060pt tall and show only the top third) and in a narrow one. Both
-    /// shapes, because a rule that fitted only one would look right in whichever was tried.
-    /// Asserted on the page's size in the view's own coordinates, which is what the reader sees,
-    /// not on `scaleFactor`.
+    /// The page is whole in a preview far wider than tall and in a narrow one, asserted on its size
+    /// in the view's coordinates (what the reader sees), not on `scaleFactor`.
     @Test(arguments: [(820, 700, true), (420, 900, false)] as [(CGFloat, CGFloat, Bool)])
     func testAPreviewOfEitherShapeShowsAWholePage(width: CGFloat, height: CGFloat, heightBound: Bool) async throws {
         let fixture = try Fixture()
@@ -171,10 +164,8 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// Nothing paints a slab behind the page. The preview sits on the pane's own surface, and in
-    /// dark mode a white rectangle would be the brightest thing in the window. Both halves are
-    /// asserted: `backgroundColor` governs the view, and PDFKit's enclosing scroll view draws the
-    /// area around the page independently and comes up white.
+    /// Nothing paints a slab behind the page (in dark mode the brightest thing in the window): the
+    /// view's `backgroundColor`, and PDFKit's scroll view, which draws around the page on its own.
     @Test func testThePageSitsOnThePanesSurfaceRatherThanAWhiteSlab() async throws {
         let fixture = try Fixture()
         let mounted = mount(item(fixture.pdf, uti: UTType.pdf.identifier), width: 820, height: 700)
@@ -191,9 +182,8 @@ import UniformTypeIdentifiers
                 "PDFKit's scroll view still fills the area around the page")
     }
 
-    /// There is somewhere to scroll to, and it is the rest of the document: the scrolling content
-    /// is taller than the viewport by about the four off-screen pages. A single-page display mode
-    /// would pass a mere "a scroll view exists" check.
+    /// There is somewhere to scroll to, the rest of the document: the content is taller than the
+    /// viewport by about the four off-screen pages, which a single-page display mode fails.
     @Test func testTheWholeDocumentIsScrollable() async throws {
         let fixture = try Fixture()
         let (view, window) = try await laidOutPDFView(fixture, width: 820, height: 700)
@@ -206,13 +196,9 @@ import UniformTypeIdentifiers
         #expect(content > visible * 2,
                 "the document is \(content)pt against a \(visible)pt viewport — \(Fixture.pageCount) pages should be far more")
 
-        // And it moves all the way to the end, asserted as "the last page is under the reader's
-        // eye", since a scroll view that travels a few points and stops would satisfy "the origin
-        // changed".
-        //
-        // Which numeric end is the end is an OS convention: up to macOS 26 PDFKit used an unflipped
-        // clip view, opening at the scroller's maximum; macOS 27 flips it and opens at 0. So the
-        // far end is measured off the laid-out views, not assumed.
+        // And all the way to the end: the last page under the reader's eye. Which numeric end is
+        // the end is an OS quirk (macOS 27 flips PDFKit's clip view, opening at 0), so it is
+        // measured off the laid-out views.
         let opensAt = scroll.documentVisibleRect.origin.y
         #expect(pageUnderViewport(of: view) == 1,
                 "the preview did not open at page one of the document")
@@ -293,9 +279,7 @@ import UniformTypeIdentifiers
     }
 
     /// Re-renders a preview without changing its URL. Only a change in the representable's own
-    /// value reaches `updateNSView`; ancestor re-renders and environment flips around an unchanged
-    /// `PDFPageView` make no call. So each render hands it a fresh closure, as the column's own
-    /// re-renders do.
+    /// value reaches `updateNSView`, so each render hands it a fresh closure, as the column does.
     private final class Renders: ObservableObject { @Published var count = 0 }
 
     private struct ReRendered: View {
@@ -320,10 +304,8 @@ import UniformTypeIdentifiers
         _ = await LayoutPumpWait.pump(window, upTo: 0.1) { false }
     }
 
-    /// The parse is in the lane, so it is off the main thread. With the lane held, the view mounts
-    /// and stays empty, checked again after it has had main-actor turns, so a parse that went off
-    /// the main thread but around the lane fails too. Released, the page arrives and the preview
-    /// says so.
+    /// The parse is in the lane. Held, the view stays empty even after main-actor turns, so a parse
+    /// off the main thread but around the lane fails too; released, the page arrives.
     @Test func thePreviewOpensItsDocumentInTheLaneRatherThanOnTheMainThread() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }
@@ -403,9 +385,8 @@ import UniformTypeIdentifiers
         #expect(view.document?.documentURL?.path == fixture.otherPDF)
     }
 
-    /// A re-render while the page is loading does not queue another parse. The view has no document
-    /// until the lane answers, so a guard on the document's URL would read every re-render as "a
-    /// different file" and open it again.
+    /// A re-render while the page loads queues no other parse: with no document yet, a guard on the
+    /// document's URL would read every re-render as a different file.
     @Test func aReRenderDuringTheLoadDoesNotOpenTheDocumentAgain() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }
@@ -437,9 +418,7 @@ import UniformTypeIdentifiers
                 "the re-renders queued \(PDFOpenTicket.skippedOpens - skippedBefore) extra open(s) for the same file")
     }
 
-    /// Nor does a re-render after a failed open try again. A file that never gets a document would
-    /// read as "not this one" to a guard on the document's URL, so every re-render would parse it
-    /// and log the failure again.
+    /// Nor does a re-render after a failed open try again, parsing and logging the failure each time.
     @Test func aFileThatFailedToOpenIsNotReopenedOnEveryRender() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }
@@ -458,9 +437,8 @@ import UniformTypeIdentifiers
                 "the broken file was opened \(outcomes.reported.count) times across four re-renders")
     }
 
-    /// A preview unmounted before the lane's turn costs no parse. The column mounts one per
-    /// selection, so a walk through a folder during a scan would leave one queued open per file it
-    /// settled on, each ahead of the file being looked at.
+    /// A preview unmounted before the lane's turn costs no parse: the column mounts one per
+    /// selection, and a walk through a folder would queue an open per file ahead of the one shown.
     @Test func anOpenWithdrawnBeforeItsTurnIsNeverParsed() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }
@@ -517,9 +495,8 @@ import UniformTypeIdentifiers
 
     // MARK: When the page never comes
 
-    /// A file PDFKit can't read says so, to the column and in the log; otherwise a preview that
-    /// stays on its icon is unexplained. Asserted on the file's own path, which no sibling test's
-    /// line contains.
+    /// A file PDFKit can't read says so, to the column and in the log. Asserted on the file's own
+    /// path, which no sibling test's line contains.
     @Test func anUnreadablePDFIsReportedAndLogged() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }
@@ -553,9 +530,8 @@ import UniformTypeIdentifiers
         #expect(await log.holds(.info, containing: "\(fixture.lockedPDF) is password-protected"))
     }
 
-    /// The pane is never blank while the page loads. The placeholder stands behind the empty view
-    /// until the page lands, then goes: the page leaves margins, and a leftover placeholder would
-    /// show around them.
+    /// The pane is never blank while the page loads: the placeholder stands behind the empty view
+    /// until the page lands, then goes (a leftover one would show in the margins).
     @Test func thePlaceholderStaysUntilThePageArrives() async throws {
         let fixture = try Fixture()
         defer { withExtendedLifetime(fixture) {} }

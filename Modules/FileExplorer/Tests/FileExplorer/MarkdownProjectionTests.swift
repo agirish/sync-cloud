@@ -531,10 +531,9 @@ import EventsTestSupport
         #expect(checkSentinels(source) > 0)
     }
 
-    /// Pins which corpus blocks are read-only, and why. The sentinels skip a read-only block, and
-    /// the corpus test passes once one sentinel is checked anywhere, so a construct that quietly
-    /// stopped lining up would pass both. Each entry: the blocks' reasons in order, then the
-    /// read-only pieces inside editable blocks.
+    /// Pins which corpus blocks are read-only, and why: the sentinels skip a read-only block, so a
+    /// construct that quietly stopped lining up would pass them. Each entry: the blocks' reasons in
+    /// order, then the read-only pieces inside editable blocks.
     ///
     /// Mutation: count a CRLF after a backslash break as two bytes, and entry 11 turns read-only.
     @Test func everyCorpusBlockIsEditableOrReadOnlyAsPinned() {
@@ -736,8 +735,7 @@ private enum MarkdownProjectionTestsSupport {
     }
 
     /// The display's paragraph holding rendered `offset`: its style, and its list item's number as
-    /// TextKit counts it — the item's place in the unbroken run of paragraphs carrying its list,
-    /// from the list's own first number.
+    /// TextKit counts it (its place in the unbroken run of paragraphs carrying its list).
     private func drawn(_ session: PreviewEditSession, at offset: Int)
         -> (style: NSParagraphStyle?, number: Int?, attributes: [NSAttributedString.Key: Any]) {
         let display = session.display
@@ -820,9 +818,8 @@ private enum MarkdownProjectionTestsSupport {
 
     // MARK: Numbering after a break in an item
 
-    /// An item after a second paragraph, a code block or a task is still numbered as the parser
-    /// numbers it, as in the read-only Preview. TextKit counts only the unbroken run of paragraphs
-    /// carrying the list, and each of these sits between two items without it, so `2.` could draw
+    /// An item after a second paragraph, a code block or a task is numbered as the parser numbers
+    /// it. TextKit counts only the unbroken run of paragraphs carrying the list, so `2.` could draw
     /// as `1.`. Read from the display as TextKit counts it, not from the projection.
     ///
     /// Mutation: never start a new list in the ordered-list arm of `append`.
@@ -855,11 +852,9 @@ private enum MarkdownProjectionTestsSupport {
 
     /// A newline inside one block's rendering would make it two paragraphs, in a list two bullets.
     /// The ways in: a tag wrapping a line, an entity decoding to a newline, a read-only item's
-    /// fallback text, and a U+2029 in the file, which the parser keeps and the text system ends a
-    /// paragraph at.
+    /// fallback text, and a U+2029 in the file (the parser keeps it; the text system ends a paragraph).
     ///
-    /// Mutation: render inline HTML's `rawHTML` as written; separately, compare an entity's decode
-    /// unswapped in `align`.
+    /// Mutation: render inline HTML's `rawHTML` as written; separately, unswap the entity in `align`.
     @Test(arguments: ["- a <span\nclass=x> b</span>\n- c", "- a &#10; b\n- c",
                       "- [ ] see <span\n  class=x>y</span>\n- c", "- a\u{2029}b\n- c"])
     func aNewlineInsideAnItemIsNoSecondBullet(_ text: String) {
@@ -1020,8 +1015,7 @@ private enum MarkdownProjectionTestsSupport {
     /// not from the column's left edge under the bullets. Read from the pixels: nothing drawn left
     /// of the item's text on those lines, and the bar and band where the item's text starts.
     ///
-    /// Mutation: draw the code band from the fragment's left edge; separately, give a quote's bar the
-    /// list indent 0 in `quoteBars`.
+    /// Mutation: draw the code band from the fragment's left edge; separately, list indent 0 in `quoteBars`.
     @Test func aQuoteAndCodeInAListItemAreDrawnFromTheItemsText() throws {
         let (session, _) = session("- item\n\n  > quoted words\n\n  ```\n  let code = 1\n  ```")
         let (fragments, ink, _) = render(session)
@@ -1042,8 +1036,7 @@ private enum MarkdownProjectionTestsSupport {
     /// Nesting is drawn no deeper than the read-only Preview draws it (six levels, then the same
     /// inset), so a forwarded thread fifteen `>` deep keeps a column to read in.
     ///
-    /// Mutation: drop `drawnDepth` from the quote term in `paragraphStyle`; separately, from
-    /// `quoteBars`.
+    /// Mutation: drop `drawnDepth` from `paragraphStyle`'s quote term; separately, from `quoteBars`.
     @Test func deepNestingIsCappedAtTheDepthTheReadOnlyPreviewDraws() throws {
         let deep = String(repeating: ">", count: 12) + " deep words"
         let (session, _) = session("\(deep)\n\n" + (0..<9).map { String(repeating: "  ", count: $0) + "- level \($0)" }.joined(separator: "\n"))
@@ -1120,8 +1113,7 @@ private enum MarkdownProjectionTestsSupport {
     /// read-only Preview. The fragment draws the language in room left above the first line: it is
     /// in no rendered character, so nothing can type into it.
     ///
-    /// Mutation: drop the language from `PreviewFragmentDelegate`; separately, the `html` tag from
-    /// its band.
+    /// Mutation: drop the language from `PreviewFragmentDelegate`; separately, the `html` band.
     @Test func aCodeBlocksLanguageIsDrawnAndAnHTMLBlockHasTheBand() throws {
         let (session, _) = session("Intro\n\n```swift\nlet x = 1\nlet y = 2\n```\n\n<div>\nhi\n</div>")
         #expect(!session.projection.renderedString.contains("swift"))
@@ -1151,13 +1143,10 @@ private enum MarkdownProjectionTestsSupport {
     // MARK: The partial re-read
 
     /// An empty item's line keeps its list through a partial re-read. Its line is the break after
-    /// it, outside the stretch re-read, and holds the list as it was. If an edit to attributes
-    /// above (a link's target) were taken to differ to the stretch's end, the stretch would take a
-    /// new list while that break kept the old: one list split in two, the empty item numbered from
-    /// 1.
+    /// it, outside the stretch re-read; an attribute edit above taken to differ to the stretch's end
+    /// would split the list in two, numbering the empty item from 1.
     ///
-    /// Mutation: measure the characters' suffix before the prefix is pulled back, in
-    /// `PreviewAttributeShape.difference`.
+    /// Mutation: in `PreviewAttributeShape.difference`, measure the suffix before pulling the prefix back.
     @Test func anEmptyItemsLineKeepsItsListThroughAPartialReRead() throws {
         let old = MarkdownProjection.project("[x](http://a)\n\n1. a\n2. \n\nend")
         let new = "[x](http://ab)\n\n1. a\n2. \n\nend"

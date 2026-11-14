@@ -4,31 +4,22 @@ import Foundation
 import Sync
 
 /// The call sites. `OrganizeScopeFilter` and `ScopeChipLabel` are extracted for testability, and a
-/// green predicate suite proves nothing if the view stops calling them.
-///
-/// These are source-level assertions, a blunt instrument that is not a behavioural test. Two habits
-/// keep it honest: each check names the file it reads and fails if that file can't be found (so a
-/// rename can't silently empty the haystack), and each asserts a string whose absence is exactly
-/// the regression it guards, not merely that some related word appears.
+/// green predicate suite proves nothing if the view stops calling them. Source-level assertions:
+/// each names the file it reads and fails if it can't be found, and each asserts a string whose
+/// absence is exactly the regression it guards.
 @Suite struct OrganizeScopeCallSiteTests {
 
     // MARK: The scope is WRITTEN through its one owner
 
-    /// `setScope` must not carry its own copy of the normalization. Two spellings of one rule over
-    /// the persisted ``OrganizeScopeDefaults/pathKey``, on two shapes of provider root, would agree
-    /// only by luck, and disagreeing means two encodings of the global view on a key the user can't
-    /// inspect.
-    ///
-    /// Scoped to `setScope`'s own body: the file legitimately calls
-    /// `OrganizeScope(path:providerRoot:)` elsewhere to ask a question (`targetWouldClearScope`),
-    /// and a file-wide ban would fail that.
+/// `setScope` must not carry its own copy of the normalization: two spellings of one rule over the
+/// persisted ``OrganizeScopeDefaults/pathKey`` would agree only by luck. Scoped to `setScope`'s
+/// body: the file calls `OrganizeScope(path:providerRoot:)` elsewhere to ask a question.
     @Test func theScopeWriteRoutesThroughTheOneNormalizer() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private func setScope(_ path: String?) {", in: view)
         #expect(body.contains("OrganizeScope.normalizedPath(path, providerRoot: providerRoot)"),
                 "setScope no longer asks the one owner for the stored form")
-        // Comments are already stripped by `body`, so a doc explaining the absence can't falsify
-        // this.
+// `body` strips comments, so a doc explaining the absence can't falsify this.
         #expect(!body.contains("OrganizeScope(path:"),
                 "setScope has grown its own copy of the normalization again")
         // Non-vacuity: the body must still be the write, not some emptied stub.
@@ -37,11 +28,9 @@ import Sync
 
     // MARK: The predicate is actually called
 
-    /// The body of the `.filter { … }` closure assigned to `family`, or nil if there isn't one.
-    ///
-    /// Brace-counted, not a fixed-length window: the switch arms are short, so a window from the
-    /// family's name can run into the next arm and find its `OrganizeScopeFilter.matches` instead.
-    /// Removing `rows.duplicates`' scope test must fail the check, and those rows feed Trash-all.
+/// The body of the `.filter { … }` closure assigned to `family`, or nil. Brace-counted, not a fixed
+/// window, which can run into the next arm's `OrganizeScopeFilter.matches`. Those rows feed
+/// Trash-all.
     static func filterClosure(assignedTo family: String, in body: String) -> String? {
         guard let assign = body.range(of: family + " = ") else { return nil }
         let tail = body[assign.upperBound...]
@@ -59,11 +48,9 @@ import Sync
         return nil
     }
 
-    /// Every row family the lenses act on is narrowed, asserted per family inside the one builder
-    /// that produces them, not by counting calls anywhere in the file. A file-wide count is met by
-    /// calls unrelated to the rows, so call sites could vanish while it stayed green.
-    /// `rows.duplicates` (Trash-all) and `rows.filing` (move files) feed batch destructive buttons,
-    /// and either acting outside the scoped folder is the failure this feature exists to prevent.
+/// Every row family the lenses act on is narrowed, asserted per family inside the one builder that
+/// produces them; a file-wide count is met by unrelated calls. `rows.duplicates` (Trash-all) and
+/// `rows.filing` (move files) feed batch destructive buttons that must not act outside the scope.
     @Test func everyScopedRowFamilyIsNarrowedInsideTheRowsBuilder() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private var filteredRows: FilteredRows {", in: view)
@@ -84,10 +71,8 @@ import Sync
                     "\(entry.family) is no longer narrowed by the scope — its predicate is:\n\(predicate)")
         }
 
-        // Restructure has a different shape, so it gets its own check: it sorts each finding three
-        // ways (inside the scope, about an ancestor of it, or outside), so the filter sits above
-        // the appends instead of inside a `filter {}`. Sliced from the case label so both
-        // destinations are in one window with the call that chose them.
+// Restructure sorts each finding three ways (inside, about an ancestor, outside), so the filter
+// sits above the appends; sliced from the case label so both destinations are in one window.
         let restructureStart = try #require(body.range(of: "case .filing where organizeLens == .restructure:"),
                                             "the restructure arm is gone from filteredRows")
         let restructure = String(body[restructureStart.upperBound...].prefix(600))
@@ -97,9 +82,8 @@ import Sync
         #expect(restructure.contains("rows.structureAboutAncestor.append"),
                 "the about-an-ancestor destination is gone, so those findings are silently dropped or mis-filed")
 
-        // The absence is part of the rule. Rules are configuration rather than findings, so
-        // `appliedScope(for: .rules)` is always nil and a scope test there would read like a live
-        // narrowing that can never fire. Pinning it keeps that a decision.
+// Rules are configuration, so `appliedScope(for: .rules)` is always nil and a scope test there
+// would read like a narrowing that never fires. Pinned to keep that a decision.
         let rulesStart = try #require(body.range(of: "rows.rules ="))
         let rulesWindow = String(body[rulesStart.upperBound...].prefix(160))
         #expect(!rulesWindow.contains("OrganizeScopeFilter"),
@@ -144,13 +128,9 @@ import Sync
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "var railCounts: RailCounts {", in: view)
 
-        // Each scoped badge, by name: a bare `body.contains("OrganizeScopeFilter.matches")` still
-        // passes when one lens alone drops the scope, leaving its badge reporting the global count
-        // beside a scoped list.
-        //
-        // Each asks `appliedScope(for:)` with its own lens. Rules does not apply the scope
-        // (``OrganizeLens/isScoped``), so reading the selected lens's `scope` once at the top would
-        // go nil the moment Rules is selected and lift the scope off every other badge.
+// Each scoped badge, by name: a bare `body.contains(…)` passes when one lens alone drops the
+// scope. Each asks `appliedScope(for:)` with its own lens: reading the selected lens's scope once
+// would go nil on Rules and lift the scope off every other badge.
         let scoped: [(String, String)] = [
             ("toFile", "syncManager.filingSuggestions.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) }"),
             ("duplicates", "syncManager.duplicateGroups.count {\n                OrganizeScopeFilter.matches($0, scope: appliedScope(for: .duplicates)) }"),
@@ -163,9 +143,8 @@ import Sync
             #expect(body.contains(call),
                     "the \(lens) badge is counting the global list again — a number beside a list it does not describe")
         }
-        // Restructure counts through `relation` rather than `matches`, and `.inside` only: an
-        // ancestor finding is shown in the lens but is not work in this subtree. And plan-bearing
-        // kinds only: a badge you can't drive to zero is a badge people stop reading.
+// Restructure counts through `relation`, `.inside` only (an ancestor finding is not work in this
+// subtree), and plan-bearing kinds only.
         #expect(body.contains("OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,\n                                                    scope: appliedScope(for: .restructure)) == .inside"),
                 "the restructure badge is unscoped, or counting ancestor findings as work in the scope")
         // As the restructure count's first conjunct, layout aside: a bare `carriesPlan` anywhere
@@ -175,15 +154,11 @@ import Sync
                 "the restructure badge is counting kinds that carry no plan — an Ask or a hand-off inflates a number nobody can drive to zero")
         #expect(!body.contains("case .restructure: return 0"),
                 "the restructure badge is hard-wired to 0 again")
-        // Rules counts the whole list and must not grow a scope test: `appliedScope(for: .rules)`
-        // is always nil (`OrganizeLens.isScoped`), so a call here would be a narrowing that can
-        // never fire.
+// Rules counts the whole list and must not grow a scope test that can never fire.
         #expect(body.contains("rules: syncManager.automationRules.count,"),
                 "the rules badge is no longer the plain count of the one global list")
-        // Over the code, not the prose: `railCounts` has a comment explaining why there is no
-        // `appliedScope(for: .rules)` call, which a raw scan would match. Plus a positive check
-        // that the stripping left something, so a stripper that ate the body can't make this pass
-        // vacuously.
+// Over the code, not the prose (a comment explains the missing call), plus a check that the
+// stripping left something.
         let code = SourceText.codeOnly(body)
         #expect(code.contains("rules: syncManager.automationRules.count,"),
                 "stripping comments emptied the body — this check would be vacuous")
@@ -198,14 +173,9 @@ import Sync
         #expect(view.contains("let counts = railCounts"))
         #expect(view.contains("state: counts.state"),
                 "the width arithmetic is recomputing the rail's states instead of reading the resolved counts")
-        // And the render reads the same accessor as the width model. Restating the rule at the rail
-        // item agrees only until one copy changes; then the arithmetic sizes a rail that is not
-        // drawn, the divergence `OrganizeRailMetrics` exists to stop. The accessor is `state(_:)`:
-        // a rail item's dress is three states (a badge, a 4pt dot, or nothing), each with its own
-        // width.
-        //
-        // Both halves match the assignment, not the bare call, so the comment at the call site
-        // explaining why the restated form is wrong can't trip the scan.
+// And the render reads the same accessor as the width model, `state(_:)`; a restated rule at the
+// rail item would size a rail that is not drawn. Both halves match the assignment, so the comment
+// at the call site can't trip the scan.
         #expect(view.contains("state: counts.state(item)"),
                 "the rail item is restating the state rule instead of calling the accessor the width model uses")
         #expect(!view.contains("let badge = item.badge("),
@@ -216,11 +186,8 @@ import Sync
         #expect(view.contains("let scopeFolders = scopeFolderCount"))
     }
 
-    /// "Show them again" counts and forgets only what the lens's own scope can show, in both
-    /// lenses. The manager's scoped accessors are asserted in Sync by
-    /// `showingKeptGroupsAgainTouchesOnlyThisFolder` and
-    /// `showingHiddenFindingsAgainStaysInTheLensScope`; this pins that the views ask them, with the
-    /// scope the rows are narrowed by, rather than forgetting every folder's keys.
+/// "Show them again" counts and forgets only what the lens's own scope can show, in both lenses.
+/// The manager's scoped accessors are asserted in Sync; this pins that the views ask them.
     @Test func showThemAgainIsScopedInBothLenses() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         // Count, forget and rescan one folder: the deeper of the scan root and the scope.
@@ -251,13 +218,8 @@ import Sync
         #expect(list.contains("keptSeparateRow(kept: kept)"))
     }
 
-    /// The pure count rule is called with the rail's selection. `theOfMCountsFollowTheRail` asserts
-    /// `StorageSection.counts(in:section:matching:)` directly and stays green if the view passes
-    /// `nil`, which would have the numbers describe all three lists.
-    ///
-    /// - Note: The declaration returns `(filtered: Int, total: Int)?`: before a report there is no
-    ///   honest N or M, which `LensHeaderReadoutTests` pins. This scan must track that spelling,
-    ///   since a signature it can't find fails the `#require` in ``body(of:in:)``.
+/// The pure count rule is called with the rail's selection: passing `nil` would have the numbers
+/// describe all three lists. The scan tracks the `(filtered: Int, total: Int)?` spelling.
     @Test func theStorageCountsAreAskedAboutTheSelectedSection() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private var storageCounts: (filtered: Int, total: Int)? {", in: view)
@@ -278,10 +240,8 @@ import Sync
     // MARK: The two defects the installed build turned up
 
     @Test func theReaimButtonSaysItCLEARSTheScopeAtTheProviderRoot() throws {
-        // Scoped to Legal with the pane at the provider root, the button clears the scope and
-        // widens to the whole tree, so its words must say so ("Organize Everything") rather than
-        // promise to narrow to "Documents". A wrong label over a right action is what a green suite
-        // is least likely to catch.
+// Scoped to Legal with the pane at the provider root, the button clears the scope, so it must say
+// "Organize Everything" rather than promise "Documents".
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(view.contains("private var reaimClearsScope: Bool"))
         #expect(view.contains("reaimClearsScope ? \"Organize Everything\""))
@@ -291,9 +251,8 @@ import Sync
     }
 
     @Test func storagesMovedButtonSaysAnalyzeNotOrganize() throws {
-        // Storage shares `rescanButton` but none of the scope semantics: its `reaim` is a plain
-        // re-analyze, so its moved button must say "Analyze", not `Organize "X"` or "clears the
-        // scope". The browse-aware scan target surfaces the moved state on every column click.
+// Storage shares `rescanButton` but none of the scope semantics: its moved button re-analyzes, so
+// it must say "Analyze", not `Organize "X"`.
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let storage = try SourceText.body(of: "private var reanalyzeStorageButton: some View {",
                                     in: view)
@@ -316,14 +275,9 @@ import Sync
         #expect(!moved.contains("?? scannedRoot"),
                 "targetMoved is spelling the subject chain again beside the one it delegates to")
 
-        // Who passes the fallback rung is the cross-workspace rule. Organize's two re-aim buttons
-        // do, because unscoped Organize answers about the whole tree; Storage does not, because it
-        // owns no scope and its button re-analyzes rather than re-aims. With the fallback,
-        // Storage's "Analyze X" would fire on a condition about somebody else's subject.
-        //
-        // The rung is the anchor, the folder an unscoped pass enumerates. The account root would
-        // make a freshly launched pane at its landing folder read as moved away, drawing the
-        // prominent re-aim button on every launch.
+// Organize's re-aim buttons pass the fallback rung (unscoped Organize answers about the whole
+// tree); Storage does not, owning no scope. The rung is the anchor, not the account root, which
+// would draw the re-aim button on every launch.
         #expect(try SourceText.body(of: "private var filingTargetMoved: Bool {", in: view)
             .contains("rootFallback: providerAnchor"),
                 "Organize's filing button no longer treats an unscoped, unscanned workspace as aimed at the whole tree")
@@ -333,11 +287,8 @@ import Sync
     }
 
     @Test func theTwoFilingGatesReadOneMember() throws {
-        // `lensActions` draws the control and `hasRowTwoActions` decides whether row 2 gets its
-        // hairline; a `@ViewBuilder` can't be asked whether it drew anything, so the second mirrors
-        // the first's conditions. They must read the same member, not two copies of one expression,
-        // or a divider can end up beside a missing control. Asserted in each call site's own body,
-        // since a file-wide count also counts doc comments that mention the member.
+// `hasRowTwoActions` mirrors `lensActions`'s conditions (a `@ViewBuilder` can't be asked whether it
+// drew), so both must read the same member, or a divider ends up beside a missing control.
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let actions = try SourceText.body(of: "private func lensActions(rows: FilteredRows)", in: view)
         let rowTwo = try SourceText.body(of: "private var hasRowTwoActions: Bool {", in: view)
@@ -352,18 +303,13 @@ import Sync
     }
 
     @Test func theStandDownMatchesTheStateItStandsDownFor() throws {
-        // `filingIntroOwnsInvitation` is a claim about what `filingContent` renders, made from
-        // outside it. The render tests see an empty header band on To File before a scan, but an
-        // empty band is also what a missing intro card gives, so they can't tell a stand-down with
-        // reason from one without. This is the half they can't see: the two conditions must stay
-        // the same condition.
+// `filingIntroOwnsInvitation` claims what `filingContent` renders, from outside it; an empty band
+// is also what a missing intro card gives, so the two conditions must stay one condition.
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
 
-        // The gate is a named member (`showsFilingSetupCard`), because the cloud spend row also
-        // needs to know whether the card is on screen. So the chain is followed rather than the
-        // literal: `filingContent` switches on `filingContentState(…)`, which answers `.setup` from
-        // its `showsSetup` argument (pinned by `FilingNotScannedHereTests`), fed by that member,
-        // which is still `!hasSuggestedFiling`.
+// Followed through the chain: `filingContent` switches on `filingContentState(…)`, whose `.setup`
+// comes from `showsFilingSetupCard` (pinned by `FilingNotScannedHereTests`), still
+// `!hasSuggestedFiling`.
         let content = try SourceText.body(of: "private func filingContent(", in: view)
         #expect(content.contains("showsSetup: showsFilingSetupCard"),
                 "filingContent's intro gate is no longer showsFilingSetupCard — filingIntroOwnsInvitation is now describing a state that does not exist")
@@ -379,9 +325,8 @@ import Sync
         #expect(owns.contains("!syncManager.hasSuggestedFiling"),
                 "the stand-down no longer tracks filingContent's own pre-scan condition")
 
-        // And the routing that makes To File the right key: `contentCard` sends only that rail item
-        // to `filingContent`. If another reached it, a second lens would grow an intro card the
-        // stand-down doesn't know about.
+// And only the To File rail item reaches `filingContent`, or a second lens grows an intro card the
+// stand-down doesn't know about.
         let card = try SourceText.body(of: "private func contentCard(rows: FilteredRows,", in: view)
         #expect(card.contains("if showingOverview {"))
         #expect(card.contains("} else if organizeLens == .restructure {"))
@@ -390,16 +335,12 @@ import Sync
     }
 
     @Test func anEmptyScopedListBlamesTheScopeAndNotTheSearch() throws {
-        // The Rules lens under a scope, with no search running, must not blame the search ("The
-        // current search hides all 1 rule", with Clear Search): wrong cause, and an action that
-        // can't fix it.
+// Rules under a scope, with no search running, must not blame the search.
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         #expect(view.contains("private func scopeHidesAllState"))
         #expect(view.contains("private func searchHidesAllState"))
-        // The chooser resolves the cause before wording the sentence: a live query owns the
-        // emptiness, then a live type filter, then the scope. The exact predicate, including why
-        // the filter needs `scopedTotal > 0`, is pinned in `LensSearchKeyTests`; this suite cares
-        // that the scope arm still exists.
+// The chooser resolves the cause first: a live query, then a type filter, then the scope. The
+// exact predicate is pinned in `LensSearchKeyTests`; this cares that the scope arm exists.
         #expect(view.contains("if scopedTotal == 0, let scope {"),
                 "an empty scope no longer gets the scope's own sentence")
         // And the scoped state must state the outside total and offer the clearing action, so "0
@@ -445,9 +386,8 @@ import Sync
         // No call site may pass a bare global count as the searched-over denominator.
         #expect(!view.contains("noMatchesState(total:"),
                 "a caller still passes one undifferentiated total")
-        // The backlog's is `counts[.renames]`, not `counts.renames`: its list holds the folder
-        // plans and the folded to-fix names, and the subscript is the one expression that counts
-        // both, so the empty state and the badge above it show the same number.
+// `counts[.renames]`, not `counts.renames`: only the subscript counts both the plans and the
+// folded names, so the empty state matches the badge.
         for scoped in ["scopedTotal: counts.duplicates",
                        "scopedTotal: counts[.renames]", "scopedTotal: counts.toFile",
                        "scopedTotal: counts.rules"] {
@@ -469,11 +409,9 @@ import Sync
                 "an unsurveyed scope renders as a zero folder count again")
     }
 
-    /// Gated on the right predicate, which is not the same claim as gated. The filing pass
-    /// enumerates one folder's direct files, so it can answer only about that folder; an ancestry
-    /// test would let a provider-root scan claim "Inbox (TODO) — 0 loose files" while TODO held
-    /// fifty. `looseFileScanCovers` is the rule for exactly this pass, as `OrganizeScope`'s doc
-    /// says.
+/// Gated on the right predicate: the filing pass enumerates one folder's direct files, so an
+/// ancestry test would let a provider-root scan claim "0 loose files" for a full Inbox.
+/// `looseFileScanCovers` is the rule for this pass.
     @Test func theInboxCountIsGatedOnTheScanHavingCoveredIt() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private var inboxShortcut: OrganizeOverview.InboxShortcut? {",
@@ -500,16 +438,14 @@ import Sync
     @Test func theOverviewDoesNotResolveRowsItNeverReads() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let body = try SourceText.body(of: "private var filteredRows: FilteredRows {", in: view)
-        // The compound condition is a named member, `overviewIsOnScreen`, because three readers
-        // need it: these rows, the query (the overview answers none), and the "N of M". Spelled out
-        // at each, it would be three chances to ask a different question.
+// `overviewIsOnScreen` is a named member because three readers need it; spelled out at each, it
+// would be three chances to ask a different question.
         #expect(body.contains("guard !overviewIsOnScreen else { return rows }"),
                 "the overview is parsing a query and scoping the filing queue for a value nothing reads")
         #expect(view.contains("private var overviewIsOnScreen: Bool { showingOverview && effectiveLens == .filing }"),
                 "overviewIsOnScreen is no longer the compound question this guard needs")
-        // Not `showingOverview` alone: that means "no rail item selected", not "the overview
-        // renders", since the overview is drawn only from contentCard's `.filing` arm. Guarding on
-        // it alone starves the Duplicates apparatus of its rows (see DuplicateRevealLandingTests).
+// Not `showingOverview` alone, which means "no rail item selected", not "the overview renders":
+// it starves Duplicates of its rows (see DuplicateRevealLandingTests).
         #expect(!body.contains("guard !showingOverview else"),
                 "the guard is back to the condition that emptied the duplicates list")
     }
@@ -571,16 +507,13 @@ import Sync
     // MARK: The destructive confirmation speaks the group's own vocabulary
 
     @Test func theRemovalConfirmationGetsItsWordsFromDuplicateRemovalPrompt() throws {
-        // `DuplicateRemovalPrompt` is pure and tested, and would stay green if `apply` composed the
-        // sentence inline again, where a same-text copy could be called a "redundant copy" in the
-        // one dialog that precedes a delete.
+// `DuplicateRemovalPrompt` is pure and tested, and would stay green if `apply` composed the
+// sentence inline again in the one dialog that precedes a delete.
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let apply = try SourceText.body(of: "private func apply(_ group: DuplicateGroup) {", in: view)
         #expect(apply.contains("DuplicateRemovalPrompt.itemWord"))
         #expect(apply.contains("DuplicateRemovalPrompt.informativeText"))
-        // And the replaced literal is gone from that body. Comment lines are stripped first: a scan
-        // that matches the doc comment explaining a removed string can never fail. The assertion
-        // above proves the haystack is non-empty either way.
+// And the replaced literal is gone, with comments stripped first so a doc can't satisfy it.
         let code = SourceText.codeOnly(apply)
         #expect(!code.contains("redundant cop"),
                 "apply() is composing the removal wording inline again")
@@ -606,19 +539,10 @@ import Sync
 
     // MARK: A "clean" verdict needs a scan that covered the scope
 
-    /// `OrganizeScopeFilter.scanCovers` is pure and tested next door, and the overview would
-    /// regress the moment `overviewModel` stopped consulting it: a scoped count of zero would
-    /// render as "Nothing to do in Legal. Every check that has run came back clean." over a subtree
-    /// nothing had opened.
-    ///
-    /// Each lens is asserted by the predicate its own pass justifies, because the passes have
-    /// different shapes:
-    ///
-    /// - To File enumerates one folder one level deep → `looseFileScanCovers` (equality). Ancestry
-    ///   would call a provider-root scan "covering" `Legal` and report a false clean.
-    /// - Duplicates hashes a whole subtree → `scanCovers` (ancestry).
-    /// - Risky names and Renames read the provider-wide taxonomy → no gate at all. Gating them on
-    ///   the filing folder would hide real findings; the negative below stops that.
+/// `overviewModel` must consult `OrganizeScopeFilter.scanCovers`, or a scoped zero renders
+/// "Nothing to do in Legal" over a subtree nothing opened. Each lens by its pass's own predicate:
+/// To File one level deep → `looseFileScanCovers` (equality); Duplicates a subtree → `scanCovers`;
+/// names and renames read the provider-wide taxonomy → no gate (the negative below stops one).
     @Test func eachScannedLensGatesOnThePredicateItsPassJustifies() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         // The rule lives in `passCoverage` because the rail asks it too, so the two surfaces can't
@@ -632,15 +556,9 @@ import Sync
                 "Duplicates no longer asks whether its scan covered the subject")
         #expect(coverage.contains("scannedRoot: syncManager.duplicateScanRoot"))
 
-        // The subject is what the screen claims, and unscoped that is the source's anchor:
-        // `scope?.path ?? providerAnchor`. Falling back to the scanned root would ask whether each
-        // scan covered itself, so browsing into a subfolder and rescanning would make the whole
-        // tree read "clean".
-        //
-        // The anchor, not the root, since a source's root can sit above the folder it opens at: an
-        // unscoped filing scan enumerates the landing folder, and `looseFileScanCovers` compares by
-        // equality, so the account root would report a completed pass as never run, on every cloud
-        // source.
+// The subject is `scope?.path ?? providerAnchor`: the scanned root would ask whether each scan
+// covered itself. The anchor, not the root: an unscoped filing scan enumerates the landing folder,
+// and the root would report a completed pass as never run.
         #expect(coverage.contains("let subject = scope?.path ?? providerAnchor"),
                 "the coverage subject is no longer scope-or-anchor")
         #expect(!SourceText.codeOnly(coverage).contains("syncManager.duplicateScanRoot\n"),
@@ -663,10 +581,9 @@ import Sync
         #expect(code.components(separatedBy: "!duplicatesCover").count - 1 == 1)
     }
 
-    /// The pass-shape claim the gate above rests on, checked against the code that makes it true:
-    /// if the loose-file walk stops being one level deep (it reads subfolders only where the user took
-    /// that offer, which coverage knows through `filingScanReadSubfolders`), or the name and rename detectors stop
-    /// being handed the provider root, the predicates chosen next door are wrong and this says so.
+    /// The pass-shape claim the gate above rests on: the loose-file walk is one level deep except
+    /// where the user took the subfolder offer (`filingScanReadSubfolders`), and the name and rename
+    /// detectors get the provider root.
     @Test func theOverviewsCoverageRulesMatchTheScansTheyDescribe() throws {
         let filing = try SourceText.sync("FileSyncManager+Filing.swift")
         #expect(filing.contains("buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)"),

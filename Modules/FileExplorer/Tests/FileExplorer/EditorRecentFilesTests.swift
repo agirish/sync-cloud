@@ -5,11 +5,10 @@ import Design
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// Edit's recent files: the store's rules, its words, and the empty page that draws it.
-///
-/// The store copies the sidebar Recents' rules (`FolderJumpStore`), so the cases are its cases:
-/// move-to-front with a cap, missing files hidden but kept, a moved file followed, and bytes this
-/// build cannot read kept rather than written over.
+/// Edit's recent files: the store's rules, its words, and the empty page that draws it. The store
+/// copies the sidebar Recents' rules (`FolderJumpStore`), so the cases are its cases: move-to-front
+/// with a cap, missing files hidden but kept, a moved file followed, and bytes this build cannot
+/// read kept rather than written over.
 @MainActor
 @Suite(.serialized) struct EditorRecentFilesTests {
 
@@ -157,9 +156,8 @@ import FileExplorerTestSupport
 
     // MARK: Words
 
-    /// When a row was opened, in the fewest words, on a fixed calendar and zone so the days are
-    /// this test's and not the Mac's. The app's own words are pinned literally; the time, weekday
-    /// and date are the reader's own format.
+    /// When a row was opened, in the fewest words, on a fixed calendar and zone so the days are this
+    /// test's, not the Mac's. The app's words are pinned literally; time and date are the reader's.
     @Test func theTimeColumnSaysWhenInTheFewestWords() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -212,9 +210,8 @@ import FileExplorerTestSupport
 
     // MARK: The page
 
-    /// The empty page draws the list once there is one, and its plain sentence until then, read in
-    /// pixels against the same workspace with nothing remembered. A source scan pins that the page
-    /// is the workspace's, wired to the host's two closures and ⌘N's.
+    /// The empty page draws the list once there is one and its plain sentence until then, in pixels;
+    /// a source scan pins that the page is wired to the host's two closures and ⌘N's.
     @Test func theEmptyPageDrawsTheListOnlyWhenThereIsOne() throws {
         let empty = store()
         let full = store()

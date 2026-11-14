@@ -7,14 +7,13 @@ import Design
 
 /// Every lens opens on its setup card at launch, including the one that already knows the answer.
 ///
-/// Most lenses get this for nothing: their findings live only in memory, so a fresh
-/// `FileSyncManager` has none. Restructure's findings are a pure function of the folder profile,
-/// which is read off disk at startup, so it has an answer before anyone asks. The rule pinned here:
-/// with a manager in the state startup leaves it in, no lens shows results. A future lens that
-/// derives its answer from a startup artifact fails here rather than becoming a second exception.
+/// Most lenses get this for nothing: their findings live only in memory. Restructure's are a pure
+/// function of the folder profile, read off disk at startup, so it has an answer before anyone
+/// asks. Pinned: with a manager in its startup state, no lens shows results; a future lens deriving
+/// its answer from a startup artifact fails here rather than becoming a second exception.
 ///
 /// The gate is per-launch, not persisted (``FileSyncManager/hasReviewedStructure``), so "these are
-/// cached results, and here is how to refresh them" is said each session, not once ever.
+/// cached results, and here is how to refresh them" is said each session.
 @MainActor
 @Suite(.serialized) struct LensLaunchGateTests {
 
@@ -98,16 +97,10 @@ import Design
 
     // MARK: The call site
 
-    /// The gate is wired, not merely available.
-    ///
-    /// The tests above check a flag and a view input; neither notices if `LensWorkspaceView` stops
-    /// passing the flag to the view. `hasReviewed` is a `let` with no default, so the compiler
-    /// catches an omitted argument; this catches an argument fed something other than the launch
-    /// flag (a literal `true`, say, or a different manager property).
-    ///
-    /// A source scan, for the reason `OrganizeScopeCallSiteTests` gives: the alternative is
-    /// mounting `LensWorkspaceView` with a live manager and reading pixels back, a lot of machinery
-    /// for a question the call site states outright.
+    /// The gate is wired, not merely available: `hasReviewed` is a `let` with no default, so the
+    /// compiler catches an omitted argument; this catches one fed something other than the launch
+    /// flag (a literal `true`, say). A source scan, because the alternative is mounting
+    /// `LensWorkspaceView` and reading pixels back for what the call site states outright.
     @Test func lensWorkspaceViewFeedsTheGateToTheLens() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let content = try SourceText.body(

@@ -674,7 +674,7 @@ public enum PaletteRouter {
         // lens, object attached, invisibly.
         //
         // The multi-word scan itself matters: a single-word parse loses "to file legal", which
-        // `aTwoWordPlaceNameIsFoundBeforeItsFirstWordCanMisfire` asserts.
+        // `CommandPaletteTests.theTopRowTakesTheRoute` asserts.
         for count in stride(from: min(words.count - 1, 3), through: 1, by: -1) {
             let head = words.prefix(count).joined(separator: " ").lowercased()
             guard let place = PalettePlace.allCases.first(where: { place in

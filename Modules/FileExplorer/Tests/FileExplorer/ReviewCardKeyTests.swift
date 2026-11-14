@@ -4,18 +4,14 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// `ReviewCardView`'s ⏎-primary and ⌫-skip, the two keys that move or drop a row, exercised
-/// through a real window's responder chain (the same harness as `FilingWalkthroughCardKeyTests`).
+/// `ReviewCardView`'s ⏎-primary and ⌫-skip, the two keys that move or drop a row, through a real
+/// window's responder chain (the harness of `FilingWalkthroughCardKeyTests`).
 ///
-/// `onKeyPress` doesn't filter modifiers for its handler, on any overload, so without an explicit
-/// `press.isPlainKeystroke` check ⌘⌫ (Finder's "delete immediately", "delete to start of line" in
-/// text) and ⌥⌫ (delete word) would skip the item, which no back-step can revisit.
-///
-/// The single-key `onKeyPress(.return)` overload is not "unmodified presses only". On this
-/// harness it never matches the keypad's Enter (keyCode 76 sends U+0003, not U+000D), runs for ⌘⏎
-/// and ⇧⏎, and fires on key-repeat, while `isActing` closes only when the host's async outcome
-/// lands. So ⏎ uses the `keys: [.return, .keypadEnter], phases: .down` form with ⌫'s guard. The ␣
-/// and esc handlers still use the single-key overload, unguarded; neither moves bytes.
+/// `onKeyPress` filters no modifiers on any overload, so without `press.isPlainKeystroke` ⌘⌫ and ⌥⌫
+/// would skip the item, which no back-step can revisit. The single-key `onKeyPress(.return)` never
+/// matches the keypad's Enter (U+0003, not U+000D), runs for ⌘⏎ and ⇧⏎, and fires on key-repeat
+/// while `isActing` is still open, so ⏎ uses `keys: [.return, .keypadEnter], phases: .down` with
+/// ⌫'s guard. ␣ and esc keep the single-key overload, unguarded: neither moves bytes.
 @MainActor
 @Suite(.serialized) struct ReviewCardKeyTests {
 
@@ -475,5 +471,4 @@ import Sync
                     "the \(button) button can take key focus and does not give it back")
         }
     }
-
 }

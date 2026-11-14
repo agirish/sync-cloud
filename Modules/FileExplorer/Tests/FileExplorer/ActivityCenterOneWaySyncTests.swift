@@ -3,9 +3,9 @@ import Testing
 import Sync
 @testable import FileExplorer
 
-/// the rows above Activity ▸ Events's one-way sync rows on Activity's owner: read back after a quit, notified once,
-/// reminded when due, and a click picking out the row. A fresh center and a scratch file per
-/// test, because the app's are `.shared` and Application Support.
+/// Activity ▸ Events's one-way sync rows: read back after a quit, notified once, reminded when
+/// due, and a click picking out the row. A fresh center and a scratch file per test, because the
+/// app's are `.shared` and Application Support.
 @MainActor
 @Suite struct ActivityCenterOneWaySyncTests {
 

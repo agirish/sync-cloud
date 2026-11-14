@@ -2,11 +2,9 @@ import Testing
 import AppKit
 @testable import FileExplorer
 
-/// The display-cycle instrument's own rules.
-///
-/// "Did the app survive" is too weak to judge a layout fix by (`docs/columns-layout-loop.md`), so
-/// the trace must be right: a cycle below the floor is silent, one at or above it is a line, and
-/// the hook it swizzles must exist.
+/// The display-cycle instrument's own rules. "Did the app survive" is too weak to judge a layout
+/// fix by (`docs/columns-layout-loop.md`), so the trace must be right: a cycle below the floor is
+/// silent, one at or above it is a line, and the hook it swizzles must exist.
 @MainActor
 @Suite(.serialized) struct DisplayCycleTraceTests {
 
@@ -100,11 +98,9 @@ import AppKit
 
     /// The swizzle really counts a real window's passes. The bookkeeping tests above would pass if
     /// `method_exchangeImplementations` did nothing, and a trace that never fires reports a healthy
-    /// pane, so this arms the real hook and drives a real constraint pass.
-    ///
-    /// `arm()` installs a process-wide method exchange and runloop observer that outlive this test.
-    /// Both are harmless (the hook only counts, the observer only writes for a cycle at or above
-    /// the floor), but it is a side effect, and the only way to prove the exchange landed.
+    /// pane, so this arms the real hook and drives a real constraint pass. `arm()` installs a
+    /// process-wide method exchange and runloop observer that outlive this test; both are harmless
+    /// (the hook only counts, the observer only writes at or above the floor).
     @Test func testArmingActuallyCountsARealWindowsPasses() {
         DisplayCycleTrace.isEnabled = true
         DisplayCycleTrace.arm()

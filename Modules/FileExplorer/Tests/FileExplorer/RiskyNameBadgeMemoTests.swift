@@ -6,24 +6,14 @@ import Sync
 @testable import FileExplorer
 
 /// Holds the row badge to `RiskyNameBadgeCache`'s cost model: a pane asks about a name on every
-/// visible row of every render pass, and the rules run once per distinct name, ever.
+/// visible row of every render pass, and the rules run once per distinct name, ever. This suite
+/// measures the tree pane; `RiskyNameBadgeColumnsMemoTests` the columns pane, on the same fixture.
 ///
-/// This suite measures the tree pane (`FileTreeView`); `RiskyNameBadgeColumnsMemoTests` measures
-/// the columns pane against the same fixture. Both are real call sites of `riskyNameReason`.
-///
-/// A count, not a stopwatch. The badge costs +0.03–0.24 ms against a ~9 ms re-render, smaller than
-/// the spread within one arm on a loaded Mac; deleting the memo swaps a ~1.5 µs dictionary hit for
-/// a ~7 µs live check on ~60 rows, an order of magnitude under the noise. A timing bar loose
-/// enough not to flake couldn't see it. Counting evaluations is exact, needs no calibration and
-/// reads the same on a busy machine, so these cases are not `.machinePinned`.
-///
-/// Counted by name, not by tally: `RiskyNameBadgeCache.onEvaluateForTesting` reports the name, and
-/// each case counts only its own fixture's names, because `DifferencesView` asks the same memo
-/// from suites running alongside. See the seam's own note.
-///
-/// Removing the memo, defeating it, keying it on anything that varies per row or per pass, or
-/// adding an eager pass over the published tree moves these counts by more than an order of
-/// magnitude.
+/// A count, not a stopwatch: deleting the memo costs ~5 µs on ~60 rows, an order of magnitude under
+/// the noise of a ~9 ms re-render, while a count is exact on a busy machine, so nothing here is
+/// `.machinePinned`. Each case counts only its own fixture's names
+/// (`RiskyNameBadgeCache.onEvaluateForTesting` reports them): `DifferencesView` asks the same memo
+/// from suites running alongside.
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeMemoTests {
 
@@ -48,14 +38,9 @@ import Sync
         }
     }
 
-    /// The pane is mounted on a `NotificationCenter` of this suite's own. A mounted `FileTreeView`
-    /// subscribes to `.cloudDownloadRequested` regardless, so on `.default` any parallel suite's
-    /// `.left` post would republish `downloads.requests` and rebuild this pane's body.
-    ///
-    /// The memo absorbs such a render, and no case here counts renders, so no verdict depends on
-    /// this. It is here because the rule is the rule (see "A mounted view is a live subscriber, in
-    /// every suite at once" in `docs/flaky-tests.md`), and because a count-based test earns its
-    /// exactness by letting nothing else touch what it counts.
+    /// Mounted on a `NotificationCenter` of its own: a mounted `FileTreeView` subscribes to
+    /// `.cloudDownloadRequested`, so on `.default` any parallel suite's post would rebuild this pane
+    /// ("A mounted view is a live subscriber, in every suite at once" in `docs/flaky-tests.md`).
     private func mount(_ box: Box, delegate: FileActionDelegate) -> NSWindow {
         BadgeMemoMount.window(Harness(box: box,
                                       tree: BadgeMemoFixture.tree(side: .left),
@@ -125,15 +110,10 @@ import Sync
     }
 }
 
-/// The same claims, against the columns pane.
-///
-/// `PaneColumnsView` is the badge's second render call site (`PaneColumnsView.columnRow`), with the
-/// same shape: `riskyNameReason` per row, per pass, evaluated while building the row. The two panes
-/// realize rows differently (this one resolves each column's rows through `PaneChildrenIndex`, not
-/// `PaneRow.children`), so the claims are re-measured here rather than assumed.
-///
-/// With an empty `browsePath` this renders one column, the root's; a folder's children get a
-/// column only when it is drilled into, so the fixture's 600 hidden names are out of reach.
+/// The same claims, against the columns pane: `PaneColumnsView.columnRow` asks `riskyNameReason`
+/// per row, per pass, but resolves each column's rows through `PaneChildrenIndex`, so the claims are
+/// re-measured rather than assumed. An empty `browsePath` renders the root's column alone, so the
+/// fixture's 600 hidden names are out of reach.
 @MainActor
 @Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeColumnsMemoTests {
 

@@ -6,10 +6,9 @@ import Sync
 @testable import FileExplorer
 
 /// A plain click on a column row must select it. In Columns the `List` doesn't reliably commit a
-/// click's selection (the tap handler runs and the column navigates, but the row isn't
-/// highlighted), so the tap commits a plain click itself. ⌘- and ⇧-click stay the List's:
-/// assigning on every tap would flatten a multi-selection to one row, and Copy, Move and Delete
-/// could act on only one item.
+/// click's selection (the column navigates but the row isn't highlighted), so the tap commits a
+/// plain click itself. ⌘- and ⇧-click stay the List's: assigning on every tap would flatten a
+/// multi-selection to one row, and Copy, Move and Delete would act on only one item.
 @Suite struct ColumnTapSelectionTests {
 
     /// The gate the tap handler applies before it touches `selection`.

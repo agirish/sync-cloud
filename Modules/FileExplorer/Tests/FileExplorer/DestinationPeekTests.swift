@@ -46,11 +46,10 @@ import Foundation
         defer { try? FileManager.default.removeItem(atPath: path) }
 
         // The "Try another" race: the read is cancelled while the detached listing finishes, so
-        // its count is real (3) but describes a destination the card has left.
+        // its count is real (3) but describes a destination the card has left; it must be nil.
         let read = Task { await DestinationPeek.itemCount(atPath: path) }
         read.cancel()
 
-        // nil, not 3: a superseded read must not overwrite the count for the destination on screen.
         #expect(await read.value == nil)
     }
 }

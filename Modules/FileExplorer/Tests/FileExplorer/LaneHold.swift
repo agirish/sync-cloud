@@ -3,12 +3,12 @@ import os
 import Sync
 
 /// Holds `PDFKitSerialAccess`'s one lane until released, so a test can see what a reader does while
-/// its parse is queued behind someone else's. Shared by the column preview's tests and File ▸
-/// Print's.
+/// its parse is queued behind someone else's. Shared by the column preview's and File ▸ Print's
+/// tests.
 ///
 /// The hold queues like any parse, so `waitUntilHeld` returns only once it is really in the lane.
-/// The wait polls rather than blocking on a semaphore: these tests are main-actor, and a main
-/// thread parked behind another hold may be the thread that hold's owner needs to release it.
+/// It polls rather than blocking on a semaphore: these tests are main-actor, and a main thread
+/// parked behind another hold may be the one that hold's owner needs to release it.
 final class LaneHold: Sendable {
     private let gate = DispatchSemaphore(value: 0)
     private let held = OSAllocatedUnfairLock(initialState: false)

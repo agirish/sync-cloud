@@ -4,9 +4,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// Ask Claude About This on a row's menu, and File with Claude after it, read
-/// off the real row menu through `NSHostingMenu`: where they sit, what they say for one row and for
-/// several, and that a hidden row gets both greyed and Show to Claude instead of Hide.
+/// Ask Claude About This on a row's menu, and File with Claude after it, read off the real row
+/// menu through `NSHostingMenu`: where they sit, what they say for one row and for several, and
+/// that a hidden row gets both greyed and Show to Claude instead of Hide.
 @MainActor
 @Suite struct AskClaudeRowMenuTests {
 

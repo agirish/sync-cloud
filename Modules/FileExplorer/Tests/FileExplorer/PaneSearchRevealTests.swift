@@ -5,11 +5,9 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// Walking to a search hit has to reveal it, in whichever presentation the pane is in.
-/// `PaneTreeSearch` can say which ancestors a hit has; only a mounted pane can say whether the row
-/// arrived. So these suites assert arrival, never the call: a `scrollTo` issued before the
-/// expansion lays out is silently dropped, and `onColumnNavigate` firing says nothing about whether
-/// the columns opened. Each also asserts the pre-reveal state, so its fixture could have failed.
+/// Walking to a search hit reveals it, in whichever presentation the pane is in. These suites
+/// assert the row's arrival, never the call: a `scrollTo` issued before the expansion lays out is
+/// silently dropped. Each also asserts the pre-reveal state, so its fixture could have failed.
 @MainActor
 @Suite struct PaneSearchTreeRevealTests {
 
@@ -55,9 +53,8 @@ import Sync
     final class Box: ObservableObject {
         @Published var search: PaneSearchResults = .empty(side: .left)
         @Published var hitIndex = 0
-        /// The host's reveal signal, bumped for a new query and for a walk as
-        /// `PaneSearchFieldState.revealNonce` is. Only the helpers below write it, so new results
-        /// handed over without one are a republish: the nonce stays put, and there is no reveal.
+        /// The host's reveal signal, bumped for a new query and a walk as
+        /// `PaneSearchFieldState.revealNonce` is; results handed over without it are a republish.
         @Published var revealNonce = 0
 
         /// A (debounced) typed query landing: new results, walk restarted, reveal fired.
@@ -73,8 +70,7 @@ import Sync
             revealNonce &+= 1
         }
 
-        /// A background republish: the same question recomputed. Results (and the walk's standing
-        /// index) update; the nonce, and so the reveal, must not.
+        /// A background republish: results and the standing index update; the nonce must not.
         func republish(_ results: PaneSearchResults, standingAt index: Int? = nil) {
             search = results
             if let index { hitIndex = index }
@@ -82,12 +78,11 @@ import Sync
         @Published var selection: Set<String> = []
         @Published var browsePath = PaneBrowsePath()
         @Published var navigated: [PaneBrowsePath] = []
-        /// The pane's publish counter. Bumping it republishes the same tree under a new stamp, which
-        /// `PaneTree.==` treats as a real change, so the pane rebuilds its rows.
+        /// The pane's publish counter: bumping it republishes the same tree under a new stamp, which
+        /// `PaneTree.==` treats as a change.
         @Published var treeVersion = 1
-        /// The pane's root; changing it is what a re-root looks like to the outline. A literal, not
-        /// `PaneSearchTreeRevealTests.root`: that static is main-actor isolated with the suite and
-        /// can't initialize a property of this nonisolated class.
+        /// The pane's root. A literal, not `PaneSearchTreeRevealTests.root`: that static is
+        /// main-actor isolated and can't initialize a property of this nonisolated class.
         @Published var currentPath = "/root"
     }
 
@@ -119,8 +114,7 @@ import Sync
                     box.browsePath = path
                 }
             )
-            // The pane's own gate. Without it the conformance is inert and the pane re-renders on
-            // everything, which would make these tests pass for the wrong reason.
+            // The pane's own gate; without it the pane re-renders on everything.
             .equatable()
             // The reveal's scroll is a `withAnimation`, which only advances while something drives
             // frames, and an offscreen, never-key test window doesn't (see
@@ -140,8 +134,7 @@ import Sync
     }
 
     /// Whether the row for `path` is inside its column's visible rectangle, read from
-    /// `NSTableView`'s geometry rather than SwiftUI's: the question is what AppKit laid out and
-    /// where it scrolled.
+    /// `NSTableView`'s geometry: what AppKit laid out and where it scrolled.
     static func rowIsVisible(_ window: NSWindow, path: String, in tree: PaneTree) -> Bool {
         guard let index = tree.rows.firstIndex(where: { $0.id == path }) else { return false }
         for table in tables(window.contentView!) {
@@ -174,8 +167,7 @@ import Sync
         return found
     }
 
-    /// How many rows the outline is showing, the observable this suite turns on: a row that has not
-    /// been revealed is not counted.
+    /// How many rows the outline is showing: a row not yet revealed is not counted.
     static func rowCount(_ window: NSWindow) -> Int {
         tables(window.contentView!).map(\.numberOfRows).reduce(0, +)
     }
@@ -190,8 +182,7 @@ import Sync
 
     // MARK: -
 
-    /// The control. If the tree started expanded, every assertion below would pass without the
-    /// reveal doing anything at all.
+    /// The control: a tree that started expanded would pass every assertion below unrevealed.
     @Test("The tree starts collapsed — so a revealed row is one the reveal opened")
     func theTreeStartsCollapsed() async {
         let box = Box()
@@ -203,8 +194,7 @@ import Sync
                 "the pane should show its two top-level folders and nothing else (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
     }
 
-    /// The feature: walking to a hit three levels down brings its row into the list, and the hit
-    /// takes the selection highlight, which is also what leaves something selected for Esc to keep.
+    /// Walking to a hit three levels down brings its row into the list, selected (what Esc keeps).
     @Test("Walking to a hit opens its ancestors, the hit's own row arrives, and it is selected")
     func revealingAHitOpensItsAncestors() async {
         let box = Box()
@@ -225,10 +215,8 @@ import Sync
         #expect(selected.held, "the hit should be selected (\(selected.pumps) pumps, got \(box.selection))")
     }
 
-    /// “Exactly the hit's ancestors”, measured: revealing a hit in Finance must not open IRS
-    /// (`financeOpenRowCount` is one short of `bothOpenRowCount` because IRS stayed shut). Walking on
-    /// to that sibling's hit then opens it without closing the first: the reveal adds to the
-    /// expansion, as clicking your way down would.
+    /// Revealing a hit in Finance opens exactly its ancestors, not IRS; walking on to IRS's hit then
+    /// opens it without closing Finance, as clicking your way down would.
     @Test("Walking on to the next branch opens it and keeps the first one open")
     func walkingOnAccumulatesExpansion() async {
         let box = Box()
@@ -252,8 +240,7 @@ import Sync
                 "IRS should open alongside Finance (\(settled.pumps) pumps, \(Self.rowCount(window)) rows)")
     }
 
-    /// A query that matches nothing must leave the pane exactly as it was — no expansion, no
-    /// selection moved, nothing scrolled.
+    /// A query that matches nothing leaves the pane as it was: no expansion, no selection moved.
     @Test("A query with no hits reveals nothing")
     func aQueryWithNoHitsRevealsNothing() async {
         let box = Box()
@@ -268,12 +255,9 @@ import Sync
     }
 }
 
-/// The pane's outline is recursive `DisclosureGroup`s over a `Set<path>` the pane owns, not an
-/// `OutlineGroup`, which has no way to open a hit's ancestors. The property at risk is row identity
-/// on republish: the pane republishes its tree constantly (a scan, a copy, a hidden-files toggle),
-/// and if identity didn't survive, every republish would collapse the outline to its roots under
-/// the user. `PaneOutlineRepublishTests` covers the flat half (a republish's contents reach the
-/// rows); this is the nested case.
+/// The outline (recursive `DisclosureGroup`s over a `Set<path>` the pane owns) keeps row identity
+/// across a republish, or every scan, copy or hidden-files toggle would collapse it to its roots.
+/// `PaneOutlineRepublishTests` covers the flat half; this is the nested case.
 @MainActor
 @Suite struct PaneOutlineExpansionRepublishTests {
 
@@ -293,8 +277,7 @@ import Sync
         }
         #expect(opened.held, "the reveal should have opened two folders (\(opened.pumps) pumps)")
 
-        // The same tree under a new stamp, which `PaneTree.==` reports as a change, so the pane
-        // really rebuilds rather than being handed the value it already had.
+        // The same tree under a new stamp, so the pane really rebuilds.
         box.treeVersion += 1
         let settled = await LayoutPumpWait.pump(window, upTo: 5) { false }
         #expect(!settled.held)   // a settle, not a condition
@@ -310,8 +293,7 @@ import Sync
 
     typealias Fixture = PaneSearchTreeRevealTests
 
-    /// The disclosure triangle exists and opens the folder. `DisclosureGroup` is what
-    /// `OutlineGroup` builds internally, so this should hold, which is why it is asserted.
+    /// The disclosure triangle exists and opens the folder.
     @Test("Clicking a row's disclosure triangle opens it")
     func theDisclosureTriangleStillWorks() async {
         let box = Fixture.Box()
@@ -354,11 +336,8 @@ import Sync
                 "both rows should reach the selection binding (\(landed.pumps) pumps, got \(box.selection))")
     }
 
-    /// The same claim for Columns, the default view mode. `ColumnTapSelectionTests` pins that ⌘-
-    /// and ⇧-clicks belong to the List only as a predicate; this checks a multi-selection reaches
-    /// the pane's binding through a column's own `List`, which is built differently from the
-    /// tree's: one per open column, scoped to that column's rows, `.listStyle(.sidebar)`, with a
-    /// `PaneListSelectionStyler` reaching into the table underneath.
+    /// The same in Columns, whose `List` is built differently (one per open column, `.sidebar`,
+    /// with `PaneListSelectionStyler` underneath). `ColumnTapSelectionTests` pins the predicate.
     @Test("Selecting more than one row still reaches the pane, in Columns")
     func multiSelectStillReachesTheBindingInColumns() async {
         let box = Fixture.Box()
@@ -377,15 +356,9 @@ import Sync
     }
 }
 
-/// An appearance is not a walk. The pane reveals the current hit when it appears, so switching
-/// Tree↔Columns mid-search lands on the hit, but that handler fires on every appearance (a tab
-/// switch, a pane collapse and re-expand), so it must not select: walk to a hit, click another
-/// file, switch tabs, and a selecting handler would undo the click. Mounting is an appearance, so
-/// the pane is created with a live search already in it, as a mode switch rebuilds it.
-///
-/// The control, that a WALK still selects, is `PaneSearchTreeRevealTests.revealingAHitOpensItsAncestors`.
-/// Without it the fix could be "never select", which would break the feature rather than the
-/// appearance case.
+/// An appearance is not a walk: the pane reveals the current hit when it appears, but that fires on
+/// every tab switch and collapse, so it must not select, or it would undo the user's click. The
+/// control, that a walk still selects, is `PaneSearchTreeRevealTests.revealingAHitOpensItsAncestors`.
 @MainActor
 @Suite struct PaneSearchAppearanceTests {
 
@@ -436,12 +409,8 @@ import Sync
         "/root/Documents", "/root/Documents/Finance", "/elsewhere/Archive", "/root2/Docs",
     ]
 
-    /// Re-rooting the pane makes every remembered expansion under the old root dead weight. Without
-    /// the prune, a session that focuses a subfolder, switches provider and walks a search would
-    /// collect paths from every tree it has seen.
-    ///
-    /// The exact set also leaves out `/root2/Docs`, a sibling root sharing the prefix, which a bare
-    /// `hasPrefix` without the separator would let through.
+    /// Re-rooting drops every remembered expansion under the old root, including `/root2/Docs`,
+    /// which a bare `hasPrefix` without the separator would let through.
     @Test("Re-rooting drops the expansions that belong to somewhere else")
     func reRootingDropsForeignPaths() {
         let kept = FileTreeView.expansionPruned(Self.remembered, toRoot: "/root")
@@ -463,10 +432,8 @@ import Sync
         #expect(FileTreeView.expansionPruned(paths, toRoot: root) == kept, "root \"\(root)\"")
     }
 
-    /// And the pane really calls it: a pure function with no caller is a green test over dead code.
-    /// Expand the mounted outline, move the root without touching the tree, and the remembered
-    /// expansions, all under the old root, must go. Moving only the root is artificial (a real
-    /// re-root replaces both) but is the only way to see the prune rather than the tree change.
+    /// And the mounted pane really calls it. Only the root moves (a real re-root replaces the tree
+    /// too), the only way to see the prune rather than the tree change.
     @Test("Re-rooting the mounted pane really does prune it")
     func theMountedPanePrunesOnReRoot() async {
         typealias Fixture = PaneSearchTreeRevealTests
@@ -510,11 +477,8 @@ import Sync
         #expect(box.navigated.isEmpty)
     }
 
-    /// The reveal opens the columns down to the hit's parent: three columns for a file two folders
-    /// deep, the root, Documents, and Finance, whose rows include the hit. The hit is selected.
-    ///
-    /// The move is routed through `onColumnNavigate`, not written straight to the binding: the seam
-    /// link makes a column move a two-pane decision, and only the host can mirror it.
+    /// The reveal opens the columns down to the hit's parent and selects it, routed through
+    /// `onColumnNavigate`: the seam link makes a column move a two-pane decision only the host makes.
     @Test("Walking to a hit opens the columns down to it, through the host, and selects it")
     func revealingAHitOpensItsColumns() async {
         let box = Fixture.Box()
@@ -540,8 +504,7 @@ import Sync
         #expect(selected.held, "the hit should be selected (\(selected.pumps) pumps, got \(box.selection))")
     }
 
-    /// Selecting a row is not revealing it: the column count and the selection both pass while the
-    /// hit sits far below the fold, so this checks the row is inside its column's visible rect.
+    /// Selecting is not revealing: a hit far below the fold is scrolled into its column's visible rect.
     @Test("A hit below the fold is scrolled into view, not just selected")
     func aHitBelowTheFoldIsBroughtIntoView() async {
         let box = Fixture.Box()
@@ -587,20 +550,15 @@ import Sync
     }
 }
 
-/// The reveal fires on the host's nonce alone. A results generation moves on every recomputation,
-/// which runs on every republish of either tree, so a reveal keyed on it would re-fire on every
-/// background scan while a query sits in the field, taking back whatever the user selected or
-/// navigated to since the walk.
+/// The reveal fires on the host's nonce alone: a results generation moves on every republish, so a
+/// reveal keyed on it would take back whatever the user selected since the walk.
 @MainActor
 @Suite struct PaneSearchRevealNonceTests {
 
     typealias Fixture = PaneSearchTreeRevealTests
 
-    /// Walk to a hit, click a different file, and let a background republish land (same query, new
-    /// generation, as `recomputeSearch` produces when either tree republishes): the click must
-    /// survive. A reveal keyed on the generation fails it by putting the selection back on the hit.
-    /// The control, and the feature itself: a nonce bump (↩) after it must still reveal, so this
-    /// can't be passing because reveals stopped working.
+    /// After a walk and a click elsewhere, a same-query republish keeps the click; the control, a
+    /// nonce bump (↩) afterwards, still reveals.
     @Test("A same-query republish does not take back a selection made after the walk")
     func aRepublishDoesNotStealTheSelection() async {
         let box = Fixture.Box()

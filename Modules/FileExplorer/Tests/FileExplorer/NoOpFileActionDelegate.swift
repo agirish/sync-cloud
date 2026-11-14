@@ -25,6 +25,5 @@ extension NoOpFileActions {
 }
 
 /// A `FileActionDelegate` that does nothing, for tests that mount a pane or build its menu but
-/// never act through it. Every other member keeps the protocol's default, `isEquivalent` (`false`)
-/// included.
+/// never act through it. Every other member keeps the protocol's default (`isEquivalent`: `false`).
 struct NoOpFileActionDelegate: NoOpFileActions {}

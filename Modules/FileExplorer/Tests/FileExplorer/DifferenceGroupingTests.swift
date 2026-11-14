@@ -60,8 +60,7 @@ import Sync
 
     /// A real folder named exactly like the root label must not swallow the loose rows. If the
     /// bucket key were the label, both would land in one section, and selecting the header would
-    /// also select a file not in the folder. Asserted on the sections, because the property is two
-    /// buckets with the right rows in each.
+    /// also select a file not in the folder.
     @Test func testARealFolderNamedLikeTheRootLabelKeepsItsOwnSection() {
         let sections = DifferenceGrouping.sections([
             diff("loose.pdf"),
@@ -80,13 +79,10 @@ import Sync
 
     // MARK: Bucketing robustness over malformed parents
 
-    /// `folder(for:)` produces a printable bucket for the whole input space, not just well-formed
-    /// paths. Engine-built `relativePath`s never carry a leading or trailing slash or a "//", so a
-    /// mishandling could sit unseen until a refactor made it live. A leading slash names the folder,
-    /// not the raw parent ("/Immigration"), and never a nameless section; a parent of pure
-    /// separators files under the root label, as a root-level item does. The bucket is the top-level
-    /// folder, never the whole parent, which would make ~one section per row. The root key contains
-    /// a separator, which no component can, so no path can produce it.
+    /// `folder(for:)` produces a printable bucket for any path, not just well-formed ones: engine-built
+    /// paths never carry a stray "/", so a mishandling could sit unseen until a refactor made it live.
+    /// The bucket is the top-level folder, never the whole parent (about one section per row); pure
+    /// separators file under the root label. The root key contains a "/", so no path can produce it.
     @Test func testMalformedParentsStillBucketPrintably() {
         #expect(DifferenceGrouping.rootKey.contains("/"))
         let paths = [
@@ -98,15 +94,13 @@ import Sync
         for path in paths {
             let d = diff(path)
             let folder = DifferenceGrouping.folder(for: d)
-            // The bucket is the first non-empty component, or the root key. Computed with
-            // `components(separatedBy:)`, not the implementation's `split`, so the expectation
-            // doesn't restate the code under test.
+            // Computed with `components(separatedBy:)`, not the implementation's `split`, so the
+            // expectation doesn't restate the code under test.
             let expected = d.parentPath.components(separatedBy: "/").first { !$0.isEmpty }
                 ?? DifferenceGrouping.rootKey
             #expect(folder == expected, "path \(path): folder=\(folder)")
-            // Never a section with no name or named after a separator. Asserted on the title, what
-            // a header prints: the root key is deliberately "/" (see `rootKey`), and
-            // `Section.title` turns it into words.
+            // Asserted on the title, what a header prints: the root key is deliberately "/" (see
+            // `rootKey`), and `Section.title` turns it into words.
             let title = DifferenceGrouping.Section(folder: folder, rows: [d]).title
             #expect(!folder.isEmpty, "path \(path)")
             #expect(!title.isEmpty, "path \(path)")

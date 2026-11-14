@@ -9,10 +9,8 @@ import EventsTestSupport
 @Suite(.serialized) struct MarkdownTablesTests {
 
     /// cmark's reading, through the preview's own projection: each table Preview draws, with its
-    /// columns and its lines. Structure is graded with this, not only with
-    /// `MarkdownTables.table(in:)`, because the reader under test grading its own writing can pass
-    /// a row cmark doesn't read as one. (cmark's lines for a table whose header ended a paragraph
-    /// begin at that paragraph's first line.)
+    /// columns and its lines. Structure is graded with this, not only `MarkdownTables.table(in:)`,
+    /// because the reader under test grading its own writing can pass a row cmark doesn't read.
     static func cmarkTables(_ text: String) -> [(columns: Int, lines: [String])] {
         MarkdownProjection.project(text).blocks.compactMap { block in
             guard case .table(let columns) = block.kind else { return nil }
@@ -72,9 +70,8 @@ import EventsTestSupport
     }
 
     /// A table's lines are the ones cmark draws. A line right under a table that starts another
-    /// block (a list item, a quote, a heading, a rule) ends it, pipes or not, so Format Table must
-    /// not make it a row. A written line that starts none is a row, pipe or not, and a caret there
-    /// is in the table.
+    /// block (a list item, a quote, a heading, a rule) ends it, pipes or not; a written line that
+    /// starts none is a row, pipe or not, and a caret there is in the table.
     @Test func aTableEndsWhereCmarkEndsIt() throws {
         for tail in ["- x | y", "> q | r", "# h | i", "1. n | m", "***"] {
             let text = "| a | b |\n|---|---|\n| 1 | 2 |\n" + tail
@@ -101,9 +98,8 @@ import EventsTestSupport
     }
 
     /// A table in a block quote is a table: its rows are read past their `>` and written back with
-    /// it, and it is guarded like any other. Read as a first cell, the `>` would hide the table (no
-    /// capsule, Bulleted List taking a row out, Insert Table splitting it), and a table made in a
-    /// quote would be written outside it.
+    /// it, and it is guarded like any other. Read as a first cell, the `>` would hide the table,
+    /// and a table made in a quote would be written outside it.
     @Test func aTableInABlockQuoteIsOne() throws {
         let text = "> | a | bb |\n> | - | - |\n> | 1 | 2 |\n> | 3 | 4 |"
         let ns = text as NSString
@@ -148,10 +144,9 @@ import EventsTestSupport
         #expect(MarkdownTables.touches(text as NSString, NSRange(location: 0, length: 7)))
     }
 
-    /// A list or quote on the paragraph line right above a table would swallow it: with no blank
-    /// line between, the table's lines become lazy text of the new item or quote, and cmark draws
-    /// no table. Those verbs are refused there, and greyed on the bar and in the right-click menu.
-    /// Heading is not (a heading ends at its own line), and a blank line between frees them.
+    /// A list or quote on the paragraph line right above a table would swallow it as lazy text, so
+    /// those verbs are refused there, and greyed on the bar and in the right-click menu. Heading is
+    /// not (a heading ends at its own line), and a blank line between frees them.
     @Test func aListOrQuoteRightAboveATableWouldSwallowIt() throws {
         let text = "Intro\n| a | b |\n| - | - |\n| 1 | 2 |"
         let intro = NSRange(location: 2, length: 0)
@@ -175,8 +170,7 @@ import EventsTestSupport
 
     /// Code that looks like a table is code: where cmark draws a code block, front matter or HTML,
     /// no table is found and Format Table rewrites nothing. The cases are the ones a simple walk
-    /// for open fences gets wrong: a ```` ```js ```` line inside a fence, a fence indented in a
-    /// list item, an indented code block, front matter, an HTML block.
+    /// for open fences gets wrong.
     @Test func codeThatLooksLikeATableIsNotOne() {
         let cases = [
             "an info string inside a fence": "```\n```js\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
@@ -459,15 +453,9 @@ import EventsTestSupport
         #expect(wider.text.components(separatedBy: "\r\n").count == 3, "\(String(reflecting: wider.text))")
     }
 
-    /// Every edit, on every cell of several tables, leaves a table — one row or column more or
-    /// fewer, as it said — and lands the caret in it; and the ones refused are exactly those
-    /// ``MarkdownTables/available(in:selection:)`` leaves out.
-    ///
-    /// Graded by cmark too: the table cmark draws after each edit ends where the one the Table menu
-    /// reads ends, with its header's columns, since the reader under test grading itself can pass a
-    /// lone `|` row. The corpus covers the hard shapes: an indented table without outer pipes, a
-    /// short row, a row wider than the header, a quote, a row with no pipe, a list item right under
-    /// a table, a compact delimiter row, an escaped pipe, a header ending a paragraph.
+    /// Every edit, on every cell of several tables, leaves a table (one row or column more or
+    /// fewer, as it said) and lands the caret in it; the ones refused are exactly those
+    /// ``MarkdownTables/available(in:selection:)`` leaves out. Graded by cmark too.
     @Test func everyEditLeavesATableAndAvailabilityMatchesWhatApplies() throws {
         let tables = [Self.simple, Self.aligned, Self.ragged, "a | b\n--- | ---\n1 | 2", "| solo |\n| --- |\n| x |",
                       "  | in | list |\n  | -- | -- |\n  | 1 | 2 |", "| a | b |\r\n| - | - |\r\n| 1 | 2 |",
@@ -694,9 +682,8 @@ import EventsTestSupport
         }
     }
 
-    /// …and cost one parse, not one per question. Each answer that finds a table parses the note
-    /// down to it, which at the end of a long note is costly for the format bar's state and a
-    /// right-click. Counted, not timed: a timing ratio is unreliable on a loaded machine.
+    /// …and cost one parse, not one per question: each parse runs down to the table, costly at the
+    /// end of a long note. Counted, not timed: a timing ratio is unreliable on a loaded machine.
     @Test func readingASelectionParsesTheNoteOnce() {
         let text = "Prose.\n\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n\nMore prose."
         let ns = text as NSString

@@ -4,11 +4,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// How much of a column row the name gets, measured in painted pixels at three row widths. Spacing
+/// How much of a column row the name gets, measured in painted pixels at three row widths: spacing
 /// paid around children that draw nothing (a `Spacer`'s minimum, an empty search note) shows as a
-/// gap that stays constant across widths, and a later edit can bring it back unnoticed. Pixels,
-/// because the claim is where the glyphs stop, and nothing outside `FileRowView` can read the
-/// `Text`'s frame. Tolerances allow for a truncated `Text` ending up to a glyph short of its frame.
+/// gap that stays constant across widths. Pixels, because nothing outside `FileRowView` can read
+/// the `Text`'s frame. Tolerances allow for a truncated `Text` ending up to a glyph short of it.
 @MainActor
 @Suite(.serialized) struct ColumnRowNameRoomTests {
     private static let height: CGFloat = 26

@@ -48,7 +48,6 @@ import Sync
     }
 
     @Test func exactExtensionMatchingUnchangedByClassAliases() {
-        // Everything that isn't an alias stays an exact extension match.
         #expect(DuplicateSearch.parse("kind:jpg").matches(group("photo.jpg", keeperSize: 1)))
         #expect(!DuplicateSearch.parse("kind:jpg").matches(group("photo.png", keeperSize: 1)))
     }

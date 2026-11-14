@@ -66,8 +66,7 @@ import Sync
     /// A link that leads to a folder is a folder, as the pane lists it, following the link: out of
     /// the folder (iCloud Drive's `Documents` is a link to `~/Documents`) and to a sibling. A link to
     /// a file, a dangling link and a hidden link to a folder are not offered. Asked of both exits.
-    /// Mutation: dropping the link term must lose `Documents` and `Shortcut`; dropping the follow
-    /// must add `Readme` and `Gone`.
+    /// Mutation: dropping the link term (loses `Documents`) or the follow (adds `Gone`) must fail it.
     @Test func aLinkToAFolderIsOfferedAndALinkToNothingIsNot() throws {
         let root = try scratch()
         let elsewhere = try scratch()
@@ -102,9 +101,8 @@ import Sync
 
     /// A plain entry costs the folders nothing; a link costs one follow. The survey runs after every
     /// autosave, so a folder of 300 files must not be `stat`ed 300 times for a menu: the listing
-    /// names its links from the enumerator's prefetched answer, and only those are followed. Counted
-    /// through the `FileManaging` the survey is handed: the one row is its own `stat`, the three
-    /// links one each. Without the prefetch key the listing names no links, losing `Linked` here.
+    /// names its links from the enumerator's prefetched answer, and only those are followed (counted:
+    /// the one row's own `stat`, one per link). Mutation: dropping the prefetch key must lose `Linked`.
     @Test func onlyALinkIsFollowedAndTheListingPrefetchesTheAnswer() throws {
         let root = try scratch()
         defer { try? FileManager.default.removeItem(at: root) }

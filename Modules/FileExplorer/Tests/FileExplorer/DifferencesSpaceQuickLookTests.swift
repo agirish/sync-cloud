@@ -3,11 +3,10 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
-/// What Space previews when it arrives at the Differences table.
-///
-/// `CurrentSelectionTests` pins the rule's arithmetic; these pin the composition: which surface
-/// this handler asks about, and how it reads its own selection. The test host can't make a window
-/// key, so this seam is the closest thing to an end-to-end check.
+/// What Space previews when it arrives at the Differences table. `CurrentSelectionTests` pins the
+/// rule's arithmetic; these pin the composition: which surface this handler asks about, and how it
+/// reads its own selection. The test host can't make a window key, so this seam is the closest
+/// thing to an end-to-end check.
 @Suite struct DifferencesSpaceQuickLookTests {
 
     struct Case: Sendable, CustomTestStringConvertible {
@@ -24,12 +23,10 @@ import Sync
     }
 
     static let cases: [Case] = [
-        // Both a pane and a Differences selection exist and the user last clicked in the pane:
         // Space previews the pane's file, even though this handler belongs to the table.
         Case(testDescription: "the pane was touched last", lastInteracted: .pane,
              left: ["/left/chosen.txt"], rows: ["a.txt"], selected: ["a.txt"],
              expected: "/left/chosen.txt"),
-        // The mirror: working in the table previews its own row.
         Case(testDescription: "the table was touched last", lastInteracted: .differences,
              left: ["/left/chosen.txt"], rows: ["a.txt"], selected: ["a.txt"],
              expected: "/left/a.txt"),
@@ -52,7 +49,6 @@ import Sync
         Case(testDescription: "a multi-row selection", lastInteracted: .differences,
              rows: ["a.txt", "b.txt", "c.txt"], selected: ["c.txt", "b.txt"],
              expected: "/left/b.txt"),
-        // Nothing selected anywhere.
         Case(testDescription: "nothing selected, no surface", lastInteracted: nil, expected: nil),
         Case(testDescription: "nothing selected, pane", lastInteracted: .pane, expected: nil),
         Case(testDescription: "nothing selected, table", lastInteracted: .differences, expected: nil),

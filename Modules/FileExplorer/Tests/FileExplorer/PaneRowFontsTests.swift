@@ -3,16 +3,10 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// Pins that resolving a row's fonts once per pane draws exactly what resolving them per row would.
-///
-/// `PaneRowFonts` exists to cut layers out of the per-row modifier chain, which dominates a click's
-/// main-thread time. It is worth nothing if it changes what rows look like, and a font regression
-/// is one no functional test notices and every user does. So each font is asserted against the
-/// `ScaledFont` specification its call site would pass.
-///
-/// The scale-1 cases matter most: `ScaledFont.resolved(scale:)` short-circuits there and hands back
-/// the very `Font` value the call site would build, so at the default text size this is identical,
-/// not just equivalent.
+/// Pins that resolving a row's fonts once per pane (`PaneRowFonts`, which cuts layers from the
+/// per-row modifier chain) draws exactly what resolving them per row would: each font against the
+/// `ScaledFont` specification its call site would pass. At scale 1 `resolved(scale:)` returns the
+/// call site's very `Font`.
 @Suite struct PaneRowFontsTests {
 
     // MARK: Default size — must be the identical Font, not merely a similar one
@@ -36,10 +30,8 @@ import Design
 
     // MARK: Other sizes — must match what scaledFont would have resolved
 
-    /// Every non-default size, against `ScaledFont`'s own resolution of the same specification.
-    /// This makes the type a relocation of the existing rule rather than a second copy that can
-    /// drift. At `.small` it is also the badges' legibility floor: their glyphs start below
-    /// `FontSize.legibilityFloor`, which lives in `ScaledFont`.
+    /// Every size, against `ScaledFont`'s own resolution of the same specification. At `.small` it
+    /// is also the badges' `FontSize.legibilityFloor`.
     @Test("A scaled row font matches ScaledFont's resolution of the same specification",
           arguments: [FontSize.small, .medium, .large, .extraLarge])
     func scaledMatchesScaledFont(size: FontSize) {

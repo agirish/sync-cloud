@@ -6,12 +6,9 @@ import Design
 @testable import FileExplorer
 
 /// Every card's name starts at the same x, checked in pixels: width arithmetic proves room, only
-/// pixels prove paint.
-///
-/// The icon is first in the header, and `fileIcon`'s explicit `.frame(width: 17, height: 17)` is
-/// all that holds the column. It looks redundant (`FileTypeGlyph.view(pointSize: 14)` seems to size
-/// itself), but without it glyphs that differ by a point would shift each name differently. The
-/// two cards use different file types, so their glyphs really differ.
+/// pixels prove paint. `fileIcon`'s explicit `.frame(width: 17, height: 17)` is all that holds the
+/// column. It looks redundant (`FileTypeGlyph.view(pointSize: 14)` seems to size itself), but
+/// without it glyphs that differ by a point would shift each name differently.
 @MainActor
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct DuplicateGroupColumnAlignmentTests {
 
@@ -34,7 +31,6 @@ import Design
     }
 
     private func render<V: View>(_ view: V) -> NSBitmapImageRep? {
-        // Laid out twice before it is cached.
         offscreenBitmap(view.frame(width: Self.size.width, height: Self.size.height)
                             .background(Color(nsColor: .windowBackgroundColor))
                             .environment(\.colorScheme, .light),
@@ -64,9 +60,8 @@ import Design
         #expect(differing == 0,
                 "the name zone differs in \(differing) pixels — the icon is not holding a fixed width, so each file type starts its name at a different x")
 
-        // The control for the zero above: the two renders must differ in the icon zone. If
-        // `isDirectory` stopped reaching the glyph, both would be the same card and the zero would
-        // be a tautology.
+        // The control for the zero above: the renders must differ in the icon zone, or
+        // `isDirectory` stopped reaching the glyph and the zero would be a tautology.
         let iconStart = Int(floor((12 + 14) * device))
         let iconEnd = Int(ceil((12 + 14 + 17) * device))
         var iconDiffering = 0

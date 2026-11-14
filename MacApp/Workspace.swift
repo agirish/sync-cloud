@@ -129,7 +129,7 @@ enum Workspace: String, CaseIterable, Identifiable {
             return WorkspaceSelection(workspace: .filing, organizeLens: nil)
         }
         // Every case `OrganizeLens.init(_:)` can answer is a rail item — pinned by
-        // `OrganizeLensFoldTests.theBridgeAnswersOnlyRailItems` — so a destination minted here is
+        // `OrganizeLensFoldTests.theRailDrawsEveryLens` — so a destination minted here is
         // always something the rail can select.
         return WorkspaceSelection(workspace: .filing, organizeLens: organizeLens)
     }

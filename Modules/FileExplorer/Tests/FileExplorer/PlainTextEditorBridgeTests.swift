@@ -3,13 +3,11 @@ import SwiftUI
 import AppKit
 @testable import FileExplorer
 
-/// The two-way bridge between the buffer and the `NSTextView`: what an edit to the text sends out,
-/// and what a write from outside must send back in. The bridge is the document's text storage
-/// (``EditorSourceStorage``): the view is built around it, the buffer is published from its edits
-/// rather than from `textDidChange`, and an outside write to the buffer is taken into it, so
-/// nothing is pushed back at the view it came from, and a document switch changes which storage.
-/// Driven through a real `NSTextView` and coordinator, built as `makeNSView` builds them: the
-/// factory's view, re-pointed at the storage by ``PlainTextEditor/show(_:in:)``.
+/// The two-way bridge between the buffer and the `NSTextView`. The bridge is the document's text
+/// storage (``EditorSourceStorage``): the view is built around it, the buffer is published from its
+/// edits rather than from `textDidChange`, and an outside write is taken into it, so nothing is
+/// pushed back at the view it came from. Driven through a real `NSTextView` and coordinator, built
+/// as `makeNSView` builds them (``PlainTextEditor/show(_:in:)``).
 @MainActor
 @Suite(.serialized) struct PlainTextEditorBridgeTests {
 
@@ -22,9 +20,6 @@ import AppKit
         let window: NSWindow
     }
 
-    /// A text view set up as ``PlainTextEditor/makeNSView(context:)`` sets one up, around a storage
-    /// the buffer follows, with the coordinator as its delegate, in a window: `insertText` on a
-    /// detached view is not a reliable stand-in for typing.
     /// A plain, editable, undoable text view in a 400×300 scroll view added to `window`.
     private func textView(in window: NSWindow) -> NSTextView {
         let scroll = NSTextView.scrollableTextView()
@@ -37,6 +32,9 @@ import AppKit
         return view
     }
 
+    /// A text view set up as ``PlainTextEditor/makeNSView(context:)`` sets one up, around a storage
+    /// the buffer follows, with the coordinator as its delegate, in a window: `insertText` on a
+    /// detached view is not a reliable stand-in for typing.
     private func hosted(_ initial: String) -> Hosted {
         let buffer = EditorBuffer()
         buffer.text = initial

@@ -7,7 +7,7 @@ import Foundation
 @Suite struct MarkupTwoSpanTests {
 
     /// Bold over two bold spans and the text between adds a pair rather than turning them inside
-    /// out, and the bar does not light for it; Italic around a bold word still unwraps, because
+    /// out, and the bar does not light for it; Italic around a bold word still lights, because
     /// italic nests.
     @Test func twoSpansAreNotTakenForOne() throws {
         let text = "**Warning** read the **docs**"

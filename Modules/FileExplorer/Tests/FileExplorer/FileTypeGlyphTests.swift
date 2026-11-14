@@ -33,8 +33,7 @@ import Design
     }
 
     @Test @MainActor func theCacheAnswersExactlyAsTheLookupDoes() {
-        // The cache must be an invisible optimization: for every kind the vocabulary
-        // distinguishes (and the generic fallbacks), cached and direct classification agree.
+        // The cache is invisible: cached and direct classification agree for every kind.
         for (name, isDir) in [("a.pdf", false), ("b.JPG", false), ("c.mp3", false),
                               ("d.docx", false), ("e.xyzzy", false), ("f", false),
                               ("Reports.pdf", true)] {
@@ -53,9 +52,8 @@ import Design
     }
 
     @Test func everyDistinctMediumCarriesATint() {
-        // The findability claim: each named medium must be tinted, or shape alone carries it.
         // Swept over `Kind.allCases` rather than a list written here, so a new medium added
-        // untinted can't leave a copied list stale along with the table.
+        // untinted is caught.
         for kind in FileTypeGlyph.Kind.allCases where kind != .folder && kind != .generic {
             #expect(FileTypeGlyph.tint(for: kind) != nil, "\(kind) lost its tint")
         }
@@ -64,19 +62,15 @@ import Design
     }
 }
 
-/// The two claims the identity vocabulary makes that nothing else measures: a shape says which
-/// medium this is, and the ink is legible on the card it is drawn on.
-///
-/// Shape alone must carry the medium, so even `.pdf` and `.wordProcessing`, the pair these lists
-/// interleave most, need distinct symbols. And the tints are fixed sRGB values minted outside
-/// `Design`, several of them dark, drawn at 13–17pt on a card whose dark fill is darker still, so
-/// their contrast is measured here.
+/// The identity vocabulary's two claims: a shape alone says which medium this is, and the ink is
+/// legible on the card it is drawn on. The tints are fixed sRGB values minted outside `Design`,
+/// several of them dark, so their contrast is measured here.
 @MainActor
 @Suite struct FileTypeGlyphContrastTests {
 
-    /// The card these glyphs are drawn on: `controlBackgroundColor`, which `lensCard` fills with,
-    /// and `groundedGlassCard` too in light and at Solid. In dark at Frosted and Clear a floating
-    /// panel's ground is the window's tinted one instead, held to this card's contrast below.
+    /// The card these glyphs are drawn on: `controlBackgroundColor` (`lensCard`, and
+    /// `groundedGlassCard` in light and at Solid). In dark at Frosted and Clear a floating panel's
+    /// ground is the window's tinted one instead, held to this card's contrast below.
     private static func cardFill(_ appearance: NSAppearance.Name) -> NSColor {
         var resolved = NSColor.controlBackgroundColor
         NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
@@ -86,7 +80,7 @@ import Design
         return resolved
     }
 
-    /// `Contrast`'s readings of `color` converted to sRGB first, as these always were.
+    /// `Contrast`'s readings of `color`, converted to sRGB first.
     private static func luminance(_ color: NSColor) -> CGFloat {
         color.usingColorSpace(.sRGB).map(Contrast.luminance) ?? 0
     }
@@ -95,21 +89,14 @@ import Design
         Contrast.ratio(ink.usingColorSpace(.sRGB) ?? ink, surface.usingColorSpace(.sRGB) ?? surface)
     }
 
-    /// Every identity tint clears 3:1 against the card fill, in both appearances.
-    ///
-    /// 3:1 is the floor for a graphical object that carries meaning, which these are: the glyph is
-    /// the only thing on the row saying "this is a video". Dark is where the margins are thinnest
-    /// (`video` 3.16, `wordProcessing` 3.21); light's floor is `presentation` at 3.10.
-    ///
-    /// Recomputed from the live system colours rather than compared to the numbers in
-    /// `FileTypeGlyph`'s own comment, so the table there cannot quietly become fiction.
+    /// Every identity tint clears 3:1 against the card fill, in both appearances: the floor for a
+    /// graphical object that carries meaning. Recomputed from the live system colours rather than
+    /// compared to the numbers in `FileTypeGlyph`'s own comment.
     @Test func everyIdentityTintIsLegibleOnTheCardInBothAppearances() throws {
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let fill = Self.cardFill(appearance)
-            // Guard the harness before trusting a sweep over it. If
-            // `performAsCurrentDrawingAppearance` stopped resolving, or a future macOS moved the
-            // card fill, every ratio below would be measured against the wrong surface and this
-            // suite would pass or fail for a reason unrelated to the tints.
+            // Guard the harness: if `performAsCurrentDrawingAppearance` stopped resolving, every
+            // ratio below would be measured against the wrong surface.
             let fillLuminance = Self.luminance(fill)
             if appearance == .darkAqua {
                 #expect(fillLuminance < 0.05,
@@ -130,11 +117,9 @@ import Design
         }
     }
 
-    /// The tinted dark ground costs no glyph any contrast. In dark at Frosted the Go To results
-    /// draw these glyphs on `glassPanelGround`, the window's own dark ground in the accent, rather
-    /// than the charcoal. Over the window's background, on every accent at Tint 0 and 12%, the
-    /// worst glyph on that ground must read at least as well as the worst on the charcoal; the full
-    /// diagonal and glow would drop it from 2.63:1 to about 2.3.
+    /// The tinted dark ground costs no glyph any contrast: in dark at Frosted the Go To results draw
+    /// on `glassPanelGround` rather than the charcoal, and on every accent at Tint 0 and 12% the
+    /// worst glyph there must read at least as well as the worst on the charcoal.
     ///
     /// Relative, not 3:1: offscreen there is no material, so the window background behind the panel
     /// renders brighter than it is, and the charcoal itself measures under 3:1 here. Frosted only:
@@ -150,12 +135,9 @@ import Design
         }
     }
 
-    /// The same promise in arithmetic, so it runs on CI too: the pixel test above is
-    /// machine-pinned, so on the hosted runners nothing else holds `panelGroundAccentScale` down.
-    /// The ground's brightest point (the deep base's top stop under the diagonal's first stop, at
-    /// the scale and Tint) is composited by hand, and on every accent at Tint 0 and 12% the worst
-    /// glyph must read at least as well on it as on the charcoal. The full diagonal (scale 1) fails
-    /// this.
+    /// The same promise in arithmetic, so it runs on CI too, where the machine-pinned pixel test
+    /// above skips. The ground's brightest point (the deep base's top stop under the diagonal's
+    /// first stop) is composited by hand. Mutation: `panelGroundAccentScale` = 1 must fail it.
     @Test func thePanelGroundsAccentShareKeepsEveryGlyphAsLegibleAsTheCharcoal() throws {
         let charcoal = Self.cardFill(.darkAqua)
         #expect(Self.luminance(charcoal) < 0.05, "premise: the charcoal resolved to a dark surface")
@@ -225,8 +207,7 @@ import Design
         return worst
     }
 
-    /// No two mediums share a shape. A vocabulary whose premise is that the symbol names the medium
-    /// cannot have two mediums answering the same symbol, leaving the tint as the only difference.
+    /// No two mediums share a shape, which would leave the tint as the only difference.
     @Test func everyMediumDrawsItsOwnShape() {
         var byGlyph: [String: [FileTypeGlyph.Kind]] = [:]
         for kind in FileTypeGlyph.Kind.allCases {
@@ -238,8 +219,8 @@ import Design
                 "two mediums share a glyph: \(shared)")
     }
 
-    /// And each of those shapes is a symbol this renderer actually has: a mistyped name draws
-    /// nothing at all, which no geometry or count on the row can see.
+    /// Each shape is a symbol this renderer has: a mistyped name draws nothing, which no geometry
+    /// or count on the row can see.
     @Test func everyShapeIsARealSymbol() {
         for kind in FileTypeGlyph.Kind.allCases {
             let name = FileTypeGlyph.symbol(for: kind)

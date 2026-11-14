@@ -5,9 +5,8 @@ import Sync
 
 /// The two pure values behind the Compare Copies surface: the facts strip, and the wording of the
 /// confirmation that destroys a file.
-///
-/// Both are values because a rule written inside a `body` can't be held to its claims, the same
-/// reason `DuplicateRemovalPrompt` exists: wording at the point of no return must not drift.
+/// Both are values, like `DuplicateRemovalPrompt`, because a rule written inside a `body` can't be
+/// held to its claims, and wording at the point of no return must not drift.
 @Suite struct CompareCopiesModelsTests {
 
     private static let noon = Date(timeIntervalSince1970: 1_700_000_000)
@@ -46,8 +45,7 @@ import Sync
     }
 
     /// The trap the `differs` rule exists for: a byte count renders to three significant figures,
-    /// so two different sizes can print alike. A strip that diffed its own labels would call
-    /// these equal.
+    /// so two different sizes print alike, and a strip that diffed its own labels would call them equal.
     @Test func twoSizesThatFormatAlikeAreStillFlaggedAsDiffering() throws {
         let f = facts(copy("/Users/x/Docs/A/r.pdf", size: 1_200_000),
                       copy("/Users/x/Docs/A/s.pdf", size: 1_200_400))
@@ -122,8 +120,7 @@ import Sync
         #expect(ComparePairFacts.pageText(nil) == "…")
     }
 
-    /// No pages argument means the pair is not paged at all — the row is absent rather than
-    /// present and empty.
+    /// No pages argument means the pair is not paged: the row is absent, not present and empty.
     @Test func anUnpagedPairHasNoPageRow() {
         let f = facts(copy("/Users/x/Docs/A/r.txt"), copy("/Users/x/Docs/A/s.txt"))
         #expect(f.rows.contains { $0.field == .pages } == false)
@@ -211,8 +208,7 @@ import Sync
                     == "Move “Report (1).pdf” to the Trash?")
     }
 
-    /// A location the crumb derivation left empty (a file at the scan root itself) must not
-    /// produce "Keeps “x” at . Reclaims…".
+    /// A file at the scan root (an empty location) must not produce "Keeps “x” at . Reclaims…".
     @Test func anEmptyLocationDropsItsClauseRatherThanLeavingAStrandedAt() {
         let text = DuplicateComparePrompt.informativeText(
             kind: .identical, copyName: "Report (1).pdf", copyLocation: "",
@@ -255,7 +251,7 @@ import Sync
         #expect(DuplicateComparePrompt.location("iCloud › Docs") == "iCloud › Docs")
     }
 
-    // MARK: The disabled reason    // MARK: The disabled reason
+    // MARK: The disabled reason
 
     /// A greyed button with no reason reads as the app being broken, so a protected copy says why.
     @Test func aProtectedCopySpellsOutWhyItCannotBeTrashed() throws {
@@ -271,8 +267,6 @@ import Sync
 
     /// The label follows the keeper, not the kind. A versions pair opens keeping the newer
     /// revision, but the reader can flip it, and then the same button trashes the newer copy.
-    /// Driven the way the surface drives it too: the copies stay put, the keeper moves, and the
-    /// title follows. The sheet asks with the two copies, as the second half does.
     @Test func flippingTheKeeperRenamesWhatTheButtonDestroys() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions, targetIsOlder: true)
                 == "Trash the Older Copy")
@@ -298,8 +292,7 @@ import Sync
                 == "Trash the Other Copy")
     }
 
-    /// A pair with no other copy left — the stale case, where the verdict is disabled anyway — must
-    /// not crash or claim an age.
+    /// A pair with no other copy left (the stale case, verdict disabled) must not crash or claim an age.
     @Test func aMissingTargetIsNamedNeutrally() {
         #expect(DuplicateComparePrompt.trashTitle(kind: .versions,
                                                   keeper: copy("/x/a.md"), target: nil)
@@ -319,7 +312,7 @@ import Sync
 
     // MARK: Where the wording is allowed to live
 
-    /// This package's `Sources/FileExplorer`, from this file's own path.
+    /// This package's `Sources/FileExplorer`.
     private static let sourcesDir = SourceText.modules.appendingPathComponent("FileExplorer/Sources/FileExplorer")
 
     /// The trash button's age words may appear in one source file only, the home of

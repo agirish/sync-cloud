@@ -5,13 +5,9 @@ import SwiftUI
 import Design
 @testable import FileExplorer
 
-/// The scope chip, rendered and read back.
-///
-/// Ink presence is not label fidelity: a header clipped by its neighbours can render two different
-/// labels as the same stub, and a test comparing those renders, or asking only whether the band
-/// carries ink, would pass. So every claim here is discriminating: two chips that must differ are
-/// rendered and compared, and the test fails if they come back the same, which is exactly what a
-/// chip clipped to a stub does.
+/// The scope chip, rendered and read back. Ink presence is not label fidelity: a chip clipped to a
+/// stub renders two labels the same. So every claim is discriminating: two chips that must differ
+/// are rendered and compared.
 @Suite(.serialized)
 @MainActor
 struct OrganizeScopeChipTests {
@@ -19,15 +15,12 @@ struct OrganizeScopeChipTests {
     static func chip(_ name: String, folderCount: Int?, suspended: Bool = false) -> some View {
         ScopeChipLabel(name: name, folderCount: folderCount, accent: .blue,
                        isSuspended: suspended,
-                       // The live chip's ✕ and the suspended chip's lack of one, as
-                       // `LensWorkspaceView` passes them: a suspended chip with a clear closure is
-                       // a state the app never draws.
+// The live chip's ✕ and the suspended chip's lack of one, as `LensWorkspaceView` passes them.
                        onClear: suspended ? nil : {})
     }
 
-    /// Renders at the chip's natural size and returns the bitmap. The backdrop follows the scheme,
-    /// so "ink" means off the backdrop in both (``inkedColumns(_:scheme:)``). Light is the default
-    /// because the existing assertions were measured in light mode.
+/// Renders at the chip's natural size. The backdrop follows the scheme, so "ink" means off the
+/// backdrop in both (``inkedColumns(_:scheme:)``); light by default, as the assertions were measured.
     static func render(_ view: some View, width: CGFloat = 320, height: CGFloat = 28,
                        scheme: ColorScheme = .light) -> NSBitmapImageRep {
         PixelDiff.render(view.frame(width: width, height: height, alignment: .leading)
@@ -70,10 +63,9 @@ struct OrganizeScopeChipTests {
 
     // MARK: The suspended chip — ROADMAP 15's "closing must put it back"
 
-    /// Suspended must look different from live, in both schemes. Suspending rather than hiding
-    /// exists so the user sees the scope is parked, not lost; a suspended chip drawn like a live
-    /// one is worse than hiding it, since the lists would stop obeying a chip that looks like it
-    /// applies. Same name and count in both renders, so only the state can move a pixel.
+/// Suspended must look different from live, in both schemes: a suspended chip drawn like a live one
+/// would have the lists stop obeying a chip that looks like it applies. Same name and count, so
+/// only the state can move a pixel.
     @Test(.machinePinned(.pixelSampling), arguments: [ColorScheme.light, ColorScheme.dark])
     func aSuspendedScopeDoesNotLookLikeALiveOne(scheme: ColorScheme) {
         let live = Self.render(Self.chip("Legal", folderCount: 12), scheme: scheme)
@@ -101,8 +93,7 @@ struct OrganizeScopeChipTests {
     // MARK: The NAME is real, not a stub
 
     @Test(.machinePinned(.pixelSampling)) func twoDifferentScopeNamesRenderDifferently() {
-        // If the name were clipped away, or rendered as a fixed glyph, these two would be
-        // identical.
+// Clipped away, or a fixed glyph, these two would be identical.
         let legal = Self.render(Self.chip("Legal", folderCount: 12))
         let immigration = Self.render(Self.chip("Immigration", folderCount: 12))
         #expect(!Self.pixelsEqual(legal, immigration),
@@ -120,10 +111,8 @@ struct OrganizeScopeChipTests {
         #expect(Self.inkExtent(long) > Self.inkExtent(short) + 40)
     }
 
-    /// The chip shares row 2 with a readout that will take the whole row; this is the test that
-    /// pins `.fixedSize()`. Rendered alone in a roomy frame nothing compresses, so only a greedy
-    /// sibling in a tight row shows a flexible chip giving up its width. Removing `.fixedSize()`
-    /// must make it fail.
+/// Pins `.fixedSize()`: the chip shares row 2 with a readout that takes the whole row, and only a
+/// greedy sibling in a tight row shows a flexible chip giving up its width.
     @Test(.machinePinned(.pixelSampling)) func theChipKeepsItsWidthWhenTheRowIsTightAndASiblingIsGreedy() {
         @MainActor func row(width: CGFloat) -> NSBitmapImageRep {
             Self.render(
@@ -157,10 +146,9 @@ struct OrganizeScopeChipTests {
 
     // MARK: It fits the row it was given
 
-    /// The chip must not grow row 2. `LensHeaderCard` is 81pt at rest (`12 + 27 + 8 + 22 + 12`),
-    /// and its bottom edge is pinned to the file pane's header↔list boundary, so a summary row past
-    /// its 22pt budget shifts a boundary two panes away. Measured off the render, not reasoned from
-    /// font sizes.
+/// The chip must not grow row 2: `LensHeaderCard` is 81pt at rest and its bottom edge is pinned to
+/// the file pane's header↔list boundary, so a summary row past its 22pt budget shifts a boundary
+/// two panes away.
     @Test(.machinePinned(.layoutMetrics)) func theChipFitsTheSummaryRowsHeightBudget() {
         let host = NSHostingView(rootView: AnyView(Self.chip("Income Tax", folderCount: 3013)))
         let natural = host.fittingSize
@@ -172,8 +160,7 @@ struct OrganizeScopeChipTests {
     // MARK: The COUNT is real
 
     @Test(.machinePinned(.pixelSampling)) func twoDifferentFolderCountsRenderDifferently() {
-        // The chip must say how much of the tree it covers; a count that never reached the pixels
-        // leaves that claim unmade.
+// A count that never reached the pixels leaves the coverage claim unmade.
         let three = Self.render(Self.chip("Legal", folderCount: 3))
         let ninety = Self.render(Self.chip("Legal", folderCount: 91))
         #expect(!Self.pixelsEqual(three, ninety),
@@ -181,8 +168,7 @@ struct OrganizeScopeChipTests {
     }
 
     @Test(.machinePinned(.pixelSampling)) func aChipWithNoProfileOmitsTheCountRatherThanSayingZero() {
-        // nil is "no profile to count against" and must not render as "0 folders", a claim the chip
-        // can't support: the same absent-versus-zero line the rail badge draws.
+// nil is "no profile to count against" and must not render as "0 folders".
         let none = Self.render(Self.chip("Legal", folderCount: nil))
         let zero = Self.render(Self.chip("Legal", folderCount: 0))
         #expect(!Self.pixelsEqual(none, zero))
@@ -198,13 +184,9 @@ struct OrganizeScopeChipTests {
 
     // MARK: The clear control is present
 
-    /// Columns holding glyph ink: pixels meaningfully darker than the capsule's own wash. The fill
-    /// is `accent.opacity(0.14)`, so a band of nothing but capsule is still "inked" against white,
-    /// and counting wash would find a control where there is only its container.
-    ///
-    /// Perceptual luminance, not `brightnessComponent`: that is HSB value, `max(r,g,b)`, which is
-    /// 1.0 for a saturated blue glyph, the same as white. Luminance puts the accent glyph near 0.40
-    /// and the wash over white near 0.92.
+/// Columns holding glyph ink: pixels meaningfully darker than the capsule's `accent.opacity(0.14)`
+/// wash. Perceptual luminance, not `brightnessComponent` (HSB value, 1.0 for a saturated blue glyph
+/// as for white).
     static func luminance(_ c: NSColor) -> CGFloat {
         0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
     }
@@ -220,8 +202,8 @@ struct OrganizeScopeChipTests {
         return columns
     }
 
-    /// Guards the threshold: a discriminator that classified everything, or nothing, as glyph would
-    /// make every assertion built on it meaningless.
+/// Guards the threshold: a discriminator that called everything, or nothing, glyph would void the
+/// assertions built on it.
     @Test(.machinePinned(.pixelSampling)) func theGlyphDiscriminatorSeparatesGlyphFromWash() {
         let rep = Self.render(Self.chip("Legal", folderCount: 12))
         let wash = Self.inkedColumns(rep)
@@ -232,15 +214,9 @@ struct OrganizeScopeChipTests {
     }
 
     @Test(.machinePinned(.pixelSampling)) func theClearControlIsDrawnInsideTheCapsulesTrailingEdge() {
-        // The ✕ is the only way back to the global view (there is no "Everything" rail item), so a
-        // chip without it would leave the scoped state reachable only from the context menu.
-        //
-        // The reference is the same capsule with the same padding and content, minus the button, so
-        // only the ✕ can move a measurement. A differently built reference would differ for other
-        // reasons and hide a missing button. A `Button` is not an `NSControl` and SwiftUI's tree is
-        // not inspectable here, so pixels are the instrument, and they must be glyph pixels, not
-        // the capsule's. Comparing two renders also avoids an absolute pixel threshold, which a 2×
-        // backing would double.
+// The ✕ is the only way back to the global view. The reference is the same capsule minus the
+// button, so only the ✕ moves a measurement; pixels because a `Button` is not an `NSControl`, and
+// a comparison because an absolute threshold would double at 2×.
         let withClear = Self.render(Self.chip("Legal", folderCount: 12))
         let withoutClear = Self.render(
             HStack(spacing: 4) {
@@ -255,9 +231,7 @@ struct OrganizeScopeChipTests {
             .background(Capsule().fill(Color.blue.opacity(0.14)))
             .fixedSize())
 
-        // Width is the only signal. The gap from the last glyph to the capsule edge is one 7pt
-        // padding whatever the last element is; what the button changes is how much capsule there
-        // is.
+// Width is the only signal: the trailing padding is the same whatever the last element is.
         let clearControlWidth = Self.inkExtent(withClear) - Self.inkExtent(withoutClear)
         #expect(clearControlWidth > 12,
                 "the chip is only \(clearControlWidth)px wider than the same capsule without a ✕ — the clear control is missing")

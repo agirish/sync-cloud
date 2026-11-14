@@ -160,7 +160,8 @@ import Testing
     @Test func chromeTextAtTheKneeStaysUnderThePinnedRowCliff() {
         // Measured cliff: system-font text is 18pt tall through 14.85pt and 19pt from 15.0pt, and
         // 11pt chrome sits in pinned 28pt rows with exactly 18pt to spare. Knee text at 15pt or
-        // more grows those rows a pixel and fails `theRowIsAlwaysTheActionBarHeight`.
+        // more grows those rows a pixel and fails
+        // `HeaderLadderTests.everyRungMeasuresWhatItDrawsAtOtherFontScales`.
         for percent in FontSize.selectablePercents {
             let size = FontSize(percent: percent)
             #expect(FontSize.scaledPointSize(FontSize.knee, scale: size.scale) < 15,

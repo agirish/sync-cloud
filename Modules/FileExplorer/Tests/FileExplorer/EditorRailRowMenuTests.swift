@@ -10,9 +10,8 @@ import FileExplorerTestSupport
 /// Download, Reveal in Browse (greyed where Browse can't go), Rename and Delete among its acts.
 ///
 /// The order, words and groups are pinned by calling
-/// ``EditorRailRowMenu/items(for:isCloudOnly:actions:)`` and, separately, by reading the menu as
-/// drawn; that every act gets the row's path by running each item; and that every row of a real
-/// rail carries the menu, dim rows included, by reading it off a hosted rail: in a window,
+/// ``EditorRailRowMenu/items(for:isCloudOnly:actions:)``, each act's path by running each item, and
+/// the menus as drawn, dim rows included, by reading them off hosted views: in a window,
 /// `NSHostingView.menu(for:)` on a synthesised right-click answers the real `NSMenu` SwiftUI built
 /// for the row (as in `DuplicateRowMenuTests`). The app-side closures are scanned in
 /// `SyncCloudTests/EditorHandOffTests.swift`.
@@ -41,9 +40,8 @@ import FileExplorerTestSupport
 
     /// Five acts for a file on disk: the three ways out, then Browse's Rename and Delete in their own
     /// group at the bottom, with Browse's words and glyphs, Delete destructive. No Get Info: the rail
-    /// is drawn only while the file pane is hidden, and Info lives in the pane. Mutation: dropping
-    /// the group break before Rename or the destructive role, or swapping Rename and Delete, must
-    /// fail a line.
+    /// is drawn only while the file pane is hidden, and Info lives in the pane. Mutation: dropping the
+    /// group break or the destructive role, or swapping Rename and Delete, must fail a line.
     @Test func theMenuOffersFiveActsInTwoGroupsInOrder() {
         let items = EditorRailRowMenu.items(for: Self.rowPath, actions: Recorder().actions)
         #expect(items.map(\.title) == Self.five, "the rail row menu reads \(items.map(\.title))")
@@ -76,9 +74,9 @@ import FileExplorerTestSupport
         #expect(items.map(\.refusal) == ["Not in the source Browse shows", nil, nil, nil, nil])
     }
 
-    /// Each item runs its own act, on this row's path. A swapped pair (Reveal in Finder opening Quick Look,
-    /// Rename deleting) draws identically, and a closure bound to the open document instead of the
-    /// row passes every test that opens only one file.
+    /// Each item runs its own act, on this row's path. A swapped pair (Reveal in Finder opening Quick
+    /// Look, Rename deleting) draws identically, and a closure bound to the open document instead of
+    /// the row passes every test that opens only one file.
     @Test func everyActReceivesTheRowsPath() {
         let recorder = Recorder()
         for item in EditorRailRowMenu.items(for: Self.rowPath, isCloudOnly: true, actions: recorder.actions) {
@@ -107,11 +105,10 @@ import FileExplorerTestSupport
     /// The menu as an `NSMenu` draws it: separators as untitled items.
     static let fiveDrawn = ["Reveal in Browse", "Reveal in Finder", "Quick Look", "", "Rename", "Move to Trash…"]
 
-    /// The workspace hands the rail the host's acts as they are, read off a hosted workspace. The
-    /// host builds the row actions (the app's Reveal in Browse is its own door, so its log can tell
-    /// the rail's press from the header's) and the workspace passes them to its rail: right-clicked,
-    /// the row's menu runs the recorder's acts on the row's path. Mutation: building the rail with
-    /// actions of the workspace's own (`{ _ in }`) must fail it.
+    /// The workspace hands the rail the host's acts as they are (the app's Reveal in Browse is its own
+    /// door, so its log can tell the rail's press from the header's): right-clicked on a hosted
+    /// workspace, the row's menu runs the recorder's acts on the row's path. Mutation: building the
+    /// rail with actions of the workspace's own (`{ _ in }`) must fail it.
     @Test func theWorkspaceHandsTheRailTheHostsActs() {
         let recorder = Recorder()
         let entry = EditorRailEntry(path: Self.rowPath, name: "ideas.md", size: 10, isCloudOnly: false)
@@ -168,10 +165,9 @@ import FileExplorerTestSupport
         #expect(enabled.prefix(3) == [false, false, true], "the items' enabled states are \(enabled)")
     }
 
-    /// The same words and glyphs as the menus these acts already live in. The pane's row menu owns
-    /// Download, Reveal in Finder, Quick Look, Rename and Delete; the header's filename
-    /// menu is this menu. Read from their source rather than re-typed here, so a rename on either
-    /// side fails.
+    /// The same words and glyphs as the menus these acts already live in: the pane's row menu owns
+    /// Download, Reveal in Finder, Quick Look, Rename and Delete; the header's file name menu is this
+    /// one. Read from their source rather than re-typed, so a rename on either side fails.
     @Test func theWordsMatchThePaneRowMenuAndTheHeader() throws {
         let pane = try SourceText.fileExplorer("FileTreeView.swift")
         // Download's word is the offer's title for one file; its glyph is the row's item.
@@ -194,13 +190,12 @@ import FileExplorerTestSupport
                 "the rail is built without the workspace's row actions")
     }
 
-    /// Every row carries the menu, dim or not, bound to the row's path, read off a hosted rail. A
-    /// right-click swept down the rail's middle answers, row by row, the menu SwiftUI built there;
-    /// its Reveal in Browse, performed, reveals that row's own file. The second row is dim
-    /// (cloud-only) and its menu adds Download first: the files the editor can't show are the ones
-    /// most worth revealing. Mutation: an `if !entry.isDimmed` around the menu, `selectedPath` for
-    /// `entry.path`, a menu taken off the row, or a row that never says it is cloud-only must fail
-    /// it.
+    /// Every row carries the menu, dim or not, bound to the row's path: a right-click swept down a
+    /// hosted rail answers each row's menu, and its Reveal in Browse, performed, reveals that row's
+    /// file. The second row is dim (cloud-only) and adds Download first: the files the editor can't
+    /// show are the most worth revealing. Mutation: an `if !entry.isDimmed` around the menu,
+    /// `selectedPath` for `entry.path`, no menu on the row, or a row that never says it is cloud-only
+    /// must fail it.
     @Test func everyRowCarriesTheMenuDimRowsIncluded() throws {
         let recorder = Recorder()
         let entries = [EditorRailEntry(path: "/Users/me/Notes/ideas.md", name: "ideas.md", size: 10, isCloudOnly: false),

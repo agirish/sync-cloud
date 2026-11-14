@@ -3,12 +3,9 @@ import Sync
 import Testing
 @testable import FileExplorer
 
-/// The card grid the renames and duplicates lenses share: cards in a grid when the window is wide,
-/// stacked otherwise.
-///
-/// The arithmetic is the part that can be silently wrong. A column count one too high doesn't crash
-/// or look broken in a screenshot; it just truncates every name on a screen whose job is showing
-/// names.
+/// The card grid the renames and duplicates lenses share: a grid when the window is wide, stacked
+/// otherwise. The arithmetic is what can be silently wrong: a column count one too high doesn't
+/// crash or look broken; it truncates every name on a screen whose job is showing names.
 @Suite struct LensCardGridTests {
 
     /// The ordinary case is one column for the renames card: the window floor is 810pt and the
@@ -22,8 +19,8 @@ import Testing
     }
 
     /// The threshold from both sides: two cards need two minimums, one gutter and the list's own
-    /// insets, and a pixel under that is still one column. Fails if the padding allowance or the
-    /// gutter term is dropped from the fit.
+    /// insets, and a pixel under that is still one column. Mutation: dropping the padding allowance
+    /// or the gutter term from the fit must fail it.
     @Test func theSecondColumnArrivesExactlyWhenTwoCardsFit() {
         for minimum: CGFloat in [220, 340] {
             let needed = minimum * 2 + LensCardGrid.gutter + LensCardGrid.listHorizontalPadding
@@ -47,8 +44,7 @@ import Testing
                                      horizontalPadding: -1000) <= LensCardGrid.maximumColumns)
     }
 
-    /// Wide panes fill up to the cap and stop. Beyond three, cards get narrower rather than the
-    /// layout getting better.
+    /// Wide panes fill up to the cap and stop: beyond three, cards only get narrower.
     @Test func aWidePaneFillsToTheCapAndNoFurther() {
         let minimum = RenamePassLens.minimumCardWidth
         let three = minimum * 3 + LensCardGrid.gutter * 2 + LensCardGrid.listHorizontalPadding
@@ -132,17 +128,13 @@ import Testing
 
     private struct Card: Identifiable, Equatable { let id: String }
 
-    /// Row ids must be unique across the whole list, not within one section.
+    /// Row ids are unique across the whole list, not within one section: a `LazyVStack` identifies
+    /// children across the stack, not per `ForEach`, so rows numbered from zero per section would
+    /// reuse cells against the wrong content (another section's tiles, or blank until a scroll).
+    /// Concatenating the sections is the test, because that is what the stack does.
     ///
-    /// A `LazyVStack` identifies its children across the whole stack, not per `ForEach`. Rows
-    /// numbered from zero in every section would claim the same ids, and the stack would reuse
-    /// cells against the wrong content: one section drawing another's tiles, sections drawing blank
-    /// until scrolling forced a rebuild. Concatenating the sections is the test, because that is
-    /// what the stack does.
-    ///
-    /// Not pinned: that the views call `identifiedRows` at all. Reverting either lens to an
-    /// index-keyed `ForEach` would break the grid with this green; catching that needs a test that
-    /// mounts the lens and reads back cell contents.
+    /// Not pinned: that the views call `identifiedRows` at all. An index-keyed `ForEach` revert
+    /// leaves this green; catching it needs a test that mounts the lens and reads cell contents.
     @Test func rowIdsAreUniqueAcrossEverySectionOfAList() {
         let sections = [(0..<7).map { Card(id: "decide\($0)") },
                         (0..<4).map { Card(id: "merge\($0)") },

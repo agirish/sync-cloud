@@ -14,13 +14,11 @@ import UniformTypeIdentifiers
 
     // MARK: - Whether Quick Look may see it
 
-    /// Every case of the classification. The one that matters is a cloud-only placeholder: in
-    /// cloud folders a dataless placeholder is a file's normal state, and handing one to Quick Look
-    /// makes the provider fetch it all, so selecting a row must never do that. The dataless check
-    /// comes first, as `FileContentVerifier` explains: a placeholder is a placeholder whatever else
-    /// is true of it. A path a rescan hasn't caught up with is distinguished from a placeholder:
-    /// one offers a download, the other says the file is gone, and collapsing them would offer to
-    /// download a file that no longer exists.
+    /// Every case of the classification. A cloud-only placeholder, a file's normal state in cloud
+    /// folders, is never handed to Quick Look, which would make the provider fetch it all; the
+    /// dataless check comes first, as `FileContentVerifier` explains. A path a rescan hasn't caught
+    /// up with is told apart from a placeholder, or the area would offer to download a file that no
+    /// longer exists.
     @Test(arguments: [
         (true, true, ColumnPreviewSource.cloudOnly),     // never handed to Quick Look
         (false, true, ColumnPreviewSource.cloudOnly),    // dataless outranks everything else
@@ -34,11 +32,10 @@ import UniformTypeIdentifiers
     // MARK: - What the preview area says and offers
 
     /// What the area says and offers, as values because SwiftUI builds no accessibility tree
-    /// without an assistive client. A download in flight shows its spinner, not a Download button;
-    /// an idle placeholder offers the fetch; a vanished file can't be fetched (`testClassify`'s
-    /// vanished-file rule, at the control); a materialized or unprobed file is bare, the icon
-    /// alone. `isAwaitingDownload` is read only through the classification: a watch reaching a
-    /// column that moved on to a local file must not caption it "Downloading…".
+    /// without an assistive client. A download in flight shows its spinner; an idle placeholder
+    /// offers the fetch; a vanished file can't be fetched; a materialized or unprobed file is bare.
+    /// `isAwaitingDownload` is read only through the classification, so a watch reaching a column
+    /// that moved on to a local file can't caption it "Downloading…".
     @Test(arguments: [
         (ColumnPreviewSource?.some(.cloudOnly), true, "Downloading…", PreviewAccessory.downloading),
         (.cloudOnly, false, "Not downloaded", .offer),

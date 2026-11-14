@@ -324,7 +324,6 @@ import Design
     }
 }
 
-
 /// No gesture on a column row, ever. A tap gesture on a row swallows the mouse-up the List needs to
 /// commit a selection, so most ⌘/⇧ clicks, and clicks with the slightest travel, select nothing
 /// (see the note on `columnRow`). A source scan, because a `TapGesture` installs no recognizer an
@@ -374,7 +373,6 @@ import Design
     }
 }
 
-
 /// The invariant the pane strip's travelling marker rests on, separate from the ladder suite
 /// because it isn't about widths. `@MainActor`, and not optionally: `PaneTabStrip` is a SwiftUI
 /// `View`, so `visible(_:slots:)` inherits main-actor isolation, and its closure in
@@ -382,7 +380,6 @@ import Design
 /// traps in `_swift_task_checkIsolatedSwift` with no message. A case that returns before that
 /// closure (more pinned tabs than slots) passes either way and proves nothing about it.
 @Suite @MainActor struct PaneTabStripActiveVisibilityTests {
-
 
     /// The sliding marker assumes exactly one source exists. `activeGround` is rendered only for
     /// the active item and carries a `matchedGeometryEffect`, so the effect is well-defined only

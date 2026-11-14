@@ -3,13 +3,9 @@ import Foundation
 @testable import FileExplorer
 import Sync
 
-/// Flipping a pane from Columns to Tree opens the folders the columns were standing in. The two
-/// presentations hold "where you are" in different state (`PaneBrowsePath` against the outline's
-/// expansion set), and without a translation the user would land at the top of the tree with
-/// nothing acknowledging the columns they had walked.
-///
-/// `FileTreeView.carryOver` is that translation, and the stack is read, never consumed: flipping
-/// back to Columns has to restore exactly the columns that were there.
+/// Flipping a pane from Columns to Tree opens the folders the columns were standing in:
+/// `FileTreeView.carryOver` translates `PaneBrowsePath` into the outline's expansion set. The stack
+/// is read, never consumed, so flipping back restores exactly the columns that were there.
 @Suite struct PaneColumnCarryOverTests {
 
     private let root = "/Users/me/Documents"
@@ -27,8 +23,7 @@ import Sync
                 "the row brought into view is the folder the deepest column was listing")
     }
 
-    /// The tree's root has no disclosure row, so a path for it in the expansion set matches
-    /// nothing, and `expansionPruned` would keep it forever, being under the root by definition.
+    /// The tree's root has no disclosure row, and `expansionPruned` would keep it forever.
     @Test func testTheTreesOwnRootIsNotPutInTheExpansionSet() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
                                            treeRoot: root, tree: [])
@@ -46,9 +41,8 @@ import Sync
         #expect(carry.expanded.count == mine.count + 1)
     }
 
-    /// A pane resting at its root has nothing to carry, and `deepest` being nil is what tells the
-    /// caller to leave the scroll alone. Answering the root here would scroll a tree the user is
-    /// already looking at back to its first row on every tab switch.
+    /// A pane resting at its root carries nothing, and a nil `deepest` leaves the scroll alone, or
+    /// every tab switch would scroll the tree back to its first row.
     @Test func testARestingStackCarriesNothingAndScrollsNowhere() {
         let carry = FileTreeView.carryOver(["/Users/me/Documents/Family"],
                                            stack: PaneBrowsePath(), treeRoot: root, tree: [])
@@ -56,8 +50,7 @@ import Sync
         #expect(carry.expanded == ["/Users/me/Documents/Family"], "an untouched set, not an emptied one")
     }
 
-    /// A trailing slash on the root is the difference between `…/Documents/Claude` and
-    /// `…/Documents//Claude`, and the second matches no row, since the outline keys on
+    /// A trailing slash on the root would compose `…/Documents//Claude`, which matches no
     /// `FileNode.id`.
     @Test func testTheRootIsNormalisedBeforeTheTrailIsBuilt() {
         let carry = FileTreeView.carryOver([], stack: PaneBrowsePath(components: ["Claude"]),
@@ -67,10 +60,8 @@ import Sync
 
     // MARK: - Below a folder link
 
-    /// The Tree opens rows by id, and below a folder link a column's path isn't one. The walk lists
-    /// `/r/link/sub`'s children where the link leads (`ColumnsBelowALinkTests` measures it on a
-    /// real link), so a composed `/r/link/sub/deeper` would name no row: the Tree would open down
-    /// to `sub` and scroll nowhere.
+    /// Below a folder link a column's path isn't a row id: the walk lists children where the link
+    /// leads (`ColumnsBelowALinkTests`), so a composed path would name no row.
     @Test func testFoldersBelowAFolderLinkAreOpenedByTheirRowsIds() {
         func dir(_ path: String, _ children: [FileNode] = []) -> FileNode {
             FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
@@ -98,19 +89,10 @@ import Sync
 
     // MARK: - The call site
 
-    /// A rule extracted for testability is one revert from being unused, and this one is reached
-    /// from a SwiftUI `onAppear` no unit test can drive. Source-level, with the blind spot that
-    /// implies; the helper it borrows fails loudly rather than scanning an empty haystack.
-    ///
-    /// The carry refuses while the tree is still arriving, which no picture here can show: a
-    /// `scrollTo` for a row the list doesn't hold yet is silently dropped, and the latch then makes
-    /// that permanent. The render fixture asserts row arrival, since an offscreen, never-key
-    /// window's scroll position isn't a reliable instrument, so it stays green with the guard
-    /// removed.
-    ///
-    /// The scroll is gated on the stack having changed, because the Tree branch appears on every
-    /// tab switch and pane collapse, not only on a mode flip, and scrolling on each would yank a
-    /// tree the user has since scrolled elsewhere.
+    /// The carry-over is reached from an `onAppear` no unit test can drive, so this is a source scan.
+    /// It refuses while the tree is still arriving (a `scrollTo` for a row not yet held is silently
+    /// dropped, and the latch makes that permanent), and scrolls only when the stack changed, since
+    /// the Tree branch appears on every tab switch.
     @Test func testTheTreesArrivalActuallyCarriesTheColumnsOver() throws {
         let source = try SourceText.fileExplorer("FileTreeView.swift")
         let arrival = try SourceText.body(of: "private var paneList: some View", in: source)
@@ -130,9 +112,8 @@ import Sync
                 "a carry refused mid-load is never re-asked when the load lands")
         #expect(carry.contains("guard carriedStack != browsePath else { return }"),
                 "without this the carry-over re-scrolls on every appearance of the Tree branch")
-        // And the expansion must happen before that gate: opening folders is idempotent, so it is
-        // right on every appearance, and skipping it would leave the tree closed after a tab
-        // switch. Last, so a missing range stops only this check.
+        // The expansion comes before that gate: idempotent, so right on every appearance. Last, so a
+        // missing range stops only this check.
         let gate = try #require(carry.range(of: "guard carriedStack != browsePath"))
         let assignment = try #require(carry.range(of: "expanded = carry.expanded"))
         #expect(assignment.lowerBound < gate.lowerBound,

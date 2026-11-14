@@ -10,10 +10,8 @@ import Sync
 /// has nothing to blur on an empty lens, so it renders as a flat gray slab. The pane's placeholder
 /// is covered by `PaneBusyChipRenderTests`; this is the Organize half.
 ///
-/// Renders over a magenta backdrop and counts the non-backdrop pixels below the chip header: about
-/// 12k–15k for ink and the Cancel capsule, about 75k with a card. The floor catches a canvas that
-/// renders nothing. `.machinePinned(.pixelSampling)`, like its sibling, because both ends of the
-/// count move with font rasterization and backing scale.
+/// Counts the non-backdrop pixels below the chip header over magenta: about 12k–15k for ink and the
+/// Cancel capsule, about 75k with a card. Machine-pinned: both ends move with font rasterization.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct OrganizeScanningPlaceholderRenderTests {
 
@@ -29,9 +27,8 @@ import Sync
         let manager = FileSyncManager()
         scanning(manager)
 
-        // One scratch suite per render, not one per suite: both tests write the SAME key
-        // (`OrganizeLens.defaultsKey`) with different values, and a shared suite would leave
-        // whichever ran second deciding which lens the first one rendered.
+// One scratch suite per render: both tests write the same `OrganizeLens.defaultsKey`, and a shared
+// suite would let the second decide which lens the first rendered.
         let defaults = ScratchDefaults("OrganizeScanning-\(chip.rawValue)-\(appearance.rawValue)")
         defaults.set(LiquidGlassHue.blue.rawValue, forKey: LiquidGlass.hueKey)
         defaults.set(chip.rawValue, forKey: OrganizeLens.defaultsKey)

@@ -5,10 +5,9 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The room a pane keeps for the app's Info column, mounted: the column stack keeps it after the
-/// deepest column and says where it is, a drill moves it with the stack, a stack too deep for the
-/// pane brings it into view, and taking the room away withdraws it. The app draws Info at whatever
-/// this reports, so a room reported in the wrong place is Info drawn in the wrong place.
+/// The room a pane keeps for the app's Info column, mounted: after the deepest column, moved by a
+/// drill, brought into view in a deep stack, withdrawn when taken away. The app draws Info wherever
+/// this reports.
 @MainActor
 @Suite struct PaneInfoRoomMountTests {
 

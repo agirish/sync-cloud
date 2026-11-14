@@ -3,13 +3,11 @@ import Testing
 @testable import FileExplorer
 
 /// Pins the constants the five bounded-resolve views share through `BoundedResolveView`, so a
-/// drift in the one definition, or a subclass re-declaring its own, is a named failure.
-///
-/// The declaration pins alone aren't enough: `#expect(StylerView.searchesPerChange == 6)` checks
-/// what the subclass declares, not what the base's code reads. If `refillSearchBudget()` read
-/// `BoundedResolveView.searchesPerChange` instead of `Self.searchesPerChange`, the stylers and the
-/// deselect catcher would drop to a budget of 4 on a six-deep hierarchy. The spend-the-budget
-/// tests below catch that.
+/// drift in the one definition, or a subclass re-declaring its own, is a named failure. The
+/// declaration pins check what a subclass declares, not what the base's code reads: had
+/// `refillSearchBudget()` read `BoundedResolveView.searchesPerChange` instead of
+/// `Self.searchesPerChange`, the stylers and the deselect catcher would drop to a budget of 4 on a
+/// six-deep hierarchy, which the spend-the-budget tests below catch.
 @MainActor
 @Suite struct BoundedResolveViewTests {
 
@@ -61,11 +59,8 @@ import Testing
 
     // MARK: The budget the base's own code actually reads
 
-    /// The behavioural half of `theFrameAnchoredResolversShareTheWiderBudget`: spend the budget on
-    /// a real `StylerView` and count what it bought. Six spends, then the seventh is refused: the
-    /// guarded decrement in `spendSearchBudget()` is the bound, and 6 is what the base must have
-    /// read when it refilled.
-    ///
+    /// The behavioural half of `theFrameAnchoredResolversShareTheWiderBudget`: a real `StylerView`
+    /// buys six searches and is refused the seventh, so 6 is what the base read when it refilled.
     /// `refillSearchBudget()` is called explicitly, not left to the initial value, so the refill
     /// path is covered: it runs on every window entry, SwiftUI update and anchor move.
     @Test func aStylersRefillBuysSixSearches() {

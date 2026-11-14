@@ -9,7 +9,6 @@ import FileExplorerTestSupport
 /// Edit's text, Markdown and PDF fixes: what the status line says beside a file just opened, a
 /// folded format-bar group with nothing to offer, what Voice Control and VoiceOver hear, the ink
 /// editable Preview's links wear, and a restricted file in a PDF batch.
-///
 /// Each rule is pinned by value, and its call site read off the code: an offscreen host has no
 /// accessibility tree to ask, and a SwiftUI `Menu`'s disabled state cannot be read back.
 @MainActor
@@ -33,8 +32,7 @@ import FileExplorerTestSupport
         #expect(EditorStatusLine.shownFacts(Self.counted, countedFor: "/n/New.md", open: "/n/New.md") == Self.counted)
     }
 
-    /// Without counts the line says only the caret and the size: no words, encoding or line
-    /// endings.
+    /// Without counts the line says only the caret and the size.
     @Test func aLineWithoutCountsSaysOnlyTheCaretAndTheSize() {
         let caret = EditorCaret(line: 3, column: 7)
         #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: caret, fileSize: "4 KB")
@@ -45,9 +43,8 @@ import FileExplorerTestSupport
                 == "412 words, 2,301 characters, Line 3, Col 7, 4 KB, UTF-16, CRLF line endings")
     }
 
-    /// The workspace gates the counts and Line/Col on the file each was taken on, and walks no
-    /// caret on the main actor as a file arrives (a large file with the caret at its end would be
-    /// walked in full there).
+    /// The workspace gates the counts and Line/Col on the file each was taken on, and walks no caret
+    /// on the main actor as a file arrives (a large file with its caret at the end is walked in full).
     @Test func theWorkspaceGatesTheCountsAndTheCaretOnTheFile() throws {
         let code = try Self.code("EditorWorkspaceView.swift")
         #expect(code.contains("EditorStatusLine(facts: EditorStatusLine.shownFacts(facts, countedFor: factsPath, open: document.path),"),
@@ -86,9 +83,8 @@ import FileExplorerTestSupport
         #expect(document.textVersion == reopened, "a move rewrote the buffer")
     }
 
-    /// Only a file's first count skips the debounce. A keystroke before it lands waits its turn, as
-    /// does every later count; the next file's first count skips it again, as does a return to a
-    /// file whose count never landed.
+    /// Only a file's first count skips the debounce; a keystroke before it lands waits, as do later
+    /// counts. The next file's first count skips it, as does a return to a file whose count never landed.
     @Test func onlyAFilesFirstCountSkipsTheDebounce() throws {
         let gate = EditorFirstCountGate()
         #expect(gate.skipsDebounce(open: "/n/A.md", countedFor: nil), "a file's first count waits")
@@ -157,9 +153,8 @@ import FileExplorerTestSupport
                 "Go to Line counts the last file's lines")
     }
 
-    /// Rendered and read back: while a new file is counted, the line holds still. The counts and
-    /// the caret hold their room undrawn, so what is drawn (the caret once it lands, the size)
-    /// stays where it stood, and nothing of the last file is drawn.
+    /// While a new file is counted the line holds still: the counts and the caret hold their room
+    /// undrawn, so what is drawn stays where it stood, and nothing of the last file is drawn.
     @Test func theLineHoldsStillWhileANewFileIsCounted() throws {
         let caret = EditorCaret(line: 48, column: 12)
         let counted = try Self.inkColumns(EditorStatusLine(facts: Self.counted, caret: caret, fileSize: "4 KB",
@@ -179,9 +174,8 @@ import FileExplorerTestSupport
         #expect(EditorStatusLine.accessibilityLabel(facts: nil, caret: nil, fileSize: "4 KB") == "4 KB")
     }
 
-    /// A caret held undrawn is not a button: no hover wash, tooltip, press or ⌥ keycap over blank
-    /// room, and VoiceOver neither says it nor offers its press. Read off the code, since a SwiftUI
-    /// button's hit testing can't be asked offscreen.
+    /// A caret held undrawn is not a button: no hover wash, tooltip, press, keycap or VoiceOver press
+    /// over blank room. Read off the code, since a SwiftUI button's hit testing can't be asked offscreen.
     @Test func anUndrawnCaretIsNotAButton() throws {
         let code = try Self.code("EditorStatusLine.swift")
         #expect(code.contains(".shortcutKeycap(AppChord.goToLine.display, compact: true, shown: caretIsCurrent)"),
@@ -311,8 +305,7 @@ import FileExplorerTestSupport
         #expect(ink() == green, "a new hue left the page's links as they were")
     }
 
-    /// `host` in a titled window of its size, in `appearance`, laid out and given a run-loop turn.
-    /// The caller closes the window.
+    /// `host` in a titled window of its size and `appearance`, laid out; the caller closes it.
     private static func mountPreview(_ host: NSView, appearance: NSAppearance.Name) -> NSWindow {
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -336,7 +329,6 @@ import FileExplorerTestSupport
         let window = Self.mountPreview(host, appearance: dark ? .darkAqua : .aqua)
         defer { window.close() }
         let textView = try #require(Self.previewTextView(in: host), "no editable Preview mounted")
-        // The colour the text view paints links in, resolved in this window's appearance.
         let painted = try #require(textView.linkTextAttributes?[.foregroundColor] as? NSColor)
         var ink = NSColor.white, expected = NSColor.white
         NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
@@ -374,9 +366,8 @@ import FileExplorerTestSupport
         }
     }
 
-    /// A hue changed while a document is open repaints its links in the new hue's readable shade.
-    /// This is the `update` path, which a first mount never runs: mounted at Coral, handed Green
-    /// through a new root view, and read back off the same text view.
+    /// A hue changed with a document open repaints its links in the new hue's readable shade, through
+    /// `update`, which a first mount never runs: mounted at Coral, then handed Green in a new root view.
     @Test func aHueChangeWithThePageOpenRepaintsLinksInTheReadableShade() throws {
         let source = EditorSourceStorage(text: "See [the plan](https://example.com/plan) today.\n")
         let undo = UndoManager()
@@ -469,9 +460,8 @@ import FileExplorerTestSupport
 
     private func path(_ name: String) -> String { (folder as NSString).appendingPathComponent(name) }
 
-    /// Rotate skips the restricted file, names it once and counts it as skipped, and rotates the
-    /// plain file beside it. The restricted file comes first, so a batch that stopped at it would
-    /// show.
+    /// Rotate skips the restricted file, names it once and counts it skipped, and rotates the plain
+    /// file beside it. The restricted file comes first, so a batch that stopped at it would show.
     @Test func rotateSkipsARestrictedFileWithItsOwnReason() async throws {
         let restricted = path("Scan.pdf"), plain = path("Statement.pdf")
         PDFFixtures.writeRestricted(restricted)
@@ -502,9 +492,8 @@ import FileExplorerTestSupport
                           "“B.pdf” — locked with a password",
                           "“C.pdf” — its owner doesn’t allow changing its pages", step], "\(lines)")
         #expect(EditorPDFBatch.reasons([("B.pdf", .skipped(.lockedToOpen))]) == "“B.pdf” — locked with a password")
-        // Clean Metadata's encrypted skip is said as encrypted, not as an owner's restriction (a
-        // file can be encrypted with every permission allowed), with its own way past it; each step
-        // is said once.
+        // Clean Metadata's encrypted skip is said as encrypted, not as a restriction (a file can be
+        // encrypted with every permission allowed), with its own way past it; each step said once.
         let decrypt = EditorPDFToolEngine.decryptStep
         let metadata = try #require(EditorPDFBatch.reasons([("D.pdf", .skipped(.passwordProtected)),
                                                             ("A.pdf", .skipped(.restrictedByOwner)),
@@ -518,9 +507,8 @@ import FileExplorerTestSupport
                 "Clean Metadata's skip gave no way forward")
     }
 
-    /// Decided in the lane, before the toolkit runs, and only for the tools that change the file in
-    /// place: Compress and Clean Metadata rebuild the document and run on it (the latter's own
-    /// password skip aside).
+    /// Decided in the lane before the toolkit runs, and only for tools that change the file in place:
+    /// Compress and Clean Metadata rebuild the document and run on it (bar the latter's password skip).
     @Test func onlyTheInPlaceToolsAreSkipped() {
         let rotate = EditorPDFTool.rotate(pages: [0], quarterTurns: 1)
         #expect(EditorPDFBatch.ownerForbids(rotate, isEncrypted: true, allowsAssembly: false))

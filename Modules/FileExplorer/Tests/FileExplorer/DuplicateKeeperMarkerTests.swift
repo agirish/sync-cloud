@@ -12,7 +12,6 @@ import Testing
     @Test func aRadioIsDrawnOnlyWhereAKeeperCanBePicked() {
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: true) == .keeper)
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: true, isKeeper: false) == .selectable)
-        // No choice: neither row advertises one.
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: true) == .inert)
         #expect(DuplicateKeeperMarker.style(allowsKeeperChoice: false, isKeeper: false) == .inert)
     }
@@ -65,11 +64,9 @@ import Testing
 @Suite struct DuplicateScanSkipNoteTests {
     private typealias Skips = FileSyncManager.DuplicateScanSkips
 
-    /// The whole note for each reason alone and all three together. Hard links and files that
-    /// could not be read (gone, unreadable, replaced between stat and open, rewritten mid-read) are
-    /// skips like any other, or the results would just get smaller with no pill saying why. With
-    /// nothing outside detection there is no pill, so the declined-text sentence has nowhere to
-    /// hang: image-only scans not comparing by text is ordinary, not a warning.
+    /// The whole note for each reason alone and all three together. Hard links and unreadable files
+    /// are skips like any other, or the results would shrink with no pill saying why. With nothing
+    /// outside detection there is no pill: image-only scans not comparing by text is ordinary.
     @Test(arguments: [
         (Skips(), nil),
         (Skips(cloudOnly: 3),
@@ -218,13 +215,9 @@ import Testing
     }
 }
 
-
 /// The breadcrumb under a copy's name is relative to the scanned folder and says so: the folder
 /// itself is a crumb. Without it, a copy directly in the root reads as the provider alone, as if at
-/// the top of the cloud, and looks unrelated to a neighbour deeper in the same trunk.
-///
-/// The call site isn't pinned (`crumbs(_:)` is a one-line forward, and a bitmap can't read text
-/// back); the rule is.
+/// the top of the cloud. The rule is pinned, not the call site: `crumbs(_:)` is a one-line forward.
 @Suite struct DuplicateBreadcrumbTests {
 
     private func crumbs(_ path: String, root: String?, provider: String? = "iCloud") -> [String] {

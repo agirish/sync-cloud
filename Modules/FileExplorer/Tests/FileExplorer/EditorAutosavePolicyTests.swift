@@ -69,7 +69,6 @@ import Design
     }
 }
 
-
 /// The switch's shape: that it is a switch, and that it stays inside the row it sits on.
 @MainActor
 @Suite(.serialized) struct AutosaveSwitchTrackTests {

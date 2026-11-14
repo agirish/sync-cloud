@@ -105,10 +105,9 @@ import UniformTypeIdentifiers
         return nil
     }
 
-    /// Pumps layout until `condition` holds, or until both the deadline has passed and
-    /// `LayoutPumpWait.pumpFloor` passes have been made. Returns whether it held, and how many
-    /// passes that took. Not `@discardableResult`: a bounded wait whose expiry nobody reads lets the
-    /// test carry on against state it never reached.
+    /// Pumps layout until `condition` holds, or until both the deadline and `LayoutPumpWait.pumpFloor`
+    /// passes are spent; returns whether it held, in how many passes. Not `@discardableResult`: an
+    /// expiry nobody reads lets the test carry on against state it never reached.
     private func wait(_ window: NSWindow, upTo seconds: Double,
                       for condition: () -> Bool) async -> (held: Bool, pumps: Int) {
         await LayoutPumpWait.pump(window, upTo: seconds, until: condition)
@@ -127,8 +126,7 @@ import UniformTypeIdentifiers
         window.contentView = host
         defer { window.contentView = nil }
 
-        // Settle on a previewable file: the state the defect needs, and a live `QLPreviewView` to
-        // watch.
+        // Settle on a previewable file: the state the defect needs, and a live view to watch.
         let settled = await wait(window, upTo: 10) { quickLookView(in: host) != nil }
         try #require(settled.held,
                      "no Quick Look mounted for the first file after \(settled.pumps) layout passes — the column never settled")

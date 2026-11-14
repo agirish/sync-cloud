@@ -4,8 +4,8 @@ import Foundation
 
 /// Which image sources the preview will draw, and which it refuses.
 ///
-/// The refusals are the point. Drawing a local file is the easy half; the rules that matter stop
-/// the preview fetching a URL or materialising a cloud placeholder because somebody opened a note.
+/// The refusals are the point: the preview must never fetch a URL or materialise a cloud
+/// placeholder because somebody opened a note.
 @Suite struct MarkdownImageSourceTests {
 
     private func temporaryFolder() throws -> String {
@@ -62,8 +62,8 @@ import Foundation
                 == .refused("Remote images aren’t downloaded."))
     }
 
-    /// The rule with teeth: drawing this would download somebody's file, over their connection and
-    /// into their disk quota, because they opened a note that links to it.
+    /// Drawing this would download somebody's file, over their connection and into their disk
+    /// quota, because they opened a note that links to it.
     @Test func aCloudOnlyFileIsRefusedRatherThanMaterialised() throws {
         let folder = try temporaryFolder()
         let path = try write("cloud.png", in: folder)

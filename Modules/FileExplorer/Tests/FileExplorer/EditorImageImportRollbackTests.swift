@@ -4,14 +4,10 @@ import AppKit
 @testable import FileExplorer
 import FileExplorerTestSupport
 
-/// **An import that wrote nothing takes back the Images folder it made.** Every refusal before the
-/// folder is made leaves the disk alone by never touching it; this is the one case where the folder
-/// was already made, and only `importImages`' closing `rmdir` puts it back.
-///
-/// The write is made to fail with a name it cannot create: a `/` in the pasted image's extension
-/// puts the file in a folder inside Images that is not there. It stands in for any failure once
-/// the folder exists (a full disk, a permission revoked mid-import), none of which a test can
-/// arrange between the two steps.
+/// An import that wrote nothing takes back the Images folder it made: the one case where the folder
+/// was already made, and only `importImages`' closing `rmdir` puts it back. The write fails on a `/`
+/// in the pasted image's extension, standing in for any failure once the folder exists (a full
+/// disk, a permission revoked mid-import).
 @Suite(.serialized) struct EditorImageImportRollbackTests {
 
     private let fm = FileManager.default

@@ -60,8 +60,8 @@ import Testing
 
         queue.async {
             lines.thread = pthread_mach_thread_np(pthread_self())
-            // 3 s, not 1.5: noticed 1.0–1.2 s in, a 1.5 s stall left a loaded runner a few
-            // hundred milliseconds to take its first stack.
+            // 3 s, not 1.5: noticed 1.0–1.2 s in, a 1.5 s stall would leave a loaded runner only a
+            // few hundred milliseconds to take its first stack.
             Thread.sleep(forTimeInterval: 3)
         }
 
@@ -328,11 +328,9 @@ import Testing
         let seconds = try Self.lasted(line)
         let armed = try #require(instants["armed"]), began = try #require(instants["began"])
         let ended = try #require(instants["ended"])
-        // Dated from the busy look (up to `stallAfter` into the sleep) and ended at the idle
-        // stack after it, the line spans at most the sleep as it ran, plus the lag of that look.
-        // Dated from the hold, it would add the hold (the first heartbeat, a beat after arming).
-        // Bounded halfway between, both measured here, not against a fixed wall-clock figure,
-        // which a loaded hosted VM overshoots.
+        // Dated from the busy look and ended at the idle stack after it, the line spans at most the
+        // sleep as it ran; dated from the hold, it would add the hold. Bounded halfway between, both
+        // measured here, not against a fixed wall-clock figure a loaded hosted VM overshoots.
         let slept = ended - began, hold = began - armed - configuration.beat
         #expect(seconds > 0.5 && seconds < slept + hold / 2,
                 "\(line) — slept \(String(format: "%.2f", slept)) s after a \(String(format: "%.2f", hold)) s hold")

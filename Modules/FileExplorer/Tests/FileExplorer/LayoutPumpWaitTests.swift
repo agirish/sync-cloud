@@ -19,9 +19,8 @@ import Testing
     /// that moved with the floor would shrink with it and let `held` pass vacuously.
     private static let passesDemanded = 3
 
-    /// The floor these tests run against: five, not the production fifty. The tests assert the
-    /// loop's shape, which doesn't depend on the floor's size, and a pass can cost seconds on a
-    /// saturated CI main actor. A literal, like ``passesDemanded``, so it can't move with the floor.
+    /// Five, not the production fifty: the loop's shape doesn't depend on the floor's size, and a
+    /// pass can cost seconds on a saturated CI main actor. A literal, so it can't move with it.
     private static let testFloor = 5
 
     /// Pins the production floor at fifty, the value every real wait uses. The other tests run
@@ -52,11 +51,9 @@ import Testing
                 "held after \(outcome.pumps) passes, expected exactly \(needed)")
     }
 
-    /// The floor is a minimum, not a ceiling: a condition that needs more passes still gets them
-    /// while the deadline holds. The clock is frozen so the deadline never expires: a demand in
-    /// passes must not be bounded by seconds, or load decides the verdict. `upTo:` is an ordinary
-    /// 60 because its value doesn't matter here (as in ``LayoutPumpWaitPollTests``). Fails fast if
-    /// the floor becomes a ceiling.
+    /// The floor is a minimum, not a ceiling: a condition needing more passes still gets them while
+    /// the deadline holds. The clock is frozen, because a demand in passes bounded by seconds lets
+    /// load decide the verdict; `upTo:`'s 60 doesn't matter.
     @Test func theDeadlineStillCarriesTheWaitPastTheFloor() async {
         var passes = 0
         // Two past the floor: a floor-only loop reaches `floor + 1` through the post-deadline
@@ -107,8 +104,7 @@ import Testing
 
     /// Only a floor's own tests may lower a floor. The override lets them check the loop's shape in
     /// five turns; any other suite that lowers it looks faster locally and goes red on a loaded
-    /// runner. Scans every package's tests, since every package waits through
-    /// it, with comment lines ignored.
+    /// runner. Scans every package's tests, comment lines ignored, since every package waits on it.
     @Test func theFloorIsOnlyLoweredByItsOwnTests() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

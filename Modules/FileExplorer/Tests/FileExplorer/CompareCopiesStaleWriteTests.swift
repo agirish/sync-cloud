@@ -2,15 +2,12 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// Every asynchronous write into the compare surface's state is guarded against landing late.
-///
-/// The raster, verify and text-diff paths each take a token before their hop and re-read it after.
-/// The text diff runs in a `Task.detached`, which `.task(id:)` cancellation doesn't reach, so
-/// without the token a large pair's diff could land after a small one's, under the new pair's name.
-///
-/// Source-level: it pins the shape, not the behaviour, since no deterministic test can make two
-/// detached passes finish out of order. Deleting either line of any pair below fails it.
-/// `ComparePairViewingTests` owns the drivable behaviour: the observers, the latch, the page turn.
+/// Every asynchronous write into the compare surface's state is guarded against landing late: the
+/// raster, verify and text-diff paths each take a token before their hop and re-read it after. The
+/// text diff runs in a `Task.detached`, which `.task(id:)` cancellation doesn't reach, so without
+/// the token a large pair's diff could land after a small one's, under the new pair's name.
+/// Source-level, since no deterministic test can make two detached passes finish out of order.
+/// `ComparePairViewingTests` owns the drivable behaviour.
 @Suite struct CompareCopiesStaleWriteTests {
 
     private static func source() throws -> String { try SourceText.fileExplorer("CompareCopiesSheet.swift") }

@@ -30,8 +30,7 @@ import Sync
         _ = walk.advance(approved: false)
         let toFile = walk.advance(approved: true)
 
-        // The skipped row must not ride along: a wrong cursor would append the row at the old
-        // index, filing something the user declined.
+        // A wrong cursor would append the row at the old index, filing something declined.
         #expect(toFile?.map(\.fileName) == ["keep.pdf", "keep2.pdf"])
     }
 
@@ -40,8 +39,7 @@ import Sync
         walk.start([row("a.pdf"), row("b.pdf")])
         _ = walk.advance(approved: false)
         let toFile = walk.advance(approved: false)
-        // Non-nil (the walkthrough ended) but empty: the caller must not read "finished" as "file
-        // everything".
+        // Non-nil (ended) but empty: "finished" must not read as "file everything".
         #expect(toFile != nil)
         #expect(toFile?.isEmpty == true)
     }
@@ -54,8 +52,7 @@ import Sync
 
         walk.cancel(because: .dismissed)
 
-        // The card promises nothing moves until the last decision; a cancel must honour that even
-        // with approvals already banked.
+        // Nothing moves until the last decision, even with approvals already banked.
         #expect(!walk.isRunning)
         #expect(walk.approved.isEmpty)
         #expect(walk.queue.isEmpty)
@@ -69,10 +66,9 @@ import Sync
 
         _ = walk.advance(approved: true)
 
-        // After the last decision `current` is nil rather than an out-of-range read: a Swift array
-        // subscript out of range is a fatal trap, so cursor drift would crash the app.
+        // Nil rather than an out-of-range subscript, which would crash the app; further advances
+        // are inert rather than trapping or re-filing.
         #expect(walk.current == nil)
-        // Further advances are inert rather than trapping or re-filing.
         #expect(walk.advance(approved: true) == nil)
     }
 
@@ -90,9 +86,8 @@ import Sync
 
         walk.dryRunRunningChanged(to: true)       // the user hits "Preview all"
 
-        // The queue's rows carry the destinations the old preview computed. Resuming the review
-        // over them would file to homes the fresh preview no longer proposes, so the walkthrough is
-        // retired outright, and its banked approval goes with it, since nothing has moved yet.
+        // The queue carries the old preview's destinations, so resuming would file to homes the
+        // fresh preview no longer proposes: retired outright, banked approval and all.
         #expect(!walk.isRunning)
         #expect(walk.current == nil)
         #expect(walk.approved.isEmpty)
@@ -104,8 +99,8 @@ import Sync
         walk.start([row("a.pdf"), row("b.pdf")])
         _ = walk.advance(approved: true)
 
-        // Only the rising edge supersedes. The same flag goes back to false when the run ends, and
-        // clearing on that edge would silently discard a review the user had legitimately started.
+        // Only the rising edge supersedes; clearing on the falling edge, when the run ends, would
+        // discard a review the user had started.
         walk.dryRunRunningChanged(to: false)
 
         #expect(walk.isRunning)
@@ -134,16 +129,13 @@ import Sync
     }
 }
 
-/// Every retirement of an in-progress walkthrough writes one log line naming its cause. From the
-/// user's side a dismissal and a new-preview retirement look identical (the card just vanishes), so
-/// without the line "my walkthrough disappeared" is undiagnosable from `~/sync-cloud.log`.
+/// Every retirement of an in-progress walkthrough writes one log line naming its cause: to the user
+/// a dismissal and a new-preview retirement look identical, so only `~/sync-cloud.log` can tell.
 ///
-/// `@MainActor` because `LogCapture` is main-actor state, and `.serialized` because the three tests
-/// assert on (and one asserts the absence of) the same process-wide log stream: in-suite
-/// parallelism would let one test's retirement line land inside another's window. Every reading
-/// comes from a capture opened before the call, which the shared buffer's 1000-line trim cannot
-/// empty, and `#require`s a closing line of its own from it, so the absence cannot pass on a
-/// capture that heard nothing.
+/// `@MainActor` because `LogCapture` is main-actor state; `.serialized` because the tests share one
+/// process-wide log stream and one asserts an absence. Each reading comes from a capture opened
+/// before the call and `#require`s its own closing line, so the absence cannot pass on a capture
+/// that heard nothing.
 @MainActor
 @Suite(.serialized) struct FilingWalkthroughLogTests {
 
@@ -184,7 +176,7 @@ import Sync
         }), "no retirement line in \(Array(logged))")
     }
 
-    /// A cancel with nothing running is a state reset, not a loss; logging it would fabricate
+    /// A cancel with nothing running is a reset, not a loss; logging it would fabricate
     /// disappearances (the dry-run rising edge fires whether or not a walkthrough exists).
     @Test func retiringNothingWritesNothing() async throws {
         var walk = FilingWalkthrough()

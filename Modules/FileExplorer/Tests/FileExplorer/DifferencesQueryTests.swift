@@ -39,7 +39,6 @@ import Sync
     @Test func testEmptySearchPassesEverythingMatchingTheFilter() {
         let d = diff("docs/report.txt")
         #expect(DifferencesQuery.matches(d, filter: .all, searchText: "", pathRootName: nil, failedIDs: []))
-        // Empty search must not narrow the list at all.
         let list = [diff("a"), diff("b/c"), diff("d/e/f")]
         #expect(DifferencesQuery.filtered(list, filter: .all, searchText: "", pathRootName: nil, failedIDs: []).count == 3)
     }
@@ -53,13 +52,10 @@ import Sync
     }
 
     @Test func testFilterAndSearchAreCombinedWithAnd() {
-        // A missing-on-left item fails the missing-on-right filter regardless of search text.
         let d = diff("docs/report.txt", type: .missingOnLeft, action: .copyToLeft)
         #expect(!DifferencesQuery.matches(d, filter: .missingOnRight, searchText: "report", pathRootName: nil, failedIDs: []))
-        // Passes the filter but the search excludes it.
         let onRight = diff("docs/report.txt", type: .missingOnRight)
         #expect(!DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "budget", pathRootName: nil, failedIDs: []))
-        // Passes both.
         #expect(DifferencesQuery.matches(onRight, filter: .missingOnRight, searchText: "report", pathRootName: nil, failedIDs: []))
     }
 
@@ -148,7 +144,6 @@ import Sync
     @Test func testCountsIgnoresSearchTextAndEmptyListYieldsZeroes() {
         // Counts reflect the whole diff (search is not a parameter), matching the Duplicates lens's menu.
         #expect(DifferencesQuery.counts([], failedIDs: []).isEmpty)
-        // A single filter's count matches `filtered` with an empty search over the same list.
         let list = [
             diff("keep/report.txt", type: .missingOnRight),
             diff("skip/report.txt", type: .missingOnLeft, action: .copyToLeft),
@@ -258,7 +253,6 @@ import Sync
             == "Missing on right — includes 3 items")
         #expect(diff("f", enclosedItemCount: 1, description: "Missing on right").rolledUpDescription
             == "Missing on right — includes 1 item")
-        // No roll-up when there is no enclosed count.
         #expect(diff("f", description: "Missing on right").rolledUpDescription == "Missing on right")
         #expect(diff("f", enclosedItemCount: 0, description: "Missing on right").rolledUpDescription == "Missing on right")
     }

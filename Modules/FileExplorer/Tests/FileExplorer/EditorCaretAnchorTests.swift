@@ -3,14 +3,10 @@ import SwiftUI
 import Testing
 @testable import FileExplorer
 
-/// Coming back to Edit keeps the reader's place in the file. `PlainTextEditor` is an
-/// `NSViewRepresentable` a workspace switch destroys: ⌘1 and back runs `makeNSView` again, which
-/// assigns `view.string = text` into new text storage. So the caret offset lives in
-/// `EditorCaretAnchors` above the view, like the buffer, undo stack and mode.
-///
-/// Assigning `string` leaves the caret at the end of the text while the scroll view stays at the
-/// top, which is why the caret is placed unconditionally, not only when something was remembered
-/// (`aRawTextViewParksTheCaretAtTheEndOfAnAssignedString`).
+/// Coming back to Edit keeps the reader's place in the file. A workspace switch destroys
+/// `PlainTextEditor` and `makeNSView` assigns `view.string` into new storage, so the caret offset
+/// lives above the view in `EditorCaretAnchors`. Assigning `string` parks the caret at the end
+/// with the scroll at the top, so the caret is placed unconditionally.
 @MainActor
 @Suite struct EditorCaretAnchorTests {
 
@@ -91,14 +87,10 @@ import Testing
                         initialSelection: initialSelection)
     }
 
-    /// Building the view reports no selection changes at all. `NSTextView` reports programmatic
-    /// moves like clicks, and construction makes two: assigning `string` (caret to the end) and
-    /// `restoreCaret`. The host records every report as the file's anchor, so the first would
-    /// record "end of document" for a file nobody clicked in, and both would write `@State` inside
-    /// an update pass.
-    ///
-    /// So the delegate is wired last in `makeNSView`. The count must be zero, not one: the string
-    /// assignment's report is the harmful one.
+    /// Building the view reports no selection change at all, so the delegate is wired last in
+    /// `makeNSView`. `NSTextView` reports programmatic moves like clicks: assigning `string` would
+    /// record "end of document" as the anchor of a file nobody clicked in, and write `@State` inside
+    /// an update pass. Zero, not one: the string assignment's report is the harmful one.
     @Test func buildingTheViewReportsNoSelectionChange() {
         final class Box { var calls: [Int] = [] }
         let box = Box()
@@ -118,13 +110,9 @@ import Testing
                 "the editor was built at the top despite an anchor — the reader is back at line 1")
     }
 
-    /// What a fresh text view does unaided, pinned against raw AppKit (`PlainTextEditor` always
-    /// places the caret, so it can't show this): assigning `string` leaves the insertion point after
-    /// the last character, while the scroll view stays at the top.
-    ///
-    /// Two decisions rest on this: the caret is placed unconditionally (so an unanchored file opens
-    /// at the top), and the status line is seeded from the number the text view is given (so Ln/Col
-    /// agree with the caret). If AppKit changes this, both need revisiting.
+    /// Raw AppKit: assigning `string` leaves the insertion point after the last character, with the
+    /// scroll view at the top. The caret is placed unconditionally, and the status line seeded from
+    /// the number the view is given, because of this; if AppKit changes it, revisit both.
     @Test func aRawTextViewParksTheCaretAtTheEndOfAnAssignedString() {
         let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         view.string = "hello there"
@@ -152,10 +140,8 @@ import Testing
 
     // MARK: The wiring
 
-    /// Both halves of the wiring, scanned rather than rendered. The tests above show the text view
-    /// honors an anchor it's handed, not that the workspace hands one over or records where the
-    /// caret went. Mounting `EditorWorkspaceView` would mean a document, an autosave policy, a
-    /// rail and twenty closures to observe one assignment.
+    /// The workspace records the caret and hands the anchor back, scanned rather than rendered: the
+    /// tests above show only that the text view honours an anchor it is handed.
     @Test func theWorkspaceRecordsTheCaretAndHandsTheAnchorBack() throws {
         let workspace = SourceText.codeOnly(try SourceText.fileExplorer("EditorWorkspaceView.swift"))
         #expect(workspace.contains("document.caretAnchors.remember($0.location, for: document.path)"),

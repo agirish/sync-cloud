@@ -8,13 +8,10 @@ import Sync
 /// (`lens: .filing` with the selection in defaults, as the app builds it), handed a reveal request
 /// that resolves through its own `.task`.
 ///
-/// Mounted, not called: invoking `applyRevealRequest()` on an uninstalled `LensWorkspaceView` value
-/// writes `@State` SwiftUI never reads back, so every check would pass with the feature
-/// disconnected. Pixels, not geometry or captions: the lens fills a fixed frame, so `fittingSize`
-/// can't see a card open, and with no assistive client attached accessibility checks pass vacuously.
-///
-/// The sharp check is `theGroupHoldingTheFileIsTheOneOpened`: a resolver that always opened the
-/// first group would pass every "something changed" case and fail only that one.
+/// Mounted, not called: `applyRevealRequest()` on an uninstalled `LensWorkspaceView` writes
+/// `@State` SwiftUI never reads back, so every check would pass with the feature disconnected.
+/// Pixels, not geometry or captions: the lens fills a fixed frame, so `fittingSize` can't see a
+/// card open, and with no assistive client attached accessibility checks pass vacuously.
 @MainActor
 @Suite struct DuplicateRevealLandingTests {
 
@@ -56,15 +53,15 @@ import Sync
 
     /// Mounts Organize on Duplicates, as the app does: `lens: .filing`, with Duplicates found
     /// through `@AppStorage(OrganizeLens.defaultsKey)`, so `lens` and `effectiveLens` differ as in
-    /// the app. A mount where they were equal would hide any code that reads the wrong one.
+    /// the app; a mount where they were equal would hide code that reads the wrong one.
     ///
     /// The window background matters: without one the content composites against the borderless
     /// window's buffer and every comparison reads as no difference.
     ///
-    /// The selection reaches the view through a fresh `ScratchDefaults` suite, not
-    /// `UserDefaults.standard`: `@AppStorage` binds one process-wide location per (store, key),
-    /// other suites write this key (`FilingRefineControlTests`), and suites run in parallel.
-    /// With `selectsDuplicates` false nothing is stored, so no rail item is selected.
+    /// The selection goes through a fresh `ScratchDefaults` suite: `@AppStorage` binds one
+    /// process-wide location per (store, key), other suites write this key
+    /// (`FilingRefineControlTests`), and suites run in parallel. With `selectsDuplicates` false
+    /// nothing is stored, so no rail item is selected.
     private func mount(_ manager: FileSyncManager, request: DuplicateRevealRequest?,
                        selectsDuplicates: Bool = true,
                        onRevealHandled: ((UUID) -> Void)? = nil) -> Mounted {
@@ -82,10 +79,9 @@ import Sync
         return Mounted(host: host, window: window, defaults: defaults)
     }
 
-    /// The mount really stands on Duplicates, which every case assumes but none can see: a mount
-    /// that landed on the overview would compare two wrong screens and agree. Checked by paint: with
-    /// no rail selection the same manager draws the overview, and the two must differ, as they
-    /// wouldn't if `.defaultAppStorage` failed to reach `railLens`.
+    /// The mount really stands on Duplicates, which every case assumes but none can see. Checked by
+    /// paint: with no rail selection the same manager draws the overview, and the two must differ,
+    /// as they wouldn't if `.defaultAppStorage` failed to reach `railLens`.
     @Test(.machinePinned(.pixelSampling)) func theMountLandsOnDuplicatesAndNotOnTheOverview() async throws {
         let groups = [Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")]
         let selected = try #require(await settled(mount(Self.manager(groups: groups), request: nil),
@@ -123,12 +119,11 @@ import Sync
     ///
     /// Settle each mount on its own, then compare; never poll one host until it differs from
     /// another. Two hosts mounted from identical state differ by thousands of pixels until a fresh
-    /// `NSHostingView` finishes drawing, so such a poll passes on drawing noise whatever the
-    /// feature does.
+    /// `NSHostingView` finishes drawing, so such a poll passes on drawing noise.
     ///
-    /// Bounded by `LayoutPumpWait`, which floors on layout passes, not seconds ("Fixed pumps and
-    /// fixed sleeps" in `docs/flaky-tests.md`). Quiet means `stableFrames` identical frames in a
-    /// row, so a gap between two render stages isn't mistaken for the end.
+    /// Bounded by `LayoutPumpWait`, which floors on layout passes, not seconds (`docs/flaky-tests.md`,
+    /// "Fixed pumps and fixed sleeps"). Quiet means `stableFrames` identical frames in a row, so a
+    /// gap between two render stages isn't mistaken for the end.
     private func settled(_ mounted: Mounted, stableFrames: Int = 4,
                          within timeout: TimeInterval = 10,
                          _ what: String,
@@ -183,8 +178,7 @@ import Sync
 
     /// An answered request is reported back once, with its id; a waiting one is not.
     /// `appliedRevealID` is `@State` and dies with the lens, so without the host retiring the
-    /// request, every return to the workspace (after a trip through Compare, say) would replay the
-    /// plan over the user's filter and query.
+    /// request every return to the workspace would replay the plan over the user's filter and query.
     @Test func anAnsweredRequestIsHandedBackAndAWaitingOneIsNot() async throws {
         let target = Self.group(["/root/a/x.txt", "/root/b/x.txt"], name: "x.txt")
         final class Handled: @unchecked Sendable {
@@ -211,8 +205,7 @@ import Sync
                             onRevealHandled: { answered.record($0) })
         let (handed, pumps) = await LayoutPumpWait.pump(mounted.host, upTo: 10) { !answered.value.isEmpty }
         try #require(handed, "the applied plan never handed its request back (\(pumps) passes)")
-        // More turns for both lenses, in which a second hand-back, or one from the waiting lens,
-        // would land.
+        // More turns, in which a second hand-back, or one from the waiting lens, would land.
         _ = await LayoutPumpWait.pump(waitingMount.host, upTo: 1) { false }
         #expect(answered.value == [request.id],
                 "an applied plan must hand its request back for retirement — once, with the right id")
@@ -285,11 +278,9 @@ import Sync
     }
 
     /// A file the scan never looked at gets a different screen from one it cleared: both show an
-    /// empty list, with opposite claims, and "no duplicates of x" for both is false confidence.
-    /// Shows the rule in `DuplicateReveal.outcome` reaches the screen.
-    ///
-    /// The two files share a name and differ only in folder; with different names the pixels would
-    /// differ even with the rule removed.
+    /// empty list, with opposite claims, so the rule in `DuplicateReveal.outcome` must reach the
+    /// screen. The two files share a name and differ only in folder, or the pixels would differ
+    /// even with the rule removed.
     @Test(.machinePinned(.pixelSampling)) func aFileTheScanNeverLookedAtLandsSomewhereElseThanOneItCleared() async throws {
         // The manager records a completed scan of /root, so /elsewhere was never examined.
         let cleared = try #require(await settled(
@@ -316,8 +307,7 @@ import Sync
         refManager.duplicateGroups = []
         let allClear = try #require(await settled(reference, "reference all-clear"))
 
-        // The subject: an outsideScan request answered while the list had rows, then the same
-        // resolve-everything.
+        // The subject: an outsideScan request answered while the list had rows, then the same resolve.
         let manager = Self.manager(groups: [group])
         let mounted = mount(manager, request: DuplicateRevealRequest(path: "/elsewhere/x.txt"))
         _ = try #require(await settled(mounted, "landing applied over a populated list"))

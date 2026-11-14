@@ -5,12 +5,6 @@ import Design
 import Sync
 @testable import FileExplorer
 
-/// The differences list takes the keyboard when clicked, because otherwise a pane's list still
-/// holds it, and ⇧↓ would go on extending the pane's selection while the user watches this list.
-///
-/// In the app the click can't be found by hit-testing: it reports the window's root hosting view,
-/// with no `NSTableView` in the chain. So these tests assert on `target(covering:in:)`, not the
-/// hit-test route the pane tests cover.
 /// A content view whose hit-testing always answers one view, whatever the point: the app's
 /// behaviour, staged. See `aHitOutsideItsOwnViewportIsNotBelieved`.
 private final class LyingContent: NSView {
@@ -18,6 +12,10 @@ private final class LyingContent: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { answer }
 }
 
+/// The differences list takes the keyboard when clicked; otherwise a pane's list still holds it,
+/// and ⇧↓ goes on extending the pane's selection. In the app the click can't be found by
+/// hit-testing (it reports the window's root hosting view, with no `NSTableView` in the chain), so
+/// these tests assert on `target(covering:in:)`, not the hit-test route the pane tests cover.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable) struct DifferencesKeyFocusTests {
 

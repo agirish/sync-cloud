@@ -14,8 +14,7 @@ import EventsTestSupport
 extension PDFFixtures {
     /// A 2-page PDF carrying a real catalog `/AcroForm` with one text field on page 1, assembled byte
     /// by byte, since PDFKit won't write an `/AcroForm` from widget annotations (a fixture built that
-    /// way reports no form). pdf-toolkit's own fixture, ported. `pages` past 2 repeats page 2; the
-    /// default writes the original fixture byte for byte.
+    /// way reports no form). pdf-toolkit's own fixture; `pages` past 2 repeats page 2.
     static func writeAcroForm(_ path: String, pages: Int = 2) throws {
         let stream = "BT /Helv 24 Tf 72 396 Td (MARKERPAGE1) Tj ET"
         let extra = (2..<max(pages, 2)).map { 8 + $0 - 2 }
@@ -117,8 +116,7 @@ extension PDFFixtures {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
     }
 
-    /// Tools attached to `file` as an open would attach them, without a reader, and with every
-    /// question answered yes unless the test says otherwise.
+    /// Tools attached to `file` as an open would, without a reader, every question answered yes.
     private func tools(_ file: String, encryption: PDFEncryptionState = .none) -> EditorPDFTools {
         let tools = EditorPDFTools()
         let count = PDFDocument(url: URL(fileURLWithPath: file))?.pageCount ?? 0
@@ -775,9 +773,8 @@ extension PDFFixtures {
 
     // MARK: Fidelity
 
-    /// The form warning is pdf-utils' per tool: Compress flattens, Extract and Reorder orphan, and
-    /// Rotate and Delete lose nothing; it is asked only of a file that has a form. Declining writes
-    /// nothing.
+    /// The form warning is pdf-utils' per tool: Compress flattens, Extract and Reorder orphan, Rotate
+    /// and Delete lose nothing; asked only of a file that has a form. Declining writes nothing.
     @Test func aFormWarnsOnCompressExtractAndReorderOnly() async throws {
         let form = path("Form.pdf")
         try PDFFixtures.writeAcroForm(form)
@@ -1090,8 +1087,7 @@ extension PDFFixtures {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == real, "the link was replaced")
     }
 
-    /// A run that ends after its file was closed says nothing about the next one: no banner, no
-    /// running state carried over.
+    /// A run that ends after its file was closed leaves no banner or running state on the next one.
     @Test func aRunThatOutlivesItsFileLeavesTheNextOneAlone() async throws {
         let file = path("Four.pdf")
         PDFFixtures.write(file, pages: 4)
@@ -1126,9 +1122,8 @@ extension PDFFixtures {
         #expect(tools.arrangement == nil)
     }
 
-    /// The same file changed on disk under a pending order drops the order, and says so, even with
-    /// the same page count, since the pages may now say something else. The selection stays while
-    /// the count does.
+    /// A change on disk under a pending order drops the order and says so, even at the same page
+    /// count, since the pages may now say something else; the selection stays while the count does.
     @Test func anOrderDroppedByAChangeOnDiskIsSaid() {
         for count in [4, 3] {
             let tools = EditorPDFTools()
@@ -1319,9 +1314,8 @@ extension PDFFixtures {
         #expect(!enabled(one).contains("Delete Pages…"), "a one-page file offers to delete its only page")
     }
 
-    /// A dragged order puts Save Reordered Copy and Reset Page Order in the Tools menu (and so in
-    /// File ▸ PDF Tools, which draws the same entries), last, after a divider, for as long as the
-    /// reorder bar above the pages shows them, and gone once the order is put back.
+    /// A dragged order puts Save Reordered Copy and Reset Page Order last in the Tools menu (so in
+    /// File ▸ PDF Tools too), after a divider, as the reorder bar does; both go once it is put back.
     @Test func aPendingOrderPutsItsTwoActionsInTheMenu() throws {
         let tools = EditorPDFTools()
         tools.attach(path: "/a/plain.pdf", pageCount: 3, encryption: .none)
@@ -1366,8 +1360,7 @@ extension PDFFixtures {
         #expect(blank.pages == nil && blank.isBlank, "a blank field reads as an error before anything is typed")
     }
 
-    /// Clean Metadata's copy carries no metadata: the fields the file had are gone, not only
-    /// renamed.
+    /// Clean Metadata's copy carries no metadata: the file's fields are gone, not only renamed.
     @Test func cleanMetadataClearsTheCopy() async throws {
         let file = path("Word.pdf")
         var box = CGRect(origin: .zero, size: PDFFixtures.letter)
@@ -1414,8 +1407,7 @@ extension PDFFixtures {
         guard case .wrote(let reordered) = await tools.run(.reorder([2, 0, 1])) else { Issue.record("reorder"); return }
         #expect(PDFToolkit.encryptionState(of: URL(fileURLWithPath: reordered)) == PDFEncryptionState.none)
 
-        // Compress needs a scan to gain anything: a restricted one, made as Restrict editing makes
-        // it.
+        // Compress needs a scan to gain anything: a restricted one, made as Restrict editing does.
         let scan = path("RestrictedScan.pdf"), plainScan = path("plain-scan.pdf")
         PDFFixtures.writeScan(plainScan, pages: 2)
         let wrote = PDFDocument(url: URL(fileURLWithPath: plainScan))?.write(
@@ -1475,8 +1467,7 @@ extension PDFFixtures {
         #expect(PDFURLOpens.count(opened) > opens, "the control never opened the file, so the count proves nothing")
     }
 
-    /// A copy that has since gone is said to be gone, so the banner's Open doesn't silently do
-    /// nothing.
+    /// A copy that has since gone is said to be gone, so the banner's Open doesn't silently do nothing.
     @Test func aBannerDoorToAGoneCopySaysSo() {
         let tools = EditorPDFTools()
         var opened: [String] = []
@@ -1521,9 +1512,8 @@ extension PDFFixtures {
         #expect(lines.contains { $0.hasPrefix("Edit cancelled compress") }, "\(lines)")
     }
 
-    /// The Tools menu fits the header's pinned card at every text size, open and locked. The
-    /// header's height is pinned to the pane toolbar card's, so rows taller than the pin would be
-    /// clipped, not grown.
+    /// The Tools menu fits the header's pinned card at every text size, open and locked: the header's
+    /// height is pinned to the pane toolbar card's, so taller rows would be clipped, not grown.
     @Test func theToolsMenuFitsTheHeaderAtEveryTextSize() async throws {
         let open = path("Open.pdf"), locked = path("Locked.pdf")
         PDFFixtures.write(open, pages: 3)
@@ -1562,7 +1552,6 @@ extension PDFFixtures {
         #expect(tools.banner == nil)
     }
 }
-
 
 private extension PDFDocument {
     var pageRotations: [Int] { (0..<pageCount).map { page(at: $0)?.rotation ?? -1 } }

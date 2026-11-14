@@ -11,8 +11,7 @@ import Foundation
 
     // MARK: Ticking
 
-    /// Every case asserts the whole buffer after the tick, or `nil` where the click must change
-    /// nothing.
+    /// The whole buffer after the tick, or `nil` where the click must change nothing.
     @Test(arguments: [
         ("- [ ] one\n- [ ] two\n", 1, "- [x] one\n- [ ] two\n"),
         ("- [ ] one\n- [ ] two\n", 2, "- [ ] one\n- [x] two\n"),
@@ -43,8 +42,7 @@ import Foundation
         ("- [ ] one\nplain prose now\n", 2, nil),
         ("- [ ] one\n", 90, nil),
         ("- [ ] one\n", 0, nil),
-        // Nothing outside the three characters moves: the line's trailing content, a Windows
-        // file's line endings.
+        // Nothing outside the three characters moves, CRLF endings included.
         ("# Notes\r\n\r\n- [ ] one **bold**\r\n- [x] two\r\n", 3, "# Notes\r\n\r\n- [x] one **bold**\r\n- [x] two\r\n"),
         // The last line with no terminator is still a line.
         ("- [ ] one\n- [ ] two", 2, "- [ ] one\n- [x] two"),

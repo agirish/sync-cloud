@@ -7,28 +7,21 @@ import Design
 /// Every box this package draws around a scaled glyph: the ones that grow with the text and the
 /// ones that deliberately do not.
 ///
-/// The rule here: measure the pinned dimension itself, not a rung that contains it. A composed
-/// row's width is mostly text, and text scales, so asking a row whether it grew answers about the
-/// text and says nothing about a hard-framed symbol beside it (a glyph-only mode-bar rung framed at
-/// a fixed 13×13 would measure the same at every size while a labelled rung grew). Both suites
-/// below measure a view whose width *is* the box.
+/// Measure the pinned dimension itself, not a row that contains it: a row's width is mostly text,
+/// which scales, and says nothing about a hard-framed symbol beside it. So these measure a view
+/// whose width *is* the box.
 ///
-/// The second half is the half `fittingSize` cannot do. `Image(systemName:)` reports its symbol's
-/// layout box, bearings included, which overstates the drawn ink by 3–5pt at these sizes, so "does
-/// it overflow" is asked of rendered ink, through ``GlyphInk``.
+/// Overflow is asked of rendered ink, through ``GlyphInk``, not `fittingSize`: `Image(systemName:)`
+/// reports its layout box, bearings included, which overstates the drawn ink by 3–5pt here.
 @MainActor
 @Suite(.serialized) struct GlyphBoxTests {
 
-    /// The four named presets: the axis the growth assertions move along, where the question is
-    /// "does this change at all" and four points answer it.
+    /// The four named presets: enough to ask whether a size changes at all.
     private var scales: [CGFloat] { FontSize.allCases.map(\.scale) }
 
-    /// Every step the slider lands on, which is what containment is asked over.
-    ///
-    /// `FontSize.allCases` is the four named presets; `selectablePercents` is all ten stops from 90
-    /// to 135. The difference matters: the Editor capsule's shedding boundary turns over at 130
-    /// (see `docs/backports.md`), which is not a preset, and a box that holds its glyph at 125 and
-    /// 135 but not at 130 would slip past a four-row table. So the ink checks below sweep the ten.
+    /// All ten slider stops from 90 to 135, which containment is asked over: the Editor capsule's
+    /// shedding boundary turns over at 130 (see `docs/backports.md`), not a preset, so a box failing
+    /// only there would slip past the four presets.
     private var everySelectableScale: [CGFloat] {
         FontSize.selectablePercents.map { FontSize(percent: $0).scale }
     }
@@ -39,12 +32,9 @@ import Design
 
     // MARK: The pass-lens column
 
-    /// The column grows across as well as down.
-    ///
-    /// A lens symbol framed `.frame(width: 14)` with no height follows the type ramp downward and
-    /// sits still sideways (14×12 at Small, 14×16 at Largest). Measuring the row would not catch
-    /// it, because the row's other two children are `Text` and grow; measuring ``PassLensGlyph``
-    /// does, because its width is nothing but the box.
+    /// The column grows across as well as down: a symbol framed `.frame(width: 14)` alone follows
+    /// the type ramp downward but not sideways. Measured on ``PassLensGlyph``, whose width is the box,
+    /// because the row's `Text` children grow anyway.
     @Test func thePassLensColumnGrowsWithTheAppsTextSize() {
         let widths = scales.map { width(PassLensGlyph(symbol: OrganizeLens.renames.symbol), $0) }
         #expect(zip(widths, widths.dropFirst()).allSatisfy { $0 <= $1 },
@@ -53,18 +43,14 @@ import Design
                 "the pass-lens column measures \(widths) across \(scales) — it is not scaling")
     }
 
-    /// The default text size still draws what it always drew: the pass cards must not move at 100%.
-    /// `boxSize` is still 14 and the ramp is the identity at scale 1, so the assertion is that both
-    /// remain true together.
+    /// The pass cards must not move at 100%: `boxSize` is 14 and the ramp is the identity at scale 1.
     @Test func thePassLensColumnIsUnchangedAtTheDefaultTextSize() {
         #expect(PassLensGlyph.box(at: 1) == PassLensGlyph.boxSize)
         #expect(PassLensGlyph.boxSize == 14, "the shipped column was 14pt — moving it moves every pass card")
     }
 
-    /// Every symbol the column can be asked to draw, at every size.
-    ///
-    /// Built from `OrganizeLens.allCases`, not a list: a new lens is a symbol this has to hold the
-    /// day it is added, and a hand-written list would not notice.
+    /// Every symbol the column can draw, at every size. Built from `OrganizeLens.allCases`, so a new
+    /// lens is checked the day it is added.
     @Test(.machinePinned(.pixelSampling))
     func thePassLensColumnHoldsEveryLensSymbol() {
         for lens in OrganizeLens.allCases {
@@ -80,8 +66,7 @@ import Design
 
     // MARK: The mode capsules
 
-    /// ``CapsuleGlyph``'s box is checked the same way its sibling's is: every symbol either bar can
-    /// put in it, at every text size.
+    /// ``CapsuleGlyph``'s box holds every symbol either bar can put in it, at every text size.
     @Test(.machinePinned(.pixelSampling))
     func theCapsuleGlyphHoldsEverySymbolBothBarsDraw() {
         let symbols = EditorMode.allCases.map(\.symbol) + StorageSection.allCases.map(\.railSymbol)
@@ -96,8 +81,7 @@ import Design
         }
     }
 
-    /// The box is applied, not merely computed: the same guard `ScaledBoxTests` puts on the rule,
-    /// asked of the two views that consume it.
+    /// The box is applied, not merely computed, by both views that consume it.
     @Test func bothGlyphViewsLayOutTheBoxTheyAdvertise() {
         for scale in scales {
             let capsule = width(CapsuleGlyph(symbol: EditorMode.edit.symbol), scale)
@@ -114,14 +98,8 @@ import Design
 
     // MARK: The reservations
 
-    /// Four framed glyphs in this package are hit targets and stay constants; this keeps that a
-    /// fact rather than an assumption.
-    ///
-    /// Their frames exist to give a pointer something to hit, and a pointer does not grow with the
-    /// text size, so pinning them is right, but only while the box is still big enough for the
-    /// glyph inside it. At Largest, the rail's `plus` draws 12.5pt of ink in 18, the fold-all
-    /// toggles 18 in 24, the section chevron 11 in 12 and the destination grip 12 in 16. Raise any
-    /// of those glyphs and this says so.
+    /// The framed glyphs that are hit targets stay constants (a pointer does not grow with the text
+    /// size), which is right only while the box still holds the glyph inside it at every size.
     @Test(.machinePinned(.pixelSampling))
     func theHitTargetsStillHoldTheirGlyphs() {
         struct Reservation {
@@ -130,8 +108,7 @@ import Design
         let reservations = [
             Reservation(site: "DifferencesView.collapseToggle",
                         symbols: ["chevron.up", "chevron.down"], point: 12, box: 24),
-            // Both cases named rather than swept: `FoldAllAction` is not `CaseIterable`, and making
-            // it so for a test is out of scope. The symbols still come off the type.
+            // Both cases named: `FoldAllAction` is not `CaseIterable`. The symbols come off the type.
             Reservation(site: "DifferencesView.foldAllToggle",
                         symbols: [FoldAllAction.collapse, .expand].map(\.systemImage),
                         point: 12, box: 24),
@@ -154,20 +131,18 @@ import Design
         }
     }
 
-    /// The positive control. Every "clean" above is a zero, and a blind detector returns zeros for
-    /// everything, so it is shown a real overflow and required to report it.
+    /// The positive control: a blind detector returns zeros for everything, so it is shown a real
+    /// overflow and required to report it.
     @Test(.machinePinned(.pixelSampling))
     func theInkMeasurementCanActuallySeeAnOverflow() {
-        // The pass-lens column at a hard 14, at the largest text size: about 21pt² outside, so the
-        // floor sits well clear of `tolerance` rather than just past it. A control that only barely
-        // trips is a control that stops tripping.
+        // A hard 14 at the largest text size overflows well clear of `tolerance`: a control that
+        // only barely trips is a control that stops tripping.
         let shipped = GlyphInk.outside(symbol: OrganizeLens.renames.symbol, point: 10,
                                        weight: .semibold, box: 14, shape: Rectangle(), scale: 1.35)
         #expect(shipped > 10,
                 "the shipped hard-14 column reports only \(shipped)pt² outside it — the measurement is blind, so every clean verdict beside it is worthless")
 
-        // And the same column at the default size is clean, which is why scaling it changes no
-        // rendering at 100%.
+        // The same column at the default size is clean.
         let atDefault = GlyphInk.outside(symbol: OrganizeLens.renames.symbol, point: 10,
                                          weight: .semibold, box: 14, shape: Rectangle(), scale: 1)
         #expect(atDefault <= GlyphInk.tolerance,
@@ -182,17 +157,10 @@ import Design
 /// Duplicated from `Modules/Design/Tests/DesignTests/ScaledBoxTests.swift`. Change one, change both.
 enum GlyphInk {
 
-    /// Set from the measured gap between the renderer's fringe and a real overflow, not by taste. A
-    /// glyph is centred in a box whose scaled width is usually fractional, so its ink lands a
-    /// fraction of a point past the nominal edge and the outermost pixel column is partly covered.
-    /// Over every symbol the mode capsules, the storage capsule and the pass-lens column can draw,
-    /// at all four text sizes, the worst such fringe on a correctly sized box is 2.5pt²
-    /// (`clock.badge.exclamationmark` at the default size); `eye` shows the same 0.3–0.5pt edge at
-    /// every size including Small, which marks it as the renderer rather than a fit problem.
-    ///
-    /// Real overflows measure 10.8 and 21.0pt² (an unscaled pass-lens column at Large and Largest)
-    /// and 13 and 15pt² (an unscaled `SetupSheet` mark at Default and above). So 4 sits with 1.6×
-    /// clearance above the worst fringe and 2.7× below the smallest real defect.
+    /// Set from the measured gap between the renderer's fringe and a real overflow. A glyph centred
+    /// in a fractional-width box lands a fraction of a point past the edge; the worst such fringe on
+    /// a correctly sized box is 2.5pt², and the smallest real overflow about 10.8pt², so 4 sits
+    /// clear of both.
     static let tolerance: CGFloat = 4
 
     /// Area of glyph ink, in pt², falling outside `shape` drawn at `box`.

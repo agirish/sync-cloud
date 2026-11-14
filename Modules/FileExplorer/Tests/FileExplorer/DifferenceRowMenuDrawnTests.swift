@@ -8,15 +8,13 @@ import FileExplorerTestSupport
 
 /// Open in Edit on a differences row, as the menu draws it. `DifferenceRowMenuTests` pins which
 /// sides `editableSides` returns; this checks the menu applies that list, where the items land, and
-/// that a row offering nothing gains no stray item. So the menu is hosted and read back.
+/// that a row offering nothing gains no stray item.
 ///
 /// As in `OpenInEditorVerbTests.theDrawnMenuPutsOpenInEditAboveGetInfo`: in a `VStack` each
-/// `Button` becomes one focus-ring view, so the rings in y order are the drawn items, and a
-/// `Divider` has none. Items are recognised by width, since the hosted rows carry no readable text.
-///
-/// Every claim is relative, never a pixel count: a `.docx` row (a kind Edit refuses) draws the same
-/// menu minus the editor items, so a text row must be that menu with the editor items spliced in.
-/// Nothing here is machine-pinned.
+/// `Button` becomes one focus-ring view, so the rings in y order are the drawn items (a `Divider`
+/// has none), recognised by width since the hosted rows carry no readable text. Every claim is
+/// relative, never a pixel count: a `.docx` row (a kind Edit refuses) draws the same menu minus
+/// the editor items.
 @MainActor
 @Suite struct DifferenceRowMenuDrawnTests {
 
@@ -148,7 +146,6 @@ import FileExplorerTestSupport
         try #require(compare.lowerBound < gate.lowerBound && gate.lowerBound < editor.lowerBound
                      && editor.upperBound <= getInfo.lowerBound,
                      "Open in Edit no longer sits between Compare… and Get Info")
-        // The group's divider is between its item and Get Info.
         let between = body[editor.upperBound..<getInfo.lowerBound]
         #expect(between.contains("Divider()"), "the editor group has no divider before Get Info")
         #expect(between.components(separatedBy: "Divider()").count == 2,
@@ -175,7 +172,6 @@ import FileExplorerTestSupport
     /// the host's closure rather than one of its own.
     @Test func bothRowMenusBuildTheInspectionItemsWithTheHostsEditor() throws {
         let source = try Self.viewSource()
-        // Each member by its own braces.
         let wrapperBody = SourceText.normalized(try SourceText.block(
             opening: "private func inspectionMenuItems(for difference: FileDifference) -> some View {", in: source))
         #expect(wrapperBody.contains("DifferenceInspectionMenu(")

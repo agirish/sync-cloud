@@ -40,19 +40,17 @@ import EventsTestSupport
         #expect(view.textContainer?.widthTracksTextView == true)
         #expect(!view.isHorizontallyResizable)
         #expect(!scroll.hasHorizontalScroller)
-        // The view's own width has to come back too. Unwrapped, it grew to its longest line; a
-        // container that starts tracking that width wraps far off the right edge, which reads as
-        // the setting not having worked.
+        // The view's own width comes back too: unwrapped it grew to its longest line, and a container
+        // tracking that width wraps far off the right edge, as if the setting had not worked.
         #expect(abs(view.frame.width - scroll.contentSize.width) < 0.51,
                 "the view stayed \(view.frame.width)pt wide against a \(scroll.contentSize.width)pt column")
     }
 
     // MARK: The two switches on the menu
 
-    /// On a scratch suite, never the standard domain. Under `swift test` that is
-    /// `swiftpm-testing-helper`'s, shared by every test process on the machine (this Mac is also
-    /// the CI runner), so another process's write could land between a test's own write and its
-    /// read.
+    /// On a scratch suite, never the standard domain: under `swift test` that is
+    /// `swiftpm-testing-helper`'s, shared by every test process on the machine (this Mac is also the
+    /// CI runner), so another process's write could land between a test's own write and its read.
     private func coordinator(defaults: UserDefaults = ScratchDefaults("EditorTextSettingsTests")) -> PlainTextEditor.Coordinator {
         let subject = PlainTextEditor.Coordinator(source: EditorSourceStorage(), undoManager: UndoManager(),
                                                   documentID: nil, onSelectionChange: { _ in })

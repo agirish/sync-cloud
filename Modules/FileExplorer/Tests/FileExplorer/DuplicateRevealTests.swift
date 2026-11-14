@@ -4,11 +4,7 @@ import Sync
 @testable import FileExplorer
 
 /// The "Find duplicates of this" landing: what the Duplicates lens decides about a request, and
-/// what it changes to show it.
-///
-/// The workspace switch is `DuplicateRevealCoordinatorTests`' business. Here: the group holding the
-/// file is the one opened and marked, and a file in no group lands on an answer that names it, not
-/// a quietly empty list.
+/// what it changes to show it. The workspace switch is `DuplicateRevealCoordinatorTests`' business.
 @Suite struct DuplicateRevealTests {
 
     // MARK: Fixtures
@@ -202,8 +198,7 @@ import Sync
     }
 
     /// Waiting navigates nowhere (the previous scan's results stay put) but retires the named
-    /// answer and the mark, which are about some other file. Each field is checked, not just
-    /// `== Plan()`, so what the default means is stated here.
+    /// answer and the mark, which are about some other file.
     @Test func waitingRetiresTheAnswerAndNavigatesNowhere() {
         let plan = DuplicateReveal.plan(for: .waiting, path: "/pane/x.txt")
         // Retires the previous answer: `LensWorkspaceView.applyRevealPlan` assigns both unconditionally.
@@ -232,9 +227,8 @@ import Sync
                                         scannedRoot: "/pane") == .notFound(name: "x.txt"))
     }
 
-    /// The never-scanned variant of the same window: no completed root on either side of the
-    /// comparison, which `nil == nil` must read as "my scan has not landed", not as a match on
-    /// nothing.
+    /// The never-scanned variant of the same window: `nil == nil` must read as "my scan has not
+    /// landed", not as a match on nothing.
     @Test func aFirstEverScanIsAlsoWaitedFor() {
         let request = DuplicateRevealRequest(path: "/pane/x.txt",
                                              awaitsScanReplacing: .init(root: nil))

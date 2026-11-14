@@ -38,7 +38,6 @@ import Testing
     @Test func captionComposesAbsentPartsRule() {
         // Nothing run: the plain gloss — never "0 reporting".
         #expect(OrganizeOverview.Ledger.meterCaption(run: 0, reporting: 0, clean: 0) == "checks have run")
-        // The split, both parts present.
         #expect(OrganizeOverview.Ledger.meterCaption(run: 5, reporting: 2, clean: 3) == "2 reporting · 3 clean")
         // One-sided runs drop the zero side.
         #expect(OrganizeOverview.Ledger.meterCaption(run: 3, reporting: 0, clean: 3) == "3 clean")

@@ -62,10 +62,9 @@ import Sync
         #expect(one.verbs.map(\.title) == ["Read My Documents"])
     }
 
-    /// The count is optional, and the copy holds up without it. Counting means walking the whole
-    /// tree, too much for every Organize open, and the cheap figure (the profile's summed
-    /// `fileCount`) counts every file, not the documents read. So the uncounted card says how long,
-    /// not how many, and promises the count before it opens anything.
+    /// The count is optional, and the copy holds up without it: counting walks the whole tree, too
+    /// much for every Organize open. So the uncounted card says how long, not how many, and
+    /// promises the count before it opens anything.
     @Test func theOfferHoldsUpBeforeAnythingHasBeenCounted() {
         let detail = DocumentSurveyCardText.detail(for: .offered(documents: nil))
         #expect(!detail.isEmpty)
@@ -174,10 +173,9 @@ import Sync
         #expect(!detail.contains("3 h"), "it is re-asking the original three-hour question")
     }
 
-    /// Nothing left to read is its own sentence, not "0 still to read". It happens when the corpus
-    /// write fails after a complete pass: the checkpoint stays and what's left is the write. A
-    /// hand-edited checkpoint claiming more done than planned lands here too, so no negative count
-    /// may appear.
+    /// Nothing left to read is its own sentence, not "0 still to read": the corpus write failed
+    /// after a complete pass, so what's left is the write. A hand-edited checkpoint claiming more
+    /// done than planned lands here too, so no negative count may appear.
     @Test func nothingLeftToReadSaysWhatIsActuallyLeft() {
         for state: DocumentSurveyCardState in [.interrupted(done: 7558, total: 7558),
                                                .interrupted(done: 99, total: 10)] {
@@ -216,8 +214,7 @@ import Sync
     // MARK: - Settled: the receipt, and the gap it closed
 
     /// Once the documents have been read, the card becomes a receipt: what was learned, when, and
-    /// a refresh that says it reads only what changed. It is Organize's one place to see that the
-    /// reading happened and to refresh it.
+    /// a refresh that says it reads only what changed.
     @Test func theSettledReceiptStatesWhatIsKnownAndOffersTheRefresh() {
         let detail = DocumentSurveyCardText.detail(
             for: .settled(folders: 2306, lastRead: Date().addingTimeInterval(-3 * 86_400)))
@@ -240,7 +237,6 @@ import Sync
         let empty = DocumentSurveyCardState.settled(folders: 0, lastRead: nil)
         #expect(!DocumentSurveyCardText.title(for: empty).isEmpty && !DocumentSurveyCardText.detail(for: empty).isEmpty)
     }
-
 
     /// Singular and plural, verb included, so a one-folder tree never reads "1 folder have learned
     /// content".

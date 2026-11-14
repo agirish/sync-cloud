@@ -245,11 +245,9 @@ import Sync
 
     // MARK: Floating pieces never overlap
 
-    /// In a narrow or short canvas a piece finds the gap beside one piece and under another rather
-    /// than being drawn over one; searching one axis at a time finds none, e.g. for the capsule at
-    /// Top Left in the narrowest column. Swept over every pair of places at the narrow and short
-    /// sizes with a form's taller palette; every case here has room (checked by simulating the
-    /// rule), and only a canvas too short for its pieces wouldn't.
+    /// In a narrow or short canvas a piece finds the gap beside one piece and under another, which
+    /// searching one axis at a time misses. Swept over every pair of places at the narrow and short
+    /// sizes with a form's taller palette; every case here has room.
     @Test func aPieceFindsTheGapBesideOneAndUnderAnother() {
         let narrow = EditorPDFReader.layout(canvas: CGSize(width: 368, height: 400), findCard: .zero,
                                             saveStack: CGSize(width: 281, height: 30),

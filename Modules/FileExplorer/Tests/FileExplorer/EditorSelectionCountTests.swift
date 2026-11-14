@@ -50,9 +50,8 @@ import Design
     }
 
     /// ⌘A takes the document's own counts when they describe this text, rather than walking a 4 MiB
-    /// buffer for numbers already on screen, and counts afresh when they don't. The facts handed in
-    /// are deliberately wrong for the text, so the two answers differ and the test can tell which
-    /// one was given.
+    /// buffer for numbers already on screen, and counts afresh when they don't. The marker facts are
+    /// wrong for the text on purpose, so the test can tell which answer was given.
     @Test func aSelectAllReusesTheDocumentsCountsOnlyWhenTheyAreCurrent() {
         let text = "one two three"
         let all = NSRange(location: 0, length: (text as NSString).length)
@@ -68,9 +67,8 @@ import Design
                 "a partial selection took the whole document's counts")
     }
 
-    /// The same length is not the same text: one character typed over a one-character selection
-    /// leaves counts of the right length for the wrong text, which a select-all straight after must
-    /// not take.
+    /// The same length is not the same text: one character typed over a one-character selection leaves
+    /// counts of the right length for the wrong text, which a select-all straight after must not take.
     @Test func aSelectAllAfterALengthPreservingEditCountsTheNewText() throws {
         let before = "one twoxthree"
         let after = "one two three"
@@ -80,10 +78,9 @@ import Design
         #expect(EditorSelectionFacts.of(after, selection: all, facts: (stale, 41), version: 42)?.words == 3)
     }
 
-    /// The app hands over a text storage's string, not a native one, and the count is the same
-    /// through it: the slice is taken as a Swift string, never through `NSString`, which walks four
-    /// times slower (see `EditorSelectionFacts.of`). Edges inside an emoji's surrogate pair round
-    /// to the character, as the caret does.
+    /// The app hands over a text storage's string, and the count is the same through it: the slice is
+    /// taken as a Swift string, never through `NSString`, which walks four times slower (see
+    /// `EditorSelectionFacts.of`). Edges inside a surrogate pair round to the character, as the caret does.
     @Test func aTextStoragesStringCountsTheSameAsANativeOne() throws {
         let native = "naïve 👍 café\nsecond line\n"
         let storage = NSTextStorage(string: native)
@@ -208,10 +205,9 @@ import Design
         PixelDiff.differingPixels(a, b, tolerance: 0)
     }
 
-    /// Short of room for "118 lines", the line count goes and both counts stay. Laid out by width
-    /// (no forced rung) a little narrower than the rung with lines, the line draws exactly the
-    /// pixels of the rung without lines. With room it draws the lines; the two forced rungs are
-    /// checked to differ, so "the same pixels" can fail.
+    /// Short of room for "118 lines", the line count goes and both counts stay: laid out by width a
+    /// little narrower than the rung with lines, the line draws exactly the rung without lines. With
+    /// room it draws the lines; the two forced rungs are checked to differ, so "the same pixels" can fail.
     @Test func theSelectionsLineCountIsTheFirstThingToGo() throws {
         let withLines = ideal(line(multi, rung: .full))
         let without = ideal(line(multi, rung: .full, dropsLines: true))
@@ -243,8 +239,7 @@ import Design
         let floorFull = try #require(render(line(multi, rung: .full, dropsLines: true, headings: headings), width: width))
         #expect(differingPixels(chosen, counts) > 50, "the character count went before the line count")
         #expect(differingPixels(chosen, floorFull) == 0, "the line did not settle on the heading's floor without lines")
-        // And with room the line count is drawn beside the heading: the same counts over one line
-        // draw differently from over 118.
+        // With room the line count is drawn beside the heading: 118 lines draw unlike one.
         let roomy = without + EditorStatusLine.spacing + 600
         let oneLine = EditorSelectionFacts(words: multi.words, characters: multi.characters, lines: 1)
         #expect(differingPixels(try #require(render(line(multi, headings: headings), width: roomy)),
@@ -254,14 +249,12 @@ import Design
 
     // MARK: The call site
 
-    /// The rule is wired: the workspace hands the line its counted selection and keeps the
-    /// selection's length whatever the format bar is doing, since a count gated on the bar would be
-    /// blank in every plain-text file. Read from the source, comments stripped.
+    /// The workspace hands the line its counted selection and keeps the selection's length whatever
+    /// the format bar is doing, since a count gated on the bar would be blank in every plain-text file.
     ///
-    /// And the length is held, not observed: the workspace keeps the box in `@State` and never
-    /// reads its length, so a drag's ticks re-render only ``EditorSelectionDerivations`` (see
-    /// ``EditorLiveSelection`` for the cost). `@StateObject`, or a read of the length in the
-    /// workspace's body, would bring every tick back to the workspace.
+    /// The length is held, not observed: the workspace keeps the box in `@State` and never reads its
+    /// length, so a drag's ticks re-render only ``EditorSelectionDerivations`` (``EditorLiveSelection``
+    /// has the cost); `@StateObject`, or reading the length in the body, would bring every tick back.
     @Test func theWorkspaceHandsTheLineItsSelection() throws {
         let source = try ChromeGlassWiringTests.source("EditorWorkspaceView.swift")
         #expect(source.contains("selection: selectionFacts, goToLine: statusGoToLine"),

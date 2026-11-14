@@ -2,12 +2,9 @@ import Foundation
 
 /// The app's words, read from every source file at once (`MacApp/` and every package's
 /// `Sources/`), for the copy rules that hold app-wide: curly apostrophes and quotes, US spelling,
-/// and Title Case in menus and on buttons.
-///
-/// Comments (`//` and `/* */`) are stripped first, string-aware, so a URL in a string survives and
-/// a quoted string in a comment doesn't count. Log statements are skipped, since their words are
-/// read by us, not the person using the app; anything else not meant for that person is named in
-/// ``exemptions``, each with its reason.
+/// and Title Case in menus and on buttons. Comments are stripped first, string-aware, so a URL in
+/// a string survives and a quoted string in a comment doesn't count. Log statements are skipped;
+/// anything else not shown to the person using the app is named in ``exemptions``, with a reason.
 enum AppCopyScan {
 
     struct Literal {
@@ -41,8 +38,7 @@ enum AppCopyScan {
         pattern: #"[A-Za-z]'[A-Za-z]|[a-z]'(?=[\s.,;:!?)—–"])|\)'[A-Za-z]"#)
     /// An escaped straight double quote: `\"` after an even run of backslashes.
     static let straightQuote = try! NSRegularExpression(pattern: #"(?<!\\)(?:\\\\)*\\""#)
-    /// British spellings, as whole words, any case. ("towards" is not one: US English writes it
-    /// too.)
+    /// British spellings, as whole words, any case. Not "towards": US English writes it too.
     static let britishSpelling = try! NSRegularExpression(pattern: #"\b("#
         + ["colour", "colours", "coloured", "reorganisation", "reorganisations", "reorganise",
            "reorganised", "reorganising", "recognise", "recognises", "recognised", "recognising",
@@ -89,8 +85,7 @@ enum AppCopyScan {
     /// The literals a person reads that break `rule`, outside log statements and outside
     /// `exemptions`. `sentencesOnly` keeps to literals with a space in them, for the quote rule,
     /// where a key or a JSON fragment would drown it. The apostrophe and spelling rules read every
-    /// literal: a lone "person's" is a word on screen, and the only space-less straight
-    /// apostrophes in the app are date formats (`"yyyy-MM-dd'T'HH"`), exempt by name.
+    /// literal: a lone "person's" is a word on screen.
     static func violations(of rule: NSRegularExpression, sentencesOnly: Bool = true,
                            exemptions: [Exemption]) throws -> [Literal] {
         try violations(where: { matches(rule, $0) }, sentencesOnly: sentencesOnly, exemptions: exemptions)
@@ -213,15 +208,12 @@ enum AppCopyScan {
         return true
     }
 
-    /// Menu items whose titles a person reads that are not in Title Case: the titles of `Button`,
-    /// `Toggle`, `Label` and `Menu` written inside a `.contextMenu`, a `Menu`, a `CommandMenu` or
-    /// `CommandGroup`, a type whose name ends in a menu or command word (the menu bar's content
-    /// views, not `CommandPalettePanel…`, which only starts with one) or conforming to `Commands`,
-    /// or a function or property named for a menu; inside those, a `Text` in a `label:` closure
-    /// (`Button {} label: { Text("…") }`) and a `Text` tagged as a picker's option; and every
-    /// `NSMenuItem(title:)` or other `…MenuItem(title:)`. A title is the first argument's literal,
-    /// or each branch of a ternary there; not a literal handed to a function that builds one, nor
-    /// one held in a constant.
+    /// Menu items whose titles a person reads that are not in Title Case: `Button`, `Toggle`,
+    /// `Label` and `Menu` titles inside a `.contextMenu`, `Menu`, `CommandMenu`, `CommandGroup`, a
+    /// type whose name ends in a menu or command word (not `CommandPalettePanel…`, which only
+    /// starts with one) or conforming to `Commands`, or a function or property named for a menu; a
+    /// `Text` in a `label:` closure or tagged as a picker's option; and every `…MenuItem(title:)`.
+    /// Not a literal handed to a function that builds a title, nor one held in a constant.
     static func menuTitleViolations(exemptions: [Exemption]) throws -> [Literal] {
         try sourceFiles().flatMap { menuTitleViolations(in: $0.code, path: $0.path) }
             .filter { literal in !exemptions.contains { $0.covers(literal) } }
@@ -258,12 +250,10 @@ enum AppCopyScan {
 
     // MARK: Title Case on buttons
 
-    /// Buttons whose titles a person reads that are not in Title Case, anywhere in the app. A title
-    /// is the first argument's literal of a `Button(`, or each branch of a ternary there; the first
-    /// literal of a `Label(` or `Text(` in a button's label (the trailing closure of a
-    /// `Button(action:)`, or its `label:` closure); and a title handed to one of the app's own
-    /// button builders, ``buttonTitleArguments``. Not a `Toggle`, a `Link` or a `DisclosureGroup`:
-    /// their words are sentence case. Multi-word literals only, as the menu scan reads them.
+    /// Buttons whose titles a person reads that are not in Title Case, anywhere in the app: a
+    /// `Button(` title, the first literal of a `Label(` or `Text(` in a button's label, and a title
+    /// handed to one of the app's own builders, ``buttonTitleArguments``. Not a `Toggle`, a `Link`
+    /// or a `DisclosureGroup`: their words are sentence case. Multi-word literals only.
     static func buttonTitleViolations(exemptions: [Exemption]) throws -> [Literal] {
         try sourceFiles().flatMap { buttonTitleViolations(in: $0.code, path: $0.path) }
             .filter { literal in !exemptions.contains { $0.covers(literal) } }

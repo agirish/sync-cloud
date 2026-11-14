@@ -159,7 +159,6 @@ import EventsTestSupport
         #expect(mark.font == .sans && mark.isMark)
         #expect(fill.styleTarget == .mark)
         #expect(EditorPDFFillFlyouts.style(for: fill).items.isEmpty)
-        // A mark's right-click menu: its ink, and Delete.
         #expect(EditorPDFFillFlyouts.itemMenu(for: fill).items.map(\.title) == ["Ink", "", "Delete"])
         fill.armed = .date
         let date = try #require(fill.place(at: CGPoint(x: 300, y: 300), page: 0))
@@ -168,9 +167,8 @@ import EventsTestSupport
 
     // MARK: The Aa tool
 
-    /// Text's font, from the Aa flyout: five fonts, each drawn in itself, the current one ticked;
-    /// choosing one sets the selected text's (refitted to its words) and the next text's, in one ⌘Z
-    /// step.
+    /// The Aa flyout's five fonts, each drawn in itself, the current one ticked: choosing one sets the
+    /// selected text's font (refitted to its words) and the next text's, in one ⌘Z step.
     @Test func theStyleFlyoutSetsTheSelectedTextsFontAndTheNext() throws {
         let fill = fill()
         let id = try placeText(fill)
@@ -229,7 +227,6 @@ import EventsTestSupport
             EditorPDFFillItem.measure("Alex Morgan", fontSize: item.fontSize, script: true, font: item.toolkitFont).width
         }
         #expect(abs(width(restyled) - width(placed)) < 2, "the new face changed the signature's width")
-        // Undo names what changed: the face.
         #expect(fill.undoManager.undoActionName == "Face")
 
         fill.undoManager.undo()
@@ -333,8 +330,7 @@ import EventsTestSupport
     // MARK: The sheet's pieces
 
     /// Add makes the initials too, in the signature's face, only while none are saved and only when
-    /// the signature is saved; its ink becomes the next item's, without recolouring the selected
-    /// one.
+    /// the signature is saved; its ink becomes the next item's, not the selected one's.
     @Test func addingATypedSignatureCanMakeItsInitials() throws {
         let fill = fill()
         let selected = try placeText(fill)

@@ -2,45 +2,33 @@ import Foundation
 import Testing
 @testable import FileExplorer
 
-/// No source file in the app calls anybody *her* or *him*.
+/// No source file in the app calls anybody *her* or *him*. The person panel is drawn for whoever is
+/// scoped, so copy like "992 hers" or "In her folders" would be wrong for most people while
+/// ``PersonViewTests``, whose fixtures are `daughter` and `mother`, stayed green.
 ///
-/// The person panel is drawn for whoever is scoped, so its copy must hold for everyone: strings
-/// like the header capsule ("992 hers"), group titles ("In her folders", "Hers, filed elsewhere")
-/// or the misfiling subtitle would be wrong on screen for most people while ``PersonViewTests``,
-/// whose fixtures are `daughter` and `mother`, stayed green. The rest of ``PersonView`` says
-/// *theirs* and *them*.
+/// A source scan rather than a render: the next instance will be a *new* string, which a render
+/// test cannot see.
 ///
-/// A source scan rather than a render, because the next instance will be a *new* string, and a
-/// render test can only see the strings someone thought to render.
+/// ## Why this scans everything, with no exemption list
 ///
-/// ## Why this scans everything, and why that needs no exemption list
+/// A list of surfaces cannot contain the one nobody has written yet, so the sweep covers every
+/// file. ``FilingRouter``'s stop-word list holds "he", "she", "his" and "her" as *data*, and an
+/// exemption list is one entry away from exempting the thing it exists to catch. Instead,
+/// ``isWordListLine(_:)`` allows the shape, not the file: a line of nothing but quoted lowercase
+/// words and commas is a word list, and copy is never that shape. Replace either stop-word line
+/// with a sentence and this fails, which an exemption naming the file could not promise.
 ///
-/// A list of surfaces cannot contain the surface nobody has written yet, which is where the next
-/// instance lands, so the sweep covers every file. That would seem to need an exemption for
-/// ``FilingRouter``'s stop-word list, which holds "he", "she", "his" and "her" as *data*, and a
-/// scan carrying an exemption list is one entry away from exempting the thing it exists to catch.
-///
-/// The stop words don't need exempting; they need *describing*. A line that is nothing but quoted
-/// lowercase words and commas is a word list, and copy is never that shape. So
-/// ``isWordListLine(_:)`` allows the shape, not the file: any file may hold a word list, and
-/// ``FilingRouter`` gets no special standing. Replace either of those lines with a sentence and
-/// this fails, which an exemption naming the file could not promise.
-///
-/// It lives in FileExplorer's suite for reach rather than ownership: it scans every module,
-/// `MacApp/` and the CLI, and this is the largest UI package in the run that CI's *first* step
-/// covers. The app-target step, which the second step runs, is skipped whenever the first is
-/// cancelled.
+/// It lives in FileExplorer for reach: it scans every module, `MacApp/` and the CLI, and this is
+/// the largest UI package CI's *first* step covers; the app-target step is skipped whenever the
+/// first is cancelled.
 @Suite struct GenderedCopyTests {
 
     /// Third person singular, both gendered sets. *They*, *them* and *their* are what copy about a
     /// person should say and are not listed.
     static let gendered = ["her", "hers", "herself", "she", "his", "him", "himself", "he"]
 
-    /// The surfaces that draw a person, named so the sweep can be shown to reach them.
-    ///
-    /// Not the scan's input (the scan takes every file it finds) but its proof of reach. A
-    /// discovered set that quietly stopped discovering would otherwise pass by scanning nothing,
-    /// and these are the files whose copy the guard is for.
+    /// The surfaces that draw a person: not the scan's input but its proof of reach, since a
+    /// discovered set that quietly stopped discovering would pass by scanning nothing.
     private static let personSurfaces = [
         "Modules/FileExplorer/Sources/FileExplorer/PersonView.swift",
         "Modules/Settings/Sources/Settings/PersonEditor.swift",
@@ -53,11 +41,9 @@ import Testing
         "Modules/Sync/Sources/Sync/PeopleStore.swift",
     ]
 
-    /// One file per root: a proof of reach too, but against a different failure.
-    ///
-    /// Every surface above lives under `Modules`, so all nine could pass while the walk had quietly
-    /// stopped covering `MacApp` and the CLI entirely. `Design` stands in for a module with no
-    /// person surface in it at all.
+    /// One file per root, also proof of reach: every surface above lives under `Modules`, so all
+    /// could pass with `MacApp` and the CLI unwalked. `Design` stands in for a module with no person
+    /// surface.
     private static let oneFilePerRoot = [
         "Modules/Design/Sources/Design/AppChord.swift",
         "MacApp/SyncCloudApp.swift",
@@ -67,8 +53,8 @@ import Testing
     @Test func testNoSourceFileUsesAGenderedPronoun() throws {
         let files = try Self.sourceFiles()
 
-        // Positive controls first. An absence assertion over a discovered set is worth exactly what
-        // the discovery is worth, and a sweep that found nothing would otherwise report success.
+        // Positive controls: an absence assertion over a discovered set is worth what the discovery
+        // is worth.
         #expect(files.count > 200, "only \(files.count) source files found — the sweep lost its roots")
         for surface in Self.personSurfaces + Self.oneFilePerRoot {
             #expect(files.contains { $0.relative == surface },
@@ -86,9 +72,8 @@ import Testing
             }
         }
 
-        // The word-list allowance is itself pinned: if `isWordListLine` ever stopped matching, the
-        // two stop-word lines would land in `offences` and this test would fail for a reason that
-        // has nothing to do with copy. Saying the expected number out loud makes that legible.
+        // The word-list allowance is pinned: if `isWordListLine` stopped matching, the two stop-word
+        // lines would fail this for a reason unrelated to copy.
         #expect(wordLists == 2, "\(wordLists) word-list lines carried a pronoun, expected FilingRouter's 2")
         #expect(offences.isEmpty, """
                 \(offences.count) line(s) call somebody her or him:
@@ -98,10 +83,8 @@ import Testing
                 """)
     }
 
-    /// The matcher fires; otherwise the sweep above is a green light for any spelling.
-    ///
-    /// The four strings this guard is for, plus the shape a word-boundary scan is most likely to
-    /// get wrong in each direction.
+    /// The matcher fires, on the four strings this guard is for, and on the shapes a word-boundary
+    /// scan is most likely to get wrong in each direction.
     @Test func testTheScanWouldHaveCaughtTheStringsItWasWrittenFor() {
         for old in ["Text(\"\\(files.total) hers\")",
                     "title: \"In her folders\",",
@@ -112,8 +95,7 @@ import Testing
             // And the allowance must not swallow one: a sentence is not a word list.
             #expect(!Self.isWordListLine(old), "“\(old)” was mistaken for a word list")
         }
-        // A `//` inside a string is not a comment. This is why `codeOnly` tracks quotes: truncating
-        // at the scheme would drop the label and let the copy through.
+        // A `//` inside a string is not a comment: truncating at the scheme would let the copy through.
         #expect(Self.contains("her", in: Self.codeOnly(#"foo(url: "https://x", label: "In her folders")"#)),
                 "copy after a URL was stripped as a comment — the sweep cannot see it")
         // While a real comment still goes, including the one that documents this rule.
@@ -129,10 +111,8 @@ import Testing
     }
 
     /// A line that is nothing but quoted lowercase words and commas: a word list, not a sentence.
-    ///
-    /// This is what lets the sweep run over everything without naming a file it trusts. Copy never
-    /// takes this shape: it has a `Text(`, a `=`, a capital letter, a space inside a quote, or a
-    /// word longer than one token. Deliberately strict for that reason.
+    /// Deliberately strict: copy always has a `Text(`, a `=`, a capital letter, a space inside a
+    /// quote, or a word longer than one token.
     static func isWordListLine(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
@@ -144,21 +124,15 @@ import Testing
         source.range(of: "\\b\(word)\\b", options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    /// `line` with its `//` comment tail removed, doc comments included.
+    /// `line` with its `//` comment tail removed, doc comments included: prose about a pronoun is
+    /// not a use of one (``PersonView``'s type doc calls the *user* "he", accurately).
     ///
-    /// Prose about a pronoun is not a use of one, and this file's own header would otherwise fail
-    /// the sweep: a guard that cannot survive being documented is not a guard. It also strips
-    /// ``PersonView``'s type doc, which calls the *user* "he", accurately.
+    /// A `//` inside a string literal is not a comment, or `foo(url: "https://x", label: "In her
+    /// folders")` would truncate at the scheme and the copy after it would never be scanned. So
+    /// quotes are tracked, with `\\` escapes respected.
     ///
-    /// **A `//` inside a string literal is not a comment.** Treating it as one would be a hole, not
-    /// a rough edge: `foo(url: "https://x", label: "In her folders")` would truncate at the `//` in
-    /// the scheme and the copy after it would never be scanned. So quotes are tracked, with `\\`
-    /// escapes respected, and a `//` only ends the line when it is outside one.
-    ///
-    /// A line inside a `"""` block that holds an odd number of quotes leaves the tracker thinking
-    /// it is mid-string, so a `//` on it is kept rather than cut. That is the safe direction: the
-    /// line is scanned in full, and there are no comments inside a string literal to be mistaken
-    /// for copy.
+    /// A line inside a `"""` block with an odd number of quotes leaves the tracker mid-string, so a
+    /// `//` on it is kept rather than cut: the safe direction, since the line is scanned in full.
     static func codeOnly(_ line: String) -> String {
         var inString = false
         var escaped = false
@@ -195,10 +169,8 @@ import Testing
         let contents: String
     }
 
-    /// Every shipping `.swift` file: each module's `Sources`, the app target, and the CLI.
-    ///
-    /// Tests are excluded: they say "hers" about the fixture person, correctly, and a fixture named
-    /// Daughter is not copy. `.build` is excluded because it holds vendored packages.
+    /// Every shipping `.swift` file: each module's `Sources`, the app target, and the CLI. Tests are
+    /// excluded (they say "hers" about the fixture person, correctly), and so is `.build` (vendored).
     static func sourceFiles() throws -> [SourceFile] {
         let root = URL(fileURLWithPath: #filePath)                // …/Tests/FileExplorer/<this>
             .deletingLastPathComponent()                          // …/Tests/FileExplorer
@@ -209,14 +181,12 @@ import Testing
         var found: [SourceFile] = []
         for top in ["Modules", "MacApp", "SyncCloudCLI"] {
             let dir = root.appendingPathComponent(top)
-            // `enumerator(at:)` hands back a non-nil enumerator that yields nothing for a directory
-            // it cannot list, so there is no `guard let` worth writing here; the count assertion in
-            // the test is what proves the walk found anything.
+            // `enumerator(at:)` returns a non-nil enumerator that yields nothing for a directory it
+            // cannot list; the count assertion in the test proves the walk found anything.
             let walk = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
             while let url = walk?.nextObject() as? URL {
-                // Turned away at the door rather than filtered per file: `Modules/*/.build` holds
-                // tens of thousands of vendored files, slow to walk and possibly being written by
-                // another session's build.
+                // Skipped whole: `Modules/*/.build` holds tens of thousands of vendored files, slow to
+                // walk and possibly being written by another session's build.
                 if url.lastPathComponent == ".build" || url.lastPathComponent == "Tests" {
                     walk?.skipDescendants()
                     continue

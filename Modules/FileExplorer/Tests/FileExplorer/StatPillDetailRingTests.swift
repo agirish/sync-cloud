@@ -5,12 +5,11 @@ import Testing
 @testable import FileExplorer
 
 /// Measures, in painted pixels, the boundary between the count pill's age run and the accent
-/// capsule behind it. The ring (`onAccentLabelColor`, ≥4.55:1 against every accent fill by
-/// `AccentFill.deepened`) is what lets a semantic capsule nest inside an accent one: the inset fill
-/// alone can fall to 2.68:1. The `countPillFreshnessStates` snapshot can't guard it, since its
-/// tolerance absorbs a 1pt stroke. So this walks in from the bare accent field to the first changed
-/// pixel and requires 3:1, the rule for a non-text boundary, whatever provides the separation.
-/// Counting white pixels can't work: the light semantic fills are near-white too.
+/// capsule behind it. The ring (`onAccentLabelColor`) is what lets a semantic capsule nest inside
+/// an accent one: the inset fill alone can fall to 2.68:1, and the `countPillFreshnessStates`
+/// snapshot's tolerance absorbs a 1pt stroke. So this walks in from the accent field to the first
+/// changed pixel and requires the 3:1 a non-text boundary needs. Counting white pixels can't work:
+/// the light semantic fills are near-white too.
 @MainActor
 @Suite(.machinePinned(.pixelSampling)) struct StatPillDetailRingTests {
 

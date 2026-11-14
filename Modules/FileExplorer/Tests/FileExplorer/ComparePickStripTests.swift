@@ -6,11 +6,8 @@ import Design
 
 /// The compare-pick bar must not grow with the filename: a long name would stretch it across the
 /// window and over both panes' tab strips and breadcrumbs. The name has its own width ceiling, and
-/// the instruction is composed around it so truncating the name can't truncate the words.
-///
-/// Measures the render, not the constant, for `PaneActionBarStabilityTests`' reason: a width
-/// constant would only re-assert itself. That the bar takes layout space rather than floating over
-/// the chrome is structural, in `mainContentView`.
+/// the instruction is composed around it so truncating the name can't truncate the words. Measures
+/// the render, not the constant: a width constant would only re-assert itself.
 @MainActor
 @Suite(.serialized) struct ComparePickStripTests {
 

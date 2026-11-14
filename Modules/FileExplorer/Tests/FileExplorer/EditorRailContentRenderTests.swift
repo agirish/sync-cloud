@@ -10,7 +10,7 @@ import SwiftUI
 
     private static let canvas = CGSize(width: EditorLayoutMetrics.railWidth, height: 460)
 
-    /// A model holding a finished search: two text files and a PDF, as the figure on the plan page.
+    /// A model holding a finished search: two text files and a PDF.
     private func seededModel(scope: EditorRailFilterScope) async -> EditorContentSearchModel {
         let model = EditorContentSearchModel()
         var continuation: AsyncStream<EditorContentSearch.Event>.Continuation?
@@ -97,9 +97,8 @@ import SwiftUI
         return count
     }
 
-    /// Contents draws its results where Names draws the folder's rows, and they differ: Names lists
-    /// two files and stops; Contents lists the two files that hold the word, their lines and the
-    /// Spotlight group, which reach far further down the rail.
+    /// Contents draws its results where Names draws the folder's rows: Names lists two files and
+    /// stops; Contents' matching files, lines and Spotlight group reach far further down the rail.
     @Test func theContentsResultsPaint() async {
         let names = render(rail(await seededModel(scope: .names)))
         let contents = render(rail(await seededModel(scope: .contents)))

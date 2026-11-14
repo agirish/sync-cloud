@@ -7,7 +7,7 @@ import Testing
 /// `withScanFreshness` renders a `TimelineView` only while `lastScanDate` is non-nil.
 /// `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and `hasScanned` in one
 /// transaction, so a handler inside the closure is torn down by the change it watches and never
-/// fires, leaving the pill expanded over a comparison that no longer exists (fixed in ec0382431).
+/// fires, leaving the pill expanded over a comparison that no longer exists.
 ///
 /// A scan of the shipped call site, since the header is private and the hazard needs a retarget
 /// transaction to show. Moving the handler inside the closure indents it four more spaces.

@@ -6,25 +6,23 @@ import Testing
 @testable import FileExplorer
 
 /// The differences table keeps its AppKit identity across a "Group by folder" toggle, so a dragged
-/// column width and the scroll position survive it. Measured on the real `NSTableView`, because
-/// SwiftUI can't be asked whether a Table is the one it had before. Splitting it back into two
-/// Tables behind an `if` must fail `widthSurvivesTheGroupingToggle` on "the toggle swapped the
-/// NSTableView" while its row counts still settle.
+/// column width and the scroll position survive it. Measured on the real `NSTableView`, since
+/// SwiftUI can't be asked whether a Table is the one it had before. Mutation: splitting it back
+/// into two Tables behind an `if` must fail `widthSurvivesTheGroupingToggle`.
 ///
 /// Harness traps:
 /// - Wait asynchronously, never by spinning `RunLoop.run`: the rows arrive from a `.task(id:)` hop
 ///   on the main actor, and a synchronous spin from a `@MainActor` test starves that task.
 /// - The window is never ordered in: `.task` fires without it, and the owner uses the real app
 ///   while these run.
-/// - Waits target the exact settled row count, never `rows > 0`: rows materialize asynchronously,
-///   so the first non-empty count can be whichever shape rendered first.
+/// - Wait for the exact settled row count, never `rows > 0`: rows materialize asynchronously, so
+///   the first non-empty count can be whichever shape rendered first.
 ///
-/// Each mount reads its preferences from its own `ScratchDefaults` suite via `.defaultAppStorage`,
-/// never `UserDefaults.standard`. `@AppStorage` keeps a process-wide storage location per
-/// (store, key) that outlives its views and can re-attach to a fresh view without re-reading the
-/// defaults, so a shared key can render grouped while the plist says flat. `.serialized` orders the
-/// cases; `.oneMountedDifferencesTable` keeps these mounts, the priciest main-actor jobs in the
-/// target, from stacking on other mounting suites' and starving their deadlines.
+/// Each mount reads its preferences from its own `ScratchDefaults` suite via `.defaultAppStorage`.
+/// `@AppStorage` keeps a process-wide storage location per (store, key) that outlives its views and
+/// can re-attach to a fresh view without re-reading the defaults, so a shared key can render
+/// grouped while the plist says flat. `.oneMountedDifferencesTable` keeps these mounts, the
+/// priciest main-actor jobs in the target, from stacking on other suites' and starving deadlines.
 @MainActor
 @Suite(.serialized, .oneMountedDifferencesTable) struct DifferencesTableIdentityTests {
 
@@ -35,9 +33,7 @@ import Testing
     // MARK: Fixture
 
     /// Three folders of four rows each, which clears `isWorthGrouping` (sections must average
-    /// >= 3 rows), so the toggle really changes the row shape. `widthSurvivesTheGroupingToggle`
-    /// checks that (12 rows flat, 15 grouped), since a fixture failing the gate would make the
-    /// identity assertion vacuous.
+    /// >= 3 rows), so the toggle really changes the row shape: 12 rows flat, 15 grouped.
     private func differences(folders: [String] = ["Documents", "Photos", "Projects"],
                              perFolder: Int = 4) -> [FileDifference] {
         folders.flatMap { folder in
@@ -92,15 +88,12 @@ import Testing
 
     // MARK: Waiting + hierarchy helpers
 
-    /// Waits for the table to settle at exactly `expected` rows and reports the last count seen.
-    /// `rows > 0` is no signal: rows and the grouping toggle land asynchronously, so the first
-    /// non-empty count may be the wrong shape. Returned, not asserted, so each caller's message
-    /// names its mount; on timeout it is the count on screen, as in `SectionRowHeightTests`.
+    /// Waits for the table to settle at exactly `expected` rows and reports the last count seen,
+    /// so each caller's message names its mount. `rows > 0` is no signal: rows and the grouping
+    /// toggle land asynchronously, so the first non-empty count may be the wrong shape.
     ///
-    /// Bounded by `LayoutPumpWait`'s pass floor, not the deadline alone, and it reports the passes:
-    /// a loaded machine needs more main-actor turns, not more seconds. Giving up after the floor's
-    /// 50 passes means starved; after a thousand, genuinely disproved. See "Fixed pumps and fixed
-    /// sleeps" in `docs/flaky-tests.md`.
+    /// Bounded by `LayoutPumpWait`'s pass floor, not the deadline alone: a loaded machine needs
+    /// more main-actor turns, not more seconds (`docs/flaky-tests.md`, "Fixed pumps and fixed sleeps").
     private func settle(_ host: NSView, atRows expected: Int,
                         timeout: TimeInterval = 15) async -> (rows: Int, pumps: Int) {
         var last = 0
@@ -173,8 +166,7 @@ import Testing
 
     // MARK: Tests
 
-    /// A column dragged to a width nothing would choose keeps it across the grouping toggle, on
-    /// the same table view.
+    /// A column dragged to a width nothing would choose keeps it across the grouping toggle.
     @Test(.machinePinned(.layoutMetrics)) func widthSurvivesTheGroupingToggle() async throws {
         let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
@@ -238,7 +230,6 @@ import Testing
     }
 
     /// Both row shapes accept selection, which the context menu and the copy shortcuts act on.
-    ///
     /// `selectionHighlightStyle` is `.none` on purpose: `DifferencesTableSelectionStyler` replaces
     /// the OS highlight with the accent wash, and `.none` suppresses only AppKit's drawing, not the
     /// selection. Waiting for `.none` first shows the styler reached this table.
@@ -377,9 +368,8 @@ import Testing
                 "Home vs Backup anchored anyway — the equality gate is not being consulted")
     }
 
-    /// Both shapes show the same four columns in the same order. This pins titles and order only,
-    /// all an NSTableView tells from outside; cell content can't drift between shapes because the
-    /// columns are declared once.
+    /// Both shapes show the same four columns in the same order: titles and order, all an
+    /// NSTableView tells from outside. Cell content can't drift, as the columns are declared once.
     @Test func bothRowShapesDrawTheSameColumns() async throws {
         var seen: [[String]] = []
         for grouped in [false, true] {

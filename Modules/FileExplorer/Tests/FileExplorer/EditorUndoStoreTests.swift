@@ -31,10 +31,9 @@ import Foundation
 
     /// Per document, not per text: two files holding the same bytes get different stacks too.
     /// `NSTextView` registers undo by character range, so a shared stack replays one file's edits
-    /// into another, splicing or throwing `NSRangeException`. Identical contents are the case a
-    /// buffer comparison misses (the shipped `removeAllActions()` under `if view.string != text`).
-    /// The stack comes back with the storage its actions edit: an `NSTextView` registers undo
-    /// against its storage, so a stack handed back beside a different one reverts text nobody sees.
+    /// into another, splicing or throwing `NSRangeException`; identical contents are the case a
+    /// buffer comparison misses. The stack comes back with the storage its actions edit, since undo
+    /// is registered against a storage: beside a different one it reverts text nobody sees.
     @Test(arguments: [("one", "two"), ("identical", "identical")])
     func aDocumentGetsItsOwnStackAndKeepsIt(a: String, b: String) {
         let subject = store()
@@ -77,16 +76,13 @@ import Foundation
         #expect(subject.source.textStorage.string == "the ORIGINAL text")
     }
 
-    /// Equal strings, different bytes, and the stack is refused.
+    /// Equal strings, different bytes, and the stack is refused. The fingerprint hashes the buffer's
+    /// UTF-8 rather than the `String`, for speed on large files (see ``EditorUndoStore/Fingerprint``).
+    /// Swift compares strings for Unicode canonical equivalence, so these two are `==`, and both are
+    /// five UTF-8 bytes, so the length field can't separate them either. Only the byte hash can.
     ///
-    /// The fingerprint hashes the buffer's UTF-8 rather than the `String`, for speed on large files
-    /// (see ``EditorUndoStore/Fingerprint``). Swift compares and hashes strings for Unicode
-    /// canonical equivalence, so these two are `==`, and the length field can't separate them
-    /// either, since both are five UTF-8 bytes. Only the byte hash can.
-    ///
-    /// Refusing is the point, not a regression: the bytes on disk differ, so a save of one over the
-    /// other writes a different file, and this type's rule is that refusing costs a lost history
-    /// while replaying a stale stack costs the app.
+    /// Refusing is the point: the bytes on disk differ, so a save of one over the other writes a
+    /// different file, and refusing costs a lost history while replaying a stale stack costs the app.
     @Test func aStackIsRefusedWhenTheBytesChangedUnderAnEqualString() {
         // q + dot-below + dot-above, against q + dot-above + dot-below.
         let first = "q\u{0323}\u{0307}"
@@ -179,8 +175,7 @@ import Foundation
 
     /// The file being opened is never the one evicted. Eviction runs on the way out of a document,
     /// before the incoming one is activated, so with the incoming file the least recently used,
-    /// cycling through one more edited file than the limit would drop each file's history the
-    /// moment it was reopened. Limit 2: a, b and c edited in turn, then a again.
+    /// cycling through one more edited file than the limit would drop each history as it reopened.
     /// Mutation: evict `order.first` regardless of `opening` and a's stack is gone.
     @Test func theFileBeingOpenedIsNeverEvicted() {
         let subject = store(limit: 2)

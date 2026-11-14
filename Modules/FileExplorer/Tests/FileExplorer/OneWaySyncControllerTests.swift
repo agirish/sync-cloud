@@ -37,8 +37,7 @@ import Sync
             return record
         }
 
-        /// A controller holding `record`, told this process may not sync unless `refusal` says
-        /// otherwise.
+        /// A controller holding `record`, told this process may not sync unless `refusal` says otherwise.
         @MainActor
         func controller(state: OneWaySyncSavedState = OneWaySyncSavedState(),
                         refusal: OneWaySyncLaunchRefusal? = .testRunner) -> (OneWaySyncController, ActivityCenter) {
