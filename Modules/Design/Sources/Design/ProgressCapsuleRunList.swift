@@ -49,13 +49,7 @@ public struct ProgressCapsuleRunList: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Running · \(runs.count)")
-                .scaledFont(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
-                .accessibilityAddTraits(.isHeader)
+            ActivitySectionHeading("Running · \(runs.count)")
             ForEach(Array(runs.enumerated()), id: \.element.id) { index, listed in
                 if index > 0 { Divider().padding(.leading, 12) }
                 ProgressCapsuleRunRow(listed: listed, isNewest: takesKeys && index == 0)

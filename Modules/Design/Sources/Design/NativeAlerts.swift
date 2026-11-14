@@ -177,7 +177,32 @@ public struct NativeAlerts {
         }
         return alert
     }
-    
+
+    /// Runs `folderPanel` modally.
+    /// - Returns: The folder chosen, or nil when cancelled.
+    public static func chooseFolder(prompt: String? = nil, message: String? = nil, startingAt folder: URL? = nil,
+                                    canCreateDirectories: Bool? = nil) -> URL? {
+        let panel = folderPanel(prompt: prompt, message: message, startingAt: folder,
+                                canCreateDirectories: canCreateDirectories)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    /// The one-folder chooser `chooseFolder` runs, built but not run, so a test can pin it without
+    /// a modal session. Each argument is set only when given, so nil leaves the panel's own default.
+    static func folderPanel(prompt: String? = nil, message: String? = nil, startingAt folder: URL? = nil,
+                            canCreateDirectories: Bool? = nil) -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if let canCreateDirectories { panel.canCreateDirectories = canCreateDirectories }
+        if let prompt { panel.prompt = prompt }
+        if let message { panel.message = message }
+        if let folder { panel.directoryURL = folder }
+        return panel
+    }
+
     /// Presents a native macOS prompt requesting a new name for an existing file/folder.
     /// When `validate` rejects the entered name, explains why and re-presents, like Finder.
     /// - Parameters:

@@ -14,9 +14,8 @@ public enum Radius {
     /// Buttons, thumbnails, small wells: a control with its own ground.
     public static let control: CGFloat = 8
     /// Grouped regions and inset panels: a container of controls, not a control.
-    /// `LiquidGlass.smallCornerRadius` reads from here.
     public static let well: CGFloat = 10
-    /// Floating cards and panels. `LiquidGlass.cardCornerRadius` reads from here.
+    /// Floating cards and panels.
     public static let card: CGFloat = 14
 
     /// The stops, ascending, for tests and for anything that snaps a value.

@@ -85,7 +85,7 @@ extension ContentView {
         let pane = paneContext(isLeft: isLeft)
         let plan = PaneLogic.searchPlan(isLeft: isLeft, isSingleSource: layoutMode == .singleSource,
                                         query: query)
-        let generation = (isLeft ? leftSearchGeneration : rightSearchGeneration) + 1
+        let generation = paneSearchResults(isLeft: isLeft).generation + 1
         // Everything below the hop reads only `Sendable` values captured here. The trees are
         // stamped `PaneTree` snapshots, so the background pass cannot see a half-applied republish.
         let tree = pane.tree
@@ -120,10 +120,8 @@ extension ContentView {
         let previous = isLeft ? leftSearchResults : rightSearchResults
         let landed = results.walkIndex(after: previous, standingAt: state.wrappedValue.hitIndex)
         if isLeft {
-            leftSearchGeneration = generation
             leftSearchResults = results
         } else {
-            rightSearchGeneration = generation
             rightSearchResults = results
         }
         state.wrappedValue.hitIndex = landed

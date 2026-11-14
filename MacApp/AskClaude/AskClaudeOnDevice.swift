@@ -28,6 +28,22 @@ enum AskClaudeOnDevice {
         await Task.detached(priority: .userInitiated) { isAvailable }.value
     }
 
+    /// `work`'s answer, or nil when `timeout` passes first; the other is then cancelled. `work`
+    /// runs with the isolation it was written with, as a task group's child does.
+    nonisolated static func firstWithin<T: Sendable>(_ timeout: Duration,
+                                                     _ work: @escaping @Sendable @isolated(any) () async -> T?) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask(operation: work)
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
     /// A session made and prewarmed before Send, with the instructions it was made for. Taken by
     /// the next question whose instructions match, then gone: a session keeps its transcript, and
     /// each question starts clean.
@@ -86,23 +102,14 @@ enum AskClaudeOnDevice {
         guard await availableOffMain() else { return nil }
         let started = ContinuousClock.now
         let session = session(for: AskClaudeQuickCommand.instructions(lists))
-        let answer: Answer? = await withTaskGroup(of: Answer?.self) { group in
-            group.addTask {
-                do {
-                    return try await session.respond(to: question, generating: Answer.self,
-                                                     options: GenerationOptions(samplingMode: .greedy)).content
-                } catch {
-                    Logger.shared.info("Ask Claude’s on-device model didn’t route a question: \(error.localizedDescription)")
-                    return nil
-                }
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
+        let answer: Answer? = await firstWithin(timeout) {
+            do {
+                return try await session.respond(to: question, generating: Answer.self,
+                                                 options: GenerationOptions(samplingMode: .greedy)).content
+            } catch {
+                Logger.shared.info("Ask Claude’s on-device model didn’t route a question: \(error.localizedDescription)")
                 return nil
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
         }
         let took = ContinuousClock.now - started
         guard let answer else {
@@ -145,25 +152,16 @@ enum AskClaudeOnDevice {
         let session = LanguageModelSession(instructions: starterInstructions)
         let prompt = "Questions they already have: " + shown.joined(separator: " · ") + "\n\n" + card
         let started = ContinuousClock.now
-        let answer: Starter? = await withTaskGroup(of: Starter?.self) { group in
-            group.addTask {
-                do {
-                    return try await session.respond(to: prompt, generating: Starter.self,
-                                                     options: GenerationOptions(samplingMode: .greedy)).content
-                } catch {
-                    if !Task.isCancelled {
-                        Logger.shared.info("Ask Claude’s on-device model wrote no starter: \(error.localizedDescription)")
-                    }
-                    return nil
+        let answer: Starter? = await firstWithin(timeout) {
+            do {
+                return try await session.respond(to: prompt, generating: Starter.self,
+                                                 options: GenerationOptions(samplingMode: .greedy)).content
+            } catch {
+                if !Task.isCancelled {
+                    Logger.shared.info("Ask Claude’s on-device model wrote no starter: \(error.localizedDescription)")
                 }
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
                 return nil
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
         }
         guard let answer, !Task.isCancelled else { return nil }
         let took = ContinuousClock.now - started

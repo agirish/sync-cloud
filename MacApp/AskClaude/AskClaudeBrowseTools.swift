@@ -762,7 +762,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             let found = AskClaudeFoundNames(words: "", folderLabel: folder.label, names: page.map(\.name), count: items.count,
                                             rows: lines.joined(separator: "\n"), paths: page.map(\.id), files: files,
                                             header: header, source: .listing, folderPath: folder.absolute)
-            return AskClaudeToolOutcome(result: Self.heldNames("\(AskClaudeScreenCard.escape(folder.label)) holds \(Self.count(items.count, "item")), on their Mac."),
+            return AskClaudeToolOutcome(result: Self.heldNames("\(AskClaudeScreenCard.escape(folder.label)) holds \(AskClaudeScreenCard.count(items.count, "item")), on their Mac."),
                                         step: step, found: found)
         }
         return AskClaudeToolOutcome(result: lines.joined(separator: "\n"), step: step)
@@ -790,8 +790,6 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
     static func heldSearch(_ words: String, _ folder: String) -> String {
         "Spotlight searched inside the files under \(AskClaudeScreenCard.escape(folder)) for “\(words)”, on their Mac. What it found wasn’t sent to you, not even how many: whether a file mentions a word says what it holds. They’re shown the result and can share it. In one short sentence, say what you would do with it if they share it, and stop. If they share it, it arrives as their next message."
     }
-
-    static func count(_ n: Int, _ noun: String) -> String { n == 1 ? "1 \(noun)" : "\(n) \(noun)s" }
 
     private func findByName(_ call: AskClaudeToolCall, _ ctx: Context, _ handles: inout AskClaudeHandles) async -> AskClaudeToolOutcome {
         let words = (call.string("words") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)

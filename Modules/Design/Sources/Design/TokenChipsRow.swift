@@ -79,3 +79,64 @@ public struct TokenChipsRow: View {
         .help(item.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
     }
 }
+
+/// The "Add filter" row a token search shows while its field is focused: one-tap suggestions,
+/// each appending its word to the query. Callers pass only the suggestions still worth offering;
+/// an empty list draws nothing.
+public struct TokenSuggestionRow: View {
+
+    /// One suggestion: its label, the exact word it appends, and its tooltip.
+    public struct Item {
+        public let label: String
+        public let raw: String
+        public let help: String
+
+        public init(label: String, raw: String, help: String) {
+            self.label = label
+            self.raw = raw
+            self.help = help
+        }
+    }
+
+    private let items: [Item]
+    @Binding private var text: String
+    private let tint: Color
+
+    public init(items: [Item], text: Binding<String>, tint: Color) {
+        self.items = items
+        self._text = text
+        self.tint = tint
+    }
+
+    /// `text` with `word` appended. Trims first, so appending never leaves a double space.
+    public static func appending(_ word: String, to text: String) -> String {
+        let base = text.trimmingCharacters(in: .whitespaces)
+        return base.isEmpty ? word : base + " " + word
+    }
+
+    public var body: some View {
+        if !items.isEmpty {
+            HStack(spacing: 6) {
+                Text("Add filter")
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+                ForEach(items, id: \.raw) { item in
+                    Button {
+                        text = Self.appending(item.raw, to: text)
+                    } label: {
+                        Text(item.label)
+                            .scaledFont(.caption2)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.quaternary.opacity(0.6)))
+                            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.hoverAffordance(.segment, tint: tint))
+                    .help(item.help)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}

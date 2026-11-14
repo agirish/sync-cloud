@@ -2953,16 +2953,7 @@ public struct LensWorkspaceView: View {
                         // The scaffold: one guarded, ledgered, ⌘Z-able landing of create-dirs,
                         // then the hand-off the button below offers on its own. A refusal shows as
                         // a banner sentence, never a silent no-op.
-                        onScaffold: { finding in
-                            Task { @MainActor in
-                                let outcome = await syncManager.applyScaffold(for: finding)
-                                if let refusal = outcome.refusal {
-                                    syncManager.banner = .refusal(refusal, log: .warn)
-                                } else {
-                                    handOffToToFile(finding)
-                                }
-                            }
-                        },
+                        onScaffold: scaffoldThenHandOff,
                         // To File, scoped to the finding's subject: the surface that already makes
                         // per-file judgements with a verdict, a shortlist and Undo.
                         onHandOff: handOffToToFile,
@@ -3055,7 +3046,9 @@ public struct LensWorkspaceView: View {
             from: syncManager.restructureStore?.applied ?? [],
             undoableId: syncManager.restructureStore?.undoableReorganisation(
                 currentProfileId: syncManager.filingProfileDirectoryId)?.manifest.manifestId,
-            stillHasEmptiedFolders: { anyEmptiedFolderStillStands(of: $0) })
+            // The removal button's licence. A disk probe run per record per render, so it is
+            // the manager's, which caches it where every caller can reach it.
+            stillHasEmptiedFolders: { syncManager.emptiedFoldersStillStanding(of: $0) })
     }
 
     /// Subjects whose scaffold landed and still stands: `FileSyncManager`'s answer, not a second
@@ -3089,14 +3082,6 @@ public struct LensWorkspaceView: View {
     /// it resolves them against cwd. The sheet's one spelling, pinned by test.
     static func planDiskRoot(_ root: String) -> URL {
         URL(fileURLWithPath: (root as NSString).expandingTildeInPath)
-    }
-
-    /// Whether any folder this landing emptied still stands on disk: the removal button's licence.
-    /// On the manager, like `scaffoldedSubjects`: it is a disk probe a view body runs per applied
-    /// record per render, and the caching that keeps it from being dozens of `stat`s a second
-    /// belongs where every caller can reach it.
-    private func anyEmptiedFolderStillStands(of manifest: RestructureManifest) -> Bool {
-        syncManager.emptiedFoldersStillStanding(of: manifest)
     }
 
     /// Opens the removal sheet on one landing's emptied folders, re-probed now, so a folder that
@@ -3267,13 +3252,18 @@ public struct LensWorkspaceView: View {
         case .plan:
             planningFinding = finding
         case .setUp:
-            Task { @MainActor in
-                let outcome = await syncManager.applyScaffold(for: finding)
-                if let refusal = outcome.refusal {
-                    syncManager.banner = .refusal(refusal, log: .warn)
-                } else {
-                    handOffToToFile(finding)
-                }
+            scaffoldThenHandOff(finding)
+        }
+    }
+
+    /// Lands the finding's scaffold, then hands it to To File. A refusal is a banner.
+    private func scaffoldThenHandOff(_ finding: StructureFinding) {
+        Task { @MainActor in
+            let outcome = await syncManager.applyScaffold(for: finding)
+            if let refusal = outcome.refusal {
+                syncManager.banner = .refusal(refusal, log: .warn)
+            } else {
+                handOffToToFile(finding)
             }
         }
     }
@@ -3336,21 +3326,7 @@ public struct LensWorkspaceView: View {
                 initialRows: store.draft(for: key)?.manifest.mapping ?? seeded.map { [$0] },
                 initialVocabulary: store.draft(for: key)?.vocabulary
                     ?? seeded?.target.map { [$0] },
-                onExport: { manifest, vocabulary in
-                    // The file first, then the draft: the export is reviewable even when the store
-                    // refuses writes, and the draft keeps the Planned state across a quit.
-                    do {
-                        let name = try store.exportPlan(manifest)
-                        store.saveDraft(.init(manifest: manifest,
-                                              savedAt: manifest.createdAt,
-                                              exportedTo: name,
-                                              vocabulary: vocabulary), for: key)
-                        return .saved(filename: name)
-                    } catch {
-                        return .failed("The plan could not be written beside the folder survey: "
-                            + error.localizedDescription)
-                    }
-                },
+                onExport: { Self.exportPlan($0, vocabulary: $1, store: store, key: key) },
                 // A draft is written whenever the sheet closes with a plan, not only on Export,
                 // so a hand-built mapping survives an Esc.
                 onKeepDraft: { manifest, vocabulary in
@@ -3363,24 +3339,7 @@ public struct LensWorkspaceView: View {
                 onDiscardDraft: { store.removeDraft(for: key) },
                 // The landing, from the same sheet that derived the plan: the review above the
                 // button is the review being applied.
-                onApply: { manifest in
-                    let outcome = await syncManager.applyPlan(manifest)
-                    if let refusal = outcome.refusal { return .refused(refusal) }
-                    // The draft became a ledger record. The store was swapped to the new profile's
-                    // during the apply and the draft rode along, so drop it there.
-                    syncManager.restructureStore?.removeDraft(
-                        for: key, consumedBy: outcome.landedManifest ?? manifest)
-                    var summary = outcome.summary
-                    if let failure = outcome.surveyRefreshFailure {
-                        summary += " — " + failure
-                    }
-                    if !outcome.verifierMismatches.isEmpty {
-                        let n = outcome.verifierMismatches.count
-                        summary += " — the verifier found \(n) mismatch\(n == 1 ? "" : "es"); "
-                            + "the log has each one"
-                    }
-                    return .applied(summary: summary)
-                },
+                onApply: { await landPlan($0, key: key) },
                 // The paid pass on the mapping: the app's transport, offered when a key is stored,
                 // with the model label resolved the way the transport resolves it, all as the
                 // filing refine does. The profile root, so a mapping naming a folder hidden from
@@ -3416,38 +3375,50 @@ public struct LensWorkspaceView: View {
             rationale: RestructureLens.blastRadius(for: finding)
                 ?? RestructureLens.subtitle(for: finding),
             applyProgress: syncManager.restructureApplyProgress,
-            onExport: { manifest in
-                do {
-                    let name = try store.exportPlan(manifest)
-                    // No vocabulary: there is no picker here to restore. The draft exists for the
-                    // card's Planned state and its operation count.
-                    store.saveDraft(.init(manifest: manifest, savedAt: manifest.createdAt,
-                                          exportedTo: name, vocabulary: []), for: key)
-                    return .saved(filename: name)
-                } catch {
-                    return .failed("The plan could not be written beside the folder survey: "
-                        + error.localizedDescription)
-                }
-            },
-            onApply: { manifest in
-                let outcome = await syncManager.applyPlan(manifest)
-                if let refusal = outcome.refusal { return .refused(refusal) }
-                syncManager.restructureStore?.removeDraft(
-                    for: key, consumedBy: outcome.landedManifest ?? manifest)
-                var summary = outcome.summary
-                if let failure = outcome.surveyRefreshFailure {
-                    summary += " — " + failure
-                }
-                if !outcome.verifierMismatches.isEmpty {
-                    let n = outcome.verifierMismatches.count
-                    summary += " — the verifier found \(n) mismatch\(n == 1 ? "" : "es"); "
-                        + "the log has each one"
-                }
-                return .applied(summary: summary)
-            },
+            // No vocabulary: there is no picker here to restore. The draft exists for the card's
+            // Planned state and its operation count.
+            onExport: { Self.exportPlan($0, vocabulary: [], store: store, key: key) },
+            onApply: { await landPlan($0, key: key) },
             hasSavedDraft: store.draft(for: key) != nil,
             onDiscardDraft: { store.removeDraft(for: key) },
             onClose: { planningFinding = nil })
+    }
+
+    /// Both plan sheets' Export. The file first, then the draft: the export is reviewable even
+    /// when the store refuses writes, and the draft keeps the Planned state across a quit.
+    private static func exportPlan(_ manifest: RestructureManifest, vocabulary: [String],
+                                   store: RestructureStore, key: RestructureKey) -> RestructurePlanSheet.ExportResult {
+        do {
+            let name = try store.exportPlan(manifest)
+            store.saveDraft(.init(manifest: manifest,
+                                  savedAt: manifest.createdAt,
+                                  exportedTo: name,
+                                  vocabulary: vocabulary), for: key)
+            return .saved(filename: name)
+        } catch {
+            return .failed("The plan could not be written beside the folder survey: "
+                + error.localizedDescription)
+        }
+    }
+
+    /// Both plan sheets' Apply: the landing, and the sentence the sheet shows after it.
+    private func landPlan(_ manifest: RestructureManifest, key: RestructureKey) async -> RestructurePlanSheet.ApplyResult {
+        let outcome = await syncManager.applyPlan(manifest)
+        if let refusal = outcome.refusal { return .refused(refusal) }
+        // The draft became a ledger record. The store was swapped to the new profile's
+        // during the apply and the draft rode along, so drop it there.
+        syncManager.restructureStore?.removeDraft(
+            for: key, consumedBy: outcome.landedManifest ?? manifest)
+        var summary = outcome.summary
+        if let failure = outcome.surveyRefreshFailure {
+            summary += " — " + failure
+        }
+        if !outcome.verifierMismatches.isEmpty {
+            let n = outcome.verifierMismatches.count
+            summary += " — the verifier found \(n) mismatch\(n == 1 ? "" : "es"); "
+                + "the log has each one"
+        }
+        return .applied(summary: summary)
     }
 
     // MARK: Overview
@@ -4857,15 +4828,8 @@ public struct LensWorkspaceView: View {
     /// The escape hatch the picker's `Other…` opens: the system folder panel, for a destination
     /// outside the provider. Returns nil when cancelled.
     private static func runSystemFolderPanel(for fileName: String, startingAt folder: String?) -> String? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "File Here"
-        panel.message = "Choose a folder for “\(fileName)”"
-        if let folder { panel.directoryURL = URL(fileURLWithPath: folder) }
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return url.path
+        NativeAlerts.chooseFolder(prompt: "File Here", message: "Choose a folder for “\(fileName)”",
+                                  startingAt: folder.map { URL(fileURLWithPath: $0) }, canCreateDirectories: true)?.path
     }
 
     /// Files `batch`, the exact array `fileAllButton` counted. Never re-derived from

@@ -190,23 +190,14 @@ enum AskClaudeNaming {
     @MainActor static func askModel(_ page: String, file: String) async -> Answer? {
         let session = LanguageModelSession(instructions: instructions)
         let started = ContinuousClock.now
-        let answer: Answer? = await withTaskGroup(of: Answer?.self) { group in
-            group.addTask { @MainActor in
-                do {
-                    return try await session.respond(to: "Document \(file), page 1:\n\(page)", generating: Answer.self,
-                                                     options: GenerationOptions(samplingMode: .greedy)).content
-                } catch {
-                    Logger.shared.info("Apple Intelligence didn’t name a file: \(error.localizedDescription)")
-                    return nil
-                }
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
+        let answer: Answer? = await AskClaudeOnDevice.firstWithin(timeout) { @MainActor in
+            do {
+                return try await session.respond(to: "Document \(file), page 1:\n\(page)", generating: Answer.self,
+                                                 options: GenerationOptions(samplingMode: .greedy)).content
+            } catch {
+                Logger.shared.info("Apple Intelligence didn’t name a file: \(error.localizedDescription)")
                 return nil
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
         }
         // Never the facts: they're the file's content.
         Logger.shared.info("Apple Intelligence read a first page for a name in \(started.duration(to: .now).formatted(.units(allowed: [.seconds], fractionalPart: .show(length: 1))))\(answer == nil ? ", with no answer" : "")")

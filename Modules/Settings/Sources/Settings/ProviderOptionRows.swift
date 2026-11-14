@@ -5,9 +5,9 @@ import Sync
 
 /// The two per-location preferences: what it is called, and where a pane opens inside it.
 ///
-/// One view for setup (*More options* on its Locations screen) and Settings ▸ Sources (inside a
-/// location's disclosure), so both commit the same way: Return or focus-loss for the name, a
-/// refusal line under the picker for a folder outside the root.
+/// Setup's (*More options* on its Locations screen). Settings ▸ Sources draws its own rows but
+/// commits the same way, through `ProviderFieldEdit.commitName` and `OpenAtPicker`: Return or
+/// focus-loss for the name, a refusal line under the picker for a folder outside the root.
 ///
 /// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` reads the `SettingsRow` and
 /// `Toggle` titles, and only one level of `Sources/Settings/`, so this file must stay directly in it.
@@ -65,14 +65,7 @@ public struct ProviderOptionRows: View {
     }
 
     private func commitName() {
-        let normalized = ProviderFieldEdit.normalized(draftName)
-        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.displayName) else {
-            draftName = normalized
-            return
-        }
-        // Empty clears the override; the default name flows back through discovery.
-        settings.setCustomName(normalized, for: provider.id)
-        draftName = normalized.isEmpty ? provider.displayName : normalized
+        draftName = ProviderFieldEdit.commitName(draftName, provider: provider, settings: settings)
     }
 
     // MARK: - Where panes open
@@ -131,20 +124,26 @@ public struct ProviderOptionRows: View {
     }
 
     private func selectOpenAtDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose the folder \(provider.displayName) opens at"
-        panel.prompt = "Open at"
-        // Through the manager, not `provider.landingPath`: the value type joins root and `openAt`
-        // unconditionally, while the manager falls back to the root when the folder is missing.
-        panel.directoryURL = URL(
-            fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
+        guard let outcome = OpenAtPicker.choose(provider: provider, settings: settings) else { return }
+        openAtRefusal = OpenAtRefusal.message(outcome, provider: provider.displayName)
+    }
+}
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openAtRefusal = OpenAtRefusal.message(settings.setOpenAt(url.path, for: provider.id),
-                                              provider: provider.displayName)
+/// The "Open at" pick, for both rows that offer it, Settings ▸ Sources and setup's Locations screen.
+enum OpenAtPicker {
+    /// Picks the folder panes on this source open at, and stores it. The panel starts inside the
+    /// root, but macOS lets the user navigate anywhere, so containment is enforced on the answer.
+    /// - Returns: How the store went, or nil when cancelled.
+    @MainActor
+    static func choose(provider: CloudProvider, settings: SettingsManager) -> PathChangeOutcome? {
+        // Through the manager, not `provider.landingPath`: the manager falls back to the root when
+        // the landing folder is gone. Otherwise the panel opens wherever macOS last was, likely
+        // outside the root, and the first pick is refused. `SetupSheet.seedWalkRoot` does the same.
+        guard let url = NativeAlerts.chooseFolder(
+            prompt: "Open at", message: "Choose the folder \(provider.displayName) opens at",
+            startingAt: URL(fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath))
+        else { return nil }
+        return settings.setOpenAt(url.path, for: provider.id)
     }
 }
 
@@ -173,17 +172,23 @@ public enum OpenAtRefusal {
 
 /// Which provider's folder-name rules names are checked against.
 ///
-/// One global control, not per location: the rule applies to every name the app checks.
+/// One global control, not per location: the rule applies to every name the app checks. Setup's
+/// Locations screen and Settings ▸ Sources ▸ Name Checks both draw it.
 public struct FolderNameRuleRow: View {
     @ObservedObject var settings: SettingsManager
+    /// Whether a change writes Settings' change line: in the Settings window, not in setup.
+    private let logsChanges: Bool
 
-    public init(settings: SettingsManager) {
+    public init(settings: SettingsManager, logsChanges: Bool = false) {
         self.settings = settings
+        self.logsChanges = logsChanges
     }
 
     public var body: some View {
         SettingsRow("Check folder names against") {
-            Picker("Check folder names against", selection: $settings.folderNameRule) {
+            Picker("Check folder names against",
+                   selection: logsChanges ? $settings.folderNameRule.loggingSettingsChange("sources.folderNameRule")
+                                          : $settings.folderNameRule) {
                 ForEach(FolderNameRuleOption.all) { option in
                     Text(option.label).tag(option.value)
                 }

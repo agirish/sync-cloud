@@ -277,18 +277,26 @@ public enum StructureDivergence {
         vocabulary(of: path, in: profile, childrenByParent: families(in: profile))
     }
 
-    /// A folder's role vocabulary, against a sibling map the caller already has.
+    /// A folder's role vocabulary, against a sibling map the caller already has: its
+    /// ``displayNames(of:in:childrenByParent:)``, lowercased.
     ///
     /// The detector sweep's cost centre, so it reads one bucket of a map built once per run; a walk
     /// of every folder per child is O(folders²).
+    static func vocabulary(of path: String, in profile: FolderProfile,
+                           childrenByParent: [String: [String]]) -> Set<String> {
+        Set(displayNames(of: path, in: profile, childrenByParent: childrenByParent).map { $0.lowercased() })
+    }
+
+    /// A folder's non-axis child names as spelled on disk, from the shared sibling map so a call
+    /// doesn't walk every folder in the profile.
     ///
     /// The `hasPrefix`/remainder test stays even though the map already buckets by parent:
     /// `deletingLastPathComponent` normalises, so `"A/B/"` and `"A//B"` land in bucket `A`, and the
     /// test keeps only true immediate children for any input. Real profile keys have no trailing
     /// slash, `//` or `.` component.
-    static func vocabulary(of path: String, in profile: FolderProfile,
-                           childrenByParent: [String: [String]]) -> Set<String> {
-        var words: Set<String> = []
+    static func displayNames(of path: String, in profile: FolderProfile,
+                             childrenByParent: [String: [String]]) -> [String] {
+        var names: [String] = []
         let prefix = path + "/"
         let parent = profile.folders[path]
         for childPath in childrenByParent[path] ?? [] {
@@ -300,9 +308,9 @@ public enum StructureDivergence {
             guard !isAxisValued(path: childPath, name: relative, entry: entry, parent: parent) else {
                 continue
             }
-            words.insert(relative.lowercased())
+            names.append(relative)
         }
-        return words
+        return names
     }
 
     /// Whether a child is an axis value rather than a role.

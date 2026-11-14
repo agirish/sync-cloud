@@ -126,7 +126,7 @@ public struct ActivityNowView: View {
     @ViewBuilder private func running(fillsWidth: Bool) -> some View {
         if runs.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                section("Running")
+                ActivitySectionHeading("Running")
                 Text("Nothing running")
                     .scaledFont(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -142,7 +142,7 @@ public struct ActivityNowView: View {
 
     private var recentHeader: some View {
         HStack(alignment: .lastTextBaseline) {
-            section("Recent")
+            ActivitySectionHeading("Recent")
             Spacer()
             if !center.recent.isEmpty {
                 Button("Clear…") { if ActivityCenter.confirmClearMessages() { center.clear() } }
@@ -184,16 +184,6 @@ public struct ActivityNowView: View {
                     .id(message.id)
             }
         }
-    }
-
-    private func section(_ title: String) -> some View {
-        Text(title)
-            .scaledFont(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-            .accessibilityAddTraits(.isHeader)
     }
 }
 

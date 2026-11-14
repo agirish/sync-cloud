@@ -237,7 +237,7 @@ import Sync
         #expect(question == AdvancedSettingsTab.resetAllExplanation + "\n\nThis also raises what Claude may do: Model back to Sonnet.")
         #expect(AdvancedSettingsTab.resetAllQuestion(raising: []) == AdvancedSettingsTab.resetAllExplanation)
         let text = SourceComments.stripped(try settingsSource("SettingsView.swift"))
-        #expect(text.contains("alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())"),
+        #expect(text.contains("informativeText: Self.resetAllQuestion(raising: resetAllRaises())"),
                 "Settings' Reset All alert doesn't name what it raises")
         #expect(text.contains(".resetAllRaises()\n"), "Settings never hands Advanced what Reset All raises")
     }

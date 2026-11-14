@@ -103,11 +103,7 @@ enum DifferenceSearch {
     private static func matches(_ token: Token, _ difference: FileDifference) -> Bool {
         switch token {
         case .kind(let ext):
-            let fileExtension = (difference.relativePath as NSString).pathExtension.lowercased()
-            if let classExtensions = kindClasses[ext] {
-                return classExtensions.contains(fileExtension)
-            }
-            return fileExtension == ext
+            return LensKind.matches(ext, fileName: difference.relativePath)
         case .sizeAtLeast(let bytes):
             guard let size = difference.displaySize else { return false }
             return size >= bytes
@@ -126,10 +122,7 @@ enum DifferenceSearch {
 
     private static func parseToken(_ word: String) -> Token? {
         let lower = word.lowercased()
-        if lower.hasPrefix("kind:") {
-            let ext = String(lower.dropFirst("kind:".count)).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-            return ext.isEmpty ? nil : .kind(ext)
-        }
+        if lower.hasPrefix("kind:") { return LensKind.word(lower).map { .kind($0) } }
         if lower == "only:left" { return .onlyLeft }
         if lower == "only:right" { return .onlyRight }
         if lower.hasPrefix(">"), let bytes = parseSize(String(lower.dropFirst())) { return .sizeAtLeast(bytes) }

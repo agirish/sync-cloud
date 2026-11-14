@@ -175,11 +175,7 @@ enum FilingSearch {
         }
     }
 
-    struct Chip: Equatable, DimmableTokenChip {
-        var raw: String
-        var label: String
-        var isActive: Bool = true
-    }
+    typealias Chip = TokenChip
 
     static func chips(_ raw: String) -> [Chip] {
         TokenQuery.lastWinsChips(raw) { word in
@@ -247,11 +243,7 @@ enum AutomationSearch {
         return Query(enabled: enabled, kind: kind, text: text)
     }
 
-    struct Chip: Equatable, DimmableTokenChip {
-        var raw: String
-        var label: String
-        var isActive: Bool = true
-    }
+    typealias Chip = TokenChip
 
     static func chips(_ raw: String) -> [Chip] {
         TokenQuery.lastWinsChips(raw) { word in
@@ -313,11 +305,7 @@ enum StorageSearch {
         return Query(kind: kind, sizeAtLeast: atLeast, sizeAtMost: atMost, text: text)
     }
 
-    struct Chip: Equatable, DimmableTokenChip {
-        var raw: String
-        var label: String
-        var isActive: Bool = true
-    }
+    typealias Chip = TokenChip
 
     static func chips(_ raw: String) -> [Chip] {
         TokenQuery.lastWinsChips(raw) { word in

@@ -30,20 +30,22 @@ public func observeDefaultsChanges(of defaults: UserDefaults,
 }
 
 /// `observeDefaultsChanges`' "a reread is already scheduled" flag, claimed from any thread. The
-/// same as the app's `GlassLogLinePending`, which this package can't see.
-final class DefaultsRereadPending: @unchecked Sendable {
+/// app's `GlassLogLine` uses it too.
+public final class DefaultsRereadPending: @unchecked Sendable {
     private let lock = NSLock()
     private var pending = false
 
+    public init() {}
+
     /// True for the caller that should schedule the reread; false while one is already on its way.
-    func claim() -> Bool {
+    public func claim() -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard !pending else { return false }
         pending = true
         return true
     }
 
-    func release() {
+    public func release() {
         lock.lock(); defer { lock.unlock() }
         pending = false
     }

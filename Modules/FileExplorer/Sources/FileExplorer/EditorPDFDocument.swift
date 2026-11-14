@@ -169,6 +169,16 @@ public final class EditorPDFDocument: ObservableObject {
         foundGoneOnce = false
         watcher?.cancel()
         watcher = nil
+        dropLoadedDocument()
+        stamp = nil
+        path = nil
+        phase = .loading
+        view.reset()
+    }
+
+    /// Lets go of the loaded document and everything drawn from it: its lock, facts, outline,
+    /// thumbnails, find, tools and fill. A failure path reads `fill.unsavedWork` first.
+    private func dropLoadedDocument() {
         document = nil
         locked = nil
         facts = nil
@@ -177,10 +187,6 @@ public final class EditorPDFDocument: ObservableObject {
         find.detach()
         tools.detach()
         fill.detach()
-        stamp = nil
-        path = nil
-        phase = .loading
-        view.reset()
     }
 
     /// How a password attempt ended: the file opened, the password was wrong, the file changed on
@@ -279,14 +285,7 @@ public final class EditorPDFDocument: ObservableObject {
                 assertionFailure("a skipped open of \(path) came back as the current one")
             case .unreadable:
                 let lost = fill.unsavedWork
-                document = nil
-                locked = nil
-                facts = nil
-                outline = []
-                thumbnails.detach()
-                find.detach()
-                tools.detach()
-                fill.detach()
+                dropLoadedDocument()
                 tools.banner = Self.lostWorkBanner(lost, because: "couldn’t be read")
                 finish(.refused(Self.unreadableReason), path: path)
             case .locked(let held):
@@ -476,14 +475,7 @@ public final class EditorPDFDocument: ObservableObject {
             }
             foundGoneOnce = false
             let lost = fill.unsavedWork
-            document = nil
-            locked = nil
-            facts = nil
-            outline = []
-            thumbnails.detach()
-            find.detach()
-            tools.detach()
-            fill.detach()
+            dropLoadedDocument()
             tools.banner = Self.lostWorkBanner(lost, because: "was moved or deleted")
             stamp = nil
             finish(.refused(Self.goneReason), path: path)

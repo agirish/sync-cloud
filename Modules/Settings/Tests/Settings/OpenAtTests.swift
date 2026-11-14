@@ -203,11 +203,11 @@ struct OpenAtTests {
     /// this root would be refused. `SetupSheet.seedWalkRoot` has the same rule.
     @Test("The landing-folder picker is seeded through the manager, not through the value type")
     func theOpenAtPanelIsSeededFromTheReachableLanding() throws {
-        let source = try settingsSource("SettingsView.swift")
-        let start = try #require(source.range(of: "private func selectOpenAtDirectory() {"),
-                                 "cannot find selectOpenAtDirectory — this test is checking a name that no longer exists")
+        let source = try settingsSource("ProviderOptionRows.swift")
+        let start = try #require(source.range(of: "static func choose(provider: CloudProvider, settings: SettingsManager)"),
+                                 "cannot find OpenAtPicker.choose — this test is checking a name that no longer exists")
         let tail = source[start.upperBound...]
-        let end = try #require(tail.range(of: "\n    }"), "cannot find the end of selectOpenAtDirectory")
+        let end = try #require(tail.range(of: "\n    }"), "cannot find the end of OpenAtPicker.choose")
         // Comments stripped first: the function names `provider.landingPath` in prose to say what
         // it doesn't do, and a raw scan would fail on that mention.
         let body = SourceComments.stripped(String(tail[..<end.lowerBound]))

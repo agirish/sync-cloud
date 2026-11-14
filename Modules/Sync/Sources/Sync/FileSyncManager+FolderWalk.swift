@@ -591,17 +591,13 @@ extension FileSyncManager {
         let base = walkProfileId(now: now)
         var candidate = base
         var suffix = 2
-        while FileManager.default.fileExists(atPath: profileURLForId(candidate, in: directory).path) {
+        while FileManager.default.fileExists(atPath: FilingProfileStore.profileURL(id: candidate, in: directory).path) {
             candidate = "\(base)-\(suffix)"
             suffix += 1
             // A hundred walks inside one second is not a user, it is a loop; stop rather than spin.
             if suffix > 100 { return "\(base)-\(UUID().uuidString.prefix(8))" }
         }
         return candidate
-    }
-
-    private static func profileURLForId(_ id: String, in directory: URL) -> URL {
-        FilingProfileStore.profileURL(id: id, in: directory)
     }
 
     /// A fresh id for each walk, never reused. Nothing is overwritten in place, so the profile in

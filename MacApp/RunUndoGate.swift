@@ -124,15 +124,8 @@ final class RunUndoGate: NSObject, NSMenuItemValidation {
     /// Once, at launch: the items now and whenever SwiftUI rebuilds them, and the keys.
     func install() {
         guard observers.isEmpty else { return }
-        let names: [Notification.Name] = [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
-                                          NSMenu.didBeginTrackingNotification]
-        observers = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
-                guard Thread.isMainThread else { return }
-                MainActor.assumeIsolated {
-                    if let main = NSApp.mainMenu { RunUndoGate.shared.adopt(in: main) }
-                }
-            }
+        observers = MenuRebuildWatch.observe { _ in
+            if let main = NSApp.mainMenu { RunUndoGate.shared.adopt(in: main) }
         }
         if let main = NSApp.mainMenu { adopt(in: main) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

@@ -143,6 +143,6 @@ import Testing
                     "\(url.lastPathComponent): \(returns) alert(s) give Cancel Return but \(calls) run with the Escape monitor")
         }
         try #require(scanned > 100, "scanned \(scanned) files — the walk is not reading the app")
-        #expect(cancelTakesReturn >= 5, "found \(cancelTakesReturn) Cancel-takes-Return alerts — the pattern moved")
+        #expect(cancelTakesReturn >= 4, "found \(cancelTakesReturn) Cancel-takes-Return alerts — the pattern moved")
     }
 }

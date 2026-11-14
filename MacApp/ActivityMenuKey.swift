@@ -26,17 +26,9 @@ enum ActivityMenuKey {
 
     static func install() {
         guard observers.isEmpty else { return }
-        let names: [Notification.Name] = [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
-                                          NSMenu.didBeginTrackingNotification]
-        observers = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
-                guard Thread.isMainThread else { return }
-                let menu = note.object as? NSMenu
-                MainActor.assumeIsolated {
-                    guard let window = windowMenu, menu === window || menu === NSApp.mainMenu else { return }
-                    apply(to: window)
-                }
-            }
+        observers = MenuRebuildWatch.observe { menu in
+            guard let window = windowMenu, menu === window || menu === NSApp.mainMenu else { return }
+            apply(to: window)
         }
         if let window = windowMenu { apply(to: window) }
     }

@@ -512,18 +512,11 @@ extension ContentView {
             askClaudeChat.updatePlan(id) { $0.choose(choice, forRow: row) }
             askClaudeRenameForFolders(id)
         case .chooseFolder(let row):
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "Choose"
-            panel.message = "Where this file goes"
             // Opens at the row's own survey: a Dropbox file's folders are Dropbox's (TE342).
             let file = askClaudeChat.plan(id)?.rows.first { $0.id == row }?.change.path
-            if let root = file.flatMap({ syncManager.filingHelpSurveyRoot(for: $0) }) ?? syncManager.filingFolderProfile?.recordedFolderPath {
-                panel.directoryURL = URL(fileURLWithPath: root)
-            }
-            guard panel.runModal() == .OK, let url = panel.url else { return }
+            let root = file.flatMap({ syncManager.filingHelpSurveyRoot(for: $0) }) ?? syncManager.filingFolderProfile?.recordedFolderPath
+            guard let url = NativeAlerts.chooseFolder(prompt: "Choose", message: "Where this file goes",
+                                                      startingAt: root.map { URL(fileURLWithPath: $0) }) else { return }
             guard askClaudeChat.plan(id)?.state == .proposed else { return }
             // Spelled as the panel gave it, which keeps a link's spelling (iCloud's Documents).
             let path = url.path
@@ -1753,23 +1746,13 @@ extension ContentView {
         guard let rows = askClaudeChat.settingCard(id)?.rows, rows.indices.contains(index),
               let entry = SettingsCatalog.entry(rows[index].id) else { return }
         let row = rows[index]
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        switch entry.id {
-        case "sources.addFolder":
-            panel.prompt = "Add Folder"
-            panel.message = "A folder to add as a source"
-        case "sources.openAt":
-            panel.prompt = "Open Here"
-            panel.message = "Where panes on this source open"
-            if let target = row.target { panel.directoryURL = URL(fileURLWithPath: (settings.rootPath(for: target) as NSString).expandingTildeInPath) }
-        default:
-            panel.prompt = "Choose"
-            if let target = row.target { panel.directoryURL = URL(fileURLWithPath: (settings.rootPath(for: target) as NSString).expandingTildeInPath) }
+        let root = row.target.map { URL(fileURLWithPath: (settings.rootPath(for: $0) as NSString).expandingTildeInPath) }
+        let (prompt, message, start): (String, String?, URL?) = switch entry.id {
+        case "sources.addFolder": ("Add Folder", "A folder to add as a source", nil)
+        case "sources.openAt": ("Open Here", "Where panes on this source open", root)
+        default: ("Choose", nil, root)
         }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = NativeAlerts.chooseFolder(prompt: prompt, message: message, startingAt: start) else { return }
         guard entry.id == "sources.addFolder" else {
             askClaudeSettingChange(id, index, .string(url.path))
             return
@@ -1910,13 +1893,7 @@ extension ContentView {
 
     /// Hidden from Claude ▸ Add… on a card: a folder from the chooser, never a path Claude names.
     func askClaudeChooseHidden(_ id: UUID, _ index: Int) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Hide"
-        panel.message = "A folder to hide from Claude"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = NativeAlerts.chooseFolder(prompt: "Hide", message: "A folder to hide from Claude") else { return }
         askClaudeListEdit(id, index, url.path, present: true)
     }
 

@@ -2900,6 +2900,33 @@ private struct SlowTransport: AskClaudeTransport {
         #expect(stalled == nil)
     }
 
+    /// A stopped question stops waiting: cancelled before the bound starts, it answers nil even for
+    /// work that would answer at once; cancelled while a read stalls, it answers nil long before the
+    /// bound. The read is held until then, so only the cancel can answer; a cancel that is ignored
+    /// fails here after 30 s rather than hanging the run.
+    @Test func aStoppedQuestionStopsWaitingForTheRead() async {
+        let early = Task { () -> Int? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await AskClaudeDisk.bounded(timeout: .seconds(120)) { 7 }
+        }
+        #expect(await early.value == nil)
+
+        let release = DispatchSemaphore(value: 0)
+        let (started, start) = AsyncStream<Void>.makeStream()
+        let waiting = Task { () -> Int? in
+            await AskClaudeDisk.bounded(timeout: .seconds(120)) {
+                start.yield()
+                _ = release.wait(timeout: .now() + 30)
+                return 7
+            }
+        }
+        for await _ in started { break }
+        waiting.cancel()
+        let stopped = await waiting.value
+        release.signal()
+        #expect(stopped == nil)
+    }
+
     @Test func theSpotlightQueryEscapesSyntaxAndSkipsHiddenFolders() {
         #expect(AskClaudeDisk.queryString(["a\"b*"]) == #"(kMDItemFSName == "*a\"b\**"cd)"#)
         #expect(AskClaudeDisk.queryString(["tax", "2025"]) == #"(kMDItemFSName == "*tax*"cd) || (kMDItemFSName == "*2025*"cd)"#)
@@ -2908,6 +2935,21 @@ private struct SlowTransport: AskClaudeTransport {
         #expect(AskClaudeDisk.respell("/x/Docs/b.pdf", folder: "/r/Docs", resolved: "/x/Docs") == "/x/Docs/b.pdf")
         #expect(AskClaudeDisk.respell("/r/Docs/.git/c", folder: "/r/Docs", resolved: "/x/Docs") == nil)
         #expect(AskClaudeDisk.respell("/elsewhere/d", folder: "/r/Docs", resolved: "/x/Docs") == nil)
+    }
+}
+
+@Suite struct AskClaudeOnDeviceTests {
+
+    /// The on-device model's time limit: work that answers in time keeps its answer, and work that
+    /// stalls past the limit gives nil at the limit and is cancelled. The stall outlasts the limit
+    /// by far, so only the limit can answer; a limit that never gives up fails here with 7.
+    @Test func theModelCallGivesNilAtItsLimit() async {
+        #expect(await AskClaudeOnDevice.firstWithin(.seconds(120)) { 7 } == 7)
+        let stalled: Int? = await AskClaudeOnDevice.firstWithin(.milliseconds(100)) {
+            try? await Task.sleep(for: .seconds(30))
+            return 7
+        }
+        #expect(stalled == nil)
     }
 }
 

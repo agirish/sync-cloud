@@ -106,11 +106,6 @@ import Sync
         #expect(!query.matches(diff("Docs/noext"), pathRootName: nil))
     }
 
-    @Test func kindClassTableIsSharedWithTheLensSearch() {
-        // One table for both surfaces' `kind:` aliases; a fork would break the shared vocabulary.
-        #expect(DuplicateSearch.kindClasses == DifferenceSearch.kindClasses)
-    }
-
     // MARK: removing
 
     @Test func removingDropsThatWordAndKeepsTheRest() {

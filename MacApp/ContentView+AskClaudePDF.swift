@@ -325,12 +325,8 @@ extension ContentView {
     }
 
     func askClaudePDFChooseFolder(_ id: UUID) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.message = "Choose where to save the new files."
-        guard panel.runModal() == .OK, let folder = panel.url?.path else { return }
+        guard let folder = NativeAlerts.chooseFolder(message: "Choose where to save the new files.",
+                                                     canCreateDirectories: true)?.path else { return }
         askClaudeChat.updatePDFCard(id) { $0.folder = folder }
         askClaudePDFCards.askClaudePDFRead(id)
     }

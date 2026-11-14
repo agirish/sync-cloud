@@ -72,4 +72,13 @@ import Foundation
         #expect(TokenQuery.parseDurationSeconds("soon") == nil)
         #expect(TokenQuery.parseDurationSeconds("") == nil)
     }
+
+    /// The "Add filter" row's append: trims the query first, so it never leaves a double space.
+    @Test func aSuggestionAppendsWithOneSpace() {
+        #expect(TokenSuggestionRow.appending("kind:pdf", to: "") == "kind:pdf")
+        #expect(TokenSuggestionRow.appending("kind:pdf", to: "   ") == "kind:pdf")
+        #expect(TokenSuggestionRow.appending("kind:pdf", to: "report") == "report kind:pdf")
+        #expect(TokenSuggestionRow.appending("kind:pdf", to: "report ") == "report kind:pdf")
+        #expect(TokenSuggestionRow.appending("since:1h", to: "  level:error  ") == "level:error since:1h")
+    }
 }

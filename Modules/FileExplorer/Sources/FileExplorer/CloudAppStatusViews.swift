@@ -160,13 +160,7 @@ struct CloudAppNoticeRows: View {
     var body: some View {
         if !monitor.notices.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Cloud Apps")
-                    .scaledFont(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
-                    .accessibilityAddTraits(.isHeader)
+                ActivitySectionHeading("Cloud Apps")
                 ForEach(Array(monitor.notices.enumerated()), id: \.element.id) { index, notice in
                     if index > 0 { Divider().padding(.leading, 12) }
                     row(notice)

@@ -275,29 +275,20 @@ enum ExternalOpen {
             MaterializationStatus.isCloudOnlyIfKnown(atPath: path)
         }
     ) async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            let answer = AnswerOnce(continuation)
+        let race = Race<Bool>()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool?, Never>) in
+            race.install(continuation)
             DispatchQueue.global(qos: .userInitiated).async {
                 read(path)
                 // Ask about the file a link points to, which the read fetched: the link itself is
                 // never in the cloud, so it would always answer "landed".
-                answer.give(isCloudOnly(MaterializationStatus.linkTarget(of: path)) == false)
+                let landed = isCloudOnly(MaterializationStatus.linkTarget(of: path)) == false
+                race.finish { landed }
             }
             let seconds = Double(timeout.components.seconds)
                 + Double(timeout.components.attoseconds) / 1e18
-            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { answer.give(false) }
-        }
-    }
-
-    /// Resumes a continuation with whichever answer comes first, and ignores the other.
-    private final class AnswerOnce: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Bool, Never>?
-        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
-        func give(_ value: Bool) {
-            lock.lock(); let pending = continuation; continuation = nil; lock.unlock()
-            pending?.resume(returning: value)
-        }
+            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { race.finish { false } }
+        } ?? false
     }
 
     static func name(_ path: String) -> String {

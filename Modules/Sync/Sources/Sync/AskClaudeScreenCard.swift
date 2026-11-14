@@ -291,7 +291,8 @@ public enum AskClaudeScreenCard {
         return parts.joined(separator: ", ")
     }
 
-    static func count(_ n: Int, _ noun: String) -> String {
+    /// "1 file", "3 files": a count and its noun, for the card, the CLI and Ask Claude's tools.
+    public static func count(_ n: Int, _ noun: String) -> String {
         "\(n) \(noun)\(n == 1 ? "" : "s")"
     }
 

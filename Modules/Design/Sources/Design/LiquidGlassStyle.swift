@@ -423,9 +423,6 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
 }
 
 public enum LiquidGlass {
-    /// Corner radius for cards and floating panels: the `Radius` scale's top stop, under the name
-    /// most sites use.
-    public static let cardCornerRadius: CGFloat = Radius.card
     /// The gap between any two floating cards in Cards mode, and between a card and the window
     /// edge. One number for every gap on screen.
     ///
@@ -479,9 +476,6 @@ public enum LiquidGlass {
     /// bottom edge with the source pane's toolbar card beside it and the text starts where the list
     /// does. `EditHeaderMatchesPaneHeaderTests` compares the two real views at every text size.
     public static let headerHeight: CGFloat = 81
-    /// Corner radius for smaller elements (badges, buttons, inputs): the `Radius` scale's `well`
-    /// stop under its older name.
-    public static let smallCornerRadius: CGFloat = Radius.well
 
     /// Soft shadow for glass cards to add depth without heaviness.
     public static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))
@@ -574,7 +568,7 @@ public extension View {
     @ViewBuilder
     func glassCardStyle(level: GlassLevel) -> some View {
         let resolved = level.flooredForChrome
-        let radius = LiquidGlass.cardCornerRadius
+        let radius = Radius.card
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let chrome = OverlayCardChrome(cornerRadius: radius, lightShadow: resolved.needsExplicitChrome)
         // `.glassEffect` shapes only the effect, not the view's own backgrounds, and every caller
@@ -666,7 +660,7 @@ public extension View {
     /// `.quaternary` edge for a top-lit white specular hairline and a deeper shadow, so each card
     /// lifts off the deep background. `accentBorder` draws the card's own edge in the accent rather
     /// than adding anything beside it (see `LiquidGlass.activeCardBorderWidth`).
-    func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = LiquidGlass.cardCornerRadius,
+    func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = Radius.card,
                      accentBorder: Color? = nil) -> some View {
         // Clip the content to the card shape first: the pane's contentSurface tint wash is a square
         // fill, and would poke past the rounded corners into the gutters.
@@ -725,7 +719,7 @@ public extension View {
     /// a gutter, so it sits exactly where a card's edge sits in `.cards`.
     @ViewBuilder
     func windowRegionFrame(_ style: SurfaceStyle, level: GlassLevel) -> some View {
-        let radius = LiquidGlass.cardCornerRadius
+        let radius = Radius.card
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         switch style {
         case .cards:
@@ -796,7 +790,7 @@ public extension View {
         hue: LiquidGlassHue = .blue,
         tint: Double = 0
     ) -> some View {
-        let radius = LiquidGlass.cardCornerRadius
+        let radius = Radius.card
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         switch style {
         case .cards:
@@ -1157,9 +1151,9 @@ private struct GlassBarStyle: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Radius.well, style: .continuous)
         content
-            .glassSurface(level, cornerRadius: LiquidGlass.smallCornerRadius)
+            .glassSurface(level, cornerRadius: Radius.well)
             .overlay {
                 if scheme == .dark {
                     shape.strokeBorder(
@@ -1188,7 +1182,7 @@ private struct GlassBarStyle: ViewModifier {
 /// hairline at 192 and a flat gutter between cards. The parameter stays for a surface that wants
 /// no light rule; dark ignores it.
 struct CardHairline: ViewModifier {
-    var cornerRadius: CGFloat = LiquidGlass.cardCornerRadius
+    var cornerRadius: CGFloat = Radius.card
     var lightVisible: Bool = true
     @Environment(\.colorScheme) private var scheme
 
@@ -1245,7 +1239,7 @@ private struct GroundedGlassCard: ViewModifier {
     @AppStorage(LiquidGlass.tintKey) private var tint: Double = SelectionLensAppearance.defaultTint
 
     func body(content: Content) -> some View {
-        let radius = LiquidGlass.cardCornerRadius
+        let radius = Radius.card
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         // `lightBorder: true`: this backs the full-size in-window panels, and in light the chrome
         // draws no edge of its own. The chrome owns both schemes, so callers add no stroke and the

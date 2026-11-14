@@ -759,13 +759,10 @@ struct ContentView: View {
     @State var rightPaneSearch = PaneSearchFieldState()
     /// The results those queries produced, recomputed off the debounce rather than per render: a
     /// query runs over the whole loaded tree, and this `body` is re-evaluated by any of the
-    /// manager's many published properties.
+    /// manager's many published properties. Each recomputation stamps one more than its side's
+    /// last `generation`, so a stamp is only compared against its own pane's.
     @State var leftSearchResults: PaneSearchResults = .empty(side: .left)
     @State var rightSearchResults: PaneSearchResults = .empty(side: .right)
-    /// The recomputation counter behind `PaneSearchResults.generation`. One per side, like the
-    /// manager's own publish counters, so a stamp is only compared against its own pane's.
-    @State var leftSearchGeneration = 0
-    @State var rightSearchGeneration = 0
     /// Each pane's file-type counts while it has no type filter, for the type list. With a filter
     /// on, the manager's pass counts instead. See `ContentView+TypeFilter.swift`.
     @State var leftTypeCensus: PaneTypeFilterFacts?
@@ -908,17 +905,12 @@ struct ContentView: View {
     /// The system folder panel behind the picker's `Other…`, for a destination outside the
     /// provider. Returns nil when cancelled.
     static func runDestinationPanel(for firstItemName: String, itemCount: Int, startingAt folder: String?) -> String? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        panel.message = itemCount == 1
+        let message = itemCount == 1
             ? "Choose a folder for “\(firstItemName)”"
             : "Choose a folder for \(itemCount) items"
-        if let folder, !folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: folder) }
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return url.path
+        let start = folder.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        return NativeAlerts.chooseFolder(prompt: "Choose", message: message, startingAt: start,
+                                         canCreateDirectories: true)?.path
     }
 
     /// Applies a column drill, mirroring it onto the sibling pane when the panes are linked (or ⌥
@@ -1657,8 +1649,7 @@ struct ContentView: View {
             // switches (`show(_:)`, the duplicate coordinators) go around it; `onChange` fires for
             // every writer, and only on a real change.
             clearPersonScope()
-            restoreStorageLensIfShowing()
-            autoRescanLensIfShowing()
+            refreshShownLens()
             // Compare is the only workspace that displays a comparison, so an owed one is paid on
             // arriving; a no-op when nothing is owed. Here rather than in `workspaceSelection`'s
             // setter, because the programmatic switches that land on Compare go around that
@@ -1673,26 +1664,19 @@ struct ContentView: View {
         // The workspace is @AppStorage, so quitting on Storage means the next launch starts there
         // and `onChange` never fires: the restore must also be attempted on appearance. The root is
         // empty until provider discovery finishes, so its change is a trigger too.
-        // `restoreStorageLens` declines when a build is running or results already exist, so the
-        // triggers cannot fight: the first wins and the rest are no-ops. `autoRescanLensIfShowing`
-        // rides the same triggers under the same contract, for the two lenses whose results are
-        // recomputed rather than restored.
         .onAppear {
-            restoreStorageLensIfShowing()
-            autoRescanLensIfShowing()
+            refreshShownLens()
         }
         .onChange(of: lensScanRootExpanded) { _, _ in
-            restoreStorageLensIfShowing()
-            autoRescanLensIfShowing()
+            refreshShownLens()
         }
         // The rail lens is a trigger too. The two auto-rescanned lenses recompute from published
         // arrays, but Storage's report is restored from a store, so switching the rail to Storage
         // would otherwise leave the page empty until another trigger fired. Safe for the reason
-        // above: the first trigger wins and the rest are no-ops, so this cannot start a second
-        // scan.
+        // on `refreshShownLens`: the first trigger wins and the rest are no-ops, so this cannot
+        // start a second scan.
         .onChange(of: selectedOrganizeLens) { _, _ in
-            restoreStorageLensIfShowing()
-            autoRescanLensIfShowing()
+            refreshShownLens()
         }
         // A scope change re-subjects Storage rather than filtering it: the old root's report is
         // dropped and the new root's snapshot restored if there is one, leaving the lens's Analyze
@@ -2355,13 +2339,8 @@ struct ContentView: View {
     /// existing source is returned rather than duplicated (`addFolderSource`). Internal for the ⌘K
     /// palette's "Choose Folder…", so there is one prompt.
     func chooseFolderSource(_ select: @escaping (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder to use as a source"
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = NativeAlerts.chooseFolder(prompt: "Choose", message: "Choose a folder to use as a source")
+        else { return }
         select(settings.addFolderSource(path: url.path))
     }
 
@@ -2908,6 +2887,16 @@ struct ContentView: View {
         show(.duplicates)
         let options = DuplicateFinderOptions.fromDefaults()
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
+    }
+
+    /// Brings the showing lens up to date: Storage's saved report, or a rescan for the other two.
+    /// `restoreStorageLens` declines when a build is running or results already exist, so the
+    /// triggers cannot fight: the first wins and the rest are no-ops. `autoRescanLensIfShowing`
+    /// rides the same triggers under the same contract, for the two lenses whose results are
+    /// recomputed rather than restored.
+    func refreshShownLens() {
+        restoreStorageLensIfShowing()
+        autoRescanLensIfShowing()
     }
 
     /// Shows the saved Storage report for the current root, if Storage is what's on screen and
@@ -4738,8 +4727,8 @@ struct ContentView: View {
                 onStartDocumentSurvey: startDocumentSurveyAction,
                 onStartDocumentSurveyOver: startDocumentSurveyOverAction,
                 onResumeDocumentSurvey: resumeDocumentSurveyAction,
-                onPauseDocumentSurvey: pauseDocumentSurveyAction,
-                onStopDocumentSurvey: stopDocumentSurveyAction,
+                onPauseDocumentSurvey: { Task { await syncManager.pauseDocumentSurvey() } },
+                onStopDocumentSurvey: { Task { await syncManager.stopDocumentSurvey() } },
                 // The single lens source is the left provider; its picker shows in the workspace
                 // only while the rail is collapsed (expanded, the rail header owns the provider
                 // dropdown).

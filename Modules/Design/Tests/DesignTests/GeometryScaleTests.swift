@@ -28,15 +28,6 @@ import Testing
         }
     }
 
-    // MARK: - The older names cannot drift from the scale
-
-    /// `cardCornerRadius` and `smallCornerRadius` are older names still used at call sites. They
-    /// read from the scale, and this stops a literal typed into either from adding a stray stop.
-    @Test func theOlderRadiusNamesAreTheScaleStops() {
-        #expect(LiquidGlass.cardCornerRadius == Radius.card)
-        #expect(LiquidGlass.smallCornerRadius == Radius.well)
-    }
-
     // MARK: - Elevation
 
     /// `overlayShadow` is the one shadow the setup sheet, the help book, the destination picker and

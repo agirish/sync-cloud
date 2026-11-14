@@ -58,16 +58,8 @@ enum LogSearch {
     // MARK: Chips (UI)
 
     /// A recognized filter word paired with a label, so the search bar can draw removable chips like
-    /// Compare's. `raw` is the exact word typed (`since:1h`), so a chip's ✕ removes precisely that
-    /// word and its label keeps the value as typed: "1h", not "3600s".
-    struct Chip: Equatable, DimmableTokenChip {
-        var raw: String
-        var label: String
-        /// Whether this chip is part of the effective query. `parse` is last-wins within a family, so
-        /// when a family appears twice only the last word filters; earlier ones draw dimmed so the
-        /// chips read as the query that runs. Their ✕ still removes the superseded word.
-        var isActive: Bool = true
-    }
+    /// Compare's. Its label keeps the value as typed: "1h", not "3600s".
+    typealias Chip = TokenChip
 
     /// The `level:`/`since:` words in `raw`, in order, as chips; free text is excluded. Within each
     /// family only the last is `isActive`, matching `parse` (via `TokenQuery.lastWinsChips`).

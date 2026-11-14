@@ -1281,7 +1281,7 @@ public struct DifferencesView: View {
             focusNudge: reviewFocusNudge,
             onPrimary: { reviewPrimary($0) },
             onSkip: { reviewSkip($0) },
-            onVerdict: { reviewVerdict($1, for: $0, token: $2) },
+            onVerdict: { reviewStore.recordVerdict($1, for: $0, token: $2) },
             onExit: { exitReview() }
         )
         .padding(.horizontal, 12)
@@ -1599,11 +1599,6 @@ public struct DifferencesView: View {
         if reviewStore.session?.isComplete == true { finishReview() }
     }
 
-    /// Records a per-item Verify verdict; same token guard as outcomes.
-    private func reviewVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID, token: UUID) {
-        reviewStore.recordVerdict(verdict, for: id, token: token)
-    }
-
     /// Tears the session down after the last item was decided, summarizing into a banner.
     private func finishReview() {
         guard let session = reviewStore.session else { return }
@@ -1764,35 +1759,16 @@ public struct DifferencesView: View {
         }
     }
 
-    /// One-tap filter suggestions shown while the field is focused, omitting any already active.
-    @ViewBuilder
+    /// One-tap filter suggestions shown while the field is focused (Design's
+    /// `TokenSuggestionRow`), omitting any already active.
     private func suggestionRow(active: [DifferenceSearch.Token]) -> some View {
-        let suggestions = searchSuggestions(active: active)
-        if !suggestions.isEmpty {
-            HStack(spacing: 6) {
-                Text("Add filter")
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize()
-                ForEach(suggestions, id: \.raw) { suggestion in
-                    Button {
-                        // Trim first, so appending never leaves a double space.
-                        let base = searchText.trimmingCharacters(in: .whitespaces)
-                        searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
-                    } label: {
-                        Text(suggestion.label)
-                            .scaledFont(.caption2)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(.quaternary.opacity(0.6)))
-                            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
-                    }
-                    .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
-                    .help("Add “\(suggestion.raw)” to the search")
-                }
-                Spacer(minLength: 0)
-            }
-        }
+        TokenSuggestionRow(
+            items: searchSuggestions(active: active).map {
+                TokenSuggestionRow.Item(label: $0.label, raw: $0.raw, help: "Add “\($0.raw)” to the search")
+            },
+            text: Binding(get: { searchText }, set: { searchText = $0 }),
+            tint: glassHue.accentColor
+        )
     }
 
     private func searchSuggestions(active: [DifferenceSearch.Token]) -> [(label: String, raw: String)] {

@@ -193,7 +193,7 @@ public enum RestructureReporting {
         if let scaffold = finding.scaffold {
             let shape = scaffold.isEmpty ? "no shared shape to copy"
                                          : "scaffold \(scaffold.joined(separator: ", "))"
-            return " - \(count(finding.looseFiles ?? 0, "file")), no folders yet (\(shape))"
+            return " - \(AskClaudeScreenCard.count(finding.looseFiles ?? 0, "file")), no folders yet (\(shape))"
         }
         if let target = finding.target {
             return " - hides the year \(target)"
@@ -202,20 +202,16 @@ public enum RestructureReporting {
         // Before the bare-counterpart branch: duplicatedTaxonomy also carries a counterpart, and
         // falling through would print it as an echo — the wrong claim, minus its evidence count.
         if let matched = finding.matchedDocuments, let counterpart = finding.counterpart {
-            return " - \(count(matched, "document")) also in \(counterpart)"
+            return " - \(AskClaudeScreenCard.count(matched, "document")) also in \(counterpart)"
         }
         if let counterpart = finding.counterpart {
             return " - echoes \(counterpart)"
         }
         if let destination = finding.destination { return " - mirrors \(destination)" }
         if let seriesFolders = finding.seriesFolders {
-            return " - \(count(finding.looseFiles ?? 0, "file")) above \(seriesFolders) year folders"
+            return " - \(AskClaudeScreenCard.count(finding.looseFiles ?? 0, "file")) above \(seriesFolders) year folders"
         }
         if let container = finding.container { return " - belongs in \(container)" }
         return ""
-    }
-
-    private static func count(_ n: Int, _ noun: String) -> String {
-        "\(n) \(noun)\(n == 1 ? "" : "s")"
     }
 }

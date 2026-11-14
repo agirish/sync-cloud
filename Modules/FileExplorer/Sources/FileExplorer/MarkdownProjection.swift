@@ -456,7 +456,7 @@ private struct Builder {
                       font: blockFont(.heading(level: heading.level)))
 
         case let paragraph as Paragraph:
-            if let image = loneImage(in: paragraph), let source = range(of: paragraph) {
+            if let image = MarkdownBlocks.loneImage(in: paragraph), let source = range(of: paragraph) {
                 let alt = MarkdownBlocks.text(of: image).plain
                 let block = beginBlock(.image(source: image.source ?? "", alt: alt),
                                        indent: indent, quoteDepth: quoteDepth, line: line,
@@ -1417,26 +1417,6 @@ private struct Builder {
 
     static func droppingFinalNewline(_ text: String) -> String {
         text.hasSuffix("\n") ? String(text.dropLast()) : text
-    }
-
-    /// As `MarkdownBlocks`' rule of the same name: a paragraph that is one image and nothing else.
-    private func loneImage(in paragraph: Paragraph) -> Markdown.Image? {
-        var image: Markdown.Image?
-        for child in paragraph.children {
-            if let candidate = child as? Markdown.Image {
-                guard image == nil else { return nil }
-                image = candidate
-            } else if let text = child as? Markdown.Text {
-                guard text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return nil
-                }
-            } else if child is SoftBreak || child is LineBreak {
-                continue
-            } else {
-                return nil
-            }
-        }
-        return image
     }
 }
 

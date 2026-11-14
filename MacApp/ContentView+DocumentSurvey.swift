@@ -129,14 +129,6 @@ extension ContentView {
         }
         startDocumentSurvey(.read)
     }
-
-    func pauseDocumentSurveyAction() {
-        Task { await syncManager.pauseDocumentSurvey() }
-    }
-
-    func stopDocumentSurveyAction() {
-        Task { await syncManager.stopDocumentSurvey() }
-    }
 }
 
 /// Starting a survey (the walk, then the read) apart from the view, so a test can run it. The walk

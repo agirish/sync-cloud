@@ -1395,7 +1395,7 @@ struct ProvidersSettingsTab: View {
         // rows keep the growth to one row per source rather than four fields each.
         ForEach(cloudProviders) { provider in
             Divider()
-            ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+            ProviderSettingsSection(provider: provider, isExpanded: Binding(member: provider.id, of: $expandedIds))
         }
     }
 
@@ -1423,7 +1423,7 @@ struct ProvidersSettingsTab: View {
 
         ForEach(folderProviders) { provider in
             Divider()
-            ProviderSettingsSection(provider: provider, isExpanded: expansionBinding(provider.id))
+            ProviderSettingsSection(provider: provider, isExpanded: Binding(member: provider.id, of: $expandedIds))
         }
     }
 
@@ -1432,19 +1432,7 @@ struct ProvidersSettingsTab: View {
     @ViewBuilder
     private var nameChecks: some View {
         SettingsSection(caption: "Folder sources accept any name; this says which provider’s rules to hold them to.") {
-            SettingsRow("Check folder names against") {
-                Picker("Check folder names against", selection: $settings.folderNameRule.loggingSettingsChange("sources.folderNameRule")) {
-                    ForEach(FolderNameRuleOption.all) { option in
-                        Text(option.label).tag(option.value)
-                    }
-                }
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
-                .help(
-                    "A folder accepts any name, so “risky name” has no meaning until you say where the files are headed. Organize and the pane badges check names under a folder source against this."
-                )
-            }
+            FolderNameRuleRow(settings: settings, logsChanges: true)
         }
 
         SettingsSection(
@@ -1464,22 +1452,6 @@ struct ProvidersSettingsTab: View {
         }
     }
 
-    /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
-    /// rebuilt when discovery republishes `availableProviders` (every path edit, rename and
-    /// Refresh) doesn't snap shut mid-edit.
-    private func expansionBinding(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedIds.contains(id) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedIds.insert(id)
-                } else {
-                    expandedIds.remove(id)
-                }
-            }
-        )
-    }
-
     private func refreshProviders() {
         guard !isRefreshingProviders else { return }
         isRefreshingProviders = true
@@ -1492,14 +1464,27 @@ struct ProvidersSettingsTab: View {
     /// Picks a folder, adds it as a source and opens its row. A folder that is already a source
     /// opens that row instead of adding a second (see `SettingsManager.addFolderSource`).
     private func addFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder to use as a source"
-        panel.prompt = "Add Folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = NativeAlerts.chooseFolder(prompt: "Add Folder",
+                                                  message: "Choose a folder to use as a source") else { return }
         expandedIds.insert(settings.addFolderSource(path: url.path))
+    }
+}
+
+extension Binding where Value == Bool {
+    /// One row's open/closed state, over the set of open ids. The shared set, not per-row `@State`,
+    /// so a row rebuilt when its list republishes (discovery, the people store) doesn't snap shut
+    /// mid-edit.
+    init(member id: String, of set: Binding<Set<String>>) {
+        self.init(
+            get: { set.wrappedValue.contains(id) },
+            set: { isMember in
+                if isMember {
+                    set.wrappedValue.insert(id)
+                } else {
+                    set.wrappedValue.remove(id)
+                }
+            }
+        )
     }
 }
 
@@ -1874,40 +1859,15 @@ struct ProviderSettingsSection: View {
     }
 
     private func selectDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select root directory for \(provider.displayName)"
-
-        if panel.runModal() == .OK {
-            if let url = panel.url {
-                pathDraft.value = url.path
-                commitPath()
-            }
-        }
+        guard let url = NativeAlerts.chooseFolder(message: "Select root directory for \(provider.displayName)")
+        else { return }
+        pathDraft.value = url.path
+        commitPath()
     }
 
-    /// Picks the folder panes on this source open at. The panel starts inside the root, but macOS
-    /// lets the user navigate anywhere, so containment is enforced on the answer.
     private func selectOpenAtDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose the folder \(provider.displayName) opens at"
-        panel.prompt = "Open at"
-        // Through the manager, not `provider.landingPath`: the manager falls back to the root when
-        // the landing folder is gone. Otherwise the panel opens wherever macOS last was, likely
-        // outside the root, and the first pick is refused. `SetupSheet.seedWalkRoot` does the same.
-        panel.directoryURL = URL(
-            fileURLWithPath: (settings.landingPath(for: provider.id) as NSString).expandingTildeInPath)
-
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        // The words live in ``OpenAtRefusal``, shared with setup's Locations screen, so one rule
-        // has one wording.
-        openAtRefusal = OpenAtRefusal.message(settings.setOpenAt(url.path, for: provider.id),
-                                              provider: provider.displayName)
+        guard let outcome = OpenAtPicker.choose(provider: provider, settings: settings) else { return }
+        openAtRefusal = OpenAtRefusal.message(outcome, provider: provider.displayName)
     }
 
     private func openInFinder(_ path: String) {
@@ -1940,15 +1900,7 @@ struct ProviderSettingsSection: View {
     }
 
     private func commitName() {
-        let normalized = ProviderFieldEdit.normalized(draftName)
-        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.displayName) else {
-            draftName = normalized
-            return
-        }
-        // Empty clears the override; the default name flows back through discovery
-        // and the onChange(of: provider.displayName) refreshes the field.
-        settings.setCustomName(normalized, for: provider.id)
-        draftName = normalized.isEmpty ? provider.displayName : normalized
+        draftName = ProviderFieldEdit.commitName(draftName, provider: provider, settings: settings)
     }
 }
 
@@ -1965,6 +1917,19 @@ enum ProviderFieldEdit {
     /// value, so an unchanged blur is a no-op.
     static func shouldCommit(draft: String, committed: String) -> Bool {
         normalized(draft) != committed
+    }
+
+    /// Commits a name field's draft for both rows that rename a source (Settings ▸ Sources and
+    /// setup's Locations screen).
+    /// - Returns: What the field shows next.
+    @MainActor
+    static func commitName(_ draft: String, provider: CloudProvider, settings: SettingsManager) -> String {
+        let normalized = Self.normalized(draft)
+        guard shouldCommit(draft: normalized, committed: provider.displayName) else { return normalized }
+        // Empty clears the override; the default name flows back through discovery
+        // and the onChange(of: provider.displayName) refreshes the field.
+        settings.setCustomName(normalized, for: provider.id)
+        return normalized.isEmpty ? provider.displayName : normalized
     }
 }
 
@@ -3389,7 +3354,7 @@ struct PeopleList: View {
                 PersonRow(facts: facts(for: person), person: person,
                           preventedCount: vetoLog.count(namedPerson: person.id),
                           lastPrevented: vetoLog.mostRecent(namedPerson: person.id),
-                          isExpanded: expansionBinding(person.id),
+                          isExpanded: Binding(member: person.id, of: $expandedIds),
                           folderRoot: profile.map(Self.lookRoot(for:)),
                           canMoveUp: store.canMove(id: person.id, up: true),
                           canMoveDown: store.canMove(id: person.id, up: false),
@@ -3450,21 +3415,6 @@ struct PeopleList: View {
     }
 
     // MARK: - What the sections draw from
-
-    /// One row's open/closed state. A binding over the shared set, not per-row `@State`, so a row
-    /// rebuilt when the store republishes doesn't snap shut under the pointer.
-    private func expansionBinding(_ id: String) -> Binding<Bool> {
-        Binding(
-            get: { expandedIds.contains(id) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedIds.insert(id)
-                } else {
-                    expandedIds.remove(id)
-                }
-            }
-        )
-    }
 
     /// Everything known about one person, computed in `Sync` so the claim this view makes is
     /// testable without a window.
@@ -4164,18 +4114,9 @@ struct AdvancedSettingsTab: View {
     /// Its own alert, because without a folder profile the name and household answers live only in
     /// the draft, so clearing it loses them.
     private func confirmResetSetup(_ reset: () -> Void) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = Self.resetSetupPrompt.messageText
-        alert.informativeText = Self.resetSetupPrompt.informativeText
-        alert.addButton(withTitle: "Reset")
-        alert.addButton(withTitle: "Cancel")
-        if let resetButton = alert.buttons.first {
-            resetButton.hasDestructiveAction = true
-            resetButton.keyEquivalent = ""
-        }
-        alert.buttons.last?.keyEquivalent = "\r"
-        if NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn {
+        if NativeAlerts.confirmIrreversible(messageText: Self.resetSetupPrompt.messageText,
+                                            informativeText: Self.resetSetupPrompt.informativeText,
+                                            confirmTitle: "Reset") {
             reset()
         }
     }
@@ -4197,20 +4138,11 @@ struct AdvancedSettingsTab: View {
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
     /// not reset, same convention as the permanent-delete alert).
     private func confirmReset(_ reset: () -> Void) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Reset all settings?"
         // Names what goes and what stays, not only that files are unaffected: the folder sources
         // go with the defaults. What stays is `SettingsResetKeeps`.
-        alert.informativeText = Self.resetAllQuestion(raising: resetAllRaises())
-        alert.addButton(withTitle: "Reset")
-        alert.addButton(withTitle: "Cancel")
-        if let resetButton = alert.buttons.first {
-            resetButton.hasDestructiveAction = true
-            resetButton.keyEquivalent = ""
-        }
-        alert.buttons.last?.keyEquivalent = "\r"
-        if NativeAlerts.runModalCancellingOnEscape(alert) == .alertFirstButtonReturn {
+        if NativeAlerts.confirmIrreversible(messageText: "Reset all settings?",
+                                            informativeText: Self.resetAllQuestion(raising: resetAllRaises()),
+                                            confirmTitle: "Reset") {
             reset()
         }
     }

@@ -196,7 +196,7 @@ enum MarkdownBlocks {
     ///
     /// Whitespace-only text doesn't count: `![a](b.png)` and a newline parse as an image plus an
     /// empty text node, and calling that mixed would show every image as its alt text.
-    private static func loneImage(in paragraph: Paragraph) -> Markdown.Image? {
+    static func loneImage(in paragraph: Paragraph) -> Markdown.Image? {
         var image: Markdown.Image?
         for child in paragraph.children {
             if let candidate = child as? Markdown.Image {

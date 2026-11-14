@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import Events
 import FileExplorer
 import Settings
@@ -116,14 +117,9 @@ extension ContentView {
     }
 
     private func chooseFileIntoFolder(forProviderId id: String, startingAt folder: String) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "File Into"
-        panel.message = "Choose the folder To File suggests homes in"
-        panel.directoryURL = URL(fileURLWithPath: folder)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = NativeAlerts.chooseFolder(prompt: "File Into", message: "Choose the folder To File suggests homes in",
+                                                  startingAt: URL(fileURLWithPath: folder), canCreateDirectories: true)
+        else { return }
         setFileInto(url.path, forProviderId: id)
     }
 }

@@ -679,36 +679,18 @@ public struct LogViewer: View {
         }
     }
 
-    /// One-tap filter suggestions while the field is focused, omitting any family already active
-    /// (level and since are single-valued, so a second would only replace the first).
-    @ViewBuilder
+    /// One-tap filter suggestions while the field is focused (Design's `TokenSuggestionRow`),
+    /// omitting any family already active (level and since are single-valued, so a second would
+    /// only replace the first).
     private func logSuggestionRow(active: [LogSearch.Chip]) -> some View {
-        let suggestions = logSuggestions(active: active)
-        if !suggestions.isEmpty {
-            HStack(spacing: 6) {
-                Text("Add filter")
-                    .scaledFont(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize()
-                ForEach(suggestions, id: \.raw) { suggestion in
-                    Button {
-                        // Trim first so appending never leaves a double space.
-                        let base = searchText.trimmingCharacters(in: .whitespaces)
-                        searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
-                    } label: {
-                        Text(suggestion.label)
-                            .scaledFont(.caption2)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(.quaternary.opacity(0.6)))
-                            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
-                    }
-                    .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
-                    .help("Show only \(suggestion.shows) — adds “\(suggestion.raw)” to the search")
-                }
-                Spacer(minLength: 0)
-            }
-        }
+        TokenSuggestionRow(
+            items: logSuggestions(active: active).map {
+                TokenSuggestionRow.Item(label: $0.label, raw: $0.raw,
+                                        help: "Show only \($0.shows) — adds “\($0.raw)” to the search")
+            },
+            text: $searchText,
+            tint: hueAccent
+        )
     }
 
     /// `shows` completes the tooltip's "Show only …": `level:` matches one level exactly, so

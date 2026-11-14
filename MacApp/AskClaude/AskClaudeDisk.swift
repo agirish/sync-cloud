@@ -107,57 +107,22 @@ enum AskClaudeDisk {
     /// task in the app.
     nonisolated static func bounded<T: Sendable>(timeout: Duration = timeout, _ work: @escaping @Sendable () -> T?) async -> T? {
         // Stop answers at once too: the read is left to finish, as at the timeout.
-        let once = OnceFlag()
-        let resume = ContinuationBox<T?>()
+        let race = Race<T>()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
-                resume.set(continuation)
-                if Task.isCancelled, once.claim() { resume.resume(nil); return }
+                race.install(continuation)
+                if Task.isCancelled, race.finish({ nil }) { return }
                 DispatchQueue.global(qos: .userInitiated).async {
                     let value = work()
-                    if once.claim() { resume.resume(value) }
+                    race.finish { value }
                 }
                 Task.detached {
                     try? await Task.sleep(for: timeout)
-                    if once.claim() { resume.resume(nil) }
+                    race.finish { nil }
                 }
             }
         } onCancel: {
-            if once.claim() { resume.resume(nil) }
-        }
-    }
-}
-
-/// A continuation that may be resumed from a cancellation handler before it is even set.
-private final class ContinuationBox<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<T, Never>?
-    private var early: T?
-    private var hasEarly = false
-
-    func set(_ continuation: CheckedContinuation<T, Never>) {
-        lock.withLock {
-            if hasEarly { continuation.resume(returning: early!) } else { self.continuation = continuation }
-        }
-    }
-
-    func resume(_ value: T) {
-        lock.withLock {
-            if let continuation { continuation.resume(returning: value); self.continuation = nil } else { early = value; hasEarly = true }
-        }
-    }
-}
-
-/// True for the first caller only.
-private final class OnceFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var claimed = false
-
-    func claim() -> Bool {
-        lock.withLock {
-            if claimed { return false }
-            claimed = true
-            return true
+            race.finish { nil }
         }
     }
 }

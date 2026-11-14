@@ -75,28 +75,8 @@ enum StructureBacklog {
               })
         else { return [] }
         let shared = current.dropFirst().reduce(current[0].words) { $0.intersection($1.words) }
-        return displayNames(of: recentPath, in: profile, childrenByParent: childrenByParent)
+        return StructureDivergence.displayNames(of: recentPath, in: profile, childrenByParent: childrenByParent)
             .filter { shared.contains($0.lowercased()) }
             .sorted()
-    }
-
-    /// A folder's non-axis child names as spelled on disk: the display-cased twin of
-    /// ``StructureDivergence/vocabulary(of:in:childrenByParent:)``. It reads the shared sibling map
-    /// so a call doesn't walk every folder in the profile.
-    static func displayNames(of path: String, in profile: FolderProfile,
-                             childrenByParent: [String: [String]]) -> [String] {
-        var names: [String] = []
-        let prefix = path + "/"
-        let parent = profile.folders[path]
-        for childPath in childrenByParent[path] ?? [] {
-            guard childPath.hasPrefix(prefix) else { continue }
-            let relative = String(childPath.dropFirst(prefix.count))
-            guard !relative.isEmpty, !relative.contains("/") else { continue }
-            guard let entry = profile.folders[childPath] else { continue }
-            guard !StructureDivergence.isAxisValued(path: childPath, name: relative, entry: entry,
-                                                    parent: parent) else { continue }
-            names.append(relative)
-        }
-        return names
     }
 }

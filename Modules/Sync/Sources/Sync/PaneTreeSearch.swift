@@ -209,14 +209,14 @@ public struct PaneSearchHit: Equatable, Sendable, Identifiable {
 /// `FileTreeView`'s `==` gates the pane's re-render, and a broad query fills these maps with
 /// thousands of entries, so equality is `(side, generation, query)` only, as with `PaneTree`.
 ///
-/// That is exact: `generation` is the host's counter, bumped on every recomputation, so the same
-/// side and generation means the same computation. `query` rides along because it is cheap and is
+/// That is exact: the host bumps `generation` on every recomputation, so the same side and
+/// generation means the same computation. `query` rides along because it is cheap and is
 /// what the emphasis is drawn from.
 public struct PaneSearchResults: Equatable, Sendable {
     /// Which pane these are for. The two panes keep independent counters, so a generation means
     /// something only with the side that minted it.
     public let side: PaneTree.Side
-    /// The host's recomputation counter at the moment these were built.
+    /// The host's recomputation count when these were built: one more than the side's last.
     public let generation: Int
     /// The live query, trimmed. Empty means no search is running, and every accessor below
     /// answers as if there were no results.

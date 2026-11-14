@@ -7,6 +7,24 @@ public protocol DimmableTokenChip {
     var isActive: Bool { get set }
 }
 
+/// A recognized filter word with a human label, so a search field can draw removable chips. `raw`
+/// is the exact word typed (`since:1h`, `>5mb`), so a chip's ✕ removes precisely that word; the
+/// label shows the value as the app formats it. The Log and lens grammars use it as their `Chip`.
+public struct TokenChip: Equatable, Sendable, DimmableTokenChip {
+    public var raw: String
+    public var label: String
+    /// Whether this chip is part of the effective query. The grammars' `parse` is last-wins within
+    /// a family, so only the last word of a family filters; earlier ones draw dimmed. Their ✕ still
+    /// removes the superseded word.
+    public var isActive: Bool
+
+    public init(raw: String, label: String, isActive: Bool = true) {
+        self.raw = raw
+        self.label = label
+        self.isActive = isActive
+    }
+}
+
 /// The shared core of the app's token-search grammars (Compare's `DifferenceSearch`, the Duplicates
 /// lens's `DuplicateSearch`, the Activity Log's `LogSearch`): one tokenizer, one all-occurrences
 /// word removal, one family-last-wins chip builder, and the number+unit value parsers. Each grammar

@@ -261,7 +261,7 @@ public struct OneWaySyncNowRows: View {
         if !needsYou.isEmpty || !information.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 if !needsYou.isEmpty {
-                    header("Needs you · \(needsYou.count)")
+                    ActivitySectionHeading("Needs you · \(needsYou.count)")
                     ForEach(Array(needsYou.enumerated()), id: \.element.id) { index, row in
                         if index > 0 { Divider().padding(.leading, 12) }
                         rowView(title: row.title, detail: row.detail, raisedAt: row.raisedAt, held: true, id: row.id) {
@@ -273,7 +273,7 @@ public struct OneWaySyncNowRows: View {
                     }
                 }
                 if !information.isEmpty {
-                    header("For your information")
+                    ActivitySectionHeading("For your information")
                     ForEach(Array(information.enumerated()), id: \.element.id) { index, notice in
                         if index > 0 { Divider().padding(.leading, 12) }
                         let row = OneWaySyncNoticeRow(notice)
@@ -295,16 +295,6 @@ public struct OneWaySyncNowRows: View {
         case .retry, .syncNow: return controller.syncNowRefusal != nil
         default: return controller.isRunning && button != .openDropbox && button != .openICloudSettings && button != .showThem
         }
-    }
-
-    private func header(_ title: String) -> some View {
-        Text(title)
-            .scaledFont(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-            .accessibilityAddTraits(.isHeader)
     }
 
     private func rowView<Buttons: View>(title: String, detail: String?, raisedAt: Int64, held: Bool, id: String,

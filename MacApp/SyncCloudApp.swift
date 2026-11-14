@@ -1392,7 +1392,7 @@ final class GlassLogLine {
     private var last: String?
     private var observers: [NSObjectProtocol] = []
     /// Whether a main-actor turn to re-read the line is already on its way.
-    private let scheduled = GlassLogLinePending()
+    private let scheduled = DefaultsRereadPending()
 
     /// Nonisolated so the app delegate can hold one as a plain stored property.
     nonisolated init() {}
@@ -1430,25 +1430,6 @@ final class GlassLogLine {
         guard line != last else { return }
         last = line
         Logger.shared.info(line)
-    }
-}
-
-/// `GlassLogLine`'s "a re-read is already scheduled" flag, claimed from any thread.
-final class GlassLogLinePending: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pending = false
-
-    /// True for the caller that should schedule the re-read; false while one is already on its way.
-    func claim() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard !pending else { return false }
-        pending = true
-        return true
-    }
-
-    func release() {
-        lock.lock(); defer { lock.unlock() }
-        pending = false
     }
 }
 

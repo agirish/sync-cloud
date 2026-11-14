@@ -307,10 +307,10 @@ import Design
                 the strip insets its chips by \(PaneTabStripLadder.stripGutter)pt across and \
                 \(verticalInset)pt down — a single chip radius cannot be concentric on both
                 """)
-        #expect(PaneTabStripLadder.chipRadius == LiquidGlass.cardCornerRadius - verticalInset, """
+        #expect(PaneTabStripLadder.chipRadius == Radius.card - verticalInset, """
                 the chip's \(PaneTabStripLadder.chipRadius)pt corner sits \(verticalInset)pt inside \
-                a \(LiquidGlass.cardCornerRadius)pt one — concentricity wants \
-                \(LiquidGlass.cardCornerRadius - verticalInset)
+                a \(Radius.card)pt one — concentricity wants \
+                \(Radius.card - verticalInset)
                 """)
         // And the radius is a stop on the scale rather than a number invented for the strip.
         #expect(Radius.all.contains(PaneTabStripLadder.chipRadius),

@@ -80,20 +80,10 @@ enum GoMenuDuplicates {
     /// Watches the menus SwiftUI builds and keeps `apply` current on the Go menu. Once, at launch.
     static func install() {
         guard observers.isEmpty else { return }
-        let names: [Notification.Name] = [NSMenu.didAddItemNotification, NSMenu.didChangeItemNotification,
-                                          NSMenu.didBeginTrackingNotification]
-        observers = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
-                // AppKit changes menus on the main thread; anything else is left alone rather than
-                // trapped in `assumeIsolated`.
-                guard Thread.isMainThread else { return }
-                let menu = note.object as? NSMenu
-                MainActor.assumeIsolated {
-                    guard let go = goMenu, menu === go || menu === NSApp.mainMenu else { return }
-                    apply(to: go)
-                    keepKeysLive(in: go)
-                }
-            }
+        observers = MenuRebuildWatch.observe { menu in
+            guard let go = goMenu, menu === go || menu === NSApp.mainMenu else { return }
+            apply(to: go)
+            keepKeysLive(in: go)
         }
         if let go = goMenu {
             apply(to: go)
