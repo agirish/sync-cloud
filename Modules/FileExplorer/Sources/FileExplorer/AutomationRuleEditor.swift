@@ -171,10 +171,6 @@ struct AutomationRuleEditor: View {
         }
     }
 
-    private var hasUnmatchableMentionsRow: Bool {
-        rows.contains { Self.isUnmatchableMentions($0.condition) }
-    }
-
     /// The Save gate: runnable and no unmatchable mentions row. Canonicalization would save such a
     /// row with no words, which the evaluator ignores, silently broadening an all-of rule (and
     /// batch-eligible rules then file blind on it). `internal` so tests can pin it without a view.

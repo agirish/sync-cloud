@@ -11,7 +11,6 @@ import Sync
 
     private func column(_ listing: DestinationFolderListing?) -> DestinationColumn {
         DestinationColumn(
-            directory: "/p/Health",
             listing: listing,
             highlighted: "",
             onPathAt: nil,

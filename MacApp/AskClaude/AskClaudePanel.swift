@@ -109,7 +109,6 @@ struct AskClaudePanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
-    static let width: CGFloat = 372
     static let minWidth: CGFloat = 300
     static let maxWidth: CGFloat = 720
     /// The column's width while its inner (left) edge is dragged: dragging left widens it.
@@ -1127,7 +1126,7 @@ private struct AskClaudeThreadRow: View, Equatable {
         case .rule(let card):
             ruleCard(card)
         case .settings(let card):
-            AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, accent: accent, hue: hue)
+            AskClaudeSettingCardView(itemID: item.id, card: card, bridge: settingsBridge, hue: hue)
         case .noted(let noted, let undone):
             AskClaudeNotedRow(noted: noted, undone: undone, accent: accent, isRunning: isRunning) { onUndoNote(item.id) }
         case .tryAnother(let line):
@@ -1135,9 +1134,9 @@ private struct AskClaudeThreadRow: View, Equatable {
                 .scaledFont(.footnote).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .refine(let card):
-            AskClaudeRefineCardView(itemID: item.id, card: card, bridge: refineBridge, accent: accent, hue: hue, isRunning: isRunning)
+            AskClaudeRefineCardView(itemID: item.id, card: card, bridge: refineBridge, accent: accent, isRunning: isRunning)
         case .pdf(let card):
-            AskClaudePDFCardView(itemID: item.id, card: card, bridge: pdfBridge, accent: accent, hue: hue,
+            AskClaudePDFCardView(itemID: item.id, card: card, bridge: pdfBridge, hue: hue,
                                  isRunning: isRunning, thumbnails: pdfThumbnails)
         case .choices(let choices, let used):
             HStack(spacing: 6) {

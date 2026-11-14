@@ -19,7 +19,7 @@ import Sync
 
     private func fittingWidth(_ card: AskClaudeSettingCard, bridge: AskClaudeSettingsBridge) -> CGFloat {
         // No frame of its own: a control too wide for the offer makes the card report its width.
-        let view = AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge, accent: .blue, hue: .blue)
+        let view = AskClaudeSettingCardView(itemID: UUID(), card: card, bridge: bridge, hue: .blue)
         let host = NSHostingController(rootView: view)
         return host.sizeThatFits(in: CGSize(width: 240, height: 2_000)).width
     }

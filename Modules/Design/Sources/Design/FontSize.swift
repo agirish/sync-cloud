@@ -125,20 +125,6 @@ public struct FontSize: Hashable, Identifiable, Sendable {
     /// default size byte-identical.
     public var scale: CGFloat { CGFloat(percent) / 100 }
 
-    /// One-line explanation shown under the Settings control.
-    public var detail: String {
-        switch percent {
-        case ..<Self.medium.percent:
-            return "Slightly smaller text throughout SyncCloud, to fit more on screen."
-        case Self.medium.percent:
-            return "The standard text size."
-        case Self.maximumPercent:
-            return "The largest text size SyncCloud’s chrome can carry."
-        default:
-            return "Larger reading text — small print grows the most; titles stay put."
-        }
-    }
-
     /// The point size below which text stops being comfortably readable. Scaling down never takes
     /// a font past it (see `scaledPointSize(_:scale:)`).
     public static let legibilityFloor: CGFloat = 9
@@ -330,8 +316,6 @@ public extension ScaledFont {
         ScaledFont(base: base.weight(weight), pointSize: pointSize, weight: weight,
                    design: design, usesMonospacedDigits: usesMonospacedDigits)
     }
-
-    func bold() -> ScaledFont { weight(.bold) }
 
     func monospaced() -> ScaledFont {
         ScaledFont(base: base.monospaced(), pointSize: pointSize, weight: weight,

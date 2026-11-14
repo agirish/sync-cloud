@@ -196,11 +196,6 @@ extension FileSyncManager {
             : .success("Normalized \(n) name\(n == 1 ? "" : "s")", undoable: true)
     }
 
-    /// Removes one risky name from the list without touching disk ("Skip" / leave it as-is).
-    public func dismissRiskyName(_ risky: RiskyName) {
-        riskyNames.removeAll { $0.id == risky.id }
-    }
-
     // MARK: Helpers
 
     /// Number of path components — the sort key for deepest/shallowest-first ordering.

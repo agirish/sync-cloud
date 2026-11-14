@@ -55,8 +55,6 @@ final class AskClaudeDock {
         }
     }
 
-    var isShowing: Bool { host != nil }
-
     /// What closes the panel, for ⌘W with the keyboard in the column.
     private var closePanel: () -> Void = {}
     func closeColumn() { closePanel() }

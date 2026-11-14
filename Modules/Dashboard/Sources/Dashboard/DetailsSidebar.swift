@@ -1,6 +1,5 @@
 import SwiftUI
 import Sync
-import Events
 import Combine
 import UniformTypeIdentifiers
 import AppKit

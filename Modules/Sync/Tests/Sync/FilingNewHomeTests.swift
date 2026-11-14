@@ -124,7 +124,6 @@ import Testing
         #expect(list.count == 2)
         let new = try #require(list.first)
         #expect(new.isNew && new.relativePath == "\(trip)/2027" && new.confidence == .medium)
-        #expect(new.siblings == ["2024", "2025", "2026"])
         #expect(list[1].relativePath == trip && !list[1].isNew)
         // The control: the same file without a year gets the trip alone.
         let plain = await m.whereToFile("/Users/someone/Downloads/Air India eTicket.pdf", snippet: nil, isHidden: { _ in false })

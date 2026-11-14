@@ -57,10 +57,6 @@ extension FileManaging {
     func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool) throws {
         try createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: nil)
     }
-    
-    func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions) -> FileManager.DirectoryEnumerator? {
-        return enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: nil)
-    }
 
     public func copyItem(at srcURL: URL, to dstURL: URL, observer: CopyObserver) throws {
         guard observer.shouldContinue() else { throw CocoaError(.userCancelled, userInfo: [NSFilePathErrorKey: srcURL.path]) }

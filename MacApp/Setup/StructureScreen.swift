@@ -288,10 +288,3 @@ struct StructureScreen: View {
             + "Pause or stop any time."
     }
 }
-
-/// Structure's closing line, in place of a Why panel: the tree, legend and counts explain
-/// themselves, and this one line under the button says the rest.
-enum StructureClosing {
-    static let ifWrong = "If this looks wrong: go back and fix a name, a country or the folder. "
-        + "Nothing has moved, and nothing is saved until you press Save."
-}

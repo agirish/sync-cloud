@@ -150,7 +150,4 @@ extension Workspace {
 
     /// The defaults key holding the flat selection.
     static let defaultsKey = "selectedWorkspace"
-    /// The defaults key holding the rail selection inside Organize. Absent means the overview.
-    /// Owned by ``OrganizeLens`` because `LensWorkspaceView` reads it directly.
-    static let organizeLensKey = OrganizeLens.defaultsKey
 }

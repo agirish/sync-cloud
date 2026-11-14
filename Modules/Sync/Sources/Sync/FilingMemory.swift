@@ -12,9 +12,9 @@ import Foundation
 /// profile-only behaviour exactly.
 public struct FilingMemory: Sendable, Equatable {
     public let profileId: String
-    /// Salt for ``hash(_:)``, stored beside the hashes it produces. It keeps the file, which sits
-    /// in Application Support and gets backed up, from being a readable list of account numbers. It
-    /// is **obfuscation, not a security boundary.**
+    /// Salt for ``hash(_:salt:)``, stored beside the hashes it produces. It keeps the file, which
+    /// sits in Application Support and gets backed up, from being a readable list of account
+    /// numbers. It is **obfuscation, not a security boundary.**
     public let salt: String
     public let folders: [String: FilingMemoryEntry]
 
@@ -25,12 +25,6 @@ public struct FilingMemory: Sendable, Equatable {
     }
 
     public var isEmpty: Bool { folders.isEmpty }
-
-    /// The stored form of a digit-bearing token. A candidate file's tokens are hashed the same way
-    /// and compared for equality, so the raw account number is never stored.
-    public func hash(_ token: String) -> String {
-        FilingMemory.hash(token, salt: salt)
-    }
 
     /// `sha256(salt + token)`, first 16 hex characters. The offline builder writes these, so any
     /// change here silently stops every identifier matching (lost accuracy, no error);

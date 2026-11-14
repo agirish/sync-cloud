@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Design
 
 /// Replaces the differences `Table`'s native selection highlight with the panes' accent wash, so
 /// one window shows one selection language. AppKit paints the native one in the system accent

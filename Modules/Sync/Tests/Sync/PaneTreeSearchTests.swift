@@ -152,7 +152,7 @@ import Foundation
         #expect(file.browsePath.components == ["Documents", "Finance"])
 
         let folder = try #require(PaneTreeSearch.hits(in: Self.tree(), query: "Finance").first)
-        #expect(folder.isDirectory)
+        #expect(folder.relativePath == "Documents/Finance")
         #expect(folder.browsePath.components == ["Documents"])
     }
 

@@ -42,7 +42,6 @@ public struct PersonFile: Sendable, Equatable, Identifiable {
 
     public var id: String { path }
     public var name: String { (path as NSString).lastPathComponent }
-    public var folder: String { (path as NSString).deletingLastPathComponent }
 
     public init(path: String, evidence: PersonEvidence, matchedForm: String? = nil,
                 reason: PersonReviewReason? = nil) {

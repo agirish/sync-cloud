@@ -1,4 +1,3 @@
-import Events
 import Foundation
 
 /// What a whole-tree pass found out before committing to it. Handed to

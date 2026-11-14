@@ -1129,16 +1129,6 @@ extension MarkdownEdits {
         return prefix.text(at: index) + body
     }
 
-    /// The selection after an edit that changed the buffer's length by `delta`.
-    ///
-    /// The whole run stays selected, growing or shrinking with it, because the next verb is usually
-    /// aimed at the same lines (quote it, then make it a list).
-    static func selectionAfter(_ selection: NSRange, delta: Int, in text: String) -> NSRange {
-        let length = (text as NSString).length
-        let location = min(max(selection.location, 0), length)
-        return NSRange(location: location, length: min(max(selection.length + delta, 0), length - location))
-    }
-
     // MARK: Blocks
 
     /// Wraps the touched lines in a fence.

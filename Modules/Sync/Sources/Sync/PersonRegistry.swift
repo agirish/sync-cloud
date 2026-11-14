@@ -110,14 +110,11 @@ public struct AbsorbedWord: Sendable, Equatable {
     public let wouldHaveNamed: String
     /// The longer form that claimed it.
     public let absorbedInto: String
-    /// Whose form that was.
-    public let absorbedFor: String
 
-    public init(word: String, wouldHaveNamed: String, absorbedInto: String, absorbedFor: String) {
+    public init(word: String, wouldHaveNamed: String, absorbedInto: String) {
         self.word = word
         self.wouldHaveNamed = wouldHaveNamed
         self.absorbedInto = absorbedInto
-        self.absorbedFor = absorbedFor
     }
 }
 
@@ -308,7 +305,7 @@ public struct PersonRegistry: Sendable {
             guard let wouldName = strong[token] ?? given[token], wouldName != phrase.id else { continue }
             if absorbed.contains(where: { $0.word == token && $0.absorbedInto == phrase.display }) { continue }
             absorbed.append(AbsorbedWord(word: token, wouldHaveNamed: wouldName,
-                                         absorbedInto: phrase.display, absorbedFor: phrase.id))
+                                         absorbedInto: phrase.display))
         }
 
         for (i, t) in tokens.enumerated() where consumedBy[i] == nil && t.count >= 2 {

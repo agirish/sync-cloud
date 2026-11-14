@@ -39,14 +39,12 @@ public struct FilingHelpAnswer: Sendable, Equatable {
         public let outsidePlace: Bool
         /// Not made yet: a folder named like its siblings (TE327), made on the card with the move.
         public let isNew: Bool
-        /// For a new folder, the siblings it is named like.
-        public let siblings: [String]
         /// What chose it, for the filing scorecard (TE341): a saved rule, or the survey by name
         /// or by page 1.
         public var evidence: FilingScorecard.Evidence
 
         public init(folder: String, relativePath: String, confidence: FilingConfidence, reason: String,
-                    evidenceToken: String?, outsidePlace: Bool = false, isNew: Bool = false, siblings: [String] = []) {
+                    evidenceToken: String?, outsidePlace: Bool = false, isNew: Bool = false) {
             self.evidence = evidenceToken == nil ? .survey : .page
             self.folder = folder
             self.relativePath = relativePath
@@ -55,7 +53,6 @@ public struct FilingHelpAnswer: Sendable, Equatable {
             self.evidenceToken = evidenceToken
             self.outsidePlace = outsidePlace
             self.isNew = isNew
-            self.siblings = siblings
         }
     }
 
@@ -183,8 +180,7 @@ extension FileSyncManager {
             // read from the file passes that word on: its path says what the file holds.
             let besideFolder = kept.prefix(2).first { [$0.path, ($0.path as NSString).deletingLastPathComponent].contains(newHome.parent) }
             let made = FilingHelpAnswer.Suggestion(folder: newHome.path, relativePath: relative, confidence: .medium,
-                                                   reason: newHome.reason, evidenceToken: besideFolder?.evidenceToken, isNew: true,
-                                                   siblings: newHome.siblings)
+                                                   reason: newHome.reason, evidenceToken: besideFolder?.evidenceToken, isNew: true)
             return FilingHelpAnswer(outcome: .suggested([made, best]), surveyedAt: surveyedAt, root: root)
         }
         let named = shown.first.flatMap { best in
@@ -375,14 +371,6 @@ extension FileSyncManager {
     /// Whether filing help's card may offer Refine with Claude: Organize's own rule for showing its
     /// Refine button.
     public var filingHelpCanRefine: Bool { filingCloudRefineAvailable && filingUsesAI && filingClassifier != nil }
-
-    /// Refine with Claude for one file, from filing help's card, after the Organize scan of its
-    /// folder that the card's button started. Organize's own pass on this file alone. The app does
-    /// not call this (its click is Send on a plan card in the chat); it stays for hosts without one.
-    public func refineAfterScan(filePath: String) async -> FilingRefineSummary? {
-        guard let suggestion = await suggestionAfterScan(filePath: filePath) else { return nil }
-        return await refineFilingSuggestions([suggestion])
-    }
 
     /// The card for `filePath` once the Organize scan of its folder has finished, for the chat to
     /// make a Refine plan for (TE335); nil when the scan found none.

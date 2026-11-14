@@ -215,16 +215,6 @@ public struct OneWaySyncNoticeBoard: Codable, Equatable, Sendable, OneWaySyncEmp
         informed[id] = nil
     }
 
-    /// Clears every row `matches` picks: the rows of a folder no longer synced, or every row when
-    /// another Mac takes the sync over.
-    public mutating func clear(where matches: (OneWaySyncNotice) -> Bool) {
-        for row in rows where matches(row) {
-            dismissed[row.id] = nil
-            informed[row.id] = nil
-        }
-        rows.removeAll(where: matches)
-    }
-
     /// Dismisses an information row. A *Needs you* row can't be dismissed: false, and it stays.
     @discardableResult
     public mutating func dismiss(_ id: String) -> Bool {

@@ -146,8 +146,6 @@ public struct FolderWatchBatch: Equatable, Sendable {
     }
 
     public var isEmpty: Bool { events.isEmpty && rescans.isEmpty }
-    /// The newest id the batch speaks for, or 0 when it is empty.
-    public var latestId: UInt64 { max(events.map(\.id).max() ?? 0, rescans.map(\.id).max() ?? 0) }
 }
 
 // MARK: - The stored history

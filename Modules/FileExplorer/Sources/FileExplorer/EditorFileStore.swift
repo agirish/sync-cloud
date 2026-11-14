@@ -345,9 +345,7 @@ public enum EditorFileStore {
     /// Thrown by ``createNew(_:atPath:)`` and ``createNew(copying:toPath:)`` when something is
     /// already at the destination: the one failure a caller choosing names recovers from by trying
     /// the next.
-    struct AlreadyExists: Error, Equatable {
-        let path: String
-    }
+    struct AlreadyExists: Error, Equatable {}
 
     /// Puts new bytes on disk at `path`, and never replaces anything there.
     ///
@@ -415,7 +413,7 @@ public enum EditorFileStore {
         }
         if renamex_np(staged.path, destination.path, UInt32(RENAME_EXCL)) != 0 {
             let code = errno
-            if code == EEXIST { throw AlreadyExists(path: path) }
+            if code == EEXIST { throw AlreadyExists() }
             // A volume that can't rename exclusively (some network shares) gets the check and a
             // plain rename: the window this door closes, open only where it must be.
             guard code == ENOTSUP || code == EINVAL else {
@@ -423,7 +421,7 @@ public enum EditorFileStore {
             }
             // `attributesOfItem` does not follow a symlink, so a dangling link here is "taken" too.
             guard (try? fileManager.attributesOfItem(atPath: destination.path)) == nil else {
-                throw AlreadyExists(path: path)
+                throw AlreadyExists()
             }
             guard rename(staged.path, destination.path) == 0 else {
                 throw Failure(message: String(cString: strerror(errno)))

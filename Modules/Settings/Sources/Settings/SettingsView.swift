@@ -409,7 +409,7 @@ public struct SettingsView: View {
         case .edit:
             EditSettingsTab(page: subTab ?? .text, savedSignatures: savedSignatures)
         case .intelligence:
-            IntelligenceSettingsTab(page: subTab ?? .claudeGeneral, syncManager: syncManager)
+            IntelligenceSettingsTab(page: subTab ?? .claudeGeneral)
         case .advanced:
             AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
                                 onRunSetup: onRunSetup, onResetSetup: onResetSetup,
@@ -2654,7 +2654,6 @@ struct FilingSettingsTab: View {
 /// the file: the page says where.
 struct EditSettingsTab: View {
     let page: SettingsSubTab
-    @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(EditorTextSettings.wrapsKey) private var wraps = EditorTextSettings.wrapsDefault
     @AppStorage(EditorTextSettings.readableLineLengthKey) private var readableLineLength = EditorTextSettings.readableLineLengthDefault
     @AppStorage(EditorTextSettings.drawsPageKey) private var drawsPage = EditorTextSettings.drawsPageDefault
@@ -2859,8 +2858,6 @@ struct OrganizeSuggestionsPage: View {
 /// share (TE335), and the notice that says Refine's own caps are gone.
 struct IntelligenceSettingsTab: View {
     let page: SettingsSubTab
-    /// Optional because tests and previews build the tab without an engine.
-    var syncManager: FileSyncManager? = nil
     @AppStorage(AskClaudeModels.defaultsKey) private var askClaudeModel: String = AskClaudeModels.defaultModel.id
     @AppStorage(AskClaudeSpend.limitDefaultsKey) private var askClaudeLimitUSD: Double = AskClaudeSpend.defaultLimitUSD
     @AppStorage(AskClaudeDetail.defaultsKey) private var askClaudeAnswers: String = AskClaudeDetail.brief.rawValue

@@ -34,8 +34,6 @@ final class AskClaudePageCache {
         return page
     }
 
-    var count: Int { pages.count }
-
     func removeAll() {
         pages = [:]
         order = []

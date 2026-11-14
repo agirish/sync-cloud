@@ -1,6 +1,5 @@
 import AppKit
 import Design
-import Events
 import ServiceManagement
 import SwiftUI
 import Sync

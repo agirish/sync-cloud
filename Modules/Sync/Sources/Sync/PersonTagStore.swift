@@ -43,14 +43,6 @@ public final class PersonTagStore: ObservableObject {
         load()
     }
 
-    /// A store with no file behind it, for tests and previews: verdicts stay in memory.
-    public init(tags: [PersonTag] = []) {
-        self.directory = URL(fileURLWithPath: "/dev/null")
-        self.profileId = ""
-        self.fileManager = .default
-        self.tags = tags
-    }
-
     private var isPersistent: Bool { !profileId.isEmpty }
 
     /// Writes an empty `person-tags.json` for `profileId` when nothing is at its path, for a Setup
@@ -343,8 +335,6 @@ public struct PersonTagIndex: Sendable, Equatable {
             }
         }
     }
-
-    public var isEmpty: Bool { byKey.isEmpty }
 
     /// Every path this person was confirmed at.
     ///

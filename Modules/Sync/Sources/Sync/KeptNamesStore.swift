@@ -2,8 +2,8 @@ import Foundation
 import Events
 
 /// The names the user has said they meant, cloud-hostile on purpose, and not to be reported again.
-/// Durable because the row badge shows every time the file is on screen; Organize's per-scan
-/// dismissal (``FileSyncManager/dismissRiskyName(_:)``) would leave a mark the user can't answer.
+/// Durable because the row badge shows every time the file is on screen; a per-scan dismissal
+/// would leave a mark the user can't answer.
 ///
 /// Keyed on the name, not the path: the risk is a property of the name, so moving or copying the
 /// file must not ask again. Keeping one `Q3: final.pdf` keeps every file with that name.

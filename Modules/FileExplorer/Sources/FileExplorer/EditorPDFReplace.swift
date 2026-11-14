@@ -220,12 +220,6 @@ enum EditorPDFReplace {
         return out
     }
 
-    private static func distance(_ p: CGPoint, _ r: CGRect) -> CGFloat {
-        let dx = max(r.minX - p.x, 0, p.x - r.maxX)
-        let dy = max(r.minY - p.y, 0, p.y - r.maxY)
-        return hypot(dx, dy)
-    }
-
     private static func median(_ values: [CGFloat]) -> CGFloat {
         guard !values.isEmpty else { return 0 }
         return values.sorted()[values.count / 2]

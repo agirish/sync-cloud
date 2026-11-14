@@ -46,7 +46,6 @@ public enum DisplayCycleTrace {
     /// The worst cycle each window has had this session, for the end-of-session summary.
     private static var highWater: [Int: Int] = [:]
 
-    private static var observer: CFRunLoopObserver?
     private static var swizzled = false
 
     /// Installs the counting hook; a no-op unless the trace is armed. Idempotent: SwiftUI can
@@ -149,7 +148,6 @@ public enum DisplayCycleTrace {
             MainActor.assumeIsolated { _ = endCycle(describe: describeWindow) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), obs, .commonModes)
-        observer = obs
     }
 
     /// Names a window in the log by title and view count, since the view count is the budget a

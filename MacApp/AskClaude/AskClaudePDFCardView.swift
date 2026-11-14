@@ -35,7 +35,6 @@ struct AskClaudePDFCardView: View {
     let itemID: UUID
     let card: AskClaudePDFCard
     let bridge: AskClaudePDFBridge
-    let accent: Color
     let hue: LiquidGlassHue
     /// Claude is answering: the button waits, as a plan card's Apply does.
     var isRunning = false

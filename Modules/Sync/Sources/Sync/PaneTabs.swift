@@ -339,10 +339,6 @@ public struct PaneTabList: Equatable, Sendable {
         selectedIndex = index
     }
 
-    public mutating func select(id: UUID) {
-        if let index = index(of: id) { selectedIndex = index }
-    }
-
     /// ⇧⌘] / ⌃⇥. Wraps, because a cycle that stops at the end is a cycle you have to look at the
     /// strip to use.
     public mutating func selectNext() {
@@ -355,8 +351,6 @@ public struct PaneTabList: Equatable, Sendable {
         selectedIndex = (selectedIndex + tabs.count - 1) % tabs.count
     }
 
-    /// The tabs pinned to the leading end, in strip order.
-    public var pinned: [PaneTab] { tabs.filter(\.isPinned) }
     public var pinnedCount: Int { tabs.prefix { $0.isPinned }.count }
 
     /// How many tabs "Close Other Tabs" would actually close, keeping `id` and every pinned tab.

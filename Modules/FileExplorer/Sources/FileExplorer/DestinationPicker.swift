@@ -585,7 +585,6 @@ public struct DestinationPicker: View {
                         // targets too and the stack can rest a hairline off a column boundary.
                         HStack(spacing: 0) {
                             DestinationColumn(
-                                directory: directory,
                                 listing: listings[directory],
                                 highlighted: highlighted,
                                 onPathAt: depth < browsePath.depth ? browsePath.components[depth] : nil,
@@ -1258,7 +1257,6 @@ struct DestinationColumn: View {
         case rows
     }
 
-    let directory: String
     /// `nil` until the listing lands, which is what the spinner distinguishes from an empty folder.
     let listing: DestinationFolderListing?
     let highlighted: String

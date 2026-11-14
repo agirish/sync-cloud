@@ -69,30 +69,19 @@ extension FileSyncManager {
 
     // MARK: Rule store
 
-    /// What reading a persisted store found. The getters treat the last two alike as "no rules",
-    /// but a caller about to make an irreversible decision (the legacy migration sets a one-way
-    /// "already migrated" flag) must tell them apart and stand down on `.unreadable`.
-    enum PersistedStoreRead<Value> {
-        /// Read and decoded.
-        case decoded(Value)
-        /// Nothing saved under this key: the ordinary first run.
-        case absent
-        /// Data is present but could not be decoded. Already reported and set aside.
-        case unreadable
-    }
-
-    /// Reads a persisted store, telling "nothing saved yet" apart from "saved, but unreadable".
-    /// Undecodable data (a schema change, a truncated plist) would otherwise read as `[]`, and the
-    /// next edit would save that over every rule the user taught. So it is reported once per store
-    /// per session and the raw bytes are kept under a sibling key. Absent data stays quiet.
-    static func readPersistedStore<T: Decodable>(
+    /// The decoded value, or nil for both "nothing saved" and "unreadable": the getters can only
+    /// show an empty list either way. Undecodable data (a schema change, a truncated plist) would
+    /// then be saved over by the next edit, losing every rule the user taught, so it is reported
+    /// once per store per session and the raw bytes are kept under a sibling key. Absent data
+    /// stays quiet.
+    static func decodePersistedStore<T: Decodable>(
         _ type: T.Type,
         from defaults: UserDefaults,
         key: String,
         describing what: String
-    ) -> PersistedStoreRead<T> {
-        guard let data = defaults.data(forKey: key) else { return .absent }
-        if let decoded = try? JSONDecoder().decode(type, from: data) { return .decoded(decoded) }
+    ) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        if let decoded = try? JSONDecoder().decode(type, from: data) { return decoded }
         // Preserving is ungated by any session claim: a claim keyed on `ObjectIdentifier` would
         // drop backups, since a released `UserDefaults` can be reallocated at the same address.
         // The only skip is when the backup key already holds these exact bytes. That skip matters:
@@ -109,7 +98,7 @@ extension FileSyncManager {
                 "Saved \(what) could not be read (\(data.count) bytes) and will be treated as empty — "
                 + "the unreadable copy was kept under \"\(backupKey)\"")
         }
-        return .unreadable
+        return nil
     }
 
     /// Writes a persisted store, keeping the previously saved bytes when the value can't be
@@ -129,20 +118,6 @@ extension FileSyncManager {
             return
         }
         defaults.set(data, forKey: key)
-    }
-
-    /// The decoded value, or nil for both "nothing saved" and "unreadable": the getters can only
-    /// show an empty list either way.
-    static func decodePersistedStore<T: Decodable>(
-        _ type: T.Type,
-        from defaults: UserDefaults,
-        key: String,
-        describing what: String
-    ) -> T? {
-        if case .decoded(let value) = readPersistedStore(type, from: defaults, key: key, describing: what) {
-            return value
-        }
-        return nil
     }
 
     /// Once-per-store gate for the report above, so a hot getter can't log per read. Lock-guarded

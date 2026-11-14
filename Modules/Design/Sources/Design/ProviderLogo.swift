@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(AppKit)
 import AppKit
-#endif
 
 /// A cloud provider's brand mark, the one place a provider logo is drawn, so its sizes (pane
 /// header, Settings, single-source rail) and modes change together. A mark inside an AppKit-drawn
@@ -77,16 +75,12 @@ public struct ProviderLogo: View {
     @ViewBuilder
     private var mark: some View {
         if hasBundledAsset {
-            #if canImport(AppKit)
             if isInAppKitLabel, let presized = presizedAsset {
                 Image(nsImage: presized)
                     .renderingMode(isMonochrome ? .template : .original)
             } else {
                 resizableAsset
             }
-            #else
-            resizableAsset
-            #endif
         } else {
             // A source with no bundled brand mark (a local folder wears `folder.fill`) is the same
             // field drawn as a symbol, so `CloudProvider` keeps one "what mark does this source
@@ -132,7 +126,6 @@ public struct ProviderLogo: View {
     /// same box `scaledToFit()` into a `size` square produces, so the two modes draw the mark at the
     /// same scale. See `init(_:size:monochrome:inAppKitLabel:)` for why this exists at all, and why
     /// it must never touch the catalog's instance.
-    #if canImport(AppKit)
     private var presizedAsset: NSImage? {
         guard let shared = NSImage(named: imageName),
               let copy = shared.copy() as? NSImage else { return nil }
@@ -142,7 +135,6 @@ public struct ProviderLogo: View {
         copy.size = NSSize(width: native.width * scale, height: native.height * scale)
         return copy
     }
-    #endif
 
     /// Whether `imageName` names a bundled brand asset rather than an SF Symbol.
     ///
@@ -150,10 +142,6 @@ public struct ProviderLogo: View {
     /// choice has to be made against the catalog before building the view. Resolved per render,
     /// which costs an `NSImage(named:)` lookup — the asset catalog memoizes those.
     private var hasBundledAsset: Bool {
-        #if canImport(AppKit)
         NSImage(named: imageName) != nil
-        #else
-        true
-        #endif
     }
 }

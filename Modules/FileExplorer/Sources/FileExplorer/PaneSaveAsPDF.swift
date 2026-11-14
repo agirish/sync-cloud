@@ -381,7 +381,6 @@ enum SaveAsPDFSummary {
 /// off the model. Nothing is drawn at the window's foot.
 struct PaneSaveAsPDFLayer: View {
     @ObservedObject var model: PaneSaveAsPDF
-    let accent: Color
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {

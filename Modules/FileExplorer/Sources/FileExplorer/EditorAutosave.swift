@@ -123,9 +123,6 @@ public enum EditorAutosave {
     /// ``EditorDocument/markSaved(text:stamp:)``) and stays dirty for the rest.
     public struct Snapshot: Sendable {
         public var text: String
-        /// The buffer's version when the snapshot was taken, for the log and tests; the commit is
-        /// decided by the path and the stamp.
-        public var version: Int
         public var path: String
         public var stamp: EditorFileStore.Stamp
         /// The store's ordering ticket; see `EditorFileStore.issueWriteTicket()`.
@@ -142,7 +139,7 @@ public enum EditorAutosave {
     public static func snapshot(of document: EditorDocument) -> Snapshot? {
         guard document.canSave, let path = document.path, let stamp = document.stamp,
               let encoding = document.encoding else { return nil }
-        return Snapshot(text: document.text, version: document.textVersion, path: path,
+        return Snapshot(text: document.text, path: path,
                         stamp: stamp, ticket: EditorFileStore.issueWriteTicket(),
                         encoding: encoding)
     }

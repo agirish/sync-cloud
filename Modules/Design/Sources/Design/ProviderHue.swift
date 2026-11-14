@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(AppKit)
 import AppKit
-#endif
 
 /// Each provider's brand hue, so the two panes don't blur together: the sidebar name, pane-header
 /// name and root breadcrumb read as iCloud, Dropbox or Drive at a glance, and matching hues say at
@@ -90,15 +88,11 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         var table: [ProviderHue: Color] = [:]
         for hue in allCases {
             guard let brand = hue.brand else { continue } // neutral → the stored hue, via the getter
-            #if canImport(AppKit)
             table[hue] = Color(nsColor: NSColor(name: nil) { appearance in
                 let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
                 let c = isDark ? brand.dark : brand.light
                 return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
             })
-            #else
-            table[hue] = Color(red: brand.light.r, green: brand.light.g, blue: brand.light.b)
-            #endif
         }
         return table
     }()

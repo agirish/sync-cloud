@@ -390,7 +390,7 @@ public struct AutomationsLens: View {
                                 ruleGroupHeader(group)
                                 ForEach(group.rows) { row in
                                     AutomationDryRunRowView(
-                                        row: row, accent: accent,
+                                        row: row,
                                         densityMetrics: densityMetrics,
                                         onQuickLook: onQuickLook.map { ql in { ql(row.id) } },
                                         onReveal: onReveal.map { rv in { rv(row.id) } }
@@ -990,7 +990,6 @@ private struct DestinationPill: View {
 /// so a match can be inspected before filing.
 private struct AutomationDryRunRowView: View {
     let row: AutomationDryRunRow
-    let accent: Color
     /// Row measurements for the appearance density setting. Comfortable must keep this row's
     /// original look, pixel for pixel.
     let densityMetrics: ListDensityMetrics

@@ -1,6 +1,5 @@
 import Settings
 import FileExplorer
-import Events
 import SwiftUI
 import Sync
 import Design

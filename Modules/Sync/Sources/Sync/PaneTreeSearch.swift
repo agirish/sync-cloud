@@ -67,7 +67,6 @@ public enum PaneTreeSearch {
                     results.append(PaneSearchHit(
                         path: row.node.id,
                         name: row.info.name,
-                        isDirectory: row.info.isDirectory,
                         relativePath: (components + [row.info.name]).joined(separator: "/"),
                         parentComponents: components,
                         ancestorPaths: ancestors,
@@ -173,7 +172,6 @@ public struct PaneSearchHit: Equatable, Sendable, Identifiable {
     public let path: String
     /// The name as stored, unfolded: the emphasis is drawn on this.
     public let name: String
-    public let isDirectory: Bool
     /// Path relative to the pane's tree root. Used to ask the opposite pane whether it has this
     /// item, and (as components) to open the Columns stack down to it.
     public let relativePath: String
@@ -189,11 +187,10 @@ public struct PaneSearchHit: Equatable, Sendable, Identifiable {
 
     public var id: String { path }
 
-    public init(path: String, name: String, isDirectory: Bool, relativePath: String,
+    public init(path: String, name: String, relativePath: String,
                 parentComponents: [String], ancestorPaths: [String], match: Range<Int>) {
         self.path = path
         self.name = name
-        self.isDirectory = isDirectory
         self.relativePath = relativePath
         self.parentComponents = parentComponents
         self.ancestorPaths = ancestorPaths

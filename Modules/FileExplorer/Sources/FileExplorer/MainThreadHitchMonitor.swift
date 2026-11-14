@@ -32,8 +32,6 @@ public enum MainThreadHitchMonitor {
     static let busyReportFloor: Double = 0.10
 
     private static var observer: CFRunLoopObserver?
-    /// The second observer, at the highest order, that closes the turn after the commit.
-    private static var lateObserver: CFRunLoopObserver?
 
     /// Which end-of-turn observer a `beforeWaiting` or `exit` came from.
     enum Edge {
@@ -92,22 +90,12 @@ public enum MainThreadHitchMonitor {
             MainActor.assumeIsolated { _ = note(activity, edge: .late) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), late, .commonModes)
-        lateObserver = late
         // `.commonModes`, not `.defaultMode`: modal tracking loops such as `NSTableView`'s run in
         // their own mode, and a default-mode observer would go quiet during exactly that work.
         observer = obs
         // .debug like the [hitch] lines: at Info, "armed" followed by level-dropped reports would
         // read as a healthy main thread.
         Logger.shared.debug("[hitch] monitor armed (threshold \(Int(threshold * 1000))ms)")
-    }
-
-    static func stop() {
-        guard let observer else { return }
-        CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
-        if let lateObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), lateObserver, .commonModes) }
-        self.observer = nil
-        lateObserver = nil
-        turnBegan = nil
     }
 
     /// The rule, apart from the run loop so tests can feed it a synthetic sequence of activities.

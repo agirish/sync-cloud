@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 import Sync
-import Events
 
 /// The bridge between the app's internal file clipboard (`FileSyncManager.clipboardNodes` and
 /// `clipboardIsCut`) and the system pasteboard, so ⌘C and ⌘V work between a pane and Finder.

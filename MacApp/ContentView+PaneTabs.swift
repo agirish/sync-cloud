@@ -1155,7 +1155,7 @@ enum PaneTabChips {
             // raw id if even that is gone, which at least says which source it meant.
             let name = path.isEmpty ? (resolved?.displayName ?? providerId)
                                     : (path as NSString).lastPathComponent
-            return Draft(id: tab.id, title: name, providerId: providerId, path: path,
+            return Draft(id: tab.id, title: name, path: path,
                          sourceName: resolved?.displayName,
                          // A source with no bundled mark wears a folder, which is what
                          // `ProviderLogo` draws for a folder source anyway.
@@ -1176,7 +1176,6 @@ enum PaneTabChips {
     struct Draft {
         let id: UUID
         let title: String
-        let providerId: String
         let path: String
         let sourceName: String?
         let markImageName: String

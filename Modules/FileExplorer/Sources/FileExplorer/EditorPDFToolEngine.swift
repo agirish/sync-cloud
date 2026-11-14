@@ -10,7 +10,6 @@ public struct EditorPDFSecret: Sendable, Equatable, CustomStringConvertible, Cus
                                CustomReflectable {
     private let value: String
     public init(_ value: String) { self.value = value }
-    public var isEmpty: Bool { value.isEmpty }
     /// The characters, for `PDFToolkit` and nothing else.
     func reveal() -> String { value }
     public var description: String { "<password>" }
@@ -500,13 +499,6 @@ enum EditorPDFCopyWriter {
 
     /// The same write, at `wanted` or the keep-both rule's next free name after it: Save as PDF's
     /// door, whose first choice is the original's own name with `.pdf`, not a suffixed one.
-    nonisolated static func write(
-        _ data: Data, wanting wanted: String,
-        chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }
-    ) throws -> String {
-        try writeStamped(data, wanting: wanted, chooseName: chooseName).path
-    }
-
     nonisolated static func writeStamped(
         _ data: Data, wanting wanted: String,
         chooseName: (URL, Set<String>) -> URL = { FileSyncManager.generateUniqueURL(for: $0, reserved: $1) }

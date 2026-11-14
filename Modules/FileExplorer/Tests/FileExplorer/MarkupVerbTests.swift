@@ -541,8 +541,8 @@ import Foundation
     /// aims at the same words. Kept at its index and grown by the change, Bold after Bullets would
     /// write `**- one**`, and after Bullets off, `on**e**`.
     ///
-    /// Mutation: map the selection's start by the total change again (`selectionAfter`), and the
-    /// chained Bold and the multi-line selection both fail.
+    /// Mutation: map the selection's start by the total change again, and the chained Bold and the
+    /// multi-line selection both fail.
     @Test func aSelectionStaysOnItsWordsWhenAMarkerGoesOnOrOff() throws {
         let on = try #require(apply(.bulletList, "one", range(0, 3)))
         #expect(on.text == "- one" && on.selection == range(2, 3))

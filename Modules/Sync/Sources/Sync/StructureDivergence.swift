@@ -131,23 +131,6 @@ public struct StructureFinding: Equatable, Identifiable, Sendable {
         schemes.reduce(0) { $0 + $1.members.count } + drift.count + shapeless.count
     }
 
-    /// The one-line summary — "Finance/US/Income Tax — 17 folders, 3 schemes" for shape, the
-    /// kind's own phrase for the rest. The Organize overview prints these as its example lines.
-    public var headline: String {
-        switch kind {
-        case .shape:
-            return "\(family) — \(memberCount) folders, \(schemes.count) schemes"
-        case .backlog: return "\(subject) — no folders yet"
-        case .shadowAxis: return "\(subject) — a year in the name"
-        case .echoName: return "\(subject) — two names for one thing"
-        case .mirroredInbox: return "\(subject) — mirrors a real folder"
-        case .deadWeight: return "\(subject) — dead weight"
-        case .looseAboveSeries: return "\(subject) — files above the year run"
-        case .looseBesideContainer: return "\(subject) — beside its container"
-        case .duplicatedTaxonomy: return "\(subject) — duplicated taxonomy"
-        }
-    }
-
     public init(kind: FindingKind = .shape, family: String, subject: String? = nil,
                 schemes: [Scheme] = [], drift: [String] = [], shapeless: [String] = [],
                 detail: Detail? = nil) {

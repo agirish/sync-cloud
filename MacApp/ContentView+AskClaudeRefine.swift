@@ -1,4 +1,3 @@
-import Design
 import Events
 import FileExplorer
 import Settings

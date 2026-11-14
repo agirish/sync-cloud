@@ -167,7 +167,6 @@ struct SetupSheet: View {
     var onStartWith: (SetupStart) -> Void = { _ in }
 
     @Environment(\.appFontScale) private var fontScale
-    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var firstFieldFocused: Bool
     @AppStorage(FontSize.defaultsKey) private var fontSizePercent = FontSize.medium.percent
 
@@ -310,7 +309,7 @@ struct SetupSheet: View {
 
         case .locations:
             frame(primary: "Continue", why: { LocationsWhy(hue: glassHue, marks: paneMarks) }) {
-                LocationsScreen(model: model, settings: settings, hue: glassHue)
+                LocationsScreen(model: model, settings: settings)
             }
 
         case .learn:
@@ -404,7 +403,7 @@ struct SetupSheet: View {
                     outlineRows: [SetupFlow.OutlineRow] = SetupFlow.outline) -> some View {
         switch screen {
         case .welcome: WelcomeScreen(paneNames: paneNames, hue: glassHue, rows: outlineRows)
-        case .locations: LocationsScreen(model: model, settings: settings, hue: glassHue)
+        case .locations: LocationsScreen(model: model, settings: settings)
         case .learn: LearnScreen(model: model, settings: settings, hue: glassHue)
         case .you: YouScreen(model: model, hue: glassHue, firstFieldFocused: $firstFieldFocused)
         case .people: PeopleScreen(model: model, hue: glassHue)
@@ -418,9 +417,6 @@ struct SetupSheet: View {
                           onChange: { _ in }, onStartWith: { _ in })
         }
     }
-
-    /// The model, for a test that needs to put a walk or a roster in front of a screen.
-    var setupModel: SetupModel { model }
 
     /// The card chrome, filled in for one screen.
     ///

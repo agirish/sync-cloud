@@ -42,11 +42,6 @@ public enum EditorPDFCapsulePlace: String, CaseIterable, Sendable {
     /// docked to (``EditorPDFFloating/clear(_:of:sliding:within:)``).
     var slideAxis: Axis { isVertical ? .vertical : .horizontal }
 
-    /// Whether it sits along the bottom edge, where its menu opens upwards.
-    var isAtBottom: Bool { self == .bottomLeading || self == .bottom || self == .bottomTrailing }
-
-    var isAtTop: Bool { self == .topLeading || self == .top || self == .topTrailing }
-
     /// The canvas alignment that puts a view of any size at this place, inside the inset.
     var alignment: Alignment {
         switch self {

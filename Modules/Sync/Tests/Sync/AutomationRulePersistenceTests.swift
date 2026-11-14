@@ -7,7 +7,7 @@ import Testing
 ///
 /// The whole rule set is one JSON blob under one key, so a single value this build can't read
 /// would take the array down: every rule vanishes from the UI, and the next rule the user creates
-/// writes the empty set over them. `readPersistedStore` keeps the bytes under a sibling key, a
+/// writes the empty set over them. `decodePersistedStore` keeps the bytes under a sibling key, a
 /// floor, not a fix: nothing in the app restores them.
 @Suite struct AutomationRulePersistenceTests {
 

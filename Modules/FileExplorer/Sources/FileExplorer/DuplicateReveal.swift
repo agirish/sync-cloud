@@ -69,12 +69,6 @@ public enum DuplicateReveal {
         /// The scan never looked at this file. A different claim, and one that must never be
         /// collapsed into the other.
         case notScanned(name: String)
-
-        public var name: String {
-            switch self {
-            case .noDuplicates(let n), .notScanned(let n): return n
-            }
-        }
     }
 
     /// The outcome for a request against the scan state, or nil when nothing has been asked.

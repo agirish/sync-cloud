@@ -3,9 +3,7 @@ import PDFKit
 import Sync
 import Events
 import FileExplorer
-#if canImport(FoundationModels)
 import FoundationModels
-#endif
 
 /// Reading a file for Ask Claude, all of it on this Mac.
 ///
@@ -396,9 +394,7 @@ enum AskClaudeReading {
 
     /// Whether this Mac has an on-device model to answer with.
     static var onDeviceAvailable: Bool {
-        #if canImport(FoundationModels)
         if case .available = SystemLanguageModel.default.availability { return true }
-        #endif
         return false
     }
 
@@ -419,7 +415,6 @@ enum AskClaudeReading {
     /// must not get its text out that way.
     @MainActor
     static func answerOnDevice(_ question: String, from text: String, file: String) async -> OnDeviceAnswer {
-        #if canImport(FoundationModels)
         guard onDeviceAvailable else { return .unavailable }
         let instructions = """
         You answer one question about one document, using only the document text given. \
@@ -448,9 +443,6 @@ enum AskClaudeReading {
         let answer = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         timeout.cancel()
         return answer
-        #else
-        return .unavailable
-        #endif
     }
 
     /// The Spotlight query for text containing every word, each as a word or a word start.

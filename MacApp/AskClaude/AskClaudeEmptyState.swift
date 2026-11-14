@@ -130,7 +130,7 @@ struct AskClaudeEmptyState: View {
                     .foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true))
-            AskClaudeSettingCardView(itemID: Self.setupCardID, card: setupCard, bridge: setupBridge, accent: accent, hue: hue)
+            AskClaudeSettingCardView(itemID: Self.setupCardID, card: setupCard, bridge: setupBridge, hue: hue)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Set Up Ask Claude")

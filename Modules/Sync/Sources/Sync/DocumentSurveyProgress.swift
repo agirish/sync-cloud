@@ -90,12 +90,6 @@ public struct DocumentSurveyProgress: Sendable, Equatable {
         self.readingSeconds = readingSeconds
     }
 
-    /// 0…1, and 0 rather than a division by zero for an empty plan.
-    public var fraction: Double {
-        guard total > 0 else { return 0 }
-        return min(1, max(0, Double(completed) / Double(total)))
-    }
-
     public var isPaused: Bool {
         if case .paused = phase { return true }
         return false
@@ -121,10 +115,5 @@ public struct DocumentSurveyProgress: Sendable, Equatable {
             return perDocument * Double(total - completed)
         }
         return nil
-    }
-
-    /// The starting value for a plan, before anything has been read.
-    public static func starting(total: Int, at date: Date) -> Self {
-        Self(completed: 0, total: total, phase: .reading, startedAt: date, readingSeconds: 0)
     }
 }

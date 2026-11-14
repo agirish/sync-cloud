@@ -491,14 +491,12 @@ public final class PanePDFTools: ObservableObject {
 public struct PanePDFToolsPresenter: ViewModifier {
     let model: PanePDFTools
     let saveAsPDF: PaneSaveAsPDF?
-    let accent: Color
     let onResult: (PaneToolResult) -> Void
 
-    public init(model: PanePDFTools, saveAsPDF: PaneSaveAsPDF? = nil, accent: Color,
+    public init(model: PanePDFTools, saveAsPDF: PaneSaveAsPDF? = nil,
                 onResult: @escaping (PaneToolResult) -> Void) {
         self.model = model
         self.saveAsPDF = saveAsPDF
-        self.accent = accent
         self.onResult = onResult
     }
 
@@ -506,9 +504,9 @@ public struct PanePDFToolsPresenter: ViewModifier {
         content.overlay(alignment: .bottom) {
             VStack(spacing: 0) {
                 if let saveAsPDF {
-                    PaneSaveAsPDFLayer(model: saveAsPDF, accent: accent, onResult: onResult)
+                    PaneSaveAsPDFLayer(model: saveAsPDF, onResult: onResult)
                 }
-                PanePDFToolsLayer(model: model, accent: accent, onResult: onResult)
+                PanePDFToolsLayer(model: model, onResult: onResult)
             }
         }
     }
@@ -518,15 +516,14 @@ public struct PanePDFToolsPresenter: ViewModifier {
 /// this layer and nothing above it.
 struct PanePDFToolsLayer: View {
     @ObservedObject var model: PanePDFTools
-    let accent: Color
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {
         switch model.current {
         case .single(let tools):
-            PanePDFSingleLayer(tools: tools, host: model.host, accent: accent, onResult: onResult)
+            PanePDFSingleLayer(tools: tools, host: model.host, onResult: onResult)
         case .batch(let batch):
-            PanePDFBatchLayer(batch: batch, accent: accent, onResult: onResult)
+            PanePDFBatchLayer(batch: batch, onResult: onResult)
         case .combineSplit(let run):
             PanePDFCombineSplitLayer(run: run, onResult: onResult)
         case nil:
@@ -539,7 +536,6 @@ struct PanePDFSingleLayer: View {
     @ObservedObject var tools: EditorPDFTools
     /// The window's doors, which reveal a list; `tools.host` is Edit's, which reveals one path.
     let host: PanePDFToolHost
-    let accent: Color
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {
@@ -566,7 +562,6 @@ struct PanePDFSingleLayer: View {
 
 struct PanePDFBatchLayer: View {
     @ObservedObject var batch: EditorPDFBatch
-    let accent: Color
     let onResult: (PaneToolResult) -> Void
 
     var body: some View {

@@ -33,12 +33,10 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         let root: String
         /// The folder on screen, relative to the root.
         let folder: String
-        let sort: SortOption
         /// The folder’s direct items, as the pane lists them; nil when that folder isn’t loaded.
         let items: (_ absoluteFolder: String) -> [FileNode]?
         /// A node by absolute path, if the pane has it.
         let node: (_ absolutePath: String) -> FileNode?
-        let selection: Set<String>
         /// Why the view can’t be moved right now, or nil when it can.
         let busyReason: String?
         let goTo: (_ absoluteFolder: String) -> Void

@@ -1856,7 +1856,7 @@ public struct EditorWorkspaceView: View {
 
     private var previewEditToggle: some View {
         PreviewEditToggle(isOn: $editsInPreviewPreference, showsIntro: $showsPreviewEditIntro,
-                          accent: accent, scale: fontScale,
+                          accent: accent,
                           isTooLong: previewIsTooLong)
     }
 

@@ -1,7 +1,6 @@
 import SwiftUI
 import AppKit
 import Design
-import Events
 import FileExplorer
 
 /// One Activity window with two tabs. Events: what runs and needs you, on a band above everything

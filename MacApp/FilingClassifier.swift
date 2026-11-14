@@ -1,9 +1,7 @@
 import Foundation
 import Sync
 import Events
-#if canImport(FoundationModels)
 import FoundationModels
-#endif
 
 /// Which backend the hybrid Filing classifier runs a scan on, and whether a divergence from what
 /// the user expects has to be reported.
@@ -67,14 +65,7 @@ enum OnDeviceFilingClassifier {
     /// A session kept warm so the first real classification skips the cold model load (about 27 s
     /// cold against 5 s warm). Set by `prewarm()`. Main-actor isolated so concurrent prewarms can't
     /// race on it; `classify` builds a fresh session per file and never reads it.
-    #if canImport(FoundationModels)
-    @available(macOS 26.0, *)
-    @MainActor private static var warmSession: LanguageModelSession? {
-        get { _warmSession as? LanguageModelSession }
-        set { _warmSession = newValue }
-    }
-    @MainActor private static var _warmSession: AnyObject?
-    #endif
+    @MainActor private static var warmSession: LanguageModelSession?
 
     /// Loads the on-device model in the background so a later scan doesn't pay the cold start.
     /// Safe to call repeatedly; a no-op when the model isn't available. Callable from anywhere (the
@@ -93,12 +84,8 @@ enum OnDeviceFilingClassifier {
     }
 
     @MainActor private static func warm() {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
-            if warmSession == nil { warmSession = LanguageModelSession() }
-            warmSession?.prewarm()
-        }
-        #endif
+        if warmSession == nil { warmSession = LanguageModelSession() }
+        warmSession?.prewarm()
     }
 
     // MARK: Pure prompt shaping / verdict mapping (unit-testable without the model)
@@ -182,31 +169,20 @@ enum OnDeviceFilingClassifier {
                              proposesNewFolder: proposesNewFolder)
     }
 
-    /// Whether on-device classification can run right now (framework present, OS new enough, model
-    /// downloaded and enabled). Not cheap: it can block for seconds after a macOS update, so ask it
-    /// off the main thread, as the classifier's async closure and `prewarm()` do.
+    /// Whether on-device classification can run right now (model downloaded and enabled). Not
+    /// cheap: it can block for seconds after a macOS update, so ask it off the main thread, as the
+    /// classifier's async closure and `prewarm()` do.
     static var isAvailable: Bool {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
-            if case .available = SystemLanguageModel.default.availability { return true }
-        }
-        #endif
+        if case .available = SystemLanguageModel.default.availability { return true }
         return false
     }
 
     /// The seam the manager injects. Returns a verdict per `filePath`; declines (omits) files it's
     /// unsure about so they keep their heuristic suggestion.
     static func classify(taxonomyFolders: [String], files: [FilingCandidateFile]) async -> [String: FilingVerdict] {
-        #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
-            return await classifyOnDevice(taxonomyFolders: taxonomyFolders, files: files)
-        }
-        #endif
-        return [:]
+        await classifyOnDevice(taxonomyFolders: taxonomyFolders, files: files)
     }
 
-    #if canImport(FoundationModels)
-    @available(macOS 26.0, *)
     private static func classifyOnDevice(taxonomyFolders: [String], files: [FilingCandidateFile]) async -> [String: FilingVerdict] {
         guard case .available = SystemLanguageModel.default.availability else {
             // The caller gates on `isAvailable`, so the model went away since. Every file is about
@@ -256,7 +232,6 @@ enum OnDeviceFilingClassifier {
     /// A declination always carries its error: the last rung fails the `attempt < count - 1` guard
     /// and returns, and `ladder` is non-empty, so the tail after the loop is unreachable. If it
     /// ever became reachable, the batch warning would go quiet rather than wrong.
-    @available(macOS 26.0, *)
     private static func pick(file: FilingCandidateFile, folderList: String,
                              instructions: String) async -> (verdict: FilingVerdict?, failure: Error?) {
         // Walk the budget ladder: a prompt that doesn't fit the context window is retried smaller,
@@ -293,12 +268,9 @@ enum OnDeviceFilingClassifier {
         return text.contains("context window") || text.contains("context length")
             || text.contains("too many tokens")
     }
-    #endif
 }
 
-#if canImport(FoundationModels)
 /// The structured answer the model must produce (guided generation guarantees the shape).
-@available(macOS 26.0, *)
 @Generable
 struct FolderPick {
     @Guide(description: "Destination folder as a relative path that exactly matches one from the folder list, OR a new subfolder path under an existing parent, OR the single word 'none' if you are unsure.")
@@ -311,7 +283,6 @@ struct FolderPick {
     var createsNewFolder: Bool
 }
 
-@available(macOS 26.0, *)
 extension FolderPick {
     /// Maps the model's answer to a Sync verdict, or nil when it declined ("none"/empty).
     /// The mapping itself lives in `OnDeviceFilingClassifier.verdict` so it's unit-testable
@@ -321,4 +292,3 @@ extension FolderPick {
                                          proposesNewFolder: createsNewFolder)
     }
 }
-#endif

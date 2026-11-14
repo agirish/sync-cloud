@@ -310,7 +310,8 @@ public class SettingsManager: ObservableObject {
     /// first add, remove or path edit fires `didSet` and writes the empty-based list over the bytes
     /// still on disk. So the bytes go under a `.unreadable` sibling key, the log says so at
     /// `.error`, and the app starts with an empty list — the shape of
-    /// `FileSyncManager.readPersistedStore`, restated because that is `internal` to another module.
+    /// `FileSyncManager.decodePersistedStore`, restated because that is `internal` to another
+    /// module.
     /// Absent stays absent: a first launch must not log.
     static func readFolderSources(from defaults: UserDefaults) -> [FolderSource] {
         guard let data = defaults.data(forKey: folderSourcesKey) else { return [] }

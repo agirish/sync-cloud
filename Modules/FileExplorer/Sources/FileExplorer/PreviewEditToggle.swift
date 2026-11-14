@@ -15,7 +15,6 @@ struct PreviewEditToggle: View {
     /// whichever way editing was turned on, the pill or Text ▸ Edit in Preview.
     @Binding var showsIntro: Bool
     var accent: Color
-    var scale: CGFloat = 1
     /// The document is over ``maximumLength``: the pill stays, dimmed, and says why.
     var isTooLong = false
 

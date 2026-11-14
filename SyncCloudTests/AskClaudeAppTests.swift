@@ -15,10 +15,8 @@ private func browseContext(inBrowse: @autoclosure @escaping () -> Bool = true,
                            sourceName: @autoclosure @escaping () -> String = "iCloud",
                            root: @autoclosure @escaping () -> String,
                            folder: @autoclosure @escaping () -> String = "",
-                           sort: SortOption = .name,
                            items: @escaping (String) -> [FileNode]? = { _ in nil },
                            node: @escaping (String) -> FileNode? = { _ in nil },
-                           selection: @autoclosure @escaping () -> Set<String> = [],
                            busy: @autoclosure @escaping () -> String? = nil,
                            goTo: @escaping (String) -> Void = { _ in },
                            select: @escaping (Set<String>) -> Void = { _ in },
@@ -26,8 +24,8 @@ private func browseContext(inBrowse: @autoclosure @escaping () -> Bool = true,
     -> () -> AskClaudeBrowseTools.Context {
     {
         var ctx = AskClaudeBrowseTools.Context(
-            inBrowse: inBrowse(), sourceName: sourceName(), root: root(), folder: folder(), sort: sort,
-            items: items, node: node, selection: selection(), busyReason: busy(), goTo: goTo, select: select)
+            inBrowse: inBrowse(), sourceName: sourceName(), root: root(), folder: folder(),
+            items: items, node: node, busyReason: busy(), goTo: goTo, select: select)
         configure(&ctx)
         return ctx
     }
@@ -1123,8 +1121,8 @@ private func makeChat(_ transport: @autoclosure @escaping () -> any AskClaudeTra
         try FileManager.default.createDirectory(atPath: medical, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: root + "/Docs/Health", withDestinationPath: medical)
         let ctx = AskClaudeBrowseTools.Context(
-            inBrowse: true, sourceName: "Home", root: root, folder: "Docs", sort: .name,
-            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            inBrowse: true, sourceName: "Home", root: root, folder: "Docs",
+            items: { _ in nil }, node: { _ in nil }, busyReason: nil, goTo: { _ in }, select: { _ in })
         #expect(ctx.isOnScreen(root + "/Docs") && ctx.isOnScreen(root + "/Docs/Taxes") && ctx.isOnScreen(root + "/docs/taxes"))
         #expect(!ctx.isOnScreen(root + "/Docs/Health") && !ctx.isOnScreen(root))
     }
@@ -3356,7 +3354,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func aNewFolderLeadsAndNamedSiblingsReachClaudeByLabel() async throws {
         let made = FilingHelpAnswer.Suggestion(folder: Self.root + "/Documents/Travel/IN-US/2027", relativePath: "Travel/IN-US/2027",
                                                confidence: .medium, reason: "Named like 2024, 2025, 2026", evidenceToken: nil,
-                                               isNew: true, siblings: ["2024", "2025", "2026"])
+                                               isNew: true)
         let out = await ask(runner(FilingHelpAnswer(outcome: .suggested([made, suggestion("Travel/IN-US", .low)]), surveyedAt: nil)))
         let card = try #require(out.filing)
         #expect(card.folders.map(\.isNew) == [true, nil])
@@ -3584,7 +3582,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     @Test func twoFilesShareOneNewFolderRow() async throws {
         let new = FilingHelpAnswer.Suggestion(folder: dir + "/Documents/Travel/Trips/2027", relativePath: "Travel/Trips/2027",
                                               confidence: .medium, reason: "Named like 2024, 2025, 2026", evidenceToken: nil,
-                                              isNew: true, siblings: ["2024", "2025", "2026"])
+                                              isNew: true)
         let homes = [new, s("Travel/Trips", .low)]
         let out = await call(["into": .string("Documents")],
                              runner(extra: ["JAL Ticket.pdf": homes, "Ticket.pdf": homes], configure: { $0.shared = [$0.root] }))
@@ -4575,7 +4573,7 @@ private final class OffersADownload: AskClaudeToolRunning {
     }
 
     private func host(_ card: AskClaudeRefineCard) -> NSHostingController<AskClaudeRefineCardView> {
-        NSHostingController(rootView: AskClaudeRefineCardView(itemID: UUID(), card: card, bridge: AskClaudeRefineBridge(), accent: .blue, hue: .blue))
+        NSHostingController(rootView: AskClaudeRefineCardView(itemID: UUID(), card: card, bridge: AskClaudeRefineBridge(), accent: .blue))
     }
 
     @Test func everyStateFitsTheNarrowestPanel() {

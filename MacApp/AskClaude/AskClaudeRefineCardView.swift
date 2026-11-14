@@ -54,7 +54,6 @@ struct AskClaudeRefineCardView: View {
     let card: AskClaudeRefineCard
     let bridge: AskClaudeRefineBridge
     let accent: Color
-    let hue: LiquidGlassHue
     /// The chat is answering a question. It does not stop a pass, so it only informs.
     var isRunning = false
 

@@ -109,8 +109,6 @@ private struct Keeper {
         var recordedPath: String?
         /// A folder move above it that didn't go through: its files don't agree either.
         var folderMoveFailed = false
-        /// Its contents' hash where the step knew it: an adopted pair's.
-        var hash: String?
         /// A move back from SyncCloud Removed that landed: the removed file it was.
         var movedBack: OneWaySyncRemovedFile?
         /// Its copy or replace written and refused by Dropbox, with Dropbox's words and the copy.
@@ -122,8 +120,6 @@ private struct Keeper {
     var fates: [UInt64: Fate] = [:]
     /// Files no record holds yet, by iCloud name key.
     var newFates: [String: Fate] = [:]
-    /// Where each Dropbox item now is: its listing path's name key → its location now.
-    var locations: [String: String] = [:]
     /// Files whose copy Dropbox refused this pass.
     var newRefusals: [OneWaySyncRefusedFile] = []
     /// Refused copies moved to SyncCloud Removed this pass, by Dropbox path (name key).

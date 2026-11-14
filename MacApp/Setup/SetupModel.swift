@@ -1,5 +1,4 @@
 import AppKit
-import Design
 import Events
 import Foundation
 import Settings

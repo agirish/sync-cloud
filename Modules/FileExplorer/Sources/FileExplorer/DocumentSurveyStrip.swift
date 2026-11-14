@@ -15,8 +15,6 @@ public struct DocumentSurveyStrip: View {
     var onPause: (() -> Void)?
     var onStop: (() -> Void)?
 
-    @Environment(\.appFontScale) private var appFontScale
-
     public init(state: DocumentSurveyCardState,
                 accent: Color,
                 onResume: (() -> Void)? = nil,

@@ -414,13 +414,6 @@ public enum CloudFilingProtocol {
         (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["stop_reason"] as? String
     }
 
-    /// The API error message, if the response is an error envelope.
-    public static func errorMessage(responseData: Data) -> String? {
-        (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-            .flatMap { $0["error"] as? [String: Any] }
-            .flatMap { $0["message"] as? String }
-    }
-
     /// Approximate list price ($/million tokens) for a rough cost estimate; the Anthropic Console is
     /// the source of truth. nil for a model we have no rate for.
     ///

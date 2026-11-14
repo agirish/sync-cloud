@@ -160,7 +160,7 @@ import Sync
     @Test func anAbsorbedWordSaysWhoItWouldHaveNamed() {
         let registry = PersonRegistry(people: Self.household())
         let absorbed = AbsorbedWord(word: "father", wouldHaveNamed: "father",
-                                    absorbedInto: "Daughter Father", absorbedFor: "daughter")
+                                    absorbedInto: "Daughter Father")
         #expect(PeopleTester.absorbedLine(absorbed, registry: registry)
                 == "“father” would have named Father on its own — “Daughter Father” claimed it first.")
     }

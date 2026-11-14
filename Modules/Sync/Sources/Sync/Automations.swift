@@ -415,7 +415,7 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
 
 /// The rules are persisted as one JSON blob under one key, so a single value this build can't
 /// read would fail the whole array decode, and the next save would write the empty set over every
-/// rule. (`FileSyncManager.readPersistedStore` keeps undecodable bytes under a sibling key, but
+/// rule. (`FileSyncManager.decodePersistedStore` keeps undecodable bytes under a sibling key, but
 /// nothing offers them back.) So this decoder loses at most the one value it can't read:
 ///
 /// - A key this build doesn't know is kept verbatim and written back on the next save.

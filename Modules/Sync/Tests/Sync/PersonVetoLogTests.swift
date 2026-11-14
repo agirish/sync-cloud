@@ -122,17 +122,6 @@ import Testing
         #expect(PersonVetoLog(userDefaults: defaults).events.isEmpty)
     }
 
-    @Test func clearingRemovesTheStoredRecordToo() {
-        let defaults = ScratchDefaults("PersonVetoLogTests")
-        let log = Self.store(defaults)
-        log.record(Self.event(named: "granny"))
-
-        log.clear()
-
-        #expect(log.events.isEmpty)
-        #expect(Self.store(defaults).events.isEmpty, "the cleared log came back at the next launch")
-    }
-
     // MARK: - Absent, unreadable, and the write that used to collapse them
 
     /// A stored value this build can't decode must not be overwritten by the next refusal, which

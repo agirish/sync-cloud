@@ -1454,8 +1454,6 @@ private struct Builder {
 /// terminator counted as one byte, whatever it is.
 struct InlineLines {
     private let index: MarkdownSourceIndex
-    /// Body line *n* is file line *n + lineOffset*.
-    private let lineOffset: Int
     let paragraphColumn: Int
     /// The real (file) lines that make up the current reported line, and where each one's content
     /// starts. More than one only after a backslash break.
@@ -1473,7 +1471,6 @@ struct InlineLines {
     init(index: MarkdownSourceIndex, firstBodyLine: Int, lineOffset: Int, paragraphColumn: Int, quoteDepth: Int = 0) {
         self.index = index
         self.quoteDepth = quoteDepth
-        self.lineOffset = lineOffset
         self.paragraphColumn = paragraphColumn
         let fileLine = firstBodyLine + lineOffset
         group = [(fileLine, index.line(fileLine)?.start ?? 0)]

@@ -49,8 +49,8 @@ import Settings
         let screen = AskClaudeScreen(workspace: "Browse", source: "Tests", folder: "", sort: "Name", rows: [],
                                      selection: [], toolsAvailable: true)
         let base = AskClaudeBrowseTools.Context(
-            inBrowse: true, sourceName: "Tests", root: "/tmp", folder: "", sort: .name,
-            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            inBrowse: true, sourceName: "Tests", root: "/tmp", folder: "",
+            items: { _ in nil }, node: { _ in nil }, busyReason: nil, goTo: { _ in }, select: { _ in })
         let tools = AskClaudeBrowseTools(context: {
             var ctx = base
             ctx.ownWords = chat.ownWords
@@ -108,8 +108,8 @@ import Settings
         defer { try? FileManager.default.removeItem(at: file) }
         let url = file
         var ctx = AskClaudeBrowseTools.Context(
-            inBrowse: true, sourceName: "Tests", root: "/tmp", folder: "", sort: .name,
-            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil, goTo: { _ in }, select: { _ in })
+            inBrowse: true, sourceName: "Tests", root: "/tmp", folder: "",
+            items: { _ in nil }, node: { _ in nil }, busyReason: nil, goTo: { _ in }, select: { _ in })
         ctx.chatIsOpen = false
         ctx.ownWords = ["Remember Amma is my mom"]
         ctx.notesStore = { AskClaudeNotes(fileURL: url, defaults: ScratchDefaults("AskClaudeNotesAppTests.closed")) }

@@ -11,7 +11,6 @@ import Sync
 struct LocationsScreen: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsManager
-    let hue: LiquidGlassHue
 
     @Environment(\.colorScheme) private var colorScheme
 

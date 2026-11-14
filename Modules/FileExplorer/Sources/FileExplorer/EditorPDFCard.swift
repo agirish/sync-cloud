@@ -289,7 +289,7 @@ struct EditorPDFBody: View {
                             tools: pdf.tools, pageCount: pdf.facts?.pageCount ?? 0, accent: accent,
                             accentFill: accentFill, onAccent: onAccent)
         case .locked:
-            EditorPDFUnlockView(pdf: pdf, accent: accent)
+            EditorPDFUnlockView(pdf: pdf)
         case .refused(let reason):
             refused(reason)
         }
@@ -389,7 +389,6 @@ struct EditorPDFStateCard<Actions: View>: View {
 /// from the field whichever way the attempt goes; it is never stored or logged.
 struct EditorPDFUnlockView: View {
     @ObservedObject var pdf: EditorPDFDocument
-    let accent: Color
     @State private var password = ""
     /// How the last attempt ended: what the card says under its title.
     @State private var outcome: EditorPDFDocument.UnlockOutcome?

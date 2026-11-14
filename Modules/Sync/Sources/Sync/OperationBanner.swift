@@ -40,16 +40,6 @@ public struct OperationBanner: Equatable, Sendable {
         /// No copy at all: only for a per-item reporter inside a loop, under a cap that writes a
         /// line naming every item past it (C7), where a copy per item is the flood.
         case notMirrored
-
-        /// The level the mirror wrote before banners carried their own: the severity's. For a
-        /// site whose severity is decided at run time.
-        public init(mirroring severity: Severity) {
-            switch severity {
-            case .success: self = .info
-            case .warning: self = .warn
-            case .error: self = .error
-            }
-        }
     }
 
     /// See ``LogLevel``.

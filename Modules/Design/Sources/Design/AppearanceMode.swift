@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(AppKit)
 import AppKit
-#endif
 
 /// Whether the app renders light or dark: the theme half of Appearance, independent of
 /// `GlassLevel` (material) and `SurfaceStyle` (shape), so every combination is valid.
@@ -39,7 +37,6 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    #if canImport(AppKit)
     /// The appearance to pin `NSApplication` to. `nil` is how AppKit spells "inherit the system",
     /// so `.system` must assign it rather than skip the write, or Dark → System keeps the override.
     public var nsAppearance: NSAppearance? {
@@ -49,10 +46,8 @@ public enum AppearanceMode: String, CaseIterable, Identifiable, Sendable {
         case .dark: return NSAppearance(named: .darkAqua)
         }
     }
-    #endif
 }
 
-#if canImport(AppKit)
 /// Applies `AppearanceMode` to the running app.
 ///
 /// Sets `NSApplication.appearance`, not SwiftUI's `preferredColorScheme`, which reaches only the
@@ -92,4 +87,3 @@ public enum AppAppearance {
         apply(resolved(defaults))
     }
 }
-#endif

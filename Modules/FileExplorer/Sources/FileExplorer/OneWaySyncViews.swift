@@ -360,12 +360,6 @@ public struct OneWaySyncHistoryEntryRow: View {
         self.controller = controller
     }
 
-    /// Every sync that changed or held something, newest first: History keeps 90 days, and
-    /// Reverse reaches all of it.
-    public static func entries(_ controller: OneWaySyncController = .shared) -> [OneWaySyncHistoryEntry] {
-        controller.store?.history.entries() ?? []
-    }
-
     /// When it ran, for its place in the timeline.
     public static func date(_ entry: OneWaySyncHistoryEntry) -> Date {
         Date(timeIntervalSince1970: TimeInterval(entry.startedAt))

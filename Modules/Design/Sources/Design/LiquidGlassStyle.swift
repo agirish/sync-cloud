@@ -248,12 +248,8 @@ public enum GlassLevel: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Whether this level must draw its own hairline edge and drop shadow. Native Liquid Glass
-    /// draws both itself; an opaque panel has neither, nor does the pre-macOS 26 material fallback.
-    public var needsExplicitChrome: Bool {
-        if self == .solid { return true }
-        if #available(macOS 26.0, *) { return false }
-        return true
-    }
+    /// draws both itself; an opaque panel has neither.
+    public var needsExplicitChrome: Bool { self == .solid }
 }
 
 // MARK: - Clear glass tuning
@@ -566,19 +562,13 @@ public extension View {
         modifier(LiquidGlassBackground(level: level, hue: hue, tint: tint))
     }
 
-    /// An accent-tinted glass capsule for small chrome (the selection action bar, status pills). On
-    /// macOS 26 it tints the native glass itself, so the surface reads as the accent hue rather
-    /// than a neutral gray `Material` with a thin accent wash on top; earlier systems get exactly
-    /// that thin material and wash. `strength` is the tint opacity on the glass, `fallbackWash` the
-    /// accent opacity on the fallback.
+    /// An accent-tinted glass capsule for small chrome (the selection action bar, status pills). It
+    /// tints the native glass itself, so the surface reads as the accent hue rather than a neutral
+    /// gray `Material` with a thin accent wash on top. `strength` is the tint opacity on the glass.
     @ViewBuilder
-    func accentGlassCapsule(_ accent: Color, strength: Double = 0.55, fallbackWash: Double = 0.14) -> some View {
+    func accentGlassCapsule(_ accent: Color, strength: Double = 0.55) -> some View {
         // The accent verbatim, the exact hue picked in Settings, never darkened or remapped.
-        if #available(macOS 26.0, *) {
-            self.glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())
-        } else {
-            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(fallbackWash))))
-        }
+        self.glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())
     }
 
     /// The material fill for one content surface, and the one place the level → appearance decision
@@ -673,7 +663,7 @@ public extension View {
     /// back the transparency the level asked for.
     @ViewBuilder
     func chromeButtonStyle(_ level: GlassLevel) -> some View {
-        if level.needsChromeFrosting, #available(macOS 26.0, *) {
+        if level.needsChromeFrosting {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.bordered)
@@ -694,7 +684,7 @@ public extension View {
 
     /// Floating-card decoration for the `.cards` shape: the level's fill, rounded corners, and an
     /// outer gutter so the background shows between cards. Native Liquid Glass draws its own
-    /// shadow; `.solid` and the pre-macOS 26 fallback draw theirs explicitly.
+    /// shadow; `.solid` draws one explicitly.
     ///
     /// The hairline and shadow route through `DarkBoldCardChrome`: dark swaps the faint
     /// `.quaternary` edge for a top-lit white specular hairline and a deeper shadow, so each card
@@ -950,7 +940,7 @@ private struct GlassSurface: ViewModifier {
         case .solid:
             content.background(Color(nsColor: .controlBackgroundColor), in: shape)
         case .clear, .frosted:
-            if #available(macOS 26.0, *), scheme == .dark {
+            if scheme == .dark {
                 content.glassEffect(level == .frosted ? .regular : .clear,
                                     in: .rect(cornerRadius: cornerRadius))
             } else {
@@ -969,7 +959,7 @@ private struct FloatingPanelGlass: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *), level == .clear, scheme != .dark {
+        if level == .clear, scheme != .dark {
             content.glassEffect(.clear, in: .rect(cornerRadius: cornerRadius))
         } else {
             content.glassSurface(level, cornerRadius: cornerRadius)

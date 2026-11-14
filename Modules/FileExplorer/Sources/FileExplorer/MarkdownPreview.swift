@@ -103,7 +103,7 @@ struct MarkdownPreview: View {
                     // `MarkdownBlockView` is shared with the printed page, so File ▸ Print's claim
                     // to be "the preview" stays true.
                     MarkdownBlockView(block: block, accent: accent, documentFolder: documentFolder,
-                                      onToggleTask: onToggleTask, onFollowAnchor: onFollowAnchor)
+                                      onToggleTask: onToggleTask)
                         // The scroll target: the index, not the source line, which a block may
                         // lack (``MarkdownBlock/line``).
                         .id(index)
@@ -134,7 +134,6 @@ struct MarkdownImageView: View {
     /// The open document's folder, which is what a relative source resolves against.
     let folder: String?
     let alt: String
-    let accent: Color
     /// An image already resolved and decoded by somebody else, or `nil` to load it here.
     ///
     /// Paper's route in. The load below is a `.task`, which doesn't run in an offscreen render, so

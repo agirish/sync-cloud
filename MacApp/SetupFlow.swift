@@ -347,13 +347,6 @@ enum SetupFlow {
         "This Mac already has a folder profile SyncCloud did not write, so that one is still in "
         + "use. What was just learned is saved beside it and unused."
 
-    /// What Summary says about the answers that have nowhere to land yet.
-    ///
-    /// On a Mac with no folder profile there is no `people.json` to write into, so the You and
-    /// People answers wait in `setup-draft.json` until a walk mints one. Summary says what is in
-    /// effect, and in this, the commonest case, those two rows are not yet.
-    static let heldUntilSurveyed = "kept, and applied once SyncCloud learns a folder tree"
-
     /// The one-line privacy claim, said on the welcome screen and echoed in the footer of every
     /// step.
     ///

@@ -33,8 +33,8 @@ import Sync
 
     private func context(hidden: [String] = []) -> AskClaudeBrowseTools.Context {
         var ctx = AskClaudeBrowseTools.Context(
-            inBrowse: true, sourceName: "Tests", root: folder, folder: "", sort: .name,
-            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil,
+            inBrowse: true, sourceName: "Tests", root: folder, folder: "",
+            items: { _ in nil }, node: { _ in nil }, busyReason: nil,
             goTo: { _ in }, select: { _ in })
         ctx.hidden = hidden
         return ctx
@@ -444,7 +444,7 @@ import Sync
                                                         stamp: AskClaudeFileStamp(modifiedAt: nil, size: 1, fileID: 1), bytes: 1)],
                                         message: "Saved “Statement October 2026 with a long name (pages 3–5, 1).pdf” — 18.2 MB → 3.1 MB")
             let view = AskClaudePDFCardView(itemID: UUID(), card: card,
-                                            bridge: AskClaudePDFBridge(offersUndo: { _ in true }), accent: .blue, hue: .blue)
+                                            bridge: AskClaudePDFBridge(offersUndo: { _ in true }), hue: .blue)
             let width = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 240, height: 3_000)).width
             #expect(width <= 240, "\(action) \(state) asks for \(width) pt")
         }

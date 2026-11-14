@@ -16,22 +16,13 @@ extension ContentView {
     // "Pin" in these names is the dock: the column beside the workspace. They keep the names the
     // pinned column gave them, and the room rule is `PaneLogic.pinRoom`.
 
-    /// The column is open and has room beside the workspace.
-    var askClaudePinnedShown: Bool { askClaudeOpen && askClaudeMeasured && askClaudePinState.fits }
-
     /// The row has been measured, so the room rule has an answer: before that the column is drawn
     /// nowhere, so a launch never flashes it over the workspace.
     var askClaudeMeasured: Bool { askClaudeRowWidth > 0 }
 
-    /// The column is open and the window is too narrow to share the row with the workspace, so it is
-    /// drawn over the workspace's right edge.
-    var askClaudeOverlaid: Bool { askClaudeOpen && askClaudeMeasured && !askClaudePinState.fits }
-
     /// Whether the room rule folds a pane for the column on this workspace: Organize's folder pane,
     /// with its sidebar, or Edit's file list. Not stored anywhere.
-    var askClaudePinFoldWanted: Bool {
-        askClaudePinnedShown && askClaudePinState.folds && (selectedWorkspace == .filing || selectedWorkspace == .editor)
-    }
+    var askClaudePinFoldWanted: Bool { askClaudePinFoldHeld && askClaudePinState.fits }
 
     /// The pin is folding now: wanted, and not ended by the person opening the pane by hand.
     var askClaudePinFoldActive: Bool { askClaudePinFoldWanted && !askClaudePinFoldReleased }
@@ -1326,10 +1317,8 @@ extension ContentView {
             sourceName: askClaudeSpokenName(leftProviderId),
             root: askClaudeRoot,
             folder: askClaudeFolder,
-            sort: syncManager.sortOption,
             items: { askClaudeItems($0) },
             node: { askClaudeNode(AskClaudePaths.canonical($0)) ?? askClaudeNode($0) },
-            selection: syncManager.selectedLeftPaths,
             busyReason: askClaudeBusyReason,
             // Navigation by the root's own spelling, which is what the palette's route resolves,
             // and always the left pane: the palette's routes follow the focused pane, which in

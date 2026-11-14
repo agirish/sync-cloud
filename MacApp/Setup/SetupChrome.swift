@@ -31,7 +31,6 @@ struct SetupScreenCard<Content: View, Why: View>: View {
     @ViewBuilder var content: () -> Content
     @ViewBuilder var why: () -> Why
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appFontScale) private var fontScale
 
     /// The card's own geometry moves by `chromeScale`, not by the text scale; see its doc comment.

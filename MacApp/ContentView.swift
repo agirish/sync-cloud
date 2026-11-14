@@ -1204,7 +1204,6 @@ struct ContentView: View {
         // it covers the progress, and not in the chain, because the sheet must not yield to them
         // (see `PanePDFToolsPresenter`).
         .modifier(PanePDFToolsPresenter(model: panePDFTools, saveAsPDF: paneSaveAsPDF,
-                                        accent: glassHue.accentColor,
                                         onResult: { postPaneToolResult($0) }))
         .overlay {
             // The divergence diff leads, ahead of even the picker. Everything below is something

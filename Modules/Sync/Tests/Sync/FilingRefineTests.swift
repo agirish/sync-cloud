@@ -693,13 +693,13 @@ private actor AsyncGate {
 }
 
 /// Reads of the persisted rejection store must not scale with the number of suggestions.
-/// `filingRejections` decodes JSON from `UserDefaults` on every access (see `readPersistedStore`),
-/// so the request's exclusion list and the apply filter each read it once per loop, not once per
-/// suggestion on the main actor.
+/// `filingRejections` decodes JSON from `UserDefaults` on every access (see
+/// `decodePersistedStore`), so the request's exclusion list and the apply filter each read it once
+/// per loop, not once per suggestion on the main actor.
 @MainActor
 @Suite struct FilingRefineRejectionReadTests {
 
-    /// Counts `data(forKey:)` reads of one key, which is what `readPersistedStore` fetches.
+    /// Counts `data(forKey:)` reads of one key, which is what `decodePersistedStore` fetches.
     private final class CountingDefaults: UserDefaults, @unchecked Sendable {
         let watched: String
         private let lock = NSLock()

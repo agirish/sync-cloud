@@ -423,7 +423,7 @@ import Testing
         for i in 0..<8 { documents["G\(i)/x.pdf"] = Self.doc(["unrelated\(i)"], size: i, modified: i) }
         let memory = FilingSurvey.buildMemory(corpus: Self.corpus(documents), folderModified: [:])
         let stored = memory.folders["F"]?.idHashes.map(\.token) ?? []
-        #expect(stored.contains(memory.hash("mrn4471902")))
+        #expect(stored.contains(FilingMemory.hash("mrn4471902", salt: memory.salt)))
     }
 
     /// Two runs over the same corpus produce the same memory, or every survey looks like a change

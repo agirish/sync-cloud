@@ -594,13 +594,6 @@ public struct FolderSidebarView: View {
         /// status, because a network share can be a source and stay one through an eject.
         case eject(SidebarSourceRow, losesItsSource: Bool)
 
-        var row: SidebarSourceRow {
-            switch self {
-            case .removeSource(let row): return row
-            case .eject(let row, _): return row
-            }
-        }
-
         var title: String {
             switch self {
             case .removeSource: return "Remove this source?"

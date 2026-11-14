@@ -77,8 +77,6 @@ public struct OneWaySyncSummary: Equatable, Sendable {
     /// What Dropbox holds of the synced folders once the run is done: everything iCloud holds there.
     public var syncedBytes: Int64 = 0
 
-    public var changes: Int { copies + replaces + moves + removals }
-
     public init() {}
 
     init(_ look: OneWaySyncLook) {

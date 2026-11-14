@@ -172,7 +172,6 @@ public struct AutomationDryRunReport: Sendable, Equatable {
         self.rows = rows
     }
 
-    public var matchedCount: Int { rows.count }
     public var wouldFileCount: Int {
         rows.filter { if case .wouldFile = $0.verdict { return true } else { return false } }.count
     }

@@ -142,7 +142,7 @@ import Sync
     }
 
     @Test func countsOfOneReadAsOne() {
-        let one = [OneWaySyncPendingRemoval(record: 1, iCloudPath: "Legal/a", dropboxPath: "Legal/a", kind: .deleted)]
+        let one = [OneWaySyncPendingRemoval(record: 1, iCloudPath: "Legal/a", kind: .deleted)]
         #expect(OneWaySyncReviewSheet.title(folder: "Legal", pending: one, loaded: true) == "Legal: 1 removal")
         #expect(OneWaySyncReviewSheet.title(folder: "Legal", pending: [], loaded: false) == "Legal: Review")
         #expect(OneWaySyncEmptySheet.title(count: 1, bytes: 10, loaded: true).hasPrefix("SyncCloud Removed · 1 item · "))

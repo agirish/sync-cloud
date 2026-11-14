@@ -1,6 +1,5 @@
 import SwiftUI
 import Sync
-import Events
 import Design
 
 /// The docked review card above the differences table during an inline review: the current

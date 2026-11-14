@@ -37,9 +37,6 @@ struct MarkdownListLine {
         }
     }
 
-    /// Everything before the item's words: indent, marker, spacing and box.
-    var lead: String { indent + markerText + spacing + (task.map { $0.box + $0.spacing } ?? "") }
-
     /// The line's indent in columns, a tab advancing to the next multiple of four (CommonMark's tab
     /// stop). Every indent rule below is stated in columns.
     var indentColumns: Int { Self.columns(of: indent) }

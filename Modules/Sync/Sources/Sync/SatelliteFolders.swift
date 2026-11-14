@@ -24,9 +24,6 @@ public struct DocumentIdentityIndex: Sendable {
         self.documentCounts = documentCounts
     }
 
-    public static let empty = DocumentIdentityIndex(foldersByIdentity: [:], pathsByIdentity: [:],
-                                                    documentCounts: [:])
-
     /// Builds the index from the persisted stores. `textless` is the "too little text" markers' own
     /// store: it holds no identity, but a marker newer than a path's digest says that digest
     /// describes the file as it was (a PDF with text, since overwritten by a scan of nothing).

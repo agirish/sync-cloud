@@ -36,11 +36,11 @@ import EventsTestSupport
         }
         let one = try at("1")
         #expect(one.table == NSRange(location: 0, length: ns.length))
-        #expect((one.row, one.column, one.onDelimiter) == (1, 0, false))
+        #expect((one.row, one.column) == (1, 0))
         #expect((try at("2").row, try at("2").column) == (1, 1))
         #expect((try at("b").row, try at("b").column) == (0, 1))
         let delimiter = try at("---", 1)
-        #expect((delimiter.row, delimiter.column, delimiter.onDelimiter) == (0, 1, true))
+        #expect((delimiter.row, delimiter.column) == (0, 1))
         // Before the first pipe of a row, still that row's first cell.
         #expect(MarkdownTables.locate(in: ns, at: 0)?.column == 0)
     }

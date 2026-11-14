@@ -52,8 +52,6 @@ public enum RestructureRederive {
             steps = renames.map { (from: $0.from, prefix: $0.from + "/", to: $0.to) }
         }
 
-        var isEmpty: Bool { steps.isEmpty }
-
         /// One path pushed through every step, in order. A fold, not a lookup, because a later
         /// rename may act on the product of an earlier one.
         func mapped(_ path: String) -> String {

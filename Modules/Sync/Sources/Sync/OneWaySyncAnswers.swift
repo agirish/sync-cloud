@@ -36,14 +36,12 @@ public struct OneWaySyncPendingRemoval: Equatable, Sendable, Identifiable {
 
     public var record: UInt64
     public var iCloudPath: String
-    public var dropboxPath: String
     public var kind: Kind
     public var id: UInt64 { record }
 
-    public init(record: UInt64, iCloudPath: String, dropboxPath: String, kind: Kind) {
+    public init(record: UInt64, iCloudPath: String, kind: Kind) {
         self.record = record
         self.iCloudPath = iCloudPath
-        self.dropboxPath = dropboxPath
         self.kind = kind
     }
 }
@@ -354,7 +352,7 @@ public enum OneWaySyncAnswers {
             case .movedOut(let item): kind = .movedOut(to: item.path)
             case .gone: kind = .deleted
             }
-            pending.append(OneWaySyncPendingRemoval(record: file.key, iCloudPath: file.iCloudPath, dropboxPath: file.dropboxPath, kind: kind))
+            pending.append(OneWaySyncPendingRemoval(record: file.key, iCloudPath: file.iCloudPath, kind: kind))
         }
         return pending.sorted { $0.iCloudPath < $1.iCloudPath }
     }

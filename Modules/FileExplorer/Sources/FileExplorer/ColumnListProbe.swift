@@ -111,11 +111,6 @@ struct ColumnListProbe: NSViewRepresentable {
         /// column's list and not a sibling's.
         var resolvedTable: NSTableView? { table }
 
-        /// Test seam: how many fallback checks the last restore used before it landed. One that
-        /// landed on its content settling uses a few at most; one that ran them all out waited for
-        /// room that was never coming, a three-second stall.
-        private(set) var checksUsedByLastRestore: Int?
-
         func configure(rows: [PaneRow], placement: PaneBarPlacement?, onBarEdgeFlip: (() -> Void)?,
                        memory: PaneScrollMemorySlot?, directory: String) {
             self.rows = rows
@@ -303,7 +298,6 @@ struct ColumnListProbe: NSViewRepresentable {
             }
             // Released before the move, so the move's own notification records where it landed.
             pending = nil
-            checksUsedByLastRestore = PaneScrollMemory.restoreAttempts - attemptsLeft
             let clip = scroller.contentView
             let y = position.resolved(in: clip.restingRangeY)
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))

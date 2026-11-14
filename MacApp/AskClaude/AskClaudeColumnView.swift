@@ -1,5 +1,4 @@
 import AppKit
-import Design
 
 /// Ask Claude's place in the main window: it holds the hosting view, and it is the keyboard's anchor
 /// for the keys the panel needs.

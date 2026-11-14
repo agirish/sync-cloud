@@ -269,14 +269,6 @@ public final class RestructureStore: ObservableObject {
         save()
     }
 
-    /// Every Never suggest this again at once.
-    public func unsuppressAll() {
-        guard !suppressed.isEmpty else { return }
-        Logger.shared.info("Restructure: unsuppressed all \(suppressed.count) finding(s)")
-        suppressed = []
-        save()
-    }
-
     // MARK: - Answers
 
     public func answer(for key: RestructureKey) -> String? { answers[key] }

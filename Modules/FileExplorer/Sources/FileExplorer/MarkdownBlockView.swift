@@ -13,8 +13,6 @@ struct MarkdownBlockView: View {
     var documentFolder: String?
     /// Ticks or unticks the task on a source line, or `nil` where the document must not be edited.
     var onToggleTask: ((Int) -> Void)?
-    /// Sends the reader to a heading in this same document, for a `#fragment` link.
-    var onFollowAnchor: ((String) -> Void)?
     /// Screen or paper — see ``Medium``.
     var medium: Medium = .screen
     /// Images already resolved and decoded, keyed by the raw `![alt](source)` text they came from.
@@ -123,7 +121,7 @@ struct MarkdownBlockView: View {
             // The raw source, resolved inside ``MarkdownImageView``, not here: resolving costs four
             // filesystem calls, and a `body` runs on every keystroke in preview or split. On paper
             // the answer is already in hand (``preloadedImages``).
-            MarkdownImageView(source: source, folder: documentFolder, alt: alt, accent: accent,
+            MarkdownImageView(source: source, folder: documentFolder, alt: alt,
                               preloaded: preloadedImages[source])
 
         case .listItem(let marker, let text):

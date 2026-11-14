@@ -57,12 +57,10 @@ public final class OneWaySyncProcessLock: @unchecked Sendable {
         case cannotOpen(errno: Int32)
     }
 
-    public let url: URL
     private var fd: Int32
     private let lock = NSLock()
 
-    private init(url: URL, fd: Int32) {
-        self.url = url
+    private init(fd: Int32) {
         self.fd = fd
     }
 
@@ -83,7 +81,7 @@ public final class OneWaySyncProcessLock: @unchecked Sendable {
         let pid = Data("\(getpid())\n".utf8)
         _ = ftruncate(fd, 0)
         _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
-        return .success(OneWaySyncProcessLock(url: url, fd: fd))
+        return .success(OneWaySyncProcessLock(fd: fd))
     }
 
     /// Lets it go. Also done when the lock is freed or the process ends.

@@ -59,8 +59,8 @@ import Sync
                                      selection: [], toolsAvailable: true)
         let root = folder
         let ctx = AskClaudeBrowseTools.Context(
-            inBrowse: true, sourceName: "Tests", root: root, folder: "", sort: .name,
-            items: { _ in nil }, node: { _ in nil }, selection: [], busyReason: nil,
+            inBrowse: true, sourceName: "Tests", root: root, folder: "",
+            items: { _ in nil }, node: { _ in nil }, busyReason: nil,
             goTo: { _ in }, select: { _ in })
         chat.ask(question, screen: screen, tools: AskClaudeBrowseTools(context: { ctx }, statDisk: { _ in nil }))
         if waiting { await waitUntil("the chat finishes its question", timeout: 30) { !chat.isRunning } }

@@ -1,5 +1,4 @@
 import AppKit
-import Design
 import FileExplorer
 
 /// Edit ▸ Undo and Redo wait while a long run is going, so ⌘Z can't put a file back while a merge

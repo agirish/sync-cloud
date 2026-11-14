@@ -346,9 +346,7 @@ extension ContentView {
 
         // A leading flexible spacer keeps the utility pill trailing; macOS 26's grouped toolbar
         // doesn't trail `.primaryAction` on its own.
-        if #available(macOS 26.0, *) {
-            ToolbarSpacer(.flexible)
-        }
+        ToolbarSpacer(.flexible)
 
         // A long run's progress, in the toolbar's middle: the file operation on `activeProgress`,
         // or a PDF tool or Save as PDF run from a pane. Present only while something runs, and
@@ -421,9 +419,7 @@ extension ContentView {
         // Ask Claude: the far right, its own glass circle after the utility pill, accent-tinted while
         // the column is open. The fixed spacer makes it its own capsule; otherwise macOS 26 draws
         // adjacent items in one shared glass group, inside the utility pill.
-        if #available(macOS 26.0, *) {
-            ToolbarSpacer(.fixed)
-        }
+        ToolbarSpacer(.fixed)
         ToolbarItem(placement: .primaryAction) {
             AskClaudeToolbarButton(visibility: askClaudeHolder.visibility, accent: glassHue.accentColor) { toggleAskClaude() }
                 .disabled(askClaudeStateBusy != nil)

@@ -31,8 +31,6 @@ enum DifferenceSearch {
         var tokens: [Token]
         var freeText: String
 
-        var isEmpty: Bool { tokens.isEmpty && freeText.isEmpty }
-
         /// `pathRootName` is the Path column's anchor for the rows being searched. Free text
         /// matches what the table shows: `relativePath` or the anchored Path-column text, since
         /// the anchor ("Home", or "Top level") appears in no `relativePath` and visible text must

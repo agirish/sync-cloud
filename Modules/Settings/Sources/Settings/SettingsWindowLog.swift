@@ -52,11 +52,6 @@ enum SettingsWindowLog {
     static func log(_ id: String, _ what: String) {
         Logger.shared.info(logLine(SettingsCatalog.entry(id)?.label ?? id, what))
     }
-
-    /// Writes the line for an action on a setting the catalog doesn't hold yet.
-    static func log(label: String, _ what: String) {
-        Logger.shared.info(logLine(label, what))
-    }
 }
 
 /// A value Settings stores, as the catalog spells it.

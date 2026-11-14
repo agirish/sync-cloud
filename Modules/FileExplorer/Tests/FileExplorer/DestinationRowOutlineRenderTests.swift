@@ -39,8 +39,7 @@ import Sync
     /// pinned, as in `PaneTabStripRenderTests`, or SwiftUI renders the desaturated inactive variant.
     /// The backdrop is flat, not the picker's card: glass renders white through a bare host.
     func render(names: [String], chosen: String) -> NSBitmapImageRep {
-        let subject = DestinationColumn(directory: "/Users/x/Docs",
-                                        listing: listing(names),
+        let subject = DestinationColumn(listing: listing(names),
                                         highlighted: "/Users/x/Docs/\(chosen)",
                                         onPathAt: nil,
                                         accent: Self.accent,

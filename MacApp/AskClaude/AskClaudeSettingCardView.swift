@@ -128,7 +128,6 @@ struct AskClaudeSettingCardView: View {
     let itemID: UUID
     let card: AskClaudeSettingCard
     let bridge: AskClaudeSettingsBridge
-    let accent: Color
     let hue: LiquidGlassHue
     @StateObject private var ticker = AskClaudeSettingsTicker()
     /// What is typed in an API key field, by row: the view's alone, never the card's.

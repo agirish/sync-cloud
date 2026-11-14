@@ -1,6 +1,5 @@
 import Foundation
 import Dashboard
-import Events
 import FileExplorer
 import Sync
 
@@ -199,10 +198,6 @@ struct EditorLocationDoors {
             @MainActor init(of manager: FileSyncManager) {
                 root = manager.leftRelativePath
                 combined = manager.combinedRelativePath(isLeft: true)
-            }
-            init(root: String, combined: String) {
-                self.root = root
-                self.combined = combined
             }
         }
 

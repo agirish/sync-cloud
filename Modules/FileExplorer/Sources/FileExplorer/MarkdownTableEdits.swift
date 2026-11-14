@@ -36,11 +36,10 @@ enum MarkdownTables {
         /// break at either end.
         var table: NSRange
         /// The cell row: 0 is the header, 1… the body rows. The delimiter row is not a cell row; a
-        /// position on it answers row 0 with ``onDelimiter`` set.
+        /// position on it answers row 0.
         var row: Int
         /// The cell, 0-based, clamped to the table's columns.
         var column: Int
-        var onDelimiter: Bool
         /// How far into its cell's text the position is, in UTF-16 — what Tidy keeps.
         var offsetInCell: Int
     }
@@ -255,7 +254,7 @@ enum MarkdownTables {
         column = min(column, table.columns - 1)
         let content = starts.indices.contains(column) ? starts[column].content : 0
         return Location(table: range, row: lineIndex <= delimiterIndex ? 0 : lineIndex - delimiterIndex, column: column,
-                        onDelimiter: lineIndex == delimiterIndex, offsetInCell: max(0, offset - content))
+                        offsetInCell: max(0, offset - content))
     }
 
     /// For each pipe-opened cell of `line`, in UTF-16: where the pipe that opens it is (`-1` for a

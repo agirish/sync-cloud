@@ -106,12 +106,6 @@ public final class PersonVetoLog: ObservableObject {
         events.first { $0.namedPerson == id }
     }
 
-    public func clear() {
-        guard !events.isEmpty else { return }
-        events = []
-        userDefaults.removeObject(forKey: Self.defaultsKey)
-    }
-
     private func save() {
         // **Never** write over a value this build could not read: each save replaces the whole
         // value, and after a failed load this array is only what this session saw, not the

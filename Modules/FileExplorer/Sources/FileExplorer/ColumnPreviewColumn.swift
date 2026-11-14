@@ -1,6 +1,5 @@
 import AppKit
 import Design
-import Events
 import Quartz
 import SwiftUI
 import Sync

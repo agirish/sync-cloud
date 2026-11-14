@@ -75,8 +75,6 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
     /// How many files the last run set out to write: Combine's one, or Split's parts.
     private(set) var asked = 0
     private var stopRequested = false
-    /// Split's part in flight, so Stop can end the run after it.
-    private var tools: EditorPDFTools?
     private var facts: (encryption: PDFEncryptionState, droppedParts: [PDFToolkit.DroppedCatalogPart],
                         stamp: EditorFileStore.Stamp?)?
     /// The request's own work, kept so a test can await it.
@@ -142,13 +140,6 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
 
     static let splitFormNote = "Its fillable form won’t work in the new files."
     public static let combineNote = "The combined file keeps no bookmarks and no fillable forms."
-
-    public var count: Int {
-        switch job {
-        case .combine(let paths): return paths.count
-        case .split: return 1
-        }
-    }
 
     // MARK: Combine's name
 
@@ -256,7 +247,6 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         defer {
             isRunning = false
             progress = nil
-            tools = nil
         }
         switch job {
         case .combine: await runCombine()
@@ -375,7 +365,6 @@ public final class EditorPDFCombineSplit: ObservableObject, Identifiable {
         tools.destinationFolder = destinationFolder
         let host = self.host
         tools.host = EditorPDFToolHost(didWrite: host.didWrite)
-        self.tools = tools
         var copies: [String] = []
         parts: for (index, part) in parts.enumerated() {
             if stopRequested { break }
