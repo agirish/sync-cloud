@@ -4,15 +4,26 @@ import Events
 import EventsTestSupport
 @testable import Sync
 
+/// A tiny undoable target: flips `undone` when its registered undo runs.
+final class UndoMarker { var undone = false }
+
+/// Registers one named, grouped undo on `manager`'s undo manager (as the op sites register a run)
+/// that flips `marker` when reversed.
+@MainActor
+func registerGroup(_ manager: FileSyncManager, name: String, marker: UndoMarker) {
+    let um = manager.undoManager!
+    um.beginUndoGrouping()
+    um.setActionName(name)
+    um.registerUndo(withTarget: marker) { $0.undone = true }
+    um.endUndoGrouping()
+}
+
 /// "Undo Last Run" scoping: the reversal fires only while the last recorded sync run is still the
 /// top of the shared undo stack, refuses (naming what's there) when a non-sync action is on top,
 /// and itemizes what it will reverse. Uses a synchronous `UndoManager` with marker targets so the
 /// gate is tested without the async reversal.
 @MainActor
 @Suite struct SyncRunUndoGuardTests {
-
-    /// A tiny undoable target: flips `undone` when its registered undo runs.
-    private final class Marker { var undone = false }
 
     private func isolatedManager() -> FileSyncManager {
         // Manual grouping: deterministic groups and a synchronous undo().
@@ -21,16 +32,6 @@ import EventsTestSupport
 
     private func record(_ action: SyncAction = .move, run: UUID) -> SyncHistoryRecord {
         SyncHistoryRecord(runId: run, action: action, sourcePath: "/a/x.txt", destPath: "/b/x.txt")
-    }
-
-    /// Registers one named, grouped undo (as the op sites register a run) that flips the marker
-    /// when reversed.
-    private func registerRun(_ manager: FileSyncManager, name: String, marker: Marker) {
-        let um = manager.undoManager!
-        um.beginUndoGrouping()
-        um.setActionName(name)
-        um.registerUndo(withTarget: marker) { $0.undone = true }
-        um.endUndoGrouping()
     }
 
     // MARK: gate — positive
@@ -42,10 +43,10 @@ import EventsTestSupport
         // undo() reversed run A. The pairing must die with the manual undo.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let markerA = Marker(), markerB = Marker()
-        registerRun(manager, name: "Sync run", marker: markerA)
+        let markerA = UndoMarker(), markerB = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: markerA)
         manager.recordSyncHistory([record(run: UUID())])
-        registerRun(manager, name: "Sync run", marker: markerB)
+        registerGroup(manager, name: "Sync run", marker: markerB)
         let runB = UUID()
         manager.recordSyncHistory([record(run: runB), record(run: runB)])
 
@@ -67,8 +68,8 @@ import EventsTestSupport
         // closed after a redo, as after an undo.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
 
         manager.undoManager!.undo()                          // user reverses it manually
@@ -82,8 +83,8 @@ import EventsTestSupport
         // not be validated against the new one's same-named groups.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
         #expect(manager.lastSyncRunUndoPreview != nil)
 
@@ -100,8 +101,8 @@ import EventsTestSupport
         // must stay intact.
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Copy 1 Item", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Copy 1 Item", marker: marker)
         let copyRun = UUID()
         manager.recordSyncHistory([record(.copy, run: copyRun)])
 
@@ -203,11 +204,11 @@ import EventsTestSupport
     @Test func historyClickNamesTheActionOnTopAndReversesNothing() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let syncMarker = Marker()
-        registerRun(manager, name: "Sync run", marker: syncMarker)
+        let syncMarker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: syncMarker)
         manager.recordSyncHistory([record(run: UUID())])
-        let folderMarker = Marker()
-        registerRun(manager, name: "New Folder", marker: folderMarker)
+        let folderMarker = UndoMarker()
+        registerGroup(manager, name: "New Folder", marker: folderMarker)
 
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
 
@@ -224,7 +225,7 @@ import EventsTestSupport
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
         let name = "Rename \(UUID().uuidString)"
-        registerRun(manager, name: name, marker: Marker())
+        registerGroup(manager, name: name, marker: UndoMarker())
         let log = LogCapture()
 
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
@@ -237,7 +238,7 @@ import EventsTestSupport
     @Test func historyClickWithAnUnnamedActionOnTopSendsTheUserToTheMainWindow() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        registerRun(manager, name: "", marker: Marker())
+        registerGroup(manager, name: "", marker: UndoMarker())
 
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in true })
 
@@ -247,8 +248,8 @@ import EventsTestSupport
     @Test func historyClickAsksAndReversesOnlyOnYes() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])     // captures top name = "Sync run"
         #expect(manager.lastSyncRunUndoRefusal == nil)       // it would act, so there is no reason
         let preview = manager.lastSyncRunUndoPreview
@@ -272,8 +273,8 @@ import EventsTestSupport
     @Test func historyClickDuringARunWaitsAndSaysWhy() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
         let run = Progress(totalUnitCount: 10)
         run.runLockReason = Progress.runLockReason(waitingFor: "the merge")
@@ -295,8 +296,8 @@ import EventsTestSupport
     @Test func aRunStartedBehindTheConfirmationStopsTheReversal() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerRun(manager, name: "Sync run", marker: marker)
+        let marker = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: marker)
         manager.recordSyncHistory([record(run: UUID())])
         let refusal = manager.undoLastSyncRunAskingFirst(confirm: { _ in
             manager.activeProgress = Progress(totalUnitCount: 1)

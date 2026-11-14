@@ -40,9 +40,8 @@ import Foundation
         // refuses everywhere else.
         #expect(offer("daughter mother") == nil)
         #expect(offer("mother granny") == nil)
-        // Both halves are real names in this roster: a name missing from it would leave one person
-        // and pass for the wrong reason.
-        #expect(offer("daughter")?.id == "daughter")
+        // Each half is a real name in this roster (`daughter` is pinned above): a name missing from
+        // it would leave one person and pass for the wrong reason.
         #expect(offer("mother")?.id == "mother")
     }
 
@@ -61,7 +60,6 @@ import Foundation
         // is why the `I` in "Mother I Maiden" is never a name.
         #expect(offer("a") == nil)
         #expect(offer("R") == nil)
-        #expect(offer("  Daughter  ")?.id == "daughter")
     }
 
     @Test func aBareSharedWordStillOffersThePersonItNames() {

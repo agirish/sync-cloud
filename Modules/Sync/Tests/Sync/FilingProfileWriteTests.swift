@@ -579,31 +579,6 @@ import Testing
                 "a write with no index to land must not roll itself back")
     }
 
-    /// The rollback removes only what this call wrote. The never-overwrite guard proved the path
-    /// free at check time, not at removal, so a profile another writer lands in the gap must
-    /// survive. The injected index write runs in exactly that gap, making the race deterministic.
-    @Test func theRollbackLeavesAProfileItDidNotWrite() throws {
-        let dir = Self.scratch()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = FilingProfileStore.profileURL(id: "father", in: dir)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        let theirs = Data(#"{"profileId":"someone-else"}"#.utf8)
-
-        #expect(throws: (any Error).self) {
-            try FilingProfileStore.land(Data(#"{"profileId":"mine"}"#.utf8), at: url,
-                                        index: Data("{}".utf8),
-                                        at: dir.appendingPathComponent("profiles.json")) { _, _ in
-                // Stand in for the concurrent writer, then fail the index write.
-                try theirs.write(to: url)
-                throw CocoaError(.fileWriteUnknown)
-            }
-        }
-        #expect(FileManager.default.fileExists(atPath: url.path),
-                "the rollback deleted a profile this call did not write")
-        #expect(try Data(contentsOf: url) == theirs, "someone else's profile was modified")
-    }
-
     // MARK: - …and the line that reports it says which of the three happened
 
     /// The most recent line `log` captured containing `fragment`. A capture, not the shared buffer,
@@ -666,6 +641,8 @@ import Testing
                 throw CocoaError(.fileWriteUnknown)
             }
         }
+        #expect(try Data(contentsOf: theirsURL) == Data(#"{"profileId":"someone-else"}"#.utf8),
+                "someone else's profile was modified")
         line = try #require(await Self.loggedLine(log, containing: theirs),
                             "the rollback wrote no line for a profile it refused to remove")
         #expect(line.contains(left), "the line does not say the profile is still there: \(line)")

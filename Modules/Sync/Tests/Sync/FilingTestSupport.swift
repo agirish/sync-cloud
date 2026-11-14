@@ -4,12 +4,8 @@ import Testing
 
 // Fixtures the filing, people and survey suites share.
 
-/// Writes `bytes` copies of `fill` to `url`, creating its folder first.
-func writeFilingFile(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
-    try writeFilingFile(url, Data(repeating: fill, count: bytes))
-}
-
-func writeFilingFile(_ url: URL, _ data: Data) throws {
+/// Writes `data` to `url`, creating its folder first.
+func writeBytes(_ url: URL, _ data: Data) throws {
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
     try data.write(to: url)
@@ -24,8 +20,8 @@ func indexedTree(prefix: String, filed: String, loose: String? = nil,
     let indexDir = root.appendingPathComponent("index")
     try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
     let filedURL = root.appendingPathComponent(filed)
-    try writeFilingFile(filedURL, bytes)
-    if let loose { try writeFilingFile(root.appendingPathComponent(loose), bytes) }
+    try writeBytes(filedURL, bytes)
+    if let loose { try writeBytes(root.appendingPathComponent(loose), bytes) }
     let hex = await FileSyncManager.hashFiles([filedURL.path], fileManager: FileManager.default,
                                               cache: nil)[filedURL.path] ?? ""
     try #require(!hex.isEmpty, "the fixture could not hash its own file")
@@ -48,8 +44,8 @@ func makeProfilesDir(prefix: String, id: String = "p") throws -> URL {
 /// loose files in `Downloads`. Two folders let the free and refine passes disagree.
 func refineFixture(prefix: String, looseFiles count: Int = 2) throws -> URL {
     let root = try makeCanonicalTempRoot(prefix: prefix)
-    try writeFilingFile(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
-    try writeFilingFile(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
-    for i in 0..<count { try writeFilingFile(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
+    try writeBytes(root.appendingPathComponent("Documents/Family/.keep"), bytes: 1)
+    try writeBytes(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+    for i in 0..<count { try writeBytes(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
     return root
 }

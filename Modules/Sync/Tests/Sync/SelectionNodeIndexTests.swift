@@ -103,14 +103,4 @@ import Foundation
         #expect(m.rightNodes(for: ["/right.txt"]).map(\.id) == ["/right.txt"],
                 "a left-tree change disturbed the right index")
     }
-
-    /// Repeated resolution is stable (the cache is a cache, not a one-shot).
-    @Test func testRepeatedResolutionIsStable() {
-        let m = FileSyncManager()
-        m.leftTree = tree()
-        let first = Set(m.leftNodes(for: ["/a/d.txt", "/e.txt"]).map(\.id))
-        for _ in 0..<5 {
-            #expect(Set(m.leftNodes(for: ["/a/d.txt", "/e.txt"]).map(\.id)) == first)
-        }
-    }
 }

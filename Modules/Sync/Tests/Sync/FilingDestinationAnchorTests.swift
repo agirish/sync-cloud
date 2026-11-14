@@ -11,6 +11,15 @@ import Foundation
 /// segments hang off; everything above what we are asked to create must already be there.
 @Suite struct FilingDestinationAnchorTests {
 
+    /// Files `src` (512 bytes, listed as its own suggestion) into `dest` on a fresh manager.
+    @MainActor
+    private func apply(_ src: URL, to dest: FilingDestination) async -> (FileSyncManager, FileSyncManager.FilingApplyResult) {
+        let manager = FileSyncManager()
+        let suggestion = FilingSuggestion(filePath: src.path, fileName: src.lastPathComponent,
+                                          size: 512, modificationDate: nil, candidates: [])
+        manager.filingSuggestions = [suggestion]
+        return (manager, await manager.applyFilingSuggestion(suggestion, to: dest))
+    }
 
     /// The headline case: the anchor (`Documents/Vehicles`) is gone, so the two new segments have
     /// nothing legitimate to hang off. Nothing is created and nothing moves. With the anchor PRESENT
@@ -22,20 +31,15 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchor")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try writeFilingFile(src, bytes: 512)
+        try writeBytes(src, bytes: 512)
         // Not created unless live: this is the provider subtree that has gone away.
         let anchor = root.appendingPathComponent("Documents/Vehicles")
-        if anchorLive { try writeFilingFile(anchor.appendingPathComponent(".keep"), bytes: 1) }
+        if anchorLive { try writeBytes(anchor.appendingPathComponent(".keep"), bytes: 1) }
 
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Tesla Policy.pdf",
-                                          size: 512, modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla/Insurance").path,
                                      confidence: .medium, reasons: [],
                                      newSegments: ["Tesla", "Insurance"])
-        manager.filingSuggestions = [suggestion]
-
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+        let (manager, result) = await apply(src, to: dest)
 
         if anchorLive {
             let moved = anchor.appendingPathComponent("Tesla/Insurance/Tesla Policy.pdf")
@@ -62,17 +66,12 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorPicked")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Statement.pdf")
-        try writeFilingFile(src, bytes: 512)
+        try writeBytes(src, bytes: 512)
         let picked = root.appendingPathComponent("Documents/Statements")   // never created
 
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Statement.pdf",
-                                          size: 512, modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: picked.path, confidence: .high,
                                      reasons: ["You chose this folder"], newSegments: [])
-        manager.filingSuggestions = [suggestion]
-
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+        let (_, result) = await apply(src, to: dest)
 
         #expect(result == .failed)
         #expect(FileManager.default.fileExists(atPath: src.path))
@@ -146,9 +145,9 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let a = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
         let b = root.appendingPathComponent("Downloads/Tesla Invoice.pdf")
-        try writeFilingFile(a, bytes: 512); try writeFilingFile(b, bytes: 512)
+        try writeBytes(a, bytes: 512); try writeBytes(b, bytes: 512)
         let anchor = root.appendingPathComponent("Documents/Vehicles")
-        if anchorLive { try writeFilingFile(anchor.appendingPathComponent(".keep"), bytes: 1) }
+        if anchorLive { try writeBytes(anchor.appendingPathComponent(".keep"), bytes: 1) }
 
         let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
                                      confidence: .high, reasons: [], newSegments: ["Tesla"])
@@ -185,20 +184,15 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGeneric")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try writeFilingFile(src, bytes: 512)
+        try writeBytes(src, bytes: 512)
         // The anchor EXISTS but is a regular file, so `createDirectory` fails for a reason that has
         // nothing to do with a vanished tree.
         let blocker = root.appendingPathComponent("Documents/Vehicles")
-        try writeFilingFile(blocker, bytes: 4)
+        try writeBytes(blocker, bytes: 4)
 
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
-                                          modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: blocker.appendingPathComponent("Tesla").path,
                                      confidence: .high, reasons: [], newSegments: ["Tesla"])
-        manager.filingSuggestions = [suggestion]
-
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+        let (manager, result) = await apply(src, to: dest)
 
         #expect(result == .failed)
         #expect(FileManager.default.fileExists(atPath: src.path))
@@ -213,17 +207,13 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGone")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try writeFilingFile(src, bytes: 512)
+        try writeBytes(src, bytes: 512)
         let folder = root.appendingPathComponent("Documents/Vehicles")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
-                                          modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: folder.path, confidence: .medium, reasons: [], newSegments: [])
-        manager.filingSuggestions = [suggestion]
         try FileManager.default.removeItem(at: src)
 
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+        let (manager, result) = await apply(src, to: dest)
 
         #expect(result == .failed)
         let error = try #require(manager.currentError, "the refusal was not presented")
@@ -240,19 +230,14 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "FilingAnchorStale")
         defer { try? FileManager.default.removeItem(at: root) }
         let src = root.appendingPathComponent("Downloads/Report.pdf")
-        try writeFilingFile(src, bytes: 512)
+        try writeBytes(src, bytes: 512)
         // The full destination exists NOW, though the suggestion still calls its leaves "new".
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/.keep"), bytes: 1)
 
-        let manager = FileSyncManager()
-        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf",
-                                          size: 512, modificationDate: nil, candidates: [])
         let dest = FilingDestination(path: root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance").path,
                                      confidence: .medium, reasons: [],
                                      newSegments: ["Tesla", "Insurance"])
-        manager.filingSuggestions = [suggestion]
-
-        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+        let (_, result) = await apply(src, to: dest)
 
         #expect(result == .moved)
         #expect(FileManager.default.fileExists(

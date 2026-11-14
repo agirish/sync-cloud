@@ -49,28 +49,29 @@ import Testing
                                                   siblingFolders: ["2023", "2024", "2025", "Family"], latestYear: 2031) != nil)
     }
 
-    /// Digits inside a longer number are not a year: an airline PNR file must say nothing.
-    @Test func testDigitsInsideALongerNumberAreNotAYear() {
-        #expect(years("ai-9N8Z26-divit-abhishek-1756449254992-") == [])
-        #expect(years("16. Sep 2026") == ["2026"])
-        #expect(years("Trip 2019.pdf") == ["2019"])
-        #expect(years("Room 3000") == [])
+    /// The years a name holds, with 2031 the horizon.
+    @Test(arguments: [
+        // Digits inside a longer number are not a year: an airline PNR file must say nothing.
+        ("ai-9N8Z26-divit-abhishek-1756449254992-", []), ("16. Sep 2026", ["2026"]),
+        ("Trip 2019.pdf", ["2019"]), ("Room 3000", []),
+        // A year is a word on its own. A camera counter, a resolution or a flight number that
+        // falls in range is not one.
+        ("IMG_2047.HEIC", []), ("DSC_1999.JPG", []), ("wallpaper-1920x1080.jpg", []),
+        ("Boarding AI2016.pdf", []), ("Trip_2019.pdf", []), ("2019a", []),
+        // Dates written with dots or dashes still name their year: the last dot is not an extension.
+        ("16.09.2026", ["2026"]), ("Trip.2026", ["2026"]), ("Q3.2026", ["2026"]),
+        ("2026-09-16 Flight", ["2026"]), ("Sep-2026", ["2026"]),
+        // A span names both its years; an ISO date's month is not a span.
+        ("ITR FY 2025-26", ["2025", "2026"]), ("Season 2025–26", ["2025", "2026"]), ("2026-09-16", ["2026"]),
+        // Years past the horizon are not years yet (a part number 2087 among 2012…2025).
+        ("Part 2087", []), ("Part 2031", ["2031"]),
+    ] as [(String, [String])])
+    func testTheYearsANameHolds(_ name: String, _ expected: [String]) {
+        #expect(years(name) == expected)
     }
 
-    /// A year is a word on its own. A camera counter, a resolution or a flight number that falls
-    /// in range is not one.
-    @Test func testCountersAndCodesAreNotYears() {
-        for name in ["IMG_2047.HEIC", "DSC_1999.JPG", "wallpaper-1920x1080.jpg", "Boarding AI2016.pdf",
-                     "Trip_2019.pdf", "2019a"] {
-            #expect(years(name) == [], "\(name) named a year: \(years(name))")
-        }
-    }
-
-    /// Dates written with dots or dashes still name their year — the last dot is not an extension.
-    @Test func testDottedAndDashedDatesNameTheirYear() {
-        for name in ["16.09.2026", "Trip.2026", "Q3.2026", "2026-09-16 Flight", "Sep-2026"] {
-            #expect(years(name) == ["2026"], "\(name): \(years(name))")
-        }
+    /// Dates written with dots or dashes still name their year folder.
+    @Test func testADottedDateFindsItsYearFolder() {
         let found = DestinationSuggestions.yearFolder(for: ["\(parent)/16.09.2026"], in: parent, siblingFolders: siblings,
                                                       latestYear: 2031)
         #expect(found?.name == "2026")
@@ -78,18 +79,8 @@ import Testing
 
     /// A span names both its years, so it has no single home.
     @Test func testASpanOfTwoYearsIsNotOneYear() {
-        #expect(years("ITR FY 2025-26") == ["2025", "2026"])
-        #expect(years("Season 2025–26") == ["2025", "2026"])
         #expect(DestinationSuggestions.yearFolder(for: ["\(parent)/ITR FY 2025-26"], in: parent, siblingFolders: siblings,
                                                   latestYear: 2031) == nil)
-        // Control: an ISO date's month is not a span.
-        #expect(years("2026-09-16") == ["2026"])
-    }
-
-    /// Years past the horizon are not years yet (a part number 2087 among 2012…2025).
-    @Test func testAYearFarInTheFutureIsNotAYear() {
-        #expect(DestinationSuggestions.years(in: "Part 2087", latestYear: 2031) == [])
-        #expect(DestinationSuggestions.years(in: "Part 2031", latestYear: 2031) == ["2031"])
     }
 
     /// The items' own names are not peers: three years, two other folders and the item itself is

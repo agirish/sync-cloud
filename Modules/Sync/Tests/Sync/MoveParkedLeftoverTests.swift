@@ -11,11 +11,11 @@ import Foundation
 /// that. The delete path reports the same strand with `SyncError.trashParkedAndNotRestored`.
 @Suite struct MoveParkedLeftoverTests {
 
-    /// The mock models the whole chain: `shouldFailMove` sends the move down the staged
-    /// cross-volume path, `trashRefusedUntilMovedIn` refuses the source's trash, and
-    /// `failMoveToPathsOnce` lets the park land and refuses the move back.
+    /// `/src/data.bin` and an empty `/dst`, on a mock that models the whole chain: `shouldFailMove`
+    /// sends the move down the staged cross-volume path, `trashRefusedUntilMovedIn` refuses the
+    /// source's trash, and `failMoveToPathsOnce` lets the park land and refuses the move back.
     @MainActor
-    @Test func aMoveWhoseOriginalIsParkedAndNotRestoredPresentsTheLeftover() async throws {
+    private func strandingMock() throws -> (MockFileManager, FileSyncManager) {
         let fm = MockFileManager()
         try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try fm.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -26,6 +26,12 @@ import Foundation
         fm.failMoveToPathsOnce = ["/src/data.bin"]
         let manager = FileSyncManager(fileManager: fm)
         manager.undoManager = UndoManager()
+        return (fm, manager)
+    }
+
+    @MainActor
+    @Test func aMoveWhoseOriginalIsParkedAndNotRestoredPresentsTheLeftover() async throws {
+        let (fm, manager) = try strandingMock()
 
         let moved = await manager.moveItems(nodes: [FileNode(id: "/src/data.bin", name: "data.bin", isDirectory: false)],
                                             toPath: "/dst", fileManager: fm)
@@ -49,16 +55,7 @@ import Foundation
     /// alert must mention the leftover itself.
     @MainActor
     @Test func aFailureInTheSameMoveStillMentionsTheLeftover() async throws {
-        let fm = MockFileManager()
-        try fm.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try fm.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        fm.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
-        fm.shouldFailMove = true
-        fm.trashRefusedUntilMovedIn = true
-        fm.failMoveToPathsOnce = ["/src/data.bin"]
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
+        let (fm, manager) = try strandingMock()
         let nodes = [FileNode(id: "/src/data.bin", name: "data.bin", isDirectory: false),
                      FileNode(id: "/src/missing.bin", name: "missing.bin", isDirectory: false)]
 

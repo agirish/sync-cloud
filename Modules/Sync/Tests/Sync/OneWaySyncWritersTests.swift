@@ -46,17 +46,18 @@ import Testing
         // Wait for the child to say it holds the lock, for 30 s at most, on `DispatchQueue.global`
         // rather than the cooperative pool: a child that never prints fails the test rather than
         // hanging it.
-        let said = Reported()
+        let said = LockedBox<[String]>([])
         let read = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
-            said.append(String(decoding: out.fileHandleForReading.availableData, as: UTF8.self))
+            let line = String(decoding: out.fileHandleForReading.availableData, as: UTF8.self)
+            said.withLock { $0.append(line) }
             read.signal()
         }
         let heard = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             DispatchQueue.global().async { done.resume(returning: read.wait(timeout: .now() + 30) == .success) }
         }
         try #require(heard, "the holder never said it held the lock")
-        try #require(said.messages.first?.hasPrefix("held") == true)
+        try #require(said.withLock { $0 }.first?.hasPrefix("held") == true)
 
         guard case .failure(.heldByAnotherProcess) = OneWaySyncProcessLock.acquire(at: url) else {
             Issue.record("the lock wasn't refused while another process held it")

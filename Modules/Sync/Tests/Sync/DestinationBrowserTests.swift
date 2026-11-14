@@ -390,21 +390,6 @@ import Foundation
         #expect(DestinationBrowser.search("PRESCRIP", under: "/p", fileManager: fm).matches.map(\.name) == ["Prescriptions"])
     }
 
-    /// Breadth-first: the shallow match is reached before the deep one, so a truncated result set
-    /// holds the shallowest matches rather than whichever branch happened to be walked first.
-    @Test func testSearchIsBreadthFirst() throws {
-        let fm = try fixture()
-        let first = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm)
-        #expect(first.matches.map(\.path) == ["/p/School/Son"], "School/Son is two levels up from Kaiser/Son")
-    }
-
-    /// The depth cap stops the walk before the deep match.
-    @Test func testSearchRespectsMaxDepth() throws {
-        let fm = try fixture()
-        let shallow = DestinationBrowser.search("son", under: "/p", maxDepth: 2, fileManager: fm)
-        #expect(shallow.matches.map(\.path) == ["/p/School/Son"])
-    }
-
     /// An empty or whitespace query matches nothing rather than everything: the picker shows the
     /// browse columns then, and a full-tree dump behind them would be noise. A blank query is no
     /// search, not a truncated one, or the picker would show its "showing the first N" caveat over
@@ -419,48 +404,33 @@ import Foundation
 
     // MARK: - Ranking
 
-    /// Recents lead, in their own order.
-    @Test func testRecentsRankFirstInTheirOwnOrder() {
-        let matches = [
-            DestinationFolder(path: "/p/School/Son"),
-            DestinationFolder(path: "/p/Health/Medical/Kaiser/Son"),
-        ]
-        let ranked = DestinationBrowser.ranked(
-            matches,
-            recents: ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"],
-            query: "son",
-            under: "/p"
-        )
-        #expect(ranked.map(\.path) == ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"])
+    /// One ranking: (the rule, the matches, the recents, the order expected), for the query "son".
+    struct RankCase: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        let matches: [String]
+        let recents: [String]
+        let expected: [String]
     }
 
-    /// With no recency to go on, an exact name beats a mere substring.
-    @Test func testExactNameBeatsSubstring() {
-        let matches = [
-            DestinationFolder(path: "/p/Sonations"),
-            DestinationFolder(path: "/p/Son"),
-        ]
-        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "son", under: "/p")
-        #expect(ranked.map(\.name) == ["Son", "Sonations"])
-    }
+    static let rankCases: [RankCase] = [
+        RankCase(testDescription: "recents lead, in their own order",
+                 matches: ["/p/School/Son", "/p/Health/Medical/Kaiser/Son"],
+                 recents: ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"],
+                 expected: ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"]),
+        RankCase(testDescription: "with no recency to go on, an exact name beats a mere substring",
+                 matches: ["/p/Sonations", "/p/Son"], recents: [], expected: ["/p/Son", "/p/Sonations"]),
+        RankCase(testDescription: "equal on name, the shallower folder wins",
+                 matches: ["/p/Health/Medical/Kaiser/Son", "/p/School/Son"], recents: [],
+                 expected: ["/p/School/Son", "/p/Health/Medical/Kaiser/Son"]),
+        RankCase(testDescription: "a recent that is not among the matches is never injected",
+                 matches: ["/p/School/Son"], recents: ["/p/Health/Prescriptions"], expected: ["/p/School/Son"]),
+    ]
 
-    /// Equal on name, the shallower folder wins.
-    @Test func testShallowerBeatsDeeper() {
-        let matches = [
-            DestinationFolder(path: "/p/Health/Medical/Kaiser/Son"),
-            DestinationFolder(path: "/p/School/Son"),
-        ]
-        let ranked = DestinationBrowser.ranked(matches, recents: [], query: "son", under: "/p")
-        #expect(ranked.map(\.path) == ["/p/School/Son", "/p/Health/Medical/Kaiser/Son"])
-    }
-
-    /// A recent that is NOT among the matches must not be injected into the results.
-    @Test func testRankingNeverAddsFolders() {
-        let matches = [DestinationFolder(path: "/p/School/Son")]
-        let ranked = DestinationBrowser.ranked(
-            matches, recents: ["/p/Health/Prescriptions"], query: "son", under: "/p"
-        )
-        #expect(ranked.map(\.path) == ["/p/School/Son"])
+    @Test(arguments: rankCases)
+    func testRanking(_ c: RankCase) {
+        let ranked = DestinationBrowser.ranked(c.matches.map { DestinationFolder(path: $0) },
+                                               recents: c.recents, query: "son", under: "/p")
+        #expect(ranked.map(\.path) == c.expected)
     }
 
     // MARK: - Trail
@@ -552,10 +522,7 @@ import Foundation
         #expect(DestinationBrowser.destinationIsInsideSelection("/p/Health", sources: ["/p/Health"]))
         #expect(DestinationBrowser.destinationIsInsideSelection("/p/Health/Medical/Kaiser", sources: ["/p/Health"]))
         #expect(!DestinationBrowser.destinationIsInsideSelection("/p/School", sources: ["/p/Health"]))
-    }
-
-    /// Boundary-safe: "/p/Health" must not claim "/p/HealthRecords".
-    @Test func testNestingCheckStopsAtAComponentBoundary() {
+        // Boundary-safe: "/p/Health" must not claim "/p/HealthRecords".
         #expect(!DestinationBrowser.destinationIsInsideSelection("/p/HealthRecords", sources: ["/p/Health"]))
     }
 
@@ -564,16 +531,10 @@ import Foundation
     @Test func testAllSourcesAlreadyInIsDetected() {
         #expect(DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/a.pdf", "/p/Health/b.pdf"]))
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/a.pdf", "/p/School/b.pdf"]))
-    }
-
-    /// An empty selection is not "already there": there is nothing to say.
-    @Test func testEmptySelectionIsNotAlreadyThere() {
+        // An empty selection is not "already there": there is nothing to say.
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: []))
-    }
-
-    /// A file nested deeper than the destination has not arrived: only its immediate parent counts,
-    /// or moving `/p/Health/Medical/x.pdf` into `/p/Health` would be reported as a no-op.
-    @Test func testOnlyTheImmediateParentCountsAsAlreadyThere() {
+        // Only the immediate parent counts, or moving `/p/Health/Medical/x.pdf` into `/p/Health`
+        // would be reported as a no-op.
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/Medical/x.pdf"]))
     }
 
@@ -686,10 +647,14 @@ import Foundation
     /// complete one leads to "the folder isn't there".
     @Test func testEveryCapReportsTruncation() throws {
         let fm = try fixture()
-        #expect(DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm).stoppedEarly,
-                "match limit")
-        #expect(DestinationBrowser.search("son", under: "/p", maxDepth: 2, fileManager: fm).stoppedEarly,
-                "depth ceiling — Kaiser/Son is below it")
+        let first = DestinationBrowser.search("son", under: "/p", limit: 1, fileManager: fm)
+        #expect(first.stoppedEarly, "match limit")
+        // Breadth-first: a truncated result set holds the shallowest matches rather than whichever
+        // branch happened to be walked first.
+        #expect(first.matches.map(\.path) == ["/p/School/Son"], "School/Son is two levels up from Kaiser/Son")
+        let shallow = DestinationBrowser.search("son", under: "/p", maxDepth: 2, fileManager: fm)
+        #expect(shallow.stoppedEarly, "depth ceiling — Kaiser/Son is below it")
+        #expect(shallow.matches.map(\.path) == ["/p/School/Son"], "the depth cap stops the walk before the deep match")
         #expect(DestinationBrowser.search("son", under: "/p", maxListings: 1, fileManager: fm).stoppedEarly,
                 "listing budget")
     }

@@ -77,42 +77,21 @@ import Testing
         #expect(veto.reported?.proposedPerson == "son")
     }
 
-    /// The walk stops at the nearest owner: a new folder under Daughter's folder is hers, though
-    /// Son's sits alongside it under a shared parent.
-    @Test func theNearestOwningAncestorWinsSoTheRightPersonIsStillAllowed() {
+    /// The other direction, so the rule doesn't refuse everything. Each row is allowed:
+    /// - the nearest owner wins: a new folder under Daughter's is hers, though Son's sits beside it;
+    /// - a new folder with no owning ancestor: the rule refuses a contradiction, and there is none;
+    /// - the person's own folder, and a folder with no person axis;
+    /// - a document naming nobody, which the rule doesn't protect and must not block.
+    @Test(arguments: [
+        ("Daughter OCI.pdf", "Immigration/OCI/Daughter/Application"),
+        ("Daughter OCI.pdf", "Immigration/Passports/New"),
+        ("Daughter OCI.pdf", "Immigration/OCI/Daughter"),
+        ("Daughter OCI.pdf", "Legal/Immigration"),
+        ("Scan 2026-08-02.pdf", "Immigration/OCI/Son"),
+    ])
+    func aFolderTheRuleHasNoQuarrelWithIsAllowed(fileName: String, destination: String) {
         #expect(FilingEngine.personVeto(
-            fileName: "Daughter OCI.pdf",
-            destination: "\(Self.root)/Immigration/OCI/Daughter/Application",
-            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
-            identity: nil, pageSample: nil) == nil)
-    }
-
-    /// A new folder with no owning ancestor is not vetoed: the rule refuses a contradiction, and
-    /// there is none here.
-    @Test func aNewFolderWithNoOwningAncestorIsAllowed() {
-        #expect(FilingEngine.personVeto(
-            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/Passports/New",
-            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
-            identity: nil, pageSample: nil) == nil)
-    }
-
-    /// The other direction, so the rule doesn't refuse everything: the person's own folder is
-    /// allowed, and so is a folder with no person axis.
-    @Test func theRightPersonsFolderAndAnUnownedFolderAreAllowed() {
-        #expect(FilingEngine.personVeto(
-            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Immigration/OCI/Daughter",
-            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
-            identity: nil, pageSample: nil) == nil)
-        #expect(FilingEngine.personVeto(
-            fileName: "Daughter OCI.pdf", destination: "\(Self.root)/Legal/Immigration",
-            providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
-            identity: nil, pageSample: nil) == nil)
-    }
-
-    /// A document naming nobody is not protected by this rule and must not be blocked by it.
-    @Test func aDocumentNamingNobodyIsNotRefused() {
-        #expect(FilingEngine.personVeto(
-            fileName: "Scan 2026-08-02.pdf", destination: "\(Self.root)/Immigration/OCI/Son",
+            fileName: fileName, destination: "\(Self.root)/\(destination)",
             providerRoot: Self.root, profile: Self.profile(), registry: Self.household,
             identity: nil, pageSample: nil) == nil)
     }

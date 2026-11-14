@@ -71,6 +71,7 @@ import Testing
         #expect(heads.count == 2, "\(lines)")
         #expect(lines.contains("Bulk sync: failed (\(LogError.groupReason(full))): /d/a.txt, /d/b.txt"), "\(lines)")
         #expect(lines.contains { $0.hasSuffix(": /d/c.txt") })
+        #expect(lines.contains { $0.contains("first: /d/a.txt: ") }, "the group's first item is not the first by name: \(lines)")
     }
 
     /// The app's own `SyncError`s all bridge to one domain and code; their titles keep them apart.

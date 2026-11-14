@@ -14,22 +14,8 @@ extension HandBuiltRefineSuites {
     private static var defaults: ScratchDefaults { HandBuiltFiling.defaults }
 
 
-    /// What each request carried.
-    private final class Seen: @unchecked Sendable {
-        private let lock = NSLock()
-        private var requests: [(snippets: [String: String?], folders: [String])] = []
-        private var avoided: [[String]] = []
-        func record(_ files: [FilingCandidateFile], _ context: FilingContext) {
-            lock.withLock {
-                requests.append((Dictionary(uniqueKeysWithValues: files.map { ($0.fileName, $0.contentSnippet) }),
-                                 context.destinations))
-                avoided.append(files.flatMap(\.excludedRelativePaths))
-            }
-        }
-        var all: [(snippets: [String: String?], folders: [String])] { lock.withLock { requests } }
-        /// Every "avoid: …" folder each request carried.
-        var avoids: [[String]] { lock.withLock { avoided } }
-    }
+    /// What each request carried, and the "avoid: …" folders it named.
+    private typealias Seen = LockedBox<[PagesRequest]>
 
     private func fixture(_ name: String, files: Int = 2) throws -> URL { HandBuiltFiling.root(name, files: files) }
 
@@ -316,19 +302,13 @@ extension HandBuiltRefineSuites {
     /// Makes every card's file cloud-only until its download, which runs `during` (on the main
     /// actor): the one await between the plan's last check and the send.
     private func downloading(_ m: FileSyncManager, during: @escaping @MainActor () -> Void) {
-        final class Landed: @unchecked Sendable {
-            private let lock = NSLock()
-            private var paths: Set<String> = []
-            func add(_ p: String) { lock.withLock { _ = paths.insert(p) } }
-            func has(_ p: String) -> Bool { lock.withLock { paths.contains(p) } }
-        }
-        let landed = Landed()
+        let landed = LockedBox<Set<String>>([])
         for s in m.filingSuggestions { m.filingNotDownloaded.insert(s.filePath) }
-        m.filingSnippetExtractor = { p in landed.has(p) ? "page one text" : nil }
-        m.filingStatFlags = { p in landed.has(p) ? 0 : MaterializationStatus.datalessFlag }
+        m.filingSnippetExtractor = { p in landed.withLock { $0.contains(p) } ? "page one text" : nil }
+        m.filingStatFlags = { p in landed.withLock { $0.contains(p) } ? 0 : MaterializationStatus.datalessFlag }
         m.filingDownloadWait = (3, .zero)
         m.filingDownloader = { p in
-            landed.add(p)
+            landed.withLock { _ = $0.insert(p) }
             MainActor.assumeIsolated { during() }
         }
     }
@@ -377,46 +357,35 @@ extension HandBuiltRefineSuites {
         let root = try fixture("abandoned", files: 1); defer { try? FileManager.default.removeItem(at: root) }
         let m = manager(Seen())
         await scan(m, root: root)
-        final class Gate: @unchecked Sendable {
-            private let lock = NSLock()
-            private var calls = 0, released = false, cancelled = false
-            func call() -> Int { lock.withLock { calls += 1; return calls } }
-            var count: Int { lock.withLock { calls } }
-            func release() { lock.withLock { released = true } }
-            var isReleased: Bool { lock.withLock { released } }
-            func sawCancel() { lock.withLock { cancelled = true } }
-            var sawCancelled: Bool { lock.withLock { cancelled } }
-        }
-        let gate = Gate()
+        let gate = LockedBox((calls: 0, released: false, cancelled: false))
         m.filingRefineClassifier = { _, files in
             let deadline = Date().addingTimeInterval(10)
-            if gate.call() == 1 {
-                while !gate.isReleased, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
+            if gate.withLock({ $0.calls += 1; return $0.calls }) == 1 {
+                while !gate.withLock({ $0.released }), Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
             } else {
                 while !Task.isCancelled, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
-                if Task.isCancelled { gate.sawCancel(); return FilingRefineResult(ending: .stopped, started: true, costUSD: 0) }
+                if Task.isCancelled {
+                    gate.withLock { $0.cancelled = true }
+                    return FilingRefineResult(ending: .stopped, started: true, costUSD: 0)
+                }
             }
             return FilingRefineResult(ending: .answered, verdicts: [:], answered: 0, sent: files.count, started: true, costUSD: 0)
         }
-        func waitFor(_ calls: Int) async {
-            let deadline = Date().addingTimeInterval(10)
-            while gate.count < calls, Date() < deadline { try? await Task.sleep(nanoseconds: 5_000_000) }
-        }
         let planA = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         let a = Task { await m.sendFilingRefine(planA, scope: m.filingSuggestions) }
-        await waitFor(1)
+        await waitUntil("the first pass reached Claude") { gate.withLock { $0.calls } >= 1 }
         m.clearFiling()
         await scan(m, root: root)
         let planB = try #require(await m.prepareFilingRefine(m.filingSuggestions))
         let b = Task { await m.sendFilingRefine(planB, scope: m.filingSuggestions) }
-        await waitFor(2)
-        #expect(gate.count == 2, "both passes reached Claude")
-        gate.release()
+        await waitUntil("the second pass reached Claude") { gate.withLock { $0.calls } >= 2 }
+        #expect(gate.withLock { $0.calls } == 2, "both passes reached Claude")
+        gate.withLock { $0.released = true }
         _ = await a.value
 
         m.stopFilingRefine()
         _ = await b.value
-        #expect(gate.sawCancelled, "Stop ended the second pass's request")
+        #expect(gate.withLock { $0.cancelled }, "Stop ended the second pass's request")
     }
 
     /// The list replaced while Claude answered: the paid answers are saved, not applied, and the send
@@ -507,4 +476,23 @@ extension HandBuiltRefineSuites {
         #expect(plan.fingerprint != ticked.fingerprint, "a tick changes what the request is, so a plan made without it cannot send with it")
     }
 }
+}
+
+private struct PagesRequest {
+    var snippets: [String: String?]
+    var folders: [String]
+    var avoids: [String]
+}
+
+private extension LockedBox where Value == [PagesRequest] {
+    convenience init() { self.init([]) }
+    func record(_ files: [FilingCandidateFile], _ context: FilingContext) {
+        let request = PagesRequest(
+            snippets: Dictionary(uniqueKeysWithValues: files.map { ($0.fileName, $0.contentSnippet) }),
+            folders: context.destinations, avoids: files.flatMap(\.excludedRelativePaths))
+        withLock { $0.append(request) }
+    }
+    var all: [(snippets: [String: String?], folders: [String])] { withLock { $0.map { ($0.snippets, $0.folders) } } }
+    /// Every "avoid: …" folder each request carried.
+    var avoids: [[String]] { withLock { $0.map(\.avoids) } }
 }

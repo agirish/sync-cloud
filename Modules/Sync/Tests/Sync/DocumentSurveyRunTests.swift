@@ -97,26 +97,15 @@ import Testing
 
         let report = await run.run()
 
-        #expect(recorder.reads.count == 30)
-        #expect(Set(recorder.reads).count == 30, "a document was read twice")
+        // Once each, in the plan's order: the plan is shallowest-first, so the *reading …* line
+        // walks the tree in a way the person recognises.
+        #expect(recorder.reads == paths.map { root.appendingPathComponent($0).path })
         #expect(report.documentsRead == 30)
         #expect(report.documentsBlank == 0)
         #expect(report.documentsUnavailable == 0)
         #expect(report.isComplete)
         #expect(report.stoppedAt == nil)
         #expect(report.read.count == 30)
-    }
-
-    /// The reads follow the plan's order. The plan is built shallowest-first so a person watching a
-    /// counter sees the tree progress in a way they recognise; reading it out of order would make
-    /// the *reading Health/Medical/Kaiser* line jump about.
-    @Test func itReadsInThePlansOrder() async {
-        let recorder = Recorder()
-        let paths = plan(12)
-        let run = DocumentSurveyRun(profileId: "p", root: root, salt: "abcd", plan: paths,
-                                    stamps: stamps(for: paths), environment: environment(recorder))
-        _ = await run.run()
-        #expect(recorder.reads == paths.map { root.appendingPathComponent($0).path })
     }
 
     /// The page is this long to survive `FilingSurvey.isDecodable`, which wants eight words of
@@ -332,6 +321,7 @@ import Testing
         #expect(report.stoppedAt == 0)
         #expect(!report.isComplete)
         #expect(report.documentsRead == 0)
+        #expect(recorder.published.last?.phase != .finishing, "a stopped run has nothing to merge")
     }
 
     // MARK: - Checkpointing and resuming
@@ -480,17 +470,6 @@ import Testing
         _ = await run.run()
         #expect(recorder.published.last?.phase == .finishing,
                 "a card reporting 5 of 5 and then sitting there looks hung")
-    }
-
-    /// A stopped run does not claim to be finishing: there is nothing to merge.
-    @Test func aStoppedRunDoesNotClaimToBeFinishing() async {
-        let recorder = Recorder()
-        let paths = plan(5)
-        let run = DocumentSurveyRun(profileId: "p", root: root, salt: "abcd", plan: paths,
-                                    stamps: stamps(for: paths), environment: environment(recorder))
-        await run.stop()
-        _ = await run.run()
-        #expect(recorder.published.last?.phase != .finishing)
     }
 
     @Test func theCurrentFolderIsNamedForTheCard() async {

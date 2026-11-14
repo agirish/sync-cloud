@@ -20,6 +20,15 @@ import Testing
                       atomically: true, encoding: .utf8)
     }
 
+    /// A fresh tree root and profiles directory, both removed by `remove(_:)`.
+    private func walkRoots() throws -> (root: URL, profiles: URL) {
+        (try makeCanonicalTempRoot(prefix: "walk"), try makeCanonicalTempRoot(prefix: "walk"))
+    }
+
+    private func remove(_ urls: URL...) {
+        for url in urls { try? FileManager.default.removeItem(at: url) }
+    }
+
     private func manager(profiles: URL) -> FileSyncManager {
         let m = FileSyncManager()
         m.filingProfilesDirectory = profiles
@@ -29,8 +38,8 @@ import Testing
     // MARK: - The happy path
 
     @Test func aWalkWritesAProfileAndBecomesActive() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
 
         let result = await manager(profiles: profiles).deriveFolderProfile(root: root)
@@ -50,8 +59,8 @@ import Testing
     /// names is only about 83% right, and every miss is an invention, so the vocabulary is handed
     /// in; this checks the hand-in is honoured.
     @Test func onlyConfirmedPlacesBecomeJurisdictions() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         for path in ["Finance/US", "Finance/EMP", "Legal/US"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(path),
                                                     withIntermediateDirectories: true)
@@ -93,8 +102,8 @@ import Testing
     /// refuses over an existing id, so without a suffix pressing Learn again on a small tree would
     /// report "the profile could not be written".
     @Test func twoWalksInTheSameSecondBothLand() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
         let instant = Date(timeIntervalSince1970: 1_754_000_000)
@@ -104,7 +113,9 @@ import Testing
 
         #expect(first.profileId != second.profileId)
         #expect(second.becameActive, "the second walk of the same second was refused")
-        #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil)
+        #expect(FilingProfileStore.activeProfileId(in: profiles) == second.profileId)
+        #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil,
+                "the superseded profile was deleted — it is the only record of what was in use")
         #expect(FilingProfileStore.profile(id: second.profileId, in: profiles) != nil)
     }
 
@@ -139,8 +150,8 @@ import Testing
     /// profile it, but the empty profile would answer every routing question with "no destination"
     /// while telling the user their tree was learned.
     @Test func anEmptyFolderIsRefusedRatherThanProfiledAsNothing() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
 
         let result = await manager(profiles: profiles).deriveFolderProfile(root: root)
         #expect(throws: FileSyncManager.FolderWalkFailure.nothingToLearn(root.path)) { try result.get() }
@@ -157,8 +168,8 @@ import Testing
 
     /// A file handed in where a folder was expected.
     @Test func aFileIsNotAFolderToLearn() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         let file = root.appendingPathComponent("note.txt")
         try "x".write(to: file, atomically: true, encoding: .utf8)
 
@@ -171,10 +182,7 @@ import Testing
     /// "Couldn’t save your folder profile".
     @Test func aRefusedWriteSaysWhyInASentence() async throws {
         let root = try makeCanonicalTempRoot(prefix: "walk"), elsewhere = try makeCanonicalTempRoot(prefix: "walk")
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: elsewhere)
-        }
+        defer { remove(root, elsewhere) }
         try Self.tree(in: root)
         let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
         // A regular file where the profiles folder's parent should be: nothing can be written.
@@ -214,8 +222,8 @@ import Testing
     /// judgements a walk can't see, so the report must say it changed nothing you'll notice; a
     /// plain "learned 3,013 folders" would be true and misleading.
     @Test func aWalkBesideAHandBuiltProfileSaysItIsNotInUse() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
 
         // A hand-built profile: no `builtBy` header at all, which is how they all read.
@@ -240,31 +248,11 @@ import Testing
                 "the derived profile should be on disk — it is refused the pointer, not the write")
     }
 
-    /// A second walk on a machine whose profile the app wrote does take over. Otherwise a survey
-    /// would run to completion and be ignored, with nothing saying so.
-    @Test func aSecondWalkSupersedesTheFirst() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
-        try Self.tree(in: root)
-        let manager = manager(profiles: profiles)
-
-        let first = try #require(try? (await manager.deriveFolderProfile(
-            root: root, now: Date(timeIntervalSince1970: 1_754_000_000))).get())
-        let second = try #require(try? (await manager.deriveFolderProfile(
-            root: root, now: Date(timeIntervalSince1970: 1_754_000_600))).get())
-
-        #expect(first.profileId != second.profileId)
-        #expect(second.becameActive)
-        #expect(FilingProfileStore.activeProfileId(in: profiles) == second.profileId)
-        #expect(FilingProfileStore.profile(id: first.profileId, in: profiles) != nil,
-                "the superseded profile was deleted — it is the only record of what was in use")
-    }
-
     /// A Save while a reorganization lands is refused and says so: the landing's re-derive publishes
     /// its own profile when its replay ends, over whatever the walk wrote.
     @Test @MainActor func aWalkIsRefusedWhileALandingIsInProgress() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
         manager.restructureLandingInProgress = true
@@ -300,8 +288,8 @@ import Testing
     /// roster, the verdicts and the ledger must move with it. Left in the old folder, the app would
     /// read an empty roster, lose the verdicts and the Undo, and a later refresh would delete them.
     @Test @MainActor func aSecondWalkCarriesWhatTheUserMade() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
         let first = try #require(try? (await manager.deriveFolderProfile(
@@ -326,10 +314,8 @@ import Testing
     /// A walk of a different folder still brings the roster, but not the Undo: the ledger's
     /// inverse is relative to the root, and Undo would replay it under the new one.
     @Test @MainActor func aWalkOfAnotherFolderDoesNotOfferTheOldUndo() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), other = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer {
-            for url in [root, other, profiles] { try? FileManager.default.removeItem(at: url) }
-        }
+        let (root, profiles) = try walkRoots(), other = try makeCanonicalTempRoot(prefix: "walk")
+        defer { remove(root, other, profiles) }
         try Self.tree(in: root)
         try Self.tree(in: other)
         let manager = manager(profiles: profiles)
@@ -350,8 +336,8 @@ import Testing
     /// curated file. With the copy gone from the active folder the old one is kept; once the
     /// active folder holds its own, the old one goes as it always did.
     @Test @MainActor func retiringNeverTakesTheOnlyCopyOfTheRoster() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "walk"), profiles = try makeCanonicalTempRoot(prefix: "walk")
-        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: profiles) }
+        let (root, profiles) = try walkRoots()
+        defer { remove(root, profiles) }
         try Self.tree(in: root)
         let manager = manager(profiles: profiles)
         let first = try #require(try? (await manager.deriveFolderProfile(

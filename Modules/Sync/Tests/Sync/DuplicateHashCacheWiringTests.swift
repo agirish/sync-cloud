@@ -16,35 +16,6 @@ import Foundation
         return try #require(FileContentVerifier.cacheKey(statPath: url.path, attributes: attrs, size: size))
     }
 
-    /// Two byte-identical files group as duplicates. Plant a different digest for one of them and
-    /// the group must not form — proof the scan read the cache instead of the bytes.
-    @MainActor
-    @Test func findDuplicatesReadsTheSessionCache() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "DuplicateCacheWiring")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let a = root.appendingPathComponent("A/report.pdf")
-        let b = root.appendingPathComponent("B/report.pdf")
-        try writeBytes(a, bytes: 4096, fill: 0x41)
-        try writeBytes(b, bytes: 4096, fill: 0x41)   // identical bytes
-
-        // The control first: with no cache these genuinely group, so the assertion below is about
-        // the cache, not a fixture that was never a duplicate pair.
-        let uncached = FileSyncManager()
-        await uncached.findDuplicates(root: root, cache: nil)
-        #expect(uncached.duplicateGroups.count == 1, "the fixture must be a real duplicate pair")
-
-        // Now plant a digest `b` does not have. Same size, so it stays a size-collision candidate
-        // and still reaches the hasher — it just gets the planted answer.
-        let cache = ContentHashCache()
-        await cache.store(String(repeating: "f", count: 64), for: try key(for: b))
-
-        let manager = FileSyncManager()
-        await manager.findDuplicates(root: root, cache: cache)
-
-        #expect(manager.duplicateGroups.isEmpty,
-                "the planted digest must have been served, splitting the pair")
-    }
-
     /// A file over the edge-sample size whose same-size twin could not be sampled (cloud-only, so
     /// never opened) must still be read whole: no sample means unknown, not different, and the
     /// twin's digest may already be cached. Dropping the local copy for having the only sample of

@@ -65,17 +65,10 @@ import Testing
     /// The plan view asks before `contentsOfDirectory`: a folder that does not answer lists as nil —
     /// unknown, which the planner refuses on — while the same folder's real contents are right there.
     @Test(.parksAThread) func thePlanViewListsAFolderThatDoesNotAnswerAsUnknown() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "restructure-view")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let archive = root.appendingPathComponent("Archive")
-        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
-        try Data("x".utf8).write(to: archive.appendingPathComponent("a.txt"))
         let gate = ParkGate()
         defer { gate.release.signal() }
-        // The real folder, fronted by a disk that calls it dataless and whose provider is parked.
-        let disk = UnansweredFolderDisk(inner: MockFileManager(), unanswered: archive.path, gate: gate)
-
-        let view = RestructureTreeView.fromDisk(root: root, fileManager: .default, contentsFrom: disk)
+        let (root, view) = try viewWithAnUnansweredFolder(["Archive/a.txt"], unanswered: "Archive", gate: gate)
+        defer { try? FileManager.default.removeItem(at: root) }
 
         #expect(view.files("Archive") == nil, "a folder that did not answer was listed")
         // The control: the same view lists the root, which is not dataless.
@@ -88,12 +81,7 @@ import Testing
     private func viewWithAnUnansweredFolder(_ files: [String], unanswered: String, gate: ParkGate) throws
         -> (root: URL, view: RestructureTreeView) {
         let root = try makeCanonicalTempRoot(prefix: "restructure-destination")
-        for file in files {
-            let url = root.appendingPathComponent(file)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Data("x".utf8).write(to: url)
-        }
+        for file in files { try writeText("x", root.appendingPathComponent(file)) }
         let disk = UnansweredFolderDisk(inner: MockFileManager(),
                                         unanswered: root.appendingPathComponent(unanswered).path, gate: gate)
         return (root, RestructureTreeView.fromDisk(root: root, fileManager: .default, contentsFrom: disk))

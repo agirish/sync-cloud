@@ -96,15 +96,15 @@ import Testing
     /// Reported once per card, for the highest-ranked refusal: the card had one home the user would
     /// have seen, and a file whose every candidate is someone else's folder is one event, not two.
     @Test func aCardReportsOneRefusalHoweverManyOfItsHomesAreRefused() throws {
-        final class Box: @unchecked Sendable { var reports: [PersonVetoRefusal] = [] }
-        let box = Box()
+        let box = LockedBox<[PersonVetoRefusal]>([])
         _ = Self.sweep([Self.card("Daughter OCI.pdf", [
             Self.dest("Immigration/OCI/Son"),
             Self.dest("Immigration/OCI/Son/Application"),
-        ])], onVeto: { box.reports.append($0) })
-        #expect(box.reports.count == 1)
+        ])], onVeto: { r in box.withLock { $0.append(r) } })
+        let reports = box.withLock { $0 }
+        #expect(reports.count == 1)
         // The one the user would have been shown, not whichever was refused last.
-        #expect(box.reports.first?.destination == "Immigration/OCI/Son")
+        #expect(reports.first?.destination == "Immigration/OCI/Son")
     }
 
     /// The other direction, so the sweep is not simply emptying every card: a correct home, and a
@@ -149,9 +149,9 @@ import Testing
     /// Intelligence.
     static func makeTree() throws -> (FileSyncManager, URL) {
         let root = try makeCanonicalTempRoot(prefix: "CrossPersonSweep")
-        try writeFilingFile(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
-        try writeFilingFile(root.appendingPathComponent("Documents/Immigration/OCI/Son/OCI Application.pdf"))
-        try writeFilingFile(root.appendingPathComponent("Downloads/Daughter OCI.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Immigration/OCI/Son/Son - eOCI.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Immigration/OCI/Son/OCI Application.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/Daughter OCI.pdf"))
         let m = FileSyncManager()
         let entries = [
             FolderProfileEntry(path: "Documents/Immigration/OCI/Son", role: .destination,
@@ -204,7 +204,7 @@ import Testing
         let log = PersonVetoLog(userDefaults: ScratchDefaults("sweep"))
         m.filingPersonVetoLog = log
         // A nameless scan, whose page names Daughter only after 400 characters of filler.
-        try writeFilingFile(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf"))
         let filler = String(repeating: "oci application overseas citizen india ", count: 40)
         try #require(filler.count > FilingRouter.contentSampleChars)
         m.filingSnippetExtractor = { _ in filler + " Daughter Father" }
@@ -242,7 +242,7 @@ import Testing
         ])
         // The card the user clicks "read this scan" on: a nameless scan with no home yet.
         let scanPath = root.appendingPathComponent("Downloads/Scan 2026-08-02.pdf").path
-        try writeFilingFile(URL(fileURLWithPath: scanPath))
+        try writeBytes(URL(fileURLWithPath: scanPath))
         m.filingLastProviderRoot = root.path
         m.prepareFilingRouter(destinations: ["Documents/Immigration/OCI/Son"],
                               providerRoot: root.path)

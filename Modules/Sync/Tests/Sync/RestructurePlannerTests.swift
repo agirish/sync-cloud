@@ -711,18 +711,13 @@ private struct FakeTree {
     }
 
     /// The one shared spelling of "a folder name, not a path" — the planner, the sheet's Add
-    /// button and the refine parser all call this, so the table is the contract.
+    /// button and the refine parser all call this, so the table is the contract. The names it
+    /// refuses are `aPathShapedTargetRefusesInsteadOfEscapingTheFamily`'s arguments.
     @Test func targetNameValidityIsOneSharedRule() {
         #expect(RestructurePlanner.isValidTargetName("Forms"))
         #expect(RestructurePlanner.isValidTargetName("2016 Taxes"))
         #expect(RestructurePlanner.isValidTargetName(".config"),
                 "a dotted NAME is odd but not an escape — only traversal is")
-        #expect(!RestructurePlanner.isValidTargetName("Tax/2024"))
-        #expect(!RestructurePlanner.isValidTargetName("../Shared"))
-        #expect(!RestructurePlanner.isValidTargetName(".."))
-        #expect(!RestructurePlanner.isValidTargetName("."))
-        #expect(!RestructurePlanner.isValidTargetName("   "))
-        #expect(!RestructurePlanner.isValidTargetName("a:b"))
     }
 
     /// The unresolvable-order refusal, derived rather than hand-built: a vacancy ring through a
@@ -912,17 +907,13 @@ private struct FakeTree {
     // MARK: - The disk view
 
     private static func makeDiskTree(_ paths: [String]) throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("planner-disk-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let root = try makeCanonicalTempRoot(prefix: "planner-disk")
         for path in paths {
             let url = root.appendingPathComponent(path)
             if path.hasSuffix("/") {
                 try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             } else {
-                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                        withIntermediateDirectories: true)
-                try Data("x".utf8).write(to: url)
+                try writeText("x", url)
             }
         }
         return root

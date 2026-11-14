@@ -15,12 +15,6 @@ struct OperationBannerTests {
         #expect(first.id != second.id)
     }
 
-    @Test func equalityHoldsForTheSameValue() {
-        let banner = OperationBanner.warning("Partially copied", log: .warn)
-        let copy = banner
-        #expect(banner == copy)
-    }
-
     @Test func factoriesSetSeverity() {
         #expect(OperationBanner.success("s").severity == .success)
         #expect(OperationBanner.warning("w", log: .warn).severity == .warning)

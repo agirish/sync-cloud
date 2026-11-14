@@ -114,27 +114,9 @@ import Events
 
     // MARK: A store that exists but cannot be read is not "no rules"
 
-    @MainActor @Test func anUnreadablePersistedStoreIsReportedAndPreserved() throws {
-        let suiteName = "review-fixes-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { wipeDefaultsSuite(suiteName) }
-        let key = "automationRules"
-        defaults.set(Data("not json at all".utf8), forKey: key)
-
-        let decoded = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults,
-                                                           key: key, describing: "automation rules")
-
-        #expect(decoded == nil, "undecodable data must not read as a successfully-empty store")
-        // The raw bytes are set aside, so the next edit's overwrite can't silently replace a
-        // corrupt store with [].
-        #expect(defaults.data(forKey: key + ".unreadable") == Data("not json at all".utf8))
-    }
-
     @MainActor @Test func anAbsentPersistedStoreIsSilentAndLeavesNoBackup() throws {
         // First run is not a failure: no data, no warning, nothing stashed.
-        let suiteName = "review-fixes-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { wipeDefaultsSuite(suiteName) }
+        let defaults = ScratchDefaults("review-fixes")
 
         let decoded = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults,
                                                            key: "automationRules",
@@ -142,22 +124,6 @@ import Events
         #expect(decoded == nil)
         #expect(defaults.data(forKey: "automationRules.unreadable") == nil)
     }
-
-    @MainActor @Test func areadablePersistedStoreDecodesUnchanged() throws {
-        let suiteName = "review-fixes-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { wipeDefaultsSuite(suiteName) }
-        let rules = [AutomationRule(name: "Acme", matchMode: .all,
-                                    conditions: [.nameMatches("*acme*")], destinationTemplate: "Work/Acme")]
-        defaults.set(try JSONEncoder().encode(rules), forKey: "automationRules")
-
-        let decoded = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults,
-                                                           key: "automationRules",
-                                                           describing: "automation rules")
-        #expect(decoded?.count == 1)
-        #expect(decoded?.first?.name == "Acme")
-    }
-
 
     // MARK: Regressions found reviewing the fixes above
 
@@ -203,14 +169,8 @@ import Events
     @MainActor @Test func twoStoresSharingAKeyNameEachKeepTheirOwnBackup() throws {
         // The one-shot report gate must not key on the key name alone, or the first store read
         // silences, and skips the backup for, every other store holding that key.
-        let nameA = "review-fixes-\(UUID().uuidString)"
-        let nameB = "review-fixes-\(UUID().uuidString)"
-        let a = try #require(UserDefaults(suiteName: nameA))
-        let b = try #require(UserDefaults(suiteName: nameB))
-        defer {
-            wipeDefaultsSuite(nameA)
-            wipeDefaultsSuite(nameB)
-        }
+        let a = ScratchDefaults("review-fixes")
+        let b = ScratchDefaults("review-fixes")
         let key = "automationRules"
         a.set(Data("corrupt-A".utf8), forKey: key)
         b.set(Data("corrupt-B".utf8), forKey: key)
@@ -242,7 +202,9 @@ import Events
         let key = "automationRules"
         defaults.set(Data("corrupt".utf8), forKey: key)
 
-        _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key, describing: "rules")
+        let decoded = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults,
+                                                           key: key, describing: "rules")
+        #expect(decoded == nil, "undecodable data must not read as a successfully-empty store")
         #expect(defaults.data(forKey: key + ".unreadable") == Data("corrupt".utf8),
                 "the first read must still preserve the payload")
 

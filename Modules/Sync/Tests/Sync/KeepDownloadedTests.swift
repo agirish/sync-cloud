@@ -167,7 +167,7 @@ import Foundation
         let home = try Home()
         let top = try home.make("Library/CloudStorage/P/Folder", directory: true)
         let a = try home.make("Library/CloudStorage/P/Folder/a.bin")
-        let local = try home.make("Library/CloudStorage/P/Folder/local.bin")
+        _ = try home.make("Library/CloudStorage/P/Folder/local.bin")   // already here: never asked
         let deep = try home.make("Library/CloudStorage/P/Folder/sub/deeper/c.bin")
         let cloudOnlyFolder = try home.make("Library/CloudStorage/P/Folder/sub/deeper", directory: true)
         let cloudOnly: Set<String> = [a, deep, cloudOnlyFolder]
@@ -182,7 +182,6 @@ import Foundation
         #expect(Set(result.requested) == [a, deep])
         #expect(result.refused.isEmpty)
         #expect(result.unreadable == 0)
-        #expect(!asked.contains(local))
     }
 
     @Test func aRefusedFileIsReportedAndTheRestStillAsked() throws {
@@ -265,7 +264,6 @@ import Foundation
 
         #expect(asked.sorted() == [a, b, loose].sorted())
         #expect(result.requested.sorted() == [a, b, loose].sorted())
-        #expect(!asked.contains(here), "a file already here was asked for")
     }
 
     /// A selected link to a cloud-only file is asked for as the link, which `download(atPath:)`

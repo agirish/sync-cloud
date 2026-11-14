@@ -27,6 +27,21 @@ import Testing
         ])
     }
 
+    /// Both folders carry the same single anchor, so the margin collapses and the router reports
+    /// `.low`.
+    static var tied: FilingRouter.Index {
+        FilingRouterTests.index(memoryDocs: [
+            "Home/Utilities/PG&E/2023": ["statement"],
+            "Home/Utilities/AT&T/2023": ["statement"],
+        ])
+    }
+
+    /// Sixty loose files with no home, and the page each reads as.
+    static func sixty() -> (files: [FilingSuggestion], snippets: [String: String]) {
+        ((0..<60).map { suggestion("f\($0).pdf", best: nil) },
+         (0..<60).reduce(into: [String: String]()) { $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll" })
+    }
+
     @Test func aFileWithNoHomeGetsTheRouterHome() {
         let s = [Self.suggestion("scan001.pdf", best: nil)]
         let (out, routed, _) = FileSyncManager.applyRoutes(
@@ -98,12 +113,7 @@ import Testing
     /// produce a real low-margin candidate: with none, the overlay returns before the guard and the
     /// test can't fail.
     @Test func aLowMarginRouteDoesNotDemoteAConfidentModelAnswer() {
-        // Both folders carry the same single anchor, so the margin collapses and the router reports
-        // `.low`.
-        let tied = FilingRouterTests.index(memoryDocs: [
-            "Home/Utilities/PG&E/2023": ["statement"],
-            "Home/Utilities/AT&T/2023": ["statement"],
-        ])
+        let tied = Self.tied
         let snippets = ["\(Self.root)/TODO/ambiguous.pdf": "statement"]
         let ranking = FilingRouter.rank(fileName: "ambiguous.pdf",
                                         contentSnippet: "statement", index: tied)
@@ -136,10 +146,7 @@ import Testing
     /// the test above takes the branch every guess takes, whatever the confidence, so it cannot
     /// tell `>=` from `>` here.
     @Test func anEquallyConfidentRouteReplacesAModelAnswer() {
-        let tied = FilingRouterTests.index(memoryDocs: [
-            "Home/Utilities/PG&E/2023": ["statement"],
-            "Home/Utilities/AT&T/2023": ["statement"],
-        ])
+        let tied = Self.tied
         let snippets = ["\(Self.root)/TODO/ambiguous.pdf": "statement"]
         let ranking = FilingRouter.rank(fileName: "ambiguous.pdf", contentSnippet: "statement", index: tied)
         #expect(ranking.confidence == .low, "the fixture no longer ties — the confidences below are not equal")
@@ -239,10 +246,7 @@ import Testing
 
     @Test func yieldingAgreesWithTheOnePassHelper() async {
         let index = FilingRouteOverlayTests.index
-        let snippets = (0..<60).reduce(into: [String: String]()) {
-            $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll"
-        }
-        let files = (0..<60).map { FilingRouteOverlayTests.suggestion("f\($0).pdf", best: nil) }
+        let (files, snippets) = FilingRouteOverlayTests.sixty()
         let manager = FileSyncManager()
         let chunked = await manager.applyRoutesYielding(files, index: index, snippets: snippets,
                                                         providerRoot: "/prov", chunk: 7)
@@ -258,10 +262,7 @@ import Testing
     /// A cancelled scan must get its input back untouched, not a half-routed list.
     @Test func cancellationReturnsTheInputUnchanged() async {
         let index = FilingRouteOverlayTests.index
-        let files = (0..<60).map { FilingRouteOverlayTests.suggestion("f\($0).pdf", best: nil) }
-        let snippets = (0..<60).reduce(into: [String: String]()) {
-            $0["/prov/TODO/f\($1).pdf"] = "perioperative anesthesia stoll"
-        }
+        let (files, snippets) = FilingRouteOverlayTests.sixty()
         let manager = FileSyncManager()
         let task = Task { @MainActor in
             await manager.applyRoutesYielding(files, index: index, snippets: snippets,

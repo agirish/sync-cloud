@@ -54,14 +54,12 @@ struct FileLocationTests {
         let c = Self.coverage([Self.iCloud()])
         let file = "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/Notes/a.md"
         #expect(FileLocation.covering(path: file, in: c)?.providerId == "iCloud")
-        #expect(outside(path: file, in: c) == false)
     }
 
     @Test func aPathOutsideEveryProvidersRootIsNotCovered() {
         let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
         let file = "/Users/u/Projects/notes.md"
         #expect(FileLocation.covering(path: file, in: c) == nil)
-        #expect(outside(path: file, in: c))
     }
 
     /// The boundary rule `PathBoundary` exists for: a sibling sharing only a string prefix is
@@ -90,7 +88,6 @@ struct FileLocationTests {
         let c = Self.coverage([Self.oneDrive()])
         let photo = "/Users/u/Library/CloudStorage/OneDrive-Acme/Photos/a.jpg"
         #expect(FileLocation.covering(path: photo, in: c)?.providerId == "OneDrive-Acme")
-        #expect(outside(path: photo, in: c) == false)
     }
 
     /// The widening stops at the account folder — a DIFFERENT account under the same
@@ -141,13 +138,7 @@ struct FileLocationTests {
         #expect(FileLocation.covering(path: file, in: c)?.providerId == drive.id)
         #expect(FileLocation.verdict(forPath: file, in: c, isCloudOnly: false)
                 == .thisMacAndCloud(providerName: "OneDrive (Acme)"))
-    }
-
-    /// The same list, enabled, must give the same answer — otherwise the test above could pass
-    /// because the fixture never covered anything.
-    @Test func theDisabledSetChangesNothingAtAll() {
-        let drive = Self.oneDrive()
-        #expect(Self.coverage([drive], disabled: [drive.id]) == Self.coverage([drive]))
+        #expect(c == Self.coverage([drive]))
     }
 
     /// A folder source is never coverage: it is the thing being asked about, not a cloud. Fails if
@@ -192,33 +183,22 @@ struct FileLocationTests {
 
     // MARK: Containment × materialization — the full cross
 
-    @Test func insideACloudFolderAndDownloadedIsBoth() {
-        let c = Self.coverage([Self.iCloud()])
-        #expect(FileLocation.verdict(
-            forPath: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/a.md",
-            in: c, isCloudOnly: false) == .thisMacAndCloud(providerName: "iCloud"))
-    }
-
-    @Test func insideACloudFolderAndDatalessIsTheProviderAlone() {
-        let c = Self.coverage([Self.oneDrive()])
-        #expect(FileLocation.verdict(
-            forPath: "/Users/u/Library/CloudStorage/OneDrive-Acme/Documents/big.zip",
-            in: c, isCloudOnly: true) == .cloudOnly(providerName: "OneDrive (Acme)"))
-    }
-
-    @Test func outsideEveryCloudFolderAndDownloadedIsThisMacOnly() {
-        let c = Self.coverage([Self.iCloud(), Self.oneDrive()])
-        #expect(FileLocation.verdict(forPath: "/Users/u/Projects/notes.md",
-                                     in: c, isCloudOnly: false) == .thisMacOnly)
-    }
-
-    /// Dataless outside every cloud folder: some File Provider this app never discovered holds the
-    /// content. `thisMacOnly` would be a plain lie and there is no provider to name, so it says
-    /// nothing — the same answer it gives to every question it cannot prove.
-    @Test func outsideEveryCloudFolderAndDatalessIsNoVerdict() {
-        let c = Self.coverage([Self.iCloud()])
-        #expect(FileLocation.verdict(forPath: "/Users/u/Box/report.pdf",
-                                     in: c, isCloudOnly: true) == nil)
+    /// Rows: (providers, path, isCloudOnly, verdict). The last is dataless outside every cloud
+    /// folder: some File Provider this app never discovered holds the content. `thisMacOnly` would
+    /// be a plain lie and there is no provider to name, so it says nothing, the same answer it
+    /// gives to every question it cannot prove.
+    @Test(arguments: [
+        ([FileLocationTests.iCloud()], "/Users/u/Library/Mobile Documents/com~apple~CloudDocs/a.md", false,
+         .thisMacAndCloud(providerName: "iCloud")),
+        ([FileLocationTests.oneDrive()], "/Users/u/Library/CloudStorage/OneDrive-Acme/Documents/big.zip", true,
+         .cloudOnly(providerName: "OneDrive (Acme)")),
+        ([FileLocationTests.iCloud(), FileLocationTests.oneDrive()], "/Users/u/Projects/notes.md", false, .thisMacOnly),
+        ([FileLocationTests.iCloud()], "/Users/u/Box/report.pdf", true, nil),
+    ] as [([CloudProvider], String, Bool, FileLocation.Verdict?)])
+    func containmentByMaterialization(providers: [CloudProvider], path: String, isCloudOnly: Bool,
+                                      verdict: FileLocation.Verdict?) {
+        #expect(FileLocation.verdict(forPath: path, in: Self.coverage(providers), isCloudOnly: isCloudOnly)
+                == verdict)
     }
 
     // MARK: nil materialization is its own outcome

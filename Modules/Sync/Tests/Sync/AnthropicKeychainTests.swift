@@ -127,28 +127,6 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         }
     }
 
-    @Test func readReturnsNilWhenNoItemIsStored() {
-        let store = FakeKeychainStore()
-        #expect(AnthropicKeychain.read(from: store) == nil)
-        #expect(AnthropicKeychain.hasKey(in: store) == false)
-    }
-
-    @Test func readMapsANonSuccessStatusToNil() {
-        let store = FakeKeychainStore()
-        store.itemData = Data("sk-ant-test".utf8)
-        store.forcedCopyStatus = errSecAuthFailed
-        #expect(AnthropicKeychain.read(from: store) == nil)
-    }
-
-    @Test func readTreatsEmptyOrUndecodableDataAsNoKey() {
-        let store = FakeKeychainStore()
-        store.itemData = Data()
-        #expect(AnthropicKeychain.read(from: store) == nil)
-
-        store.itemData = Data([0xFF, 0xFE, 0xFD])   // not valid UTF-8
-        #expect(AnthropicKeychain.read(from: store) == nil)
-    }
-
     /// `read`'s `String?` folds "never configured" and "the Keychain refused right now" into one
     /// `nil`, which would silently drop cloud Filing to the on-device model. `readOutcome` keeps
     /// them apart.
@@ -180,7 +158,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         #expect(AnthropicKeychain.read(from: empty) == nil)
         #expect(AnthropicKeychain.read(from: locked) == nil)
         #expect(AnthropicKeychain.read(from: garbage) == nil)
+        #expect(AnthropicKeychain.read(from: blank) == nil)
         #expect(AnthropicKeychain.read(from: configured) == "sk-ant-test")
+        #expect(AnthropicKeychain.hasKey(in: empty) == false)
         #expect(AnthropicKeychain.hasKey(in: locked) == false)
     }
 

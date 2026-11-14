@@ -44,15 +44,6 @@ import Foundation
         #expect(manager.syncingDifferenceIds.isEmpty)
         // And it must not clear the flag belonging to the run that is still going.
         #expect(manager.isBulkSyncRunning)
-    }
-
-    @MainActor
-    @Test func theSameRowSyncsOnceTheBulkRunHasFinished() async throws {
-        let (manager, mockFM, diff) = try makeFixture()
-
-        manager.isBulkSyncRunning = true
-        _ = await manager.syncFile(diff, fileManager: mockFM)
-        #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
 
         // A wait, not a permanent refusal: the same call goes through once the bulk run releases
         // its latch.

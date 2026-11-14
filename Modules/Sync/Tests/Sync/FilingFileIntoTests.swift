@@ -16,36 +16,29 @@ import Testing
                                       surveyRoot: survey, stored: stored, isDirectory: Self.isDirectory)
     }
 
-    /// A cloud source keeps its own tree, even with a survey of another one loaded.
-    @Test func aCloudSourceFilesIntoItsOwnAnchor() {
-        #expect(resolve(local: false) == "/C/Docs")
-    }
-
-    /// A folder source files into the survey's root, not its own, which for the Home folder is
-    /// 400,000 entries the scan stops to ask about.
-    @Test func aFolderSourceFilesIntoTheSurveysRoot() {
-        #expect(resolve(local: true, anchor: "/U") == "/U/Cloud/Documents")
-    }
-
-    /// No survey, or one whose folder is gone: the folder's own tree is the only one there is.
-    @Test func aFolderSourceWithNoUsableSurveyKeepsItsAnchor() {
-        #expect(resolve(local: true, anchor: "/U", survey: nil) == "/U")
-        #expect(resolve(local: true, anchor: "/U", survey: "") == "/U")
-        #expect(resolve(local: true, anchor: "/U", survey: "/U/Gone") == "/U")
-    }
-
-    @Test func aStoredChoiceWinsWhileItsFolderIsThere() {
-        #expect(resolve(local: false, stored: ["src": "/U/Chosen"]) == "/U/Chosen")
-        #expect(resolve(local: true, anchor: "/U", stored: ["src": "/U/Chosen"]) == "/U/Chosen")
-        // Another source's choice is not this one's.
-        #expect(resolve(local: false, stored: ["other": "/U/Chosen"]) == "/C/Docs")
-    }
-
-    /// A chosen folder that was renamed or unplugged falls back to the default rather than handing
-    /// the scan a root it would walk as empty.
-    @Test func aStoredChoiceThatIsGoneFallsBack() {
-        #expect(resolve(local: false, stored: ["src": "/U/Unplugged"]) == "/C/Docs")
-        #expect(resolve(local: true, anchor: "/U", stored: ["src": "/U/Unplugged"]) == "/U/Cloud/Documents")
+    /// Rows: (local, anchor, survey, stored, expected).
+    @Test(arguments: [
+        // A cloud source keeps its own tree, even with a survey of another one loaded.
+        (false, "/C/Docs", "/U/Cloud/Documents", [:], "/C/Docs"),
+        // A folder source files into the survey's root, not its own, which for the Home folder is
+        // 400,000 entries the scan stops to ask about.
+        (true, "/U", "/U/Cloud/Documents", [:], "/U/Cloud/Documents"),
+        // No survey, or one whose folder is gone: the folder's own tree is the only one there is.
+        (true, "/U", nil, [:], "/U"),
+        (true, "/U", "", [:], "/U"),
+        (true, "/U", "/U/Gone", [:], "/U"),
+        // A stored choice wins while its folder is there; another source's choice is not this one's.
+        (false, "/C/Docs", "/U/Cloud/Documents", ["src": "/U/Chosen"], "/U/Chosen"),
+        (true, "/U", "/U/Cloud/Documents", ["src": "/U/Chosen"], "/U/Chosen"),
+        (false, "/C/Docs", "/U/Cloud/Documents", ["other": "/U/Chosen"], "/C/Docs"),
+        // A chosen folder that was renamed or unplugged falls back to the default rather than
+        // handing the scan a root it would walk as empty.
+        (false, "/C/Docs", "/U/Cloud/Documents", ["src": "/U/Unplugged"], "/C/Docs"),
+        (true, "/U", "/U/Cloud/Documents", ["src": "/U/Unplugged"], "/U/Cloud/Documents"),
+    ] as [(Bool, String, String?, [String: String], String)])
+    func theDestinationRootResolves(local: Bool, anchor: String, survey: String?,
+                                    stored: [String: String], expected: String) {
+        #expect(resolve(local: local, anchor: anchor, survey: survey, stored: stored) == expected)
     }
 
     /// Picking the default again clears the choice, so the source follows its default from then on.
@@ -100,10 +93,10 @@ import Testing
     static func makeScan(lands: Bool = true, refuses: Bool = false, rule: AutomationRule? = nil) async throws
         -> (FileSyncManager, URL, Cloud, String) {
         let root = try makeCanonicalTempRoot(prefix: "FilingDownloadRead")
-        try writeFilingFile(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("\(target)/.keep"), bytes: 1)
         let ticket = root.appendingPathComponent("Downloads/rental agreement.pdf").path
-        try writeFilingFile(URL(fileURLWithPath: ticket))
-        try writeFilingFile(root.appendingPathComponent("Downloads/scanned.pdf"))
+        try writeBytes(URL(fileURLWithPath: ticket))
+        try writeBytes(root.appendingPathComponent("Downloads/scanned.pdf"))
         let cloud = Cloud([ticket], lands: lands)
         let m = FileSyncManager()
         m.filingRuleDefaults = ScratchDefaults("FilingDownloadRead-\(UUID().uuidString)")
@@ -238,8 +231,8 @@ import Testing
     @Test func aScanIntoAnotherTreeReportsNoNamesFromIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTreeFindings")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Notes*2026/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Downloads/a.txt"))
+        try writeBytes(root.appendingPathComponent("Documents/Notes*2026/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/a.txt"))
         func scan(_ reports: Bool) async -> FileSyncManager {
             let m = FileSyncManager()
             m.filingClassifier = { _, _, _ in [:] }

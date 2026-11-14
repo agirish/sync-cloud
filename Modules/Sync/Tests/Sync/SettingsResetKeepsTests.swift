@@ -59,13 +59,6 @@ import Testing
         for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
     }
 
-    /// The one-time carry-over's stamp and its notice survive a reset: run again, the carry-over would
-    /// find nothing and say nothing, and a notice not yet read would be lost.
-    @Test func theRefineMigrationsStampAndNoticeAreKept() {
-        #expect(SettingsResetKeeps.keeps(RefineSpendMigration.doneKey))
-        #expect(SettingsResetKeeps.keeps(RefineSpendMigration.noticeKey))
-    }
-
     @Test func theHiddenListIsKeptAndTheSharedListIsNot() {
         let (defaults, name) = suite()
         AskClaudePrivacy.hide("/Users/u/Documents/Medical", in: defaults)
@@ -89,17 +82,17 @@ import Testing
         for key in keys { #expect(SettingsResetKeeps.keeps(key), "\(key) would be reset") }
     }
 
-    /// The marks that say which shape stored data is in. Without them the next launch migrates what
-    /// the app wrote after the reset a second time.
-    @Test func theMigrationMarksAreKept() {
-        for key in ["rootsModelStamp",
-                    "rootsModelHandledProviderIds", "paneBarArrangementMigration"] {
-            #expect(SettingsResetKeeps.keeps(key), "\(key)")
-        }
-    }
-
-    @Test func theSpendingLimitIsKept() {
-        #expect(SettingsResetKeeps.keeps("askClaudeMonthlyLimitUSD"))
+    /// Marks and limits a reset must keep:
+    /// - the one-time carry-over's stamp and its notice: run again, the carry-over would find
+    ///   nothing and say nothing, and a notice not yet read would be lost;
+    /// - the marks that say which shape stored data is in, without which the next launch migrates
+    ///   what the app wrote after the reset a second time;
+    /// - the spending limit.
+    @Test(arguments: [RefineSpendMigration.doneKey, RefineSpendMigration.noticeKey,
+                      "rootsModelStamp", "rootsModelHandledProviderIds", "paneBarArrangementMigration",
+                      "askClaudeMonthlyLimitUSD"])
+    func theMigrationMarksAndTheSpendingLimitAreKept(_ key: String) {
+        #expect(SettingsResetKeeps.keeps(key), "\(key)")
     }
 
     /// Automations, the rejections, and the copies an unreadable rule list is set aside under —

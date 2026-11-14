@@ -249,13 +249,6 @@ import Testing
                 "over-suppressed the row into the readable case-variant owner: \(diffs.map(\.relativePath))")
     }
 
-    @Test func unreadableDirectoryOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
-        guard !runningAsRoot else { return }
-        let diffs = try lockedDiff(right: ["shared/doc.txt"], locked: (onLeft: true, path: "shared"))
-
-        #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
-    }
-
     // MARK: Scan ROOT denied (the round-5 fix covered subdirectories only)
 
     @Test func buildTreeReturnsTheRootMarkedUnexploredWhenTheRootItselfIsDenied() async throws {
@@ -300,17 +293,15 @@ import Testing
         #expect(info["secret.txt"] == nil)   // contents were unreadable
     }
 
-    @Test func unreadableRootOnOneSideProducesNoMissingRowsAtAll() throws {
+    /// An unreadable directory or root on either side: that side's view under it is unknown, so
+    /// nothing may surface as an actionable Missing row, in either direction.
+    @Test(arguments: [([] as [String], ["shared/doc.txt"] as [String], true, "shared"),
+                      (["doc.txt", "sub/deep.txt"], [], false, ""),
+                      ([], ["doc.txt"], true, "")])
+    func anUnreadableFolderMintsNoPhantomRows(left: [String], right: [String],
+                                              lockedOnLeft: Bool, lockedPath: String) throws {
         guard !runningAsRoot else { return }
-        let diffs = try lockedDiff(left: ["doc.txt", "sub/deep.txt"], locked: (onLeft: false, path: ""))
-
-        // The right side's entire view is unknown: nothing may surface as actionable Missing.
-        #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
-    }
-
-    @Test func unreadableRootOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
-        guard !runningAsRoot else { return }
-        let diffs = try lockedDiff(right: ["doc.txt"], locked: (onLeft: true, path: ""))
+        let diffs = try lockedDiff(left: left, right: right, locked: (onLeft: lockedOnLeft, path: lockedPath))
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }

@@ -12,6 +12,17 @@ import Combine
         for p in paths { fm.virtualDisk[p] = .file(size) }
     }
 
+    /// The merge tests' two folders, `/base/K` (holding `kfile`) and `/base/R` (`rfile`), 5000 bytes
+    /// each; `keeper: false` leaves the keeper off the disk.
+    private func plantKR(_ fm: MockFileManager, keeper: Bool = true) {
+        if keeper {
+            fm.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
+            fm.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        }
+        fm.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
+        fm.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+    }
+
     @MainActor
     @Test func findDuplicatesDetectsIdenticalFileEndToEnd() async throws {
         let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
@@ -57,14 +68,8 @@ import Combine
 
         plant(mockFM, ["/root/A/report.pdf", "/root/B/report.pdf"], size: 8192)
 
-        let keeper = DuplicateCopy(id: "/root/A/report.pdf", name: "report.pdf", isDirectory: false,
-                                   size: 8192, itemCount: 1, modificationDate: nil, uniqueItemCount: 0,
-                                   depth: 2, isRecommendedKeeper: true)
-        let redundant = DuplicateCopy(id: "/root/B/report.pdf", name: "report.pdf", isDirectory: false,
-                                      size: 8192, itemCount: 1, modificationDate: nil, uniqueItemCount: 0,
-                                      depth: 2, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .identical, name: "report.pdf", isDirectory: false,
-                                   copies: [keeper, redundant], reclaimableBytes: 8192)
+        let group = grp(.identical, keeper: "/root/A/report.pdf", redundant: ["/root/B/report.pdf"],
+                        reclaim: 8192, size: 8192)
         manager.duplicateGroups = [group]
 
         await manager.resolveDuplicateGroup(group)
@@ -143,9 +148,10 @@ import Combine
                       uniqueItemCount: keeper ? 0 : 1, depth: path.filter { $0 == "/" }.count,
                       isRecommendedKeeper: keeper)
     }
-    private func grp(_ type: DuplicateMatchType, keeper: String, redundant: [String], reclaim: Int) -> DuplicateGroup {
+    private func grp(_ type: DuplicateMatchType, keeper: String, redundant: [String], reclaim: Int,
+                     size: Int = 1000) -> DuplicateGroup {
         DuplicateGroup(matchType: type, name: (keeper as NSString).lastPathComponent, isDirectory: false,
-                       copies: [copy(keeper, keeper: true)] + redundant.map { copy($0, keeper: false) },
+                       copies: [copy(keeper, keeper: true, size: size)] + redundant.map { copy($0, keeper: false, size: size) },
                        reclaimableBytes: reclaim)
     }
     /// An overlapping folder group of keeper `k` and redundant `r`, each named for its last path
@@ -230,12 +236,18 @@ import Combine
         let manager = FileSyncManager(fileManager: mockFM)
         // Only the redundant copy is on disk — the keeper was deleted externally after the scan.
         mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
-        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
+        let group = grp(.identical, keeper: "/Pictures/2019/IMG_0421.jpg", redundant: ["/b/x"], reclaim: 1000)
         manager.duplicateGroups = [group]
 
-        let ok = await manager.resolveDuplicateGroup(group)
+        var ok = true
+        let mine = try await logLines(tag: UUID().uuidString) {
+            ok = await manager.resolveDuplicateGroup(group)
+        }
 
         #expect(ok == false)
+        // Logged, not only shown in a banner, and with the keeper's path.
+        let line = mine.last { $0.contains("is no longer what the scan saw") }
+        #expect(line?.contains("/Pictures/2019/IMG_0421.jpg") == true, "the vanished-keeper refusal is banner-only: “\(line ?? "nil")”")
         #expect(mockFM.virtualDisk["/b/x"] != nil, "the last remaining copy must never be trashed")
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.duplicateGroups.count == 1, "group stays until a rescan re-establishes a keeper")
@@ -495,8 +507,7 @@ import Combine
         // Only the redundant folder is on disk — the keeper was deleted externally after the scan.
         // A merge would silently recreate the keeper from the copy being folded in, then trash
         // that copy: the last real bytes would survive only by accident of the fold order.
-        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
-        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        plantKR(mockFM, keeper: false)
 
         let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
@@ -825,24 +836,6 @@ import Combine
     // MARK: Cancellable scan
 
     @MainActor
-    @Test func startFindDuplicatesRunsToCompletionViaTask() async throws {
-        let root = try makeCanonicalTempRoot(prefix: "DuplicatesTest")
-        defer { try? FileManager.default.removeItem(at: root) }
-        try writeBytes(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
-        try writeBytes(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
-        try writeBytes(root.appendingPathComponent("A/a.txt"), bytes: 8, fill: 0x61)
-        try writeBytes(root.appendingPathComponent("B/b.txt"), bytes: 9, fill: 0x62)
-
-        let manager = FileSyncManager()
-        manager.startFindDuplicates(root: root)
-        await manager.duplicateScanTask?.value
-
-        #expect(manager.hasFoundDuplicates)
-        #expect(manager.duplicateGroups.count == 1)
-        #expect(manager.isFindingDuplicates == false)
-    }
-
-    @MainActor
     @Test func cancelWithNoRunningScanIsSafe() {
         let manager = FileSyncManager()
         manager.cancelFindDuplicates()   // no task in flight
@@ -1076,6 +1069,8 @@ import Combine
         let manager = FileSyncManager()
         manager.startFindDuplicates(root: root)
         await manager.duplicateScanTask?.value
+        #expect(manager.hasFoundDuplicates)
+        #expect(!manager.isFindingDuplicates)
 
         #expect(!manager.duplicateGroups.contains { g in
             g.copies.contains { $0.path.hasSuffix("report v2.pdf") }
@@ -1276,10 +1271,7 @@ import Combine
         // is dropped before it can re-plan against the half-merged keeper (and mint " 2" copies).
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
-        mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
-        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
-        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        plantKR(mockFM)
 
         let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
@@ -1328,10 +1320,7 @@ import Combine
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                        // Trash-less volume
         let manager = FileSyncManager(fileManager: mockFM)   // permanentDeleteConfirmer defaults to false
-        mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
-        mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
-        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
-        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        plantKR(mockFM)
 
         let group = overlap("/base/K", "/base/R")
         manager.duplicateGroups = [group]
@@ -1616,14 +1605,8 @@ import Combine
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
 
-        let a = DuplicateCopy(id: "/root/Screenshots", name: "Screenshots", isDirectory: true,
-                              size: 100, itemCount: 2, modificationDate: nil, uniqueItemCount: 0,
-                              depth: 0, isRecommendedKeeper: true)
-        let b = DuplicateCopy(id: "/root/Work/Screenshots", name: "Screenshots", isDirectory: true,
-                              size: 100, itemCount: 2, modificationDate: nil, uniqueItemCount: 2,
-                              depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.3), name: "Screenshots", isDirectory: true,
-                                   copies: [a, b], reclaimableBytes: 0)
+        let group = overlap("/root/Screenshots", "/root/Work/Screenshots", sizes: (100, 100), items: (2, 2),
+                            rUnique: 2, depths: (0, 1), shared: 0.3, reclaim: 0)
         manager.duplicateGroups = [group]
 
         // "Apply recommended" must never touch a name-only group.
@@ -1645,19 +1628,8 @@ private final class MidMergeInterferingFileManager: FileManager, @unchecked Send
     private let dropURL: URL
     private let dropBytes: Data
     // FileManager is (unchecked) Sendable, so a subclass may not add mutable stored state
-    // directly — the one-shot flag lives in a lock-guarded box (same shape as GatingFileManager).
-    private final class OneShot: @unchecked Sendable {
-        private let lock = NSLock()
-        private var fired = false
-        /// True exactly once.
-        func trip() -> Bool {
-            lock.lock(); defer { lock.unlock() }
-            let first = !fired
-            fired = true
-            return first
-        }
-    }
-    private let shot = OneShot()
+    // directly — the one-shot flag lives in a lock-guarded box.
+    private let fired = LockedBox(false)
 
     init(dropping url: URL, bytes: Data) {
         self.dropURL = url
@@ -1666,7 +1638,7 @@ private final class MidMergeInterferingFileManager: FileManager, @unchecked Send
     }
 
     override func copyItem(at srcURL: URL, to dstURL: URL) throws {
-        if shot.trip() {
+        if fired.withLock({ let first = !$0; $0 = true; return first }) {
             try? dropBytes.write(to: dropURL)
         }
         try super.copyItem(at: srcURL, to: dstURL)

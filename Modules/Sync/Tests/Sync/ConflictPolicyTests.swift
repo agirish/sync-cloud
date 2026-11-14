@@ -21,10 +21,7 @@ import Foundation
     }
 
     @Test func testPersistedParsingFallsBackToAsk() {
-        let suite = "ConflictPolicyTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
-
+        let defaults = ScratchDefaults("ConflictPolicyTests")
         #expect(ConflictPolicy.persisted(from: defaults) == .ask)
         defaults.set(ConflictPolicy.replace.rawValue, forKey: ConflictPolicy.defaultsKey)
         #expect(ConflictPolicy.persisted(from: defaults) == .replace)

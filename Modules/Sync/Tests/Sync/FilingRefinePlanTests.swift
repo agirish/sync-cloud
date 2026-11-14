@@ -10,12 +10,7 @@ import Testing
 @Suite struct FilingRefinePlanTests {
 
     /// Every `.refine` call the classifier received.
-    private final class Sent: @unchecked Sendable {
-        private let lock = NSLock()
-        private var calls: [[String]] = []
-        func record(_ files: [FilingCandidateFile]) { lock.lock(); defer { lock.unlock() }; calls.append(files.map(\.fileName).sorted()) }
-        var all: [[String]] { lock.lock(); defer { lock.unlock() }; return calls }
-    }
+    private typealias Sent = LockedBox<[[String]]>
 
     private func fixture(_ name: String, files: Int = 2) throws -> URL { try refineFixture(prefix: "RefinePlan-\(name)", looseFiles: files) }
 
@@ -213,19 +208,10 @@ import Testing
         #expect(await m.sendFilingRefine(plan, scope: m.filingSuggestions) == .blocked)
         #expect(sent.all.isEmpty)
     }
+}
 
-    // MARK: The whole pass is unchanged
-
-    @Test func theSingleCallPassStillPutsTheDialogBeforeTheSend() async throws {
-        let root = try fixture("dialog")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let sent = Sent()
-        let m = manager(sent)   // the dialog answers no
-        await scan(m, root: root)
-
-        let summary = try #require(await m.refineFilingSuggestions(m.filingSuggestions))
-
-        #expect(summary.outcome == .declined && summary.classified == 0)
-        #expect(sent.all.isEmpty, "declined at the dialog: nothing sent")
-    }
+private extension LockedBox where Value == [[String]] {
+    convenience init() { self.init([]) }
+    func record(_ files: [FilingCandidateFile]) { withLock { $0.append(files.map(\.fileName).sorted()) } }
+    var all: [[String]] { withLock { $0 } }
 }

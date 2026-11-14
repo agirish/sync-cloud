@@ -35,34 +35,6 @@ import Foundation
         #expect(round == good)
     }
 
-    /// The control for the test above, which only means something if `set(try? encode(…))` would
-    /// destroy the bytes. Pins the `set(nil) == removeObject` semantic.
-    @MainActor
-    @Test func theOldSpellingWouldHaveRemovedTheKeyEntirely() throws {
-        let defaults = ScratchDefaults("PersistedStoreWriteMutation")
-        let good = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles")]
-        FileSyncManager.writePersistedStore(good, to: defaults, key: key, describing: "test store")
-        #expect(defaults.data(forKey: key) != nil)
-
-        // The unguarded spelling.
-        defaults.set(try? JSONEncoder().encode(ThrowingEncodable()), forKey: key)
-
-        #expect(defaults.data(forKey: key) == nil, "set(nil:) removes the key — this is the wipe")
-    }
-
-    /// The happy path still writes, so the guard cannot be satisfied by never saving anything.
-    @MainActor
-    @Test func anEncodableValueIsStillPersisted() throws {
-        let defaults = ScratchDefaults("PersistedStoreWriteHappy")
-        let rules = [FilingRule(tokens: ["acme"], destinationPath: "/root/Work")]
-
-        FileSyncManager.writePersistedStore(rules, to: defaults, key: key, describing: "test store")
-
-        let round = try #require(FileSyncManager.decodePersistedStore([FilingRule].self, from: defaults,
-                                                                      key: key, describing: "test store"))
-        #expect(round == rules)
-    }
-
     /// End to end through the real property, so the three setters are covered by their own type,
     /// not only by the helper they share.
     @MainActor

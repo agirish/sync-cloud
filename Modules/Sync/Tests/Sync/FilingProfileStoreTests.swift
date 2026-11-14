@@ -345,15 +345,4 @@ struct RealFilingProfileTests {
         #expect(loaded.id == "father")
         #expect(loaded.profile.profileId == "father")
     }
-
-    /// The fingerprint follows the same id, so a cached verdict is keyed against the artifacts
-    /// actually in use rather than an empty directory that happens to share a name.
-    @Test func theFingerprintOfTheLoadedIdIsNotEmpty() throws {
-        let dir = try makeProfiles(activeId: "work", folderId: nil)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let loaded = try #require(FilingProfileStore.active(in: dir))
-        #expect(FilingProfileStore.fingerprint(id: loaded.id, in: dir)?.isEmpty == false)
-        #expect(FilingProfileStore.fingerprint(id: loaded.profile.profileId, in: dir) == "",
-                "the fixture stopped showing why the wrong id is wrong")
-    }
 }

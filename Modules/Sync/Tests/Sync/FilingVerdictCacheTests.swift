@@ -2,15 +2,6 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// One observation made from inside the injected classifier, mid-scan, where no assertion made
-/// after the scan can reach. `nil` means the classifier never ran, which is its own failure.
-private final class WarmProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Bool?
-    func record(_ warm: Bool) { lock.lock(); defer { lock.unlock() }; value = warm }
-    var observed: Bool? { lock.lock(); defer { lock.unlock() }; return value }
-}
-
 /// Records what the classifier was asked, across concurrent calls.
 private final class CallLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -19,23 +10,6 @@ private final class CallLog: @unchecked Sendable {
     var count: Int { lock.lock(); defer { lock.unlock() }; return calls.count }
     var lastBatch: [String] { lock.lock(); defer { lock.unlock() }; return calls.last ?? [] }
     var everSaw: [String] { lock.lock(); defer { lock.unlock() }; return calls.flatMap { $0 } }
-}
-
-/// Counts spend-confirmer calls. Same shape as `LensAutoRescanTests`' probe, redeclared because
-/// both are file-private.
-private final class SpendProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    func record() { lock.lock(); count += 1; lock.unlock() }
-    var prompts: Int { lock.lock(); defer { lock.unlock() }; return count }
-}
-
-/// Records every quote the spend confirmer was shown.
-private final class Quotes: @unchecked Sendable {
-    private let lock = NSLock()
-    private var seen: [Int] = []
-    func add(_ n: Int) { lock.lock(); defer { lock.unlock() }; seen.append(n) }
-    var all: [Int] { lock.lock(); defer { lock.unlock() }; return seen }
 }
 
 @Suite struct FilingVerdictCacheTests {
@@ -237,8 +211,8 @@ private final class Quotes: @unchecked Sendable {
     /// Builds a fixture folder with one loose file that a classifier can place.
     private func fixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "VerdictScan-\(name)")
-        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
         return root
     }
 
@@ -365,7 +339,7 @@ private final class Quotes: @unchecked Sendable {
         #expect(log.count == 1)
 
         // Rewrite the file at a different size, so the key's identity of "this file" changes.
-        try writeFilingFile(downloads.appendingPathComponent("mystery-scan-0042.pdf"), bytes: 9000)
+        try writeBytes(downloads.appendingPathComponent("mystery-scan-0042.pdf"), bytes: 9000)
         await scan(manager(cacheAt: url, log: log), downloads, root: root)
 
         #expect(log.count == 2)
@@ -522,11 +496,11 @@ private final class Quotes: @unchecked Sendable {
         let ignoring = manager(cacheAt: url, log: log)
         #expect(ignoring.filingVerdictCache == nil, "the fixture must start cold")
 
-        let warmAtClassify = WarmProbe()
+        let warmAtClassify = LockedBox<Bool?>(nil)   // nil: the classifier never ran
         ignoring.filingClassifier = { [weak ignoring] _, files, _ in
             log.record(files.map(\.fileName))
             if let ignoring {
-                await MainActor.run { warmAtClassify.record(ignoring.filingVerdictCache != nil) }
+                await MainActor.run { warmAtClassify.withLock { $0 = ignoring.filingVerdictCache != nil } }
             }
             return files.reduce(into: [:]) { out, f in
                 out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Son",
@@ -535,7 +509,7 @@ private final class Quotes: @unchecked Sendable {
         }
         await scan(ignoring, downloads, root: root, ignoringCache: true)
 
-        #expect(warmAtClassify.observed == true,
+        #expect(warmAtClassify.withLock { $0 } == true,
                 "the ignoring scan must warm the memo through the async accessor BEFORE it reaches the synchronous one in recordFilingVerdicts")
         #expect(ignoring.filingVerdictCacheCountNow == 1)
     }
@@ -634,8 +608,8 @@ private final class Quotes: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("declined")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Downloads/first.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/first.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
 
         // One refine at the paid model, so `first.pdf` has an Opus answer on file.
@@ -645,7 +619,7 @@ private final class Quotes: @unchecked Sendable {
         #expect(log.count == 2)
 
         // A second file arrives, and the guardrail refuses the spend for it.
-        try writeFilingFile(downloads.appendingPathComponent("second.pdf"))
+        try writeBytes(downloads.appendingPathComponent("second.pdf"))
         let declining = refiningManager(cacheAt: url, log: log, suite: "verdictDeclined") { _ in false }
         await scanThenRefine(declining, downloads, root: root)
 
@@ -695,29 +669,29 @@ private final class Quotes: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = try cacheURL("preflight")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        for i in 0..<4 { try writeFilingFile(root.appendingPathComponent("Downloads/scan-\(i).pdf")) }
+        try writeBytes(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        for i in 0..<4 { try writeBytes(root.appendingPathComponent("Downloads/scan-\(i).pdf")) }
         let downloads = root.appendingPathComponent("Downloads")
 
-        let quotes = Quotes()
+        let quotes = LockedBox<[Int]>([])
         let log = CallLog()
 
         func cloudManager(_ suite: String) -> FileSyncManager {
             refiningManager(cacheAt: url, log: log, suite: suite) { preflight in
-                quotes.add(preflight.fileCount); return true
+                quotes.withLock { $0.append(preflight.fileCount) }; return true
             }
         }
 
         await scanThenRefine(cloudManager("verdictPreflight1"), downloads, root: root)
-        #expect(quotes.all == [4])          // first refine: all four priced and sent
+        #expect(quotes.withLock { $0 } == [4])          // first refine: all four priced and sent
         #expect(log.lastBatch.count == 4)
 
         // Add a fifth file; the other four are unchanged and already answered by this model.
-        try writeFilingFile(downloads.appendingPathComponent("scan-4.pdf"))
+        try writeBytes(downloads.appendingPathComponent("scan-4.pdf"))
         let second = cloudManager("verdictPreflight2")
         await scanThenRefine(second, downloads, root: root)
 
-        #expect(quotes.all == [4, 1])       // the quote covers ONE file, not five
+        #expect(quotes.withLock { $0 } == [4, 1])       // the quote covers ONE file, not five
         #expect(log.lastBatch == ["scan-4.pdf"])
         #expect(second.filingLastRefine?.reused == 4)
     }
@@ -731,27 +705,27 @@ private final class Quotes: @unchecked Sendable {
         let (root, url, downloads) = try scanFixture("stale-anchor")
         defer { remove(root, url) }
 
-        let quotes = Quotes()
+        let quotes = LockedBox<[Int]>([])
         let log = CallLog()
 
         // A paid refine caches a verdict naming Documents/Family/Son, which exists today.
-        let first = refiningManager(cacheAt: url, log: log, suite: "verdictStale1") {
-            quotes.add($0.fileCount); return true
+        let first = refiningManager(cacheAt: url, log: log, suite: "verdictStale1") { preflight in
+            quotes.withLock { $0.append(preflight.fileCount) }; return true
         }
         await scanThenRefine(first, downloads, root: root)
-        #expect(quotes.all == [1])
+        #expect(quotes.withLock { $0 } == [1])
         #expect(first.filingLastRefine?.classified == 1)
 
         // Documents/Family goes away, so the cached destination now proposes more new folders than
         // it did when cached, and the staleness rule turns the hit into a miss.
         try FileManager.default.removeItem(at: root.appendingPathComponent("Documents/Family"))
 
-        let second = refiningManager(cacheAt: url, log: log, suite: "verdictStale2") {
-            quotes.add($0.fileCount); return true
+        let second = refiningManager(cacheAt: url, log: log, suite: "verdictStale2") { preflight in
+            quotes.withLock { $0.append(preflight.fileCount) }; return true
         }
         await scanThenRefine(second, downloads, root: root)
 
-        #expect(quotes.all == [1, 1], "the stale hit was not re-priced")
+        #expect(quotes.withLock { $0 } == [1, 1], "the stale hit was not re-priced")
         #expect(second.filingLastRefine?.classified == 1)
         #expect(second.filingLastRefine?.reused == 0)
     }
@@ -765,17 +739,17 @@ private final class Quotes: @unchecked Sendable {
         defer { remove(root, url) }
 
         let log = CallLog()
-        let prompts = SpendProbe()
+        let prompts = LockedBox(0)
         let m = refiningManager(cacheAt: url, log: log, suite: "verdictScanUnpriced") { _ in
-            prompts.record(); return true
+            prompts.withLock { $0 += 1 }; return true
         }
 
         await scan(m, downloads, root: root)
-        #expect(prompts.prompts == 0)   // the scan priced nothing…
+        #expect(prompts.withLock { $0 } == 0)   // the scan priced nothing…
         #expect(log.count == 1)         // …and still classified, at the free tier
 
         await m.refineFilingSuggestions(m.filingSuggestions)
-        #expect(prompts.prompts == 1)   // the refine is what asks
+        #expect(prompts.withLock { $0 } == 1)   // the refine is what asks
         #expect(log.count == 2)
     }
 
@@ -804,14 +778,6 @@ private final class Quotes: @unchecked Sendable {
 
         try writeArtifacts(dir, id: "me", profileFolders: 11)   // re-surveyed
         #expect(FilingProfileStore.fingerprint(id: "me", in: dir) != before)
-    }
-
-    /// An unsurveyed tree has no artifacts and an empty fingerprint, so the field is no reason to
-    /// miss on a machine that never had a profile.
-    @Test func noArtifactsMeansAnEmptyFingerprint() {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fp-none-\(UUID().uuidString)")
-        #expect(FilingProfileStore.fingerprint(id: "me", in: dir) == "")
     }
 
     // MARK: - An unknown fact is not a value

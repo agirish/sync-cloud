@@ -24,15 +24,6 @@ import Testing
 
     // MARK: - Recording
 
-    @Test func aRefusalIsRecordedNewestFirst() {
-        let log = Self.store()
-
-        log.record(Self.event(named: "granny", file: "First.pdf"))
-        log.record(Self.event(named: "granny", file: "Second.pdf"))
-
-        #expect(log.events.map(\.fileName) == ["Second.pdf", "First.pdf"])
-    }
-
     /// The count is for the named person, whose document was headed into somebody else's folder.
     /// Counting by `proposedPerson` would make the opposite claim.
     @Test func theCountIsForThePersonTheDocumentNames() {

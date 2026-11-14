@@ -78,23 +78,17 @@ import Foundation
         #expect(conflict.description.contains("Dropbox"))
     }
 
-    @Test func testNewerRightSideSuggestsCopyToLeft() {
+    /// A newer right side suggests copying left; equal dates default to copying right.
+    @Test(arguments: [(60.0, FileDifference.SyncAction.copyToLeft), (0.0, .copyToRight)])
+    func theNewerSideSuggestsTheCopy(rightIsNewerBy seconds: TimeInterval, action: FileDifference.SyncAction) {
         let left = ["Report ": info(leftURL, "Report ")]
-        let right = ["Report": info(rightURL, "Report", date: baseDate.addingTimeInterval(60))]
+        let right = ["Report": info(rightURL, "Report", date: baseDate.addingTimeInterval(seconds))]
 
         let diffs = compute(left: left, right: right)
 
         #expect(diffs.count == 1)
-        #expect(diffs[0].type == .nameConflict)
-        #expect(diffs[0].action == .copyToLeft)
-    }
-
-    @Test func testEqualDatesDefaultToCopyToRight() {
-        let left = ["Report ": info(leftURL, "Report ")]
-        let right = ["Report": info(rightURL, "Report")]
-
-        let diffs = compute(left: left, right: right)
-        #expect(diffs.first?.action == .copyToRight)
+        #expect(diffs.first?.type == .nameConflict)
+        #expect(diffs.first?.action == action)
     }
 
     @Test func testUnicodeFormVariantsAlreadyMatchAsExactPairs() {

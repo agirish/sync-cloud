@@ -5,27 +5,49 @@ import Foundation
 /// The one accessor rule: suppression is honoured at `visibleStructureFindings`, which every
 /// surface reads, so the lens, the overview and the rail badge cannot disagree about what
 /// "never suggest this again" meant.
-/// A manager over profile `t` at `/r` holding one firing backlog family (`Dental`), with its
-/// store in a fresh directory.
+/// Profile `t` at `/r`: each of `families` a firing backlog family (two claimed years and a loose
+/// `2025`), plus `extra` folders as path → (files, subfolders).
+private func backlogProfile(families: [String] = ["Dental"],
+                            extra: [String: (Int, Int)] = [:]) -> FolderProfile {
+    var shape: [String: (Int, Int)] = extra
+    for family in families {
+        shape[family] = (0, 3)
+        for year in ["2023", "2024"] {
+            shape["\(family)/\(year)"] = (0, 1)
+            shape["\(family)/\(year)/Claims"] = (2, 0)
+        }
+        shape["\(family)/2025"] = (2, 0)
+    }
+    let folders = shape.reduce(into: [String: FolderProfileEntry]()) { folders, item in
+        folders[item.key] = FolderProfileEntry(path: item.key, role: nil, naming: nil, anchors: [],
+                                               acceptsNewFiles: nil, fileCount: item.value.0,
+                                               subfolderCount: item.value.1, axes: [:])
+    }
+    return FolderProfile(profileId: "t", root: "/r", folders: folders, personTokens: [])
+}
+
+/// A manager over `backlogProfile(families:extra:)`, with its store in a fresh directory.
 @MainActor
-private func dentalManager(_ prefix: String) throws -> (manager: FileSyncManager, dir: URL) {
+private func dentalManager(_ prefix: String, families: [String] = ["Dental"],
+                           extra: [String: (Int, Int)] = [:]) throws -> (manager: FileSyncManager, dir: URL) {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(prefix)-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: dir.appendingPathComponent("t"), withIntermediateDirectories: true)
     let manager = FileSyncManager()
-    var folders: [String: FolderProfileEntry] = [:]
-    for (path, files, subs): (String, Int, Int) in [
-        ("Dental", 0, 3),
-        ("Dental/2023", 0, 1), ("Dental/2023/Claims", 2, 0),
-        ("Dental/2024", 0, 1), ("Dental/2024/Claims", 2, 0),
-        ("Dental/2025", 2, 0),
-    ] {
-        folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                           acceptsNewFiles: nil, fileCount: files,
-                                           subfolderCount: subs, axes: [:])
-    }
-    manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r", folders: folders, personTokens: [])
+    manager.filingFolderProfile = backlogProfile(families: families, extra: extra)
     manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
     return (manager, dir)
+}
+
+/// An undo manager on `manager` with `finding` hidden in one closed group, as Never suggest does.
+@MainActor
+private func hideWithUndo(_ manager: FileSyncManager, _ finding: StructureFinding) -> UndoManager {
+    let undo = UndoManager()
+    undo.groupsByEvent = false
+    manager.undoManager = undo
+    undo.beginUndoGrouping()
+    manager.suppressStructureFinding(finding)
+    undo.endUndoGrouping()
+    return undo
 }
 
 /// A same-text group of `name` in each of `folders` under `root`: the duplicate scan's half of a
@@ -42,30 +64,11 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
         try dentalManager("visibility")
     }
 
-    @Test func aSuppressedFindingLeavesTheVisibleSetAndComesBackOnUnsuppress() throws {
-        let (manager, dir) = try makeManager()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let finding = try #require(manager.visibleStructureFindings.first {
-            $0.kind == .backlog
-        })
-
-        manager.restructureStore?.suppress(RestructureKey(finding))
-        #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
-        // The full report is untouched — suppression is a view fact, not a detector fact.
-        #expect(manager.structureFindings.contains { $0.id == finding.id })
-
-        manager.restructureStore?.unsuppress(RestructureKey(finding))
-        #expect(manager.visibleStructureFindings.contains { $0.id == finding.id })
-    }
-
     /// Never suggest this again can be taken back: it registers one ⌘Z step with an undoable
     /// banner, and Show them again brings back everything hidden.
     @Test func neverSuggestCanBeUndoneAndShownAgain() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        manager.undoManager = undo
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
 
         // A key for a folder that no longer produces a finding is not counted as hidden.
@@ -73,9 +76,7 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
         manager.restructureStore?.suppress(stale)
         #expect(manager.hiddenStructureFindings(in: nil).isEmpty)
 
-        undo.beginUndoGrouping()
-        manager.suppressStructureFinding(finding)
-        undo.endUndoGrouping()
+        let undo = hideWithUndo(manager, finding)
         #expect(!manager.visibleStructureFindings.contains { $0.id == finding.id })
         #expect(manager.hiddenStructureFindings(in: nil).map(\.id) == [finding.id])
         #expect(manager.banner?.isUndoable == true, "the banner offered no Undo")
@@ -100,22 +101,9 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     /// scoped lens would show (inside the scope or about an ancestor of it), and leaves the rest
     /// hidden.
     @Test func showingHiddenFindingsAgainStaysInTheLensScope() throws {
-        let (manager, dir) = try makeManager()
-        defer { try? FileManager.default.removeItem(at: dir) }
         // A second family, outside the scope below.
-        var folders = try #require(manager.filingFolderProfile).folders
-        for (path, files, subs): (String, Int, Int) in [
-            ("Vision", 0, 3),
-            ("Vision/2023", 0, 1), ("Vision/2023/Claims", 2, 0),
-            ("Vision/2024", 0, 1), ("Vision/2024/Claims", 2, 0),
-            ("Vision/2025", 2, 0),
-        ] {
-            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                               acceptsNewFiles: nil, fileCount: files,
-                                               subfolderCount: subs, axes: [:])
-        }
-        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
-                                                    folders: folders, personTokens: [])
+        let (manager, dir) = try dentalManager("visibility", families: ["Dental", "Vision"])
+        defer { try? FileManager.default.removeItem(at: dir) }
         let dental = try #require(manager.structureFindings.first {
             $0.kind == .backlog && $0.subject.hasPrefix("Dental")
         })
@@ -140,18 +128,9 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     /// not the survey's report, so a hidden set that read the report alone would never count or
     /// bring it back, and nothing else lists it.
     @Test func aHiddenDuplicatedTaxonomyFindingCanBeShownAgain() throws {
-        let (manager, dir) = try makeManager()
+        let (manager, dir) = try dentalManager(
+            "visibility", extra: ["Papers": (0, 2), "Papers/One": (4, 0), "Papers/Two": (4, 0)])
         defer { try? FileManager.default.removeItem(at: dir) }
-        var folders = try #require(manager.filingFolderProfile).folders
-        for (path, files, subs): (String, Int, Int) in [
-            ("Papers", 0, 2), ("Papers/One", 4, 0), ("Papers/Two", 4, 0),
-        ] {
-            folders[path] = FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                               acceptsNewFiles: nil, fileCount: files,
-                                               subfolderCount: subs, axes: [:])
-        }
-        manager.filingFolderProfile = FolderProfile(profileId: "t", root: "/r",
-                                                    folders: folders, personTokens: [])
         manager.duplicateGroups = ["a.pdf", "b.pdf", "c.pdf"].map {
             papersGroup($0, in: ["Papers/One", "Papers/Two"], under: "/r")
         }
@@ -177,14 +156,9 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     @Test func undoingNeverSuggestReachesTheStoreThatReplacedTheOne() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        manager.undoManager = undo
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
 
-        undo.beginUndoGrouping()
-        manager.suppressStructureFinding(finding)
-        undo.endUndoGrouping()
+        let undo = hideWithUndo(manager, finding)
 
         // The swap: a new profile's store, carrying the hidden key the way the re-derive does.
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t2"),
@@ -211,15 +185,10 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     @Test func undoingNeverSuggestLeavesAnotherProfilesStoreAlone() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        manager.undoManager = undo
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
         let original = try #require(manager.restructureStore)
 
-        undo.beginUndoGrouping()
-        manager.suppressStructureFinding(finding)
-        undo.endUndoGrouping()
+        let undo = hideWithUndo(manager, finding)
 
         // The switch: another provider's profile, which hid the same kind and path itself.
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("other"),
@@ -241,17 +210,12 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     @Test func undoingNeverSuggestFollowsTheLandingsRenames() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        manager.undoManager = undo
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
         let original = try #require(manager.restructureStore)
         let key = RestructureKey(finding)
         #expect(key.path.hasPrefix("Dental"), "premise: the rename below moves this key")
 
-        undo.beginUndoGrouping()
-        manager.suppressStructureFinding(finding)
-        undo.endUndoGrouping()
+        let undo = hideWithUndo(manager, finding)
 
         // The landing's swap: the hidden set carried across and re-keyed through the rename.
         try FileManager.default.createDirectory(at: dir.appendingPathComponent("t2"),
@@ -277,15 +241,10 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
     @Test func undoingNeverSuggestReachesTheSameProfileReopened() throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let undo = UndoManager()
-        undo.groupsByEvent = false
-        manager.undoManager = undo
         let finding = try #require(manager.visibleStructureFindings.first { $0.kind == .backlog })
         let unrelated = RestructureKey(kind: .backlog, path: "Elsewhere/Folder")
 
-        undo.beginUndoGrouping()
-        manager.suppressStructureFinding(finding)
-        undo.endUndoGrouping()
+        let undo = hideWithUndo(manager, finding)
         let reopened = RestructureStore(directory: dir, profileId: "t")
         #expect(reopened.isSuppressed(RestructureKey(finding)), "premise: the same file")
         reopened.suppress(unrelated)
@@ -420,39 +379,15 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
 
     private static let root = "/r"
 
-    private static func entry(_ path: String, files: Int, subs: Int) -> FolderProfileEntry {
-        FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [], acceptsNewFiles: nil,
-                           fileCount: files, subfolderCount: subs, axes: [:])
-    }
-
     /// Two backlog families, so a suppression can be *moved* between them rather than only added —
     /// a key that counted suppressions instead of comparing them would survive that.
-    private static func profile(extra: [String: (Int, Int)] = [:]) -> FolderProfile {
-        var folders: [String: FolderProfileEntry] = [:]
-        for family in ["Dental", "Vision"] {
-            folders[family] = entry(family, files: 0, subs: 3)
-            for year in ["2023", "2024"] {
-                folders["\(family)/\(year)"] = entry("\(family)/\(year)", files: 0, subs: 1)
-                folders["\(family)/\(year)/Claims"] = entry("\(family)/\(year)/Claims",
-                                                            files: 2, subs: 0)
-            }
-            folders["\(family)/2025"] = entry("\(family)/2025", files: 2, subs: 0)
-        }
-        for (path, counts) in extra {
-            folders[path] = entry(path, files: counts.0, subs: counts.1)
-        }
-        return FolderProfile(profileId: "t", root: root, folders: folders, personTokens: [])
+    private static func profile() -> FolderProfile {
+        backlogProfile(families: ["Dental", "Vision"])
     }
 
     private func makeManager(extra: [String: (Int, Int)] = [:]) throws
         -> (manager: FileSyncManager, dir: URL) {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("memo-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let manager = FileSyncManager()
-        manager.filingFolderProfile = Self.profile(extra: extra)
-        manager.restructureStore = RestructureStore(directory: dir, profileId: "t")
-        return (manager, dir)
+        try dentalManager("memo", families: ["Dental", "Vision"], extra: extra)
     }
 
     /// Suppressing one finding and un-suppressing it again — and then *moving* the suppression to
@@ -550,31 +485,55 @@ private func papersGroup(_ name: String, in folders: [String], under root: Strin
         #expect(!manager.visibleStructureFindings.isEmpty)
     }
 
+    /// A private stored property of `manager`, read by reflection. `structureReport` computes and
+    /// caches on a miss, so asking it can never show whether the warm-up installed anything.
+    private func stored<T>(_ label: String, of manager: FileSyncManager, as _: T.Type) -> T? {
+        Mirror(reflecting: manager).children.first { $0.label == label }?.value as? T
+    }
+
+    private func warmUp(of manager: FileSyncManager) -> Task<Void, Never>? {
+        stored("structureWarmUpTask", of: manager, as: Task<Void, Never>.self)
+    }
+
+    private func cachedReport(of manager: FileSyncManager) -> StructureReport? {
+        stored("cachedStructureReport", of: manager, as: StructureReport.self)
+    }
+
     /// The off-actor warm-up must never install a report for a profile that has since been
-    /// replaced. Set two profiles back to back, let the tasks land, and the answer must be the
-    /// second one's — indefinitely.
+    /// replaced. Set two profiles back to back, let every warm-up land, and the cache must hold
+    /// the second one's report.
     @Test func aSupersededWarmUpNeverOverwritesTheCache() async throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
+        let initial = try #require(warmUp(of: manager))
         manager.filingFolderProfile = Self.profile()          // warm-up 1, immediately superseded
+        let superseded = try #require(warmUp(of: manager))
         manager.filingFolderProfile = FolderProfile(profileId: "t2", root: Self.root,
                                                     folders: [:], personTokens: [])
-        for _ in 0..<50 {
-            try await Task.sleep(nanoseconds: 2_000_000)
-            #expect(manager.structureReport.findings.isEmpty,
-                    "the superseded warm-up installed a report for the previous profile")
-        }
+        let current = try #require(warmUp(of: manager))
+        #expect(cachedReport(of: manager) == nil, "premise: nothing computed a report yet")
+
+        await initial.value
+        await superseded.value
+        await current.value
+        let cached = try #require(cachedReport(of: manager), "the current warm-up installed nothing")
+        #expect(cached.findings.isEmpty,
+                "the superseded warm-up installed a report for the previous profile")
+        #expect(manager.structureReport.findings.isEmpty)
     }
 
     /// …and the warm-up does land, for the profile that is current. Without this the test above
-    /// would pass against a warm-up that never ran at all.
+    /// would pass against a warm-up that never ran at all. Fails with `warmStructureReport()`
+    /// dropped from the profile's `didSet`.
     @Test func theWarmUpInstallsAReportForTheCurrentProfile() async throws {
         let (manager, dir) = try makeManager()
         defer { try? FileManager.default.removeItem(at: dir) }
-        // Drain to the warm-up's install. It races the synchronous path by design, so the
-        // observable claim is only that the answer is correct and stays correct.
-        for _ in 0..<50 { try await Task.sleep(nanoseconds: 2_000_000) }
-        #expect(manager.structureReport.findings.contains { $0.kind == .backlog })
+        #expect(cachedReport(of: manager) == nil,
+                "premise: nothing computed the report synchronously, so only the warm-up can install it")
+        let task = try #require(warmUp(of: manager), "setting the profile started no warm-up")
+        await task.value
+        let cached = try #require(cachedReport(of: manager), "the warm-up installed nothing")
+        #expect(cached.findings.contains { $0.kind == .backlog })
         #expect(manager.visibleStructureFindings.contains { $0.kind == .backlog })
     }
 }

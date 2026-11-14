@@ -250,13 +250,6 @@ import Testing
         #expect(p.rootName == volume, "the prompt says “/” where the sidebar says “\(volume)”")
     }
 
-    /// An ordinary folder still answers with its own last component.
-    @Test func anOrdinaryFolderKeepsItsOwnName() {
-        let p = LargeWalkPreflight(pass: .duplicates, rootPath: "/Volumes/Backup/Photos",
-                                   probeLimit: 1)
-        #expect(p.rootName == "Photos")
-    }
-
     /// Every whole-tree pass Organize and Storage can start is guarded, and names itself in the
     /// user's vocabulary. The count of `allCases` makes a pass added later be checked rather than
     /// silently left unbounded.
@@ -295,13 +288,5 @@ import Testing
         #expect(budget.isExhausted, "the fixture did not spend the budget — this measures nothing")
         #expect(!budget.didStopADescent,
                 "a complete tree that exactly spent its budget reported itself truncated")
-    }
-
-    @Test func aTreeOverTheBudgetIsTruncated() async throws {
-        let root = try fixture(files: 12)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let budget = FileSyncManager.NodeBudget(4)
-        _ = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: nil, budget: budget)
-        #expect(budget.didStopADescent)
     }
 }

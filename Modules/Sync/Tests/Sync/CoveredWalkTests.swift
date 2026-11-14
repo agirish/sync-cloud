@@ -10,20 +10,11 @@ import Foundation
 @Suite(.serialized) struct CoveredWalkTests {
 
     /// A root holding `Documents/a.txt` and a container that links `Documents` back in, the shape
-    /// macOS's Desktop & Documents syncing makes.
-    ///
-    /// The spelling is taken from the filesystem, not predicted. Neither
-    /// `URL.resolvingSymlinksInPath()` nor `NSString`'s equivalent turns `/var/folders/…` into
-    /// `/private/var/folders/…`, but `contentsOfDirectory(at:)` returns the resolved form, and a
-    /// link table keyed on the other spelling never matches, so the suite would measure nothing.
+    /// macOS's Desktop & Documents syncing makes. The root is canonical, or the link table, keyed
+    /// on the other spelling, never matches and the suite measures nothing.
     static func fixture() throws -> (root: URL, real: URL, container: URL) {
         let fm = FileManager.default
-        let raw = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("covered-\(UUID().uuidString)")
-        try fm.createDirectory(at: raw, withIntermediateDirectories: true)
-        try Data().write(to: raw.appendingPathComponent(".seed"))
-        let root = try fm.contentsOfDirectory(at: raw, includingPropertiesForKeys: nil, options: [])[0]
-            .deletingLastPathComponent()
+        let root = try makeCanonicalTempRoot(prefix: "covered")
         let real = root.appendingPathComponent("Documents")
         let container = root.appendingPathComponent("Library/CloudDocs")
         try fm.createDirectory(at: real, withIntermediateDirectories: true)
@@ -58,9 +49,7 @@ import Foundation
                 "expected exactly one of the two reaches to be marked, got \(hits.map(\.isCoveredElsewhere))")
 
         // The direct one, the shorter route, is the copy left unmarked.
-        var direct: [FileNode] = []
-        Self.nodes(tree, id: f.real.path, into: &direct)
-        #expect(direct.first?.isCoveredElsewhere != true,
+        #expect(hits.first?.isCoveredElsewhere != true,
                 "the DIRECT reach was marked; the tree is walked in listing order, so the shorter route must survive")
 
         #expect(StorageLensAnalyzer.analyze(tree: tree, now: Date()).totalBytes == 1000,

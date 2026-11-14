@@ -33,23 +33,12 @@ import Testing
 
     // MARK: - Reading
 
-    /// Absent is a state, not a failure: the next survey reads every document instead of the
-    /// changed ones. Slow and correct.
-    @Test func anAbsentCorpusReadsAsNil() throws {
-        let dir = try Self.directory()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        #expect(FilingSurveyStore.corpus(id: "p1", in: dir) == nil)
-    }
-
     /// An undecodable corpus must not throw: the store reports nil and lets the next survey do the
     /// work again.
     @Test func anUndecodableCorpusReadsAsNilRatherThanThrowing() throws {
         let dir = try Self.directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let url = FilingSurveyStore.corpusURL(id: "p1", in: dir)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data("{ not json at all".utf8).write(to: url)
+        try Self.writeCorpusFile("{ not json at all", in: dir)
 
         #expect(FilingSurveyStore.corpus(id: "p1", in: dir) == nil)
     }

@@ -25,8 +25,8 @@ import EventsTestSupport
         let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonComplete")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("CompletesCleanly/Tesla Auto Policy.pdf"), bytes: 32)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("CompletesCleanly/Tesla Auto Policy.pdf"), bytes: 32)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("CompletesCleanly"),
@@ -47,8 +47,8 @@ import EventsTestSupport
         let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonCancel")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("CancelledMidScan/Tesla Auto Policy.pdf"), bytes: 32)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("CancelledMidScan/Tesla Auto Policy.pdf"), bytes: 32)
 
         let manager = FileSyncManager()
         manager.startFindFilingSuggestions(folder: root.appendingPathComponent("CancelledMidScan"),
@@ -77,9 +77,9 @@ import EventsTestSupport
         let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonAutoRescan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let downloads = root.appendingPathComponent("AnnouncedThenCancelled")
-        try writeFilingFile(downloads.appendingPathComponent("Tesla Auto Policy.pdf"), bytes: 32)
+        try writeBytes(downloads.appendingPathComponent("Tesla Auto Policy.pdf"), bytes: 32)
 
         let manager = FileSyncManager()
         let defaults = ScratchDefaults("filingAbandonAutoRescan")
@@ -109,7 +109,7 @@ import EventsTestSupport
         let log = LogCapture()
         let root = try makeCanonicalTempRoot(prefix: "FilingAbandonGuard")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("AlreadyRunning/Tesla Auto Policy.pdf"), bytes: 32)
+        try writeBytes(root.appendingPathComponent("AlreadyRunning/Tesla Auto Policy.pdf"), bytes: 32)
 
         let manager = FileSyncManager()
         manager.isSuggestingFiles = true

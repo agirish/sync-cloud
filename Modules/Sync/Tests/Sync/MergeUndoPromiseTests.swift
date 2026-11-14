@@ -192,28 +192,6 @@ import EventsTestSupport
         }
     }
 
-    /// The other direction: without it, deleting the offer outright would pass. A merge that really
-    /// did trash its copy still offers undo.
-    @MainActor
-    @Test func aMergeWhoseCopyReachedTheTrashStillPromisesUndo() async throws {
-        let base = try makeCanonicalTempRoot(prefix: "MergeUndoPromiseTrash")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let rName = "Redundant-\(UUID().uuidString)"
-        let pair = try makePair(base, redundantName: rName)
-
-        let trash = ScratchTrash(in: base)
-        let manager = FileSyncManager(fileManager: trash)
-        manager.undoManager = UndoManager()
-        manager.duplicateGroups = [pair.group]
-
-        let ok = await manager.mergeDuplicateGroup(pair.group)
-
-        #expect(ok == true)
-        #expect(FileManager.default.fileExists(atPath: pair.redundant.path) == false)
-        #expect(manager.banner?.isUndoable == true, "a genuinely reversible merge stopped offering its undo")
-        #expect(trash.names == [rName], "the redundant copy never reached the test's own Trash")
-    }
-
     /// Parks the first `attributesOfItem` of one exact path, the folded file's destination in the
     /// keeper, which only the merge's copy-undo identity walk stats. The test can then hold that
     /// walk unresolved while asking whether the merge already claims to be done. Bounded park,

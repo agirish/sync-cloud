@@ -7,12 +7,7 @@ import Combine
 
     @MainActor
     @Test func testBackForwardHistory() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        let root = "/src"
-        try mockFM.createDirectory(at: URL(fileURLWithPath: root), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "\(root)/folder1"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "\(root)/folder1/sub"), withIntermediateDirectories: true)
+        let manager = FileSyncManager(fileManager: MockFileManager())
 
         // 1. Initial State
         #expect(manager.leftRelativePath == "")

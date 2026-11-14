@@ -10,14 +10,23 @@ import Events
 @MainActor
 @Suite struct SyncHistoryRecordingTests {
 
-    @Test func testCopyItemsRecordsACopyWithPaneDirection() async throws {
+    /// A history store, a manager recording into it, and a mock disk holding `folders`. The caller
+    /// removes the store's files.
+    private func recordingWorld(_ folders: String...) throws
+        -> (store: SyncHistoryStore, manager: FileSyncManager, mockFM: MockFileManager) {
         let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
-        defer { removeHistoryStoreFiles(store) }
         let manager = FileSyncManager()
         manager.syncHistoryStore = store
         let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        for path in folders {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+        }
+        return (store, manager, mockFM)
+    }
+
+    @Test func testCopyItemsRecordsACopyWithPaneDirection() async throws {
+        let (store, manager, mockFM) = try recordingWorld("/src", "/dst")
+        defer { removeHistoryStoreFiles(store) }
         mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let node = FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)
@@ -33,13 +42,8 @@ import Events
     }
 
     @Test func testMoveItemsRecordsAMove() async throws {
-        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        let (store, manager, mockFM) = try recordingWorld("/src", "/dst")
         defer { removeHistoryStoreFiles(store) }
-        let manager = FileSyncManager()
-        manager.syncHistoryStore = store
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/m.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let node = FileNode(id: "/src/m.txt", name: "m.txt", isDirectory: false)
@@ -55,12 +59,8 @@ import Events
     }
 
     @Test func testDeleteItemsRecordsDeletes() async throws {
-        let store = makeTempHistoryStore(prefix: "SyncHistoryRecordingTest")
+        let (store, manager, mockFM) = try recordingWorld("/dst")
         defer { removeHistoryStoreFiles(store) }
-        let manager = FileSyncManager()
-        manager.syncHistoryStore = store
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/dst/gone.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         await manager.deleteItems(at: ["/dst/gone.txt"], fileManager: mockFM)

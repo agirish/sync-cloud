@@ -172,12 +172,7 @@ import Combine
         // loaded full-suite run can hold up for seconds (docs/flaky-tests.md, "Fixed pumps and
         // fixed sleeps"). The copies are asserted present above, so this waits on a real
         // transition.
-        let deadline = Date().addingTimeInterval(30.0)
-        while remainingDst() > 0 && Date() < deadline {
-            try await Task.sleep(nanoseconds: 40_000_000)
-        }
-
-        #expect(remainingDst() == 0)
+        await waitUntil("every copied destination removed") { remainingDst() == 0 }
         for n in names { #expect(mockFM.virtualDisk["/src/\(n)"] != nil) }
     }
 }

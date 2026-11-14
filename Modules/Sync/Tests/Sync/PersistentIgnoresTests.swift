@@ -228,21 +228,6 @@ import Foundation
 
     // MARK: - Which pane's root the entries are measured from
 
-    /// Two panes showing one folder through sources that land at different depths still mirror
-    /// into the store, which is why `panesShareAPosition` doesn't compare raw focus paths. The same
-    /// folder is `Family` in iCloud and `Documents/Family` in OneDrive; compared raw, Ignore would
-    /// write nothing durable and the row would return after a relaunch.
-    @MainActor
-    @Test func aMixedPairShowingOneFolderStillWritesDurably() {
-        let (manager, store) = makeManagerWithStore(
-            mixed: (leftId: "iCloud", leftOpenAt: "", rightId: "OneDrive-X", rightOpenAt: "Documents"))
-
-        manager.focusBoth(left: "Family", right: "Documents/Family")
-        manager.ignoredPaths = ["draft.txt"]
-        #expect(!store.rootRelativePaths.isEmpty,
-                "a mixed pair on one folder wrote nothing durably")
-    }
-
     /// The entries survive a pane swap, as the unordered pair key promises. Quoted against
     /// whichever source is on the left, one item is `Family/draft.txt` one way and
     /// `Documents/Family/draft.txt` the other, so a swap would match nothing and bring every

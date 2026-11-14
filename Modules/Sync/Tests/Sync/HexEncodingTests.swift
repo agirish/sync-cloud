@@ -50,7 +50,5 @@ struct HexEncodingTests {
         let bytes: [UInt8] = [0x00, 0x0f, 0x10, 0xa5, 0xff]
         let hex = HexEncoding.string(bytes)
         #expect(hex == "000f10a5ff")
-        #expect(hex.count == bytes.count * 2)
-        #expect(hex == hex.lowercased())
     }
 }

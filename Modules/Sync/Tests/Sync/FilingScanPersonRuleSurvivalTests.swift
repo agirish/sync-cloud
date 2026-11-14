@@ -19,11 +19,7 @@ import Testing
     /// Counts the content extractor's calls, so "the content pass ran" is observed. A suggestion
     /// count only says both files were scanned; if the second file ever got a confident home, phase
     /// 2 would be skipped and these tests would pass vacuously.
-    final class Reads: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var paths: [String] = []
-        func record(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
-    }
+    typealias Reads = LockedBox<[String]>
 
 
     /// A scan holding two loose files: one the rule answers, one nothing answers. The second leaves
@@ -36,10 +32,10 @@ import Testing
                          conditions: [AutomationCondition] = [.personIs("granny")],
                          reads: Reads = Reads()) throws -> (FileSyncManager, URL, Reads) {
         let root = try makeCanonicalTempRoot(prefix: "FilingPersonRule")
-        try writeFilingFile(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
-        try writeFilingFile(root.appendingPathComponent("Downloads/9829custbill.pdf"))
+        try writeBytes(root.appendingPathComponent("Archive/Records/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Archive/Granny/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Mom - vaccination.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/9829custbill.pdf"))
 
         let m = FileSyncManager()
         // Contents-reading on (the default) with an extractor that yields tokens, so phase 2 runs
@@ -115,4 +111,8 @@ import Testing
         #expect(Self.best(m, named: "Mom - vaccination.pdf", root: root) != "Archive/Records",
                 "a rule about Son claimed Granny's document")
     }
+}
+
+private extension LockedBox where Value == [String] {
+    func record(_ p: String) { withLock { $0.append(p) } }
 }

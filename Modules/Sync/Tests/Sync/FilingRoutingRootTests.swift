@@ -19,11 +19,11 @@ import Foundation
 
     private func makeTree(_ prefix: String) throws -> Tree {
         let t = Tree(root: try makeCanonicalTempRoot(prefix: prefix))
-        try writeFilingFile(t.fileInto.appendingPathComponent("Bank Accounts/Bank of America/Checking 5696/2025/eStmt_2025-12-28.pdf"), bytes: 64)
-        try writeFilingFile(t.documents.appendingPathComponent("Vehicles/Tesla/Insurance/Policy 2025.pdf"), bytes: 64)
+        try writeBytes(t.fileInto.appendingPathComponent("Bank Accounts/Bank of America/Checking 5696/2025/eStmt_2025-12-28.pdf"), bytes: 64)
+        try writeBytes(t.documents.appendingPathComponent("Vehicles/Tesla/Insurance/Policy 2025.pdf"), bytes: 64)
         // The inbox's own folders name the account; it must never be a home for its own files.
-        try writeFilingFile(t.inbox.appendingPathComponent("Tesla Insurance Policy 2026.pdf"), bytes: 64)
-        try writeFilingFile(t.inbox.appendingPathComponent("Vehicles/Tesla/Insurance/stray.pdf"), bytes: 64)
+        try writeBytes(t.inbox.appendingPathComponent("Tesla Insurance Policy 2026.pdf"), bytes: 64)
+        try writeBytes(t.inbox.appendingPathComponent("Vehicles/Tesla/Insurance/stray.pdf"), bytes: 64)
         return t
     }
 
@@ -118,7 +118,7 @@ import Foundation
     @Test func scanningFileIntoItselfKeepsItsHomes() async throws {
         let t = try makeTree("FilingRootSelf")
         defer { try? FileManager.default.removeItem(at: t.root) }
-        try writeFilingFile(t.fileInto.appendingPathComponent("Checking statement 5696 2026.pdf"), bytes: 64)
+        try writeBytes(t.fileInto.appendingPathComponent("Checking statement 5696 2026.pdf"), bytes: 64)
         let m = manager(surveying: t)
         await m.findFilingSuggestions(folder: t.fileInto, providerRoot: t.fileInto)
         let card = try #require(m.filingSuggestions.first { $0.fileName == "Checking statement 5696 2026.pdf" })

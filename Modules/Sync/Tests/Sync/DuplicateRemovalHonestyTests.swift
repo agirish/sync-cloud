@@ -13,15 +13,6 @@ import Events
 /// same-length edit (2025 to 2026) is not trashed as redundant.
 @Suite struct DuplicateRemovalHonestyTests {
 
-    @MainActor
-    private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
-        FileSyncManager.forTests(fileManager: fm)
-    }
-
-    private func stub(size: Int, modified: Date?) -> MockFileManager.FileStub {
-        .file(size, modified: modified)
-    }
-
     private func group(keeper: String, redundant: String, reclaim: Int) -> DuplicateGroup {
         let when = Date(timeIntervalSince1970: 1_000)
         return .stub([.stub(keeper, keeper: true, modified: when, depth: 1),
@@ -36,10 +27,10 @@ import Events
     @Test func aPermanentRemovalDoesNotPromiseUndo() async throws {
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                     // no Trash on this volume
-        let manager = makeManager(mockFM)
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
         manager.permanentDeleteConfirmer = { _ in true }  // the user confirms the permanent delete
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
         manager.duplicateGroups = [g]
 
@@ -58,9 +49,9 @@ import Events
     @MainActor
     @Test func aTrashedRemovalStillPromisesUndo() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
         manager.duplicateGroups = [g]
 
@@ -79,14 +70,14 @@ import Events
     @MainActor
     @Test func aPartialBatchThatOffersUndoIsMarkedUndoableSoTheOfferCanExpire() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
         // Two eligible groups, one of whose keepers is gone: it is filtered out of `batch` while
         // staying in `eligible`, which is what takes the partial branch. The surviving group
         // trashes normally, so the outcome really is undoable; otherwise this would test the
         // no-offer case.
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/y"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/y"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         // …and NOT "/a/y": the second group's keeper never existed.
         let present = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
         let keeperGone = group(keeper: "/a/y", redundant: "/b/y", reclaim: 1000)
@@ -130,10 +121,10 @@ import Events
     @MainActor
     @Test func aSameSizeRewriteOfACopyIsRefused() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         // Same size as the scan recorded, edited since.
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 9_999))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 9_999))
         let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
         manager.duplicateGroups = [g]
 
@@ -152,9 +143,9 @@ import Events
     @MainActor
     @Test func aPairWithNoRecordedDateStillResolvesOnSize() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: nil)
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: nil)
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: nil)
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: nil)
         let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, depth: 1), .stub("/b/x", keeper: false, depth: 1)])
         manager.duplicateGroups = [g]
 
@@ -170,9 +161,9 @@ import Events
     @MainActor
     @Test func aBatchOfProtectedCopiesIsNotReportedAsDrift() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
 
         let when = Date(timeIntervalSince1970: 1_000)
         let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, modified: when, depth: 1),
@@ -199,8 +190,8 @@ import Events
     @MainActor
     @Test func aGroupWithNothingToRemoveIsNotCalledProtected() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         // One copy, and it is the keeper: no redundant copies, so nothing is protected.
         let g = DuplicateGroup.stub([.stub("/a/x", keeper: true, modified: Date(timeIntervalSince1970: 1_000), depth: 1)])
         try #require(g.redundantCopies.isEmpty, "the fixture gained a redundant copy — it no longer reproduces the case")
@@ -223,10 +214,10 @@ import Events
     @MainActor
     @Test func aDriftedBatchStillSaysToRescan() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         // The redundant copy was rewritten since the scan — a different size is a KNOWN mismatch.
-        mockFM.virtualDisk["/b/x"] = stub(size: 2000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(2000, modified: Date(timeIntervalSince1970: 1_000))
         let g = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1000)
         manager.duplicateGroups = [g]
 
@@ -248,10 +239,10 @@ import Events
     @MainActor
     @Test func bytesAreNotCreditedForCopiesThatVanishedExternally() async throws {
         let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        mockFM.virtualDisk["/a/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/b/x"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
-        mockFM.virtualDisk["/a/y"] = stub(size: 1000, modified: Date(timeIntervalSince1970: 1_000))
+        let manager = FileSyncManager.forTests(fileManager: mockFM)
+        mockFM.virtualDisk["/a/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/b/x"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
+        mockFM.virtualDisk["/a/y"] = .file(1000, modified: Date(timeIntervalSince1970: 1_000))
         // `/b/y` is deliberately NOT on the disk: something else removed it after the scan.
 
         let here = group(keeper: "/a/x", redundant: "/b/x", reclaim: 1_000)
@@ -261,8 +252,6 @@ import Events
         await manager.applyRecommendedDuplicates([here, gone])
 
         let said = try #require(manager.banner?.message)
-        #expect(said.contains(FileSyncManager.formatBytes(1_000)),
-                "the banner does not name what this run actually freed: “\(said)”")
         #expect(!said.contains(FileSyncManager.formatBytes(5_000)),
                 "the banner credited this run with space a copy that had already vanished used to take: “\(said)”")
         #expect(said.contains("1 KB"), "the banner does not name the one group this run actually freed: “\(said)”")

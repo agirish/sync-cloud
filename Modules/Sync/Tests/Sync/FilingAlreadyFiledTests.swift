@@ -96,12 +96,12 @@ import Testing
 
         // A sparse file: over the limit on disk, holding no blocks.
         let large = root.appendingPathComponent("Downloads/Installer.dmg")
-        try writeFilingFile(large, Data())
+        try writeBytes(large, Data())
         let handle = try FileHandle(forWritingTo: large)
         try handle.truncate(atOffset: UInt64(FileSyncManager.unaskedPassMaxFileBytes + 1))
         try handle.close()
         let small = root.appendingPathComponent("Downloads/Note.jpg")
-        try writeFilingFile(small, bytes: 2048, fill: 0x51)
+        try writeBytes(small, bytes: 2048, fill: 0x51)
 
         func suggestion(_ url: URL) -> FilingSuggestion {
             FilingSuggestion(filePath: url.path, fileName: url.lastPathComponent, size: 0, modificationDate: nil,
@@ -174,7 +174,7 @@ import Testing
                                                              bytes: Data(repeating: 0x41, count: 4096))
         defer { try? FileManager.default.removeItem(at: root) }
         let loose = root.appendingPathComponent("Downloads/Fresh.jpg")
-        try writeFilingFile(loose, bytes: 4096, fill: 0x42)
+        try writeBytes(loose, bytes: 4096, fill: 0x42)
 
         let m = FileSyncManager()
         m.contentIndexDirectory = indexDir

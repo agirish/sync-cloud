@@ -237,37 +237,30 @@ import Testing
         let url = scratch.store.noticesURL
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"version":2,"rows":[]}"#.utf8).write(to: url)
-        let reported = Reported()
-        let store = OneWaySyncNoticeStore(url: url, reportFailure: { reported.append($0) })
+        let reported = LockedBox<[String]>([])
+        let store = OneWaySyncNoticeStore(url: url, reportFailure: { message in reported.withLock { $0.append(message) } })
         #expect(store.load(now: Self.t0) == .unreadable)
         let aside = url.deletingLastPathComponent().appendingPathComponent("notices.unreadable-\(Int(Self.t0.timeIntervalSince1970)).json")
         #expect(try Data(contentsOf: aside) == Data(#"{"version":2,"rows":[]}"#.utf8))
         #expect(!FileManager.default.fileExists(atPath: url.path))
-        #expect(reported.messages.count == 1)
+        #expect(reported.withLock { $0 }.count == 1)
     }
 
     @Test func aFailedSaveIsReported() throws {
         let scratch = OneWayScratch()
         let blocker = scratch.url.appendingPathComponent("not a folder")
         try Data().write(to: blocker)
-        let reported = Reported()
+        let reported = LockedBox<[String]>([])
         let store = OneWaySyncNoticeStore(url: blocker.appendingPathComponent("notices.json"),
-                                          reportFailure: { reported.append($0) })
+                                          reportFailure: { message in reported.withLock { $0.append(message) } })
         store.save(OneWaySyncNoticeBoard())
         store.flush()
-        #expect(reported.messages.count == 1)
-        #expect(reported.messages.first?.hasPrefix("One-way sync couldn’t save Activity’s rows") == true)
+        #expect(reported.withLock { $0 }.count == 1)
+        #expect(reported.withLock { $0 }.first?.hasPrefix("One-way sync couldn’t save Activity’s rows") == true)
     }
 
     @Test func everyButtonHasItsTitle() {
         #expect(OneWaySyncNoticeButton.allCases.count == Set(OneWaySyncNoticeButton.allCases.map(\.title)).count)
         #expect(OneWaySyncNoticeButton.syncFromThisMacInstead.title == "Sync From This Mac Instead…")
     }
-}
-
-final class Reported: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [String] = []
-    func append(_ message: String) { lock.withLock { stored.append(message) } }
-    var messages: [String] { lock.withLock { stored } }
 }

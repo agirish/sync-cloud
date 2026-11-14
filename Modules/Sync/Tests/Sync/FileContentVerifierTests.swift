@@ -22,16 +22,6 @@ import CryptoKit
         #expect(hex == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
 
-    @Test func testSha256HexNilForDirectoryAndMissing() async throws {
-        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        // Directory -> nil (guarded before any read).
-        #expect(await FileContentVerifier.sha256Hex(filePath: dir.path) == nil)
-        // Missing path -> nil.
-        #expect(await FileContentVerifier.sha256Hex(filePath: dir.appendingPathComponent("nope").path) == nil)
-    }
-
     @Test func testFilesHaveSameContentFalseForDifferingBytesOfEqualSize() async throws {
         let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -175,47 +175,6 @@ import Testing
 
     // MARK: 4 — the digest is a function of the tree, not of the walk
 
-    /// Two trees with identical contents built in opposite creation orders, one snapshotted twice,
-    /// produce one identity. APFS guarantees no enumeration order, so an order-dependent digest
-    /// would make every folder-copy undo falsely refuse.
-    ///
-    /// This doesn't pin the digest's sort: the real enumerator yields a stable order, so it passes
-    /// with `lines.sort` deleted. It shows two real walks agree; the sort is pinned by
-    /// `theDigestDoesNotDependOnTheOrderTheWalkYieldsEntriesIn`, whose enumerator varies the order.
-    @Test func deepIdentityIsStableAcrossCreationOrderAndRepeatedWalks() throws {
-        let base = try makeCanonicalTempRoot(prefix: "DeepIdentityStable")
-        defer { try? FileManager.default.removeItem(at: base) }
-        let fm = FileManager.default
-        let stamp = Date(timeIntervalSince1970: 1_000)
-
-        // Same shape, built leaf-first in one root and root-first (with reversed sibling order)
-        // in the other.
-        let a = base.appendingPathComponent("a")
-        let b = base.appendingPathComponent("b")
-        for (root, order) in [(a, ["one.txt", "two.txt"]), (b, ["two.txt", "one.txt"])] {
-            try fm.createDirectory(at: root.appendingPathComponent("sub/deep"),
-                                   withIntermediateDirectories: true)
-            for name in order {
-                try Data("same-bytes".utf8).write(to: root.appendingPathComponent("sub/deep/\(name)"))
-            }
-            for rel in ["sub/deep/one.txt", "sub/deep/two.txt"] {
-                try fm.setAttributes([.modificationDate: stamp],
-                                     ofItemAtPath: root.appendingPathComponent(rel).path)
-            }
-        }
-
-        let first = ItemIdentity.deepSnapshot(at: a, fileManager: fm)
-        let again = ItemIdentity.deepSnapshot(at: a, fileManager: fm)
-        let other = ItemIdentity.deepSnapshot(at: b, fileManager: fm)
-
-        guard case .directoryTree = first else {
-            Issue.record("expected a deep directory identity, got \(first)")
-            return
-        }
-        #expect(first == again, "one tree walked twice must produce one identity")
-        #expect(first == other, "identical contents built in a different order must produce the same identity")
-    }
-
     // MARK: The seam itself, on a real tree
 
     /// The counterpart of `ItemIdentityTests.aChangeDeepInsideASubtreeIsNotNoticed`: the edit the

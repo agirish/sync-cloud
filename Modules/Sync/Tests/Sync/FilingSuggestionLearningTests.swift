@@ -16,25 +16,8 @@ import Testing
 
     /// A tree from relative paths: a trailing `/` is a folder, anything else a file in one.
     static func tree(_ paths: [String]) -> [FileNode] {
-        var folders: Set<String> = []
-        var files: [String: [String]] = [:]
-        for p in paths {
-            if p.hasSuffix("/") {
-                var f = String(p.dropLast())
-                while !f.isEmpty { folders.insert(f); f = (f as NSString).deletingLastPathComponent }
-            } else {
-                var f = (p as NSString).deletingLastPathComponent
-                files[f, default: []].append(p)
-                while !f.isEmpty { folders.insert(f); f = (f as NSString).deletingLastPathComponent }
-            }
-        }
-        func node(_ rel: String) -> FileNode {
-            let kids = folders.filter { ($0 as NSString).deletingLastPathComponent == rel }.sorted().map(node)
-                + (files[rel] ?? []).map { file(root + "/" + $0) }
-            return FileNode(id: root + "/" + rel, name: (rel as NSString).lastPathComponent,
-                            isDirectory: true, children: kids)
-        }
-        return folders.filter { !$0.contains("/") }.sorted().map(node)
+        FixtureTree.of(folders: paths.filter { $0.hasSuffix("/") }, files: paths.filter { !$0.hasSuffix("/") },
+                       root: root, fileSize: 40_000, modified: Date(timeIntervalSince1970: 1_790_000_000))
     }
 
     static let household = tree([
@@ -340,8 +323,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "FilingGV")
         defer { try? FileManager.default.removeItem(at: root) }
         let m = Self.manager(root, folders: ["Health/Medical/India", "Purchases/US"])
-        try writeFilingFile(root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf"))
-        try writeFilingFile(root.appendingPathComponent("TODO/Mint Order - 2026.pdf"))
+        try writeBytes(root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf"))
+        try writeBytes(root.appendingPathComponent("TODO/Mint Order - 2026.pdf"))
         // The picker makes a new folder before it files into it, as he did for both.
         for made in ["Immigration/Customs/USA/Shipments", "Purchases/US/US Mint", "Health/Medical/India"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(made),
@@ -373,7 +356,7 @@ import Testing
         let folders = ["Health/Medical/India", "Immigration/Customs/USA", shipments]
         let m = Self.manager(root, folders: folders)
         let first = root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf")
-        try writeFilingFile(first)
+        try writeBytes(first)
         for folder in folders {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(folder),
                                                     withIntermediateDirectories: true)
@@ -420,7 +403,7 @@ import Testing
         let shipments = root.appendingPathComponent("Immigration/Customs/USA/Shipments")
         try FileManager.default.createDirectory(at: shipments, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("TODO/FedEx invoice - India courier .pdf")
-        try writeFilingFile(file)
+        try writeBytes(file)
         let folder = root.appendingPathComponent("TODO/Old Trip")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let m = Self.manager(root, folders: ["Immigration/Customs/USA/Shipments"])
@@ -513,71 +496,61 @@ import Testing
 
 @Suite @MainActor struct FilingRefineShortlistTests {
 
-    /// Refine hands its own shortlists to the overlay with `shortlistVerdictsLead`, so Claude's pick
-    /// from the survey's shortlist replaces a keyword High — the wiring, not just the rule.
-    @Test func refineLetsClaudesShortlistedPickLead() async throws {
+    /// Refines one FedEx card holding `card` against `folders` under `/R`, with Claude answering
+    /// `verdict` on the backend `refine` routes to. Returns the manager and the pass's summary.
+    private func refine(verdict: String, reason: String, folders: Set<String>, card: [FilingDestination],
+                        backend: String) async -> (m: FileSyncManager, summary: FileSyncManager.FilingRefineSummary?) {
         let root = "/R"
         let m = FileSyncManager()
-        let settings = ScratchDefaults("gt-refine-\(UUID().uuidString)")
-        settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
-        m.filingContentDefaults = settings
-        m.filingBackendIdentity = { tier in tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity }
-        m.filingCloudSpendConfirmer = { _ in true }
-        m.filingClassifier = { _, files, _ in
-            Dictionary(uniqueKeysWithValues: files.map {
-                ($0.filePath, FilingVerdict(relativePath: "Immigration/Customs/USA", confidence: .medium, reason: "courier"))
-            })
-        }
-        let folders: Set<String> = ["Immigration", "Immigration/Customs", "Immigration/Customs/USA",
-                                    "Health", "Health/Medical", "Health/Medical/India"]
-        m.filingFolderProfile = FilingScanRouterWiringTests.profile(Array(folders), root: root)
-        m.filingMemory = FilingScanRouterWiringTests.memory("Immigration/Customs/USA", ["fedex", "courier", "invoice"])
-        m.filingLastProviderRoot = root
-        m.filingLastTaxonomyFolders = folders.sorted()
-        m.filingLastExistingFolders = folders
-        m.prepareFilingRouter(destinations: folders)
-        let keyword = FilingDestination(path: root + "/Health/Medical/India", base: .high, evidence: .name,
-                                        reasons: ["Matches “india, medical”"], newSegments: [])
-        m.filingSuggestions = [FilingSuggestion(filePath: "/Inbox/FedEx invoice - India courier .pdf",
-                                                fileName: "FedEx invoice - India courier .pdf", size: 1,
-                                                modificationDate: nil, candidates: [keyword], providerRoot: root)]
-        let summary = await m.refineFilingSuggestions(m.filingSuggestions)
-        #expect(summary?.changed == 1)
-        #expect(m.filingSuggestions.first?.best?.path == root + "/Immigration/Customs/USA")
-    }
-
-    /// Claude names a folder the router never shortlisted. Against `home`, on the backend `refine`
-    /// routes to. Returns the manager after the pass.
-    private func refinePastTheShortlist(home: FilingConfidence, refine backend: String) async -> FileSyncManager {
-        let root = "/R"
-        let m = FileSyncManager()
-        let settings = ScratchDefaults("refine-past-shortlist-\(UUID().uuidString)")
+        let settings = ScratchDefaults("refine-shortlist")
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
         m.filingBackendIdentity = { tier in tier == .refine ? backend : FileSyncManager.onDeviceBackendIdentity }
         m.filingCloudSpendConfirmer = { _ in true }
         m.filingClassifier = { _, files, _ in
             Dictionary(uniqueKeysWithValues: files.map {
-                ($0.filePath, FilingVerdict(relativePath: "Health/Medical/Kaiser", confidence: .medium, reason: "Kaiser record"))
+                ($0.filePath, FilingVerdict(relativePath: verdict, confidence: .medium, reason: reason))
             })
         }
-        let folders: Set<String> = ["Immigration", "Immigration/Customs", "Immigration/Customs/USA",
-                                    "Health", "Health/Medical", "Health/Medical/India", "Health/Medical/Kaiser"]
         m.filingFolderProfile = FilingScanRouterWiringTests.profile(Array(folders), root: root)
         m.filingMemory = FilingScanRouterWiringTests.memory("Immigration/Customs/USA", ["fedex", "courier", "invoice"])
         m.filingLastProviderRoot = root
         m.filingLastTaxonomyFolders = folders.sorted()
         m.filingLastExistingFolders = folders
         m.prepareFilingRouter(destinations: folders)
-        let card = [FilingDestination(path: root + "/Immigration/Customs/USA", base: home, evidence: .name,
-                                      reasons: ["Matches “courier”"], newSegments: []),
-                    FilingDestination(path: root + "/Health/Medical/India", base: .low, evidence: .name,
-                                      reasons: ["Matches “india”"], newSegments: [])]
         m.filingSuggestions = [FilingSuggestion(filePath: "/Inbox/FedEx invoice - India courier .pdf",
                                                 fileName: "FedEx invoice - India courier .pdf", size: 1,
                                                 modificationDate: nil, candidates: card, providerRoot: root)]
-        _ = await m.refineFilingSuggestions(m.filingSuggestions)
-        return m
+        let summary = await m.refineFilingSuggestions(m.filingSuggestions)
+        return (m, summary)
+    }
+
+    /// Refine hands its own shortlists to the overlay with `shortlistVerdictsLead`, so Claude's pick
+    /// from the survey's shortlist replaces a keyword High — the wiring, not just the rule.
+    @Test func refineLetsClaudesShortlistedPickLead() async throws {
+        let keyword = FilingDestination(path: "/R/Health/Medical/India", base: .high, evidence: .name,
+                                        reasons: ["Matches “india, medical”"], newSegments: [])
+        let (m, summary) = await refine(
+            verdict: "Immigration/Customs/USA", reason: "courier",
+            folders: ["Immigration", "Immigration/Customs", "Immigration/Customs/USA",
+                      "Health", "Health/Medical", "Health/Medical/India"],
+            card: [keyword], backend: "cloud:claude-opus-5")
+        #expect(summary?.changed == 1)
+        #expect(m.filingSuggestions.first?.best?.path == "/R/Immigration/Customs/USA")
+    }
+
+    /// Claude names a folder the router never shortlisted. Against `home`, on the backend `refine`
+    /// routes to. Returns the manager after the pass.
+    private func refinePastTheShortlist(home: FilingConfidence, refine backend: String) async -> FileSyncManager {
+        let card = [FilingDestination(path: "/R/Immigration/Customs/USA", base: home, evidence: .name,
+                                      reasons: ["Matches “courier”"], newSegments: []),
+                    FilingDestination(path: "/R/Health/Medical/India", base: .low, evidence: .name,
+                                      reasons: ["Matches “india”"], newSegments: [])]
+        return await refine(
+            verdict: "Health/Medical/Kaiser", reason: "Kaiser record",
+            folders: ["Immigration", "Immigration/Customs", "Immigration/Customs/USA",
+                      "Health", "Health/Medical", "Health/Medical/India", "Health/Medical/Kaiser"],
+            card: card, backend: backend).m
     }
 
     @Test func refineLetsClaudesAnswerPastTheShortlistReplaceAWeakHome() async {

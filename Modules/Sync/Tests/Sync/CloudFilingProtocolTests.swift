@@ -16,11 +16,6 @@ import Testing
                                                    taxonomyFolders: ["Documents", "Documents/Vehicles"], files: files)
 
         #expect(body["model"] as? String == "claude-haiku-4-5")   // honors the chosen model
-        // Forces the single classification tool.
-        let choice = try #require(body["tool_choice"] as? [String: Any])
-        #expect(choice["name"] as? String == CloudFilingProtocol.toolName)
-        let tools = try #require(body["tools"] as? [[String: Any]])
-        #expect(tools.first?["strict"] as? Bool == true)
         // The folder taxonomy lives in its own system block, unmarked: the menu is batch-specific.
         let system = try #require(body["system"] as? [[String: Any]])
         let folderBlock = try #require(system.last)

@@ -119,16 +119,14 @@ import Testing
 
         let identity = ItemIdentity.snapshot(at: link, fileManager: FileManager.default)
 
-        guard case .symlink = identity else {
+        guard case .symlink(let size, let modified) = identity else {
             Issue.record("a symlink to a directory came back as \(identity)")
             return
         }
         // And it is not equal to a plain file of the same size and date, so a link swapped for a
         // file is drift rather than a match.
-        if case .symlink(let size, let modified) = identity {
-            #expect(ItemIdentity.compare(recorded: identity,
-                                         current: .file(size: size, modified: modified)) == .changed)
-        }
+        #expect(ItemIdentity.compare(recorded: identity,
+                                     current: .file(size: size, modified: modified)) == .changed)
     }
 
     /// A trap: `compare` is equality-based, so two `.absent` sides answer `.unchanged` though

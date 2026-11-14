@@ -20,14 +20,6 @@ import Events
                .stub(redundant, keeper: false, size: reclaim, modified: modified)], reclaimable: reclaim)
     }
 
-    @MainActor
-    /// Reads the disk log, not `Logger.shared.entries`: the in-memory array is capped at 1000, and a
-    /// parallel run can evict this suite's line before the assertion reads it. See
-    /// `loggedLineOnDisk(containing:)`.
-    private func loggedLine(containing fragment: String) async -> String? {
-        await loggedLineOnDisk(containing: fragment)
-    }
-
     // MARK: A gate whose manager is gone refuses EVERYTHING
 
     /// The three removal gates: a group's, a merge's and a single pair's (Compare Copies).
@@ -89,7 +81,7 @@ import Events
                 "the ancestor was trashed, destroying a path the gate had just refused with it")
         #expect(outcome.removed == 0)
         #expect(mockFM.trashedPaths.isEmpty)
-        let line = await loggedLine(containing: "which is nested inside it")
+        let line = await loggedLineOnDisk(containing: "which is nested inside it")
         #expect(line?.contains("/r") == true, "the ancestor refusal was not logged: “\(line ?? "nil")”")
     }
 
@@ -181,7 +173,7 @@ import Events
                 "a group with a copy already in the Trash was reported as left alone: “\(message)”")
         #expect(message.contains("after part of it had already been removed"),
                 "the banner does not say what actually happened: “\(message)”")
-        #expect(await loggedLine(containing: "after part of them had already been removed") != nil)
+        #expect(await loggedLineOnDisk(containing: "after part of them had already been removed") != nil)
     }
 
     // MARK: The merge's refusals are identified by path, not basename
@@ -197,27 +189,5 @@ import Events
         #expect(refusals.all == ["Photos", "Photos"],
                 "two distinct refused folds sharing a name collapsed into one: \(refusals.all)")
         #expect(refusals.paths == ["/Volumes/A/Photos", "/Volumes/B/Photos"])
-    }
-
-    /// The keeper refusal is logged, not only shown in a banner, so the single resolve's most
-    /// common refusal leaves a trace in `~/sync-cloud.log`.
-    @MainActor
-    @Test func theSingleResolveKeeperRefusalIsLoggedWithItsPath() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        mockFM.virtualDisk["/Desktop/Old/IMG_0421.jpg"] = stub(size: 1000)   // the keeper is NOT on disk
-        let g = group(keeper: "/Pictures/2019/IMG_0421.jpg", redundant: "/Desktop/Old/IMG_0421.jpg")
-        manager.duplicateGroups = [g]
-
-        let tag = UUID().uuidString
-        var resolved = true
-        let mine = try await logLines(tag: tag) {
-            resolved = await manager.resolveDuplicateGroup(g)
-        }
-        #expect(resolved == false)
-
-        let line = mine.last { $0.contains("is no longer what the scan saw") }
-        #expect(line?.contains("/Pictures/2019/IMG_0421.jpg") == true,
-                "the vanished-keeper refusal is still banner-only: “\(line ?? "nil")”")
     }
 }

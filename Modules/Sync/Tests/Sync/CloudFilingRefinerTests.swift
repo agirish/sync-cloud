@@ -17,25 +17,29 @@ import Testing
         let tail: Tail
         private let lock = NSLock()
         private var seen: [URLRequest] = []
+        private var askedPastTheLines = false
         init(status: Int = 200, lines: [String], tail: Tail = .end) { self.status = status; self.lines = lines; self.tail = tail }
         var requests: [URLRequest] { lock.withLock { seen } }
+        /// The reader asked for the line after the last one, so it has applied every line.
+        var allLinesRead: Bool { lock.withLock { askedPastTheLines } }
 
         func send(_ request: URLRequest) async throws -> AskClaudeTransportResponse {
             lock.withLock { seen.append(request) }
             let (lines, tail) = (self.lines, self.tail)
-            let stream = AsyncThrowingStream<String, Error> { continuation in
-                let task = Task {
-                    for line in lines { continuation.yield(line) }
-                    switch tail {
-                    case .end: continuation.finish()
-                    case .fail(let error): continuation.finish(throwing: error)
-                    case .hang:
-                        while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(20)) }
-                        continuation.finish(throwing: CancellationError())
-                    }
+            let next = LockedBox(0)
+            // Lines are handed out on demand, in the reader's task, so a stop reaches the hang.
+            let stream = AsyncThrowingStream<String, Error>(unfolding: { [self] in
+                let index = next.withLock { index in defer { index += 1 }; return index }
+                if index < lines.count { return lines[index] }
+                lock.withLock { askedPastTheLines = true }
+                switch tail {
+                case .end: return nil
+                case .fail(let error): throw error
+                case .hang:
+                    while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(20)) }
+                    throw CancellationError()
                 }
-                continuation.onTermination = { _ in task.cancel() }
-            }
+            })
             return AskClaudeTransportResponse(status: status, retryAfter: nil, lines: stream, requestID: "req_test")
         }
     }
@@ -187,8 +191,7 @@ import Testing
         let env = Self.environment(transport, defaults: defaults)
         let files = Self.files(3)
         let run = Task { await CloudFilingRefiner.refine(taxonomyFolders: Self.folders, files: files, environment: env) }
-        await waitUntil("the request went out", timeout: 10) { !transport.requests.isEmpty }
-        try await Task.sleep(for: .milliseconds(300))   // the lines have been read
+        await waitUntil("every line was read", timeout: 10) { transport.allLinesRead }
         run.cancel()
         let result = await run.value
 

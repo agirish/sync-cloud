@@ -11,16 +11,16 @@ import EventsTestSupport
 
     private func makeInbox(_ prefix: String) throws -> (root: URL, inbox: URL) {
         let root = try makeCanonicalTempRoot(prefix: prefix)
-        try writeFilingFile(root.appendingPathComponent("Documents/Finance/Statements/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Finance/Statements/.keep"), bytes: 1)
         let inbox = root.appendingPathComponent("TODO")
-        try writeFilingFile(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/01. Jan 2026.pdf"), bytes: 64)
-        try writeFilingFile(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/02. Feb 2026.pdf"), bytes: 64)
-        try writeFilingFile(inbox.appendingPathComponent("Finance/Chase/Credit 2809/2026/01. Jan 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/01. Jan 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Schwab/IRA 7863/2026/02. Feb 2026.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Chase/Credit 2809/2026/01. Jan 2026.pdf"), bytes: 64)
         // A package is one item, never a pile of files to file.
-        try writeFilingFile(inbox.appendingPathComponent("Tools/Helper.app/Contents/Info.plist"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Tools/Helper.app/Contents/Info.plist"), bytes: 64)
         // Finder leaves one in every folder it opens; it is not a loose file.
-        try writeFilingFile(inbox.appendingPathComponent(".DS_Store"), bytes: 64)
-        try writeFilingFile(inbox.appendingPathComponent("Finance/.DS_Store"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent(".DS_Store"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/.DS_Store"), bytes: 64)
         return (root, inbox)
     }
 
@@ -63,7 +63,7 @@ import EventsTestSupport
     @Test func aFolderWithLooseFilesAndMoreBelowOffersToAlsoScan() async throws {
         let (root, inbox) = try makeInbox("FilingSubfolderAlso")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
 

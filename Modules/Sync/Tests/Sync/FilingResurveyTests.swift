@@ -12,12 +12,7 @@ import EventsTestSupport
 @Suite @MainActor struct FilingResurveyTests {
 
     /// Records every path the extractor was asked to open, which is the whole cost of a survey.
-    final class Reads: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var paths: [String] = []
-        func note(_ p: String) { lock.lock(); paths.append(p); lock.unlock() }
-        func reset() { lock.lock(); paths.removeAll(); lock.unlock() }
-    }
+    typealias Reads = LockedBox<[String]>
 
     static func write(_ url: URL, _ contents: String) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
@@ -268,13 +263,17 @@ import EventsTestSupport
         let (manager, docs, _, _, root) = try Self.makeTree()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = await manager.resurveyFilingMemory(root: docs)
+        let fingerprint = manager.filingArtifactFingerprint
 
         // The user creates a folder in Finder and drops a bill into it.
         try Self.write(docs.appendingPathComponent("Home/Xfinity/2026/march.pdf"),
                        Self.page("Xfinity Comcast internet service"))
+        #expect(try #require(manager.filingMemory).folders["Home/Xfinity/2026"] == nil)
         let report = await manager.resurveyFilingMemory(root: docs)
         #expect(report.changed)
         #expect(report.documentsRead == 1)
+        #expect(manager.filingArtifactFingerprint != fingerprint)
+        #expect(manager.filingArtifactFingerprint?.isEmpty == false)
 
         let memory = try #require(manager.filingMemory)
         let anchors = memory.folders["Home/Xfinity/2026"]?.anchors.map(\.token) ?? []
@@ -288,19 +287,6 @@ import EventsTestSupport
                                         contentSnippet: Self.page("Xfinity Comcast internet service"),
                                         index: index)
         #expect(ranking.candidates.first?.relativePath == "Home/Xfinity/2026")
-    }
-
-    /// Before the survey the folder has no learned content, so the test above isn't passing on a
-    /// router ranking the folder by its name.
-    @Test func theSameFileHasNoLearnedHomeBeforeTheSurvey() async throws {
-        let (manager, docs, _, _, root) = try Self.makeTree()
-        defer { try? FileManager.default.removeItem(at: root) }
-        _ = await manager.resurveyFilingMemory(root: docs)
-        try Self.write(docs.appendingPathComponent("Home/Xfinity/2026/march.pdf"),
-                       Self.page("Xfinity Comcast internet service"))
-        // Not re-surveyed.
-        let memory = try #require(manager.filingMemory)
-        #expect(memory.folders["Home/Xfinity/2026"] == nil)
     }
 
     // MARK: - What the survey says in the log
@@ -414,21 +400,6 @@ import EventsTestSupport
 
         #expect(manager.filingSurveyedAt == later)
         #expect(FilingSurveyStore.surveyedAt(id: "t", in: profiles) == later)
-    }
-
-    /// A real change does move the fingerprint, or the byte-identical test above would pass on a
-    /// survey that never writes.
-    @Test func arealChangeMovesTheFingerprint() async throws {
-        let (manager, docs, _, _, root) = try Self.makeTree()
-        defer { try? FileManager.default.removeItem(at: root) }
-        _ = await manager.resurveyFilingMemory(root: docs)
-        let fingerprint = manager.filingArtifactFingerprint
-
-        try Self.write(docs.appendingPathComponent("Home/Xfinity/2026/march.pdf"),
-                       Self.page("Xfinity Comcast internet service"))
-        _ = await manager.resurveyFilingMemory(root: docs)
-        #expect(manager.filingArtifactFingerprint != fingerprint)
-        #expect(manager.filingArtifactFingerprint?.isEmpty == false)
     }
 
     /// The folder profile records what a folder *is*, mined from names. A survey has no business
@@ -787,4 +758,12 @@ import EventsTestSupport
         #expect(try Data(contentsOf: corpusURL) == corpusBefore)
         #expect(try Data(contentsOf: memoryURL) == memoryBefore)
     }
+}
+
+/// `FilingResurveyTests.Reads`, which `LargeWalkGuardTests` reads too.
+extension LockedBox where Value == [String] {
+    convenience init() { self.init([]) }
+    var paths: [String] { withLock { $0 } }
+    func note(_ p: String) { withLock { $0.append(p) } }
+    func reset() { withLock { $0.removeAll() } }
 }

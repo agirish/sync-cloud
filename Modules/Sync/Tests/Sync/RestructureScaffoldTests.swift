@@ -200,16 +200,13 @@ import Foundation
         // false here means the closures never ran and the drain below would measure nothing.
         #expect(undo.canRedo, "the undo closures never ran")
         // The closures spawn Tasks that enqueue file operations; suspending this test task lets
-        // the main actor run them. Bounded (≤ 2s) so a hang is a red test, not a stuck suite.
-        for _ in 0..<400 {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-            if manager.activeFileOperationsCount == 0,
-               !FileManager.default.fileExists(
-                   atPath: root.appendingPathComponent("Health/Dental/2025/Claims").path),
-               !FileManager.default.fileExists(
-                   atPath: root.appendingPathComponent("Health/Dental/2025/Statements").path) {
-                break
-            }
+        // the main actor run them.
+        await waitUntil("the undo removed both created folders") {
+            manager.activeFileOperationsCount == 0
+                && !FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent("Health/Dental/2025/Claims").path)
+                && !FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent("Health/Dental/2025/Statements").path)
         }
         #expect(!FileManager.default.fileExists(
             atPath: root.appendingPathComponent("Health/Dental/2025/Claims").path),

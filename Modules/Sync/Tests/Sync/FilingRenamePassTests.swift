@@ -21,6 +21,20 @@ import EventsTestSupport
                       personTokens: [])
     }
 
+    /// Writes `n. m <year>.pdf` for each `(n, m)` into `root/rel`, whose last component is the year.
+    private func writeBucket(_ root: URL, _ rel: String, _ months: [(String, String)]) throws -> URL {
+        let bucket = root.appendingPathComponent(rel)
+        for (n, m) in months {
+            try writeBytes(bucket.appendingPathComponent("\(n). \(m) \(bucket.lastPathComponent).pdf"), bytes: 8)
+        }
+        return bucket
+    }
+
+    /// `PGE/2025` holding January to March, numbered.
+    private func pgeTree(_ root: URL) throws -> URL {
+        try writeBucket(root, "PGE/2025", [("01", "Jan"), ("02", "Feb"), ("03", "Mar")])
+    }
+
     private func names(in dir: URL) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: dir.path)
             .filter { !$0.hasPrefix(".") }.sorted()
@@ -60,11 +74,8 @@ import EventsTestSupport
     @Test func theFilingScanFindsFoldersThatDriftedFromTheirConvention() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("Utilities/PGE/2021")
-        for (n, m) in [(1, "Mar"), (2, "Apr"), (10, "Dec")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
-        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
+        let bucket = try writeBucket(root, "Utilities/PGE/2021", [("1", "Mar"), ("2", "Apr"), ("10", "Dec")])
+        try writeBytes(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -81,11 +92,8 @@ import EventsTestSupport
     @Test func aFolderAlreadyKeepingItsConventionIsNotReported() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("Utilities/PGE/2021")
-        for (n, m) in [("01", "Mar"), ("02", "Apr")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
-        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
+        let bucket = try writeBucket(root, "Utilities/PGE/2021", [("01", "Mar"), ("02", "Apr")])
+        try writeBytes(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -100,10 +108,7 @@ import EventsTestSupport
     @Test func applyRenamesTheFolderAndRegistersOneGroupedUndo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("2021")
-        for (n, m) in [(1, "Mar"), (2, "Apr"), (3, "May")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
+        let bucket = try writeBucket(root, "2021", [("1", "Mar"), ("2", "Apr"), ("3", "May")])
 
         let manager = FileSyncManager()
         let undo = UndoManager()
@@ -135,10 +140,7 @@ import EventsTestSupport
     @Test func applyReDerivesAgainstTheDiskAndSkipsWhatChangedUnderIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("2021")
-        for (n, m) in [(1, "Mar"), (2, "Apr")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
+        let bucket = try writeBucket(root, "2021", [("1", "Mar"), ("2", "Apr")])
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
         let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
@@ -167,8 +169,8 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
         let bucket = root.appendingPathComponent("2021")
-        try writeFilingFile(bucket.appendingPathComponent("1. Mar 2021.pdf"), bytes: 8)
-        try writeFilingFile(bucket.appendingPathComponent("2. Apr 2021.pdf"), bytes: 8)
+        try writeBytes(bucket.appendingPathComponent("1. Mar 2021.pdf"), bytes: 8)
+        try writeBytes(bucket.appendingPathComponent("2. Apr 2021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
@@ -176,7 +178,7 @@ import EventsTestSupport
 
         // A different file lands on March's target between plan and apply, 20 bytes so a clobber
         // shows in the size, not only the listing.
-        try writeFilingFile(bucket.appendingPathComponent("01. Mar 2021.pdf"), bytes: 20)
+        try writeBytes(bucket.appendingPathComponent("01. Mar 2021.pdf"), bytes: 20)
         await manager.applyRenamePlans([plan])
 
         let survivor = try #require(try FileManager.default.attributesOfItem(
@@ -188,11 +190,8 @@ import EventsTestSupport
     @Test func applyPerformsAWholeCascadeAndUndoesItInOneStep() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("2021")
-        for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
-        try writeFilingFile(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
+        let bucket = try writeBucket(root, "2021", [("01", "Mar"), ("02", "Apr"), ("03", "May")])
+        try writeBytes(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         let undo = UndoManager()
@@ -219,11 +218,8 @@ import EventsTestSupport
     @Test func aCascadeIsAbandonedWholeWhenTheFolderMovedUnderIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("2021")
-        for (n, m) in [("01", "Mar"), ("02", "Apr"), ("03", "May")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
-        try writeFilingFile(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
+        let bucket = try writeBucket(root, "2021", [("01", "Mar"), ("02", "Apr"), ("03", "May")])
+        try writeBytes(bucket.appendingPathComponent("9829custbill02182021.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
@@ -248,11 +244,8 @@ import EventsTestSupport
     @Test func clearingTheFilingScanClearsTheBacklogItProduced() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("Utilities/PGE/2021")
-        for (n, m) in [(1, "Mar"), (2, "Apr")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2021.pdf"), bytes: 8)
-        }
-        try writeFilingFile(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
+        let bucket = try writeBucket(root, "Utilities/PGE/2021", [("1", "Mar"), ("2", "Apr")])
+        try writeBytes(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "Utilities/PGE/2021", year: "2021")
@@ -286,10 +279,7 @@ import EventsTestSupport
         try #require(!FileSyncManager.volumeSupportsCaseSensitiveNames(for: root),
                      "this fixture only means anything on a case-INSENSITIVE volume")
 
-        let bucket = root.appendingPathComponent("2016")
-        for (n, m) in [("07", "jul"), ("08", "Aug"), ("09", "Sep")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2016.pdf"), bytes: 8)
-        }
+        let bucket = try writeBucket(root, "2016", [("07", "jul"), ("08", "Aug"), ("09", "Sep")])
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2016", year: "2016")
@@ -319,7 +309,7 @@ import EventsTestSupport
                      "this fixture only means anything on a case-INSENSITIVE volume")
         let lower = root.appendingPathComponent("07. jul 2016.pdf")
         let cased = root.appendingPathComponent("07. Jul 2016.pdf")
-        try writeFilingFile(lower, bytes: 8)
+        try writeBytes(lower, bytes: 8)
 
         #expect(try FileSyncManager.safeMoveItem(at: lower, to: cased,
                                                  fileManager: FileManager.default) == nil)
@@ -521,11 +511,8 @@ import EventsTestSupport
     @Test func theQueueProposesTheNameAFileWouldTakeWhereItIsGoing() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("PGE/2025")
-        for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
-        }
-        try writeFilingFile(root.appendingPathComponent("Inbox/PGE DetailedBillApr2025.pdf"), bytes: 8)
+        let bucket = try pgeTree(root)
+        try writeBytes(root.appendingPathComponent("Inbox/PGE DetailedBillApr2025.pdf"), bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -545,12 +532,9 @@ import EventsTestSupport
     @Test func filingTheFileActuallyLandsUnderTheProposedName() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("PGE/2025")
-        for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
-        }
+        let bucket = try pgeTree(root)
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try writeFilingFile(loose, bytes: 8)
+        try writeBytes(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -571,12 +555,9 @@ import EventsTestSupport
     @Test func filingDoesNotRenameWhenTheCardOfferedNoName() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = root.appendingPathComponent("PGE/2025")
-        for (n, m) in [("01", "Jan"), ("02", "Feb"), ("03", "Mar")] {
-            try writeFilingFile(bucket.appendingPathComponent("\(n). \(m) 2025.pdf"), bytes: 8)
-        }
+        let bucket = try pgeTree(root)
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try writeFilingFile(loose, bytes: 8)
+        try writeBytes(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "PGE/2025", year: "2025")
@@ -643,9 +624,9 @@ import EventsTestSupport
         // The profile calls this folder `descriptive`, so there is no slot to take. The pass must
         // not rename into folders that never numbered anything.
         let bucket = root.appendingPathComponent("Manuals")
-        try writeFilingFile(bucket.appendingPathComponent("Thermostat.pdf"), bytes: 8)
+        try writeBytes(bucket.appendingPathComponent("Thermostat.pdf"), bytes: 8)
         let loose = root.appendingPathComponent("Inbox/DetailedBillApr2025.pdf")
-        try writeFilingFile(loose, bytes: 8)
+        try writeBytes(loose, bytes: 8)
 
         let manager = FileSyncManager()
         manager.filingFolderProfile = FolderProfile(

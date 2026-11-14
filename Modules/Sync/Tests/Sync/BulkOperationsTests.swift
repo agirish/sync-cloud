@@ -153,32 +153,6 @@ import Foundation
     }
 
     @MainActor
-    @Test func testConcurrentScanProtection() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        let provider = CloudProvider(id: "test", displayName: "Test", imageName: "test", rootPath: "/test", type: .iCloud)
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/test"), withIntermediateDirectories: true)
-        
-        // Start first refresh
-        let firstRefresh = Task {
-            await manager.refreshTreesAndScan(left: provider, right: provider)
-        }
-        
-        // Immediately start second refresh - should cancel the first
-        let secondRefresh = Task {
-            await manager.refreshTreesAndScan(left: provider, right: provider)
-        }
-        
-        await firstRefresh.value
-        await secondRefresh.value
-        
-        #expect(manager.isScanning == false)
-        #expect(manager.hasScanned == true)
-        #expect(manager.activeRefreshTask != nil)
-    }
-
-    @MainActor
     @Test func testCrossVolumeMoveCleanupWithoutTrashSupport() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

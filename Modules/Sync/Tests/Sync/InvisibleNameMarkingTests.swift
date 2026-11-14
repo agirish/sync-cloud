@@ -25,29 +25,19 @@ import Testing
         #expect(InvisibleNameMarking.cells(for: "").isEmpty)
     }
 
-    @Test func everySpaceInATrailingRunIsMarked() {
-        // Every scalar of the run is an edge, not just the outermost: one "␣" plus an invisible
-        // space would read as one trailing space when there are two.
-        #expect(rendered("Swimming  ") == "Swimming␣␣")
-        #expect(markerCount("Swimming  ") == 2)
-        #expect(rendered("Swimming   ") == "Swimming␣␣␣")
-        #expect(markerCount("Swimming   ") == 3)
-    }
-
-    @Test func everySpaceInALeadingRunIsMarked() {
-        #expect(rendered("   Swimming") == "␣␣␣Swimming")
-        #expect(markerCount("   Swimming") == 3)
-    }
-
-    @Test func bothRunsAreMarkedAndTheInteriorIsLeftAlone() {
-        #expect(rendered("  a b  ") == "␣␣a b␣␣")
-        #expect(markerCount("  a b  ") == 4)
-    }
-
-    @Test func aWhollyBlankNameIsEntirelyVisible() {
-        // Nothing but spaces: every one is an edge, so the name can't render as a blank row.
-        #expect(rendered("   ") == "␣␣␣")
-        #expect(markerCount("   ") == 3)
+    /// Every scalar of a leading or trailing run is an edge, not just the outermost: one "␣" plus an
+    /// invisible space would read as one trailing space when there are two. The interior is left
+    /// alone, and a wholly blank name is entirely visible, so it can't render as a blank row.
+    @Test(arguments: [
+        ("Swimming  ", "Swimming␣␣", 2),
+        ("Swimming   ", "Swimming␣␣␣", 3),
+        ("   Swimming", "␣␣␣Swimming", 3),
+        ("  a b  ", "␣␣a b␣␣", 4),
+        ("   ", "␣␣␣", 3),
+    ])
+    func everySpaceInAnEdgeRunIsMarked(name: String, shown: String, markers: Int) {
+        #expect(rendered(name) == shown)
+        #expect(markerCount(name) == markers)
     }
 
     @Test func nonStandardWhitespaceIsMarkedWhereverItSits() {

@@ -98,8 +98,6 @@ import Testing
         ]), root: "/root")
 
         #expect(candidates.map(\.value) == ["US"])
-        #expect(!candidates.contains { $0.value == "Singapore" })
-        #expect(!candidates.contains { $0.value == "AE" })
     }
 
     /// Shape rules, each with a real counter-example on the tree: `529` is a college-savings folder

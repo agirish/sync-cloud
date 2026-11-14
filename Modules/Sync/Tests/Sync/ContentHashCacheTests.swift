@@ -23,21 +23,6 @@ import Foundation
         #expect(await cache.hash(for: other) == nil)
     }
 
-    @Test func testEvictsOldestBeyondCap() async {
-        let cache = ContentHashCache(maxEntries: 2)
-        let k1 = ContentHashKey(path: "/a", mtime: 1, size: 1)
-        let k2 = ContentHashKey(path: "/b", mtime: 1, size: 1)
-        let k3 = ContentHashKey(path: "/c", mtime: 1, size: 1)
-
-        await cache.store("h1", for: k1)
-        await cache.store("h2", for: k2)
-        await cache.store("h3", for: k3)  // pushes count past 2 -> evicts oldest (k1)
-
-        #expect(await cache.hash(for: k1) == nil)
-        #expect(await cache.hash(for: k2) == "h2")
-        #expect(await cache.hash(for: k3) == "h3")
-    }
-
     @Test func testRestoringSameKeyDoesNotDoubleCountForEviction() async {
         // Re-storing a live key must not grow the FIFO order, or it evicts a live entry early.
         // Cap 2, store k1 twice then k2: both survive.

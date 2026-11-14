@@ -49,13 +49,14 @@ import Testing
 
     /// Evidence is inherited from the parent. `AT&T/2024` is empty; only its sibling `AT&T/2023`
     /// knows what an AT&T bill looks like. Without inheritance the right folder scores zero and can
-    /// never be proposed.
-    @Test func anEmptyYearFolderIsReachableThroughItsSiblings() {
+    /// never be proposed. The 2023 row moves to the sibling, so the 2024 one isn't a fallback.
+    @Test(arguments: [("2024", "Home/Utilities/AT&T/2024"), ("2023", "Home/Utilities/AT&T/2023")])
+    func theYearInTheDocumentPicksTheYearFolder(year: String, expected: String) {
         let idx = Self.index(memoryDocs: ["Home/Utilities/AT&T/2023": ["wireless", "att", "mobility"]])
         let r = FilingRouter.rank(fileName: "bill.pdf",
-                                  contentSnippet: "AT&T Mobility wireless statement for 2024",
+                                  contentSnippet: "AT&T Mobility wireless statement for \(year)",
                                   index: idx)
-        #expect(r.best?.relativePath == "Home/Utilities/AT&T/2024")
+        #expect(r.best?.relativePath == expected)
     }
 
     /// The vocabulary for the two inheritance tests below: words in no folder path of the fixture,
@@ -66,22 +67,6 @@ import Testing
                                    "reciprocity", "biometrics", "interview", "endorsement",
                                    "duration", "petitioner", "beneficiary"]
 
-    /// A parent that holds all the evidence must reach its own children: the mirror of the sibling
-    /// case, as when `Visa/US/H-1B Visa` holds every foil and its per-era children none. The parent
-    /// still ranks first; this pins that its empty children are reachable at all.
-    @Test func anEmptyChildIsReachableThroughTheParentThatHoldsTheEvidence() throws {
-        let idx = Self.index(memoryDocs: ["Records/Consular": Self.parentVocabulary],
-                             extraFolders: ["Records/Consular", "Records/Consular/Alpha",
-                                            "Records/Consular/Beta"])
-        let r = FilingRouter.rank(fileName: "scan.pdf",
-                                  contentSnippet: Self.parentVocabulary.joined(separator: " "),
-                                  index: idx)
-        let ranked = r.candidates.map(\.relativePath)
-        #expect(ranked.first == "Records/Consular")
-        #expect(ranked.contains("Records/Consular/Alpha"),
-                "an empty child of the evidence-holding parent never entered the ranking: \(ranked)")
-    }
-
     /// The inherited share is in the same units as the score it is added to. Normalised by the peak
     /// it would land in [0, `inheritWeight`] beside raw scores in the hundreds, and inheritance would
     /// do nothing. Twelve matching anchors are enough to tell the two apart.
@@ -91,6 +76,7 @@ import Testing
         let r = FilingRouter.rank(fileName: "scan.pdf",
                                   contentSnippet: Self.parentVocabulary.joined(separator: " "),
                                   index: idx)
+        #expect(r.candidates.first?.relativePath == "Records/Consular")
         let child = try #require(r.candidates.first { $0.relativePath == "Records/Consular/Alpha" },
                                  "the empty child scored nothing: \(r.candidates.map(\.relativePath))")
         let parent = try #require(r.candidates.first { $0.relativePath == "Records/Consular" })
@@ -176,16 +162,6 @@ import Testing
                 "H1B did not reach H-1B: \(r.candidates.map(\.relativePath))")
     }
 
-    /// The same fixture with the year changed moves to the sibling, so the empty-year test can't be
-    /// passing on a fallback.
-    @Test func theYearInTheDocumentPicksTheSibling() {
-        let idx = Self.index(memoryDocs: ["Home/Utilities/AT&T/2023": ["wireless", "att", "mobility"]])
-        let r = FilingRouter.rank(fileName: "bill.pdf",
-                                  contentSnippet: "AT&T Mobility wireless statement for 2023",
-                                  index: idx)
-        #expect(r.best?.relativePath == "Home/Utilities/AT&T/2023")
-    }
-
     /// Years are read from the document, not only the filename: three files called
     /// `Lease Agreement.pdf` can differ only by the term printed inside.
     @Test func aYearOnlyInTheBodyStillRoutes() {
@@ -260,11 +236,10 @@ import Testing
 
     // MARK: - Routing between folders that differ only by person
 
-    /// Two sibling person buckets holding the same kind of document, and the household that tells
-    /// them apart. The folders carry identical memory on purpose: content cannot separate them, so
-    /// the person axis is the only thing that can.
-    static func siblingPersonIndex() -> FilingRouter.Index {
-        let folders = ["School/Daughter", "School/Son"]
+    static let siblingFolders = ["School/Daughter", "School/Son"]
+
+    /// The two person buckets' profile, without memory or a household.
+    static func siblingPersonProfile() -> FolderProfile {
         let entries = [
             FolderProfileEntry(path: "School/Daughter", role: .personBucket, naming: nil, anchors: [],
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
@@ -273,10 +248,15 @@ import Testing
                                acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
                                axes: ["person": "Son"]),
         ]
-        let profile = FolderProfile(profileId: "t", root: "~",
-                                    folders: Dictionary(entries.map { ($0.path, $0) },
-                                                        uniquingKeysWith: { a, _ in a }),
-                                    personTokens: ["daughter", "son", "father"])
+        return FolderProfile(profileId: "t", root: "~",
+                             folders: Dictionary(entries.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a }),
+                             personTokens: ["daughter", "son", "father"])
+    }
+
+    /// Two sibling person buckets holding the same kind of document, and the household that tells
+    /// them apart. The folders carry identical memory on purpose: content cannot separate them, so
+    /// the person axis is the only thing that can.
+    static func siblingPersonIndex() -> FilingRouter.Index {
         let shared = ["report", "card", "trimester", "attendance"]
             .map { FilingMemoryToken(token: $0, weight: 3.0) }
         let memory = FilingMemory(profileId: "t", salt: "s", folders: [
@@ -288,8 +268,8 @@ import Testing
             Person(id: "daughter", displayName: "Daughter", fullNames: ["Daughter Father"]),
             Person(id: "son", displayName: "Son", fullNames: ["Son Father"]),
         ])
-        return FilingRouter.makeIndex(destinations: folders, profile: profile, memory: memory,
-                                      registry: registry)
+        return FilingRouter.makeIndex(destinations: siblingFolders, profile: siblingPersonProfile(),
+                                      memory: memory, registry: registry)
     }
 
     /// The person axis picks the sibling. Everything else about the two folders is identical, so
@@ -367,19 +347,7 @@ import Testing
     /// With no registry the person axis is inert, so a machine never surveyed for people routes as
     /// if the axis did not exist.
     @Test func withNoRegistryThePersonAxisIsInert() {
-        let folders = ["School/Daughter", "School/Son"]
-        let entries = [
-            FolderProfileEntry(path: "School/Daughter", role: .personBucket, naming: nil, anchors: [],
-                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Daughter"]),
-            FolderProfileEntry(path: "School/Son", role: .personBucket, naming: nil, anchors: [],
-                               acceptsNewFiles: nil, fileCount: 6, subfolderCount: 0,
-                               axes: ["person": "Son"]),
-        ]
-        let profile = FolderProfile(profileId: "t", root: "~",
-                                    folders: Dictionary(entries.map { ($0.path, $0) },
-                                                        uniquingKeysWith: { a, _ in a }),
-                                    personTokens: ["daughter", "son"])
+        let folders = Self.siblingFolders, profile = Self.siblingPersonProfile()
         let idx = FilingRouter.makeIndex(destinations: folders, profile: profile, memory: nil)
         #expect(idx.folderPerson.isEmpty)
 
@@ -479,19 +447,6 @@ import Testing
             names[$0] ?? []
         }
         #expect(out.best?.relativePath == "Immigration/OCI/Son/Application")
-    }
-
-    /// The measure is coverage of the incoming name, not Jaccard: `Son OCI Photo - 4up print sheet`
-    /// covers all three tokens of `Son OCI Photo` and `Son OCI.pdf` two, which Jaccard scores the
-    /// same.
-    @Test func aLongerPeerNameThatCoversTheWholeIncomingNameWins() {
-        let inc = "Son OCI Photo"
-        func coverage(_ peer: String) -> Double {
-            let i = Set(FilingRouter.tokenize(inc)), p = Set(FilingRouter.tokenize(peer))
-            return Double(i.intersection(p).count) / Double(i.count)
-        }
-        #expect(coverage("Son OCI Photo - 4up print sheet") == 1.0)
-        #expect(coverage("Son OCI") < 1.0)
     }
 
     /// Peer names re-rank only between a folder and its own ancestor or descendant; between

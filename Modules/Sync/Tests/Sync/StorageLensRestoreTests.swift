@@ -9,12 +9,6 @@ import Testing
         return dir.appendingPathComponent("storage-lens.json")
     }
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8 = 0x41) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     private func report(totalBytes: Int = 1234) -> StorageLensReport {
         StorageLensReport(
             treemap: [TreemapNode(name: "Docs", path: "/root/Docs", bytes: totalBytes)],
@@ -173,7 +167,7 @@ import Testing
             try? FileManager.default.removeItem(at: root)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
+        try writeBytes(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
         try prepare(root, url)
         let manager = FileSyncManager()
         manager.storageLensStoreURL = url
@@ -243,7 +237,7 @@ import Testing
         // real file.
         let root = try makeCanonicalTempRoot(prefix: "StorageRestoreNoURL")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
+        try writeBytes(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
 
         let manager = FileSyncManager()
         #expect(manager.storageLensStoreURL == nil)
@@ -278,21 +272,6 @@ import Testing
         StorageLensStore.waitForPendingWrites()
         manager.clearStorageLens()
         #expect(!manager.restoreStorageLens(root: root))
-    }
-
-    @MainActor
-    @Test func forgettingEverythingLeavesNoFileBehind() async throws {
-        // The Settings readout asks what this store occupies, and must answer "nothing" after a
-        // Clear. An empty list writes no file: even `{"schema":1,"snapshots":[]}` reads as `[]` to
-        // `load` but shows in a size readout as a Clear that hadn't worked.
-        let (manager, root, url, remove) = try await scannedManager("forget-all")
-        defer { remove() }
-        #expect(manager.storedStorageLensSizeOnDisk() != nil)
-
-        manager.forgetStoredStorageLens()
-        StorageLensStore.waitForPendingWrites()
-        #expect(manager.storedStorageLensSizeOnDisk() == nil, "a cleared store must occupy nothing")
-        #expect(StorageLensStore.load(from: url).isEmpty)
     }
 
     @MainActor
@@ -336,10 +315,15 @@ import Testing
 
         let manager = FileSyncManager()
         manager.storageLensStoreURL = url
+        #expect(manager.storedStorageLensSizeOnDisk() != nil)
         manager.forgetStoredStorageLens()
         StorageLensStore.waitForPendingWrites()
 
         #expect(StorageLensStore.load(from: url).isEmpty)
+        // The Settings readout asks what this store occupies, and must answer "nothing" after a
+        // Clear. An empty list writes no file: even `{"schema":1,"snapshots":[]}` reads as `[]` to
+        // `load` but shows in a size readout as a Clear that hadn't worked.
+        #expect(manager.storedStorageLensSizeOnDisk() == nil, "a cleared store must occupy nothing")
     }
 
     @MainActor
@@ -349,9 +333,7 @@ import Testing
         // a folder chip naming a root the window no longer shows, under a freshness marker.
         let root = try makeCanonicalTempRoot(prefix: "StorageAuditSwitch")
         defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("a"),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: 40_000).write(to: root.appendingPathComponent("a/big.bin"))
+        try writeBytes(root.appendingPathComponent("a/big.bin"), bytes: 40_000)
 
         let manager = FileSyncManager()
         await manager.buildStorageLens(root: root)

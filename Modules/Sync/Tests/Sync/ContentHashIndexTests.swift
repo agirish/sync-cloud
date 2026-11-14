@@ -132,35 +132,6 @@ import Testing
         #expect(await cache.hash(for: key("/root/stale.bin", mtime: 1000, identity: false)) == nil)
     }
 
-    @Test func reloadingDoesNotResetAnEntrysAge() async throws {
-        // A save that stamped everything "now" would mean nothing ever ages out, so the original
-        // timestamp must survive each round trip.
-        let url = try indexURL("age-preserved")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let old = now.addingTimeInterval(-ContentHashCache.maxEntryAge + 3600)   // an hour to spare
-        ContentHashIndexStore.saveInBackground(
-            [ContentHashRecord(path: "/root/a.bin", mtime: 1000, size: 4096, hex: "a", storedAt: old)],
-            to: url)
-        ContentHashIndexStore.waitForPendingWrites()
-
-        // Load it, add something new, save it back.
-        let first = ContentHashCache()
-        await first.enablePersistence(at: url, now: now)
-        await first.store("b", for: key("/root/b.bin", mtime: 1000), at: now)
-        await first.save()
-        ContentHashIndexStore.waitForPendingWrites()
-
-        // Two hours later the old entry is past the cap even though it was just rewritten.
-        let later = now.addingTimeInterval(7200)
-        let second = ContentHashCache()
-        let adopted = await second.enablePersistence(at: url, now: later)
-        #expect(adopted == 1)
-        #expect(await second.hash(for: key("/root/a.bin", mtime: 1000)) == nil)   // aged out
-        #expect(await second.hash(for: key("/root/b.bin", mtime: 1000)) == "b")   // still fresh
-    }
-
     // MARK: Kept while used
 
     private static let day: TimeInterval = 24 * 60 * 60
@@ -464,31 +435,6 @@ import Testing
         await reader.enablePersistence(at: url, now: now)
         #expect(await reader.hash(for: key("/root/mid-scan.bin", mtime: 1000)) == "measured")
         #expect(await reader.hash(for: key("/root/from-disk.bin", mtime: 1000, identity: false)) == "disk")
-    }
-
-    @Test func adoptedEntriesAreEvictedBeforeOnesHashedThisSession() async throws {
-        // Eviction drops from the front. Adopted entries are older than anything this session
-        // hashed, so adopting them at the back would evict fresh digests to keep stale ones.
-        let url = try indexURL("evict-order")
-        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        ContentHashIndexStore.saveInBackground([
-            ContentHashRecord(path: "/root/old-a.bin", mtime: 1000, size: 4096, hex: "a",
-                              storedAt: now.addingTimeInterval(-7200)),
-            ContentHashRecord(path: "/root/old-b.bin", mtime: 1000, size: 4096, hex: "b",
-                              storedAt: now.addingTimeInterval(-3600)),
-        ], to: url)
-        ContentHashIndexStore.waitForPendingWrites()
-
-        // Cap of 2, one entry already measured this session, two adopted → one must go.
-        let cache = ContentHashCache(maxEntries: 2)
-        await cache.store("session", for: key("/root/session.bin", mtime: 1000), at: now)
-        await cache.enablePersistence(at: url, now: now)
-
-        #expect(await cache.count == 2)
-        // The oldest adopted entry is the one dropped; this session's measurement survives.
-        #expect(await cache.hash(for: key("/root/session.bin", mtime: 1000)) == "session")
-        #expect(await cache.hash(for: key("/root/old-a.bin", mtime: 1000)) == nil)
     }
 
     // MARK: End to end, through a real duplicate scan

@@ -51,49 +51,28 @@ import Foundation
 
     // MARK: Has the pane moved off it?
 
-    @Test func browsingAwayFromTheProviderRootReadsAsMovedBeforeAnyScan() {
-        // Nothing scanned, nothing scoped, the pane in a subfolder: the offer must be available, or
-        // there is no way to aim Organize from its own header.
-        #expect(OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil, scannedRoot: nil,
-                                          providerRoot: Self.root))
-    }
+    /// (label, pane folder, scope, scanned root, provider root, moved). A subfolder reads as moved
+    /// before any scan, so Organize can be aimed from its header; with a scope set the root has
+    /// moved, which is how "Organize everything" becomes reachable; with no subject nothing has.
+    static let movedAwayCases: [(String, String?, String?, String?, String?, Bool)] = [
+        ("a subfolder before any scan",    daughter,          nil,   nil,      root, true),
+        ("the provider root",              root,              nil,   nil,      root, false),
+        ("inside the scope",               legal,             legal, daughter, root, false),
+        ("the root, with a scope set",     root,              legal, nil,      root, true),
+        ("the scanned root",               daughter,          nil,   daughter, root, false),
+        ("no pane folder",                 nil,               nil,   nil,      root, false),
+        ("an empty pane folder",           "",                nil,   nil,      root, false),
+        ("no subject at all",              daughter,          nil,   nil,      nil,  false),
+        // Path comparison, not string prefixing: `/a/bc` isn't `/a/b`.
+        ("a sibling sharing a prefix",     root + "/Legalese", nil,  legal,    root, true),
+    ]
 
-    @Test func sittingAtTheProviderRootIsNotMoved() {
-        // The other direction of the same guard, which keeps the button out of a state where it
-        // has no use: unscoped Organize already answers about everything.
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.root, scope: nil, scannedRoot: nil,
-                                           providerRoot: Self.root))
-    }
-
-    @Test func aPaneInsideTheScopeHasNotMoved() {
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.legal, scope: Self.scope(Self.legal),
-                                           scannedRoot: Self.daughter, providerRoot: Self.root))
-    }
-
-    @Test func aPaneAtTheRootHasMovedWhenAScopeIsSet() {
-        // Not symmetric with the case above, deliberately: with a scope set, the top of the tree is
-        // somewhere else, and this is how the "Organize everything" branch becomes reachable.
-        #expect(OrganizeAim.paneMovedAway(paneFolder: Self.root, scope: Self.scope(Self.legal),
-                                          scannedRoot: nil, providerRoot: Self.root))
-    }
-
-    @Test func aPaneMatchingTheScannedRootHasNotMoved() {
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil,
-                                           scannedRoot: Self.daughter, providerRoot: Self.root))
-    }
-
-    @Test func noPaneFolderIsNeverMoved() {
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: nil, scope: nil, scannedRoot: nil,
-                                           providerRoot: Self.root))
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: "", scope: nil, scannedRoot: nil,
-                                           providerRoot: Self.root))
-    }
-
-    @Test func noSubjectAtAllIsNeverMoved() {
-        // No provider configured: there is nothing to have moved away from, and an offer to point
-        // Organize at a folder inside no tree is an offer to do nothing.
-        #expect(!OrganizeAim.paneMovedAway(paneFolder: Self.daughter, scope: nil, scannedRoot: nil,
-                                           providerRoot: nil))
+    @Test(arguments: movedAwayCases)
+    func paneMovedAway(label: String, paneFolder: String?, scope: String?, scannedRoot: String?,
+                       providerRoot: String?, moved: Bool) {
+        #expect(OrganizeAim.paneMovedAway(paneFolder: paneFolder, scope: scope.map { Self.scope($0) },
+                                          scannedRoot: scannedRoot, providerRoot: providerRoot) == moved,
+                "\(label)")
     }
 
     // MARK: One folder, three spellings
@@ -110,11 +89,5 @@ import Foundation
         // And it isn't simply blind: a different folder still reads as moved.
         #expect(OrganizeAim.paneMovedAway(paneFolder: "\(home)/Documents/Legal", scope: nil,
                                           scannedRoot: "~/Documents", providerRoot: nil))
-    }
-
-    @Test func aSiblingWithASharedPrefixIsNotTheSameFolder() {
-        // Path comparison, not string prefixing: `/a/bc` isn't `/a/b`.
-        #expect(OrganizeAim.paneMovedAway(paneFolder: Self.root + "/Legalese", scope: nil,
-                                          scannedRoot: Self.legal, providerRoot: Self.root))
     }
 }

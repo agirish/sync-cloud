@@ -18,18 +18,12 @@ enum HandBuiltFiling {
     @MainActor static let defaults = ScratchDefaults("HandBuiltFiling")
 
     /// How many loose files each fake root was made for, so `build` can be called with the URL alone.
-    private final class Counts: @unchecked Sendable {
-        private let lock = NSLock()
-        private var byRoot: [String: Int] = [:]
-        func set(_ path: String, _ n: Int) { lock.withLock { byRoot[path] = n } }
-        func get(_ path: String) -> Int? { lock.withLock { byRoot[path] } }
-    }
-    private static let counts = Counts()
+    private static let counts = LockedBox<[String: Int]>([:])
 
     /// A source root that exists nowhere, with `files` loose files in its Downloads, remembered.
     static func root(_ name: String, files: Int) -> URL {
         let url = URL(fileURLWithPath: "/HandBuilt-\(name)-\(UUID().uuidString)")
-        counts.set(url.path, files)
+        counts.withLock { $0[url.path] = files }
         return url
     }
 
@@ -40,7 +34,7 @@ enum HandBuiltFiling {
     /// pass's answer (Documents/Family), and the cached source, folders and scan folder.
     @MainActor
     static func build(_ manager: FileSyncManager, root: URL, files: Int? = nil) {
-        let n = files ?? (counts.get(root.path) ?? 2)
+        let n = files ?? (counts.withLock { $0[root.path] } ?? 2)
         let free = FilingDestination(path: root.appendingPathComponent("Documents/Family").path, base: .high,
                                      evidence: .name, reasons: ["free"], newSegments: [])
         manager.filingLastProviderRoot = root.path

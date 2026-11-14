@@ -57,16 +57,6 @@ import Foundation
         #expect(tax.schemes[0].vocabulary == ["forms", "reference", "refund", "transcripts"])
     }
 
-    @Test func aStrayExtraDoesNotSplitAnEraIntoSingletons() {
-        // Single linkage, not complete: an era grows an extra folder in later years and each year
-        // still matches the one before. Exact-shape matching would shatter an era into singletons
-        // over stray extras, the ≥2-members gate would discard them all, and the finding would
-        // vanish.
-        let findings = StructureDivergence.findings(in: Self.incomeTax)
-        let tax = findings.first { $0.family == "Finance/US/Income Tax" }
-        #expect(tax?.schemes.allSatisfy { $0.members.count >= 2 } == true)
-    }
-
     // MARK: The controls — what it must NOT say
 
     @Test func statesHoldingDifferentCitiesAreNotDivergent() {
@@ -207,10 +197,10 @@ import Foundation
 
     // MARK: Single linkage means single linkage
 
-    /// A bridging sibling joins the two groups it bridges. If clustering never merged groups, A and
-    /// B seeded apart would stay apart even when C is close to both, the finding would report two
-    /// schemes for a family that agrees transitively, and the grouping would depend on walk order.
-    @Test func aBridgingSiblingMergesTheGroupsItBridges() {
+    /// A bridging sibling joins the two groups it bridges, in any walk order. If clustering never
+    /// merged groups, A and B seeded apart would stay apart even when C is close to both, and the
+    /// finding would report two schemes for a family that agrees transitively.
+    @Test func aBridgingSiblingMergesTheGroupsItBridgesInAnyOrder() {
         // A and B share nothing; C shares heavily with each, so single linkage puts all three
         // together. (`StructureDivergence.AgreementRule.similarity` is the threshold for each pair.)
         let a = (name: "2019", words: Set(["statements", "notices"]))
@@ -223,19 +213,6 @@ import Foundation
         #expect(StructureDivergence.jaccard(b.words, c.words) >= StructureDivergence.AgreementRule.similarity)
         #expect(StructureDivergence.jaccard(a.words, b.words) < StructureDivergence.AgreementRule.similarity)
 
-        let groups = StructureDivergence.cluster([a, b, c])
-        let shown = groups.map { $0.map(\.name).joined(separator: "+") }.joined(separator: " | ")
-        #expect(groups.count == 1,
-                "\(groups.count) schemes for a family that agrees transitively: \(shown)")
-        #expect(groups.first?.count == 3)
-    }
-
-    /// Membership doesn't depend on walk order: the same three folders in any order give the same
-    /// grouping.
-    @Test func theGroupingDoesNotDependOnTheOrderTheChildrenAreWalkedIn() {
-        let a = (name: "2019", words: Set(["statements", "notices"]))
-        let b = (name: "2020", words: Set(["receipts", "invoices"]))
-        let c = (name: "2021", words: Set(["statements", "notices", "receipts", "invoices"]))
         for ordering in [[a, b, c], [c, a, b], [b, c, a], [b, a, c]] {
             let names = StructureDivergence.cluster(ordering).map { Set($0.map(\.name)) }
             #expect(names == [Set(["2019", "2020", "2021"])],

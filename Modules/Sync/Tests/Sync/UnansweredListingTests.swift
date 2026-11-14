@@ -48,12 +48,7 @@ import Testing
     static func release(_ gate: ParkGate, _ disk: UnansweredFolderDisk, _ path: String,
                         sourceLocation: SourceLocation = #_sourceLocation) async throws {
         gate.release.signal()
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while disk.datalessFolderReads.isOutstanding(path), ContinuousClock.now < deadline {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(!disk.datalessFolderReads.isOutstanding(path), "the late answer never came back",
-                sourceLocation: sourceLocation)
+        await awaitAnswered(disk.datalessFolderReads, path: path, sourceLocation: sourceLocation)
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered",
                      sourceLocation: sourceLocation)
     }

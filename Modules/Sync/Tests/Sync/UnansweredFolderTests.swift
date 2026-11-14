@@ -276,7 +276,7 @@ import Testing
         #expect(info["Cloud/Docs/b.txt"] != nil, "the folder beside it was walked as usual")
 
         gate.release.signal()
-        await waitForRelease(of: reads, path: f.unanswered)
+        await awaitAnswered(reads, path: f.unanswered)
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
@@ -310,7 +310,7 @@ import Testing
         #expect(listings.withLock { $0 } == 1, "the same folder was asked for twice")
 
         gate.release.signal()
-        await waitForRelease(of: reads, path: real.path)
+        await awaitAnswered(reads, path: real.path)
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
     }
 
@@ -336,17 +336,19 @@ import Testing
 
         gate.release.signal()
         gate.release.signal()
-        await waitForRelease(of: reads, path: other.path)
+        await awaitAnswered(reads, path: other.path)
     }
+}
 
-    /// Off the main actor, for the tests here that are not on it.
-    private func waitForRelease(of reads: FileSyncManager.DatalessFolderReads, path: String) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while reads.isOutstanding(path), ContinuousClock.now < deadline {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        #expect(!reads.isOutstanding(path), "the late answer never came back")
+/// Waits, bounded, for `reads` to stop holding `path` outstanding: the late answer a released
+/// provider sends back. Off the main actor, for the tests that are not on it.
+func awaitAnswered(_ reads: FileSyncManager.DatalessFolderReads, path: String,
+                   sourceLocation: SourceLocation = #_sourceLocation) async {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while reads.isOutstanding(path), ContinuousClock.now < deadline {
+        try? await Task.sleep(nanoseconds: 5_000_000)
     }
+    #expect(!reads.isOutstanding(path), "the late answer never came back", sourceLocation: sourceLocation)
 }
 
 /// A disk with one dataless folder whose provider isn't answering: listing it, directly or by an

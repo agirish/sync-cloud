@@ -81,33 +81,22 @@ import Foundation
         #expect(fm.virtualDisk["/dropbox/Report "] == nil)
     }
 
-    @Test func testSkipWritesNothing() async throws {
+    /// A skip, and an unwired resolver (whose default must never create an unsyncable item, like
+    /// the collision resolver's fail-safe), write nothing. The skip is an early exit of syncFile and
+    /// must release the row's in-flight mark (set before any prompt): a leaked id would refuse
+    /// Verify All and pane swaps for good and leave the row's spinner stuck.
+    @Test(arguments: [InvalidNameResolution?.some(.skip), nil])
+    func testSkipOrAnUnwiredResolverWritesNothing(_ answer: InvalidNameResolution?) async throws {
         let (manager, fm) = try makeManager()
         addFile(fm, "/icloud/Report ")
-        manager.invalidNameResolver = { _ in .skip }
+        if let answer { manager.invalidNameResolver = { _ in answer } }
         let diskBefore = Set(fm.virtualDisk.keys)
 
         let synced = await manager.syncFile(missingOnRight("Report "))
 
         #expect(!synced)
         #expect(Set(fm.virtualDisk.keys) == diskBefore)
-        // This skip is an early exit of syncFile and must release the row's in-flight mark (set
-        // before any prompt): a leaked id would refuse Verify All and pane swaps for good and leave
-        // the row's spinner stuck.
         #expect(manager.syncingDifferenceIds.isEmpty)
-    }
-
-    @Test func testUnwiredResolverFailsSafeBySkipping() async throws {
-        // The default must never create an unsyncable item, like the collision resolver's
-        // fail-safe default.
-        let (manager, fm) = try makeManager()
-        addFile(fm, "/icloud/Report ")
-        let diskBefore = Set(fm.virtualDisk.keys)
-
-        let synced = await manager.syncFile(missingOnRight("Report "))
-
-        #expect(!synced)
-        #expect(Set(fm.virtualDisk.keys) == diskBefore)
     }
 
     @Test func testKeepOriginalNameWritesTheInvalidName() async throws {
@@ -184,62 +173,39 @@ import Foundation
 
     // MARK: - syncAll
 
-    @Test func testSyncAllSanitizesInvalidNamesAndCopiesTheRest() async throws {
+    /// Sanitized or skipped, the invalid name is never written and the valid items still copy.
+    @Test(arguments: [InvalidNameResolution.useSanitizedName, .skip])
+    func testSyncAllHandlesTheInvalidNameAndCopiesTheRest(_ answer: InvalidNameResolution) async throws {
         let (manager, fm) = try makeManager()
         addFile(fm, "/icloud/Report ")
         addFile(fm, "/icloud/Other.txt")
-        manager.invalidNameResolver = { _ in .useSanitizedName }
+        manager.invalidNameResolver = { _ in answer }
 
         await manager.syncAll(
             direction: .copyToRight,
             subset: [missingOnRight("Report "), missingOnRight("Other.txt")]
         )
 
-        #expect(fm.virtualDisk["/dropbox/Report"] != nil)
-        #expect(fm.virtualDisk["/dropbox/Report "] == nil)
-        #expect(fm.virtualDisk["/dropbox/Other.txt"] != nil)
-    }
-
-    @Test func testSyncAllSkipStillCopiesTheValidItems() async throws {
-        let (manager, fm) = try makeManager()
-        addFile(fm, "/icloud/Report ")
-        addFile(fm, "/icloud/Other.txt")
-        manager.invalidNameResolver = { _ in .skip }
-
-        await manager.syncAll(
-            direction: .copyToRight,
-            subset: [missingOnRight("Report "), missingOnRight("Other.txt")]
-        )
-
-        #expect(fm.virtualDisk["/dropbox/Report"] == nil)
+        #expect((fm.virtualDisk["/dropbox/Report"] != nil) == (answer == .useSanitizedName))
         #expect(fm.virtualDisk["/dropbox/Report "] == nil)
         #expect(fm.virtualDisk["/dropbox/Other.txt"] != nil)
     }
 
     // MARK: - transferItems (pane copy / drop)
 
-    @Test func testCopyItemsToPathSanitizesInvalidNames() async throws {
+    /// Sanitized, the copy lands under the fixed name; skipped, nothing is transferred.
+    @Test(arguments: [InvalidNameResolution.useSanitizedName, .skip])
+    func testCopyItemsToPathSanitizesOrSkipsInvalidNames(_ answer: InvalidNameResolution) async throws {
         let (manager, fm) = try makeManager()
         addFile(fm, "/icloud/Report ")
-        manager.invalidNameResolver = { _ in .useSanitizedName }
+        manager.invalidNameResolver = { _ in answer }
         let node = FileNode(id: "/icloud/Report ", name: "Report ", isDirectory: false)
 
         let copied = await manager.copyItems(nodes: [node], toPath: "/dropbox", fileManager: fm)
 
-        #expect(copied.count == 1)
-        #expect(fm.virtualDisk["/dropbox/Report"] != nil)
-        #expect(fm.virtualDisk["/dropbox/Report "] == nil)
-    }
-
-    @Test func testCopyItemsToPathSkipTransfersNothing() async throws {
-        let (manager, fm) = try makeManager()
-        addFile(fm, "/icloud/Report ")
-        manager.invalidNameResolver = { _ in .skip }
-        let node = FileNode(id: "/icloud/Report ", name: "Report ", isDirectory: false)
-
-        let copied = await manager.copyItems(nodes: [node], toPath: "/dropbox", fileManager: fm)
-
-        #expect(copied.isEmpty)
+        let sanitized = answer == .useSanitizedName
+        #expect(copied.count == (sanitized ? 1 : 0))
+        #expect((fm.virtualDisk["/dropbox/Report"] != nil) == sanitized)
         #expect(fm.virtualDisk["/dropbox/Report "] == nil)
     }
 

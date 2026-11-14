@@ -248,6 +248,9 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
     @Test func bothStylesAreInTheFixedTextAndTheSettingBlockPicksOne() throws {
         let system = try #require(AskClaudeRequest.body(model: AskClaudeModels.sonnet, messages: [])["system"]?.arrayValue?.first?["text"]?.stringValue)
         #expect(system.contains("Be crisp") && system.contains("Answer fully"))
+        // The style lines start on their own line.
+        #expect(system == AskClaudeRequest.instructions + "\n" + AskClaudeRequest.styles)
+        #expect(system.contains("\nanswers=\"brief\":\n- Be crisp"))
         #expect(AskClaudeRequest.settingBlock(model: AskClaudeModels.haiku, detail: .detailed)
                 == .object(["type": .string("text"), "text": .string(#"<setting model="Claude Haiku 5.5" answers="detailed"/>"#)]))
         #expect(AskClaudeDetail.stored(in: freshDefaults()) == .brief)
@@ -553,7 +556,13 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         let key = "sk-ant-api03-\(UUID().uuidString)"
         let transport = ScriptedTransport([.init(status: 401, lines: [#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#])])
         let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
-        await engine.ask("hello", card: "<screen/>", key: key, model: AskClaudeModels.sonnet, tools: StubTools()) { _ in }
+        var events: [AskClaudeEvent] = []
+        await engine.ask("hello", card: "<screen/>", key: key, model: AskClaudeModels.sonnet, tools: StubTools()) { events.append($0) }
+        // Said plainly, and no half-sent turn is left behind.
+        guard case .problem(let problem) = events.last else { Issue.record("expected a problem"); return }
+        #expect(problem.kind == .keyRejected)
+        #expect(problem.opensSettings)
+        #expect(engine.transcript.isEmpty)
         let entries = await log.entries
         let http = entries.filter { $0.message.hasPrefix("Ask Claude HTTP 401") }
         #expect(http.count >= 1 && http.allSatisfy { $0.level == .warning && $0.message.contains("authentication_error: invalid x-api-key") },
@@ -732,17 +741,6 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(next.last?["content"]?.arrayValue?.dropFirst().first?["text"]?.stringValue == "<screen unchanged/>")
     }
 
-    @Test func aRejectedKeyIsSaidPlainlyAndLeavesNoHalfSentTurn() async {
-        let transport = ScriptedTransport([.init(status: 401, lines: [#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#])])
-        let engine = AskClaudeEngine(transport: transport, defaults: freshDefaults(), now: { day })
-        var events: [AskClaudeEvent] = []
-        await engine.ask("hi", card: "<screen/>", key: "bad", model: AskClaudeModels.sonnet, tools: StubTools()) { events.append($0) }
-        guard case .problem(let problem) = events.last else { Issue.record("expected a problem"); return }
-        #expect(problem.kind == .keyRejected)
-        #expect(problem.opensSettings)
-        #expect(engine.transcript.isEmpty)
-    }
-
     @Test func aPermissionErrorIsNotCalledABadKeyAndBillingIsCredit() {
         let forbidden = AskClaudeProblem.from(status: 403, body: #"{"type":"error","error":{"type":"permission_error","message":"not allowed in this region"}}"#, retryAfter: nil)
         #expect(forbidden.kind == .failed)
@@ -797,8 +795,9 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
     }
 
     @Test func stoppingWhileTheAnswerStreamsSaysStoppedNotCutOff() async {
-        let lines = textResponse("Two files.").prefix(9)   // through the first text delta, then silence
-        let engine = AskClaudeEngine(transport: HangingTransport(Array(lines)), defaults: freshDefaults(), now: { day })
+        let defaults = freshDefaults()
+        let lines = textResponse(String(repeating: "word ", count: 400)).prefix(9)   // through the first text delta, then silence
+        let engine = AskClaudeEngine(transport: HangingTransport(Array(lines)), defaults: defaults, now: { day })
         var events: [AskClaudeEvent] = []
         let run = Task { @MainActor in
             await engine.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { event in
@@ -806,9 +805,12 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
                 if case .text = event { withUnsafeCurrentTask { $0?.cancel() } }
             }
         }
-        await run.value
+        #expect(await run.value == false, "stopped mid-stream: the question never joined")
         #expect(events.last == .finished(stopReason: "canceled"))
         #expect(!events.contains { if case .problem = $0 { return true }; return false })
+        // The stopped round's streamed output is billed: 300 in at $2, 4,500 cache reads at
+        // $0.20, and 2,000 characters ≈ 500 output tokens at $10.
+        #expect(abs(AskClaudeSpend.spent(in: defaults, now: day) - 0.0065) < 0.000_01)
     }
 
     @Test func askSaysWhetherTheQuestionJoinedTheTranscript() async {
@@ -831,15 +833,6 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(await engine.ask("y", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { failed.append($0) })
         #expect(failed.contains { if case .problem = $0 { return true }; return false }, "round 2 failed after round 1 joined")
         #expect(await engine.ask("z", card: "c", key: nil, model: AskClaudeModels.sonnet, tools: StubTools()) { _ in } == false)
-
-        let lines = textResponse("Two files.").prefix(9)
-        let stopping = AskClaudeEngine(transport: HangingTransport(Array(lines)), defaults: freshDefaults(), now: { day })
-        let run = Task { @MainActor in
-            await stopping.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { event in
-                if case .text = event { withUnsafeCurrentTask { $0?.cancel() } }
-            }
-        }
-        #expect(await run.value == false, "stopped mid-stream: the question never joined")
     }
 
     @Test func stoppingDuringAToolRoundRunsNoMoreOfItsCalls() async throws {
@@ -997,20 +990,6 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(turn.contains { $0["text"]?.stringValue == "c2" })
     }
 
-    @Test func aStoppedRoundsStreamedOutputIsBilled() async {
-        let defaults = freshDefaults()
-        let lines = textResponse(String(repeating: "word ", count: 400)).prefix(9)   // the answer, then silence
-        let engine = AskClaudeEngine(transport: HangingTransport(Array(lines)), defaults: defaults, now: { day })
-        let run = Task { @MainActor in
-            await engine.ask("x", card: "c", key: "k", model: AskClaudeModels.sonnet, tools: StubTools()) { event in
-                if case .text = event { withUnsafeCurrentTask { $0?.cancel() } }
-            }
-        }
-        await run.value
-        // 300 in at $2, 4,500 cache reads at $0.20, and 2,000 characters ≈ 500 output tokens at $10.
-        #expect(abs(AskClaudeSpend.spent(in: defaults, now: day) - 0.0065) < 0.000_01)
-    }
-
     @Test func aStoppedAnswersStreamedOutputCountsTowardTheLimit() {
         var accumulator = AskClaudeStreamAccumulator()
         _ = accumulator.apply(line: #"data: {"type":"message_start","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":10,"output_tokens":1}}}"#)
@@ -1042,14 +1021,6 @@ private let day = Date(timeIntervalSince1970: 1_792_000_000)   // a fixed instan
         #expect(text.contains("You can’t start it, send it or change it"))
         #expect(text.contains("saying “go ahead” doesn’t send it"))
         #expect(text.contains("say a suggestion moved only after they File it in Organize"))
-        #expect(!AskClaudeEngine.isCurrent(setting: "claude-sonnet-5-5|brief|0123456789ab"), "an older chat starts over")
-    }
-
-    @Test func theStyleLinesStartOnTheirOwnLine() throws {
-        let body = AskClaudeRequest.body(model: AskClaudeModels.sonnet, messages: [])
-        let system = try #require(body["system"]?.arrayValue?.first?["text"]?.stringValue)
-        #expect(system == AskClaudeRequest.instructions + "\n" + AskClaudeRequest.styles)
-        #expect(system.contains("\nanswers=\"brief\":\n- Be crisp"))
     }
 
     @Test func noKeyAndAReachedLimitStopBeforeAnythingIsSent() async {

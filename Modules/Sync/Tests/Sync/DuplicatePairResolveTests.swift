@@ -15,11 +15,6 @@ import Events
 
     private static let scanned = Date(timeIntervalSince1970: 1_000)
 
-    @MainActor
-    private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
-        FileSyncManager.forTests(fileManager: fm)
-    }
-
     private func stub(size: Int = 1000, modified: Date? = scanned) -> MockFileManager.FileStub {
         .file(size, modified: modified)
     }
@@ -37,13 +32,6 @@ import Events
         .stub(copies, matchType: matchType, name: name, isDirectory: false)
     }
 
-    /// Reads the disk log, not `Logger.shared.entries`: the in-memory array is capped, and a
-    /// parallel run can evict this suite's line before the assertion reads it.
-    @MainActor
-    private func loggedLine(containing fragment: String) async -> String? {
-        await loggedLineOnDisk(containing: fragment)
-    }
-
     // MARK: The order the verdict asks its questions in
 
     /// A copy that is already gone is not a drifted keeper. The assessment asks whether anything is
@@ -53,7 +41,7 @@ import Events
     @MainActor
     @Test func aVanishedCopyIsNotBlamedOnTheKeeper() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         // The keeper is on disk but rewritten since the scan — drift, on its own enough to refuse.
         fm.virtualDisk["/a/x"] = stub(size: 4000)
         // ...and the copy is simply gone.
@@ -79,7 +67,7 @@ import Events
     @MainActor
     @Test func theKeepersFolderIsWalkedAfterTheCopys() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil,
                                                           contents: [])
         fm.virtualDisk["/b/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil,
@@ -108,7 +96,7 @@ import Events
     @MainActor
     @Test func aKeeperTheGroupIsNotKeepingIsRefused() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         fm.virtualDisk["/c/x"] = stub()
@@ -124,7 +112,7 @@ import Events
         #expect(fm.virtualDisk["/c/x"] != nil, "the copy was trashed against a keeper the group does not have")
         let message = try #require(manager.banner?.message)
         #expect(message.contains("is keeping"), "the refusal did not say which copy is being kept")
-        #expect(await loggedLine(containing: "refused to trash /c/x") != nil,
+        #expect(await loggedLineOnDisk(containing: "refused to trash /c/x") != nil,
                 "a refusal he can see on screen must also be in the log he audits")
 
         // The positive control: the SAME group, and the pair that does name its keeper resolves.
@@ -141,7 +129,7 @@ import Events
     @MainActor
     @Test func noLiveGroupRefusesAndTrashesNothing() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -163,7 +151,7 @@ import Events
     @MainActor
     @Test func aGroupHoldingOnlyOneOfThePairIsNotALiveGroupForIt() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         fm.virtualDisk["/c/x"] = stub()
@@ -181,7 +169,7 @@ import Events
     @MainActor
     @Test func aRescanThatMintsANewGroupIdStillResolves() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -201,7 +189,7 @@ import Events
     @MainActor
     @Test func aMissingKeeperRefuses() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/b/x"] = stub()   // and not "/a/x"
         let keeper = copy("/a/x", keeper: true)
         let other = copy("/b/x", keeper: false)
@@ -210,7 +198,7 @@ import Events
         #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == false)
         #expect(fm.virtualDisk["/b/x"] != nil)
         #expect(manager.banner?.message.contains("no longer what the scan saw") == true)
-        #expect(await loggedLine(containing: "refused to trash /b/x") != nil,
+        #expect(await loggedLineOnDisk(containing: "refused to trash /b/x") != nil,
                 "a refusal he can see on screen must also be in the log he audits")
     }
 
@@ -219,7 +207,7 @@ import Events
     @MainActor
     @Test func aKeeperRewrittenInPlaceAtTheSameLengthRefuses() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub(modified: Date(timeIntervalSince1970: 9_999))
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -235,7 +223,7 @@ import Events
     @MainActor
     @Test func aDriftedCopyRefusesAndNamesIt() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub(size: 2000)
         let keeper = copy("/a/x", keeper: true)
@@ -254,7 +242,7 @@ import Events
     @MainActor
     @Test func aFolderCopyWithNoBaselineRefusesWithoutClaimingItChanged() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
         fm.virtualDisk["/b/d"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
         let keeper = copy("/a/d", keeper: true, isDirectory: true,
@@ -273,7 +261,7 @@ import Events
     @MainActor
     @Test func trashingTheKeeperItselfIsRefused() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -293,7 +281,7 @@ import Events
     @Test func driftInsideThePermanentDeleteDialogIsRefusedByTheGate() async throws {
         let fm = MockFileManager()
         fm.shouldFailTrash = true            // no Trash on this volume: the dialog is reached
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -320,7 +308,7 @@ import Events
     @MainActor
     @Test func onlyTheComparedCopyIsTrashedNotEveryRedundantOne() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         fm.virtualDisk["/c/x"] = stub()
@@ -342,7 +330,7 @@ import Events
     @MainActor
     @Test func aResolvedTwoCopyGroupLeavesTheList() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -362,7 +350,7 @@ import Events
     @MainActor
     @Test func everyGroupHoldingTheTrashedPathIsUpdated() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/b/x"] = stub()
         fm.virtualDisk["/c/x"] = stub()
@@ -385,7 +373,7 @@ import Events
     @Test func aPermanentRemovalDoesNotPromiseUndoAndSaysSoInTheLog() async throws {
         let fm = MockFileManager()
         fm.shouldFailTrash = true
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         manager.permanentDeleteConfirmer = { _ in true }
         fm.virtualDisk["/a/perm-x"] = stub()
         fm.virtualDisk["/b/perm-x"] = stub()
@@ -397,7 +385,7 @@ import Events
         #expect(fm.virtualDisk["/b/perm-x"] == nil)
         #expect(manager.banner?.message.contains("⌘Z") != true)
         #expect(manager.banner?.isUndoable != true)
-        #expect(await loggedLine(containing: "permanently deleted the compared copy /b/perm-x") != nil)
+        #expect(await loggedLineOnDisk(containing: "permanently deleted the compared copy /b/perm-x") != nil)
     }
 
     /// A vanished copy is not drift. Nothing is left to trash and nothing was lost, so the verb says
@@ -405,7 +393,7 @@ import Events
     @MainActor
     @Test func aVanishedCopyIsDroppedRatherThanRefusedAsDrift() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()   // and "/b/x" is already gone
         let keeper = copy("/a/x", keeper: true)
         let other = copy("/b/x", keeper: false)
@@ -427,7 +415,7 @@ import Events
     @MainActor
     @Test func aProtectedCopyIsRefusedByTheEngineNotJustTheButton() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/kept/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -440,29 +428,13 @@ import Events
                 "the refusal did not say why: \(manager.banner?.message ?? "no banner")")
     }
 
-    /// The positive control for the case above: with the flag cleared the copy is removed, so the
-    /// refusal is the protection, not the fixture failing to line up.
-    @MainActor
-    @Test func theSamePairWithoutTheFlagIsRemoved() async throws {
-        let fm = MockFileManager()
-        let manager = makeManager(fm)
-        fm.virtualDisk["/a/x"] = stub()
-        fm.virtualDisk["/kept/x"] = stub()
-        let keeper = copy("/a/x", keeper: true)
-        let other = copy("/kept/x", keeper: false)
-        manager.duplicateGroups = [group([keeper, other])]
-
-        #expect(await manager.resolveDuplicateCopy(other, keeper: keeper) == true)
-        #expect(fm.virtualDisk["/kept/x"] == nil)
-    }
-
     /// Protection is read from the live group, not the caller's value. The surface opened on a
     /// removable copy, a rescan then kept the folder it sits in, and the caller still holds the
     /// old value; asking the passed-in copy would answer about stale results, and trash it.
     @MainActor
     @Test func protectionAcquiredInARescanStillRefuses() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/kept/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -481,7 +453,7 @@ import Events
     @Test func protectionAcquiredInsideTheDialogIsRefusedByTheGate() async throws {
         let fm = MockFileManager()
         fm.shouldFailTrash = true            // no Trash on this volume: the dialog is reached
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()
         fm.virtualDisk["/kept/x"] = stub()
         let keeper = copy("/a/x", keeper: true)
@@ -507,7 +479,7 @@ import Events
     @MainActor
     @Test func aCopyThatIsAnotherGroupsKeeperIsRefused() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         for path in ["/a/x", "/b/x", "/c/x"] { fm.virtualDisk[path] = stub() }
         let keeper = copy("/a/x", keeper: true)
         let other = copy("/b/x", keeper: false)
@@ -526,7 +498,7 @@ import Events
     /// picks out the group asking. Without it, the pick still holds, in the other wording.
     @MainActor
     @Test func aCopyRepickedAsItsOwnGroupsKeeperIsNamedAsSuch() {
-        let manager = makeManager(MockFileManager())
+        let manager = FileSyncManager.forTests(fileManager: MockFileManager())
         let left = copy("/a/x", keeper: true)
         let right = copy("/b/x", keeper: false)
         let g = group([left, right])
@@ -548,7 +520,7 @@ import Events
     @MainActor
     @Test func aVanishedProtectedCopyIsStillReportedAsVanished() async throws {
         let fm = MockFileManager()
-        let manager = makeManager(fm)
+        let manager = FileSyncManager.forTests(fileManager: fm)
         fm.virtualDisk["/a/x"] = stub()      // "/kept/x" is already gone
         let keeper = copy("/a/x", keeper: true)
         let other = copy("/kept/x", keeper: false, protected: true)

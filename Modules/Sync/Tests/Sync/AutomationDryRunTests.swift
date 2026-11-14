@@ -91,6 +91,9 @@ import Testing
         // But a full preview (only == nil) still skips the disabled rule.
         await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
         #expect(m.automationDryRun?.rows.isEmpty == true)
+        // Preview only: the source file is untouched and no destination folder was ever created.
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("a.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("Docs").path))
     }
 
     @Test func singleRulePreviewScopesToOneRuleAndFullPreviewHonorsPriority() async throws {
@@ -107,21 +110,6 @@ import Testing
         // A full preview: the first rule in order (A) claims the file.
         await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
         #expect(m.automationDryRun?.rows.first?.ruleID == ruleA.id)
-    }
-
-    @Test func disabledRulesIgnoredAndNothingIsCreatedOrMoved() async throws {
-        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
-        try write("a.pdf", in: dir)
-        let m = makeManager(rules: [
-            AutomationRule(name: "off", enabled: false, conditions: [.kindIs(.pdf)], destinationTemplate: "Docs")
-        ])
-        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
-
-        let report = try #require(m.automationDryRun)
-        #expect(report.rows.isEmpty)
-        // Preview only: the source file is untouched and no destination folder was ever created.
-        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("a.pdf").path))
-        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("Docs").path))
     }
 
     @Test func destinationAnchorsAtProviderRootNotScannedSubfolder() async throws {

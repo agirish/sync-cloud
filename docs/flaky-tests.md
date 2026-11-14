@@ -2371,13 +2371,12 @@ refusal lines written by the **same** call, and the first passed while the secon
   `log()` returns a bare `Task {}` for a filtered level, which would make the helper's
   `await …debug(…).value` barrier a no-op and the read a straight race. It does not apply: under a
   test runner `persistedMinimumLevel` forces `.debug` regardless of the machine's stored setting,
-  `MinimumLevelBox` defaults to `.debug`, and nothing in this target raises it (`UndoDriftIdentity-
-  Tests` says so in a comment of its own).
+  `MinimumLevelBox` defaults to `.debug`, and nothing in this target raises it.
 
 **So the residual is unpinned and this entry says so** rather than picking the nearest story. What
-is established is the substrate: six suites in this package carry a private `loggedLine(containing:)`
-reading `entries`, while `loggedLineOnDisk(containing:)` and `logLines(tag:during:)` exist a few
-hundred lines above precisely because the file is the better one and drains its writer first. Anyone
+is established is the substrate: suites in this package carried a private `loggedLine(containing:)`
+reading `entries` (LoggingGapTests still does), while `loggedLineOnDisk(containing:)` and
+`logLines(tag:during:)` exist a few hundred lines above precisely because the file is the better one and drains its writer first. Anyone
 returning to this should start by converting this helper and seeing whether the failure survives —
 that is a cheap experiment with a documented destination, and it is the one nobody has run.
 

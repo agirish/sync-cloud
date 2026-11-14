@@ -28,13 +28,9 @@ import Testing
         #expect(FolderSource.sameFolder("~/Projects", "~/projects"))
         #expect(FolderSource.sameFolder("~/Projects", (NSHomeDirectory() as NSString).appendingPathComponent("Projects")))
         #expect(FolderSource.sameFolder("~/Projects/", "~/Projects"))
+        // Not a prefix match: a prefix test would say `~/Projects2` "already exists" and select
+        // `~/Projects`.
         #expect(FolderSource.sameFolder("~/Projects", "~/Projects2") == false)
-    }
-
-    /// A sibling whose name merely starts with the same characters is a different folder. A prefix
-    /// test would fail silently here: `~/Projects2` "already exists" and selects `~/Projects`.
-    @Test func sameFolderIsNotAPrefixMatch() {
-        #expect(FolderSource.sameFolder("~/Doc", "~/Documents") == false)
     }
 
     /// The home directory's last component is the account's short name, which reads as a person

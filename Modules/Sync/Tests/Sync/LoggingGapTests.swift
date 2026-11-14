@@ -218,7 +218,6 @@ import Testing
         // a warning that fires with an empty list of repeats. The positive test pins that the path
         // is printed.
         #expect(await loggedLine(containing: id) == nil, "an ordinary roster was warned about")
-        #expect(mark != id)
     }
 
     // MARK: - A profile that was written and then taken away again

@@ -50,3 +50,16 @@ func treeView(_ tree: [String: (folders: [String], files: [String])]) -> Restruc
                         files: { tree[$0]?.files },
                         fileCount: { tree[$0]?.files.count })
 }
+
+/// A file node for in-memory trees: the path is its id, the last component its name. Suites that
+/// need other defaults (the duplicate golden's 100 KB) keep their own, which shadow these.
+func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
+    FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+             modificationDate: modified, fileSize: size)
+}
+
+/// A folder node holding `children`, named like ``file(_:size:modified:)``.
+func dir(_ path: String, _ children: [FileNode], modified: Date? = nil) -> FileNode {
+    FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true,
+             children: children, modificationDate: modified)
+}

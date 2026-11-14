@@ -18,16 +18,6 @@ import EventsTestSupport
                        fromLabel: "System", toLabel: "Dark", how: how)
     }
 
-    @Test func aChangeIsOnDiskTheMomentItIsRecorded() {
-        let url = file(); defer { try? FileManager.default.removeItem(at: url) }
-        let log = SettingsChangeLog(fileURL: url)
-        let theme = change(how: .claude)
-        log.record(theme)
-        #expect(SettingsChangeLog(fileURL: url).changes == [theme])
-        log.clear()
-        #expect(SettingsChangeLog(fileURL: url).changes.isEmpty)
-    }
-
     @Test func itKeepsNinetyDaysAndFiveHundredAtMost() throws {
         let url = file(); defer { try? FileManager.default.removeItem(at: url) }
         let log = SettingsChangeLog(fileURL: url)

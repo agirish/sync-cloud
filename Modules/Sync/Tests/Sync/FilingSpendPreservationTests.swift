@@ -7,14 +7,8 @@ import Testing
 /// Claude's total and then delete the only copy.
 @Suite struct FilingSpendPreservationTests {
 
-    private func suite() -> (UserDefaults, String) {
-        let name = "FilingSpendPreserve-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: name)!, name)
-    }
-
     @Test func anUnreadableTotalIsKeptAndReportsItself() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
+        let defaults = ScratchDefaults("FilingSpendPreserve")
         let corrupt = Data("{ \"costUSD\": 4.87, \"tok".utf8)   // a truncated write
         defaults.set(corrupt, forKey: FilingSpendStore.totalsKey)
 
@@ -25,8 +19,7 @@ import Testing
     }
 
     @Test func anUnreadableHistoryIsKeptAndReportsItself() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
+        let defaults = ScratchDefaults("FilingSpendPreserve")
         let corrupt = Data("[{\"model\":\"claude".utf8)
         defaults.set(corrupt, forKey: FilingSpendStore.historyKey)
 
@@ -37,8 +30,7 @@ import Testing
 
     /// Absent is not unreadable: nothing recorded, and no backup left behind.
     @Test func anAbsentStoreIsAbsentNotUnreadable() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
+        let defaults = ScratchDefaults("FilingSpendPreserve")
         if case .absent = FilingSpendStore.totalsRead(defaults: defaults) {} else { Issue.record("not absent") }
         if case .absent = FilingSpendStore.entriesRead(defaults: defaults) {} else { Issue.record("not absent") }
         #expect(defaults.data(forKey: FilingSpendStore.totalsKey + ".unreadable") == nil)
@@ -48,8 +40,7 @@ import Testing
     /// Adding a field must not throw on existing data: a payload without `unpricedScans` still
     /// decodes, as loaded.
     @Test func anOlderTotalsPayloadStillDecodes() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
+        let defaults = ScratchDefaults("FilingSpendPreserve")
         defaults.set(Data("{\"costUSD\":1.25,\"tokens\":900,\"scans\":3}".utf8),
                      forKey: FilingSpendStore.totalsKey)
         let totals = FilingSpendStore.totals(defaults: defaults)
@@ -62,8 +53,7 @@ import Testing
 
     /// An entry without `costUnpriced` decodes too.
     @Test func anOlderHistoryPayloadStillDecodes() throws {
-        let (defaults, name) = suite()
-        defer { wipeDefaultsSuite(name) }
+        let defaults = ScratchDefaults("FilingSpendPreserve")
         defaults.set(Data("""
         [{"id":"a","timestamp":760000000,"model":"claude-haiku-4-5","fileCount":2,"placedCount":2,
           "inputTokens":10,"outputTokens":1,"cacheReadTokens":0,"cacheCreationTokens":0,

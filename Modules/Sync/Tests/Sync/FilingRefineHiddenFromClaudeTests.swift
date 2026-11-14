@@ -11,16 +11,7 @@ import Testing
 @Suite struct FilingRefineHiddenFromClaudeTests {
 
     /// Everything a `.refine` call carried.
-    private final class Sent: @unchecked Sendable {
-        private let lock = NSLock()
-        private var calls: [(destinations: [String], files: [FilingCandidateFile])] = []
-        func record(_ context: FilingContext, _ files: [FilingCandidateFile]) {
-            lock.lock(); defer { lock.unlock() }; calls.append((context.destinations, files))
-        }
-        var all: [(destinations: [String], files: [FilingCandidateFile])] {
-            lock.lock(); defer { lock.unlock() }; return calls
-        }
-    }
+    private typealias Sent = LockedBox<[(destinations: [String], files: [FilingCandidateFile])]>
 
 
     private func fixture(_ name: String) throws -> URL { try refineFixture(prefix: "RefineHidden-\(name)") }
@@ -244,7 +235,6 @@ import Testing
     }
 
     @Test func aMappingThatNamesAHiddenFolderIsRefusedBeforeAnythingIsSent() async {
-        final class Count: @unchecked Sendable { var refined = 0 }
         let request = MappingRefineRequest(family: "Docs/Immigration", members: ["2016", "2019"],
                                            rows: [.init(source: "Petition", target: nil)],
                                            candidateVocabularies: [["application"]])
@@ -254,32 +244,31 @@ import Testing
             ("/r/Docs/Immigration/2016/Petition", true),    // a mapped folder
             ("/r/Docs/Taxes", false),                       // elsewhere
         ] {
-            let count = Count()
+            let refined = LockedBox(0)
             let m = mappingManager(hidden: [hidden])
             m.mappingRefiner = { _ in
-                count.refined += 1
+                refined.withLock { $0 += 1 }
                 return []
             }
             let outcome = await m.refineMapping(request, under: "/r")
             #expect((outcome == .hiddenFromClaude) == refused, "hiding \(hidden)")
-            #expect((count.refined == 0) == refused, "hiding \(hidden)")
+            #expect((refined.withLock { $0 } == 0) == refused, "hiding \(hidden)")
         }
     }
 
     /// With the group on, `rows` carries sibling families' child names; a hidden sibling stops it.
     @Test func aGroupMappingThatDrawsOnAHiddenSiblingIsRefused() async {
-        final class Count: @unchecked Sendable { var refined = 0 }
         func outcome(hiding hidden: String, drawnFrom: [String]?) async -> (FileSyncManager.MappingRefineOutcome, Int) {
-            let count = Count()
+            let refined = LockedBox(0)
             let m = mappingManager(hidden: [hidden])
-            m.mappingRefiner = { _ in count.refined += 1; return [] }
+            m.mappingRefiner = { _ in refined.withLock { $0 += 1 }; return [] }
             // "Divorce Settlement" exists only under the sibling family Taxes/Spouse.
             let request = MappingRefineRequest(family: "Taxes/Me", members: ["2023", "2024"],
                                                rows: [.init(source: "Receipts", target: nil),
                                                       .init(source: "Divorce Settlement", target: nil)],
                                                candidateVocabularies: [["receipts"]],
                                                drawnFrom: drawnFrom)
-            return (await m.refineMapping(request, under: "/r"), count.refined)
+            return (await m.refineMapping(request, under: "/r"), refined.withLock { $0 })
         }
         let group = ["Taxes/Me/2023", "Taxes/Me/2024", "Taxes/Spouse/2024"]
         // The sibling's member, and a folder inside it, are each refused.
@@ -294,4 +283,10 @@ import Testing
         #expect(alone != .hiddenFromClaude)
         #expect(aloneRefined == 1)
     }
+}
+
+private extension LockedBox where Value == [(destinations: [String], files: [FilingCandidateFile])] {
+    convenience init() { self.init([]) }
+    func record(_ context: FilingContext, _ files: [FilingCandidateFile]) { withLock { $0.append((context.destinations, files)) } }
+    var all: [(destinations: [String], files: [FilingCandidateFile])] { withLock { $0 } }
 }

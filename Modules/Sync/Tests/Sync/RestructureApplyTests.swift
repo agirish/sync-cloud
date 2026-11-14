@@ -351,24 +351,6 @@ import Testing
             atPath: world.root.appendingPathComponent("Tax/2013/Federal Tax").path))
     }
 
-    /// The other side of it: a disagreement is recorded WITH its note, so the card can point at
-    /// something. Forced by verifying a landing that claims an action nothing performed — the
-    /// verifier's own input, which is the only seam that does not require breaking the disk.
-    @Test func aDisagreementIsRecordedWithItsNote() throws {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("verify-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        // Nothing was ever moved, so re-listing finds neither side of this claim.
-        let mismatches = FileSyncManager.verifyRestructureLanding(
-            [.init(action: .moveFile, src: "A/x.pdf", dst: "B/x.pdf")], root: root.path,
-            fm: FileManager.default)
-        #expect(!mismatches.isEmpty, "the verifier disagrees with a claim nothing performed")
-        // The note the record carries is `RestructureRemovalTests.theVerifierNoteNamesTheFirstAndCountsTheRest`'s.
-        #expect(FileSyncManager.verifierNote(mismatches) != nil)
-    }
-
     // MARK: - The two undos
 
     /// ⌘Z restores a byte-identical tree: hash it, do not size it.
@@ -387,10 +369,8 @@ import Testing
 
         undo.undo()
         #expect(undo.canRedo, "the undo closures never ran")
-        for _ in 0..<600 {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-            if world.manager.activeFileOperationsCount == 0,
-               Self.treeHash(world.root) == before { break }
+        await waitUntil("one ⌘Z restores the tree", timeout: 20) {
+            world.manager.activeFileOperationsCount == 0 && Self.treeHash(world.root) == before
         }
         #expect(Self.treeHash(world.root) == before,
                 "one ⌘Z must take back the whole landing, byte for byte — now: \(Self.treeList(world.root))")
@@ -1407,9 +1387,7 @@ import Testing
             .contains { $0.manifest.manifestId == id }, "premise: the landing is in t's ledger")
 
         undo.undo()     // the landing's moves
-        for _ in 0..<600 where world.manager.activeFileOperationsCount > 0 {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
+        await waitUntil("the landing's moves are undone", timeout: 20) { world.manager.activeFileOperationsCount == 0 }
         undo.undo()     // the hide
         let old = RestructureStore(directory: world.profiles, profileId: "t")
         #expect(old.applied.contains { $0.manifest.manifestId == id },

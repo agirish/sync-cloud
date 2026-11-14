@@ -94,12 +94,11 @@ extension HandBuiltRefineSuites {
     @Test func aNewPassReplacesWhatUndoWouldPutBack() async throws {
         let m = manager()
         let (root, _) = try await refined(m); defer { try? FileManager.default.removeItem(at: root) }
-        let first = try #require(m.filingRefineUndo)
+        _ = try #require(m.filingRefineUndo)
         let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(askAgain: true)))
         _ = await m.sendFilingRefine(plan, scope: m.filingSuggestions)
         // Asked again, Claude gave the same homes: nothing moved, so there is nothing to undo, rather
         // than an Undo that would reach back past this pass.
-        #expect(m.filingRefineUndo != first)
         #expect(m.filingRefineUndo == nil)
     }
 

@@ -94,11 +94,6 @@ import EventsTestSupport
         }
     }
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     /// Sampled inside the merge's identity walk, after its trash: the merge's own lock is still up,
     /// and only cleared once the merge returns.
     @MainActor
@@ -107,10 +102,8 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: base) }
         let pair = try makeGroup(base, name: "Lock-\(UUID().uuidString)", count: 1)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: pair.keeper.path, armedFromStart: false)
-        let manager = FileSyncManager(fileManager: fm)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeTailLock")
+        let manager = FileSyncManager.forTests(fileManager: fm, historyPrefix: "MergeTailLock")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        manager.undoManager = UndoManager()
         manager.duplicateGroups = [pair.group]
         fm.read.withLock { $0 = { @MainActor in Self.sample(manager) } }
         var banners: [OperationBanner] = []
@@ -165,13 +158,11 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: base) }
         let source = base.appendingPathComponent("src/a.txt")
         let destination = base.appendingPathComponent("dst")
-        try write(source, bytes: 100, fill: 0x41)
+        try writeBytes(source, bytes: 100, fill: 0x41)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: destination.path, armedFromStart: true)
-        let manager = FileSyncManager(fileManager: fm)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "CopyTailStop")
+        let manager = FileSyncManager.forTests(fileManager: fm, historyPrefix: "CopyTailStop")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        manager.undoManager = UndoManager()
         fm.read.withLock { $0 = { @MainActor in Self.sample(manager) } }
 
         let copied = await manager.copyItems(
@@ -232,13 +223,11 @@ import EventsTestSupport
         let base = try makeCanonicalTempRoot(prefix: "BulkTailStop")
         defer { try? FileManager.default.removeItem(at: base) }
         let left = base.appendingPathComponent("src"), right = base.appendingPathComponent("dst")
-        try write(left.appendingPathComponent("a.txt"), bytes: 100, fill: 0x41)
+        try writeBytes(left.appendingPathComponent("a.txt"), bytes: 100, fill: 0x41)
         try FileManager.default.createDirectory(at: right, withIntermediateDirectories: true)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: right.path, armedFromStart: true)
-        let manager = FileSyncManager(fileManager: fm)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "BulkTailStop")
+        let manager = FileSyncManager.forTests(fileManager: fm, historyPrefix: "BulkTailStop")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        manager.undoManager = UndoManager()
         let diff = FileDifference(relativePath: "a.txt", leftItemPath: left.appendingPathComponent("a.txt").path,
                                   rightItemPath: right.appendingPathComponent("a.txt").path,
                                   type: .missingOnRight, action: .copyToRight, description: "Missing on right",
@@ -274,22 +263,18 @@ import EventsTestSupport
     /// lines.
     private func makeGroup(_ base: URL, name: String, count: Int) throws -> (keeper: URL, redundant: [URL], group: DuplicateGroup) {
         let keeper = base.appendingPathComponent("Keeper-\(name)")
-        try write(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-        var copies = [DuplicateCopy(id: keeper.path, name: keeper.lastPathComponent, isDirectory: true, size: 4000,
-                                    itemCount: 1, modificationDate: nil, uniqueItemCount: 0, depth: 0,
-                                    isRecommendedKeeper: true)]
+        try writeBytes(keeper.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+        var copies = [DuplicateCopy.stub(keeper.path, keeper: true, isDirectory: true, size: 4000)]
         var redundant: [URL] = []
         for i in 0..<count {
             let r = base.appendingPathComponent("Redundant\(i)-\(name)")
-            try write(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
-            try write(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
+            try writeBytes(r.appendingPathComponent("shared.txt"), bytes: 4000, fill: 0x53)
+            try writeBytes(r.appendingPathComponent("unique\(i).txt"), bytes: 4000, fill: UInt8(0x60 + i))
             redundant.append(r)
-            copies.append(DuplicateCopy(id: r.path, name: r.lastPathComponent, isDirectory: true, size: 8000,
-                                        itemCount: 2, modificationDate: nil, uniqueItemCount: 1, depth: 0,
-                                        isRecommendedKeeper: false))
+            copies.append(.stub(r.path, keeper: false, isDirectory: true, size: 8000, itemCount: 2, unique: 1))
         }
-        return (keeper, redundant, DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: name,
-                                                  isDirectory: true, copies: copies, reclaimableBytes: 4000))
+        return (keeper, redundant, .stub(copies, matchType: .overlapping(sharedFraction: 0.5), name: name,
+                                         isDirectory: true, reclaimable: 4000))
     }
 
     /// The reader's Stop, pressed while the trash moves its first copy: on the trash's progress,
@@ -314,10 +299,8 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: base) }
         let fixture = try makeGroup(base, name: "Stop-\(UUID().uuidString)", count: 2)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false)
-        let manager = FileSyncManager(fileManager: fm)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeTrashStop")
+        let manager = FileSyncManager.forTests(fileManager: fm, historyPrefix: "MergeTrashStop")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
         let stoppedTitle = stopDuringFirstTrash(fm, manager)
 
@@ -344,10 +327,8 @@ import EventsTestSupport
         defer { try? FileManager.default.removeItem(at: base) }
         let fixture = try makeGroup(base, name: "Late-\(UUID().uuidString)", count: 1)
         let fm = TailSampler(trash: ScratchTrash(in: base), watched: "/nowhere", armedFromStart: false)
-        let manager = FileSyncManager(fileManager: fm)
-        manager.syncHistoryStore = makeTempHistoryStore(prefix: "MergeLateStop")
+        let manager = FileSyncManager.forTests(fileManager: fm, historyPrefix: "MergeLateStop")
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        manager.undoManager = UndoManager()
         manager.duplicateGroups = [fixture.group]
         let stoppedTitle = stopDuringFirstTrash(fm, manager)
 

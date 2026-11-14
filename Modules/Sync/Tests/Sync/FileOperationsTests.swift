@@ -739,11 +739,8 @@ import Foundation
         // Setup mock to fail during the critical `.tmp_` rename phase
         mockFM.shouldFailMoveOnTempRename = true
         
-        do {
+        #expect(throws: (any Error).self) {
             try FileSyncManager.safeCopyItem(at: srcURL, to: dstURL, fileManager: mockFM)
-            Issue.record("Expected safeCopyItem to throw due to simulation failure")
-        } catch {
-            // Expected
         }
         
         // Core verification: The original destination file MUST have been restored from trash
@@ -774,11 +771,8 @@ import Foundation
         // 2. Force the fallback temp copy to fail during the final rename
         mockFM.shouldFailMoveOnTempRename = true
         
-        do {
+        #expect(throws: (any Error).self) {
             try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
-            Issue.record("Expected safeMoveItem to throw")
-        } catch {
-            // Expected
         }
         
         // Rollback check: Dest should be restored securely

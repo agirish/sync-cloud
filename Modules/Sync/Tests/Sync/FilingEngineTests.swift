@@ -7,14 +7,6 @@ import Testing
     // Mid-2024 so the year is 2024 in every timezone.
     private let y2024 = Date(timeIntervalSince1970: 1_720_000_000)
 
-    private func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                 modificationDate: modified, fileSize: size)
-    }
-    private func dir(_ path: String, _ children: [FileNode]) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
-    }
-
     // MARK: Flagship — Tesla insurance into an existing Vehicles folder
 
     @Test func teslaInsuranceProposesNewSubPathUnderVehicles() throws {
@@ -197,36 +189,27 @@ import Testing
 
     // MARK: Filename year beats modification date for the year segment
 
-    @Test func filenameYearWinsOverMtimeForTheYearSegment() throws {
-        // A 2022 receipt downloaded (mtime) in 2024 belongs in Receipts/2022 — the filename names
-        // the document's year; the mtime only says when the bytes last changed.
-        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
-        let loose = [file("/root/Downloads/amazon invoice 2022.pdf", modified: y2024)]
-        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Receipts/2022")
-    }
-
-    @Test func taxFormFilenameYearWinsOverMtime() throws {
-        let taxonomy = [dir("/root/Taxes", [])]
-        let loose = [file("/root/Downloads/1099-INT 2023.pdf", modified: y2024)]
-        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Taxes/2023")
-    }
-
-    @Test func multipleFilenameYearsFallBackToMtime() throws {
-        // A range names no single year — the mtime year stands.
-        let taxonomy = [dir("/root/Statements", [])]
-        let loose = [file("/root/Downloads/statement 2021-2022.pdf", modified: y2024)]
-        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Statements/2024")
-    }
-
-    @Test func implausibleFilenameYearFallsBackToMtime() throws {
+    /// Rows: (a folder chain under /root, each holding the next; the loose file's name; the home).
+    /// Every file's mtime is 2024.
+    @Test(arguments: [
+        // A 2022 receipt downloaded in 2024 belongs in Receipts/2022: the filename names the
+        // document's year; the mtime only says when the bytes last changed.
+        (["Documents", "Receipts"], "amazon invoice 2022.pdf", "/root/Documents/Receipts/2022"),
+        (["Taxes"], "1099-INT 2023.pdf", "/root/Taxes/2023"),
+        // A range names no single year, so the mtime year stands.
+        (["Statements"], "statement 2021-2022.pdf", "/root/Statements/2024"),
         // "2098" passes the tokenizer's year net (1900–2099) but is not a plausible filing year.
-        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
-        let loose = [file("/root/Downloads/receipt 2098.pdf", modified: y2024)]
+        (["Documents", "Receipts"], "receipt 2098.pdf", "/root/Documents/Receipts/2024"),
+    ])
+    func aFilenameYearBeatsTheMtimeOnlyWhenItIsOneAndPlausible(chain: [String], name: String,
+                                                                expected: String) throws {
+        let paths = chain.indices.map { "/root/" + chain[...$0].joined(separator: "/") }
+        let taxonomy = [paths.reversed().reduce(nil as FileNode?) { child, path in
+            dir(path, child.map { [$0] } ?? [])
+        }!]
+        let loose = [file("/root/Downloads/\(name)", modified: y2024)]
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
-        #expect(best.path == "/root/Documents/Receipts/2024")
+        #expect(best.path == expected)
     }
 
     @Test func filenameYearHelperRequiresExactlyOnePlausibleYear() {
@@ -312,13 +295,6 @@ import Testing
     }
 
     // MARK: Provider-relative breadcrumb (G10)
-
-    @Test func suggestionCarriesProviderRootForRelativeDisplay() throws {
-        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles", [])])]
-        let loose = [file("/root/Downloads/Tesla Policy 2024.pdf", modified: y2024)]
-        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first)
-        #expect(s.providerRoot == "/root")   // the UI strips this to render "Root › …" instead of the home prefix
-    }
 
     @Test func reasonIsNotContentWhenTokenIsAlsoInTheName() throws {
         let taxonomy = [dir("/root/Car Insurance", [])]
@@ -545,24 +521,14 @@ import Testing
                                        providerRoot: "/root", rejectedByFile: rejected)
         #expect(out.first?.candidates.allSatisfy { $0.path != "/root/Insurance" } == true)
         #expect(out.first?.best?.path == "/root/Health/Insurance")
-    }
 
-    @Test func rejectionIsAppliedBeforeCappingSoAValidCandidateSurvives() throws {
-        // With the cap pressed to 1, the top-ranked folder is the only candidate that survives
-        // ranking. If the user rejected it, filtering after the cap would strip that sole survivor
-        // and leave no home, though a valid deeper folder exists. Filtering the pool before the cap
-        // keeps the deeper folder as the suggestion.
-        let taxonomy = [dir("/root/Insurance", []),
-                        dir("/root/Health", [dir("/root/Health/Insurance", [])])]
-        let loose = [file("/root/Downloads/insurance renewal.pdf", modified: y2024)]
-        // /root/Insurance ranks first (shallower); reject it, and cap the suggestions to one.
-        let rejected = ["/root/Downloads/insurance renewal.pdf": Set(["/root/Insurance"])]
-        let out = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
-                                       rejectedByFile: rejected,
-                                       options: FilingOptions(maxCandidates: 1))
-        // Filtered after the cap this would be empty; the deeper valid folder must survive.
-        #expect(out.first?.candidates.count == 1)
-        #expect(out.first?.best?.path == "/root/Health/Insurance")
+        // With the cap pressed to 1, filtering after the cap would strip the sole survivor and
+        // leave no home; filtering the pool first keeps the deeper valid folder.
+        let capped = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
+                                          rejectedByFile: rejected,
+                                          options: FilingOptions(maxCandidates: 1))
+        #expect(capped.first?.candidates.count == 1)
+        #expect(capped.first?.best?.path == "/root/Health/Insurance")
     }
 
     @Test func aVerdictToARejectedFolderIsIgnored() throws {

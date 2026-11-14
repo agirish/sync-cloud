@@ -12,20 +12,14 @@ import Testing
 @MainActor
 @Suite struct FilingTryAnotherVetoDrivenTests {
 
-    private func write(_ url: URL, bytes: Int = 5000) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: 0x41, count: bytes).write(to: url)
-    }
-
     /// Two person folders whose names say nothing a keyword could match, a neutral one the free
     /// pass answers, and a document named for Daughter.
     private func fixture(_ name: String) throws -> URL {
         let root = try makeCanonicalTempRoot(prefix: "TryAnotherVeto-\(name)")
-        try write(root.appendingPathComponent("Visa/A/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Visa/B/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Daughter passport.pdf"))
+        try writeBytes(root.appendingPathComponent("Visa/A/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Visa/B/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Daughter passport.pdf"))
         return root
     }
 
@@ -46,9 +40,9 @@ import Testing
     /// The free pass answers `Archive/2026`; asked again, Claude answers Son's `Visa/A`.
     private func manager(root: URL, withProfile: Bool, asked: @escaping @Sendable () -> Void) -> FileSyncManager {
         let m = FileSyncManager()
-        m.filingContentDefaults = ScratchDefaults("FilingTryAnotherVetoDrivenTests")
-        m.filingRuleDefaults = ScratchDefaults("FilingTryAnotherVetoDrivenTests")
-        m.filingPersonVetoLog = PersonVetoLog(userDefaults: ScratchDefaults("FilingTryAnotherVetoDrivenTests"))
+        m.filingContentDefaults = ScratchDefaults("FilingTryAnotherVetoDriven-content")
+        m.filingRuleDefaults = ScratchDefaults("FilingTryAnotherVetoDriven-rules")
+        m.filingPersonVetoLog = PersonVetoLog(userDefaults: ScratchDefaults("FilingTryAnotherVetoDriven-vetoes"))
         if withProfile {
             m.filingFolderProfile = profile(of: root)
             m.filingPersonRegistry = FilingTryAnotherVetoTests.household
@@ -67,39 +61,32 @@ import Testing
         return m
     }
 
-    private final class Count: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = 0
-        func bump() { lock.lock(); value += 1; lock.unlock() }
-        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
-    }
-
     /// The card's home after Try Another has been clicked until Claude was asked again.
     private func homeAfterTheReAsk(withProfile: Bool) async throws -> (asked: Int, home: String?, vetoes: Int, root: URL) {
         let root = try fixture(withProfile ? "veto" : "control")
-        let asked = Count()
-        let m = manager(root: root, withProfile: withProfile, asked: asked.bump)
+        let asked = LockedBox(0)
+        let m = manager(root: root, withProfile: withProfile, asked: { asked.withLock { $0 += 1 } })
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let first = try #require(m.filingSuggestions.first, "the scan made no card")
         #expect(first.best?.path == root.appendingPathComponent("Archive/2026").path,
                 "the free pass did not answer the neutral folder — the click below re-asks about something else")
-        for _ in 0..<6 where asked.count == 0 {
+        for _ in 0..<6 where asked.withLock({ $0 }) == 0 {
             guard let card = m.filingSuggestions.first, card.best != nil else { break }
             await m.tryAnotherFolder(for: card)
         }
-        return (asked.count, m.filingSuggestions.first?.best?.path,
+        return (asked.withLock { $0 }, m.filingSuggestions.first?.best?.path,
                 m.filingPersonVetoLog?.count(namedPerson: "daughter") ?? 0, root)
     }
 
     /// The card's home after Refine.
     private func homeAfterRefine(withProfile: Bool) async throws -> (asked: Int, home: String?, vetoes: Int, root: URL) {
         let root = try fixture(withProfile ? "refine-veto" : "refine-control")
-        let asked = Count()
-        let m = manager(root: root, withProfile: withProfile, asked: asked.bump)
+        let asked = LockedBox(0)
+        let m = manager(root: root, withProfile: withProfile, asked: { asked.withLock { $0 += 1 } })
         await m.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         _ = try #require(m.filingSuggestions.first, "the scan made no card")
         _ = await m.refineFilingSuggestions(m.filingSuggestions)
-        return (asked.count, m.filingSuggestions.first?.best?.path,
+        return (asked.withLock { $0 }, m.filingSuggestions.first?.best?.path,
                 m.filingPersonVetoLog?.count(namedPerson: "daughter") ?? 0, root)
     }
 

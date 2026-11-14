@@ -74,29 +74,16 @@ import Foundation
         #expect(DestinationRecents.load(providerRoot: "/p", in: d, fileManager: fm).isEmpty)
     }
 
-    /// The system-panel escape can land anywhere; this list is a per-provider shortcut, so a
-    /// destination outside the provider is not remembered.
-    @Test func testDestinationsOutsideTheProviderAreNotRecorded() throws {
+    /// Destinations that are never remembered: one outside the provider (the system-panel escape
+    /// can land anywhere, and this list is a per-provider shortcut), one in a sibling sharing the
+    /// root's prefix ("/p" must not accept "/pictures"), and any under an empty root, which would
+    /// otherwise collect every provider's destinations under one key.
+    @Test(arguments: [("/elsewhere/X", "/p"), ("/pictures/X", "/p"), ("/p/A", "")])
+    func testADestinationOutsideTheProviderIsNotRecorded(_ destination: String, _ root: String) throws {
         let d = defaults()
-        let fm = try liveDisk(["/elsewhere/X"])
-        DestinationRecents.record("/elsewhere/X", providerRoot: "/p", in: d)
-        #expect(DestinationRecents.load(providerRoot: "/p", in: d, fileManager: fm).isEmpty)
-    }
-
-    /// Prefix aliasing: "/p" must not accept a destination in "/pictures".
-    @Test func testASiblingSharingAPrefixIsNotInsideTheProvider() throws {
-        let d = defaults()
-        let fm = try liveDisk(["/pictures/X"])
-        DestinationRecents.record("/pictures/X", providerRoot: "/p", in: d)
-        #expect(DestinationRecents.load(providerRoot: "/p", in: d, fileManager: fm).isEmpty)
-    }
-
-    /// An empty root would otherwise collect every provider's destinations under one key.
-    @Test func testAnEmptyRootStoresNothing() throws {
-        let d = defaults()
-        let fm = try liveDisk(["/p/A"])
-        DestinationRecents.record("/p/A", providerRoot: "", in: d)
-        #expect(DestinationRecents.load(providerRoot: "", in: d, fileManager: fm).isEmpty)
+        let fm = try liveDisk([destination])
+        DestinationRecents.record(destination, providerRoot: root, in: d)
+        #expect(DestinationRecents.load(providerRoot: root, in: d, fileManager: fm).isEmpty)
     }
 
     /// The key must be a literal, not derived from the root by hashing: `String.hashValue` is

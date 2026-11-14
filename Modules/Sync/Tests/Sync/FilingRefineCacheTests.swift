@@ -8,12 +8,7 @@ import Testing
 @MainActor
 @Suite struct FilingRefineCacheTests {
 
-    private final class Asked: @unchecked Sendable {
-        private let lock = NSLock()
-        private var names: [[String]] = []
-        func record(_ files: [FilingCandidateFile]) { lock.withLock { names.append(files.map(\.fileName).sorted()) } }
-        var all: [[String]] { lock.withLock { names } }
-    }
+    private typealias Asked = LockedBox<[[String]]>
 
     private func fixture(_ name: String) throws -> URL { try refineFixture(prefix: "RefineCache-\(name)", looseFiles: 2) }
 
@@ -179,4 +174,10 @@ import Testing
             #expect(shape.toolChoice == .auto && shape.stream, "\(option.id)")
         }
     }
+}
+
+private extension LockedBox where Value == [[String]] {
+    convenience init() { self.init([]) }
+    func record(_ files: [FilingCandidateFile]) { withLock { $0.append(files.map(\.fileName).sorted()) } }
+    var all: [[String]] { withLock { $0 } }
 }

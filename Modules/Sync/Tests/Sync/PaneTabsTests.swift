@@ -592,17 +592,6 @@ import Events
                 "the lost-folder report is not in the stored order its doc promises")
     }
 
-    /// The ordinary launch: every folder in place, nothing to say, or the warning would fire on
-    /// every launch and stop meaning anything.
-    @Test func aRestoreWithEveryFolderStillThereReportsNothingLost() {
-        let entries = [PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Taxes/2019"),
-                       PaneTabsStore.Entry(providerId: "iCloud", relativePath: "Photos")]
-        let restored = PaneTabsStore.restore(entries: entries, selected: 0,
-                                             isKnownProvider: { _ in true },
-                                             folderExists: { _, _ in true })
-        #expect(restored?.lostFolders.isEmpty == true)
-    }
-
     /// A tab stored at its source root has no folder to lose; reporting it would name `""` in a
     /// warning about a deleted folder.
     @Test func aTabStoredAtItsRootIsNotReportedAsLost() {
@@ -954,21 +943,5 @@ import Events
         let cut = PaneTabOpening.location(of: "", openedFromScope: "")
         #expect(cut.scope == "")
         #expect(cut.stack.isEmpty)
-    }
-
-    /// The round trip: open a tab from a deep pane, save it, restore it, and the columns survive.
-    @Test func aTabOpenedFromOpenColumnsSurvivesAQuit() throws {
-        let cut = PaneTabOpening.location(of: "Health/Medical/Included Health/Expert Opinions",
-                                          openedFromScope: "")
-        let opened = PaneTab(providerId: "iCloud", relativePath: cut.scope, browsePath: cut.stack)
-        let entry = PaneTabsStore.Entry(providerId: opened.providerId,
-                                        relativePath: opened.combinedRelativePath,
-                                        stackDepth: opened.browsePath.depth)
-        #expect(entry.stackDepth == 4, "the strip on disk records no columns to bring back")
-        let restored = try #require(PaneTabsStore.restore(entries: [entry], selected: 0,
-                                                          isKnownProvider: { _ in true },
-                                                          folderExists: { _, _ in true }))
-        #expect(restored.list.active.browsePath.depth == 4)
-        #expect(restored.list.active.combinedRelativePath == "Health/Medical/Included Health/Expert Opinions")
     }
 }

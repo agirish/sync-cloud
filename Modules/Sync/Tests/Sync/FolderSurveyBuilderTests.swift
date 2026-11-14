@@ -380,25 +380,18 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
 
     // MARK: - The two year keys are one axis
 
-    /// A path carrying both styles keeps both axes, as the hand-built profile does for four folders
-    /// on the reference tree. Dropping either loses the ground truth's 100% year agreement. Which one
-    /// a consumer answers with is ``FolderProfileEntry/yearKey``'s business (next test).
-    @Test func bothYearAxesSurviveWhenAPathCarriesBoth() {
-        let profile = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
-        let deep = profile.folders["H-1B/2016-2019/2016"]
-        #expect(deep?.axes["year"] == "2016")
-        #expect(deep?.axes["fiscalYear"] == "2016-2019",
-                "the ancestor's fiscal span was dropped — the hand-built profile keeps it")
-        // The control, that with one style in the path only that key is set (so the above isn't
-        // passing by setting both everywhere), is `theYearAxisTakesABareYearAndTheFiscalAxisTakesASpan`.
-    }
-
     /// The deeper of the two year components is the one the folder answers with. A fixed precedence
     /// would let an ancestor win when a fiscal folder sits under a calendar-year parent, and
     /// `FilingRouter.foldersByYear` would file it under the wrong year. Both nestings are asserted;
-    /// the first is the reference tree's.
+    /// the first is the reference tree's. A path carrying both styles keeps both axes, as the
+    /// hand-built profile does for four folders on the reference tree; dropping either loses the
+    /// ground truth's 100% year agreement.
     @Test func theDeeperYearComponentIsTheOneAFolderAnswersWith() {
         let bareDeeper = build([dir("H-1B", [dir("2016-2019", [dir("2016", [file("a.pdf")])])])])
+        let deep = bareDeeper.folders["H-1B/2016-2019/2016"]
+        #expect(deep?.axes["year"] == "2016")
+        #expect(deep?.axes["fiscalYear"] == "2016-2019",
+                "the ancestor's fiscal span was dropped — the hand-built profile keeps it")
         #expect(bareDeeper.folders["H-1B/2016-2019/2016"]?.yearKey == "2016",
                 "the real tree's arrangement changed answer")
 
@@ -484,7 +477,8 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
     /// The month list is derived from ``OrdinalMonthName``'s tables, so a spelling the renamer adds
     /// reaches anchor suppression too. Checked against an independent literal, the measured
     /// vocabulary: checked against its own source tables, any derivation would pass. `sept`, a
-    /// measured keeper on the reference tree, must stay out.
+    /// measured keeper on the reference tree, stays out, and every entry is lowercase, as the
+    /// tokens matched against it are.
     @Test func theMonthVocabularyTracksTheRenamer() {
         let measured: Set<String> = [
             "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
@@ -493,10 +487,5 @@ private func build(_ tree: [FileNode], jurisdictions: Set<String> = ["US", "IN"]
         ]
         #expect(FolderSurveyBuilder.monthWords == measured,
                 "the derived month list stopped matching the one measured on the reference tree")
-        #expect(!FolderSurveyBuilder.monthWords.contains("sept"),
-                "`sept` is a measured keeper — deriving the list must not quietly add it")
-        // The tokens matched against this set are lowercased, so an uppercase entry would suppress
-        // nothing.
-        #expect(FolderSurveyBuilder.monthWords.allSatisfy { $0 == $0.lowercased() })
     }
 }

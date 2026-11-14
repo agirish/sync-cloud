@@ -261,9 +261,8 @@ import Testing
         #expect(sync.look().plan.steps.isEmpty)
     }
 
-    @Test func twoNamesSwappedInICloudSwapInDropboxAndLeaveNoTemporaryName() async throws {
-        let world = try OneWayDiskWorld()
-        defer { world.remove() }
+    /// `a.pdf` ("first") and `b.pdf` ("second") synced once, then swapped in iCloud through `x.pdf`.
+    private func swappedNames(_ world: OneWayDiskWorld) async throws -> Sync {
         try write(world, .iCloud, "Finance/a.pdf", "first")
         try write(world, .iCloud, "Finance/b.pdf", "second")
         let sync = try Sync(world: world, folders: ["Finance"])
@@ -271,6 +270,13 @@ import Testing
         try move(world, .iCloud, "Finance/a.pdf", "Finance/x.pdf")
         try move(world, .iCloud, "Finance/b.pdf", "Finance/a.pdf")
         try move(world, .iCloud, "Finance/x.pdf", "Finance/b.pdf")
+        return sync
+    }
+
+    @Test func twoNamesSwappedInICloudSwapInDropboxAndLeaveNoTemporaryName() async throws {
+        let world = try OneWayDiskWorld()
+        defer { world.remove() }
+        let sync = try await swappedNames(world)
         try await sync.run()
         #expect(world.read(.dropbox, "Finance/a.pdf") == "second")
         #expect(world.read(.dropbox, "Finance/b.pdf") == "first")
@@ -283,13 +289,7 @@ import Testing
     @Test func aSwapCutShortPutsTheParkedFileBack() async throws {
         let world = try OneWayDiskWorld()
         defer { world.remove() }
-        try write(world, .iCloud, "Finance/a.pdf", "first")
-        try write(world, .iCloud, "Finance/b.pdf", "second")
-        let sync = try Sync(world: world, folders: ["Finance"])
-        try await sync.run()
-        try move(world, .iCloud, "Finance/a.pdf", "Finance/x.pdf")
-        try move(world, .iCloud, "Finance/b.pdf", "Finance/a.pdf")
-        try move(world, .iCloud, "Finance/x.pdf", "Finance/b.pdf")
+        let sync = try await swappedNames(world)
         let look = sync.look()
         #expect(look.plan.steps.count == 3)
         // b changes in Dropbox after the look: its move into a's name refuses.

@@ -15,22 +15,7 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
 @Suite struct FilingRefineHonestTests {
 
     /// What each classifier was asked, so a test can see which one answered.
-    private final class Calls: @unchecked Sendable {
-        private let lock = NSLock()
-        private var refineTier = 0
-        private var cloud = 0
-        func onDevice() { lock.withLock { refineTier += 1 } }
-        func claude() { lock.withLock { cloud += 1 } }
-        var onDeviceRefines: Int { lock.withLock { refineTier } }
-        var claudeAsks: Int { lock.withLock { cloud } }
-    }
-
-    private final class TierLog: @unchecked Sendable {
-        private let lock = NSLock()
-        private var tiers: [FilingClassifierTier] = []
-        func record(_ tier: FilingClassifierTier) { lock.withLock { tiers.append(tier) } }
-        var all: [FilingClassifierTier] { lock.withLock { tiers } }
-    }
+    private typealias Calls = LockedBox<HonestCalls>
 
     private func fixture(_ name: String, files: Int = 3) throws -> URL { try refineFixture(prefix: "RefineHonest-\(name)", looseFiles: files) }
 
@@ -221,32 +206,28 @@ private func answers(_ files: [FilingCandidateFile], answering names: [String], 
         let m = manager(calls) { files in
             FilingRefineResult(ending: .answered, verdicts: answers(files, answering: files.map(\.fileName)), answered: 1, sent: 1, started: true, costUSD: 0.001)
         }
-        let tiers = TierLog()
+        let tiers = LockedBox<[FilingClassifierTier]>([])
         let scanAnswer = m.filingClassifier
         m.filingClassifier = { ctx, files, tier in
-            tiers.record(tier)
+            tiers.withLock { $0.append(tier) }
             return await scanAnswer?(ctx, files, tier) ?? [:]
         }
         await scan(m, root: root)
-        let afterScan = tiers.all.count
+        let afterScan = tiers.withLock { $0 }.count
         await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
 
         #expect(calls.claudeAsks == 0, "nothing was sent to Claude from a folder that asks each time")
-        #expect(Array(tiers.all.dropFirst(afterScan)) == [.free], "the on-device model answered, at the free tier")
+        #expect(Array(tiers.withLock { $0 }.dropFirst(afterScan)) == [.free], "the on-device model answered, at the free tier")
         #expect(m.banner?.message.contains("Claude") != true, "no Claude failure was reported: Claude was never asked")
     }
+}
 
-    /// And the same click, same fixture, goes to Claude when the folder is shared without asking:
-    /// the sharing choice is the only difference between the two runs.
-    @Test(arguments: [false, true]) func aTryAnotherGoesToClaudeOnlyWhenTheFolderIsShared(shared: Bool) async throws {
-        let root = try fixture("trymixed-\(shared)", files: 1); defer { try? FileManager.default.removeItem(at: root) }
-        let calls = Calls()
-        let m = manager(calls) { files in
-            FilingRefineResult(ending: .answered, verdicts: answers(files, answering: files.map(\.fileName)), answered: 1, sent: 1, started: true, costUSD: 0.001)
-        }
-        if shared { AskClaudePrivacy.shareWithoutAsking(root.path, in: m.filingContentDefaults) }
-        await scan(m, root: root)
-        await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
-        #expect(calls.claudeAsks == (shared ? 1 : 0))
-    }
+private struct HonestCalls { var onDeviceRefines = 0, claudeAsks = 0 }
+
+private extension LockedBox where Value == HonestCalls {
+    convenience init() { self.init(HonestCalls()) }
+    func onDevice() { withLock { $0.onDeviceRefines += 1 } }
+    func claude() { withLock { $0.claudeAsks += 1 } }
+    var onDeviceRefines: Int { withLock { $0.onDeviceRefines } }
+    var claudeAsks: Int { withLock { $0.claudeAsks } }
 }

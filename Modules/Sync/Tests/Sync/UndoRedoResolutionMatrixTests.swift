@@ -26,6 +26,17 @@ import Foundation
         FileSyncManager.forTests(collision: .replace, bulk: (.replace, false))
     }
 
+    /// A manager over a mock disk with `/src/a.txt` (100 bytes), `/src/b.txt` (200) and empty `/dst`.
+    @MainActor
+    private func twoFiles() throws -> (FileSyncManager, MockFileManager) {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = .file(100)
+        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        return (makeManager(), mockFM)
+    }
+
     private func node(_ path: String) -> FileNode {
         FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false)
     }
@@ -40,12 +51,7 @@ import Foundation
     /// fresh undo so the cycle can continue.
     @MainActor
     @Test func moveAllSucceedRedoReappliesFullBatch() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         let moved = await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(moved.count == 2)
@@ -76,12 +82,7 @@ import Foundation
     /// destination throughout.
     @MainActor
     @Test func moveOneRefusedRedoActsOnlyOnTheRestoredItem() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
@@ -113,12 +114,7 @@ import Foundation
     /// double-move or leave a phantom second undo state.
     @MainActor
     @Test func moveDuplicatePathResolvesToASingleItem() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         // b.txt keeps the batch ≥2 effective items (see the suite comment); a.txt is duplicated.
         await manager.moveItems(nodes: [node("/src/a.txt"), node("/src/a.txt"), node("/src/b.txt")],
@@ -150,12 +146,7 @@ import Foundation
     /// (a) All items succeed: undo trashes both copies, redo re-copies both.
     @MainActor
     @Test func copyAllSucceedRedoReappliesFullBatch() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         let copied = await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(copied.count == 2)
@@ -180,12 +171,7 @@ import Foundation
     /// re-copied over.
     @MainActor
     @Test func copyOneDriftedRedoActsOnlyOnTheUndoneItem() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/b.txt")], toPath: "/dst", fileManager: mockFM)
         #expect(size(mockFM, "/dst/a.txt") == 100 && size(mockFM, "/dst/b.txt") == 200)
@@ -213,12 +199,7 @@ import Foundation
     /// double-trashing or double-copying flips this.
     @MainActor
     @Test func copyDuplicatePathUndoesOnceAndRedoesOnce() async throws {
-        let manager = makeManager()
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        mockFM.virtualDisk["/src/a.txt"] = .file(100)
-        mockFM.virtualDisk["/src/b.txt"] = .file(200)
+        let (manager, mockFM) = try twoFiles()
 
         let copied = await manager.copyItems(nodes: [node("/src/a.txt"), node("/src/a.txt"), node("/src/b.txt")],
                                              toPath: "/dst", fileManager: mockFM)

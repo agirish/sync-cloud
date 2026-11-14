@@ -304,17 +304,6 @@ import Foundation
 
 @MainActor @Suite struct PaneTypeFilterManagerTests {
 
-    @Test func aTabParksItsFilterAndAFreshOneStartsWithout() {
-        let manager = FileSyncManager()
-        manager.leftTypeFilter = PaneTypeFilter(families: [.pdfs])
-        let parked = manager.captureTab(isLeft: true, providerId: "icloud")
-        #expect(parked.typeFilter == PaneTypeFilter(families: [.pdfs]))
-        manager.applyTab(PaneTab(providerId: "icloud"), isLeft: true, currentProviderId: "icloud")
-        #expect(manager.leftTypeFilter == nil)
-        manager.applyTab(parked, isLeft: true, currentProviderId: "icloud")
-        #expect(manager.leftTypeFilter == PaneTypeFilter(families: [.pdfs]))
-    }
-
     /// A folder open in the pane stays while open, matching or not, through a filter change too
     /// (which clears what the pane wrote), and goes once it is closed.
     @Test func anOpenFolderIsKeptUntilItCloses() async {

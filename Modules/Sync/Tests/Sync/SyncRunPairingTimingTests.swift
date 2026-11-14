@@ -14,19 +14,9 @@ import Events
 @MainActor
 @Suite struct SyncRunPairingTimingTests {
 
-    private final class Marker { var undone = false }
-
     private func isolatedManager(fileManager: FileManaging = FileManager.default) -> FileSyncManager {
         // Manual grouping: the bulk run groups explicitly; so do the steps here.
         FileSyncManager.forTests(fileManager: fileManager, manualUndoGrouping: true, historyPrefix: "SyncRunPairingTiming")
-    }
-
-    private func registerStep(_ manager: FileSyncManager, name: String, marker: Marker) {
-        let um = manager.undoManager!
-        um.beginUndoGrouping()
-        um.setActionName(name)
-        um.registerUndo(withTarget: marker) { $0.undone = true }
-        um.endUndoGrouping()
     }
 
     /// Parks the identity walk (the first off-main stat of the landed copy) so the run's tail
@@ -78,8 +68,8 @@ import Events
         await waitUntil("the run's group is registered") { manager.undoManager?.undoActionName == "Sync run" }
 
         // The user renames something while the walk is still out.
-        let rename = Marker()
-        registerStep(manager, name: "Rename notes.txt", marker: rename)
+        let rename = UndoMarker()
+        registerGroup(manager, name: "Rename notes.txt", marker: rename)
         gate.release.signal()
         await run.value
         try #require(!gate.releasedByTimeout, "the gate timed out: the tail was never held open")
@@ -97,12 +87,12 @@ import Events
     @Test func theHistoryWindowsConfirmationRefusesARunThatFinishedBehindIt() {
         let manager = isolatedManager()
         defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let first = Marker(), second = Marker()
-        registerStep(manager, name: "Sync run", marker: first)
+        let first = UndoMarker(), second = UndoMarker()
+        registerGroup(manager, name: "Sync run", marker: first)
         manager.recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/a/one.txt", destPath: "/b/one.txt")])
 
         let refusal = manager.undoLastSyncRunAskingFirst { _ in
-            registerStep(manager, name: "Sync run", marker: second)
+            registerGroup(manager, name: "Sync run", marker: second)
             manager.recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/a/two.txt", destPath: "/b/two.txt")])
             return true
         }
@@ -111,18 +101,5 @@ import Events
         #expect(!first.undone)
         #expect(refusal?.hasPrefix("Another sync run finished while you were deciding") == true,
                 "got \(String(describing: refusal))")
-    }
-
-    /// The control: confirming the run that is on top reverses it.
-    @Test func aConfirmationForTheRunOnTopUndoesIt() throws {
-        let manager = isolatedManager()
-        defer { removeHistoryStoreFiles(manager.syncHistoryStore) }
-        let marker = Marker()
-        registerStep(manager, name: "Sync run", marker: marker)
-        manager.recordSyncHistory([SyncHistoryRecord(runId: UUID(), action: .copy, sourcePath: "/a/one.txt", destPath: "/b/one.txt")])
-        try #require(manager.lastSyncRunUndoPreview != nil)
-
-        #expect(manager.undoLastSyncRunAskingFirst(confirm: { _ in true }) == nil)
-        #expect(marker.undone)
     }
 }

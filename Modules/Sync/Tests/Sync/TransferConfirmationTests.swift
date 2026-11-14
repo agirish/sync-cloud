@@ -24,14 +24,9 @@ import Foundation
     @MainActor
     private func makeDifferenceFixture() throws -> (FileSyncManager, MockFileManager, FileDifference) {
         let (manager, mockFM) = try makeTransferFixture()
-        let diff = FileDifference(
-            relativePath: "a.txt",
-            leftItemPath: "/src/a.txt",
-            rightItemPath: "/dst/a.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
+        let diff = FileDifference(relativePath: "a.txt", leftItemPath: "/src/a.txt",
+                                  rightItemPath: "/dst/a.txt", type: .missingOnRight,
+                                  action: .copyToRight, description: "Missing on right")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
         return (manager, mockFM, diff)
@@ -131,10 +126,7 @@ import Foundation
     @Test func testCopyItemsSummaryDescribesBatch() async throws {
         let (manager, mockFM) = try makeTransferFixture()
         var summaries: [TransferSummary] = []
-        manager.transferConfirmer = { summary in
-            summaries.append(summary)
-            return true
-        }
+        manager.transferConfirmer = { summary in summaries.append(summary); return true }
 
         let copied = await manager.copyItems(
             nodes: [
@@ -162,10 +154,7 @@ import Foundation
     @Test func testSyncFileSummaryDescribesSingleItem() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         var summaries: [TransferSummary] = []
-        manager.transferConfirmer = { summary in
-            summaries.append(summary)
-            return true
-        }
+        manager.transferConfirmer = { summary in summaries.append(summary); return true }
 
         let ran = await manager.syncFile(diff, isMove: true, fileManager: mockFM)
 
@@ -185,39 +174,21 @@ import Foundation
         let (manager, mockFM) = try makeTransferFixture()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/sub"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/sub/deep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let deep = FileDifference(
-            relativePath: "sub/deep.txt",
-            leftItemPath: "/src/sub/deep.txt",
-            rightItemPath: "/dst/sub/deep.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
-        let flat = FileDifference(
-            relativePath: "b.txt",
-            leftItemPath: "/src/b.txt",
-            rightItemPath: "/dst/b.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
+        let deep = FileDifference(relativePath: "sub/deep.txt", leftItemPath: "/src/sub/deep.txt",
+                                  rightItemPath: "/dst/sub/deep.txt", type: .missingOnRight,
+                                  action: .copyToRight, description: "Missing on right")
+        let flat = FileDifference(relativePath: "b.txt", leftItemPath: "/src/b.txt",
+                                  rightItemPath: "/dst/b.txt", type: .missingOnRight,
+                                  action: .copyToRight, description: "Missing on right")
         // Opposite direction: must not count toward (or block) a copyToRight run.
-        let other = FileDifference(
-            relativePath: "c.txt",
-            leftItemPath: "/src/c.txt",
-            rightItemPath: "/dst/c.txt",
-            type: .missingOnLeft,
-            action: .copyToLeft,
-            description: "Missing on left"
-        )
+        let other = FileDifference(relativePath: "c.txt", leftItemPath: "/src/c.txt",
+                                   rightItemPath: "/dst/c.txt", type: .missingOnLeft,
+                                   action: .copyToLeft, description: "Missing on left")
         manager.rawDifferences = [deep, flat, other]
         manager.differences = [deep, flat, other]
 
         var summaries: [TransferSummary] = []
-        manager.transferConfirmer = { summary in
-            summaries.append(summary)
-            return true
-        }
+        manager.transferConfirmer = { summary in summaries.append(summary); return true }
 
         await manager.syncAll(direction: .copyToRight)
 
@@ -236,10 +207,7 @@ import Foundation
     @Test func testSyncFileRefusesRowAlreadyMarkedSyncing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
         manager.markSyncing(ids: [diff.id])
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
@@ -274,24 +242,16 @@ import Foundation
     @Test func testConfirmedSyncFileAndSyncAllSkipTheConfirmer() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM, confirmed: true)
         #expect(ran == true)
         #expect(prompts == 0)
 
         // Re-seed a second difference for the bulk entry point.
-        let diff2 = FileDifference(
-            relativePath: "b.txt",
-            leftItemPath: "/src/b.txt",
-            rightItemPath: "/dst/b.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
+        let diff2 = FileDifference(relativePath: "b.txt", leftItemPath: "/src/b.txt",
+                                   rightItemPath: "/dst/b.txt", type: .missingOnRight,
+                                   action: .copyToRight, description: "Missing on right")
         manager.rawDifferences = [diff2]
         manager.differences = [diff2]
 
@@ -308,15 +268,9 @@ import Foundation
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         var transferPrompts = 0
-        manager.transferConfirmer = { _ in
-            transferPrompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in transferPrompts += 1; return true }
         var collisionPrompts = 0
-        manager.collisionResolver = { _ in
-            collisionPrompts += 1
-            return .skip
-        }
+        manager.collisionResolver = { _ in collisionPrompts += 1; return .skip }
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM, confirmed: true)
 
@@ -355,30 +309,17 @@ import Foundation
     @Test func testSequentialConfirmedSyncAllRunsCoverBothDirections() async throws {
         let (manager, mockFM) = try makeTransferFixture()
         mockFM.virtualDisk["/dst/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let toRight = FileDifference(
-            relativePath: "a.txt",
-            leftItemPath: "/src/a.txt",
-            rightItemPath: "/dst/a.txt",
-            type: .missingOnRight,
-            action: .copyToRight,
-            description: "Missing on right"
-        )
-        let toLeft = FileDifference(
-            relativePath: "pull.txt",
-            leftItemPath: "/src/pull.txt",
-            rightItemPath: "/dst/pull.txt",
-            type: .missingOnLeft,
-            action: .copyToLeft,
-            description: "Missing on left"
-        )
+        let toRight = FileDifference(relativePath: "a.txt", leftItemPath: "/src/a.txt",
+                                     rightItemPath: "/dst/a.txt", type: .missingOnRight,
+                                     action: .copyToRight, description: "Missing on right")
+        let toLeft = FileDifference(relativePath: "pull.txt", leftItemPath: "/src/pull.txt",
+                                    rightItemPath: "/dst/pull.txt", type: .missingOnLeft,
+                                    action: .copyToLeft, description: "Missing on left")
         let remaining = [toRight, toLeft]
         manager.rawDifferences = remaining
         manager.differences = remaining
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
 
         await manager.syncAll(direction: .copyToRight, subset: remaining, confirmed: true)
         await manager.syncAll(direction: .copyToLeft, subset: remaining, confirmed: true)
@@ -395,10 +336,7 @@ import Foundation
     @Test func testRetryAfterFailureDoesNotReconfirm() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
         mockFM.shouldFailCopy = true // one-shot: the retry's copy succeeds
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
@@ -425,10 +363,7 @@ import Foundation
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var seen: FileCollision?
-        manager.collisionResolver = { collision in
-            seen = collision
-            return .skip
-        }
+        manager.collisionResolver = { collision in seen = collision; return .skip }
 
         await manager.copyItems(
             nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
@@ -450,10 +385,7 @@ import Foundation
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var seen: FileCollision?
-        manager.bulkCollisionResolver = { collision in
-            seen = collision
-            return (.skip, false)
-        }
+        manager.bulkCollisionResolver = { collision in seen = collision; return (.skip, false) }
 
         await manager.syncAll(direction: .copyToRight)
 
@@ -474,27 +406,16 @@ import Foundation
         // same-named file already sits (collision).
         mockFM.virtualDisk["/dst/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        let diff = FileDifference(
-            relativePath: "pull.txt",
-            leftItemPath: "/src/pull.txt",
-            rightItemPath: "/dst/pull.txt",
-            type: .missingOnLeft,
-            action: .copyToLeft,
-            description: "Missing on left"
-        )
+        let diff = FileDifference(relativePath: "pull.txt", leftItemPath: "/src/pull.txt",
+                                  rightItemPath: "/dst/pull.txt", type: .missingOnLeft,
+                                  action: .copyToLeft, description: "Missing on left")
         manager.rawDifferences = [diff]
         manager.differences = [diff]
 
         var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
+        manager.transferConfirmer = { s in summary = s; return true }
         var collision: FileCollision?
-        manager.collisionResolver = { c in
-            collision = c
-            return .skip
-        }
+        manager.collisionResolver = { c in collision = c; return .skip }
 
         await manager.syncFile(diff, isMove: false, fileManager: mockFM)
 
@@ -518,10 +439,7 @@ import Foundation
         }
 
         var collision: FileCollision?
-        manager.collisionResolver = { c in
-            collision = c
-            return .skip
-        }
+        manager.collisionResolver = { c in collision = c; return .skip }
 
         let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
 
@@ -541,10 +459,7 @@ import Foundation
         mockFM.virtualDisk["/src/folder/inner.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
+        manager.transferConfirmer = { s in summary = s; return true }
 
         await manager.copyItems(
             nodes: [
@@ -565,10 +480,7 @@ import Foundation
     @Test func testMoveItemsSummaryCarriesMoveVerb() async throws {
         let (manager, mockFM) = try makeTransferFixture()
         var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
+        manager.transferConfirmer = { s in summary = s; return true }
 
         let moved = await manager.moveItems(
             nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
@@ -590,10 +502,7 @@ import Foundation
         let (manager, mockFM) = try makeTransferFixture()
         manager.undoManager = UndoManager()
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
 
         await manager.copyItems(
             nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
@@ -634,10 +543,7 @@ import Foundation
                                   leftFileSize: 9, rightFileSize: 9)
         manager.bulkCollisionResolver = { _ in (.replace, true) }
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
 
         manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch, fileManager: mockFM)
         let copyTask = manager.confirmVerifiedCopy()
@@ -655,10 +561,7 @@ import Foundation
     @Test func testEmptyDestinationRootFailsWithoutPrompting() async throws {
         let (manager, mockFM) = try makeTransferFixture()
         var prompts = 0
-        manager.transferConfirmer = { _ in
-            prompts += 1
-            return true
-        }
+        manager.transferConfirmer = { _ in prompts += 1; return true }
 
         let copied = await manager.copyItems(
             nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
@@ -712,10 +615,7 @@ import Foundation
         mockFM.virtualDisk["/src/Reports/2025/Q3.xlsx"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var summary: TransferSummary?
-        manager.transferConfirmer = { s in
-            summary = s
-            return true
-        }
+        manager.transferConfirmer = { s in summary = s; return true }
 
         await manager.copyItems(
             nodes: [FileNode(id: "/src/Reports/2025/Q3.xlsx", name: "Q3.xlsx", isDirectory: false)],

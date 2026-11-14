@@ -39,9 +39,8 @@ public enum RefineSpendMigration {
         /// When its first recorded request was made.
         public var since: Date?
         public var requests: Int
-        /// Whether there were limits or spend to tell of; nil on a notice saved before this field,
-        /// which always had them.
-        public var hadLimits: Bool? = nil
+        /// Whether there were limits or spend to tell of.
+        public var hadLimits: Bool
         /// Refine's Claude switch was off and a folder is shared without asking: Try Another, which
         /// stayed on this Mac, now asks Claude for files there.
         public var tryAnotherAsksClaude: Bool? = nil
@@ -52,7 +51,7 @@ public enum RefineSpendMigration {
         /// Try Another's change when it applies.
         public var text: String {
             var parts: [String] = []
-            if hadLimits != false { parts.append(limitsText) }
+            if hadLimits { parts.append(limitsText) }
             if tryAnotherAsksClaude == true {
                 parts.append((keySaved == false ? "Once you save an API key, Try Another asks Claude" : "Try Another now asks Claude")
                     + ", with the file’s first page, about a file in a folder you share "

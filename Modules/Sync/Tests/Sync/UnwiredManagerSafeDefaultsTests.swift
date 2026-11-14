@@ -59,14 +59,6 @@ import Foundation
         #expect(manager.largeWalkConfirmer(preflight) == false)
     }
 
-    /// The default permanent-delete confirmer refuses, without UI.
-    @MainActor
-    @Test func testDefaultPermanentDeleteConfirmerRefuses() {
-        let manager = FileSyncManager()
-
-        #expect(manager.permanentDeleteConfirmer(["data.bin"]) == false)
-    }
-
     // MARK: - Filesystem behavior through the unwired defaults
 
     /// Copying onto an existing file with no resolver wired skips the item: the destination

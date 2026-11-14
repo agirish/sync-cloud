@@ -10,14 +10,6 @@ import Testing
     // Mid-2024 so the year is 2024 in every timezone.
     private let y2024 = Date(timeIntervalSince1970: 1_720_000_000)
 
-    private func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                 modificationDate: modified, fileSize: size)
-    }
-    private func dir(_ path: String, _ children: [FileNode]) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true, children: children)
-    }
-
     // MARK: - The cap, per construction site
 
     /// Taxonomy site. Content tokens matching a folder's name earn base `.high`, so only the cap
@@ -313,6 +305,8 @@ import Testing
     @Test func theCapOnlyBindsContentEvidence() {
         #expect(FilingDestination(path: "/p", base: .high, evidence: .content,
                                   reasons: [], newSegments: []).confidence == .medium)
+        #expect(FilingDestination(path: "/p", base: .medium, evidence: .content,
+                                  reasons: [], newSegments: []).confidence == .medium)
         #expect(FilingDestination(path: "/p", base: .high, evidence: .name,
                                   reasons: [], newSegments: []).confidence == .high)
         // Measured (router-margin) content evidence is trusted as is, but still marked.
@@ -320,15 +314,6 @@ import Testing
                                          reasons: [], newSegments: [])
         #expect(measured.confidence == .high)
         #expect(measured.fromContent)
-    }
-
-    /// The capped path can never build the state the cap forbids, whatever it is handed.
-    @Test func theCappedPathNeverBuildsHighPlusHeuristicContent() {
-        for base in [FilingConfidence.low, .medium, .high] {
-            let dest = FilingDestination(path: "/p", base: base, evidence: .content,
-                                         reasons: [], newSegments: [])
-            #expect(dest.confidence <= .medium)
-        }
     }
 
     // MARK: The merge discipline

@@ -14,7 +14,6 @@ import EventsTestSupport
     /// on CI when it reads the shared buffer directly.
     private let log = LogCapture()
 
-
     @MainActor
     private func makeManager(_ fm: MockFileManager) -> FileSyncManager {
         FileSyncManager.forTests(fileManager: fm)
@@ -28,13 +27,6 @@ import EventsTestSupport
         let when = Date(timeIntervalSince1970: 1_000)
         return .stub([.stub(keeper, keeper: true, modified: when, depth: 1),
                       .stub(redundant, keeper: false, modified: when, depth: 1)], reclaimable: reclaim)
-    }
-
-    /// The shared logger's most recent line containing `fragment`, awaiting a flush marker first
-    /// so everything enqueued before it is visible (`Logger` appends asynchronously).
-    @MainActor
-    private func loggedLine(containing fragment: String) async -> String? {
-        await log.line(containing: fragment)
     }
 
     /// Two identical pairs on `fm`, listed on `manager`: `/a/x`–`/b/x` and `/a/y`–`/b/y`.
@@ -146,30 +138,7 @@ import EventsTestSupport
                 "a decline must reach removeItem for nothing")
         #expect(manager.duplicateGroups.count == 2, "both groups stay listed for a retry")
         // The batch stopping short is a log line, not silence.
-        #expect(await loggedLine(containing: "the batch removed nothing") != nil)
-    }
-
-    /// A batch the last check refuses whole, after a confirmed permanent delete, removed nothing:
-    /// its message is a refusal, kept for this session only, like the pre-check's.
-    @MainActor
-    @Test func aBatchTheLastCheckRefusesWholeSaysSoAsARefusal() async throws {
-        let mockFM = MockFileManager()
-        mockFM.shouldFailTrash = true
-        let manager = makeManager(mockFM)
-        manager.permanentDeleteConfirmer = { _ in
-            mockFM.virtualDisk["/b/x"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
-            mockFM.virtualDisk["/b/y"] = .file(2000, modified: Date(timeIntervalSince1970: 9_999))
-            return true
-        }
-        let (g1, g2) = twoGroups(on: mockFM, listedBy: manager)
-
-        await manager.applyRecommendedDuplicates([g1, g2])
-
-        #expect(mockFM.virtualDisk["/b/x"] != nil && mockFM.virtualDisk["/b/y"] != nil,
-                "a copy that changed while the dialog was open was destroyed")
-        let banner = try #require(manager.banner, "the refused batch said nothing")
-        #expect(banner.message.contains("changed since they were scanned"), "\(banner.message)")
-        #expect(banner.isRefusal)
+        #expect(await log.line(containing: "the batch removed nothing") != nil)
     }
 
     // MARK: Verify-then-trash ordering, and the two user-paced windows
@@ -211,13 +180,14 @@ import EventsTestSupport
         let message = try #require(manager.banner?.message)
         #expect(message.contains("changed since the scan"),
                 "the mixed banner must say a group was refused for drift: “\(message)”")
-        #expect(await loggedLine(containing: "at the last check before removal") != nil,
+        #expect(await log.line(containing: "at the last check before removal") != nil,
                 "a last-moment refusal must reach the log he audits")
     }
 
     /// A copy rewritten while the permanent-delete dialog is open is not destroyed on the
     /// pre-dialog verdict. The dialog is user-paced and what follows is unrecoverable, so the gate
-    /// re-runs after the confirmation, right before `removeItem`.
+    /// re-runs after the confirmation, right before `removeItem`. A batch the last check refuses
+    /// whole removed nothing, so its message is a refusal, kept for this session only.
     @MainActor
     @Test func aCopyThatDriftsWhileTheConfirmationDialogIsOpenIsNotPermanentlyDeleted() async throws {
         let mockFM = MockFileManager()
@@ -241,6 +211,7 @@ import EventsTestSupport
                 "removeItem ran for the drifted copy — the post-confirm gate never fired")
         #expect(manager.duplicateGroups.count == 1, "the refused group stays listed")
         #expect(manager.banner?.message.contains("changed since they were scanned") == true)
+        #expect(manager.banner?.isRefusal == true)
     }
 
     /// The same window on the single-group path: `resolveDuplicateGroup` must refuse too.
@@ -269,11 +240,8 @@ import EventsTestSupport
 
     // MARK: The keeper's verdict is the freshest one
 
-    /// The keeper is re-walked last, so its "unchanged" reading is the newest when the caller acts;
-    /// each candidate walk would age it. Pinned on the walk order itself, because the removal
-    /// gate's second pass would hide a wrong order from a purely behavioural fixture.
-    @MainActor
-    @Test func theFolderDriftCheckWalksTheKeeperAfterTheCandidates() async throws {
+    /// Two two-file `Photos` folders, `/a` keeping, listed as one folder group.
+    private func photosFolderGroup() -> (MockFileManager, FileSyncManager, DuplicateGroup) {
         let mockFM = MockFileManager()
         let manager = makeManager(mockFM)
         FileSyncManagerDuplicatesTests.plantFolder(mockFM, at: "/a/Photos", files: 2, bytesEach: 100)
@@ -282,6 +250,15 @@ import EventsTestSupport
         let g = FileSyncManagerDuplicatesTests.folderGroup(
             keeper: "/a/Photos", redundant: "/b/Photos", size: 200, itemCount: 2, snapshot: snapshot)
         manager.duplicateGroups = [g]
+        return (mockFM, manager, g)
+    }
+
+    /// The keeper is re-walked last, so its "unchanged" reading is the newest when the caller acts;
+    /// each candidate walk would age it. Pinned on the walk order itself, because the removal
+    /// gate's second pass would hide a wrong order from a purely behavioural fixture.
+    @MainActor
+    @Test func theFolderDriftCheckWalksTheKeeperAfterTheCandidates() async throws {
+        let (mockFM, manager, g) = photosFolderGroup()
         let walked = LockedBox<[String]>([])
         mockFM.onEnumerate = { url in
             if url.path == "/a/Photos" || url.path == "/b/Photos" {
@@ -304,14 +281,7 @@ import EventsTestSupport
     /// test above is the one that holds the order.
     @MainActor
     @Test func aKeeperEditDuringACandidateWalkIsRefused() async throws {
-        let mockFM = MockFileManager()
-        let manager = makeManager(mockFM)
-        FileSyncManagerDuplicatesTests.plantFolder(mockFM, at: "/a/Photos", files: 2, bytesEach: 100)
-        FileSyncManagerDuplicatesTests.plantFolder(mockFM, at: "/b/Photos", files: 2, bytesEach: 100)
-        let snapshot = FileSyncManagerDuplicatesTests.mockFolderSnapshot(files: 2)
-        let g = FileSyncManagerDuplicatesTests.folderGroup(
-            keeper: "/a/Photos", redundant: "/b/Photos", size: 200, itemCount: 2, snapshot: snapshot)
-        manager.duplicateGroups = [g]
+        let (mockFM, manager, g) = photosFolderGroup()
         let planted = LockedBox<Bool>(false)
         mockFM.onEnumerate = { url in
             // A file lands in the keeper while the candidate is being verified.
@@ -349,11 +319,11 @@ import EventsTestSupport
 
         await manager.applyRecommendedDuplicates([drifted, baselineless])
 
-        let driftLine = try #require(await loggedLine(containing: "/\(token)/b/x"),
+        let driftLine = try #require(await log.line(containing: "/\(token)/b/x"),
                                      "the drifted group's refusal wrote nothing to the log")
         #expect(driftLine.contains("changed after the scan"))
         #expect(driftLine.contains("/\(token)/a/x"), "the line must name the keeper as well as the copy")
-        let baselineLine = try #require(await loggedLine(containing: "/\(token)/b/Photos"),
+        let baselineLine = try #require(await log.line(containing: "/\(token)/b/Photos"),
                                         "the no-baseline group's refusal wrote nothing to the log")
         #expect(baselineLine.contains("no scan baseline"))
         #expect(baselineLine.contains("/\(token)/a/Photos"))

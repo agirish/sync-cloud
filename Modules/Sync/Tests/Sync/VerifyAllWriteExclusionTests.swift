@@ -116,12 +116,9 @@ import Foundation
         mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
         mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
         mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
-        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
-        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
-                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
-        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
-                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        let k = DuplicateCopy.stub("/base/K", keeper: true, isDirectory: true, size: 5000, depth: 1)
+        let r = DuplicateCopy.stub("/base/R", keeper: false, isDirectory: true, size: 5000, unique: 1, depth: 1)
+        let group = DuplicateGroup.stub([k, r], matchType: .overlapping(sharedFraction: 0.5), reclaimable: 2500)
         manager.duplicateGroups = [group]
 
         manager.isVerifyAllRunning = true

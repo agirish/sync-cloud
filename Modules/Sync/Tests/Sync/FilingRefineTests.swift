@@ -9,21 +9,7 @@ import Testing
 @Suite struct FilingRefineTests {
 
     /// What the classifier was asked, and at which tier.
-    private final class Asked: @unchecked Sendable {
-        private let lock = NSLock()
-        private var calls: [(names: [String], tier: FilingClassifierTier)] = []
-        func record(_ names: [String], _ tier: FilingClassifierTier) {
-            lock.lock(); defer { lock.unlock() }; calls.append((names, tier))
-        }
-        var count: Int { lock.lock(); defer { lock.unlock() }; return calls.count }
-        var refines: [[String]] {
-            lock.lock(); defer { lock.unlock() }
-            return calls.filter { $0.tier == .refine }.map { $0.names.sorted() }
-        }
-        var tiers: [FilingClassifierTier] {
-            lock.lock(); defer { lock.unlock() }; return calls.map { $0.tier }
-        }
-    }
+    private typealias Asked = LockedBox<[(names: [String], tier: FilingClassifierTier)]>
 
 
     /// A provider with two destination folders and `count` loose files. Two folders let the free and
@@ -115,25 +101,17 @@ import Testing
         let m = manager(asked)
         _ = await scan(m, root: root)
 
-        final class Observed: @unchecked Sendable {
-            private let lock = NSLock()
-            private var value: (scanning: Bool, refining: Bool, rows: Int)?
-            func set(_ v: (Bool, Bool, Int)) { lock.lock(); defer { lock.unlock() }; value = v }
-            var seen: (scanning: Bool, refining: Bool, rows: Int)? {
-                lock.lock(); defer { lock.unlock() }; return value
-            }
-        }
-        let observed = Observed()
+        let observed = LockedBox<(scanning: Bool, refining: Bool, rows: Int)?>(nil)
         m.filingClassifier = { _, _, _ in
             await MainActor.run {
-                observed.set((m.isSuggestingFiles, m.isRefiningFilingSuggestions,
-                              m.filingSuggestions.count))
+                let now = (m.isSuggestingFiles, m.isRefiningFilingSuggestions, m.filingSuggestions.count)
+                observed.withLock { $0 = now }
             }
             return [:]
         }
 
         await m.refineFilingSuggestions(m.filingSuggestions)
-        let seen = try #require(observed.seen)
+        let seen = try #require(observed.withLock { $0 })
         #expect(!seen.scanning)     // the lens never showed its scanning view
         #expect(seen.refining)      // but the button knew it was busy
         #expect(seen.rows == 2)     // and the rows were still there to look at
@@ -171,7 +149,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         // A second loose file with a word distinctive enough to key a rule on: a rule on
         // "mystery-0"'s one salient token would also steer any file sharing it.
-        try writeFilingFile(root.appendingPathComponent("Downloads/tesla-invoice.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/tesla-invoice.pdf"))
         let asked = Asked()
         let m = manager(asked)
         m.filingRuleDefaults = ScratchDefaults("refineRemembered")
@@ -409,12 +387,7 @@ private actor AsyncGate {
 @MainActor
 @Suite struct FilingRefineReviewTests {
 
-    private final class Probe: @unchecked Sendable {
-        private let lock = NSLock()
-        private var prompts = 0
-        func record() { lock.lock(); prompts += 1; lock.unlock() }
-        var count: Int { lock.lock(); defer { lock.unlock() }; return prompts }
-    }
+    private typealias Probe = LockedBox<Int>
 
 
     private func fixture(_ name: String) throws -> URL {
@@ -477,7 +450,6 @@ private actor AsyncGate {
         let m = FileSyncManager()
         let settings = ScratchDefaults("refineUnreadable")
         m.filingContentDefaults = settings
-        m.filingCloudRefineConfigured = { true }
         // A key is stored, so the button offers Claude,
         m.filingCloudRefineConfigured = { true }
         // but the router can't read it, so the pass runs on-device.
@@ -584,8 +556,10 @@ private actor AsyncGate {
     /// Declining the spend prompt is not a completed pass. `cloudSpendAllows` returns false for
     /// Cancel and for the over-cap dialog's "Use On-Device Instead", which must not read as "nothing
     /// to send" or a green banner would claim the refine ran and found no better homes.
-    @Test func decliningTheSpendPromptIsNotReportedAsSuccess() async throws {
-        let root = try fixture("declined")
+    /// Run twice: on the settings' route, and on the app's resolver (`filingBackendIdentity`).
+    @Test(arguments: [false, true])
+    func decliningTheSpendPromptIsNotReportedAsSuccess(throughTheResolver: Bool) async throws {
+        let root = try fixture("declined-\(throughTheResolver)")
         defer { try? FileManager.default.removeItem(at: root) }
         let asked = Probe()
         let m = FileSyncManager()
@@ -593,6 +567,11 @@ private actor AsyncGate {
         settings.set(false, forKey: FileSyncManager.reuseVerdictsDefaultsKey)
         m.filingContentDefaults = settings
         m.filingCloudRefineConfigured = { true }
+        if throughTheResolver {
+            m.filingBackendIdentity = { tier in
+                tier == .refine ? "cloud:claude-opus-5" : FileSyncManager.onDeviceBackendIdentity
+            }
+        }
         m.filingClassifier = { _, files, _ in
             asked.record()
             return Dictionary(uniqueKeysWithValues: files.map {
@@ -719,9 +698,9 @@ private actor AsyncGate {
     @Test func theRejectionStoreIsDecodedOncePerLoopNotOncePerSuggestion() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RefineRejectionReads")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Archive/2026/.keep"), bytes: 1)
         let fileCount = 25
-        for i in 0..<fileCount { try writeFilingFile(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
+        for i in 0..<fileCount { try writeBytes(root.appendingPathComponent("Downloads/mystery-\(i).pdf")) }
 
         let suite = "refineRejectionReads-\(UUID().uuidString)"
         let counting = try #require(CountingDefaults(name: suite, watching: FileSyncManager.rejectionsDefaultsKey))
@@ -745,4 +724,18 @@ private actor AsyncGate {
         #expect(spent <= 4,
                 "the refine pass decoded the rejection store \(spent) times for \(fileCount) suggestions")
     }
+}
+
+private extension LockedBox where Value == [(names: [String], tier: FilingClassifierTier)] {
+    convenience init() { self.init([]) }
+    func record(_ names: [String], _ tier: FilingClassifierTier) { withLock { $0.append((names, tier)) } }
+    var count: Int { withLock { $0.count } }
+    var refines: [[String]] { withLock { $0.filter { $0.tier == .refine }.map { $0.names.sorted() } } }
+    var tiers: [FilingClassifierTier] { withLock { $0.map(\.tier) } }
+}
+
+private extension LockedBox where Value == Int {
+    convenience init() { self.init(0) }
+    func record() { withLock { $0 += 1 } }
+    var count: Int { withLock { $0 } }
 }

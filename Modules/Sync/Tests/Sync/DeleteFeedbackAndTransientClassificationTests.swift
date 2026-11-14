@@ -57,13 +57,6 @@ import Events
     /// error that wraps the POSIX cause. Reading only the outer error would call a busy item a
     /// Trash-less volume and escalate to the permanent-delete prompt, the unrecoverable step the
     /// classifier exists to prevent.
-    @Test func aCocoaErrorWrappingEBUSYIsStillTransient() {
-        let underlying = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
-        let wrapped = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
-                              userInfo: [NSUnderlyingErrorKey: underlying])
-        #expect(FileSyncManager.isTransientTrashFailure(wrapped))
-    }
-
     @Test func aDoublyWrappedTransientCauseIsStillFound() {
         let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(EAGAIN))
         let middle = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,

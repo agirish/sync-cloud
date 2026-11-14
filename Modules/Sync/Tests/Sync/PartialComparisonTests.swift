@@ -21,14 +21,6 @@ import Foundation
         #expect(coverage.message(leftName: "iCloud", rightName: "Dropbox") == nil)
     }
 
-    /// The root key, not any directory. An unreadable folder deep in a tree is common, and `compare`
-    /// already suppresses exactly the rows under it. A banner on every scan of a disk with one
-    /// locked folder is a banner people learn to stop reading.
-    @Test func anUnreadableFolderInsideTheTreeIsNotAPartialComparison() {
-        let coverage = PartialComparison.of(left: ["Locked": info(unexplored: true)], right: [:])
-        #expect(coverage.isComplete, "a folder deep in the tree is suppressed row by row, not side-wide")
-    }
-
     /// The sentence says what is missing from the result, the thing being acted on, not merely that
     /// something went wrong. Both losses, not one: besides the suppressed Missing rows, a walk
     /// stopped by the node budget never recorded the entries past it, so those are in neither map

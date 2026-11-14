@@ -631,11 +631,7 @@ import Foundation
         #expect(outcome.discarded == ["GoneDrive"])
         let landed = try #require(outcome.landed)
         #expect(landed.providerId == "GoogleDrive",
-                "the pane landed on a source that is neither the dead tab's nor its own")
-        // The inequality the host depends on, against the value it was handed. Implied by the
-        // line above, but it states the host's reason.
-        #expect(landed.providerId != "iCloud",
-                "so the host cannot assume the landing is on currentProviderId — it must adopt")
+                "the pane landed on a source that is neither the dead tab's nor its own, so the host must adopt it")
         #expect(landed.combinedRelativePath == "Docs")
     }
 

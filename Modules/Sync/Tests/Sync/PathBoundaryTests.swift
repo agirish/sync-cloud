@@ -225,9 +225,7 @@ struct PathBoundaryTests {
     @Test func anEmptyRootComposesToNothing() {
         #expect(PathBoundary.join(root: "", relative: "Documents/Family") == "")
         #expect(PathBoundary.join(root: "", relative: "") == "")
-        #expect(PathBoundary.relativize("/Users/u/x", under: "") == nil)
         // The volume root is unaffected — it is a root, and a real one.
         #expect(PathBoundary.join(root: "/", relative: "Users/u") == "/Users/u")
-        #expect(PathBoundary.relativize("/Users/u", under: "/") == "Users/u")
     }
 }

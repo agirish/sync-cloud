@@ -13,32 +13,22 @@ import Foundation
     /// A real file with no iCloud attributes, as a Dropbox, OneDrive or Drive item under
     /// `~/Library/CloudStorage` looks to `resourceValues`.
     private func temporaryFile() throws -> (URL, () -> Void) {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("FilingSurveyAvailability-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = try makeCanonicalTempRoot(prefix: "FilingSurveyAvailability")
         let file = dir.appendingPathComponent("statement.pdf")
-        try Data("x".utf8).write(to: file)
+        try writeBytes(file, bytes: 1)
         return (file, { try? FileManager.default.removeItem(at: dir) })
     }
 
-    /// A dataless file that is not an iCloud item is not available; calling it available costs a
-    /// download online and a permanent blank stamp offline.
-    @Test func aDatalessNonICloudFileIsNotAvailable() throws {
-        let (file, cleanup) = try temporaryFile()
-        defer { cleanup() }
-
-        // Not ubiquitous, but dataless: how every non-Apple File Provider says the content lives
-        // on the provider.
-        #expect(FilingSurvey.isAvailable(file.path,
-                                         statFlags: { _ in MaterializationStatus.datalessFlag }) == false)
-    }
-
-    /// The dataless bit among other flags still reads as unavailable: the predicate asks
-    /// ``MaterializationStatus`` rather than comparing `st_flags` for equality.
+    /// A dataless file that is not an iCloud item is withheld, alone or among other flags: the
+    /// predicate asks ``MaterializationStatus`` rather than comparing `st_flags` for equality.
     @Test func theDatalessBitAmongOtherFlagsStillWithholdsTheFile() throws {
         let (file, cleanup) = try temporaryFile()
         defer { cleanup() }
 
+        // Not ubiquitous, but dataless: how every non-Apple File Provider says the content lives
+        // on the provider. Calling it available costs a download online, a blank stamp offline.
+        #expect(FilingSurvey.isAvailable(file.path,
+                                         statFlags: { _ in MaterializationStatus.datalessFlag }) == false)
         let withOthers = MaterializationStatus.datalessFlag | 0x0000_0002 | 0x0008_0000
         #expect(FilingSurvey.isAvailable(file.path, statFlags: { _ in withOthers }) == false)
     }
@@ -62,7 +52,7 @@ import Foundation
         let (file, cleanup) = try temporaryFile()
         defer { cleanup() }
 
-        let asked = Mutex<[String]>([])
+        let asked = LockedBox<[String]>([])
         _ = FilingSurvey.isAvailable(file.path, statFlags: { path in
             asked.withLock { $0.append(path) }
             return 0
@@ -106,13 +96,3 @@ import Foundation
     }
 }
 
-/// Minimal lock so the recording stub above is `@Sendable` without importing anything new.
-private final class Mutex<Value>: @unchecked Sendable {
-    private var value: Value
-    private let lock = NSLock()
-    init(_ value: Value) { self.value = value }
-    func withLock<R>(_ body: (inout Value) -> R) -> R {
-        lock.lock(); defer { lock.unlock() }
-        return body(&value)
-    }
-}

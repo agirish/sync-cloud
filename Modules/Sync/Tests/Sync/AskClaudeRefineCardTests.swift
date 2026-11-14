@@ -283,6 +283,7 @@ extension HandBuiltRefineSuites {
         #expect(card.endingMessage == "The 3 answers are kept in Organize. 3 files weren’t answered.")
         #expect(card.endingInfo == "About 3¢ was billed for what ran.")
         #expect(card.retryTitle == "Try Again for the 3")
+        #expect(card.toldToClaude?.contains("They stopped it after 3 of 6 answers; ") == true)
     }
 
     @Test func aPassThatNeverStartedSaysNothingWasSent() {
@@ -292,6 +293,7 @@ extension HandBuiltRefineSuites {
         #expect(card.endingTitle == "Couldn’t ask Claude")
         #expect(card.endingMessage == "There is no Claude key to read. Nothing was sent, and the suggestions are unchanged.")
         #expect(card.receiptInfo == nil && card.endingInfo == nil && card.retryTitle == nil, "no request, no receipt, nothing to retry")
+        #expect(card.toldToClaude == nil, "the card says nothing was sent, so Claude is not told a request ran")
     }
 
     @Test func anUnreadableKeySaysSoAndOwnsNothingAsClaudes() {
@@ -391,13 +393,7 @@ extension HandBuiltRefineSuites {
         #expect(line?.contains("Downloads") == true, "the folder's name is in the line, for the hidden check to find")
     }
 
-    @Test func aPassThatNeverReachedClaudeTellsItNothing() {
-        var failed = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
-        failed.finish(.sent(.init(asked: 2, reused: 0, classified: 0, changed: 0, outcome: .failed)),
-                      report: report(sent: 0, answered: 0, changes: 0, ending: .failed("There is no Claude key to read."), requests: 0, cost: 0))
-        #expect(failed.endingMessage?.hasSuffix("Nothing was sent, and the suggestions are unchanged.") == true)
-        #expect(failed.toldToClaude == nil, "the card says nothing was sent, so Claude is not told a request ran")
-
+    @Test func aStopThatNeverReachedClaudeTellsItNothing() {
         var stopped = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
         stopped.finish(.sent(.init(asked: 2, reused: 0, classified: 0, changed: 0, outcome: .stopped)),
                        report: report(sent: 2, answered: 0, changes: 0, ending: .stopped, requests: 0, cost: 0))
@@ -462,13 +458,6 @@ extension HandBuiltRefineSuites {
         card.quoting = true
         #expect(!card.canSend && !card.canTick, "Send waits for the new plan, so the old one can't go")
         #expect(!card.restored.quoting)
-    }
-
-    @Test func aStoppedPassTellsClaudeItWasStopped() {
-        var card = AskClaudeRefineCard(sourceName: "X", plan: .init(), phase: .sending(answered: nil))
-        card.finish(.sent(.init(asked: 6, reused: 0, classified: 6, changed: 1, outcome: .stopped)),
-                    report: report(sent: 6, answered: 3, changes: 1, ending: .stopped))
-        #expect(card.toldToClaude?.contains("They stopped it after 3 of 6 answers; ") == true)
     }
 
     // MARK: Saved and restored

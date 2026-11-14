@@ -11,12 +11,6 @@ import Testing
 /// or `ContentHashCache.sharedFingerprints`, which would read the user's real index.
 @Suite struct SameTextScanTests {
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     /// Records which paths the reader was asked about, across concurrent calls.
     private typealias ReadLog = LockedBox<[String]>
 
@@ -26,10 +20,10 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         // Different bytes and different sizes — the case a (name, size) or (size, page count)
         // pre-filter would never even offer to the reader.
-        try write(root.appendingPathComponent("Utilities/Jul 2023.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("Downloads/9829custbill.pdf"), bytes: 6040, fill: 0x42)
-        try write(root.appendingPathComponent("Utilities/u-only.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("Downloads/d-only.txt"), bytes: 12, fill: 0x62)
+        try writeBytes(root.appendingPathComponent("Utilities/Jul 2023.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Downloads/9829custbill.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("Utilities/u-only.txt"), bytes: 8, fill: 0x61)
+        try writeBytes(root.appendingPathComponent("Downloads/d-only.txt"), bytes: 12, fill: 0x62)
 
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root,
@@ -59,10 +53,10 @@ import Testing
     @Test func onlyDocumentsAreOfferedToTheReader() async throws {
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("a.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("b.PDF"), bytes: 6001, fill: 0x42)
-        try write(root.appendingPathComponent("c.txt"), bytes: 6002, fill: 0x43)
-        try write(root.appendingPathComponent("d.jpg"), bytes: 6003, fill: 0x44)
+        try writeBytes(root.appendingPathComponent("a.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("b.PDF"), bytes: 6001, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("c.txt"), bytes: 6002, fill: 0x43)
+        try writeBytes(root.appendingPathComponent("d.jpg"), bytes: 6003, fill: 0x44)
 
         let log = ReadLog([])
         let manager = FileSyncManager()
@@ -80,9 +74,9 @@ import Testing
         // down, the silent blind spot this feature exists to close.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("readable.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("scan-1.pdf"), bytes: 6001, fill: 0x42)
-        try write(root.appendingPathComponent("scan-2.pdf"), bytes: 6002, fill: 0x43)
+        try writeBytes(root.appendingPathComponent("readable.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("scan-1.pdf"), bytes: 6001, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("scan-2.pdf"), bytes: 6002, fill: 0x43)
 
         let manager = FileSyncManager()
         await manager.findDuplicates(
@@ -100,8 +94,8 @@ import Testing
     @Test func theOptionStopsTheReaderBeingCalledAtAll() async throws {
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("a.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("b.pdf"), bytes: 6001, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("a.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("b.pdf"), bytes: 6001, fill: 0x42)
 
         var options = DuplicateFinderOptions()
         options.detectSameText = false
@@ -122,8 +116,8 @@ import Testing
         // entirely on this: a rescan must re-parse nothing.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
         let log = ReadLog([])
         let cache = ContentHashCache()
@@ -147,8 +141,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let edited = root.appendingPathComponent("A/bill.pdf")
-        try write(edited, bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(edited, bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
         let log = ReadLog([])
         let cache = ContentHashCache()
@@ -158,7 +152,7 @@ import Testing
                                      fingerprintCache: cache)
         #expect(log.withLock { $0 }.count == 2)
 
-        try write(edited, bytes: 6100, fill: 0x43)
+        try writeBytes(edited, bytes: 6100, fill: 0x43)
         manager.clearDuplicates()
         await manager.findDuplicates(root: root,
                                      textFingerprint: { path in log.withLock { $0.append(path) }; return .digest("FP") },
@@ -177,7 +171,7 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<60 {
-            try write(root.appendingPathComponent("docs/doc-\(i).pdf"), bytes: 6000 + i, fill: UInt8(i % 251))
+            try writeBytes(root.appendingPathComponent("docs/doc-\(i).pdf"), bytes: 6000 + i, fill: UInt8(i % 251))
         }
 
         let manager = FileSyncManager()
@@ -202,8 +196,8 @@ import Testing
         // nothing about the value to give it away. The scan declines the cache instead.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/bill-copy.pdf"), bytes: 6040, fill: 0x42)
 
         let shared = ContentHashCache()
         let log = ReadLog([])
@@ -230,12 +224,12 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         // A and Copy are byte-identical; Restamped has the same text but different bytes.
-        try write(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("Copy/bill.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("B/restamped.pdf"), bytes: 6040, fill: 0x42)
-        try write(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
-        try write(root.appendingPathComponent("Copy/c-only.txt"), bytes: 9, fill: 0x62)
-        try write(root.appendingPathComponent("B/b-only.txt"), bytes: 10, fill: 0x63)
+        try writeBytes(root.appendingPathComponent("A/bill.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Copy/bill.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/restamped.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
+        try writeBytes(root.appendingPathComponent("Copy/c-only.txt"), bytes: 9, fill: 0x62)
+        try writeBytes(root.appendingPathComponent("B/b-only.txt"), bytes: 10, fill: 0x63)
 
         let manager = FileSyncManager()
         await manager.findDuplicates(root: root,
@@ -262,8 +256,8 @@ import Testing
         // so if it were ever served as a digest the two below would become one "same text" group.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("Other/photo-id.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Other/photo-id.pdf"), bytes: 6040, fill: 0x42)
 
         let log = ReadLog([])
         let cache = ContentHashCache()
@@ -290,7 +284,7 @@ import Testing
         // digests. The scan declines the negative cache instead, and re-reads.
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
 
         let log = ReadLog([])
         let shared = ContentHashCache()
@@ -311,7 +305,7 @@ import Testing
     @Test func aTextlessCacheSharedWithTheByteCacheIsRefused() async throws {
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Scans/receipt.pdf"), bytes: 6000, fill: 0x41)
         let log = ReadLog([])
         let shared = ContentHashCache()
         let manager = FileSyncManager()
@@ -335,8 +329,8 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let placeholder = root.appendingPathComponent("A/statement.pdf")
-        try write(placeholder, bytes: 6000, fill: 0x41)
-        try write(root.appendingPathComponent("B/statement-copy.pdf"), bytes: 6040, fill: 0x42)
+        try writeBytes(placeholder, bytes: 6000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("B/statement-copy.pdf"), bytes: 6040, fill: 0x42)
 
         let log = ReadLog([])
         let cache = ContentHashCache()
@@ -369,7 +363,7 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "SameTextScan")
         defer { try? FileManager.default.removeItem(at: root) }
         let doc = root.appendingPathComponent("A/old.pdf")
-        try write(doc, bytes: 6000, fill: 0x41)
+        try writeBytes(doc, bytes: 6000, fill: 0x41)
         let textless = ContentHashCache()
         let key = try #require(FileSyncManager.fingerprintCacheKey(forPath: doc.path, fileManager: FileManager.default))
         await textless.store(storedMarker, for: key)

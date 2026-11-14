@@ -6,15 +6,6 @@ import Testing
 
     // MARK: Builders
 
-    private func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                 modificationDate: modified, fileSize: size)
-    }
-    private func dir(_ path: String, _ children: [FileNode], modified: Date? = nil) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true,
-                 children: children, modificationDate: modified)
-    }
-
     /// A package: a directory the walk reports with a package type identifier.
     private func package(_ path: String, _ children: [FileNode],
                          kind: String = "com.apple.iwork.keynote.key", modified: Date? = nil) -> FileNode {
@@ -787,38 +778,24 @@ import Testing
         #expect(!groups.contains { $0.copies.contains { $0.path == "/root/2019/IMG_0002.jpg" } })
     }
 
+    /// Drift needs two distinct REAL contents. Files too large to hash get per-path "u:"
+    /// placeholder signatures, unique by construction, so counting them as distinct contents would
+    /// claim drift between files that may be identical: two placeholders, or one real hash and one
+    /// placeholder, must never stand up a versions group.
     @Test func unknownHashPlaceholdersAreNotEvidenceOfVersionDrift() {
-        // Two byte-identical files too large to hash get per-path "u:" placeholder signatures.
-        // Placeholders are unique by construction, so counting them as distinct contents would
-        // claim drift between files that may be identical — they must never stand up a group.
-        let tree = [
-            dir("/root/Movies", [
-                file("/root/Movies/trip.mp4", size: 500_000),
-                file("/root/Movies/trip copy.mp4", size: 500_000),
-            ])
+        let unknown = DuplicateFinder.unknownSignature(forPath:)
+        let cases: [(folder: String, files: [(String, Int)], hashes: [String: String])] = [
+            ("/root/Movies", [("trip.mp4", 500_000), ("trip copy.mp4", 500_000)],
+             ["/root/Movies/trip.mp4": unknown("/root/Movies/trip.mp4"),
+              "/root/Movies/trip copy.mp4": unknown("/root/Movies/trip copy.mp4")]),
+            ("/root/Docs", [("plan.key", 9000), ("plan copy.key", 500_000)],
+             ["/root/Docs/plan.key": "H1", "/root/Docs/plan copy.key": unknown("/root/Docs/plan copy.key")]),
         ]
-        let hashes = [
-            "/root/Movies/trip.mp4": DuplicateFinder.unknownSignature(forPath: "/root/Movies/trip.mp4"),
-            "/root/Movies/trip copy.mp4": DuplicateFinder.unknownSignature(forPath: "/root/Movies/trip copy.mp4"),
-        ]
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        #expect(!groups.contains { $0.matchType == .versions })
-    }
-
-    @Test func oneRealHashPlusUnknownIsNotVersionDrift() {
-        // Drift needs two distinct REAL contents; one known hash and one unknown proves nothing.
-        let tree = [
-            dir("/root/Docs", [
-                file("/root/Docs/plan.key", size: 9000),
-                file("/root/Docs/plan copy.key", size: 500_000),
-            ])
-        ]
-        let hashes = [
-            "/root/Docs/plan.key": "H1",
-            "/root/Docs/plan copy.key": DuplicateFinder.unknownSignature(forPath: "/root/Docs/plan copy.key"),
-        ]
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        #expect(!groups.contains { $0.matchType == .versions })
+        for c in cases {
+            let tree = [dir(c.folder, c.files.map { file("\(c.folder)/\($0.0)", size: $0.1) })]
+            let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: c.hashes)
+            #expect(!groups.contains { $0.matchType == .versions }, "\(c.folder)")
+        }
     }
 
     @Test func unknownMemberRidesAlongWhenRealDriftExists() {
@@ -925,20 +902,6 @@ import Testing
         #expect(!DuplicateFinder.hasVersionMarker("IMG_0001.jpg"))
         #expect(!DuplicateFinder.hasVersionMarker("invoice.pdf"))
         #expect(!DuplicateFinder.hasVersionMarker("Report.PDF"))   // case alone is not a marker
-    }
-
-    @Test func identicalCopiesAreNotVersions() {
-        // Same stem AND identical bytes → identical group, not a version group.
-        let tree = [
-            dir("/root", [
-                file("/root/plan.key", size: 9000),
-                file("/root/plan copy.key", size: 9000),
-            ])
-        ]
-        let hashes = ["/root/plan.key": "SAME", "/root/plan copy.key": "SAME"]
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        #expect(groups.count == 1)
-        #expect(groups[0].matchType == .identical)
     }
 
     // MARK: Options
@@ -1242,9 +1205,7 @@ import Testing
     }
 
     @Test func optionsFromDefaultsFallsBackThenReadsOverrides() {
-        let suite = "DuplicatesOptTest-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: suite)!
-        defer { wipeDefaultsSuite(suite) }
+        let d = ScratchDefaults("DuplicatesOptTest")
 
         let fallback = DuplicateFinderOptions.fromDefaults(d)   // nothing set → code defaults
         #expect(fallback.minFileSize == 4096)
@@ -1305,35 +1266,23 @@ import Testing
         #expect(g.redundantCopies.map(\.id) == ["/b/x"])
     }
 
-    /// The ordinary case: a well-formed group removes exactly its unflagged copies.
-    @Test func aNormalGroupsRedundantListIsUnchanged() {
+    /// The redundant list (what "Move to Trash" takes) for each keeper flagging of /a, /b, /c.
+    /// A well-formed group removes exactly its unflagged copies. With TWO flagged copies both stay
+    /// off the list, because the filter keeps the flag test as well as the id test: removing fewer
+    /// copies is the right direction for a list that feeds a trash. An empty group has nothing to
+    /// remove, and asking must not trap (`keeper` itself still traps on one, deliberately).
+    @Test(arguments: [
+        ([true, false, false], ["/b/x", "/c/x"]),
+        ([true, true, false], ["/c/x"]),
+        ([], []),
+    ] as [([Bool], [String])])
+    func theRedundantListIsTheUnflaggedCopies(_ flags: [Bool], _ redundant: [String]) {
+        let paths = ["/a/x", "/b/x", "/c/x"]
         let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [Self.copy("/a/x", keeper: true),
-                                        Self.copy("/b/x", keeper: false),
-                                        Self.copy("/c/x", keeper: false)],
-                               reclaimableBytes: 200)
-        #expect(g.keeper.id == "/a/x")
-        #expect(g.redundantCopies.map(\.id) == ["/b/x", "/c/x"])
-    }
-
-    /// The invariant broken the other way: TWO flagged copies. Both stay off the redundant list,
-    /// because the filter keeps the flag test as well as the id test — removing fewer copies is
-    /// the right direction for a list that feeds a trash.
-    @Test func aGroupWithTwoFlaggedKeepersRemovesNeitherOfThem() {
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [Self.copy("/a/x", keeper: true),
-                                        Self.copy("/b/x", keeper: true),
-                                        Self.copy("/c/x", keeper: false)],
-                               reclaimableBytes: 100)
-        #expect(g.redundantCopies.map(\.id) == ["/c/x"])
-    }
-
-    /// An empty group has nothing to remove, and asking must not trap. (`keeper` itself still
-    /// traps on one, deliberately — see its doc.)
-    @Test func anEmptyGroupHasNoRedundantCopies() {
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [], reclaimableBytes: 0)
-        #expect(g.redundantCopies.isEmpty)
+                               copies: flags.enumerated().map { Self.copy(paths[$0.offset], keeper: $0.element) },
+                               reclaimableBytes: 100 * redundant.count)
+        if flags == [true, false, false] { #expect(g.keeper.id == "/a/x") }
+        #expect(g.redundantCopies.map(\.id) == redundant)
     }
 
     @Test func choosingKeeperRecomputesRemovalForIdentical() {
@@ -1404,16 +1353,13 @@ import Testing
         #expect(g2.reclaimableBytes == 0)
     }
 
-    /// The control for both of the above: an unprotected copy in the same position still counts,
-    /// so a reclaim that is always zero fails.
-    @Test func anUnprotectedRedundantCopyStillCountsAsReclaimable() {
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
-                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
-                                        copy("/b/x", size: 100, depth: 1, keeper: false),
-                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
-                               reclaimableBytes: 200)
-        #expect(g.choosingKeeper("/b/x").reclaimableBytes == 200)
-        #expect(g.removingRedundantCopy(atPath: "/c/x")!.reclaimableBytes == 100)
+    /// Three 100-byte copies at depths 0, 1 and 2, `/a/x` keeping: 200 bytes reclaimable.
+    private var abc: DuplicateGroup {
+        DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
+                       copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                copy("/b/x", size: 100, depth: 1, keeper: false),
+                                copy("/c/x", size: 100, depth: 2, keeper: false)],
+                       reclaimableBytes: 200)
     }
 
     @Test func removingLastRedundantResolvesGroupToNil() {
@@ -1425,11 +1371,7 @@ import Testing
     }
 
     @Test func removingOneOfManyRecomputesIdenticalReclaim() {
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
-                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
-                                        copy("/b/x", size: 100, depth: 1, keeper: false),
-                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
-                               reclaimableBytes: 200)
+        let g = abc
         let g2 = g.removingRedundantCopy(atPath: "/b/x")!
         #expect(g2.copies.count == 2)
         #expect(g2.keeper.id == "/a/x")
@@ -1451,11 +1393,7 @@ import Testing
     }
 
     @Test func removingTheKeeperPromotesShallowestSurvivor() {
-        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
-                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
-                                        copy("/b/x", size: 100, depth: 1, keeper: false),
-                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
-                               reclaimableBytes: 200)
+        let g = abc
         let g2 = g.removingRedundantCopy(atPath: "/a/x")!   // not expected from Compare, but must stay honest
         #expect(g2.keeper.id == "/b/x")                     // shallowest survivor promoted
         #expect(g2.reclaimableBytes == 100)

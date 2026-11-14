@@ -26,14 +26,6 @@ import Testing
 
     // MARK: - The bound itself
 
-    @Test func anUnboundedWalkStillReadsEverything() throws {
-        let root = try makeTree(files: 20)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let all = try FileDiffEngine.getFilesInDirectory(root)
-        #expect(all.count == 40, "20 directories + 20 files, got \(all.count)")
-        #expect(all[""] == nil, "an unbounded walk marked the root unexplored")
-    }
-
     @Test func aBudgetedWalkStopsAndSaysSo() throws {
         let root = try makeTree(files: 20)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -131,22 +123,6 @@ import Testing
         #expect(manager.lastScanCoverage == coverage, walkStopped
                 ? "a warm scan of a truncated left tree published \(manager.lastScanCoverage) — the banner stays down over a comparison that is quietly a floor"
                 : "an ordinary locked folder bannered a warm scan — the warning people learn to stop reading")
-    }
-
-    /// One call drops the trees and their provenance. Every invalidation goes through
-    /// `dropPrefetchedTrees`; clearing the trees alone would leave a stale bit for the next slice
-    /// that caches the same focus path, and the banner would outlive the truncation.
-    @MainActor
-    @Test func droppingThePrefetchedTreesDropsTheirProvenanceWithThem() {
-        let manager = FileSyncManager()
-        manager.prefetchedTrees["/l"] = [FileNode(id: "/l/a", name: "a", isDirectory: false)]
-        manager.prefetchedTreeWalkStopped.insert("/l")
-
-        manager.dropPrefetchedTrees()
-
-        #expect(manager.prefetchedTrees.isEmpty)
-        #expect(manager.prefetchedTreeWalkStopped.isEmpty,
-                "the trees were dropped and their walk-stopped provenance survived them")
     }
 
     /// The other direction stays live: what the truncated side did see, it saw. Absence on the

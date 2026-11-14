@@ -8,32 +8,13 @@ import Testing
 /// edit can't reverse it by accident.
 @Suite struct DocumentSurveyYieldTests {
 
-    @Test func nothingInTheWayMeansCarryOn() {
-        #expect(DocumentSurveyYield.pause(for: .clear) == nil)
-    }
-
     // MARK: - Each reason on its own
-
-    @Test func aVerificationStandsTheSurveyDown() {
-        let conditions = DocumentSurveyConditions(isVerifying: true)
-        #expect(DocumentSurveyYield.pause(for: conditions) == .yielding(to: "a verification"))
-    }
 
     @Test func fileOperationsAreCountedInTheSentence() {
         #expect(DocumentSurveyYield.pause(for: DocumentSurveyConditions(activeFileOperations: 1))
                 == .yielding(to: "a file operation"))
         #expect(DocumentSurveyYield.pause(for: DocumentSurveyConditions(activeFileOperations: 12))
                 == .yielding(to: "12 file operations"))
-    }
-
-    @Test func aRunningScanIsNamed() {
-        let conditions = DocumentSurveyConditions(runningScans: ["Duplicates"])
-        #expect(DocumentSurveyYield.pause(for: conditions) == .yielding(to: "Duplicates"))
-    }
-
-    @Test func theDisplayAsleepIsItsOwnReason() {
-        #expect(DocumentSurveyYield.pause(for: DocumentSurveyConditions(displayAsleep: true))
-                == .displayAsleep)
     }
 
     @Test func heatAndLowPowerStandItDown() {

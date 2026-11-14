@@ -390,32 +390,4 @@ private typealias PromptProbe = LockedBox<Int>
         #expect(third.hasSuggestedFiling)
         #expect(third.filingSuggestions.count == 2)
     }
-
-    @MainActor
-    @Test func cloudEnabledWithoutAUsableKeyStillNeverPrompts() async throws {
-        // Cloud is on in Settings but the Keychain has no usable key, so the app's resolver reports
-        // the on-device downgrade. `cloudSpendAllows` gates the confirmer on the settings toggle, not
-        // the route, so anything that judged "free" from the route would raise a payment dialog for
-        // a scan the user never asked for. It passes trivially because the scan never consults
-        // `cloudSpendAllows`; kept because it is the state a re-wiring would break first.
-        let root = try filingFixture("downgrade")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let downloads = root.appendingPathComponent("Downloads")
-        let defaults = ScratchDefaults("autoFilingDowngrade")
-        defaults.set([downloads.path], forKey: FileSyncManager.lastFilingScanFolderKey)
-        let log = CallLog([])
-        let probe = PromptProbe(0)
-
-        // Cloud ON, but the identity the app vouches for is the on-device downgrade.
-        let manager = filingManager(cacheAt: nil, log: log, identity: "on-device", store: defaults)
-        let scratch = ScratchDefaults("autoFilingDowngradeSettings")
-        manager.filingContentDefaults = scratch
-        manager.filingCloudRefineConfigured = { true }
-        manager.filingCloudSpendConfirmer = { _ in probe.withLock { $0 += 1 }; return true }
-
-        _ = manager.autoRescanFilingIfEligible(folder: downloads, providerRoot: root)
-        await manager.filingScanTask?.value
-        #expect(probe.withLock { $0 } == 0)   // no payment dialog, whatever the eligibility answer was
-        #expect(manager.hasSuggestedFiling)   // and the scan ran, rather than declining to
-    }
 }

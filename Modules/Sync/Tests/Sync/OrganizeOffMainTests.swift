@@ -132,7 +132,7 @@ import Testing
 
         // And a changed index file is read again: the copy, filed somewhere new.
         let refiled = root.appendingPathComponent("Work/Payslips/payslip.jpg")
-        try writeFilingFile(refiled, bytes: 4096, fill: 0x50)
+        try writeBytes(refiled, bytes: 4096, fill: 0x50)
         ContentHashIndexStore.saveInBackground([ContentHashRecord(path: refiled.path, mtime: 0, size: 4096,
                                                                   hex: hex, storedAt: Date()),
                                                 ContentHashRecord(path: filed.path, mtime: 0, size: 4096,

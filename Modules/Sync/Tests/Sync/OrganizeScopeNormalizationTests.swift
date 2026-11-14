@@ -49,19 +49,6 @@ import Foundation
         #expect(Self.table.filter { !$0.stored.isEmpty }.count == 6)
     }
 
-    // MARK: The question the two spellings used to answer separately
-
-    /// A missing provider root and an empty one are one condition, and both clear the scope.
-    /// `ContentView` passes `""` for a provider with no path and `LensWorkspaceView` passes nil, so
-    /// this is what keeps the two writers agreeing.
-    @Test func aMissingRootAndAnEmptyRootAnswerTheSame() {
-        let subtree = Self.root + "/Legal"
-        #expect(OrganizeScope.normalizedPath(subtree, providerRoot: nil) == "")
-        #expect(OrganizeScope.normalizedPath(subtree, providerRoot: "") == "")
-        // With a real root it does not clear, or the two above could pass for the wrong reason.
-        #expect(OrganizeScope.normalizedPath(subtree, providerRoot: Self.root) == subtree)
-    }
-
     // MARK: Write and read are one rule
 
     /// What the writer stores is exactly what the reader resolves back — the round trip that stops

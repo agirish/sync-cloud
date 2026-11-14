@@ -208,24 +208,19 @@ import Testing
         #expect(!c.resumes(profileId: "t", rootPath: "/tmp/tree", salt: "dcba"))
     }
 
-    @Test func remainingIsWhatHasNotBeenLookedAt() {
-        #expect(Array(sample(nextIndex: 2).remaining) == ["c.pdf", "d.pdf"])
-        #expect(Array(sample(nextIndex: 0).remaining) == ["a.pdf", "b.pdf", "c.pdf", "d.pdf"])
-        #expect(Array(sample(nextIndex: 4).remaining).isEmpty)
-    }
-
-    /// The file is on disk and can be hand-edited, so an index past the end must mean "nothing
-    /// left" rather than trapping on the slice — a crash on resume is a worse answer than a survey
-    /// that thinks it is done.
-    @Test func anOutOfRangeIndexDoesNotTrap() {
-        #expect(Array(sample(nextIndex: 99).remaining).isEmpty)
-        #expect(Array(sample(nextIndex: -1).remaining).count == 4)
-        #expect(sample(nextIndex: 99).progress == (4, 4))
-        #expect(sample(nextIndex: -1).progress == (0, 4))
-    }
-
-    @Test func progressCountsAgainstThePlan() {
-        #expect(sample(nextIndex: 2).progress == (2, 4))
+    /// What is left and how far along, against the plan. The file is on disk and can be
+    /// hand-edited, so an index out of range must clamp rather than trap on the slice: a crash on
+    /// resume is a worse answer than a survey that thinks it is done.
+    @Test(arguments: [
+        (-1, ["a.pdf", "b.pdf", "c.pdf", "d.pdf"], 0),
+        (0, ["a.pdf", "b.pdf", "c.pdf", "d.pdf"], 0),
+        (2, ["c.pdf", "d.pdf"], 2),
+        (4, [], 4),
+        (99, [], 4),
+    ])
+    func remainingAndProgressCountAgainstThePlan(nextIndex: Int, remaining: [String], done: Int) {
+        #expect(Array(sample(nextIndex: nextIndex).remaining) == remaining)
+        #expect(sample(nextIndex: nextIndex).progress == (done, 4))
     }
 
     // MARK: - Discarding

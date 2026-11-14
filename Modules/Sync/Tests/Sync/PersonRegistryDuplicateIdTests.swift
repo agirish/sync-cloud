@@ -29,25 +29,15 @@ import Testing
                 "the surviving record moved: the first occurrence's position is what orders the roster")
     }
 
-    @Test func theLastRecordWins() {
-        let registry = PersonRegistry(people: [
-            Self.person("elder", "Elder One", relationship: "self"),
-            Self.person("elder", "Elder Two", relationship: "father"),
-        ])
-        let kept = try? #require(registry.people.first)
-        // Named fields rather than record equality, so a future field can't pass this by being
-        // equal on both sides. Display and relationship differ between the two, deliberately.
-        #expect(kept?.displayName == "Elder Two", "the FIRST record won, or the two were merged")
-        #expect(kept?.relationship == "father")
-    }
-
     @Test func theWinnerIsARecordAndNotAMergeOfBoth() {
         let registry = PersonRegistry(people: [
-            Self.person("elder", "Elder One", fullNames: ["Elder One"], aliases: ["Gigi"]),
-            Self.person("elder", "Elder Two", fullNames: ["Elder Two"]),
+            Self.person("elder", "Elder One", fullNames: ["Elder One"], aliases: ["Gigi"], relationship: "self"),
+            Self.person("elder", "Elder Two", fullNames: ["Elder Two"], relationship: "father"),
         ])
         let kept = try? #require(registry.people.first)
         #expect(kept?.fullNames == ["Elder Two"])
+        #expect(kept?.displayName == "Elder Two", "the FIRST record won, or the two were merged")
+        #expect(kept?.relationship == "father")
         #expect(kept?.aliases.isEmpty == true,
                 "the loser's aliases came across — this is a pick, not a merge")
         // The dropped record's names are gone from matching: the cost of picking, recorded as a

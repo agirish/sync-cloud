@@ -8,12 +8,6 @@ import EventsTestSupport
 /// keys, and the idempotent activate that protects unsaved edits from provider-id churn.
 @Suite struct IgnoredItemsStoreTests {
 
-    private func makeDefaults() -> (UserDefaults, String) {
-        let suite = "IgnoredItemsStoreTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        return (defaults, suite)
-    }
-
     @Test func testPairKeyIsOrderIndependent() {
         #expect(IgnoredItemsStore.pairKey("iCloud", "Dropbox") == IgnoredItemsStore.pairKey("Dropbox", "iCloud"))
         #expect(IgnoredItemsStore.pairKey("a", "b") != IgnoredItemsStore.pairKey("a", "c"))
@@ -21,8 +15,7 @@ import EventsTestSupport
 
     @MainActor
     @Test func testAddRemovePersistAcrossInstances() {
-        let (defaults, suite) = makeDefaults()
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("IgnoredItemsStoreTests")
         let key = IgnoredItemsStore.pairKey("iCloud", "Dropbox")
 
         let store = IgnoredItemsStore(userDefaults: defaults)
@@ -37,8 +30,7 @@ import EventsTestSupport
 
     @MainActor
     @Test func testStoresAreScopedPerProviderPair() {
-        let (defaults, suite) = makeDefaults()
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("IgnoredItemsStoreTests")
 
         let store = IgnoredItemsStore(userDefaults: defaults)
         store.activate(pairKey: IgnoredItemsStore.pairKey("iCloud", "Dropbox"))
@@ -53,8 +45,7 @@ import EventsTestSupport
 
     @MainActor
     @Test func testActivateSameKeyIsANoOp() {
-        let (defaults, suite) = makeDefaults()
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("IgnoredItemsStoreTests")
         let key = IgnoredItemsStore.pairKey("a", "b")
 
         let store = IgnoredItemsStore(userDefaults: defaults)
@@ -72,8 +63,7 @@ import EventsTestSupport
     @MainActor
     @Test func testAddBeforeActivateIsSessionOnlyAndSaysSo() async {
         let log = LogCapture()
-        let (defaults, suite) = makeDefaults()
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("IgnoredItemsStoreTests")
 
         let store = IgnoredItemsStore(userDefaults: defaults)   // deliberately NOT activated
         store.add(["Docs/orphan.txt"])
@@ -88,8 +78,7 @@ import EventsTestSupport
 
     @MainActor
     @Test func testRemoveAllClearsThePersistedKey() {
-        let (defaults, suite) = makeDefaults()
-        defer { wipeDefaultsSuite(suite) }
+        let defaults = ScratchDefaults("IgnoredItemsStoreTests")
         let key = IgnoredItemsStore.pairKey("a", "b")
 
         let store = IgnoredItemsStore(userDefaults: defaults)

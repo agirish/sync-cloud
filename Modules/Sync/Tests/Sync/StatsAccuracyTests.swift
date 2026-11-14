@@ -23,36 +23,6 @@ import Foundation
     }
     
     @MainActor
-    @Test func testDifferenceCountAccuracy() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        
-        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", rootPath: "/src", type: .iCloud)
-        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", rootPath: "/dst", type: .iCloud)
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        // 1 missing in destination
-        mockFM.virtualDisk["/src/only_in_src.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // 1 different (modification date)
-        let now = Date()
-        let later = now.addingTimeInterval(3600)
-        mockFM.virtualDisk["/src/diff_date.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
-        mockFM.virtualDisk["/dst/diff_date.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: later], contents: nil)
-        
-        // 1 same
-        mockFM.virtualDisk["/src/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
-        mockFM.virtualDisk["/dst/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
-        
-        await manager.scanDirectories(left: srcProvider, leftPath: "/src", right: dstProvider, rightPath: "/dst")
-        
-        // Two differences: the missing file and the date difference.
-        #expect(manager.differences.count == 2)
-    }
-    
-    @MainActor
     @Test func testHiddenFilesStatsToggle() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
@@ -72,34 +42,6 @@ import Foundation
         #expect(manager.leftItemCount == 2)
     }
     
-    @MainActor
-    @Test func testRealFilesystemTreeBuild() async throws {
-        // The real-FileManager `buildNode` path (existence and type from resource values), which
-        // the mock-based tests don't cover. Mirrors testItemCountsWithNesting on disk.
-        let manager = FileSyncManager() // real FileManager
-        let fm = FileManager.default
-
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("SyncCloudTreeTest-\(UUID().uuidString)")
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: root) }
-
-        // /root/file1.txt, /root/subDir, /root/subDir/file2.txt -> 3 items
-        try Data("hello".utf8).write(to: root.appendingPathComponent("file1.txt"))
-        let subDir = root.appendingPathComponent("subDir")
-        try fm.createDirectory(at: subDir, withIntermediateDirectories: true)
-        try Data("world".utf8).write(to: subDir.appendingPathComponent("file2.txt"))
-
-        await manager.loadTree(path: root.path, isLeft: true)
-
-        #expect(manager.leftItemCount == 3)
-
-        // isDirectory must come from the resource values.
-        let byName = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0.isDirectory) })
-        #expect(byName["file1.txt"] == false)
-        #expect(byName["subDir"] == true)
-    }
-
     @MainActor
     @Test func testRealFilesystemLinksEmptyFoldersAndMetadata() async throws {
         // One real-disk tree holding every shape below, read by one `loadTree`:

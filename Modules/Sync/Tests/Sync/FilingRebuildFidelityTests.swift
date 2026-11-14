@@ -70,7 +70,10 @@ import Testing
                                                   encoding: .utf8),
                                       "cannot read \(file) — this scan would be vacuous")
             try #require(source.count > 500, "\(file) is implausibly short")
-            #expect(source.contains("replacingCandidates("),
+            let code = source.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            #expect(code.contains("replacingCandidates("),
                     "\(file) rebuilds a suggestion without the member (\(declaration)); alreadyFiledAt drops there")
         }
     }

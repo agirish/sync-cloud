@@ -139,32 +139,66 @@ import Events
         #expect(manager.fileOperationsEpoch == epochBefore)
     }
 
-    /// The window after publish: the offer dialog is up, the user hits ⌘Z, and the undo overwrites
-    /// a verified file before its rescan clears the offer (`scanDirectories` does, but only when
-    /// the rescan completes, seconds later on a large tree). Confirming then must refuse: the
-    /// verdicts predate the write. Same size, different content, so a stale copy would show.
+    /// What makes an offer stale by the time the user confirms it.
+    enum StaleConfirm: Sendable { case fileOperation, pendingOperation, staleStamp }
+
+    /// Confirming a stale offer must refuse: the verdicts predate a write.
+    /// - `fileOperation`: the dialog is up, the user hits ⌘Z, and the undo overwrites a verified
+    ///   file before its rescan clears the offer (`scanDirectories` does, but only when the rescan
+    ///   completes, seconds later on a large tree). Same size, different content, so a stale copy
+    ///   would show.
+    /// - `pendingOperation`: the window the epoch alone can't see, an operation pre-counted but not
+    ///   yet at `enqueueFileOperation`, where the epoch is bumped. Undo/redo pre-count synchronously
+    ///   and enqueue from a `Task`, and `enqueueFileOperation`'s `await MainActor.run` suspends, so
+    ///   "epoch unmoved" doesn't mean "nothing is about to be written". Passing here, the bulk copy
+    ///   would queue behind the undo and overwrite what it restored. `bulkCopyDifferencesLeftToRight`
+    ///   re-checks both terms too, but only this guard refuses visibly at click time.
+    /// - `staleStamp`: the epoch term on its own, an offer stamped behind the live epoch. The stamp
+    ///   is part of `VerifiedCopyOffer`, so a stale one is a constructor argument.
     @MainActor
-    @Test func testConfirmAfterAFileOperationRefusesTheStaleCopy() async throws {
+    @Test(arguments: [StaleConfirm.fileOperation, .pendingOperation, .staleStamp])
+    func testConfirmRefusesAStaleOffer(_ stale: StaleConfirm) async throws {
         let fixture = try makeRaceFixture()
         defer { fixture.cleanup() }
         let manager = fixture.manager
 
-        await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
-
-        // An undo lands while the dialog is up: same size, different bytes (restored content).
         let restored = Data("restored!".utf8)   // 9 bytes, like "identical"
-        let rightURL = fixture.rightIdenticalURL
-        await manager.enqueueFileOperation {
-            try? restored.write(to: rightURL)
+        switch stale {
+        case .fileOperation:
+            await manager.verifyAllWithChecksum()
+            try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+            // An undo lands while the dialog is up: same size, different bytes (restored content).
+            let rightURL = fixture.rightIdenticalURL
+            await manager.enqueueFileOperation {
+                try? restored.write(to: rightURL)
+            }
+        case .pendingOperation:
+            await manager.verifyAllWithChecksum()
+            try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+            let stampedEpoch = manager.fileOperationsEpoch
+            // ⌘Z: the undo handler's pre-count lands, its Task has not hopped to the main actor yet.
+            manager.preCountFileOperation()
+            try #require(manager.activeFileOperationsCount == 1)
+            try #require(manager.fileOperationsEpoch == stampedEpoch,
+                         "the epoch must still be unmoved — that gap is the whole window under test")
+        case .staleStamp:
+            await manager.enqueueFileOperation { }
+            let liveEpoch = manager.fileOperationsEpoch
+            try #require(liveEpoch > 0)
+            try #require(manager.activeFileOperationsCount == 0, "only the stamp may be stale here")
+            manager.verifiedIdenticalForCopy = VerifiedCopyOffer(
+                differences: [fixture.identical], asOf: liveEpoch - 1
+            )
         }
 
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
-        #expect(copyTask == nil, "a confirm after a file operation must not start the bulk copy")
+        #expect(copyTask == nil, "a confirm on a stale offer must not start the bulk copy")
         #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(try Data(contentsOf: rightURL) == restored,
-                "the stale copy must not overwrite the bytes the operation just wrote")
+        if stale == .fileOperation {
+            #expect(try Data(contentsOf: fixture.rightIdenticalURL) == restored,
+                    "the stale copy must not overwrite the bytes the operation just wrote")
+        }
         // The banner is this path's whole user-facing contract: the click did nothing, and
         // without it the dialog would close for no stated reason.
         // (Field comparison: banner equality includes a per-publish id.)
@@ -173,70 +207,8 @@ import Events
         // A refusal resolves nothing: nothing hidden as verified-same, no row dropped.
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
         #expect(manager.differences.count == 2)
-    }
 
-    /// The window the epoch alone can't see: an operation pre-counted but not yet at
-    /// `enqueueFileOperation`, where the epoch is bumped. Undo/redo pre-count synchronously and
-    /// enqueue from a `Task`, and `enqueueFileOperation`'s `await MainActor.run` suspends, so
-    /// "epoch unmoved" doesn't mean "nothing is about to be written". Passing here, the bulk copy
-    /// would queue behind the undo and overwrite what it restored. `bulkCopyDifferencesLeftToRight`
-    /// re-checks both terms too, but only this guard refuses visibly at click time.
-    @MainActor
-    @Test func testConfirmRefusesWhileAPreCountedOperationHasNotYetEnqueued() async throws {
-        let fixture = try makeRaceFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
-        let stampedEpoch = manager.fileOperationsEpoch
-
-        // ⌘Z: the undo handler's pre-count lands, its Task has not hopped to the main actor yet.
-        manager.preCountFileOperation()
-        try #require(manager.activeFileOperationsCount == 1)
-        try #require(manager.fileOperationsEpoch == stampedEpoch,
-                     "the epoch must still be unmoved — that gap is the whole window under test")
-
-        let copyTask = manager.confirmVerifiedCopy()
-        await copyTask?.value
-
-        #expect(copyTask == nil, "a confirm with a write already pending must not start the bulk copy")
-        #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
-        #expect(manager.banner?.severity == .warning)
-        // A refusal resolves nothing and hides nothing: the rows stay exactly as they were.
-        #expect(manager.verifiedSameDifferenceIds.isEmpty)
-        #expect(manager.differences.count == 2)
-
-        manager.cancelPreCountedFileOperation()
-    }
-
-    /// The epoch term on its own. An offer stamped behind the live epoch is the state the confirm
-    /// guard exists for; the stamp is part of `VerifiedCopyOffer`, so a stale one is a constructor
-    /// argument and the guard can be tested without staging the race.
-    @MainActor
-    @Test func testConfirmRefusesAnOfferStampedBeforeTheLiveEpoch() async throws {
-        let fixture = try makeRaceFixture()
-        defer { fixture.cleanup() }
-        let manager = fixture.manager
-
-        await manager.enqueueFileOperation { }
-        let liveEpoch = manager.fileOperationsEpoch
-        try #require(liveEpoch > 0)
-        try #require(manager.activeFileOperationsCount == 0, "only the stamp may be stale here")
-
-        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(
-            differences: [fixture.identical], asOf: liveEpoch - 1
-        )
-        let copyTask = manager.confirmVerifiedCopy()
-        await copyTask?.value
-
-        #expect(copyTask == nil)
-        #expect(manager.verifiedIdenticalForCopy == nil)
-        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
-        #expect(manager.banner?.severity == .warning)
-        #expect(manager.verifiedSameDifferenceIds.isEmpty)
-        #expect(manager.differences.count == 2)
+        if stale == .pendingOperation { manager.cancelPreCountedFileOperation() }
     }
 
     /// A Verify All that finds nothing identical retracts a standing offer. Nothing downstream

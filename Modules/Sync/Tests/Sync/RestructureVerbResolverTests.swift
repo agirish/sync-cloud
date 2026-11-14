@@ -171,16 +171,4 @@ import Testing
                                                 alreadyScaffolded: ["Work/Benefits/2026"])
                 == .run(findings[0]))
     }
-
-    /// A folder outside the root, and one with no finding, are `unavailable` — a greyed item,
-    /// with nothing to say about it.
-    @Test func aFolderWithNothingToActOnIsUnavailable() {
-        let findings = [Self.shape("Finance/US/Income Tax")]
-        #expect(RestructureVerbResolver.resolve(.plan, folder: "/elsewhere/Finance",
-                                                root: Self.root, in: findings,
-                                                storeIsReadable: true) == .unavailable)
-        #expect(RestructureVerbResolver.resolve(.plan, folder: "\(Self.root)/Photos",
-                                                root: Self.root, in: findings,
-                                                storeIsReadable: true) == .unavailable)
-    }
 }

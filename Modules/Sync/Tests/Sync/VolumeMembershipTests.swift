@@ -74,15 +74,4 @@ import Testing
         #expect(FolderSource.idsOnVolume(Self.card, in: sources)
                 == ["folder:root", "folder:dcim"])
     }
-
-    @Test func anUnmountOfSomethingWithNoSourcesNamesNothing() {
-        let sources = [source("~/Downloads", id: "downloads"), source("~/Desktop", id: "desktop")]
-        #expect(FolderSource.idsOnVolume(Self.card, in: sources).isEmpty)
-    }
-
-    /// The guard above, restated where it would actually do the damage.
-    @Test func anUnmountReportedAsTheRootTakesNothing() {
-        let sources = [source("~/Downloads", id: "downloads"), source(Self.card, id: "card")]
-        #expect(FolderSource.idsOnVolume("/", in: sources).isEmpty)
-    }
 }

@@ -201,34 +201,21 @@ import Foundation
 
     // MARK: Handoffs
 
-    @Test func aRevealForAFileOUTSIDETheScopeClearsIt() {
-        // The reveal resolves against the whole group list while rows draw through the scoped one.
-        // Without clearing, the group is marked and then filtered away, and a question about a
-        // named file comes back as a silent no.
+    /// A reveal clears the scope only for a file outside it. The reveal resolves against the whole
+    /// group list while rows draw through the scoped one, so without clearing a question about a
+    /// named file comes back as a silent no; clearing unconditionally would drop the scope whenever
+    /// the user asked about a row they were already looking at.
+    @Test func revealClearsScope() {
         let s = Self.scope(Self.legal)
         #expect(OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Medical/scan.pdf", scope: s))
-    }
-
-    @Test func aRevealForAFileINSIDETheScopeLeavesItAlone() {
-        // Clearing unconditionally would drop the scope whenever the user asked about a row they
-        // were already looking at.
-        let s = Self.scope(Self.legal)
         #expect(!OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Legal/lease.pdf", scope: s))
         #expect(!OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Legal/2024/lease.pdf", scope: s))
-    }
-
-    @Test func aRevealWithNoScopeClearsNothing() {
         #expect(!OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/Medical/scan.pdf", scope: nil))
-    }
-
-    @Test func aRevealForASIBLINGSHARINGAPREFIXClearsTheScope() {
-        // `Legal` must not be treated as containing `LegalArchive`, or the handoff would leave the
-        // scope in place and hide the very group it was asked about.
-        let s = Self.scope(Self.legal)
+        // `Legal` must not contain `LegalArchive`, or the handoff would hide the very group asked about.
         #expect(OrganizeScopeFilter.revealClearsScope(
             revealedPath: "/Users/x/Documents/LegalArchive/lease.pdf", scope: s))
     }
@@ -281,12 +268,6 @@ import Foundation
         #expect(OrganizeScopeFilter.relation(of: Self.finding("Medical/Bills"),
                                              profileRoot: "~/Documents", scope: s) == .outside)
     }
-
-    // MARK: Rules — there is no predicate, and that is the assertion
-
-    // The scope does not reach Rules (`OrganizeLens.isScoped`), so there is no rule predicate to
-    // test here. `OrganizeLensTests` in FileExplorer covers that rule; the reason is on
-    // `OrganizeScopeFilter`.
 
     // MARK: - Whether an answer can be given at all
 

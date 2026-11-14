@@ -28,59 +28,10 @@ import Events
 
     // MARK: Reading the refusal LOG, not just the banner
 
-    /// The tests read the log, not just the banner: the banner is one sentence shared by both undo
-    /// paths, and the log line carries the path-specific wording. A marker planted before the
-    /// operation lets `logLines(since:)` tell a line that was never written from a window that
-    /// lost its front, and reports the latter as inconclusive.
-    ///
-    /// Planted at `.info`, the level of the lines asserted on, not `.debug`: `Logger.log` drops
-    /// anything below `minimumLevel`, and a dropped marker would read as a rolled window.
-    @MainActor
-    private func plantLogMarker(_ label: String) async -> String {
-        let marker = "undo-drift-marker \(label) \(UUID().uuidString)"
-        await Logger.shared.info(marker).value
-        return marker
-    }
-
-    /// The lines logged strictly between `marker` and a closing marker written here
-    /// (`docs/flaky-tests.md`, "A log assertion reading a window that has already rolled"). A
-    /// missing opening marker means the window lost its front, so nothing can be concluded; the
-    /// closing one keeps out lines logged after the operation.
-    ///
-    /// The window still holds lines from suites running alongside on the shared `Logger`, so an
-    /// absence assertion must first filter to lines naming the test's own paths.
-    ///
-    /// Both indices are guarded before anything is sliced, and `start` is searched only in
-    /// `lines[..<end]`: slicing reversed bounds traps and takes the whole test host down.
-    @MainActor
-    private func logLines(since marker: String,
-                          sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
-        let closing = "undo-drift-close \(marker)"
-        await Logger.shared.info(closing).value
-        // The log file, not `Logger.shared.entries`: the entries are a 1000-line window every
-        // suite shares, and a slow test under load can see its marker rolled out. The file rolls
-        // far later, but `LogFileWriter.trimMidSessionIfOversized` halves it past about 5 MB, so
-        // the guard below names that rather than blaming the undo. `flushToDisk` drains it first.
-        Logger.shared.flushToDisk()
-        let text = (try? String(contentsOf: Logger.shared.logFileURL, encoding: .utf8)) ?? ""
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        guard let end = lines.lastIndex(where: { $0.hasSuffix(closing) }) else {
-            Issue.record("""
-                this test's own CLOSING marker is not in the log at all — the window cannot be \
-                bounded, so nothing can be concluded about the refusal line
-                """, sourceLocation: sourceLocation)
-            return []
-        }
-        guard let start = lines[..<end].lastIndex(where: { $0.hasSuffix(marker) }) else {
-            Issue.record("""
-                this test's own opening marker is not in the log file — it never reached it, or the \
-                writer trimmed it away past its size cap (about 5 MB) during a long run — so nothing \
-                can be concluded about the refusal line
-                """, sourceLocation: sourceLocation)
-            return []
-        }
-        return Array(lines[start..<end])
-    }
+    // The tests read the log, not just the banner: the banner is one sentence shared by both undo
+    // paths, and the log line carries the path-specific wording. `logLines(tag:during:)` windows
+    // it, but the window still holds lines from suites running alongside, so an absence assertion
+    // must first filter to lines naming the test's own paths.
 
     // MARK: 1 — a copied folder is now guarded
 
@@ -104,15 +55,14 @@ import Events
         mockFM.virtualDisk["/dst/photos-drifted/new1.jpg"] = file(20)
         mockFM.virtualDisk["/dst/photos-drifted/new2.jpg"] = file(30)
         manager.banner = nil
-        let marker = await plantLogMarker("copy-folder-changed")
-
-        manager.undoManager?.undo()
-        await waitUntil("the folder undo refuses") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "copy-folder-changed \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the folder undo refuses") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message.contains("changed since") == true)
         // The copy path's sentence: this undo would have removed the item the copy produced.
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to remove \"photos-drifted\" at /dst/photos-drifted")
                 && $0.contains("it changed since the operation")
@@ -164,14 +114,13 @@ import Events
         // Edited in place: same four bytes, later timestamp. Size alone cannot see this.
         mockFM.virtualDisk["/dst/bill.txt"] = file(4, modified: Date(timeIntervalSince1970: 9_999))
         manager.banner = nil
-        let marker = await plantLogMarker("copy-same-size-edit")
-
-        manager.undoManager?.undo()
-        await waitUntil("the same-size edit is refused") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "copy-same-size-edit \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the same-size edit is refused") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message.contains("changed since") == true)
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to remove \"bill.txt\" at /dst/bill.txt")
                 && $0.contains("it changed since the operation")
@@ -201,11 +150,11 @@ import Events
         // A newer v2 replaces the moved file at the destination.
         mockFM.virtualDisk["/dst/ledger.txt"] = file(555, modified: Date(timeIntervalSince1970: 9_999))
         manager.banner = nil
-        let marker = await plantLogMarker("move-destination-replaced")
-
-        manager.undoManager?.undo()
-        await waitUntil("the move undo refuses the replaced destination") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "move-destination-replaced \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the move undo refuses the replaced destination") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message.contains("changed since") == true)
         #expect(mockFM.virtualDisk["/dst/ledger.txt"]?.attributes?[FileAttributeKey.size] as? Int == 555,
@@ -213,7 +162,6 @@ import Events
         #expect(mockFM.virtualDisk["/src/ledger.txt"] == nil,
                 "nothing may be restored to the source while the destination is unverified")
 
-        let lines = await logLines(since: marker)
         // A move-undo moves the item back: it removes nothing, and the original move, not the
         // undo, put it there.
         #expect(lines.contains {
@@ -252,12 +200,11 @@ import Events
         // The user deletes the moved file in Finder before pressing ⌘Z.
         mockFM.virtualDisk["/dst/report.txt"] = nil
         manager.banner = nil
-        let marker = await plantLogMarker("move-destination-vanished")
+        let lines = try await logLines(tag: "move-destination-vanished \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
-        manager.undoManager?.undo()
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
-
-        let lines = await logLines(since: marker)
         // Not reported as a change: nothing changed, the item is gone. Narrowed to this item's
         // lines, because a window bounds time, not authorship, and other suites log refusals of
         // their own. Still not vacuous: `reportUndoRefusedChangedItem` embeds
@@ -297,18 +244,17 @@ import Events
         // nothing can be concluded about whether it is still the copy.
         mockFM.unlistableDirectories = ["/dst/locked"]
         manager.banner = nil
-        let marker = await plantLogMarker("copy-unreadable")
-
-        manager.undoManager?.undo()
-        await waitUntil("the unreadable copy is refused") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "copy-unreadable \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the unreadable copy is refused") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message.contains("couldn’t be checked") == true,
                 "an unverifiable item reports as unverifiable, not as changed")
         #expect(mockFM.virtualDisk["/dst/locked"] != nil, "an item that cannot be checked is not destroyed")
         // The log keeps the two refusals apart too: "could not be read" is no evidence of an edit,
         // and a reader acts differently on each.
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to remove \"locked\" at /dst/locked")
                 && $0.contains("its current state could not be read")
@@ -350,12 +296,13 @@ import Events
 
         // 1. Undo: every one of the three paths is back, and nothing of the normalized pass survives.
         f.manager.banner = nil
-        let undoMarker = await plantLogMarker("nested-normalize-undo")
-        f.manager.undoManager?.undo()
-        await waitUntil("the nested undo puts the risky child back") {
-            FileManager.default.fileExists(atPath: f.riskyChild.path)
+        let undoLines = try await logLines(tag: "nested-normalize-undo \(UUID().uuidString)") {
+            f.manager.undoManager?.undo()
+            await waitUntil("the nested undo puts the risky child back") {
+                FileManager.default.fileExists(atPath: f.riskyChild.path)
+            }
+            await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
 
         #expect(treeUnder(root) == reversed, "the undo must reverse the whole pass; tree is \(treeUnder(root))")
         // `try?`: a throwing read would abort at the first missing file and skip the banner and
@@ -364,7 +311,6 @@ import Events
                 "the child must be the same file moved back, not a fresh one")
         #expect(f.manager.banner == nil,
                 "a fully reversed pass raises no banner; got \(String(describing: f.manager.banner?.message))")
-        let undoLines = await logLines(since: undoMarker)
         #expect(undoLines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
         }, "the undo did not reverse both renames; lines since the marker: \(undoLines)")
@@ -373,12 +319,13 @@ import Events
                 "nothing drifted, so nothing may be refused; lines since the marker: \(undoLines)")
 
         // 2. Redo: the pass lands exactly again.
-        let redoMarker = await plantLogMarker("nested-normalize-redo")
-        f.manager.undoManager?.redo()
-        await waitUntil("the nested redo re-applies the child rename") {
-            FileManager.default.fileExists(atPath: f.safeChild.path)
+        let redoLines = try await logLines(tag: "nested-normalize-redo \(UUID().uuidString)") {
+            f.manager.undoManager?.redo()
+            await waitUntil("the nested redo re-applies the child rename") {
+                FileManager.default.fileExists(atPath: f.safeChild.path)
+            }
+            await waitUntil("redo op drains") { f.manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("redo op drains") { f.manager.activeFileOperationsCount == 0 }
 
         #expect(treeUnder(root) == ["Photos", "Photos/a.txt"],
                 "the redo must land exactly the pass it re-applies; tree is \(treeUnder(root))")
@@ -386,7 +333,6 @@ import Events
                 "the child must be the same file moved back, not a fresh one")
         #expect(f.manager.banner == nil,
                 "a fully re-applied pass raises no banner; got \(String(describing: f.manager.banner?.message))")
-        let redoLines = await logLines(since: redoMarker)
         #expect(redoLines.contains {
             $0.contains("Redo (Normalize 2 Names): moved 2 of 2 item(s), 0 redo failure(s)")
         }, "the redo did not re-apply both renames; lines since the marker: \(redoLines)")
@@ -395,19 +341,19 @@ import Events
 
         // 3. The undo after the redo reverses the whole pass again.
         f.manager.banner = nil
-        let againMarker = await plantLogMarker("nested-normalize-redo-undo")
-        f.manager.undoManager?.undo()
-        await waitUntil("the second undo puts the risky child back again") {
-            FileManager.default.fileExists(atPath: f.riskyChild.path)
+        let againLines = try await logLines(tag: "nested-normalize-redo-undo \(UUID().uuidString)") {
+            f.manager.undoManager?.undo()
+            await waitUntil("the second undo puts the risky child back again") {
+                FileManager.default.fileExists(atPath: f.riskyChild.path)
+            }
+            await waitUntil("second undo op drains") { f.manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("second undo op drains") { f.manager.activeFileOperationsCount == 0 }
 
         #expect(treeUnder(root) == reversed,
                 "the second undo must reverse the whole pass again; tree is \(treeUnder(root))")
         #expect((try? Data(contentsOf: f.riskyChild)) == Data("child payload".utf8))
         #expect(f.manager.banner == nil,
                 "a fully reversed pass raises no banner; got \(String(describing: f.manager.banner?.message))")
-        let againLines = await logLines(since: againMarker)
         #expect(againLines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 2 of 2 item(s) back to source, 0 restore failure(s), 0 left in place")
         }, "the undo after the redo did not reverse both renames; lines since the marker: \(againLines)")
@@ -430,18 +376,17 @@ import Events
         // stays unrestored.
         try Data("dropped in later".utf8).write(to: f.safeFolder.appendingPathComponent("extra.txt"))
         f.manager.banner = nil
-        let marker = await plantLogMarker("nested-normalize-refused")
-
-        f.manager.undoManager?.undo()
-        await waitUntil("the drifted folder undo refuses") { f.manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "nested-normalize-refused \(UUID().uuidString)") {
+            f.manager.undoManager?.undo()
+            await waitUntil("the drifted folder undo refuses") { f.manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { f.manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(treeUnder(root) == ["Photos", "Photos/a.txt", "Photos/extra.txt"],
                 "a refused undo may add nothing to the tree; tree is \(treeUnder(root))")
         #expect(!FileManager.default.fileExists(atPath: f.riskyFolder.path),
                 "the risky folder name must not be manufactured by an undo that refused to restore it")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("Undo (Normalize 2 Names): moved 0 of 2 item(s) back to source, 0 restore failure(s), 2 left in place")
         }, "both items should have been refused, and neither counted as a failure; lines since the marker: \(lines)")
@@ -513,10 +458,7 @@ import Events
         try FileManager.default.createDirectory(at: riskyFolder, withIntermediateDirectories: true)
         try Data(repeating: 0x41, count: 4242).write(to: strangerChild)
 
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
+        let manager = makeManager()
 
         // `normalizeNames`' batch, shallowest-first, as it registers it: the child was renamed
         // inside its still-risky parent, so its recorded `to` is where the stranger now sits.
@@ -528,10 +470,11 @@ import Events
                                  fileManager: FileManager.default)
 
         manager.banner = nil
-        let marker = await plantLogMarker("stranger-at-recorded-path")
-        manager.undoManager?.undo()
-        await waitUntil("the undo refuses something") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "stranger-at-recorded-path \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the undo refuses something") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         // The stranger keeps its own name; renamed, it would be `a␣.txt`.
         #expect(treeUnder(root) == ["P", "P/a.txt", "P<ZWSP>", "P<ZWSP>/a.txt"],
@@ -543,7 +486,6 @@ import Events
         #expect((try? Data(contentsOf: safeChild)) == Data("child payload".utf8),
                 "our own item must be left exactly where the pass put it")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to move \"a.txt\" at \(strangerChild.path) back to its original location")
                 && $0.contains("no longer the item that was moved here")
@@ -581,11 +523,11 @@ import Events
         mockFM.virtualDisk["/redo-src/stranger.txt"] = file(999, modified: Date(timeIntervalSince1970: 9_999))
         mockFM.virtualDisk["/redo-dst/stranger.txt"] = file(555, modified: Date(timeIntervalSince1970: 8_888))
         manager.banner = nil
-        let marker = await plantLogMarker("redo-source-replaced")
-
-        manager.undoManager?.redo()
-        await waitUntil("the redo refuses the replaced source") { manager.banner?.severity == .warning }
-        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "redo-source-replaced \(UUID().uuidString)") {
+            manager.undoManager?.redo()
+            await waitUntil("the redo refuses the replaced source") { manager.banner?.severity == .warning }
+            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message == "Redo left “stranger.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
@@ -594,7 +536,6 @@ import Events
         #expect(mockFM.virtualDisk["/redo-dst/stranger.txt"]?.attributes?[FileAttributeKey.size] as? Int == 555,
                 "the unrelated file at the destination must not be replaced by a redo")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to re-apply \"stranger.txt\" from /redo-src/stranger.txt")
                 && $0.contains("it changed since the undo put it back")
@@ -681,13 +622,13 @@ import Events
                 contents: nil)
         }
         manager.banner = nil
-        let marker = await plantLogMarker("redo-source-replaced-mid-batch")
-
-        manager.undoManager?.redo()
-        await waitUntil("the redo re-applies the item that did not drift") {
-            mockFM.virtualDisk["/tdst/b.txt"] != nil
+        let lines = try await logLines(tag: "redo-source-replaced-mid-batch \(UUID().uuidString)") {
+            manager.undoManager?.redo()
+            await waitUntil("the redo re-applies the item that did not drift") {
+                mockFM.virtualDisk["/tdst/b.txt"] != nil
+            }
+            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
         let afterRedo = probe(mockFM, ["/tsrc/aa.txt", "/tsrc/b.txt", "/tdst/aa.txt", "/tdst/b.txt"])
         #expect(afterRedo == "/tsrc/aa.txt=8888  /tdst/b.txt=20",
@@ -695,7 +636,6 @@ import Events
         #expect(manager.banner?.message == "Redo left “aa.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to re-apply \"aa.txt\" from /tsrc/aa.txt")
                 && $0.contains("it changed since the undo put it back")
@@ -748,13 +688,13 @@ import Events
                 contents: nil)
         }
         manager.banner = nil
-        let marker = await plantLogMarker("redo-absent-source-refilled")
-
-        manager.undoManager?.redo()
-        await waitUntil("the redo re-applies the item whose source survived") {
-            mockFM.virtualDisk["/ddst/x.txt"] != nil
+        let lines = try await logLines(tag: "redo-absent-source-refilled \(UUID().uuidString)") {
+            manager.undoManager?.redo()
+            await waitUntil("the redo re-applies the item whose source survived") {
+                mockFM.virtualDisk["/ddst/x.txt"] != nil
+            }
+            await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
         }
-        await waitUntil("redo op drains") { manager.activeFileOperationsCount == 0 }
 
         let afterRedo = probe(mockFM, ["/dsrc/x.txt", "/dsrc/yy.txt", "/ddst/x.txt", "/ddst/yy.txt"])
         #expect(afterRedo == "/dsrc/yy.txt=7777  /ddst/x.txt=10",
@@ -762,7 +702,6 @@ import Events
         #expect(manager.banner?.message == "Redo left “yy.txt” in place — it changed since",
                 "got \(String(describing: manager.banner?.message))")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to re-apply \"yy.txt\" from /dsrc/yy.txt")
                 && $0.contains("it changed since the undo put it back")
@@ -787,10 +726,7 @@ import Events
         let riskyChild = root.appendingPathComponent("P\u{200B}").appendingPathComponent("a\u{200B}.txt")
         let safeChild = root.appendingPathComponent("P").appendingPathComponent("a.txt")
 
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
+        let manager = makeManager()
 
         // Nothing under `root`, not even the destination's parent, so the `vanished` branch can't
         // fire.
@@ -800,17 +736,17 @@ import Events
                                  actionName: "Normalize 1 Name", fileManager: FileManager.default)
 
         manager.banner = nil
-        let marker = await plantLogMarker("absent-recorded-identity")
-        manager.undoManager?.undo()
-        await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "absent-recorded-identity \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(treeUnder(root) == [],
                 "an undo with nothing to move back may build nothing; tree is \(treeUnder(root))")
         #expect(manager.banner?.message == "Undo left “a.txt” in place — there was nothing to move back",
                 "got \(String(describing: manager.banner?.message))")
 
-        let lines = await logLines(since: marker)
         #expect(lines.contains {
             $0.contains("REFUSED to move \"a.txt\" back to its original location")
                 && $0.contains("nothing was recorded at \(safeChild.path)")
@@ -836,10 +772,7 @@ import Events
         let riskyChild = parent.appendingPathComponent("a\u{200B}.txt")
         let safeChild = parent.appendingPathComponent("a.txt")
 
-        let manager = FileSyncManager()
-        manager.undoManager = UndoManager()
-        manager.collisionResolver = { _ in .replace }
-        manager.bulkCollisionResolver = { _ in (.replace, false) }
+        let manager = makeManager()
 
         try #require(!FileManager.default.fileExists(atPath: safeChild.path))
         try #require(FileManager.default.fileExists(atPath: parent.path),
@@ -849,14 +782,14 @@ import Events
                                  actionName: "Normalize 1 Name", fileManager: FileManager.default)
 
         manager.banner = nil
-        let marker = await plantLogMarker("absent-recorded-parent-exists")
-        manager.undoManager?.undo()
-        await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
-        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        let lines = try await logLines(tag: "absent-recorded-parent-exists \(UUID().uuidString)") {
+            manager.undoManager?.undo()
+            await waitUntil("the undo reports that it could not act") { manager.banner?.severity == .warning }
+            await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+        }
 
         #expect(manager.banner?.message == "Undo left “a.txt” in place — there was nothing to move back",
                 "got \(String(describing: manager.banner?.message))")
-        let lines = await logLines(since: marker)
         #expect(!lines.contains { $0.contains("a.txt is no longer on disk") },
                 "reported as removed by the user an item that was never recorded on disk")
         #expect(lines.contains {

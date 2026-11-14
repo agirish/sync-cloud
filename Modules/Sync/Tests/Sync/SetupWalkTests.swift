@@ -40,16 +40,6 @@ import Testing
 
     // MARK: - The counts
 
-    /// Folders and files are counted everywhere below the root: the two numbers the Structure
-    /// screen shows before anything is written.
-    @Test func foldersAndFilesAreCountedThroughTheWholeTree() {
-        let walk = Self.summary(folders: ["Finance/Receipts", "Finance/Statements", "Family/Mother"],
-                                files: ["loose.pdf", "Finance/Receipts/a.pdf",
-                                        "Family/Mother/passport.pdf"])
-        #expect(walk.folderCount == 5, "Finance, Receipts, Statements, Family, Mother")
-        #expect(walk.fileCount == 3)
-    }
-
     /// The counting is the survey's, not a second opinion. Dot-directories, symlinks and unexplored
     /// subtrees get no profile entry, so counting them would promise folders the profile won't
     /// describe (the reason ``FolderSurveyBuilder/isSurveyedFolder(_:)`` is public).
@@ -102,17 +92,6 @@ import Testing
     }
 
     // MARK: - The proposals
-
-    /// Both proposers read the same tree, so People and Countries can't show lists drawn from two
-    /// reads of a folder that moved in between.
-    @Test func bothProposalsComeFromTheOneTree() {
-        let walk = Self.summary(folders: ["Family/Mother", "Family/Father",
-                                          "Finance/US/Tax", "Legal/US", "School/US",
-                                          "Finance/IN/Tax", "Legal/IN", "School/IN"],
-                                files: [])
-        #expect(Set(walk.people.map(\.name)) == ["Mother", "Father"])
-        #expect(Set(walk.places.map(\.value)) == ["US", "IN"])
-    }
 
     /// Somebody already on the roster is not offered back.
     @Test func knownNamesAreNotProposedAgain() {

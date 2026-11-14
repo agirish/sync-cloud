@@ -23,11 +23,11 @@ import Foundation
     /// fixture and not of the router's current scoring.
     private func fixture(_ name: String) throws -> (root: URL, suggestions: [FilingSuggestion]) {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchReentrancy-\(name)")
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         var suggestions: [FilingSuggestion] = []
         for file in ["Tesla Policy.pdf", "Tesla Registration.pdf"] {
             let src = root.appendingPathComponent("Downloads/\(file)")
-            try writeFilingFile(src, bytes: 4096)
+            try writeBytes(src, bytes: 4096)
             let dest = FilingDestination(
                 path: root.appendingPathComponent("Documents/Vehicles/Tesla").path,
                 confidence: .high, reasons: ["name"], newSegments: ["Tesla"])
@@ -114,26 +114,6 @@ import Foundation
                 "exactly one invocation should have found the other already running, but they saw \(sawLatch) — they never overlapped, so this test proved nothing")
     }
 
-    /// The other direction: the latch must be released on every exit, or the first batch of a
-    /// session disables the button for good. A `defer` release passes; a release on the success
-    /// path alone would not.
-    @Test func aLaterBatchStillRunsAfterAnEarlierOneFinished() async throws {
-        let (root, suggestions) = try fixture("sequential")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let m = FileSyncManager()
-        m.filingSuggestions = suggestions
-
-        await m.applyRecommendedFiling([suggestions[0]])
-        #expect(filed(root, "Tesla Policy.pdf"))
-        #expect(!m.isFilingBatchRunning, "the latch outlived the batch that took it")
-
-        await m.applyRecommendedFiling([suggestions[1]])
-        #expect(filed(root, "Tesla Registration.pdf"),
-                "the second batch was refused by a latch the first one never released")
-        #expect(m.banner?.severity == .success)
-        #expect(m.currentError == nil)
-    }
-
     /// The release has to cover the no-move exit too, not just the two banner paths.
     ///
     /// `applyRecommendedFiling` returns early when the batch produced no moves at all (every file
@@ -166,6 +146,9 @@ import Foundation
         #expect(filed(root, "Tesla Policy.pdf"),
                 "the next batch was refused by a latch the no-move exit never released")
         #expect(filed(root, "Tesla Registration.pdf"))
+        #expect(!m.isFilingBatchRunning, "the latch outlived the batch that took it")
+        #expect(m.banner?.severity == .success)
+        #expect(m.currentError == nil)
     }
 
     /// And the early exits must not take the latch either: a refused or empty batch leaves nothing

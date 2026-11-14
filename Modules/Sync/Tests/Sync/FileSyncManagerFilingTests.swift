@@ -77,25 +77,18 @@ final class CallCounter: @unchecked Sendable {
 
 /// What the classifier was handed on a re-ask — recorded from a `@Sendable` closure, so it is a
 /// lock-guarded box rather than a captured `var`.
-private final class SnippetBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _snippet: String?
-    private var _tier: FilingClassifierTier?
-    func record(tier: FilingClassifierTier, snippet: String?) {
-        lock.lock(); _tier = tier; _snippet = snippet; lock.unlock()
-    }
-    var snippet: String? { lock.lock(); defer { lock.unlock() }; return _snippet }
-    var tier: FilingClassifierTier? { lock.lock(); defer { lock.unlock() }; return _tier }
+private typealias SnippetBox = LockedBox<(tier: FilingClassifierTier?, snippet: String?)>
+
+private extension LockedBox where Value == (tier: FilingClassifierTier?, snippet: String?) {
+    convenience init() { self.init((nil, nil)) }
+    func record(tier: FilingClassifierTier, snippet: String?) { withLock { $0 = (tier, snippet) } }
+    var snippet: String? { withLock { $0.snippet } }
+    var tier: FilingClassifierTier? { withLock { $0.tier } }
 }
 
 /// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path
 /// (real move, creating new folders, undoable).
 @Suite struct FileSyncManagerFilingTests {
-
-    private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
 
     /// A manager for a "Try another" re-ask: its settings and rules on `defaults` (a scratch suite
     /// by default), and the provider-scoped cache naming `/p` with the `Docs` taxonomy.
@@ -125,9 +118,9 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func findFilingSuggestionsFindsHomesInYourFolders() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)   // existing Vehicles folder
-        try write(root.appendingPathComponent("Downloads/Tesla Auto Policy.pdf"))
-        try write(root.appendingPathComponent("Downloads/zxqw9.bin"))
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)   // existing Vehicles folder
+        try writeBytes(root.appendingPathComponent("Downloads/Tesla Auto Policy.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/zxqw9.bin"))
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -145,9 +138,9 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func applyFilingMovesFileAndCreatesNewFolders() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try write(srcPath)
+        try writeBytes(srcPath)
 
         let manager = FileSyncManager()
         let suggestion = FilingSuggestion(filePath: srcPath.path, fileName: "Tesla Policy.pdf",
@@ -170,10 +163,10 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func applyRecommendedFilesConfidentOnlyLeavesTheRest() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)   // High: two words (GS)
-        try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)   // High: two words (GS)
+        try writeBytes(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         let junkPath = root.appendingPathComponent("Downloads/zxqw9.bin")
-        try write(junkPath)
+        try writeBytes(junkPath)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -213,7 +206,7 @@ private final class SnippetBox: @unchecked Sendable {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         let srcPath = root.appendingPathComponent("Downloads/report.pdf")
-        try write(srcPath)
+        try writeBytes(srcPath)
         let destination: URL
         switch spelling {
         case .same: destination = root.appendingPathComponent("Downloads")
@@ -254,8 +247,8 @@ private final class SnippetBox: @unchecked Sendable {
         defer { try? FileManager.default.removeItem(at: root) }
         let here = root.appendingPathComponent("Downloads/report.pdf")
         let away = root.appendingPathComponent("Downloads/invoice.pdf")
-        try write(here)
-        try write(away)
+        try writeBytes(here)
+        try writeBytes(away)
         let bills = root.appendingPathComponent("Documents/Bills")
         try FileManager.default.createDirectory(at: bills, withIntermediateDirectories: true)
         let link = root.appendingPathComponent("Filing")
@@ -334,11 +327,11 @@ private final class SnippetBox: @unchecked Sendable {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two words in common with each folder, so both are High and batched.
-        try write(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Documents/Toyota Registration/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Tesla Policy/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Toyota Registration/.keep"), bytes: 1)
         let tesla = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
         let toyota = root.appendingPathComponent("Downloads/Toyota Registration.pdf")
-        try write(tesla); try write(toyota)
+        try writeBytes(tesla); try writeBytes(toyota)
 
         let manager = FileSyncManager()
         let undo = UndoManager()
@@ -362,9 +355,9 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func batchSkipsContentDerivedSuggestions() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/scan0012.pdf")
-        try write(srcPath)
+        try writeBytes(srcPath)
 
         let manager = FileSyncManager()
         // Simulate on-device extraction finding the entities inside the uninformatively-named scan.
@@ -385,8 +378,8 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func readContentsToggleOffSkipsExtraction() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/scan0012.pdf"))
 
         let manager = FileSyncManager()
         manager.filingContentDefaults = ScratchDefaults("FilingToggle")
@@ -455,9 +448,9 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func applyingWithRememberPersistsAReusableRule() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
-        try write(srcPath)
+        try writeBytes(srcPath)
 
         let manager = manager(withScratchRules: "FilingRules")
 
@@ -475,7 +468,7 @@ private final class SnippetBox: @unchecked Sendable {
 
         // …and a fresh scan of another Tesla file files it into that same remembered folder,
         // high-confidence & batch-eligible, carrying the "remembered" flag.
-        try write(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let renewal = manager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
         #expect(renewal?.best?.path == root.appendingPathComponent("Archive/Tesla").path)
@@ -549,7 +542,7 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func automationsAreScopedToTheProviderTheyPointInto() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/tesla thing.pdf"))
 
         let manager = manager(withScratchRules: "AutoScope")
         manager.upsertAutomationRule(AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
@@ -598,24 +591,10 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(steered.first?.best?.fromContent == true)   // content-derived → medium, no blind batch
     }
 
-    /// A rule whose match rests only on the file's CONTENT is capped to medium and kept out of the
-    /// blind batch — the same cap every content-derived signal gets.
-    @Test func contentOnlyRuleMatchIsMediumAndNotBatchEligible() {
-        let file = FileNode(id: "/p/Inbox/scan0042.pdf", name: "scan0042.pdf", isDirectory: false,
-                            children: nil, modificationDate: Date(), fileSize: 5000)
-        let rule = AutomationRule(name: "Geico", conditions: [.mentionsAll(["geico"])],
-                                  destinationTemplate: "/p/Insurance/Geico")
-
-        let steered = FilingEngine.suggest(looseFiles: [file], taxonomy: [], providerRoot: "/p",
-                                           contentTokens: [file.id: ["geico", "policy"]],
-                                           automations: [rule])
-        #expect(steered.first?.best?.path == "/p/Insurance/Geico")
-        #expect(steered.first?.best?.confidence == .medium)
-        #expect(steered.first?.best?.fromContent == true)
-        #expect(steered.first?.isBatchEligible == false)
-
-        // Legacy parity for the learned shape: a mixed match (one trigger word in the name) counts
-        // as name-derived, high confidence and batch-eligible, as the legacy rules did.
+    /// Legacy parity for the learned shape: a mixed match (one trigger word in the name) counts as
+    /// name-derived, high confidence and batch-eligible, as the legacy rules did. A content-only
+    /// match is pinned in `FilingProvenancePinTests`.
+    @Test func aMixedRuleMatchCountsAsNameDerived() {
         let mixedRule = AutomationRule(name: "Acme", conditions: [.mentionsAll(["acme", "invoice"])],
                                        destinationTemplate: "/p/Acme")
         let mixedFile = FileNode(id: "/p/Inbox/acme-2025.pdf", name: "acme-2025.pdf", isDirectory: false,
@@ -635,8 +614,8 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func scanExtractsSnippetsForContentRulesLikeThePreview() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Inbox/scan0001.pdf"))
-        try write(root.appendingPathComponent("Inbox/tesla-note.pdf"))
+        try writeBytes(root.appendingPathComponent("Inbox/scan0001.pdf"))
+        try writeBytes(root.appendingPathComponent("Inbox/tesla-note.pdf"))
 
         let manager = manager(withScratchRules: "SnippetParity")
         manager.upsertAutomationRule(AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
@@ -644,9 +623,9 @@ private final class SnippetBox: @unchecked Sendable {
 
         // "lease" is a generic word the sparse entity extractor would never surface — only the
         // raw text knows it. The name-matched file must NOT be read (its rule outcome can't flip).
-        let read = ReadPaths()
+        let read = LockedBox<[String]>([])
         manager.filingSnippetExtractor = { path in
-            await read.record(path)
+            read.withLock { $0.append(path) }
             return path.hasSuffix("scan0001.pdf") ? "lease agreement for unit 4" : nil
         }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Inbox"), providerRoot: root)
@@ -655,7 +634,7 @@ private final class SnippetBox: @unchecked Sendable {
         #expect(steered?.best?.path == root.appendingPathComponent("Home/Lease").path)
         #expect(steered?.best?.remembered == true)
         #expect(steered?.best?.fromContent == true)
-        let paths = await read.paths
+        let paths = read.withLock { $0 }
         #expect(paths.contains { $0.hasSuffix("scan0001.pdf") })
     }
 
@@ -685,29 +664,28 @@ private final class SnippetBox: @unchecked Sendable {
         // exists for it, and junk-heavy folders push real files past the cap.
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Stuff/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/.DS_Store"), bytes: 500)
-        try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Stuff/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/.DS_Store"), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
 
-        final class Names: @unchecked Sendable { var value: [String] = [] }
-        let seen = Names()
+        let seen = LockedBox<[String]>([])
         let manager = FileSyncManager()
         manager.filingClassifier = { _, files, _ in
-            seen.value = files.map(\.fileName)
+            seen.withLock { $0 = files.map(\.fileName) }
             return [:]
         }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
 
-        #expect(seen.value.contains("mystery-scan-0042.pdf"))   // real files still classified
-        #expect(!seen.value.contains(".DS_Store"))              // junk never reaches the model
+        #expect(seen.withLock { $0 }.contains("mystery-scan-0042.pdf"))   // real files still classified
+        #expect(!seen.withLock { $0 }.contains(".DS_Store"))              // junk never reaches the model
     }
 
     @MainActor
     @Test func classifierVerdictDrivesTheSuggestion() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Physician's Report - Son.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Family/Son/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Physician's Report - Son.pdf"))
 
         let manager = FileSyncManager()
         // A stand-in for the on-device model: it "reasons" Son → Family/Son.
@@ -737,7 +715,7 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func aiToggleOffSkipsTheClassifier() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/mystery.pdf"))
+        try writeBytes(root.appendingPathComponent("Downloads/mystery.pdf"))
 
         let manager = FileSyncManager()
         manager.filingContentDefaults = ScratchDefaults("FilingAI")
@@ -1192,8 +1170,8 @@ private final class SnippetBox: @unchecked Sendable {
     @Test func filingScanFolderLabelsResultsNotTheInFlightScan() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
-        try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
         let rootB = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
@@ -1213,9 +1191,3 @@ private final class SnippetBox: @unchecked Sendable {
     }
 }
 
-
-/// Records which paths a stubbed snippet extractor was asked to read, across Sendable closures.
-private actor ReadPaths {
-    private(set) var paths: [String] = []
-    func record(_ path: String) { paths.append(path) }
-}

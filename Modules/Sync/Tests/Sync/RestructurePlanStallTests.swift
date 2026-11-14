@@ -46,12 +46,7 @@ import Testing
     @Test(.parksThreads(2)) func aSecondUnansweredFolderDoesNotWaitAgain() async throws {
         let root = try makeCanonicalTempRoot(prefix: "restructure-stall")
         defer { try? FileManager.default.removeItem(at: root) }
-        for path in ["F/2016/a.pdf", "F/2017/b.pdf", "F/2018/c.pdf"] {
-            let url = root.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Data("x".utf8).write(to: url)
-        }
+        for path in ["F/2016/a.pdf", "F/2017/b.pdf", "F/2018/c.pdf"] { try writeText("x", root.appendingPathComponent(path)) }
         let gate = ParkGate()
         defer { gate.release.signal(); gate.release.signal() }
         let disk = StalledFoldersDisk(stalled: [root.appendingPathComponent("F/2016").path,
@@ -72,12 +67,7 @@ import Testing
     @Test(.parksThreads(2)) func eachFamilyOfAGroupPlanAsksItsOwnFolders() async throws {
         let root = try makeCanonicalTempRoot(prefix: "restructure-stall-group")
         defer { try? FileManager.default.removeItem(at: root) }
-        for path in ["F/2016/Old/a.pdf", "F/2017/Old/b.pdf", "G/2016/Old/c.pdf", "G/2017/Old/d.pdf"] {
-            let url = root.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try Data("x".utf8).write(to: url)
-        }
+        for path in ["F/2016/Old/a.pdf", "F/2017/Old/b.pdf", "G/2016/Old/c.pdf", "G/2017/Old/d.pdf"] { try writeText("x", root.appendingPathComponent(path)) }
         let gate = ParkGate()
         defer { gate.release.signal(); gate.release.signal() }
         let disk = StalledFoldersDisk(stalled: [root.appendingPathComponent("F/2016").path,

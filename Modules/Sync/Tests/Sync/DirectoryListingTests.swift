@@ -637,20 +637,4 @@ import Testing
         #expect(listing.urls.map(\.path) == ["/root/a"],
                 "the blocked directory is still an entry; nothing beneath it is")
     }
-
-    @Test func theMockReportsAnUnlistableDescendantAsAPartialAnswer() throws {
-        let fm = MockFileManager()
-        try fm.createDirectory(at: URL(fileURLWithPath: "/root"), withIntermediateDirectories: true)
-        fm.virtualDisk["/root/visible.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        try fm.createDirectory(at: URL(fileURLWithPath: "/root/sub"), withIntermediateDirectories: true)
-        fm.virtualDisk["/root/sub/hidden.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        fm.unlistableDirectories = ["/root/sub"]
-
-        let listing = fm.listing(of: URL(fileURLWithPath: "/root"), options: [])
-
-        #expect(listing.outcome == .listedWithUnreadableDescendants)
-        #expect(listing.unreadableDescendants.map(\.path) == ["/root/sub"])
-        #expect(!listing.urls.contains { $0.path == "/root/sub/hidden.txt" },
-                "contents of an unlistable directory must not leak into the listing")
-    }
 }

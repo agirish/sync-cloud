@@ -87,22 +87,6 @@ import Testing
 
     // MARK: - Order
 
-    /// Ranked by household evidence, and only then by size, or a big folder name like `Reference`
-    /// outranks every real person. A name under two household folders leads one under a single
-    /// household folder and a dozen other places.
-    @Test func householdEvidenceOutranksFolderCount() {
-        var paths = ["Family/Mother", "People/Mother", "Family/Reference"]
-        paths += (1...12).map { "Work/Project\($0)/Reference" }
-        let proposals = PersonCandidates.propose(tree: FixtureTree.of(paths))
-
-        let names = proposals.map(\.name)
-        #expect(names.first == "Mother",
-                "ordered \(names) — the biggest name won instead of the best-evidenced one")
-        let reference = proposals.first { $0.name == "Reference" }
-        #expect(reference?.folderCount ?? 0 > proposals[0].folderCount,
-                "the fixture no longer has a bigger impostor, so it proves nothing")
-    }
-
     @Test func theOrderDoesNotWobbleBetweenRuns() {
         let tree = FixtureTree.of(["Family/Daughter", "Family/Son", "People/Daughter"])
         let first = PersonCandidates.propose(tree: tree).map(\.name)

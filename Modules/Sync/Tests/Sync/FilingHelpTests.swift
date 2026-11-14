@@ -163,6 +163,7 @@ import Testing
     @Test func refineWaitsForTheScanThatReplacedTheOneItWaitedOn() async {
         let m = FileSyncManager()
         var finished: [String] = []
+        var started = false
         var waited = false
         let (firstGate, openFirst) = AsyncStream<Void>.makeStream()
         let (secondGate, openSecond) = AsyncStream<Void>.makeStream()
@@ -176,21 +177,22 @@ import Testing
             finished.append("first")
         }
         let waiting = Task { @MainActor in
+            started = true
             await m.latestFilingScan()
             waited = true
+            finished.append("waited")
         }
         // Waiting on the first scan, which then ends and hands over to the second: the wait
         // must still be on, held by the second.
-        for _ in 0..<50 { await Task.yield() }
+        await waitUntil("the wait began on the first scan") { started }
         openFirst.yield()
         openFirst.finish()
-        for _ in 0..<200 where finished.isEmpty { await Task.yield() }
-        for _ in 0..<50 { await Task.yield() }
-        #expect(finished == ["first"] && !waited, "the wait ended with the scan it began on")
+        await waitUntil("the first scan finished") { finished == ["first"] }
+        #expect(!waited, "the wait ended with the scan it began on")
         openSecond.yield()
         openSecond.finish()
         await waiting.value
-        #expect(waited && finished == ["first", "second"])
+        #expect(waited && finished == ["first", "second", "waited"])
     }
 
     /// Counted in calendar days, as Restructure counts them, so the card and Restructure agree on

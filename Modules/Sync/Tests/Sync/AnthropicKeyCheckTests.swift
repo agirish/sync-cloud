@@ -55,15 +55,12 @@ private struct FakeTransport: HTTPTransport {
         #expect(request?.value(forHTTPHeaderField: "anthropic-version") == CloudFilingProtocol.apiVersion)
     }
 
-    @Test func status200IsValid() async {
-        let result = await AnthropicKeyCheck.validate("sk-ant-test", transport: transport(status: 200))
-        #expect(result == .valid)
-    }
-
-    @Test func status429IsValidBecauseItAuthenticated() async {
-        // 429 = the key was accepted but rate-limited — still proof the key works.
-        let result = await AnthropicKeyCheck.validate("sk-ant-test", transport: transport(status: 429))
-        #expect(result == .valid)
+    /// 429 is the key accepted but rate-limited: still proof the key works.
+    @Test func status200And429AreValid() async {
+        for status in [200, 429] {
+            let result = await AnthropicKeyCheck.validate("sk-ant-test", transport: transport(status: status))
+            #expect(result == .valid, "status \(status)")
+        }
     }
 
     @Test func status401And403AreInvalid() async {

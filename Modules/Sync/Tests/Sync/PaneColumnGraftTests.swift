@@ -115,20 +115,19 @@ import Testing
 
     // MARK: - The guard that decides whether to ask at all
 
+    /// Only an unwalked directory reads as unexplored. A genuinely empty folder is not an unread
+    /// one, the distinction the budget rests on: asking for an empty walked folder would relist it
+    /// on every render forever.
     @Test func onlyAnUnwalkedDirectoryReadsAsUnexplored() {
         #expect(FileSyncManager.isUnexplored(atPath: "/r/b", under: "/r", in: tree))
         #expect(FileSyncManager.isUnexplored(atPath: "/r/a/deep", under: "/r", in: tree))
         #expect(!FileSyncManager.isUnexplored(atPath: "/r/a", under: "/r", in: tree))
         #expect(!FileSyncManager.isUnexplored(atPath: "/r/bc", under: "/r", in: tree),
                 "a sibling sharing a name prefix answered for /r/b")
-    }
-
-    /// A genuinely empty folder is not an unread one, the distinction the budget rests on. Only the
-    /// mark separates an empty walked folder from an unread one, and asking for an empty walked
-    /// folder would relist it on every render forever.
-    @Test func anEmptyWalkedDirectoryIsNotAskedFor() {
         let walkedEmpty = [dir("/r/empty", children: [])]
         #expect(!FileSyncManager.isUnexplored(atPath: "/r/empty", under: "/r", in: walkedEmpty))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/gone", under: "/r", in: tree))
+        #expect(!FileSyncManager.isUnexplored(atPath: "/r/top.txt", under: "/r", in: tree))
     }
 
     // MARK: - Asked by id
@@ -146,11 +145,6 @@ import Testing
         #expect(filled.first { $0.id == "/private/r/b" }?.children?.map(\.id) == ["/private/r/b/one.txt"])
         #expect(FileSyncManager.grafting(children: [], atPath: "/private/r/bc", under: "/r", into: resolved) != nil,
                 "a folder whose name extends its sibling's was not found by its id")
-    }
-
-    @Test func anAbsentPathIsNotUnexplored() {
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/gone", under: "/r", in: tree))
-        #expect(!FileSyncManager.isUnexplored(atPath: "/r/top.txt", under: "/r", in: tree))
     }
 }
 
@@ -199,9 +193,11 @@ private func graftFixture(prefix: String) throws -> URL {
                 "the right pane's request was dropped as a duplicate of the left's — its column would never fill")
     }
 
-    /// And a pane's own repeat request is still deduped, which is what the guard is for.
+    /// A pane's own repeat request is still deduped, which is what the guard is for, and one pane's
+    /// in-flight listing is not reported to the other, or the wrong column draws a spinner over a
+    /// folder nobody is reading for it.
     @MainActor
-    @Test func onePaneAskingTwiceIsStillOneRequest() async throws {
+    @Test func onePaneAskingTwiceIsStillOneRequestAndOnlyItsOwn() async throws {
         let root = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let deep = root.appendingPathComponent("deep").path
@@ -211,19 +207,6 @@ private func graftFixture(prefix: String) throws -> URL {
         manager.loadColumnChildren(atPath: deep, isLeft: true)
         manager.loadColumnChildren(atPath: deep, isLeft: true)
         #expect(manager.columnGraftsInFlightPaths(isLeft: true) == [deep])
-    }
-
-    /// One pane's in-flight listing is not reported to the other, or the wrong column draws a
-    /// spinner over a folder nobody is reading for it.
-    @MainActor
-    @Test func aPanesInFlightSetIsItsOwn() async throws {
-        let root = try fixture()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let deep = root.appendingPathComponent("deep").path
-
-        let manager = FileSyncManager()
-        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name, maxDepth: 1)
-        manager.loadColumnChildren(atPath: deep, isLeft: true)
         #expect(manager.columnGraftsInFlightPaths(isLeft: false).isEmpty,
                 "the right pane sees the left's request and would spin a column it never asked about")
     }

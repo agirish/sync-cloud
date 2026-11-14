@@ -78,22 +78,24 @@ import Foundation
 
     // MARK: The family a scattered removal belongs to
 
-    @Test func theCommonAncestorNamesTheContainingFolder() {
-        #expect(RestructureRemoval.commonAncestor(of: ["Travel/2019"]) == "Travel",
-                "one ticked folder belongs to its parent, not to itself")
-        #expect(RestructureRemoval.commonAncestor(
-            of: ["Finance/IN/A/2013", "Finance/IN/B/2019"]) == "Finance/IN")
-        #expect(RestructureRemoval.commonAncestor(
-            of: ["Travel/2019", "Travel/2020"]) == "Travel")
-    }
-
-    @Test func pathsSharingNothingLandOnTheProfilesOwnSpellingForTheRoot() {
-        #expect(RestructureRemoval.commonAncestor(
-            of: ["Travel/2019", "Finance/IN/SBI NRE/2013-2014"]) == ".",
-                "the standing empties are wherever the tree left them")
-        #expect(RestructureRemoval.commonAncestor(of: ["Archive"]) == ".",
-                "a top-level empty has no containing folder but the root")
-        #expect(RestructureRemoval.commonAncestor(of: []) == ".")
+    /// The family a set of ticked folders belongs to:
+    /// - one ticked folder belongs to its parent, not to itself;
+    /// - paths sharing nothing land on the profile's own spelling for the root (`.`): the standing
+    ///   empties are wherever the tree left them, and a top-level empty has no containing folder
+    ///   but the root;
+    /// - path components are compared, not characters: a prefix match on the string would call
+    ///   `Finance/INbox` a child of `Finance/IN`.
+    @Test(arguments: [
+        (["Travel/2019"], "Travel"),
+        (["Finance/IN/A/2013", "Finance/IN/B/2019"], "Finance/IN"),
+        (["Travel/2019", "Travel/2020"], "Travel"),
+        (["Travel/2019", "Finance/IN/SBI NRE/2013-2014"], "."),
+        (["Archive"], "."),
+        ([], "."),
+        (["Finance/IN/2019", "Finance/INbox/2019"], "Finance"),
+    ])
+    func theCommonAncestorNamesTheContainingFolder(paths: [String], expected: String) {
+        #expect(RestructureRemoval.commonAncestor(of: paths) == expected, "\(paths)")
     }
 
     /// The sentence the pair sheet prints above its operation list, before Apply. A different type
@@ -164,12 +166,5 @@ import Foundation
         #expect(RestructurePaths.familyLabel("") == "the tree")
         #expect(RestructurePaths.familyLabel("Finance/US/Income Tax") == "Income Tax")
         #expect(RestructurePaths.familyLabel("Travel") == "Travel")
-    }
-
-    /// A prefix match on the string would call `Finance/INbox` a child of `Finance/IN`. The rule
-    /// compares path components, and this is the fixture that tells the two apart.
-    @Test func theAncestorComparesComponentsNotCharacters() {
-        #expect(RestructureRemoval.commonAncestor(
-            of: ["Finance/IN/2019", "Finance/INbox/2019"]) == "Finance")
     }
 }

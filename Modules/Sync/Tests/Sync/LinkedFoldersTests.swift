@@ -42,13 +42,6 @@ import Testing
         #expect(PathBoundary.linkedFolders(atRoot: "~", in: links) == ["Desktop": "/home/Desktop"])
     }
 
-    @Test func aPathUnderTheLinkedFolderRelativizesThroughTheLinkName() {
-        #expect(PathBoundary.relativize("/home/Documents/Family", under: Self.root, links: Self.links)
-                == "Documents/Family")
-        #expect(PathBoundary.relativize("/home/Documents", under: Self.root, links: Self.links) == "Documents")
-        #expect(PathBoundary.relativize("/home/Desktop/a.txt", under: Self.root, links: Self.links) == "Desktop/a.txt")
-    }
-
     /// Both spellings of one folder give one relative path (the link-side one by prefix math), so a
     /// caller holding either can't be told two different things.
     @Test func theLinkSideSpellingRelativizesTheSameWay() {

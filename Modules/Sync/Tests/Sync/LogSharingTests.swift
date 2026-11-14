@@ -62,17 +62,19 @@ import EventsTestSupport
         #expect(LogSharing.mask("Zoe\u{0301} filed", home: "/Users/jdoe", people: people) == "<person 1> filed")
     }
 
+    /// Writes `json` as profile `profile`'s `people.json` under `dir`.
+    private static func writePeople(in dir: URL, _ profile: String, _ json: String) throws {
+        let folder = dir.appendingPathComponent(profile)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: folder.appendingPathComponent("people.json"))
+    }
+
     @Test func theRosterReadsEveryProfileOnceById() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LogSharing-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
-        func write(_ profile: String, _ json: String) throws {
-            let folder = dir.appendingPathComponent(profile)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Data(json.utf8).write(to: folder.appendingPathComponent("people.json"))
-        }
-        try write("a", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna"}]}"#)
-        try write("b", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna"},{"id":"bo","displayName":"Bo"}]}"#)
-        try write("c", "not json")
+        try Self.writePeople(in: dir, "a", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna"}]}"#)
+        try Self.writePeople(in: dir, "b", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna"},{"id":"bo","displayName":"Bo"}]}"#)
+        try Self.writePeople(in: dir, "c", "not json")
         #expect(LogSharing.roster(profilesDirectory: dir).map(\.id) == ["anna", "bo"])
         #expect(LogSharing.roster(profilesDirectory: nil).isEmpty)
     }
@@ -95,13 +97,8 @@ import EventsTestSupport
     @Test func theSameIdInTwoProfilesKeepsEveryForm() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("LogSharing-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
-        func write(_ profile: String, _ json: String) throws {
-            let folder = dir.appendingPathComponent(profile)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Data(json.utf8).write(to: folder.appendingPathComponent("people.json"))
-        }
-        try write("a", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":[],"aliases":[]}]}"#)
-        try write("b", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":["Anna Kowalczyk"],"aliases":["Mutti"]}]}"#)
+        try Self.writePeople(in: dir, "a", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":[],"aliases":[]}]}"#)
+        try Self.writePeople(in: dir, "b", #"{"schemaVersion":1,"people":[{"id":"anna","displayName":"Anna","fullNames":["Anna Kowalczyk"],"aliases":["Mutti"]}]}"#)
         let roster = LogSharing.roster(profilesDirectory: dir)
         #expect(roster.map(\.id) == ["anna"])
         let masked = LogSharing.mask("Mutti and Anna Kowalczyk", home: "/Users/jdoe", people: roster)

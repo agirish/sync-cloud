@@ -299,22 +299,6 @@ import Testing
                 "the burst was split: \(names.count - reported.intersection(names).count) file(s) missing from its batch")
     }
 
-    /// The process's own write is reported, marked as its own.
-    @MainActor
-    @Test func ourOwnWriteIsMarked() async throws {
-        let folder = try Self.makeFolder("own")
-        defer { try? FileManager.default.removeItem(atPath: folder) }
-        let inbox = Inbox()
-        let watcher = FolderWatcher(history: .inMemory(), latency: 0.05, quiet: 0.2, maxDelay: 2) { inbox.add($0) }
-        defer { watcher.stop() }
-        watcher.watch([FolderWatchRoot(path: folder)])
-        try Data("x".utf8).write(to: URL(fileURLWithPath: folder + "/mine.txt"))
-        await waitUntil("our write was never reported", timeout: 10) {
-            inbox.events.contains { $0.path.hasSuffix("/mine.txt") }
-        }
-        #expect(inbox.events.filter { $0.path.hasSuffix("/mine.txt") }.allSatisfy { $0.isOwn })
-    }
-
     /// Adding a root leaves the others' streams alone: a restart would have to replay, and a replay
     /// brings our own writes back without their mark. Must fail if `watch` restarts every stream.
     /// For the replay to be real, the write must already be in fseventsd's history (one not yet

@@ -45,75 +45,45 @@ import Testing
                 "each banner must reach the log at the severity it wears, in the order shown")
     }
 
-    /// The copy's level is the banner's `log`, not its severity: a warning-style banner that says
-    /// it is INFO in the log is written at INFO, and an INFO-looking one stated as ERROR at ERROR.
-    /// Severity still sets how the banner looks; it no longer decides the log.
-    @MainActor
-    @Test func theCopyIsWrittenAtTheLevelTheBannerStatesNotItsLook() async throws {
-        let manager = FileSyncManager()
-        let marker = "choke-\(UUID().uuidString)"
-        let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker, log: .info)
-            manager.banner = .success(marker, log: .error)
-        }
-        #expect(levels == ["INFO", "ERROR"], "the mirror read the banner's look, not its stated level")
+    /// One case: the banners shown in order, built from the test's marker, and the levels the log
+    /// must hold for them.
+    struct Case: Sendable, CustomTestStringConvertible {
+        let testDescription: String
+        let banners: @Sendable (String) -> [OperationBanner?]
+        let levels: [String]
     }
 
-    /// A banner whose site already logged the fault keeps its copy, at INFO; a per-item one under a
-    /// cap writes none.
+    static let cases: [Case] = [
+        // The copy's level is the banner's `log`, not its look: severity sets how it looks only.
+        Case(testDescription: "the copy is written at the level the banner states, not its look",
+             banners: { [.warning($0, log: .info), .success($0, log: .error)] },
+             levels: ["INFO", "ERROR"]),
+        // A site that already logged the fault keeps its copy, at INFO; an unmirrored one writes none.
+        Case(testDescription: "a site-logged banner is copied at INFO, an unmirrored one not at all",
+             banners: { [.warning($0, log: .loggedAtSite), .warning($0, log: .notMirrored), .error($0, log: .loggedAtSite)] },
+             levels: ["INFO", "INFO"]),
+        // Clearing the banner is not an event; only showing one is.
+        Case(testDescription: "dismissal logs nothing",
+             banners: { [.warning($0, log: .warn), nil] },
+             levels: ["WARN"]),
+        // SwiftUI bindings can write the same value back: one shown banner (same id) is one event.
+        Case(testDescription: "reassigning the same banner logs once",
+             banners: { let banner = OperationBanner.warning($0, log: .warn); return [banner, banner] },
+             levels: ["WARN"]),
+        // Per-publish identity is part of `OperationBanner`'s equality, and the log agrees with the UI.
+        Case(testDescription: "a repeated message with a new identity logs again",
+             banners: { [.warning($0, log: .warn), .warning($0, log: .warn)] },
+             levels: ["WARN", "WARN"]),
+    ]
+
     @MainActor
-    @Test func aSiteLoggedBannerIsCopiedAtInfoAndAnUnmirroredOneNotAtAll() async throws {
+    @Test(arguments: cases)
+    func theLogHoldsOneLineAtTheStatedLevelPerShownBanner(_ c: Case) async throws {
         let manager = FileSyncManager()
         let marker = "choke-\(UUID().uuidString)"
         let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker, log: .loggedAtSite)
-            manager.banner = .warning(marker, log: .notMirrored)
-            manager.banner = .error(marker, log: .loggedAtSite)
+            for banner in c.banners(marker) { manager.banner = banner }
         }
-        #expect(levels == ["INFO", "INFO"], "\(levels)")
-    }
-
-    @MainActor
-    @Test func dismissalLogsNothing() async throws {
-        let manager = FileSyncManager()
-        let marker = "choke-\(UUID().uuidString)"
-
-        let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker, log: .warn)
-            manager.banner = nil
-        }
-
-        #expect(levels == ["WARN"], "clearing the banner is not an event — only showing one is")
-    }
-
-    /// Re-assigning the very same banner (same id) must not double-log: SwiftUI bindings can
-    /// write a value back, and one shown banner is one event.
-    @MainActor
-    @Test func reassigningTheSameBannerLogsOnce() async throws {
-        let manager = FileSyncManager()
-        let marker = "choke-\(UUID().uuidString)"
-        let banner = OperationBanner.warning(marker, log: .warn)
-
-        let levels = try await bannerLevels(marker: marker) {
-            manager.banner = banner
-            manager.banner = banner
-        }
-
-        #expect(levels == ["WARN"])
-    }
-
-    /// Two banners with the same message are two events: per-publish identity is part of
-    /// `OperationBanner`'s equality, and the log must agree with the UI.
-    @MainActor
-    @Test func aRepeatedMessageWithANewIdentityLogsAgain() async throws {
-        let manager = FileSyncManager()
-        let marker = "choke-\(UUID().uuidString)"
-
-        let levels = try await bannerLevels(marker: marker) {
-            manager.banner = .warning(marker, log: .warn)
-            manager.banner = .warning(marker, log: .warn)
-        }
-
-        #expect(levels == ["WARN", "WARN"])
+        #expect(levels == c.levels, "\(levels)")
     }
 }

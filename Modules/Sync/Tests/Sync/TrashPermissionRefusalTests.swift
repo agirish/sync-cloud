@@ -18,6 +18,24 @@ import Testing
         NSError(domain: NSPOSIXErrorDomain, code: Int(code))
     }
 
+    /// A manager with ⌘Z over a mock disk holding `path` (a 100-byte file, or a folder), the
+    /// system service stubbed to refuse, and a permanent-delete prompt that records `prompt` as a
+    /// failure if anything reaches it.
+    @MainActor
+    private func refusing(_ path: String, directory: Bool = false,
+                          prompt: String = "a refusal reached the permanent-delete prompt")
+        -> (FileSyncManager, MockFileManager) {
+        let fm = MockFileManager()
+        let manager = FileSyncManager(fileManager: fm)
+        manager.undoManager = UndoManager()
+        fm.virtualDisk[path] = directory
+            ? MockFileManager.FileStub(isDirectory: true, attributes: [.size: 0], contents: nil)
+            : .file(100)
+        manager.trashViaWorkspace = { _ in [:] }
+        manager.permanentDeleteConfirmer = { _ in Issue.record(Comment(rawValue: prompt)); return false }
+        return (manager, fm)
+    }
+
     // MARK: Which refusals are permission
 
     /// A busy file is not a denied one. `EBUSY` (a cloud daemon mid-write) is what a retry fixes;
@@ -114,11 +132,7 @@ import Testing
     /// to, which can succeed where the in-process move is refused.
     @MainActor
     @Test func aRefusedTrashIsRetriedThroughTheSystemService() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/a.pdf")
         fm.trashErrorOnce = NSError(domain: NSCocoaErrorDomain,
                                     code: NSFileWriteNoPermissionError, userInfo: nil)
         let asked = Recorder()
@@ -127,10 +141,6 @@ import Testing
             return Dictionary(uniqueKeysWithValues: urls.map {
                 ($0, URL(fileURLWithPath: "/Trash/\($0.lastPathComponent)"))
             })
-        }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a refusal reached the permanent-delete prompt")
-            return false
         }
 
         let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
@@ -193,11 +203,8 @@ import Testing
     /// trashed and never offers to destroy outright a file already recoverable in the Trash.
     @MainActor
     @Test func aRespeltRecycleKeyDoesNotEscalateToAPermanentDelete() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/a.pdf", prompt:
+            "a file the system service had already trashed reached the permanent-delete prompt")
         // Refuses in-process every time, so the answer below is the only way out.
         fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
                                       code: NSFileWriteNoPermissionError, userInfo: nil)
@@ -208,10 +215,6 @@ import Testing
                 (URL(fileURLWithPath: "/private\(url.path)"),
                  URL(fileURLWithPath: "/Trash/\(url.lastPathComponent)"))
             })
-        }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a file the system service had already trashed reached the permanent-delete prompt")
-            return false
         }
 
         let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
@@ -228,17 +231,8 @@ import Testing
     /// `trashAfterReregistering`'s move must make this fail.
     @MainActor
     @Test func anItemBothTrashApisRefuseIsTrashedAfterBeingReregistered() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/a.pdf")
         fm.trashRefusedUntilMovedIn = true
-        manager.trashViaWorkspace = { _ in [:] }        // the system service refuses too
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a refusal reached the permanent-delete prompt")
-            return false
-        }
 
         let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
 
@@ -258,18 +252,9 @@ import Testing
     /// with its own message and path, and the file stays under its own name.
     @MainActor
     @Test func aReregistrationThatCannotMoveLeavesTheItemUntouched() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/b.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/b.pdf")
         fm.trashRefusedUntilMovedIn = true
         fm.shouldFailMove = true                        // the park cannot happen
-        manager.trashViaWorkspace = { _ in [:] }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a refusal reached the permanent-delete prompt")
-            return false
-        }
 
         let outcome = await manager.deleteItems(at: ["/docs/b.pdf"], fileManager: fm)
 
@@ -285,11 +270,7 @@ import Testing
     /// never upgraded to an unrecoverable permanent delete.
     @MainActor
     @Test func aBusyItemIsNeverReregistered() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/c.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/c.pdf")
         fm.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
         let asked = Recorder()
         manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
@@ -312,20 +293,12 @@ import Testing
     /// first throw, so it fails the park.
     @MainActor
     @Test func aParkedItemThatCannotBeRestoredIsReportedAtItsNewPath() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
         // A name no other test strands: the log is the process's, and the move path's strand
         // (`MoveParkedLeftoverTests`) writes the same sentence about its own file.
-        fm.virtualDisk["/docs/stranded-log.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/stranded-log.pdf",
+                                      prompt: "a parked item reached the permanent-delete prompt")
         fm.trashRefusedUntilMovedIn = true
         fm.failMoveToPathsOnce = ["/docs/stranded-log.pdf"]   // the park lands; the move back does not
-        manager.trashViaWorkspace = { _ in [:] }
-        manager.permanentDeleteConfirmer = { _ in
-            Issue.record("a parked item reached the permanent-delete prompt")
-            return false
-        }
 
         let outcome = await manager.deleteItems(at: ["/docs/stranded-log.pdf"], fileManager: fm)
 
@@ -353,13 +326,8 @@ import Testing
     /// other copy" is offered over them.
     @MainActor
     @Test func aDirectoryIsReregisteredTheSameWay() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/folder"] = MockFileManager.FileStub(
-            isDirectory: true, attributes: [.size: 0], contents: nil)
+        let (manager, fm) = refusing("/docs/folder", directory: true)
         fm.trashRefusedUntilMovedIn = true
-        manager.trashViaWorkspace = { _ in [:] }
 
         let outcome = await manager.deleteItems(at: ["/docs/folder"], fileManager: fm)
 
@@ -457,11 +425,7 @@ import Testing
     /// resort, with a side effect the other two attempts lack.
     @MainActor
     @Test func anOrdinaryTrashNeverReachesTheSystemService() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/a.pdf")
         let asked = Recorder()
         manager.trashViaWorkspace = { urls in asked.urls = urls.map(\.path); return [:] }
 
@@ -487,18 +451,10 @@ import Testing
     @MainActor
     @Test func theDeletePathDeclinesToParkAnItemMidTransfer() async throws {
         func attempt(midTransfer: Bool) async -> (DeleteOutcome, stillThere: Bool, MockFileManager) {
-            let fm = MockFileManager()
-            let manager = FileSyncManager(fileManager: fm)
-            manager.undoManager = UndoManager()
-            fm.virtualDisk["/docs/a.pdf"] = MockFileManager.FileStub(
-                isDirectory: false, attributes: [.size: 100], contents: nil)
+            let (manager, fm) = refusing(
+                "/docs/a.pdf", prompt: "a permission refusal reached the permanent-delete prompt")
             fm.trashRefusedUntilMovedIn = true
-            manager.trashViaWorkspace = { _ in [:] }
-            manager.isMidCloudTransfer = { _ in midTransfer }
-            manager.permanentDeleteConfirmer = { _ in
-                Issue.record("a permission refusal reached the permanent-delete prompt")
-                return false
-            }
+                manager.isMidCloudTransfer = { _ in midTransfer }
             let outcome = await manager.deleteItems(at: ["/docs/a.pdf"], fileManager: fm)
             return (outcome, fm.virtualDisk["/docs/a.pdf"] != nil, fm)
         }
@@ -549,11 +505,7 @@ import Testing
     /// ran), and no parked name survives.
     @MainActor
     @Test func aDeniedTrashReachesTheUserAsTheRefusalAndLeavesTheFile() async throws {
-        let fm = MockFileManager()
-        let manager = FileSyncManager(fileManager: fm)
-        manager.undoManager = UndoManager()
-        fm.virtualDisk["/docs/Lease Agreement.pdf"] = MockFileManager.FileStub(
-            isDirectory: false, attributes: [.size: 100], contents: nil)
+        let (manager, fm) = refusing("/docs/Lease Agreement.pdf")
         // Refuses every attempt, so nothing can move the file.
         fm.trashErrorAlways = NSError(domain: NSCocoaErrorDomain,
                                       code: NSFileWriteNoPermissionError,
@@ -564,7 +516,6 @@ import Testing
         var askedToDestroy = false
         manager.permanentDeleteConfirmer = { _ in askedToDestroy = true; return false }
         // Stubbed to refuse, which also keeps the test away from the real system service.
-        manager.trashViaWorkspace = { _ in [:] }
 
         let outcome = await manager.deleteItems(at: ["/docs/Lease Agreement.pdf"], fileManager: fm)
 

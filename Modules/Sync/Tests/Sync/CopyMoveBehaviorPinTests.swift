@@ -301,11 +301,7 @@ import EventsTestSupport
 
         // The Move registrar really is wired: undo brings the file back to its source.
         manager.undoManager?.undo()
-        let deadline = Date().addingTimeInterval(3.0)
-        while mockFM.virtualDisk["/src/pmA.txt"] == nil && Date() < deadline {
-            try await Task.sleep(nanoseconds: 40_000_000)
-        }
-        #expect(mockFM.virtualDisk["/src/pmA.txt"] != nil)
+        await waitUntil("the undo brought the file back") { mockFM.virtualDisk["/src/pmA.txt"] != nil }
         #expect(mockFM.virtualDisk["/dst/pmA.txt"] == nil)
     }
 

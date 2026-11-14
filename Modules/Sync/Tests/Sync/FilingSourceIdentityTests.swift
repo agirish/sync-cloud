@@ -18,12 +18,12 @@ import Testing
                                 contentTokens: Set<String> = []) async throws
         -> (root: URL, manager: FileSyncManager, card: FilingSuggestion, folder: FilingDestination) {
         let root = try makeCanonicalTempRoot(prefix: "FilingSourceIdentity")
-        try writeFilingFile(root.appendingPathComponent("Documents/Bills/.keep"), bytes: 1)
-        try writeFilingFile(root.appendingPathComponent("Downloads/\(fileName)"), bytes: 5000)
+        try writeBytes(root.appendingPathComponent("Documents/Bills/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/\(fileName)"), bytes: 5000)
         let m = FileSyncManager()
         // Content reading on explicitly: it is the default, but a stray `false` in the test
         // process's defaults would switch phase 2 off and leave the content test vacuous.
-        let settings = UserDefaults(suiteName: "FilingSourceIdentity-\(UUID().uuidString)")!
+        let settings = ScratchDefaults("FilingSourceIdentity")
         settings.set(true, forKey: FileSyncManager.readContentsDefaultsKey)
         m.filingContentDefaults = settings
         m.filingContentExtractor = { _ in contentTokens }
@@ -52,14 +52,15 @@ import Testing
     }
 
     /// A different document now sits at the card's path. It stays put, nothing lands in the
-    /// folder, and the alert says why.
+    /// folder, and the alert says why. The refusal is a filing failure, not a sync one, and doesn't
+    /// call a folder the user chose (via "Choose a folder…") a suggestion.
     @Test func aFileReplacedSinceTheScanIsNotFiled() async throws {
         let (root, m, card, folder) = try await Self.scanned()
         defer { try? FileManager.default.removeItem(at: root) }
         let src = URL(fileURLWithPath: card.filePath)
         // A re-download under the same name: different bytes, different size.
         try FileManager.default.removeItem(at: src)
-        try writeFilingFile(src, bytes: 7000, fill: 0x42)
+        try writeBytes(src, bytes: 7000, fill: 0x42)
 
         let result = await m.applyFilingSuggestion(card, to: folder)
 
@@ -68,29 +69,13 @@ import Testing
         let landed = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0 != ".keep" }
         #expect(landed.isEmpty, "something was filed into the folder: \(landed)")
-        #expect(m.currentError?.reason?.contains("changed since the scan") == true,
-                "the alert did not say why: \(m.currentError?.reason ?? "-")")
-    }
-
-    /// The refusal is worded as a filing failure, not a sync one, and doesn't call a folder the user
-    /// chose (via "Choose a folder…") a suggestion. It isn't retryable: pressing the button again
-    /// can't make the file the one the card was about.
-    @Test func theRefusalIsAFilingsAndFitsAChosenFolder() async throws {
-        let (root, m, card, folder) = try await Self.scanned()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let src = URL(fileURLWithPath: card.filePath)
-        try FileManager.default.removeItem(at: src)
-        try writeFilingFile(src, bytes: 7000, fill: 0x42)
-
-        #expect(await m.applyFilingSuggestion(card, to: folder) == .failed)
-
         let error = try #require(m.currentError, "the refusal was not presented")
         #expect(error.title == "Filing Failed")
         #expect(error.message == "Couldn’t file “invoice.pdf”.")
-        let reason = try #require(error.reason)
-        #expect(reason.contains("changed since the scan"))
-        #expect(!reason.contains("suggested"),
-                "the refusal calls a folder the user chose a suggestion: \(reason)")
+        #expect(error.reason?.contains("changed since the scan") == true,
+                "the alert did not say why: \(error.reason ?? "-")")
+        #expect(error.reason?.contains("suggested") == false,
+                "the refusal calls a folder the user chose a suggestion: \(error.reason ?? "-")")
     }
 
     /// The other direction, so the guard doesn't refuse everything: the same card, untouched,
@@ -132,7 +117,7 @@ import Testing
 
         let src = URL(fileURLWithPath: card.filePath)
         try FileManager.default.removeItem(at: src)
-        try writeFilingFile(src, bytes: 7000, fill: 0x42)
+        try writeBytes(src, bytes: 7000, fill: 0x42)
         let result = await m.applyFilingSuggestion(card, to: folder)
 
         #expect(result == .failed)

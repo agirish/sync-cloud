@@ -57,6 +57,8 @@ import Testing
     @Test func anAllCapsNameAndAYearMineNoDate() {
         #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("SANJAY KUMAR 2023")) == nil,
                 "an all-caps surname and a year still mine a date out of nothing")
+        #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("Sanjay Kumar 2023")) == nil,
+                "a surname and a year still mine a date out of nothing")
         #expect(FileNameDate.spelledMonth(in: FileNameDate.tokenRuns("ACME export 2024")) == nil,
                 "a vendor token and a year still mine a date out of nothing")
     }
@@ -71,13 +73,6 @@ import Testing
     }
 
     // MARK: And the consequence, at the level the user sees
-
-    /// The whole point: no month, so no mined date, so no rename proposed for it.
-    @Test func aNameAndAYearMineNoDate() {
-        let runs = FileNameDate.tokenRuns("Sanjay Kumar 2023")
-        #expect(FileNameDate.spelledMonth(in: runs) == nil,
-                "a surname and a year still mine a date out of nothing")
-    }
 
     /// The positive control: the same shape with a real month still mines, so the test above
     /// measures the boundary rule and not a mining path that stopped working.

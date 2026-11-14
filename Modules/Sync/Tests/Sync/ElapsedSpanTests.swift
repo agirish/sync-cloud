@@ -47,7 +47,7 @@ import Foundation
         let text = span.text
         #expect(!text.contains("asleep"),
                 "an awake machine was reported as sleeping: “\(text)”")
-        #expect(text.contains("ms") || text.contains("s"), "no duration at all: “\(text)”")
+        #expect(text.wholeMatch(of: /\d+\.\d ms|\d+\.\d\d s/) != nil, "not a plain duration: “\(text)”")
     }
 
     /// The live property routes through the tested function. Otherwise the suite above could stay

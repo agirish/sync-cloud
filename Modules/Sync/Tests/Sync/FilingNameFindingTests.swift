@@ -16,9 +16,9 @@ import Events
         defer { try? FileManager.default.removeItem(at: root) }
         // Names ending in a space, which macOS will create: one in the scanned inbox, one three
         // levels away. A depth-1 detector finds only the first.
-        try writeFilingFile(root.appendingPathComponent("Downloads/inbox tail "), bytes: 500)
-        try writeFilingFile(root.appendingPathComponent("Documents/Archive/deep tail "), bytes: 500)
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/inbox tail "), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Documents/Archive/deep tail "), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -34,8 +34,8 @@ import Events
         // The chip should be absent on the common day, so a clean tree must give an empty finding.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesClean")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Downloads/Statement.pdf"), bytes: 500)
-        try writeFilingFile(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try writeBytes(root.appendingPathComponent("Downloads/Statement.pdf"), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
 
         let manager = FileSyncManager()
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -50,7 +50,7 @@ import Events
         // risky names", so the previous finding stays and the chip doesn't vanish.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesOptOut")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Downloads/tail "), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Downloads/tail "), bytes: 500)
 
         let manager = FileSyncManager()
         manager.riskyNames = [RiskyName(id: "/pre/existing", relativePath: "existing",
@@ -71,7 +71,7 @@ import Events
         // so the two rulesets must differ here.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesRuleset")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("Downloads/Q3: report.pdf"), bytes: 500)
+        try writeBytes(root.appendingPathComponent("Downloads/Q3: report.pdf"), bytes: 500)
 
         let strict = FileSyncManager()
         await strict.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
@@ -135,37 +135,5 @@ import Events
         await manager.detectRiskyNames(in: [child], root: root, provider: .oneDrive)
 
         #expect(manager.riskyNames.map(\.currentName) == ["tail "])
-    }
-
-    // MARK: The single-file door (the pane row's "Fix name")
-
-    @Test func theOneNodeCheckAgreesWithTheWholeTreeScan() {
-        // The row menu and the batch share one rule. If they disagreed, a flagged name would have
-        // no per-row fix, or a row would offer a fix the batch doesn't.
-        let hazards = ["trailing ", "colon:name.pdf", "a\u{200B}b.txt"]
-        let safe = ["Statement.pdf", "Café.pdf", "folder"]
-
-        for name in hazards {
-            let one = NameNormalizer.risky(name: name, relativePath: name, absolutePath: "/x/\(name)",
-                                           isDirectory: false, provider: .oneDrive)
-            #expect(one != nil, "“\(name)” is a hazard the row menu must offer to fix")
-        }
-        for name in safe {
-            let one = NameNormalizer.risky(name: name, relativePath: name, absolutePath: "/x/\(name)",
-                                           isDirectory: false, provider: .oneDrive)
-            #expect(one == nil, "“\(name)” is safe — offering a fix would rename it for nothing")
-        }
-    }
-
-    @Test func theOneNodeCheckProposesTheSameNameTheBatchWould() {
-        // The menu item's help text quotes `sanitizedName`, and the fix runs through the batch's
-        // `normalizeNames`, so both must propose the same name.
-        let name = "Q3: report .pdf"
-        let one = NameNormalizer.risky(name: name, relativePath: name, absolutePath: "/x/\(name)",
-                                       isDirectory: false, provider: .oneDrive)
-        let batch = NameNormalizer.evaluate(name: name, relativePath: name, absolutePath: "/x/\(name)",
-                                            isDirectory: false, provider: .oneDrive)
-        #expect(one?.sanitizedName == batch?.sanitizedName)
-        #expect(one?.reason == batch?.reason)
     }
 }

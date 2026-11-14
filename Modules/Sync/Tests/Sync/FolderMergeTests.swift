@@ -6,15 +6,6 @@ import Foundation
 /// is left in two trees, and the mock's enumerator is not the one production lists with.
 @Suite struct FolderMergeTests {
 
-    private func write(_ text: String, _ url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(text.utf8).write(to: url)
-    }
-
-    private func read(_ url: URL) -> String? {
-        (try? Data(contentsOf: url)).flatMap { String(data: $0, encoding: .utf8) }
-    }
-
     /// Every entry under `root` that is not a folder, as relative paths.
     private func files(_ root: URL) -> [String] {
         (FileManager.default.subpaths(atPath: root.path) ?? []).filter {
@@ -52,16 +43,16 @@ import Foundation
     private func fixture(_ root: URL) throws -> (src: URL, dst: URL) {
         let src = root.appendingPathComponent("src/Reports")
         let dst = root.appendingPathComponent("dst/Reports")
-        try write("new a", src.appendingPathComponent("a.txt"))
-        try write("new b", src.appendingPathComponent("b.txt"))
-        try write("new c", src.appendingPathComponent("sub/c.txt"))
-        try write("new d", src.appendingPathComponent("sub/deep/d.txt"))
-        try write("src view", src.appendingPathComponent(".DS_Store"))
-        try write("old a", dst.appendingPathComponent("a.txt"))
-        try write("only here", dst.appendingPathComponent("only.txt"))
-        try write("old c", dst.appendingPathComponent("sub/c.txt"))
-        try write("keep me", dst.appendingPathComponent("sub/keep.txt"))
-        try write("dst view", dst.appendingPathComponent(".DS_Store"))
+        try writeText("new a", src.appendingPathComponent("a.txt"))
+        try writeText("new b", src.appendingPathComponent("b.txt"))
+        try writeText("new c", src.appendingPathComponent("sub/c.txt"))
+        try writeText("new d", src.appendingPathComponent("sub/deep/d.txt"))
+        try writeText("src view", src.appendingPathComponent(".DS_Store"))
+        try writeText("old a", dst.appendingPathComponent("a.txt"))
+        try writeText("only here", dst.appendingPathComponent("only.txt"))
+        try writeText("old c", dst.appendingPathComponent("sub/c.txt"))
+        try writeText("keep me", dst.appendingPathComponent("sub/keep.txt"))
+        try writeText("dst view", dst.appendingPathComponent(".DS_Store"))
         return (src, dst)
     }
 
@@ -91,11 +82,11 @@ import Foundation
         // drop the folder's `.DS_Store`, as any Replace does. What matters is that the source's
         // never landed over it.
         #expect(files(dst).filter { $0 != ".DS_Store" } == ["a.txt", "b.txt", "only.txt", "sub/c.txt", "sub/deep/d.txt", "sub/keep.txt"])
-        #expect(read(dst.appendingPathComponent("a.txt")) == "new a")          // Replace
-        #expect(read(dst.appendingPathComponent("sub/c.txt")) == "old c")      // Skip
-        #expect(read(dst.appendingPathComponent("only.txt")) == "only here")   // kept
-        #expect(read(dst.appendingPathComponent(".DS_Store")) != "src view")   // never copied over
-        #expect(read(dst.appendingPathComponent("sub/deep/d.txt")) == "new d")  // a missing folder lands whole
+        #expect(readText(dst.appendingPathComponent("a.txt")) == "new a")          // Replace
+        #expect(readText(dst.appendingPathComponent("sub/c.txt")) == "old c")      // Skip
+        #expect(readText(dst.appendingPathComponent("only.txt")) == "only here")   // kept
+        #expect(readText(dst.appendingPathComponent(".DS_Store")) != "src view")   // never copied over
+        #expect(readText(dst.appendingPathComponent("sub/deep/d.txt")) == "new d")  // a missing folder lands whole
         #expect(files(src).count == 5)                                          // a copy leaves the source alone
         #expect(m.currentError == nil)
         #expect(trash.names.contains { $0.hasPrefix(".rollback_") },
@@ -107,7 +98,7 @@ import Foundation
         await waitUntil("merge undo drains") {
             m.activeFileOperationsCount == 0 && !FileManager.default.fileExists(atPath: dst.appendingPathComponent("b.txt").path)
         }
-        await waitUntil("replaced file restored") { self.read(dst.appendingPathComponent("a.txt")) == "old a" }
+        await waitUntil("replaced file restored") { readText(dst.appendingPathComponent("a.txt")) == "old a" }
         #expect(files(dst).filter { $0 != ".DS_Store" } == ["a.txt", "only.txt", "sub/c.txt", "sub/keep.txt"])
     }
 
@@ -120,8 +111,8 @@ import Foundation
         let dst = root.appendingPathComponent("dst")
         for folder in ["One", "Two"] {
             for name in ["x.txt", "y.txt", "z.txt"] {
-                try write("new", src.appendingPathComponent("\(folder)/\(name)"))
-                try write("old", dst.appendingPathComponent("\(folder)/\(name)"))
+                try writeText("new", src.appendingPathComponent("\(folder)/\(name)"))
+                try writeText("old", dst.appendingPathComponent("\(folder)/\(name)"))
             }
         }
         let prompts = Prompts()
@@ -144,10 +135,10 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/F")
         let dst = root.appendingPathComponent("dst/F")
-        try write("new", src.appendingPathComponent("a.txt"))
-        try write("file", src.appendingPathComponent("b"))
-        try write("old", dst.appendingPathComponent("a.txt"))
-        try write("inside", dst.appendingPathComponent("b/inside.txt"))
+        try writeText("new", src.appendingPathComponent("a.txt"))
+        try writeText("file", src.appendingPathComponent("b"))
+        try writeText("old", dst.appendingPathComponent("a.txt"))
+        try writeText("inside", dst.appendingPathComponent("b/inside.txt"))
         let prompts = Prompts()
         let m = manager(prompts: prompts, childAnswers: ["a.txt": (.replace, true)])
 
@@ -156,8 +147,8 @@ import Foundation
         #expect(prompts.children.map(\.fileName) == ["a.txt", "b"])
         #expect(prompts.children.last?.isDirectory == true)
         // "b" was skipped (the default answer), not replaced by the file-level apply-to-all.
-        #expect(read(dst.appendingPathComponent("b/inside.txt")) == "inside")
-        #expect(read(dst.appendingPathComponent("a.txt")) == "new")
+        #expect(readText(dst.appendingPathComponent("b/inside.txt")) == "inside")
+        #expect(readText(dst.appendingPathComponent("a.txt")) == "new")
     }
 
     @MainActor
@@ -172,21 +163,21 @@ import Foundation
         let moved = await m.moveItems(nodes: [FileNode(id: src.path, name: "Reports", isDirectory: true)], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         #expect(moved.map(\.id) == [src.path])
-        #expect(read(dst.appendingPathComponent("sub/c.txt")) == "new c")
-        #expect(read(dst.appendingPathComponent("sub/keep.txt")) == "keep me")
+        #expect(readText(dst.appendingPathComponent("sub/c.txt")) == "new c")
+        #expect(readText(dst.appendingPathComponent("sub/keep.txt")) == "keep me")
         // Everything left the source except its .DS_Store, so the source folder went to the Trash.
         #expect(!FileManager.default.fileExists(atPath: src.path))
 
         // One ⌘Z puts every moved child back where it came from, the emptied source folder included.
         m.undoManager?.undo()
         await waitUntil("move-merge undo puts the children back") {
-            m.activeFileOperationsCount == 0 && self.read(src.appendingPathComponent("sub/deep/d.txt")) == "new d"
+            m.activeFileOperationsCount == 0 && readText(src.appendingPathComponent("sub/deep/d.txt")) == "new d"
         }
-        #expect(read(src.appendingPathComponent("b.txt")) == "new b")
-        #expect(read(src.appendingPathComponent("sub/c.txt")) == "new c")
+        #expect(readText(src.appendingPathComponent("b.txt")) == "new b")
+        #expect(readText(src.appendingPathComponent("sub/c.txt")) == "new c")
         #expect(!FileManager.default.fileExists(atPath: dst.appendingPathComponent("b.txt").path))
-        await waitUntil("replaced destination file restored") { self.read(dst.appendingPathComponent("sub/c.txt")) == "old c" }
-        #expect(read(dst.appendingPathComponent("sub/keep.txt")) == "keep me")
+        await waitUntil("replaced destination file restored") { readText(dst.appendingPathComponent("sub/c.txt")) == "old c" }
+        #expect(readText(dst.appendingPathComponent("sub/keep.txt")) == "keep me")
 
         // Same again with a skip: the skipped file keeps its folder where it was.
         let root2 = try makeCanonicalTempRoot(prefix: "folder-merge-move-skip")
@@ -196,8 +187,8 @@ import Foundation
         let m2 = manager(prompts: Prompts(), childAnswers: ["a.txt": (.replace, false), "c.txt": (.skip, false)])
         _ = await m2.moveItems(nodes: [FileNode(id: src2.path, name: "Reports", isDirectory: true)], toPath: dst2.deletingLastPathComponent().path, fileManager: trash2)
         #expect(files(src2) == [".DS_Store", "sub/c.txt"])
-        #expect(read(dst2.appendingPathComponent("sub/deep/d.txt")) == "new d")
-        #expect(read(dst2.appendingPathComponent("sub/c.txt")) == "old c")
+        #expect(readText(dst2.appendingPathComponent("sub/deep/d.txt")) == "new d")
+        #expect(readText(dst2.appendingPathComponent("sub/c.txt")) == "old c")
     }
 
     @MainActor
@@ -208,12 +199,12 @@ import Foundation
         let src = root.appendingPathComponent("src")
         let dst = root.appendingPathComponent("dst")
         let elsewhere = root.appendingPathComponent("elsewhere")
-        try write("new", src.appendingPathComponent("Linked/a.txt"))
-        try write("outside the tree", elsewhere.appendingPathComponent("a.txt"))
+        try writeText("new", src.appendingPathComponent("Linked/a.txt"))
+        try writeText("outside the tree", elsewhere.appendingPathComponent("a.txt"))
         try FileManager.default.createDirectory(at: dst, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: dst.appendingPathComponent("Linked"), withDestinationURL: elsewhere)
-        try write("file", src.appendingPathComponent("Plain"))
-        try write("inside", dst.appendingPathComponent("Plain/inside.txt"))
+        try writeText("file", src.appendingPathComponent("Plain"))
+        try writeText("inside", dst.appendingPathComponent("Plain/inside.txt"))
         let prompts = Prompts()
         // Answer Merge even where it is not offered: it must be read as Skip.
         let m = manager(prompts: prompts, folderAnswer: .merge)
@@ -225,8 +216,8 @@ import Foundation
         #expect(prompts.top.count == 2)
         #expect(prompts.top.allSatisfy { !$0.offersMerge && $0.mergePreview == nil })
         #expect(prompts.children.isEmpty)
-        #expect(read(elsewhere.appendingPathComponent("a.txt")) == "outside the tree")
-        #expect(read(dst.appendingPathComponent("Plain/inside.txt")) == "inside")
+        #expect(readText(elsewhere.appendingPathComponent("a.txt")) == "outside the tree")
+        #expect(readText(dst.appendingPathComponent("Plain/inside.txt")) == "inside")
     }
 
     /// A package is a document, not a folder: two `.rtfd` bundles collide as one item, at the top
@@ -239,10 +230,10 @@ import Foundation
         let src = root.appendingPathComponent("src")
         let dst = root.appendingPathComponent("dst")
         for side in [(src, "new"), (dst, "old")] {
-            try write(side.1, side.0.appendingPathComponent("Note.rtfd/TXT.rtf"))
-            try write(side.1, side.0.appendingPathComponent("Folder/Inner.rtfd/TXT.rtf"))
+            try writeText(side.1, side.0.appendingPathComponent("Note.rtfd/TXT.rtf"))
+            try writeText(side.1, side.0.appendingPathComponent("Folder/Inner.rtfd/TXT.rtf"))
         }
-        try write("new only", src.appendingPathComponent("Note.rtfd/Pasted.png"))
+        try writeText("new only", src.appendingPathComponent("Note.rtfd/Pasted.png"))
         let isPackage = try URL(fileURLWithPath: src.appendingPathComponent("Note.rtfd").path).resourceValues(forKeys: [.isPackageKey]).isPackage
         try #require(isPackage == true, "the fixture must be a package for this test to mean anything")
         let prompts = Prompts()
@@ -259,7 +250,7 @@ import Foundation
         #expect(prompts.children.first?.isDirectory == true)
         // Nothing was written into either package (the answers were Skip).
         #expect(files(dst.appendingPathComponent("Note.rtfd")) == ["TXT.rtf"])
-        #expect(read(dst.appendingPathComponent("Folder/Inner.rtfd/TXT.rtf")) == "old")
+        #expect(readText(dst.appendingPathComponent("Folder/Inner.rtfd/TXT.rtf")) == "old")
         // And the preview counts a package as one item, not its insides.
         #expect(FileSyncManager.folderMergePreview(source: src.appendingPathComponent("Folder"), destination: dst.appendingPathComponent("Folder"), fileManager: FileManager.default)
                 == FolderMergePreview(destinationOnlyCount: 0, collidingCount: 1))
@@ -273,10 +264,10 @@ import Foundation
         let trash = ScratchTrash(in: root)
         let src = root.appendingPathComponent("src/F")
         let dst = root.appendingPathComponent("dst/F")
-        try write("new", src.appendingPathComponent("a.txt"))
-        try write("new", src.appendingPathComponent("b.txt"))
-        try write("new", src.appendingPathComponent("c.txt"))
-        try write("old", dst.appendingPathComponent("a.txt"))
+        try writeText("new", src.appendingPathComponent("a.txt"))
+        try writeText("new", src.appendingPathComponent("b.txt"))
+        try writeText("new", src.appendingPathComponent("c.txt"))
+        try writeText("old", dst.appendingPathComponent("a.txt"))
         let m = manager(prompts: Prompts())
         m.bulkCollisionResolver = { [m] _ in
             m.activeProgress?.cancel()
@@ -286,8 +277,8 @@ import Foundation
         _ = await m.copyItems(nodes: [FileNode(id: src.path, name: "F", isDirectory: true)], toPath: dst.deletingLastPathComponent().path, fileManager: trash)
 
         // a.txt's prompt pressed Cancel; the answer still stands for a.txt, nothing after it lands.
-        #expect(read(dst.appendingPathComponent("b.txt")) == nil)
-        #expect(read(dst.appendingPathComponent("c.txt")) == nil)
+        #expect(readText(dst.appendingPathComponent("b.txt")) == nil)
+        #expect(readText(dst.appendingPathComponent("c.txt")) == nil)
         #expect(m.currentError == nil)
     }
 

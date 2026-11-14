@@ -51,10 +51,7 @@ import Testing
         }
         // The app answers at last: the read it was holding comes back and leaves the registry.
         gate.release.signal()
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while disk.datalessFolderReads.isOutstanding(f.unanswered), ContinuousClock.now < deadline {
-            try await Task.sleep(nanoseconds: 5_000_000)
-        }
+        await waitUntil("the late answer came back", timeout: 10) { !disk.datalessFolderReads.isOutstanding(f.unanswered) }
         try #require(!disk.datalessFolderReads.isOutstanding(f.unanswered), "the late answer never came back")
         try #require(!gate.releasedByTimeout, "the gate timed out: the folder was never held unanswered")
 

@@ -146,15 +146,7 @@ import Foundation
     }
 
     @Test func testEmptyDirectorySync() async throws {
-        let mockFM = disk([.dir("/src/empty_folder")])
-
-        // Verify the empty folder is found by scan
-        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
-        #expect(srcFiles["empty_folder"] != nil)
-        #expect(srcFiles["empty_folder"]?.isDirectory == true)
-
-        // Should find 1 difference (the missing directory)
-        let diffs = try diff(mockFM)
+        let diffs = try diff(disk([.dir("/src/empty_folder")]))
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "empty_folder")
         #expect(diffs.first?.action == .copyToRight)
@@ -173,23 +165,15 @@ import Foundation
     }
 
     @Test func testDeepNestedDirectorySync() async throws {
-        let mockFM = MockFileManager()
-        let root = URL(fileURLWithPath: "/src")
-        try mockFM.createDirectory(at: root, withIntermediateDirectories: true)
-        
-        // Create 10 levels of nesting
-        var currentURL = root
+        // Ten levels of nesting, with a file at each level.
+        var stubs: [Stub] = []
+        var current = "/src"
         for i in 1...10 {
-            currentURL = currentURL.appendingPathComponent("level_\(i)")
-            try mockFM.createDirectory(at: currentURL, withIntermediateDirectories: true)
-            
-            // Add a file at each level
-            let fileURL = currentURL.appendingPathComponent("file_\(i).txt")
-            mockFM.virtualDisk[fileURL.path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            current += "/level_\(i)"
+            stubs += [.dir(current), .file("\(current)/file_\(i).txt")]
         }
-        
-        let srcFiles = try FileDiffEngine.getFilesInDirectory(root, fileManager: mockFM)
-        
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: disk(stubs))
+
         // Should find 10 files and 10 directories (excluding root)
         // Note: the engine returns a flat dictionary of relative paths
         #expect(srcFiles.count == 20)
@@ -199,15 +183,9 @@ import Foundation
     }
 
     @Test func testHiddenFilesDetection() async throws {
-        let mockFM = MockFileManager()
-        let root = URL(fileURLWithPath: "/src")
-        try mockFM.createDirectory(at: root, withIntermediateDirectories: true)
-        
-        mockFM.virtualDisk["/src/.gitignore"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/src/visible.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
         // getFilesInDirectory returns all files (including hidden); filtering by showHidden happens in applyFilters().
-        let files = try FileDiffEngine.getFilesInDirectory(root, fileManager: mockFM)
+        let files = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"),
+                                                           fileManager: disk([.file("/src/.gitignore"), .file("/src/visible.txt")]))
         #expect(files.count == 2)
         #expect(files[".gitignore"] != nil)
         #expect(files["visible.txt"] != nil)

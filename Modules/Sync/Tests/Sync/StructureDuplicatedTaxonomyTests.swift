@@ -11,28 +11,20 @@ import Testing
 
     private static func profile(_ counts: [String: Int]) -> FolderProfile {
         FolderProfile(profileId: "p", root: root,
-                      folders: counts.mapValues2 { path, files in
-                          FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
-                                             acceptsNewFiles: nil, fileCount: files,
-                                             subfolderCount: 0, axes: [:])
-                      },
+                      folders: Dictionary(uniqueKeysWithValues: counts.map { path, files in
+                          (path, FolderProfileEntry(path: path, role: nil, naming: nil, anchors: [],
+                                                    acceptsNewFiles: nil, fileCount: files,
+                                                    subfolderCount: 0, axes: [:]))
+                      }),
                       personTokens: [])
     }
 
     private static func sameTextGroup(_ paths: [String],
-                                      matchType: DuplicateMatchType = .sameText)
-        -> DuplicateGroup {
-        DuplicateGroup(matchType: matchType, name: (paths[0] as NSString).lastPathComponent,
-                       isDirectory: false,
-                       copies: paths.map {
-                           DuplicateCopy(id: root + "/" + $0,
-                                         name: ($0 as NSString).lastPathComponent,
-                                         isDirectory: false, size: 10, itemCount: 1,
-                                         modificationDate: nil, uniqueItemCount: 0,
-                                         depth: $0.split(separator: "/").count,
-                                         isRecommendedKeeper: false)
-                       },
-                       reclaimableBytes: 0)
+                                      matchType: DuplicateMatchType = .sameText) -> DuplicateGroup {
+        .stub(paths.map { .stub(root + "/" + $0, keeper: false, size: 10,
+                                depth: $0.split(separator: "/").count) },
+              matchType: matchType, name: (paths[0] as NSString).lastPathComponent,
+              isDirectory: false, reclaimable: 0)
     }
 
     /// Three same-text pairs spanning two branches, and the smaller folder's share clears the bar:
@@ -219,12 +211,5 @@ import Testing
                                       "Work/Compensation/Salary Statements/2026": 40])
         #expect(StructureDuplicatedTaxonomy.findings(groups: groups, in: bothLarge).isEmpty,
                 "four shared documents out of forty is not a duplicated taxonomy")
-    }
-}
-
-private extension Dictionary where Key == String {
-    /// Map values with access to the key.
-    func mapValues2<T>(_ transform: (Key, Value) -> T) -> [Key: T] {
-        Dictionary<Key, T>(uniqueKeysWithValues: map { ($0.key, transform($0.key, $0.value)) })
     }
 }

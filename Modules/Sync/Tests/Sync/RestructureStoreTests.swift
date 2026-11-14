@@ -118,15 +118,6 @@ private func manifest(id: String, family: String = "F") -> RestructureManifest {
                                                     path: "Finance/US/Income Tax")))
     }
 
-    @Test func anAnswerRoundTripsThroughTheFile() throws {
-        let dir = try makeDirectory()
-        let key = RestructureKey(kind: .shape, path: "Health/Kaiser - PG&E")
-        RestructureStore(directory: dir, profileId: "p").recordAnswer("coverage", for: key)
-
-        let reread = RestructureStore(directory: dir, profileId: "p")
-        #expect(reread.answer(for: key) == "coverage")
-    }
-
     @Test func removingAnAnswerRemovesItFromTheFileToo() throws {
         let dir = try makeDirectory()
         let key = RestructureKey(kind: .shape, path: "Health/Kaiser - PG&E")

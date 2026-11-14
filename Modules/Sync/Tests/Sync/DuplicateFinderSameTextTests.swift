@@ -6,15 +6,6 @@ import Testing
 /// able to break.
 @Suite struct DuplicateFinderSameTextTests {
 
-    private func file(_ path: String, size: Int = 8192, modified: Date? = nil) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
-                 modificationDate: modified, fileSize: size)
-    }
-    private func dir(_ path: String, _ children: [FileNode]) -> FileNode {
-        FileNode(id: path, name: (path as NSString).lastPathComponent, isDirectory: true,
-                 children: children)
-    }
-
     /// The measured case: one bill downloaded twice, re-stamped, so the byte hashes differ and the
     /// sizes may too. Parents each hold a unique file so the folders themselves are not duplicates.
     private var restampedPair: (tree: [FileNode], hashes: [String: String]) {

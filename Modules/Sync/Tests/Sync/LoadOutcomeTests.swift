@@ -5,17 +5,17 @@ import Testing
 /// per navigation; a slow load and one that never reached a known exit are the only record of a
 /// pane that hung or came up empty.
 @Suite struct LoadOutcomeTests {
-    @Test func aQuickLoadWithAKnownEndingStaysDebug() {
-        #expect(!LoadOutcome.isWorthReporting(activeSeconds: 0.2, outcome: "walked 40 node(s)", strandedSpinner: false))
-    }
-
-    @Test func aSlowLoadIsReportedFromTwoSeconds() {
-        #expect(!LoadOutcome.isWorthReporting(activeSeconds: 1.99, outcome: "walked", strandedSpinner: false))
-        #expect(LoadOutcome.isWorthReporting(activeSeconds: 2.0, outcome: "walked", strandedSpinner: false))
-    }
-
-    @Test func aLoadWithNoKnownEndingOrAStrandedSpinnerIsReported() {
-        #expect(LoadOutcome.isWorthReporting(activeSeconds: 0, outcome: LoadOutcome.unknownExit, strandedSpinner: false))
-        #expect(LoadOutcome.isWorthReporting(activeSeconds: 0, outcome: "cancelled", strandedSpinner: true))
+    /// A load is reported from two seconds, or with no known ending, or with a stranded spinner.
+    @Test(arguments: [
+        (0.2, "walked 40 node(s)", false, false),
+        (1.99, "walked", false, false),
+        (2.0, "walked", false, true),
+        (0, LoadOutcome.unknownExit, false, true),
+        (0, "cancelled", true, true),
+    ])
+    func aLoadIsReportedOnlyWhenSlowOrUnended(activeSeconds: Double, outcome: String,
+                                              strandedSpinner: Bool, reported: Bool) {
+        #expect(LoadOutcome.isWorthReporting(activeSeconds: activeSeconds, outcome: outcome,
+                                             strandedSpinner: strandedSpinner) == reported)
     }
 }

@@ -24,6 +24,17 @@ import Testing
         await log.entries.filter { $0.message.contains(tag) }
     }
 
+    /// A mock disk holding `/src` and a file at each of `paths`.
+    @MainActor
+    private static func diskOf(_ paths: [String]) throws -> MockFileManager {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        for path in paths {
+            mockFM.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+        return mockFM
+    }
+
     /// A message without the ` | Location: …` tail every WARN and ERROR line carries.
     private static func bare(_ message: String) -> String {
         message.components(separatedBy: " | Location: ")[0]
@@ -64,19 +75,6 @@ import Testing
         #expect(names.allSatisfy { named.components(separatedBy: "/src/\($0)").count == 2 }, "a name was dropped or repeated")
         #expect(lines.count == 4, "a line per item, or the alert's own line: \(lines.count)")
         #expect(await !log.holds(containing: "Copy Failed: Couldn’t copy 500 items"), "the alert's line was written beside the group")
-    }
-
-    /// Names in a group are sorted, and the group's first item is the first by name, so two runs
-    /// of the same failures log the same lines whatever order the workers finished in.
-    @Test func aGroupsNamesAreSortedWhateverOrderTheyFailedIn() throws {
-        let full = { (path: String) in CocoaError(.fileWriteOutOfSpace, userInfo: [NSFilePathErrorKey: path]) }
-        let order = ["/d/c.txt", "/d/a.txt", "/d/b.txt"]
-        let lines = GroupedFailureLog.lines("Copy", order.map { ItemError(URL(fileURLWithPath: $0), full($0)) })
-        let again = GroupedFailureLog.lines("Copy", order.reversed().map { ItemError(URL(fileURLWithPath: $0), full($0)) })
-        #expect(lines == again)
-        try #require(lines.count == 2)
-        #expect(lines[0].contains("first: /d/a.txt: "))
-        #expect(lines[1].hasSuffix("): /d/a.txt, /d/b.txt, /d/c.txt"))
     }
 
     /// A `SyncError` isn't a `LocalizedError`, so its first description is its log description,
@@ -122,12 +120,8 @@ import Testing
         let manager = makeManager()
         var askedToDestroy = false
         manager.permanentDeleteConfirmer = { _ in askedToDestroy = true; return false }
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         let paths = Self.names(tag, 500).map { "/src/\($0)" }
-        for path in paths {
-            mockFM.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let mockFM = try Self.diskOf(paths)
         mockFM.trashErrorAlways = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
 
         let log = LogCapture()
@@ -176,12 +170,8 @@ import Testing
         let tag = "del500-\(UUID().uuidString.prefix(8))"
         let manager = makeManager()
         manager.permanentDeleteConfirmer = { _ in true }
-        let mockFM = MockFileManager()
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         let paths = Self.names(tag, 500).map { "/src/\($0)" }
-        for path in paths {
-            mockFM.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        }
+        let mockFM = try Self.diskOf(paths)
         // No Trash on this volume, and the confirmed permanent delete fails too.
         mockFM.shouldFailTrash = true
         mockFM.failRemovePathsOnce = Set(paths)

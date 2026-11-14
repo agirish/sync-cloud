@@ -96,7 +96,6 @@ import Testing
                                 "premise: the replaced item is not in the Trash")
         let inTrash = try #require(try FileManager.default.contentsOfDirectory(at: slot, includingPropertiesForKeys: nil).first)
         try openInFinder(inTrash)
-        await Task.yield()
 
         manager.undoManager?.undo()
         await waitUntil("the undo drains") { manager.activeFileOperationsCount == 0 }

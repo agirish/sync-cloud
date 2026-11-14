@@ -299,7 +299,7 @@ import Testing
     @Test func fileHereOnTheFirstPickIsKeptAndUndoTakesItBack() async throws {
         let root = try makeCanonicalTempRoot(prefix: "ScorecardKept")
         defer { try? FileManager.default.removeItem(at: root) }
-        try writeFilingFile(root.appendingPathComponent("TODO/Divit enrollment.pdf"))
+        try writeBytes(root.appendingPathComponent("TODO/Divit enrollment.pdf"))
         try FileManager.default.createDirectory(at: root.appendingPathComponent("School/Divit"), withIntermediateDirectories: true)
         m.publishFilingSuggestions([Self.card(root, "Divit enrollment.pdf", ["School/Divit", "School"])])
         let card = try #require(m.filingSuggestions.first)
@@ -322,7 +322,7 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "ScorecardTryAnother")
         defer { try? FileManager.default.removeItem(at: root) }
         let name = "FedEx invoice - India courier.pdf"
-        try writeFilingFile(root.appendingPathComponent("TODO/\(name)"))
+        try writeBytes(root.appendingPathComponent("TODO/\(name)"))
         for f in ["Health/Medical/India", "Finance/Shipments"] {
             try FileManager.default.createDirectory(at: root.appendingPathComponent(f), withIntermediateDirectories: true)
         }
@@ -344,7 +344,7 @@ import Testing
         let root = try makeCanonicalTempRoot(prefix: "ScorecardRescan")
         defer { try? FileManager.default.removeItem(at: root) }
         let name = "courier receipt.pdf"
-        try writeFilingFile(root.appendingPathComponent("TODO/\(name)"))
+        try writeBytes(root.appendingPathComponent("TODO/\(name)"))
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Finance/Shipments"), withIntermediateDirectories: true)
         m.publishFilingSuggestions([Self.card(root, name, ["Health/Medical/India", "Finance/Shipments"])])
         await m.tryAnotherFolder(for: try #require(m.filingSuggestions.first))
@@ -363,7 +363,7 @@ import Testing
         let before = m.filingScorecard.records.count
         var cards: [FilingSuggestion] = []
         for name in ["a 2025.pdf", "b 2025.pdf"] {
-            try writeFilingFile(root.appendingPathComponent("TODO/\(name)"))
+            try writeBytes(root.appendingPathComponent("TODO/\(name)"))
             cards.append(FilingSuggestion(filePath: root.appendingPathComponent("TODO/\(name)").path, fileName: name, size: 5000,
                                           modificationDate: nil,
                                           candidates: [FilingDestination(path: root.appendingPathComponent("Bills").path,

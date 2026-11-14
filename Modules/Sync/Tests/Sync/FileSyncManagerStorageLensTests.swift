@@ -8,18 +8,13 @@ import Foundation
 /// task replacement, the stale-report guard, and the publish-with-results discipline.
 @Suite struct FileSyncManagerStorageLensTests {
 
-    private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(repeating: fill, count: bytes).write(to: url)
-    }
-
     @MainActor
     @Test func buildPublishesReportForScannedTree() async throws {
         let root = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Docs/a.pdf"), bytes: 5000, fill: 0x41)
-        try write(root.appendingPathComponent("Docs/b.pdf"), bytes: 3000, fill: 0x42)
-        try write(root.appendingPathComponent("loose.txt"), bytes: 100, fill: 0x43)
+        try writeBytes(root.appendingPathComponent("Docs/a.pdf"), bytes: 5000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Docs/b.pdf"), bytes: 3000, fill: 0x42)
+        try writeBytes(root.appendingPathComponent("loose.txt"), bytes: 100, fill: 0x43)
 
         let manager = FileSyncManager()
         manager.startBuildStorageLens(root: root)
@@ -44,8 +39,8 @@ import Foundation
         let root = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: root) }
         let old = root.appendingPathComponent("old-big.bin")
-        try write(old, bytes: 5000, fill: 0x4F)
-        try write(root.appendingPathComponent("new-small.txt"), bytes: 10, fill: 0x4E)
+        try writeBytes(old, bytes: 5000, fill: 0x4F)
+        try writeBytes(root.appendingPathComponent("new-small.txt"), bytes: 10, fill: 0x4E)
         // Age the big file well past the (tightened) thresholds below.
         let monthsAgo = Date().addingTimeInterval(-40 * 86_400)
         try FileManager.default.setAttributes([.modificationDate: monthsAgo], ofItemAtPath: old.path)
@@ -66,10 +61,10 @@ import Foundation
     @Test func cancelMidBuildLeavesPriorReportAndLabelsIntact() async throws {
         let rootA = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: rootA) }
-        try write(rootA.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
+        try writeBytes(rootA.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
         let rootB = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
-        try write(rootB.appendingPathComponent("Other/b.bin"), bytes: 9000, fill: 0x42)
+        try writeBytes(rootB.appendingPathComponent("Other/b.bin"), bytes: 9000, fill: 0x42)
 
         let manager = FileSyncManager()
         manager.startBuildStorageLens(root: rootA)
@@ -104,7 +99,7 @@ import Foundation
     @Test func clearStorageLensWipesReportAndLabels() async throws {
         let root = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
 
         let manager = FileSyncManager()
         manager.startBuildStorageLens(root: root)
@@ -122,7 +117,7 @@ import Foundation
     @Test func clearStorageLensCancelsAnInFlightBuild() async throws {
         let root = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
 
         let manager = FileSyncManager()
         manager.startBuildStorageLens(root: root)
@@ -141,10 +136,10 @@ import Foundation
     @Test func restartSupersedesTheInFlightBuild() async throws {
         let rootA = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: rootA) }
-        try write(rootA.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
+        try writeBytes(rootA.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
         let rootB = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
-        try write(rootB.appendingPathComponent("Other/b.bin"), bytes: 9000, fill: 0x42)
+        try writeBytes(rootB.appendingPathComponent("Other/b.bin"), bytes: 9000, fill: 0x42)
 
         let manager = FileSyncManager()
         manager.startBuildStorageLens(root: rootA)   // superseded before it can publish
@@ -164,7 +159,7 @@ import Foundation
     @Test func buildIsDroppedWhileAnotherBuildIsMarkedRunning() async throws {
         let root = try makeCanonicalTempRoot(prefix: "LensTest")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
+        try writeBytes(root.appendingPathComponent("Docs/a.bin"), bytes: 4000, fill: 0x41)
 
         let manager = FileSyncManager()
         manager.isBuildingStorageLens = true
