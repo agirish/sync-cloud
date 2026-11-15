@@ -619,6 +619,25 @@ extension FileSyncManager {
     /// `registerCopyUndo(pendingItems:)`.
     @discardableResult
     func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
+        registerCopyUndo(items.map { item in
+            (item, { FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm) })
+        }, actionName: actionName, fileManager: fm)
+    }
+
+    /// Batch registration over identity walks the call site started as each copy landed
+    /// (`PendingCopyItemState`). Same contract as `registerCopyUndo(items:)`; only when each identity
+    /// is read differs: per item as it lands, not after the batch.
+    @discardableResult
+    func registerCopyUndo(pendingItems: [PendingCopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
+        registerCopyUndo(pendingItems.map { item in
+            ((source: item.source, destination: item.destination, overwritten: item.overwritten), { await item.identity.value })
+        }, actionName: actionName, fileManager: fm)
+    }
+
+    /// The body both front doors share. Synchronous, so the undo is registered before it returns;
+    /// the detached task then reads each item's identity in turn, through `identity`, and resolves.
+    private func registerCopyUndo(_ items: [(state: CopyItemState, identity: @Sendable () async -> CopyIdentityReading)],
+                                  actionName: String, fileManager fm: FileManaging) -> Task<Void, Never> {
         let resolver = AsyncValueResolver<[CopyUndoItemState]>()
         // Registered before the walk is spawned, so no suspension separates caller and registration.
         registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
@@ -626,8 +645,8 @@ extension FileSyncManager {
             var enriched: [CopyUndoItemState] = []
             enriched.reserveCapacity(items.count)
             var unreadable: [(destination: URL, child: URL?)] = []
-            for item in items {
-                let read = FileSyncManager.recordedCopyIdentity(at: item.destination, fileManager: fm)
+            for (item, identity) in items {
+                let read = await identity()
                 if read.identity == .indeterminate {
                     unreadable.append((item.destination, read.unreadableDescendant))
                 }
@@ -637,33 +656,6 @@ extension FileSyncManager {
                                  copiedLock: FileSyncManager.copyCarriesItsSourcesLock(item.source, item.destination, fileManager: fm)))
             }
             FileSyncManager.logIndeterminateRegistrations(unreadable, of: items.count, actionName: actionName)
-            await resolver.resolve(enriched)
-        }
-    }
-
-    /// Batch registration over identity walks the call site started as each copy landed
-    /// (`PendingCopyItemState`). Same contract as `registerCopyUndo(items:)`; only when each identity
-    /// is read differs: per item as it lands, not after the batch.
-    @discardableResult
-    func registerCopyUndo(pendingItems: [PendingCopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) -> Task<Void, Never> {
-        let resolver = AsyncValueResolver<[CopyUndoItemState]>()
-        registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
-        return Task.detached(priority: .userInitiated) {
-            var enriched: [CopyUndoItemState] = []
-            enriched.reserveCapacity(pendingItems.count)
-            var unreadable: [(destination: URL, child: URL?)] = []
-            for item in pendingItems {
-                let read = await item.identity.value
-                if read.identity == .indeterminate {
-                    unreadable.append((item.destination, read.unreadableDescendant))
-                }
-                enriched.append((source: item.source, destination: item.destination,
-                                 overwritten: item.overwritten,
-                                 destinationIdentity: read.identity,
-                                 overwrittenIdentity: FileSyncManager.backupIdentity(item.overwritten, fileManager: fm),
-                                 copiedLock: FileSyncManager.copyCarriesItsSourcesLock(item.source, item.destination, fileManager: fm)))
-            }
-            FileSyncManager.logIndeterminateRegistrations(unreadable, of: pendingItems.count, actionName: actionName)
             await resolver.resolve(enriched)
         }
     }
