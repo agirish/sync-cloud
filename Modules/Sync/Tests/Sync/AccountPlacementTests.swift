@@ -14,11 +14,15 @@ import Foundation
     private func dir(_ name: String, _ children: [FileNode]) -> FileNode {
         FileNode(id: "/A/" + name, name: (name as NSString).lastPathComponent, isDirectory: true, children: children)
     }
+    private static func monthEnd(_ y: Int, _ m: Int) -> Int {
+        Calendar(identifier: .gregorian).range(of: .day, in: .month,
+            for: DateComponents(calendar: Calendar(identifier: .gregorian), year: y, month: m, day: 1).date!)!.count
+    }
     private func ymd(_ prefix: String, _ y: Int, _ months: ClosedRange<Int>, _ suffix: String) -> [FileNode] {
-        months.map { m in file(String(format: "%@%d-%02d-%02d%@", prefix, y, m, AccountPlacement.monthEnd(y, m), suffix)) }
+        months.map { m in file(String(format: "%@%d-%02d-%02d%@", prefix, y, m, Self.monthEnd(y, m), suffix)) }
     }
 
-    @Test func statementsLooseInTheAccountFolderStayThereNamedLikeTheirNeighbours() {
+    @Test func statementsLooseInTheAccountFolderStayThereInHisName() {
         let account = dir("Traditional IRA 7863", ymd("Brokerage Statement_", 2025, 1...7, "_863.PDF") + [
             dir("Statements", [dir("2021", (1...9).map { file(String(format: "%d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep"][$0 - 1] + " 2021.pdf") })]),
             file("Traditional_IRA_XXX863_Transactions_20250817-013343.csv"),
@@ -26,7 +30,8 @@ import Foundation
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 10, day: 31), taxForm: false,
                                        fileName: "10. Oct 2026.pdf")
         #expect(p.folder == "" && p.newSegments.isEmpty)
-        #expect(p.name == "Brokerage Statement_2026-10-31_863.PDF", "\(String(describing: p.name))")
+        // His `NN. Mon YYYY` name, not the bank's, with the extension as the account spells it.
+        #expect(p.name == "10. Oct 2026.PDF", "\(String(describing: p.name))")
     }
 
     @Test func aStatementsYearLayoutGetsANewYearFolder() {
@@ -37,17 +42,21 @@ import Foundation
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 3, day: 31), taxForm: false,
                                        fileName: "03. Mar 2026.pdf")
         #expect(p.folder == "Statements/2026" && p.newSegments == ["2026"])
-        #expect(p.name == "Brokerage Statement_2026-03-31_494.PDF")
+        #expect(p.name == "03. Mar 2026.PDF")
     }
 
-    @Test func theDayTheAccountNamesItsFilesByIsKept() {
-        // Named a day before each month's end: Jan 30, Feb 27, Mar 30.
-        let names = ["Statement01302026.pdf", "Statement02272026.pdf", "Statement03302026.pdf"]
-        let account = dir("Statements", [dir("2026", names.map(file))])
-        let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 9, day: 30), taxForm: false,
-                                       fileName: "09. Sep 2026.pdf")
-        #expect(p.folder == "2026" && p.newSegments.isEmpty)
-        #expect(p.name == "Statement09292026.pdf", "\(String(describing: p.name))")
+    @Test func aBankNamedAccountStillGetsHisName() {
+        // Amex Credit 22002 as he keeps it: bank-named, with months missing (Aug, Oct, Dec 2022;
+        // Jan, Jun, Jul, Dec 2023; Apr, Jun–Sep 2024). Decision OR names the new statement `01. Jan 2026.pdf`: his
+        // name, and two digits, since a gap of a month or two is a monthly card he skipped.
+        let account = dir("Credit 22002", [
+            dir("2022", ["2022-08-29", "2022-10-28", "2022-12-29"].map { file($0 + ".pdf") }),
+            dir("2023", ["2023-01-29", "2023-06-28", "2023-07-28", "2023-12-29"].map { file($0 + ".pdf") }),
+            dir("2024", ["2024-04-28", "2024-06-28", "2024-07-29", "2024-08-29", "2024-09-27"].map { file($0 + ".pdf") }),
+        ])
+        let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 1, day: 28), taxForm: false,
+                                       fileName: "statement.pdf")
+        #expect(p.folder == "2026" && p.name == "01. Jan 2026.pdf", "\(p)")
     }
 
     @Test func transactionHistoriesDontDecideWhereStatementsGo() {
@@ -61,7 +70,7 @@ import Foundation
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 10, day: 31), taxForm: false,
                                        fileName: "10. Oct 2026.pdf")
         #expect(p.folder == "2026" && p.newSegments.isEmpty)
-        #expect(p.name == "Brokerage Statement_2026-10-31_766.PDF")
+        #expect(p.name == "10. Oct 2026.PDF")
     }
 
     @Test func noPeriodMeansNoYearFolderAndNotHigh() {
@@ -76,7 +85,7 @@ import Foundation
             dir("Exports", ymd("Brokerage Statement_", 2026, 1...6, "_863.csv")),
         ])
         let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 3, day: 31), taxForm: false, fileName: "x.pdf")
-        #expect(p.folder == "2026" && p.name == "Brokerage Statement_2026-03-31_863.PDF", "\(p)")
+        #expect(p.folder == "2026" && p.name == "03. Mar 2026.PDF", "\(p)")
     }
 
     @Test func aMonthFolderIsReDated() {
@@ -99,20 +108,10 @@ import Foundation
         #expect(p.folder == "" && p.name == nil, "the root is the tax home, and a form keeps its name")
     }
 
-    @Test func aNameCarryingAnotherAccountsNumberIsNoTemplate() {
-        let mixed = dir("Traditional IRA 7863", [
-            file("BrokerageStatement 2025-10-31_260.pdf"), file("BrokerageStatement 2025-11-30_260.pdf"),
-            file("BrokerageStatement 2025-12-31_260.pdf"),
-        ])
-        let p = AccountPlacement.place(in: mixed, period: .init(year: 2026, month: 1, day: 31), taxForm: false,
-                                       fileName: "01. Jan 2026.pdf")
-        #expect(p.name == nil, "a `_260` in 7863's folder is another account's file")
-    }
-
-    @Test func monthEndAndOrdinalNamesNeedOnlyTheMonth() {
+    @Test func hisNameNeedsOnlyTheMonth() {
         let account = dir("Credit 22002", [dir("2025", ymd("Statement_", 2025, 1...12, ".pdf"))])
-        let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 3), taxForm: false, fileName: "03. Mar 2026.pdf")
-        #expect(p.name == "Statement_2026-03-31.pdf", "month-end names need only the month")
+        let p = AccountPlacement.place(in: account, period: .init(year: 2026, month: 3), taxForm: false, fileName: "x.pdf")
+        #expect(p.name == "03. Mar 2026.pdf", "a period with no day still names the statement")
         let ordinal = dir("Credit 1768", [dir("2025", (1...6).map { file(String(format: "%02d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun"][$0 - 1] + " 2025.pdf") })])
         #expect(AccountPlacement.place(in: ordinal, period: .init(year: 2026, month: 2), taxForm: false,
                                        fileName: "x.pdf").name == "02. Feb 2026.pdf")
@@ -147,7 +146,7 @@ import Foundation
         }
         try writeBytes(root.appendingPathComponent("Docs/Vehicles/Tesla/.keep"), Data(repeating: 0x41, count: 1))
         let inbox = root.appendingPathComponent("Inbox")
-        let statement = inbox.appendingPathComponent("03. Mar 2026.pdf")
+        let statement = inbox.appendingPathComponent("eStmt_2026-03-27.pdf")
         try writeBytes(statement, Data(repeating: 0x41, count: 64))
         // A letter: the model is still asked about this one, so the check below means something.
         let letter = inbox.appendingPathComponent("Note from the school.pdf")
@@ -175,8 +174,8 @@ import Foundation
         #expect(best.newSegments == ["2026"])
         #expect(best.confidence == .high)
         #expect(best.account?.ending == "5696" && best.account?.institution == "bank of america")
-        #expect(best.proposedName == "eStmt_2026-03-27.pdf" && best.nameOrigin == .template,
-                "named like its neighbours, dated from the page: \(String(describing: best.proposedName))")
+        #expect(best.proposedName == "03. Mar 2026.pdf" && best.nameOrigin == .template,
+                "his name, dated from the page, not the bank's `eStmt_`: \(String(describing: best.proposedName))")
         #expect(!card.isBatchEligible, "an account match is read from the page, so it needs a click")
         #expect(!asked.contains(statement.path), "the model isn't asked where a statement goes")
         #expect(asked.contains(letter.path), "a page with no account is still the model's to place")

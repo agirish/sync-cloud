@@ -124,6 +124,17 @@ public enum OrdinalMonthName {
     ///
     /// Requires a leading 1- or 2-digit number followed by a dot. The space after the dot is
     /// optional, so a name like `10.Oct 2011.pdf` is parsed and fixed rather than left invisible.
+    /// Whether statements this far apart are quarterly or sparser, by the median gap between
+    /// their months (`year * 12 + month`): his one-digit `1. Mar 2026.pdf` folders. Anything
+    /// closer is monthly, `01. Jan 2026.pdf`, even with months missing (he downloads some months
+    /// late or never). nil with fewer than two months to compare.
+    static func isQuarterlyOrSparser(_ monthIndexes: Set<Int>) -> Bool? {
+        let months = monthIndexes.sorted()
+        let gaps = zip(months.dropFirst(), months).map { $0 - $1 }.sorted()
+        guard !gaps.isEmpty else { return nil }
+        return gaps[(gaps.count - 1) / 2] >= 3
+    }
+
     public static func parse(_ name: String) -> Parsed? {
         let ext = (name as NSString).pathExtension
         let stem = (name as NSString).deletingPathExtension

@@ -350,12 +350,11 @@ public enum RenamePlanner {
         var summaries: [(file: FolderFile, parsed: OrdinalMonthName.Parsed)] = []
         var unplaced: [FolderFile] = []
 
-        // His width rule: two digits for a monthly folder (one file a month, more than ten a year:
-        // `01. Jan 2026.pdf`), and every width there is fixed. Anything else keeps the width its
-        // names already use, with no width-only rename; a sparse folder with no ordinal names yet
-        // gets one digit (quarterly `1. Mar 2026.pdf`), and one with no evidence at all (empty, or
-        // a month or two) two, as most statement folders are monthly. Judged by cadence as well as count, so a current year's ten months or
-        // a part year of monthly bills is still monthly. `files` already holds `incoming`.
+        // His width rule: two digits for a monthly folder (`01. Jan 2026.pdf`), meaning more than
+        // ten files or statements under three months apart, missing months and all; every width
+        // there is fixed. A quarterly or sparser folder gets one digit (`1. Mar 2026.pdf`) unless
+        // its names already use two, and no width-only rename. With too little to judge by (empty,
+        // or a month or two), the folder's own width, else two. `files` already holds `incoming`.
         let parsedNames = files.compactMap { OrdinalMonthName.parse($0.name) }
         let monthIndexes = Set(files.compactMap { f -> Int? in
             if let p = OrdinalMonthName.parse(f.name) {
@@ -363,10 +362,10 @@ public enum RenamePlanner {
                 return y * 12 + m
             }
             return FileNameDate.mine(f.name).map { $0.year * 12 + $0.month }
-        }).sorted()
-        let gaps = zip(monthIndexes.dropFirst(), monthIndexes).map { $0 - $1 }.sorted()
-        let monthly = files.count > 10 || (monthIndexes.count >= 3 && gaps[(gaps.count - 1) / 2] <= 1)
-        let sparse = !monthly && monthIndexes.count >= 3
+        })
+        let quarterly = monthIndexes.count >= 3 && OrdinalMonthName.isQuarterlyOrSparser(monthIndexes) == true
+        let monthly = files.count > 10 || (monthIndexes.count >= 3 && !quarterly)
+        let sparse = quarterly && !monthly
         let fixesWidth = monthly
         let ordinalWidths = parsedNames.map(\.ordinalDigits)
         let padded = monthly || (ordinalWidths.isEmpty
