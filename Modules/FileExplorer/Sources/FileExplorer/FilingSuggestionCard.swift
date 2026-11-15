@@ -53,6 +53,8 @@ struct FilingSuggestionCard: View {
     /// draws narrow from its first frame. nil measures the card itself.
     var isNarrow: Bool? = nil
     @State private var measuredNarrow = false
+    /// The file's row, once clicked: Space then Quick Looks it.
+    @State private var selectedRow: String?
     private var narrow: Bool { isNarrow ?? measuredNarrow }
 
     /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
@@ -100,11 +102,11 @@ struct FilingSuggestionCard: View {
                     if let note = tryAnotherNote { tryAnotherNoteRow(note) }
                     if let best, FilingRouteText.offersCreateAs(best) { newFolderNameField(best) }
                 }
-                Spacer(minLength: 8)
-                FilingConfidencePill(confidence: best?.confidence)
+                Spacer(minLength: 0)
             }
             Divider()
-            FilingFileRows(members: [suggestion], inGroup: false, narrow: narrow, accent: hueAccent, hooks: rowHooks)
+            FilingFileRows(members: [suggestion], inGroup: false, narrow: narrow, accent: hueAccent, hooks: rowHooks,
+                           selected: $selectedRow)
             actions
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
         }
@@ -261,7 +263,12 @@ struct FilingSuggestionCard: View {
 
     @ViewBuilder
     private func whyRow(_ dest: FilingDestination) -> some View {
-        if let token = dest.evidenceToken {
+        if dest.confidence == .low, let token = dest.evidenceToken {
+            // A guess: no green chip, which reads as the evidence of a Matched card.
+            Text(FilingRouteText.weakGuess(token: token))
+                .scaledFont(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let token = dest.evidenceToken {
             // The deciding word was read from the file, not its name: the stronger signal, so it is
             // highlighted to read apart from a name match.
             HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -299,58 +306,88 @@ struct FilingSuggestionCard: View {
         return "\(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
     }
 
-    /// The action row: every button while the card is wide enough, and below that File Here and
-    /// Choose a Folder… with the rest in a ⋯ menu, so the row never outgrows a narrow workspace
-    /// (the pinned Ask Claude column leaves To File about 340 to 640 pt). `ViewThatFits` takes the
-    /// first row that fits, so the break moves with the text size.
+    /// The action line (cards mockup v8): what files it on the left, what looks at the file on the
+    /// right (``FilingCardFileActions``). One line at every width: `ViewThatFits` takes the first
+    /// level that fits, folding the left half's lesser buttons into ⋯ first, so Quick Look stays in
+    /// sight as long as it can, then Open Folder, Quick Look and Trash, so the break moves with the
+    /// text size and the Ask Claude column (340–640 pt).
     @ViewBuilder
     var actions: some View {
         ViewThatFits(in: .horizontal) {
-            actionRow(compact: false)
-            actionRow(compact: true)
+            actionLine(level: 0)
+            actionLine(level: 1)
+            actionLine(level: 2)
+            actionLine(level: 3)
         }
     }
 
-    /// One row of actions: the full set, or the two that matter with the others behind ⋯.
-    func actionRow(compact: Bool) -> some View {
+    /// The full line, or the most folded one (the narrowest).
+    func actionRow(compact: Bool) -> some View { actionLine(level: compact ? 3 : 0) }
+
+    /// 0: everything shown; 1: the left half's lesser buttons folded into ⋯; 2: the guess's button
+    /// names only its last folder; 3: the right half folds into ⋯ too.
+    func actionLine(level: Int) -> some View {
         HStack(spacing: 9) {
-            primaryButtons
-            if compact {
-                overflowMenu
-                fileOnceMenu
-            } else {
-                if best != nil, let onTryAnother {
-                    Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
-                        .controlSize(.small)
-                        .disabled(isTryAnotherBusy)
-                        .help("Reject this folder and suggest a different one — remembered for next time")
-                }
-                if let onReadScan {
-                    Button(action: onReadScan) {
-                        Label(isReadScanBusy ? "Reading…" : "Read Scan",
-                              systemImage: "text.viewfinder")
-                    }
-                    .controlSize(.small)
-                    .disabled(isReadScanBusy)
-                    .help(Self.readScanHelp)
-                }
-                if pathEditor != nil {
-                    Button("Edit Path…") { editingPath = true }
-                        .controlSize(.small)
-                        .help("Type where it goes, anywhere in your folders; missing folders are made when you file")
-                }
-                fileOnceMenu
-                setAsideButton
-            }
+            primaryButtons(short: level >= 2)
+            if level == 0 { secondaryButtons } else { fileOnceMenu }
+            Spacer(minLength: 8)
+            FilingCardFileActions(target: suggestion,
+                                  folder: (suggestion.filePath as NSString).deletingLastPathComponent,
+                                  destinationFolder: best.flatMap { $0.isNew ? nil : $0.path },
+                                  hooks: rowHooks, folded: level == 3,
+                                  foldedItems: level >= 1 ? foldedSecondaries : [])
         }
+    }
+
+    @ViewBuilder
+    private var secondaryButtons: some View {
+        if best != nil, let onTryAnother {
+            Button(action: onTryAnother) { Label("Try Another", systemImage: "arrow.triangle.2.circlepath") }
+                .controlSize(.small)
+                .disabled(isTryAnotherBusy)
+                .help("Reject this folder and suggest a different one — remembered for next time")
+        }
+        if let onReadScan {
+            Button(action: onReadScan) {
+                Label(isReadScanBusy ? "Reading…" : "Read Scan", systemImage: "text.viewfinder")
+            }
+            .controlSize(.small)
+            .disabled(isReadScanBusy)
+            .help(Self.readScanHelp)
+        }
+        if pathEditor != nil {
+            Button("Edit Path…") { editingPath = true }
+                .controlSize(.small)
+                .help("Type where it goes, anywhere in your folders; missing folders are made when you file")
+        }
+        fileOnceMenu
+        setAsideButton
+    }
+
+    /// The left half's lesser buttons, as ⋯ items on the narrowest line.
+    private var foldedSecondaries: [FilingFoldedItem] {
+        var out: [FilingFoldedItem] = []
+        if best != nil, let onTryAnother {
+            out.append(FilingFoldedItem(title: "Try Another Folder", systemImage: "arrow.triangle.2.circlepath",
+                                        isEnabled: !isTryAnotherBusy, action: onTryAnother))
+        }
+        if let onReadScan {
+            out.append(FilingFoldedItem(title: isReadScanBusy ? "Reading…" : "Read Scan", systemImage: "text.viewfinder",
+                                        isEnabled: !isReadScanBusy, action: onReadScan))
+        }
+        if pathEditor != nil { out.append(FilingFoldedItem(title: "Edit Path…", systemImage: "pencil") { editingPath = true }) }
+        out.append(FilingFoldedItem(title: "Set Aside", systemImage: "xmark", action: onNotHere))
+        return out
     }
 
     private static let readScanHelp = "This PDF has no text layer, so the suggestion was made from its name alone. "
         + "Read it with OCR and suggest again — a second or two."
 
-    /// File Here and Choose a Folder…, or Choose a Folder… alone where there is no confident home.
+    /// File Here and Choose a Folder…; with no confident home, Choose a Folder… leads and the guess
+    /// is the second button, "File in Social Security › 2026" (decision OR): a weak guess can't be
+    /// filed by habit. `short` names only the guess's last folder, for the narrowest line.
     @ViewBuilder
-    private var primaryButtons: some View {
+    private func primaryButtons(short: Bool) -> some View {
         if let best, suggestion.hasConfidentHome {
             // The typed name, when the user typed one — see `newFolderNameField`.
             Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
@@ -367,6 +404,15 @@ struct FilingSuggestionCard: View {
                 .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                 .chromeHover()
                 .lockedDuringRun()
+            if let best {
+                Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
+                    Text(FilingRouteText.guessButton(best, providerRoot: suggestion.providerRoot, short: short))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                .controlSize(.small)
+                .lockedDuringRun()
+                .help("File it in " + FilingRouteText.movesTo(best, providerRoot: suggestion.providerRoot).text)
+            }
         }
     }
 
@@ -386,32 +432,5 @@ struct FilingSuggestionCard: View {
         }
             .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
             .help("Set this suggestion aside — the file stays where it is, and the next scan can suggest it again")
-    }
-
-    /// The buttons a narrow card puts away: the same actions, as menu items.
-    private var overflowMenu: some View {
-        Menu {
-            if best != nil, let onTryAnother {
-                Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
-                    .disabled(isTryAnotherBusy)
-            }
-            if let onReadScan {
-                Button(action: onReadScan) {
-                    Label(isReadScanBusy ? "Reading…" : "Read Scan", systemImage: "text.viewfinder")
-                }
-                .disabled(isReadScanBusy)
-            }
-            if pathEditor != nil { Button("Edit Path…") { editingPath = true } }
-            Divider()
-            Button(action: onNotHere) { Label("Set Aside", systemImage: "xmark") }
-        } label: {
-            Image(systemName: "ellipsis")
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .controlSize(.small)
-        .fixedSize()
-        .help("More: Try Another Folder, Read Scan, Edit Path and Set Aside")
-        .accessibilityLabel("More actions")
     }
 }

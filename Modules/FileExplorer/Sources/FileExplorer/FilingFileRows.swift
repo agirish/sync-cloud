@@ -7,7 +7,8 @@ import Design
 
 /// What a file row's ⋯ and context menu offer, in their order, with Finder's shortcuts.
 enum FilingFileAction: String, CaseIterable, Identifiable {
-    case quickLook, open, reveal, copyPath, copyDestinationPath, pullOut, chooseFolder, setAside, trash
+    case quickLook, open, reveal, openFolder, openDestinationFolder, copyPath, copyDestinationPath,
+         pullOut, chooseFolder, setAside, trash
     var id: String { rawValue }
 
     var title: String {
@@ -15,6 +16,8 @@ enum FilingFileAction: String, CaseIterable, Identifiable {
         case .quickLook: return "Quick Look"
         case .open: return "Open"
         case .reveal: return "Reveal in Finder"
+        case .openFolder: return "Open Folder"
+        case .openDestinationFolder: return "Open Destination Folder"
         case .copyPath: return "Copy Path"
         case .copyDestinationPath: return "Copy Destination Path"
         case .pullOut: return "Pull Out of This Card"
@@ -29,6 +32,8 @@ enum FilingFileAction: String, CaseIterable, Identifiable {
         case .quickLook: return "eye"
         case .open: return "arrow.up.forward.app"
         case .reveal: return RevealGlyph.inFinder
+        case .openFolder: return "folder"
+        case .openDestinationFolder: return "folder.badge.questionmark"
         case .copyPath: return "doc.on.clipboard"
         case .copyDestinationPath: return "arrow.turn.down.right"
         case .pullOut: return "rectangle.portrait.and.arrow.right"
@@ -38,10 +43,11 @@ enum FilingFileAction: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The menu's sections. Pull Out only where there is a card to pull out of; Copy Destination
-    /// Path only where there is a destination.
+    /// The menu's sections. Pull Out only where there is a card to pull out of; the destination's
+    /// two only where there is a destination.
     static func sections(inGroup: Bool, hasDestination: Bool) -> [[FilingFileAction]] {
-        [[.quickLook, .open, .reveal],
+        [hasDestination ? [.quickLook, .open, .reveal, .openFolder, .openDestinationFolder]
+                        : [.quickLook, .open, .reveal, .openFolder],
          hasDestination ? [.copyPath, .copyDestinationPath] : [.copyPath],
          inGroup ? [.pullOut, .chooseFolder, .setAside] : [.chooseFolder, .setAside],
          [.trash]]
@@ -90,14 +96,14 @@ enum FilingFileText {
         return p.day.map { "\(m[p.month - 1]) \($0), \(p.year)" } ?? "\(m[p.month - 1]) \(p.year)"
     }
 
-    /// What the row's right column says: the new name it lands under, or, in quiet italics, that it
-    /// keeps its own or why it doesn't move.
-    static func landing(_ s: FilingSuggestion) -> (text: String, moves: Bool) {
+    /// What the row's right column says: the name it lands under (its own, restated, when it keeps
+    /// it), or, in quiet italics, why it doesn't move. nil with no confident home: the row ends at
+    /// the file, and the section heading already says it needs a folder chosen.
+    static func landing(_ s: FilingSuggestion) -> (text: String, moves: Bool)? {
         if s.isAlreadyFiled { return ("already filed", false) }
         if s.duplicateOf != nil { return ("a copy of another file here", false) }
-        guard let best = s.best, s.hasConfidentHome else { return ("pick a folder", false) }
-        guard let name = best.proposedName, name != s.fileName else { return ("keeps its name", false) }
-        return (name, true)
+        guard let best = s.best, s.hasConfidentHome else { return nil }
+        return (best.proposedName ?? s.fileName, true)
     }
 
     /// The row's two lines. In a group, the file's name over what page 1 says; on a card of its
@@ -118,11 +124,14 @@ struct FilingFileRowsHooks {
     var perform: (FilingFileAction, FilingSuggestion) -> Void = { _, _ in }
     /// Whether the action is offered for this file now.
     var isEnabled: (FilingFileAction, FilingSuggestion) -> Bool = { _, _ in true }
+    /// Opens a folder in Finder: a group card's Open Folder with no row selected.
+    var openFolder: (String) -> Void = { NSWorkspace.shared.open(URL(fileURLWithPath: $0, isDirectory: true)) }
 }
 
 /// A card's files as rows that share their columns: page-1 thumbnail, the file and one line read
-/// from it, the arrow and the name it takes, and Quick Look and ⋯ on the selected row. Narrow, the
-/// new name moves under the file's own and Quick Look into ⋯.
+/// from it, the arrow and the name it takes, and, in a group, ⋯ on the hovered or selected row.
+/// Narrow, the new name moves under the file's own. Clicking a row selects it; the card's action
+/// line then acts on that file.
 struct FilingFileRows: View {
     let members: [FilingSuggestion]
     let inGroup: Bool
@@ -130,7 +139,8 @@ struct FilingFileRows: View {
     let accent: Color
     let hooks: FilingFileRowsHooks
 
-    @State private var selected: String?
+    /// The selected row, held by the card: its action line acts on that file.
+    @Binding var selected: String?
     @State private var hovered: String?
     @State private var peeking: String?
     @FocusState private var focused: Bool
@@ -140,7 +150,7 @@ struct FilingFileRows: View {
     static let thumb = CGSize(width: 30, height: 39)
     static let gap: CGFloat = 10
     static let arrow: CGFloat = 14
-    static let acts: CGFloat = 52
+    static let acts: CGFloat = 28
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -149,8 +159,6 @@ struct FilingFileRows: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        // One selected row on screen: a card the focus leaves lets its selection go.
-        .onChange(of: focused) { _, now in if !now { selected = nil } }
         .onKeyPress(phases: .down) { press in
             if press.key == .downArrow || press.key == .upArrow {
                 move(press.key == .downArrow ? 1 : -1)
@@ -178,7 +186,9 @@ struct FilingFileRows: View {
 
     private func row(_ s: FilingSuggestion) -> some View {
         let isSelected = selected == s.id && focused
-        let showsActs = selected == s.id || hovered == s.id
+        // A group's rows keep their own ⋯ for one file of many; a single file's card has its
+        // actions on the card's own line.
+        let showsActs = inGroup && (selected == s.id || hovered == s.id)
         let lines = FilingFileText.lines(s, facts: hooks.facts(s), inGroup: inGroup)
         let landing = FilingFileText.landing(s)
         let ownFrom = inGroup ? FilingRouteText.rowFrom(s, members: members) : nil
@@ -192,21 +202,21 @@ struct FilingFileRows: View {
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.tail)
-                if narrow { landingText(landing, prefix: "→ ") }
+                if narrow, let landing { landingText(landing, prefix: "→ ") }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !narrow {
+            if !narrow, let landing {
                 Text("→").scaledFont(.system(size: 12)).foregroundStyle(.tertiary)
                     .frame(width: Self.arrow)
                     .accessibilityHidden(true)
                 landingText(landing, prefix: "")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            acts(s).frame(width: Self.acts, alignment: .trailing).opacity(showsActs ? 1 : 0)
+            if inGroup { acts(s).frame(width: Self.acts, alignment: .trailing).opacity(showsActs ? 1 : 0) }
         }
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-            .fill(selected == s.id ? accent.opacity(0.16) : .clear))
+            .fill(selected == s.id ? accent.opacity(focused ? 0.16 : 0.09) : .clear))
         .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
             .strokeBorder(isSelected ? accent : .clear, lineWidth: 1.5))
         .padding(.horizontal, -6)
@@ -215,7 +225,7 @@ struct FilingFileRows: View {
         .onHover { hovered = $0 ? s.id : (hovered == s.id ? nil : hovered) }
         .contextMenu { menuItems(s) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(lines.primary), \(landing.moves ? "files as " : "")\(landing.text)")
+        .accessibilityLabel(lines.primary + (landing.map { ", " + ($0.moves ? "files as " : "") + $0.text } ?? ""))
         .accessibilityAddTraits(selected == s.id ? .isSelected : [])
         // The combined row hides its buttons from VoiceOver, so each is a named action instead.
         .accessibilityActions {
@@ -252,12 +262,6 @@ struct FilingFileRows: View {
     @ViewBuilder
     private func acts(_ s: FilingSuggestion) -> some View {
         HStack(spacing: 4) {
-            if !narrow {
-                Button { hooks.perform(.quickLook, s) } label: { Image(systemName: "eye") }
-                    .buttonStyle(.borderless)
-                    .help("Quick Look (Space or ⌘Y)")
-                    .accessibilityLabel("Quick Look")
-            }
             Menu { menuItems(s) } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .help("More actions")
@@ -342,6 +346,8 @@ struct FilingFileActionRunner {
             quickLook(urls.contains(url) ? urls : [url], url)
         case .open: open(url)
         case .reveal: reveal(url)
+        case .openFolder: open(url.deletingLastPathComponent())
+        case .openDestinationFolder: if let best = s.best { open(URL(fileURLWithPath: best.path, isDirectory: true)) }
         case .copyPath: copy(s.filePath)
         case .copyDestinationPath: if let path = FilingFileText.destinationPath(s) { copy(path) }
         case .pullOut: pullOut(s)

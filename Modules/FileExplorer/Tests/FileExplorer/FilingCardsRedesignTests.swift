@@ -94,9 +94,13 @@ import SwiftUI
         #expect(FilingFileText.pageLine(DocumentFacts(page: "Immunization Record\nName")) == "Page 1 begins “Immunization Record”")
         let account = Self.docs + "/Credit 22002"
         let renamed = statement("01. Jan 2026.pdf", to: account, account: account, proposed: "2026-01-29.pdf")
-        #expect(FilingFileText.landing(renamed) == ("2026-01-29.pdf", true))
-        #expect(FilingFileText.landing(statement("a.pdf", to: account, account: account)) == ("keeps its name", false))
-        #expect(FilingFileText.landing(renamed.alreadyFiled(at: ["x"])) == ("already filed", false))
+        #expect(FilingFileText.landing(renamed)?.text == "2026-01-29.pdf")
+        #expect(FilingFileText.landing(statement("a.pdf", to: account, account: account))?.text == "a.pdf",
+                "a file keeping its name says so by restating it")
+        #expect(FilingFileText.landing(renamed.alreadyFiled(at: ["x"]))?.moves == false)
+        let low = FilingSuggestion(filePath: "/x/y.pdf", fileName: "y.pdf", size: 1, modificationDate: nil,
+                                   candidates: [FilingDestination(path: "/x/z", confidence: .low, reasons: [], newSegments: [])])
+        #expect(FilingFileText.landing(low) == nil, "a Needs your pick row ends at the file")
     }
 }
 
@@ -163,8 +167,10 @@ import SwiftUI
     /// bar's chords alone.
     @Test func theMenuOffersWhatTheDesignLists() {
         #expect(FilingFileAction.sections(inGroup: true, hasDestination: true).flatMap { $0 }.map(\.title) ==
-                ["Quick Look", "Open", "Reveal in Finder", "Copy Path", "Copy Destination Path", "Pull Out of This Card",
-                 "Choose a Folder for This File…", "Set Aside", "Move to Trash"])
+                ["Quick Look", "Open", "Reveal in Finder", "Open Folder", "Open Destination Folder", "Copy Path",
+                 "Copy Destination Path", "Pull Out of This Card", "Choose a Folder for This File…", "Set Aside",
+                 "Move to Trash"])
+        #expect(!FilingFileAction.sections(inGroup: false, hasDestination: false).joined().contains(.openDestinationFolder))
         #expect(!FilingFileAction.sections(inGroup: false, hasDestination: true).joined().contains(.pullOut))
         #expect(!FilingFileAction.sections(inGroup: false, hasDestination: false).joined().contains(.copyDestinationPath))
         #expect(FilingFileAction.forKey(.space, modifiers: []) == .quickLook)
@@ -198,9 +204,9 @@ import SwiftUI
             runner.perform(action, on: s, members: [s, other])
         }
         #expect(calls == ["ql [\"01. Jan 2026.pdf\", \"10. Oct 2026.pdf\"] 01. Jan 2026.pdf",
-                          "open 01. Jan 2026.pdf", "reveal 01. Jan 2026.pdf", "pull 01. Jan 2026.pdf",
+                          "open 01. Jan 2026.pdf", "reveal 01. Jan 2026.pdf", "open TODO", "open 2026", "pull 01. Jan 2026.pdf",
                           "choose 01. Jan 2026.pdf", "aside 01. Jan 2026.pdf", "trash 01. Jan 2026.pdf"],
-                "Quick Look gets the card's files to step through, starting at this one")
+                "Quick Look gets the card's files to step through, starting at this one; Open Folder opens where it is, Open Destination Folder where it goes")
         runner.perform(.copyPath, on: s, members: [s])
         #expect(board.string(forType: .string) == "/D/TODO/01. Jan 2026.pdf")
         runner.perform(.copyDestinationPath, on: s, members: [s])
@@ -285,5 +291,31 @@ import SwiftUI
         #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 3, of: 257)
                 == "From TODO · 3 of 257 files")
         #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 4, of: 4) == "From TODO · 4 files")
+    }
+}
+
+/// The v8 action line (decision OR): Quick Look and Trash only for one file, the guess as a button.
+@Suite struct FilingCardsV8Tests {
+    private let s = FilingSuggestion(filePath: "/D/TODO/a.pdf", fileName: "a.pdf", size: 1, modificationDate: nil,
+                                     candidates: [FilingDestination(path: "/D/Finance/US/Social Security/2026", confidence: .low,
+                                                                    reasons: ["r"], newSegments: [])], providerRoot: "/D")
+
+    /// With no file to act on (a group, nothing selected) there is no Quick Look and no Trash, only
+    /// the folders; with one, the line's ⋯ holds the file's own actions, and Trash only when folded.
+    @Test func quickLookAndTrashAreForOneFile() {
+        #expect(FilingCardFileActions.menuActions(target: nil, folded: false) == [.openDestinationFolder])
+        #expect(FilingCardFileActions.menuActions(target: nil, folded: true) == [.openFolder, .openDestinationFolder])
+        let shown = FilingCardFileActions.menuActions(target: s, folded: false)
+        #expect(!shown.contains(.quickLook) && !shown.contains(.trash), "on the line itself, not in ⋯")
+        let folded = FilingCardFileActions.menuActions(target: s, folded: true)
+        #expect(folded.first == .quickLook && folded.last == .trash)
+    }
+
+    /// The guess's button names where it files, shorter on the narrowest line; a weak guess's why
+    /// never says "Matched".
+    @Test func theGuessIsAButtonAndAGuess() {
+        #expect(FilingRouteText.guessButton(s.best!, providerRoot: "/D", short: false) == "File in Social Security › 2026")
+        #expect(FilingRouteText.guessButton(s.best!, providerRoot: "/D", short: true) == "File in 2026")
+        #expect(FilingRouteText.weakGuess(token: "Age") == "A guess: only the word “Age” in the file ties it there")
     }
 }

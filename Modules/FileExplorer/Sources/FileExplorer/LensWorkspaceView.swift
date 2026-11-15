@@ -4510,7 +4510,10 @@ public struct LensWorkspaceView: View {
                 case .pullOut: return inGroup
                 case .copyDestinationPath: return s.best != nil
                 case .chooseFolder, .trash: return !syncManager.isSuggestingFiles
-                case .open, .reveal, .copyPath, .setAside: return true
+                case .openDestinationFolder:
+                    // Only a folder that is there: one filing would make has nothing to show.
+                    return s.best.map { !$0.isNew && FileManager.default.fileExists(atPath: $0.path) } ?? false
+                case .open, .reveal, .openFolder, .copyPath, .setAside: return true
                 }
             })
     }

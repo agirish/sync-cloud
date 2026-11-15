@@ -113,6 +113,18 @@ enum FilingRouteText {
         return FilingRoutePath(crumbs: crumbs, note: note)
     }
 
+    /// The guess's button on a card with no confident home: "File in Social Security › 2026", or
+    /// "File in 2026" on the narrowest line.
+    static func guessButton(_ dest: FilingDestination, providerRoot: String?, short: Bool) -> String {
+        let names = movesTo(dest, providerRoot: providerRoot).crumbs.map(\.name)
+        return "File in " + names.suffix(short ? 1 : 2).joined(separator: " › ")
+    }
+
+    /// A weak guess's "why", worded as one: no "Matched".
+    static func weakGuess(token: String) -> String {
+        "A guess: only the word “\(token)” in the file ties it there"
+    }
+
     /// A year or month folder (`2026`, `01`, `03 - March`).
     static func isPeriodFolder(_ name: String) -> Bool {
         FolderProfileEntry.looksLikeYear(name) || FilingPeriod.monthSlot(ofFolderNamed: name) != nil

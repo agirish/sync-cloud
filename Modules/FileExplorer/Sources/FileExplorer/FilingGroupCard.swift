@@ -34,6 +34,8 @@ struct FilingGroupCard: View {
     /// The list's own answer to "too narrow for the label column"; nil measures the card itself.
     var isNarrow: Bool? = nil
     @State private var expanded: Bool? = nil
+    /// The clicked row: the line's Quick Look and Trash act on that one file.
+    @State private var selectedRow: String?
     @State private var measuredNarrow = false
     private var narrow: Bool { isNarrow ?? measuredNarrow }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -71,22 +73,23 @@ struct FilingGroupCard: View {
                     }
                     if !group.alreadyFiled.isEmpty || !group.copies.isEmpty { leftBehindRow }
                 }
-                Spacer(minLength: 8)
-                FilingConfidencePill(confidence: group.destination.confidence)
+                Spacer(minLength: 0)
             }
             if isExpanded {
                 Divider()
-                FilingFileRows(members: group.members, inGroup: true, narrow: narrow, accent: hueAccent, hooks: rowHooks)
+                FilingFileRows(members: group.members, inGroup: true, narrow: narrow, accent: hueAccent, hooks: rowHooks,
+                               selected: $selectedRow)
             }
             if group.toFile.isEmpty {
                 // Every member is already filed or a copy: nothing for File N to move.
                 nothingToFileRow
             } else {
-                // Every button while it fits; below that, File N and Choose a Folder… with the rest
-                // in ⋯, so the row never outgrows the narrow column beside Ask Claude.
+                // One line at every width: the right half folds into ⋯ first, then the left half's
+                // lesser buttons, so the line never outgrows the column beside Ask Claude.
                 ViewThatFits(in: .horizontal) {
-                    actionRow(compact: false)
-                    actionRow(compact: true)
+                    actionLine(level: 0)
+                    actionLine(level: 1)
+                    actionLine(level: 2)
                 }
             }
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
@@ -104,9 +107,11 @@ struct FilingGroupCard: View {
         }
     }
 
-    /// File N, Choose a Folder…, Edit Path…, the archive offer, File Once Here and Show Files;
-    /// compact puts all but the first two in ⋯.
-    private func actionRow(compact: Bool) -> some View {
+    /// The action line (cards mockup v8). Left: File N, Choose a Folder…, Edit Path…, the archive
+    /// offer, File Once Here and Show Files. Right: ``FilingCardFileActions``, acting on the selected
+    /// row, or with none selected offering Open Folder. Level 1 folds the left half's lesser buttons
+    /// into ⋯, so Quick Look stays in sight; level 2 folds the right half in too.
+    private func actionLine(level: Int) -> some View {
         HStack(spacing: 9) {
             Button(action: onFile) {
                 Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
@@ -116,19 +121,7 @@ struct FilingGroupCard: View {
             .chromeHover().lockedDuringRun()
             Button(action: onChooseFolder) { Label("Choose a Folder…", systemImage: "folder") }
                 .controlSize(.small).lockedDuringRun()
-            if compact {
-                Menu {
-                    if pathEditor != nil { Button("Edit Path…") { editingPath = true } }
-                    if let onMoveOutOfArchive {
-                        Button("Move Out of \(archiveName), Then File", action: onMoveOutOfArchive)
-                    }
-                    Button(isExpanded ? "Hide Files" : "Show \(group.members.count) Files") { toggleExpanded() }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).fixedSize()
-                .accessibilityLabel("More actions")
-                .help("More actions")
-                if let onFileOnce, !copies.isEmpty { FilingFileOnceMenu(copies: copies, onFileOnce: onFileOnce) }
-            } else {
+            if level == 0 {
                 if pathEditor != nil {
                     Button("Edit Path…") { editingPath = true }
                         .controlSize(.small)
@@ -139,10 +132,34 @@ struct FilingGroupCard: View {
                         .controlSize(.small).lockedDuringRun()
                         .help("These are newer than anything in the account, so it looks live again: move its folder beside the archive, then file them. ⌘Z undoes both.")
                 }
-                if let onFileOnce, !copies.isEmpty { FilingFileOnceMenu(copies: copies, onFileOnce: onFileOnce) }
                 showFilesButton
             }
+            if let onFileOnce, !copies.isEmpty { FilingFileOnceMenu(copies: copies, onFileOnce: onFileOnce) }
+            Spacer(minLength: 8)
+            FilingCardFileActions(target: selectedMember,
+                                  folder: FilingRouteText.commonFolder(group.members.map { ($0.filePath as NSString).deletingLastPathComponent }),
+                                  destinationFolder: group.destination.isNew ? nil : group.destination.path,
+                                  hooks: rowHooks, folded: level == 2,
+                                  foldedItems: level >= 1 ? foldedLesser : [])
         }
+    }
+
+    /// The row the card's line acts on, while it is still one of the card's.
+    private var selectedMember: FilingSuggestion? {
+        isExpanded ? group.members.first { $0.id == selectedRow } : nil
+    }
+
+    /// The left half's lesser buttons, as ⋯ items on the narrowest line.
+    private var foldedLesser: [FilingFoldedItem] {
+        var out: [FilingFoldedItem] = []
+        if pathEditor != nil { out.append(FilingFoldedItem(title: "Edit Path…", systemImage: "pencil") { editingPath = true }) }
+        if let onMoveOutOfArchive {
+            out.append(FilingFoldedItem(title: "Move Out of \(archiveName), Then File", systemImage: "archivebox",
+                                        action: onMoveOutOfArchive))
+        }
+        out.append(FilingFoldedItem(title: isExpanded ? "Hide Files" : "Show \(group.members.count) Files",
+                                    systemImage: "list.bullet") { toggleExpanded() })
+        return out
     }
 
     private var showFilesButton: some View {
@@ -184,19 +201,6 @@ struct FilingGroupCard: View {
                 .lockedDuringRun()
                 .help(FilingGroupText.trashHelp(group))
             }
-        }
-    }
-}
-
-/// A card's confidence, as the mockup draws it: High, Medium, or Pick a home.
-struct FilingConfidencePill: View {
-    let confidence: FilingConfidence?
-
-    var body: some View {
-        switch confidence {
-        case .high?: Pill(.mini, tint: SemanticColor.success, systemImage: "checkmark", text: "High")
-        case .medium?: Pill(.mini, tint: SemanticColor.warning, systemImage: "circle.dashed", text: "Medium")
-        default: Pill(.mini, tint: SemanticColor.warning, systemImage: "questionmark", text: "Pick a home")
         }
     }
 }
