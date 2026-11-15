@@ -1040,14 +1040,16 @@ public class FileSyncManager: ObservableObject {
     /// cloud Downloads onto the disk. The cards say "placed by name", and
     /// ``downloadAndReadFiling(_:)`` fetches them when asked.
     public internal(set) var filingNotDownloaded: Set<String> = []
-    /// "N files in M subfolders. Scan them?", set by a scan of an inbox whose files sit below it.
-    /// See ``FilingSubfolderOffer``.
-    @Published public internal(set) var filingSubfolderOffer: FilingSubfolderOffer?
-    /// Folders scanned with their subfolders this session; persisted alongside in
-    /// ``filingRecursiveFoldersKey`` when a store is injected.
-    var filingRecursiveFolders: Set<String> = []
-    /// Folders whose subfolder offer was turned down this session.
-    var filingDeclinedSubfolderFolders: Set<String> = []
+    /// "Scan TODO’s subfolders too?", waiting for an answer before a scan reads anything. See
+    /// ``FilingSubfolderQuestion``.
+    @Published public internal(set) var filingSubfolderQuestion: FilingSubfolderQuestion?
+    /// The scan the question holds back, started by its answer.
+    var filingPendingScan: (() -> Void)?
+    /// True while a scan the user started counts the folder's subfolders, before it scans or asks.
+    @Published public internal(set) var isCountingFilingSubfolders = false
+    /// The answer chosen for each folder this session (true: with its subfolders), which automatic
+    /// rescans keep. Never persisted: a scan after a launch asks again.
+    var filingChosenSubfolderScopes: [String: Bool] = [:]
     /// Whether the scan behind the current suggestions read its folder's subfolders too.
     @Published public internal(set) var filingScanReadSubfolders = false
     /// The survey root the last scan walked in place of File Into, when it walked a wider tree;

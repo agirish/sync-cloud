@@ -1322,3 +1322,22 @@ JAL e-ticket, a photo nothing fits (IMG_*.HEIC), and twelve bills or statements.
   the card says "Left here: 1 hidden from Claude" and never names it.
 - [ ] **Scorecard.** Ask "how well does filing work for me?": a "Read the filing scorecard" step,
   and an answer in counts and areas, naming no file and no hidden folder.
+
+## To File asks before scanning subfolders (2026-11-14)
+
+Needs a copy of a statements inbox, such as the dry-run fixture's `Documents/TODO`, never your own.
+
+- [ ] **It asks first.** Organize This Folder… on the copy's TODO: before any card, “Scan TODO’s
+  subfolders too?”, with how many files sit in TODO and how many below, naming the largest banks.
+  Nothing is listed behind it.
+- [ ] **Scan All, then Rescan.** Scan All N Files: every statement gets a card. Rescan: the question
+  again. Leave To File and come back: the list stays, no question.
+- [ ] **Only the folder.** Only the 1 in TODO: one card. Tick Always scan subfolders first: that
+  button greys out.
+- [ ] **Always.** Tick Always scan subfolders, then Scan All. Rescan: no question. Rescan ▾ shows
+  Always Scan Subfolders ticked; untick it there, or in Settings ▸ Organize ▸ To File, and Rescan asks again.
+- [ ] **Narrow.** Make the Organize column about as narrow as Ask Claude's: the two buttons stack
+  under the text.
+- [ ] **VoiceOver.** The card is read as its question, then its text, both buttons and the checkbox.
+- [ ] **Not a filed folder.** Organize This Folder… on a filed folder with subfolders (say
+  `Finance`): no question, its own files only.

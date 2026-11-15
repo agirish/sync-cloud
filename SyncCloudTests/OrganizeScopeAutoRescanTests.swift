@@ -31,7 +31,7 @@ import Foundation
         #expect(duplicates.contains("let root = organizeScope?.path ?? lensScanRootExpanded"),
                 "Find Duplicates is aimed at the pane again — a scoped scan will answer about wherever the user last browsed")
 
-        let filing = try declarationBody(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {",
+        let filing = try declarationBody(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false, automatic: Bool = false) {",
                                          in: source)
         #expect(filing.contains("organizeScope?.path ?? filingScanTargetFolder"),
                 "the filing scan is aimed at the pane again")
@@ -63,7 +63,7 @@ import Foundation
     /// anchor, not the focused pane's.
     @Test func everyFilingScanFilesIntoFileIntosFolder() throws {
         let source = try macAppFile("ContentView.swift")
-        let manual = try declarationBody(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false) {", in: source)
+        let manual = try declarationBody(of: "func findFilingSuggestionsAction(ignoringCache: Bool = false, automatic: Bool = false) {", in: source)
         #expect(manual.contains("reportsTreeFindings: lensFilingReportsTreeFindings"))
         let auto = try declarationBody(of: "func autoRescanLensIfShowing() {", in: source)
         #expect(auto.contains("reportsTreeFindings: lensFilingReportsTreeFindings"))

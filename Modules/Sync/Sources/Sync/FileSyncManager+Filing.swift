@@ -83,11 +83,18 @@ extension FileSyncManager {
     /// (ignore cache)" path: it skips reading cached verdicts, so every file goes back to the
     /// backend, but still writes the fresh answers so the next ordinary scan benefits. The user
     /// asked for a fresh opinion, not for the cache to be turned off.
+    ///
+    /// `asking` says whether the subfolder question comes first (``FilingSubfolderAsking``). When it
+    /// does, nothing is scanned: the question is published, and its answer starts this same scan.
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
                                            ignoringCache: Bool = false,
                                            reportsTreeFindings: Bool = true,
+                                           asking: FilingSubfolderAsking = .never,
                                            options: FilingOptions = .init()) {
+        // A new scan replaces a question still waiting: it was about the scan this one replaces.
+        filingSubfolderQuestion = nil
+        filingPendingScan = nil
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             guard let self else {
                 // A started scan can also produce nothing this way, with no trace inside the scan:
@@ -96,6 +103,28 @@ extension FileSyncManager {
                 Logger.shared.info("Filing: scan of \(folder.lastPathComponent) dropped before it "
                     + "began — the sync manager went away while the previous scan was unwinding")
                 return
+            }
+            if asking != .never, !self.isSuggestingFiles {
+                self.isCountingFilingSubfolders = true
+                let question = await self.filingSubfolderQuestionBeforeScan(
+                    folder: folder, providerRoot: providerRoot, asking: asking, options: options)
+                self.isCountingFilingSubfolders = false
+                if Task.isCancelled {
+                    Logger.shared.info("Filing: scan of \(folder.lastPathComponent) cancelled while counting its subfolders")
+                    return
+                }
+                if let question {
+                    Logger.shared.info("Filing: \(question.folderName) holds \(question.looseFiles) loose file(s) and "
+                        + "\(question.atLeast ? "at least " : "")\(question.files) in \(question.folders) subfolder(s); asking before scanning")
+                    self.filingPendingScan = { [weak self] in
+                        self?.startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
+                                                         providerName: providerName, nameProvider: nameProvider,
+                                                         ignoringCache: ignoringCache,
+                                                         reportsTreeFindings: reportsTreeFindings, options: options)
+                    }
+                    self.filingSubfolderQuestion = question
+                    return
+                }
             }
             await self.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                              providerName: providerName, nameProvider: nameProvider,
@@ -131,9 +160,11 @@ extension FileSyncManager {
               filingAutoRescanAttempted != folder.path else { return false }
         filingAutoRescanAttempted = folder.path
         Logger.shared.info("Filing: auto-rescanning \(folder.lastPathComponent) (scanned before)")
+        // The scope chosen for the folder this session stands; after a launch, the question.
         startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                    providerName: providerName, nameProvider: nameProvider,
-                                   reportsTreeFindings: reportsTreeFindings, options: options)
+                                   reportsTreeFindings: reportsTreeFindings, asking: .unlessChosen,
+                                   options: options)
         return true
     }
 
@@ -287,8 +318,8 @@ extension FileSyncManager {
             endScan(\.filingScanLifecycle)
         }
 
-        // Loose files: the direct files sitting in the picked folder, or, once the user took the
-        // subfolder offer for it, every file below it (packages stay whole and unread).
+        // Loose files: the direct files sitting in the picked folder, or, when the user chose to
+        // scan its subfolders too, every file below it (packages stay whole and unread).
         let recursive = filingScansSubfolders(folder.path)
             && Self.subfolderOfferEligible(folder: folder.path, profile: filingFolderProfile, fileInto: fileInto.path)
         let looseFiles: [FileNode]
@@ -314,12 +345,6 @@ extension FileSyncManager {
             looseFiles = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager, maxDepth: 1)
                 .filter { !$0.isDirectory }
         }
-        if Task.isCancelled { return }
-        // Not recursive: say what sits below, for an inbox, so an empty-looking TODO can offer it.
-        // Counted against what the scan will actually offer, so a `.DS_Store` isn't a loose file.
-        let subfolderOffer = recursive ? nil
-            : await subfolderOffer(for: folder, looseFiles: looseFiles.filter { Self.isFilable($0, options: options) }.count,
-                                   fileInto: fileInto, options: options, fileManager: fileManager)
         if Task.isCancelled { return }
         // Which of them are only in the cloud: the extractor won't open those, so their cards are
         // placed by name and say so. Published with the results below.
@@ -899,7 +924,6 @@ extension FileSyncManager {
         // to what the scorer was measured on, not what the extractor returned (`filingPageSamples`).
         filingPageSamples = pageSamples
         filingNotDownloaded = notDownloaded
-        filingSubfolderOffer = subfolderOffer
         filingScanReadSubfolders = recursive
         filingGroupFailures = []
         filingLastCacheReuse = cacheReuse
@@ -915,8 +939,6 @@ extension FileSyncManager {
         if recursive {
             Logger.shared.info("Filing: read \(folder.lastPathComponent) with its subfolders "
                 + "(\(looseFiles.count) file(s))")
-        } else if let subfolderOffer {
-            Logger.shared.info("Filing: \(folder.lastPathComponent) holds \(subfolderOffer.summary); offering to scan them")
         }
         let homed = suggestions.filter { $0.hasConfidentHome }.count
         let steered = suggestions.filter { $0.best?.remembered == true }.count
@@ -1749,7 +1771,9 @@ extension FileSyncManager {
         // still claim N folders with `filingLastProviderRoot`, which its chip names, cleared below.
         clearRenamePlans()
         filingScanFolder = nil
-        filingSubfolderOffer = nil
+        filingSubfolderQuestion = nil
+        filingPendingScan = nil
+        filingChosenSubfolderScopes = [:]
         filingScanReadSubfolders = false
         filingGroupFailures = []
         filingLastCacheReuse = nil

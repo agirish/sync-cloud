@@ -350,6 +350,8 @@ public struct LensWorkspaceView: View {
     @State private var reviewingAutomationRule: AutomationRule?
     /// The filing scorecard's line (TE341, decisions NH and NK) and its Details sheet.
     @AppStorage(FilingScorecard.shownDefaultsKey) private var showsFilingScorecard = true
+    /// Read here so the Rescan menu's checkmark follows Settings; written through the manager.
+    @AppStorage(FileSyncManager.alwaysScanSubfoldersDefaultsKey) private var alwaysScansSubfolders = false
     /// Hide was clicked here: the notice holds the line's place until To File is left.
     @State private var filingScorecardJustHidden = false
     @State private var showsFilingScorecardDetails = false
@@ -940,17 +942,6 @@ public struct LensWorkspaceView: View {
                FilingSurveyStrip.isShown(syncManager) {
                 FilingSurveyStrip(syncManager: syncManager, sources: filingSurveySources,
                                   accent: glassHue.accentColor, onRescan: onFindFilingSuggestions)
-                    .padding(.horizontal, sectionInset + 12)
-                    .padding(.top, stripGap)
-            }
-            if effectiveLens == .filing, organizeLens == .toFile, !syncManager.isSuggestingFiles,
-               let strip = FilingSubfolderStrip.Content(offer: syncManager.filingSubfolderOffer,
-                                                        readSubfolders: syncManager.filingScanReadSubfolders,
-                                                        folderName: filingFolderName) {
-                FilingSubfolderStrip(content: strip, accent: glassHue.accentColor,
-                                     onScan: scanFilingSubfolders,
-                                     onDecline: { syncManager.declineFilingSubfolderOffer() },
-                                     onOnlyThisFolder: scanFilingFolderOnly)
                     .padding(.horizontal, sectionInset + 12)
                     .padding(.top, stripGap)
             }
@@ -2220,6 +2211,12 @@ public struct LensWorkspaceView: View {
             Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
         }
         .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
+        // The question's checkbox, where it can be turned off again; Settings ▸ Organize ▸ To File too.
+        Toggle(isOn: Binding(get: { alwaysScansSubfolders },
+                             set: { syncManager.setFilingAlwaysScansSubfolders($0) })) {
+            Label("Always Scan Subfolders", systemImage: "folder.badge.plus")
+        }
+        .help("Scan the files in a folder’s subfolders too, without asking first. Only for folders where files wait, like TODO or Downloads.")
         if let onUpdateFolderMemory {
             Divider()
             // The last survey's result sits above the item that produced it; see
@@ -4336,9 +4333,21 @@ public struct LensWorkspaceView: View {
             // result message as "Save as rule…" (`FilingRuleOfferPanel`), so these cards never move.
             Group {
                 switch Self.filingContentState(
-                    isScanning: syncManager.isSuggestingFiles, showsSetup: showsFilingSetupCard,
+                    asksAboutSubfolders: syncManager.filingSubfolderQuestion != nil,
+                    isScanning: syncManager.isSuggestingFiles || syncManager.isCountingFilingSubfolders,
+                    showsSetup: showsFilingSetupCard,
                     rowsShown: filing.count, suggestions: syncManager.filingSuggestions.count,
                     scopeIsSet: scope != nil, scopeWasScanned: scope.map { passCoverage(for: $0).filing } ?? true) {
+                case .asksAboutSubfolders:
+                    if let question = syncManager.filingSubfolderQuestion {
+                        FilingSubfolderQuestionCard(
+                            question: question, accent: glassHue.accentColor,
+                            onScanAll: { syncManager.scanAllForFilingSubfolderQuestion(always: $0) },
+                            onFolderOnly: { syncManager.scanFolderOnlyForFilingSubfolderQuestion() },
+                            onNotNow: { syncManager.dismissFilingSubfolderQuestion() })
+                            // A new card per question, so its checkbox starts unticked.
+                            .id(question)
+                    }
                 case .scanning: filingScanningState
                 case .setup: filingIntroState
                 case .notScannedHere: if let scope { filingNotScannedHereState(scope) }
@@ -4728,7 +4737,8 @@ public struct LensWorkspaceView: View {
     private var filingScanningState: some View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
-            Text(syncManager.filingScanLifecycle.status ?? "Analyzing…")
+            Text(syncManager.isCountingFilingSubfolders ? "Counting files in subfolders…"
+                 : syncManager.filingScanLifecycle.status ?? "Analyzing…")
                 .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -4763,17 +4773,6 @@ public struct LensWorkspaceView: View {
                 message: "You set aside every suggestion in \(filingFolderName). Scan again to look afresh, or add more files first.",
                 secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
-        } else if let offer = syncManager.filingSubfolderOffer, !offer.hasLooseFiles {
-            // Nothing loose here, but files wait in subfolders (an inbox like TODO/Finance/…).
-            EmptyStateView(
-                icon: FilingGlyph.nothingLoose,
-                tint: .secondary,
-                title: FilingSubfolderText.emptyTitle(folderName: filingFolderName),
-                message: FilingSubfolderText.emptyMessage(offer),
-                primary: .init(FilingSubfolderText.scanButton(offer), systemImage: "doc.text.magnifyingglass",
-                               help: FilingSubfolderText.help, handler: scanFilingSubfolders),
-                secondary: .init("Scan Again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
-            )
         } else {
             // Neutral: the scan found nothing loose to begin with.
             EmptyStateView(
@@ -4786,19 +4785,6 @@ public struct LensWorkspaceView: View {
         }
     }
 
-    /// Takes the subfolder offer and scans again, now with the subfolders.
-    private func scanFilingSubfolders() {
-        syncManager.acceptFilingSubfolderOffer()
-        onFindFilingSuggestions()
-    }
-
-    /// Back to the folder's own files only, and scans again.
-    private func scanFilingFolderOnly() {
-        guard let folder = syncManager.filingScanFolder else { return }
-        syncManager.setFilingScansSubfolders(false, for: folder)
-        onFindFilingSuggestions()
-    }
-
     private var filingFolderName: String {
         guard let folder = syncManager.filingScanFolder else { return "this folder" }
         return (folder as NSString).lastPathComponent
@@ -4806,13 +4792,16 @@ public struct LensWorkspaceView: View {
 
     /// What To File's content area shows: the chooser `filingContent` switches on, kept pure so
     /// the order of its questions can be asserted without mounting a scope.
-    enum FilingContentState: Equatable { case scanning, setup, notScannedHere, clean, hidden, list }
+    enum FilingContentState: Equatable { case asksAboutSubfolders, scanning, setup, notScannedHere, clean, hidden, list }
 
     /// "Not scanned here" is asked before "clean" and "hidden": with a scope To File never
     /// read, the list is empty by construction, and both of those would describe a folder nobody
     /// looked at ("Nothing loose to file", or "Nothing in “Downloads”").
-    static func filingContentState(isScanning: Bool, showsSetup: Bool, rowsShown: Int, suggestions: Int,
+    static func filingContentState(asksAboutSubfolders: Bool = false, isScanning: Bool, showsSetup: Bool,
+                                   rowsShown: Int, suggestions: Int,
                                    scopeIsSet: Bool, scopeWasScanned: Bool) -> FilingContentState {
+        // The question holds the scan back, so it comes before everything a scan would show.
+        if asksAboutSubfolders { return .asksAboutSubfolders }
         if isScanning { return .scanning }
         if showsSetup { return .setup }
         if rowsShown == 0, scopeIsSet, !scopeWasScanned { return .notScannedHere }

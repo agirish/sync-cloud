@@ -706,6 +706,8 @@ enum SettingsSearchIndex {
               keywords: ["filing rules", "rules", "remembered rules", "open rules", "corrections", "manage rules", "automation", "automations"]),
         .init(at: .toFile, title: "Filing scorecard",
               keywords: ["scorecard", "first pick", "kept", "how filing is doing", "filing accuracy", "hide scorecard"]),
+        .init(at: .toFile, title: "Always scan subfolders",
+              keywords: ["subfolders", "scan subfolders", "recursive", "nested folders", "ask before scanning", "todo"]),
         .init(at: .toFile, title: "Folder surveys",
               keywords: ["survey", "folder survey", "learn folders", "learn its folders", "profile",
                          "google drive", "dropbox", "onedrive", "icloud", "layout", "forget survey"]),
@@ -2521,6 +2523,7 @@ struct FilingSettingsTab: View {
     var onOpenRules: (() -> Void)? = nil
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
     @AppStorage(FilingScorecard.shownDefaultsKey) private var showsScorecard = true
+    @AppStorage(FileSyncManager.alwaysScanSubfoldersDefaultsKey) private var alwaysScansSubfolders = false
     /// The inbox when its field took focus: the field writes every keystroke, so the change is
     /// logged once, at Return or when focus leaves.
     @State private var inboxAtFocus: String?
@@ -2554,6 +2557,8 @@ struct FilingSettingsTab: View {
                 }
                 Toggle("Filing scorecard", isOn: $showsScorecard.loggingSettingsChange("organize.filingScorecard"))
                     .help("Shows how often you kept To File’s first pick, above its cards. Counting continues while hidden.")
+                Toggle("Always scan subfolders", isOn: $alwaysScansSubfolders.loggingSettingsChange("organize.alwaysScanSubfolders"))
+                    .help("Scans the files in a folder’s subfolders too, without asking first. Only for folders where files wait, like TODO or Downloads. Off, To File asks before each scan.")
             }
 
             if let syncManager, !surveySources.isEmpty {

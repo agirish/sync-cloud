@@ -113,7 +113,7 @@ extension ContentView {
             FilingDestinationRoot.decode(toFileDestinationsJSON), setting: id, to: path, default: fallback)
         guard filingDestinationRoot(forProviderId: id) != before else { return }
         Logger.shared.info("To File: File Into for \(id) set to \(path)")
-        if syncManager.hasSuggestedFiling, id == lensProviderId { findFilingSuggestionsAction() }
+        if syncManager.hasSuggestedFiling, id == lensProviderId { findFilingSuggestionsAction(automatic: true) }
     }
 
     private func chooseFileIntoFolder(forProviderId id: String, startingAt folder: String) {

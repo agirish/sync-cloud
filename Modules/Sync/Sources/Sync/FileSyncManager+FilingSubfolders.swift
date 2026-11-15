@@ -1,59 +1,148 @@
+import Events
 import Foundation
 
-/// "204 files in 30 subfolders. Scan them?": what To File offers when the picked folder is an
-/// inbox whose files sit in subfolders (a statement fetcher's `TODO/Finance/<Bank>/<Account>/<Year>`,
-/// a Downloads full of unzipped folders). Today's scan reads only the folder's own files, so such a
-/// folder looked empty.
-public struct FilingSubfolderOffer: Equatable, Sendable {
+/// "Scan TODO’s subfolders too?": what To File asks before a scan reads anything, when the picked
+/// folder is a place files wait in (an inbox, Downloads) and its subfolders hold files too. A
+/// statement fetcher's `TODO/Finance/<Bank>/<Account>/<Year>` keeps hundreds of files below one
+/// loose one, and a scan of the loose one alone filled the list with it.
+public struct FilingSubfolderQuestion: Hashable, Sendable {
     /// The picked folder, absolute.
     public let folder: String
+    /// Files sitting directly in the folder, counted as the scan would offer them.
+    public let looseFiles: Int
     /// Files below its subfolders, and how many subfolders hold them.
     public let files: Int
     public let folders: Int
-    /// The folder also has loose files of its own, so the offer is "also scan", not "scan".
-    public let hasLooseFiles: Bool
+    /// The count walk stopped at its cap, so `files` and `folders` are floors.
+    public let atLeast: Bool
+    /// The folders every subfolder file sits under (`["Finance"]`), and the largest folders one
+    /// level below them by file count (`["Charles Schwab", "Chase", "Bank of America"]`), with how
+    /// many more there are.
+    public let commonPath: [String]
+    public let largestGroups: [String]
+    public let otherGroups: Int
 
-    public init(folder: String, files: Int, folders: Int, hasLooseFiles: Bool) {
+    public init(folder: String, looseFiles: Int, files: Int, folders: Int, atLeast: Bool = false,
+                commonPath: [String] = [], largestGroups: [String] = [], otherGroups: Int = 0) {
         self.folder = folder
+        self.looseFiles = looseFiles
         self.files = files
         self.folders = folders
-        self.hasLooseFiles = hasLooseFiles
+        self.atLeast = atLeast
+        self.commonPath = commonPath
+        self.largestGroups = largestGroups
+        self.otherGroups = otherGroups
     }
 
-    /// "204 files in 30 subfolders".
-    public var summary: String {
-        "\(files) file\(files == 1 ? "" : "s") in \(folders) subfolder\(folders == 1 ? "" : "s")"
+    public var folderName: String { (folder as NSString).lastPathComponent }
+    /// Every file a Scan All reads.
+    public var total: Int { looseFiles + files }
+
+    /// How many folders the question names below ``commonPath``.
+    static let namedGroups = 3
+
+    /// The common path and the largest groups for `parents`, each a file's folder relative to the
+    /// picked folder (`Finance/Chase/Checking 1234/2026`), one entry per file.
+    static func groups(_ parents: [String]) -> (common: [String], largest: [String], others: Int) {
+        let split = parents.map { $0.split(separator: "/").map(String.init) }
+        guard var common = split.first else { return ([], [], 0) }
+        for parts in split.dropFirst() {
+            common = Array(zip(common, parts).prefix { $0.0 == $0.1 }.map(\.0))
+        }
+        // Grouped one level below the common path; a file sitting in the common folder itself
+        // counts toward the totals but names no group.
+        var counts: [String: Int] = [:]
+        for parts in split where parts.count > common.count { counts[parts[common.count], default: 0] += 1 }
+        let ranked = counts.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.map(\.key)
+        return (common, Array(ranked.prefix(namedGroups)), max(0, ranked.count - namedGroups))
     }
+}
+
+/// How a scan treats the subfolder question.
+public enum FilingSubfolderAsking: Sendable {
+    /// A scan the user started (a folder pick, Rescan, Scan Again): asks every time.
+    case always
+    /// An automatic rescan (lens open, a changed File Into): keeps the scope already chosen for the
+    /// folder this session, and asks only when none was, as after a launch.
+    case unlessChosen
+    /// The CLI and tests: never asks, and reads subfolders only as chosen or as the preference says.
+    case never
 }
 
 extension FileSyncManager {
 
-    /// Folders the user chose to scan with their subfolders, newest first and bounded like the
-    /// auto-rescan targets, so an automatic rescan of the same folder repeats the choice.
-    public static let filingRecursiveFoldersKey = "tidyFilingRecursiveFolders"
+    /// "Always scan subfolders": every scan of a folder the question is for reads its subfolders,
+    /// with no question. Set from the question's checkbox, the Rescan menu or Settings ▸ Organize ▸
+    /// To File. In the settings store, like Filing's other switches.
+    public static let alwaysScanSubfoldersDefaultsKey = "tidyFilingAlwaysScanSubfolders"
 
-    /// Whether a scan of `folder` reads its subfolders too.
+    public var filingAlwaysScansSubfolders: Bool {
+        filingContentDefaults.bool(forKey: Self.alwaysScanSubfoldersDefaultsKey)
+    }
+
+    public func setFilingAlwaysScansSubfolders(_ on: Bool) {
+        guard on != filingAlwaysScansSubfolders else { return }
+        objectWillChange.send()
+        filingContentDefaults.set(on, forKey: Self.alwaysScanSubfoldersDefaultsKey)
+        Logger.shared.info("Filing: always scan subfolders turned \(on ? "on" : "off")")
+    }
+
+    /// Whether a scan of `folder` reads its subfolders: the preference, or the answer chosen for it
+    /// this session. Never remembered past a launch (the per-folder `tidyFilingRecursiveFolders`
+    /// list that did is no longer read): a new scan asks again.
     func filingScansSubfolders(_ folder: String) -> Bool {
-        if filingRecursiveFolders.contains(folder) { return true }
-        guard let defaults = persistedUIStateDefaults else { return false }
-        return (defaults.array(forKey: Self.filingRecursiveFoldersKey) as? [String] ?? []).contains(folder)
+        filingAlwaysScansSubfolders || filingChosenSubfolderScopes[folder] == true
     }
 
-    /// Takes the offer: the next scan of its folder, and every automatic rescan of it, reads the
-    /// subfolders. The caller starts that scan; this only records the choice.
-    public func acceptFilingSubfolderOffer() {
-        guard let offer = filingSubfolderOffer else { return }
-        setFilingScansSubfolders(true, for: offer.folder)
-        filingSubfolderOffer = nil
+    /// Records the scope chosen for `folder` this session, which automatic rescans keep.
+    func setFilingScansSubfolders(_ on: Bool, for folder: String) {
+        filingChosenSubfolderScopes[folder] = on
     }
 
-    /// Back to the folder's own files only.
-    public func setFilingScansSubfolders(_ on: Bool, for folder: String) {
-        if on { filingRecursiveFolders.insert(folder) } else { filingRecursiveFolders.remove(folder) }
-        guard let defaults = persistedUIStateDefaults else { return }
-        var recent = (defaults.array(forKey: Self.filingRecursiveFoldersKey) as? [String] ?? []).filter { $0 != folder }
-        if on { recent.insert(folder, at: 0) }
-        defaults.set(Array(recent.prefix(Self.maxRememberedScanTargets)), forKey: Self.filingRecursiveFoldersKey)
+    /// Scan All: reads the subfolders, and with `always` stops asking from now on.
+    public func scanAllForFilingSubfolderQuestion(always: Bool) {
+        guard let question = filingSubfolderQuestion else { return }
+        if always { setFilingAlwaysScansSubfolders(true) }
+        answerFilingSubfolderQuestion(question, readsSubfolders: true)
+    }
+
+    /// "Only the 1 in TODO": the folder's own files, this scan and its automatic rescans.
+    public func scanFolderOnlyForFilingSubfolderQuestion() {
+        guard let question = filingSubfolderQuestion else { return }
+        answerFilingSubfolderQuestion(question, readsSubfolders: false)
+    }
+
+    /// Not Now, offered when the folder holds no loose files of its own: no scan.
+    public func dismissFilingSubfolderQuestion() {
+        guard let question = filingSubfolderQuestion else { return }
+        Logger.shared.info("Filing: \(question.folderName) not scanned — the subfolder question was set aside")
+        filingSubfolderQuestion = nil
+        filingPendingScan = nil
+    }
+
+    private func answerFilingSubfolderQuestion(_ question: FilingSubfolderQuestion, readsSubfolders: Bool) {
+        Logger.shared.info("Filing: \(question.folderName) — scanning "
+            + (readsSubfolders ? "its subfolders too" : "its own files only"))
+        setFilingScansSubfolders(readsSubfolders, for: question.folder)
+        filingSubfolderQuestion = nil
+        let scan = filingPendingScan
+        filingPendingScan = nil
+        scan?()
+    }
+
+    /// Whether a scan of `folder`, started as `asking` says, must ask first: the question, or nil
+    /// to scan straight away. Records the scope when it settles one.
+    func filingSubfolderQuestionBeforeScan(folder: URL, providerRoot: URL, asking: FilingSubfolderAsking,
+                                           options: FilingOptions) async -> FilingSubfolderQuestion? {
+        guard asking != .never, !filingAlwaysScansSubfolders else { return nil }
+        let fileInto = filingRouting(forFileInto: providerRoot).fileInto
+        guard Self.subfolderOfferEligible(folder: folder.path, profile: filingFolderProfile,
+                                          fileInto: fileInto.path) else { return nil }
+        if asking == .unlessChosen, filingChosenSubfolderScopes[folder.path] != nil { return nil }
+        let question = await subfolderQuestion(for: folder, options: options, fileManager: fileManager)
+        // Nothing below: the folder's own files are all there is, so no question and no scope.
+        if question == nil { filingChosenSubfolderScopes[folder.path] = false }
+        return question
     }
 
     /// Whether subfolders of `folder` may be offered for scanning. Only for a place files wait in,
@@ -108,38 +197,33 @@ extension FileSyncManager {
         (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isPackageKey]))?.isPackage == true
     }
 
-    /// The offer for `folder`, or nil when there is nothing below it or it isn't eligible. Walks
-    /// the folder's subtree within a budget; a subtree past it is counted as far as it was read,
-    /// since the offer's figure is an estimate the scan itself then confirms.
-    func subfolderOffer(for folder: URL, looseFiles: Int, fileInto: URL, options: FilingOptions,
-                        fileManager: FileManaging) async -> FilingSubfolderOffer? {
-        guard Self.subfolderOfferEligible(folder: folder.path, profile: filingFolderProfile,
-                                          fileInto: fileInto.path),
-              !filingDeclinedSubfolderFolders.contains(folder.path) else { return nil }
-        // A count, so a small budget: every scan of an eligible folder pays it. A tree past it is
-        // counted as far as it was read; the recursive scan itself goes through the preflight.
-        let budget = NodeBudget(Self.subfolderOfferProbeBudget)
+    /// The question for `folder`, or nil when nothing below it is filable. Walks the subtree within
+    /// a budget, so a huge Downloads costs a bounded walk before the scan; past it, the counts are
+    /// floors and the question says "at least". The recursive scan then goes through the large-walk
+    /// preflight as before.
+    func subfolderQuestion(for folder: URL, options: FilingOptions, fileManager: FileManaging,
+                           probeBudget: Int = subfolderOfferProbeBudget) async -> FilingSubfolderQuestion? {
+        let budget = NodeBudget(probeBudget)
         let tree = await Self.buildTree(url: folder, sortOption: .name, fileManager: fileManager,
                                         maxDepth: nil, budget: budget)
-        let counted = await Task.detached(priority: .userInitiated) { () -> (files: Int, folders: Int) in
-            let subfolders = tree.filter { $0.isDirectory }
-            let files = Self.filesBelow(subfolders, ignoring: options.ignoredNames, isPackage: Self.isPackageDirectory)
+        let atLeast = budget.didStopADescent
+        let root = folder.path
+        return await Task.detached(priority: .userInitiated) { () -> FilingSubfolderQuestion? in
+            let loose = tree.filter { Self.isFilable($0, options: options) }.count
+            let files = Self.filesBelow(tree.filter { $0.isDirectory }, ignoring: options.ignoredNames,
+                                        isPackage: Self.isPackageDirectory)
                 .filter { Self.isFilable($0, options: options) }
-            return (files.count, Set(files.map { ($0.id as NSString).deletingLastPathComponent }).count)
+            guard !files.isEmpty else { return nil }
+            let parents = files.map { Self.relativePath(($0.id as NSString).deletingLastPathComponent, under: root) ?? "" }
+            let groups = FilingSubfolderQuestion.groups(parents)
+            return FilingSubfolderQuestion(folder: root, looseFiles: loose, files: files.count,
+                                           folders: Set(parents).count, atLeast: atLeast,
+                                           commonPath: groups.common, largestGroups: groups.largest,
+                                           otherGroups: groups.others)
         }.value
-        guard counted.files > 0 else { return nil }
-        return FilingSubfolderOffer(folder: folder.path, files: counted.files, folders: counted.folders,
-                                    hasLooseFiles: looseFiles > 0)
     }
 
     static let subfolderOfferProbeBudget = 20_000
-
-    /// "Not Now" on the strip: no offer for this folder again this session.
-    public func declineFilingSubfolderOffer() {
-        guard let offer = filingSubfolderOffer else { return }
-        filingDeclinedSubfolderFolders.insert(offer.folder)
-        filingSubfolderOffer = nil
-    }
 
     /// The folders between the scanned folder and a file found below it: `Finance/Schwab/IRA 7863/2026`
     /// for `TODO/Finance/Schwab/IRA 7863/2026/01. Jan 2026.pdf`. Empty for a file sitting directly

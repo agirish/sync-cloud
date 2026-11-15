@@ -15580,3 +15580,21 @@ statements somewhere the user can see and move (the classifier's pick, or Choose
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | Nothing these replace | CLOSED — checked, not owed (features) |
+
+## To File asks before scanning an inbox's subfolders — main only, checked, not owed
+
+2026-11-14, for v7.2. On `main`, a scan the user starts of a folder where files wait (an inbox,
+Downloads) whose subfolders hold files asks first, "Scan TODO’s subfolders too?", with the counts,
+instead of scanning the loose files and offering the rest in a strip. An "Always scan subfolders"
+setting skips the question; the per-folder remembered choice is gone. It replaces the subfolder
+offer of landing A above, which is `main`'s alone, so no line has anything it changes.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s subfolders=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FileSyncManager+FilingSubfolders.swift')"; done
+# measured 2026-11-14, against origin: subfolders=0 on every line (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No subfolder offer | CLOSED — checked, not owed (a feature) |

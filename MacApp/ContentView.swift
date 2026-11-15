@@ -3208,7 +3208,8 @@ struct ContentView: View {
         syncManager.startFindFilingSuggestions(
             folder: URL(fileURLWithPath: folder), providerRoot: URL(fileURLWithPath: into),
             providerName: filingProviderName(into: into, anchor: providerAnchor),
-            nameProvider: lensProviderType, reportsTreeFindings: into == providerAnchor)
+            nameProvider: lensProviderType, reportsTreeFindings: into == providerAnchor,
+            asking: .always)
     }
 
     /// The second deliberate route: the shape question, aimed at one folder. Restructure's answer
@@ -3484,7 +3485,10 @@ struct ContentView: View {
     /// folder: scoped to `TODO` from a pane at the root, a pane-targeted click would scan the
     /// root's loose files, and To File would then report "Nothing to do in TODO" without TODO ever
     /// being enumerated.
-    func findFilingSuggestionsAction(ignoringCache: Bool = false) {
+    ///
+    /// `automatic` is a rescan nobody clicked for (File Into changed under the cards): it keeps the
+    /// subfolder scope already chosen rather than asking again.
+    func findFilingSuggestionsAction(ignoringCache: Bool = false, automatic: Bool = false) {
         // File Into's folder: the anchor for a cloud source, the folder survey's root for a folder
         // source, or whatever the user chose.
         let root = lensFilingDestinationRoot
@@ -3503,7 +3507,8 @@ struct ContentView: View {
                                                // provider's, not whichever pane is focused later.
                                                nameProvider: lensProviderType,
                                                ignoringCache: ignoringCache,
-                                               reportsTreeFindings: lensFilingReportsTreeFindings)
+                                               reportsTreeFindings: lensFilingReportsTreeFindings,
+                                               asking: automatic ? .unlessChosen : .always)
     }
 
     /// Re-derives the folder memory from the provider tree as it stands now.

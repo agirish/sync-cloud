@@ -4,8 +4,9 @@ import EventsTestSupport
 @testable import Sync
 
 /// A picked inbox whose files sit in subfolders (`TODO/Finance/<Bank>/<Account>/<Year>`) used to
-/// read as empty: the scan read only the folder's own files. It now offers to read the subfolders,
-/// and only for a place files wait in, never for a folder already filed into.
+/// read as empty: the scan read only the folder's own files. A scan the user starts now asks first
+/// whether to read the subfolders too, and only for a place files wait in, never for a folder
+/// already filed into.
 @MainActor
 @Suite struct FilingSubfolderScanTests {
 
@@ -24,69 +25,160 @@ import EventsTestSupport
         return (root, inbox)
     }
 
-    @Test func anInboxWithFilesOnlyInSubfoldersOffersToScanThem() async throws {
-        let (root, inbox) = try makeInbox("FilingSubfolderOffer")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.1"))
-        await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
-
-        #expect(manager.filingSuggestions.isEmpty, "nothing loose in the inbox itself")
-        let offer = try #require(manager.filingSubfolderOffer)
-        #expect(offer.files == 3, "the app package is not counted as files, got \(offer.files)")
-        #expect(offer.folders == 2, "two year folders hold the files, got \(offer.folders)")
-        #expect(!offer.hasLooseFiles)
-        #expect(offer.summary == "3 files in 2 subfolders")
+    /// A scan the user starts, as the app does, and waited out: the question, or the scan.
+    private func userScan(_ m: FileSyncManager, _ folder: URL, into: URL,
+                          asking: FilingSubfolderAsking = .always) async {
+        m.startFindFilingSuggestions(folder: folder, providerRoot: into, asking: asking)
+        await m.filingScanTask?.value
     }
 
-    @Test func takingTheOfferScansEveryFileBelowAndKeepsTheSourceHint() async throws {
-        let (root, inbox) = try makeInbox("FilingSubfolderAccept")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.2"))
-        let documents = root.appendingPathComponent("Documents")
-        await manager.findFilingSuggestions(folder: inbox, providerRoot: documents)
-        manager.acceptFilingSubfolderOffer()
-        #expect(manager.filingSubfolderOffer == nil, "taking the offer retires it")
-        await manager.findFilingSuggestions(folder: inbox, providerRoot: documents)
-
-        let names = manager.filingSuggestions.map { $0.fileName }.sorted()
-        #expect(names == ["01. Jan 2026.pdf", "01. Jan 2026.pdf", "02. Feb 2026.pdf"],
-                "every statement below is a loose file, the package's contents are not: \(names)")
-        #expect(manager.filingSubfolderOffer == nil, "a recursive scan has nothing more to offer")
-        #expect(manager.filingScanReadSubfolders)
-        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: inbox.path + "/Finance/Schwab", scannedFolder: inbox.path,
-                                                        readSubfolders: true), "a scope below is covered")
-        let schwab = try #require(manager.filingSuggestions.first { $0.filePath.contains("IRA 7863") })
-        #expect(FileSyncManager.sourceHint(forFile: schwab.filePath, scannedFolder: manager.filingScanFolder)
-                == "Finance/Schwab/IRA 7863/2026")
-    }
-
-    @Test func aFolderWithLooseFilesAndMoreBelowOffersToAlsoScan() async throws {
-        let (root, inbox) = try makeInbox("FilingSubfolderAlso")
+    @Test func aUserScanAsksBeforeReadingAnything() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderAsk")
         defer { try? FileManager.default.removeItem(at: root) }
         try writeBytes(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
-        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.3"))
-        await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.ask"))
+        await userScan(m, inbox, into: root.appendingPathComponent("Documents"))
 
-        #expect(manager.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"])
-        let offer = try #require(manager.filingSubfolderOffer)
-        #expect(offer.hasLooseFiles && offer.files == 3)
-        manager.declineFilingSubfolderOffer()
-        await manager.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Documents"))
-        #expect(manager.filingSubfolderOffer == nil, "Not Now holds for the session")
+        let q = try #require(m.filingSubfolderQuestion)
+        #expect(!m.hasSuggestedFiling && m.filingSuggestions.isEmpty && m.filingScanFolder == nil,
+                "nothing is scanned before the answer")
+        #expect(q.folder == inbox.path && q.looseFiles == 1, "the .DS_Store is not a loose file")
+        #expect(q.files == 3, "the app package is not counted as files, got \(q.files)")
+        #expect(q.folders == 2, "two year folders hold the files, got \(q.folders)")
+        #expect(!q.atLeast && q.total == 4)
+        #expect(q.commonPath == ["Finance"] && q.largestGroups == ["Schwab", "Chase"] && q.otherGroups == 0,
+                "the largest bank first: \(q.commonPath) \(q.largestGroups)")
     }
 
-    @Test func theChoiceIsRememberedSoAnAutomaticRescanRepeatsIt() throws {
-        let defaults = ScratchDefaults("FilingSubfolderRemember")
-        let manager = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.4"))
-        manager.persistedUIStateDefaults = defaults
-        manager.setFilingScansSubfolders(true, for: "/x/TODO")
-        // A fresh manager on the same store, as after a relaunch.
-        let next = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.5"))
-        next.persistedUIStateDefaults = defaults
-        #expect(next.filingScansSubfolders("/x/TODO"))
-        #expect(!next.filingScansSubfolders("/x/Other"))
-        next.setFilingScansSubfolders(false, for: "/x/TODO")
-        #expect(!next.filingScansSubfolders("/x/TODO"))
+    @Test func scanAllReadsEveryFileBelowAndAsksAgainNextTime() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderScanAll")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let documents = root.appendingPathComponent("Documents")
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.all"))
+        await userScan(m, inbox, into: documents)
+        m.scanAllForFilingSubfolderQuestion(always: false)
+        #expect(m.filingSubfolderQuestion == nil, "answering retires the question")
+        await m.filingScanTask?.value
+
+        let names = m.filingSuggestions.map { $0.fileName }.sorted()
+        #expect(names == ["01. Jan 2026.pdf", "01. Jan 2026.pdf", "02. Feb 2026.pdf"],
+                "every statement below is a loose file, the package's contents are not: \(names)")
+        #expect(m.filingScanReadSubfolders && !m.filingAlwaysScansSubfolders)
+        #expect(OrganizeScopeFilter.looseFileScanCovers(subject: inbox.path + "/Finance/Schwab", scannedFolder: inbox.path,
+                                                        readSubfolders: true), "a scope below is covered")
+        let schwab = try #require(m.filingSuggestions.first { $0.filePath.contains("IRA 7863") })
+        #expect(FileSyncManager.sourceHint(forFile: schwab.filePath, scannedFolder: m.filingScanFolder)
+                == "Finance/Schwab/IRA 7863/2026")
+
+        // Every new scan the user starts asks again; an automatic one keeps the answer.
+        await userScan(m, inbox, into: documents)
+        #expect(m.filingSubfolderQuestion != nil, "Rescan asks again")
+        m.dismissFilingSubfolderQuestion()
+        await userScan(m, inbox, into: documents, asking: .unlessChosen)
+        #expect(m.filingSubfolderQuestion == nil && m.filingScanReadSubfolders,
+                "an automatic rescan keeps the scope this session chose")
+    }
+
+    @Test func onlyTheFolderScansItsOwnFilesAndAutomaticRescansKeepThat() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderOnly")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBytes(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
+        let documents = root.appendingPathComponent("Documents")
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.only"))
+        // After a launch nothing was chosen, so even an automatic rescan asks.
+        await userScan(m, inbox, into: documents, asking: .unlessChosen)
+        #expect(m.filingSubfolderQuestion != nil)
+        m.scanFolderOnlyForFilingSubfolderQuestion()
+        await m.filingScanTask?.value
+        #expect(m.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"] && !m.filingScanReadSubfolders)
+
+        await userScan(m, inbox, into: documents, asking: .unlessChosen)
+        #expect(m.filingSubfolderQuestion == nil, "the automatic rescan doesn't ask again")
+        #expect(m.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"] && !m.filingScanReadSubfolders)
+    }
+
+    @Test func alwaysScanSubfoldersSkipsTheQuestion() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderAlways")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let documents = root.appendingPathComponent("Documents")
+        let defaults = ScratchDefaults("FilingSubfolderScanTests.always")
+        let m = FileSyncManager(defaults: defaults)
+        await userScan(m, inbox, into: documents)
+        m.scanAllForFilingSubfolderQuestion(always: true)
+        await m.filingScanTask?.value
+        #expect(defaults.bool(forKey: FileSyncManager.alwaysScanSubfoldersDefaultsKey), "the checkbox sets the preference")
+
+        // A new manager on the same settings, as after a launch: no question, subfolders read.
+        let next = FileSyncManager(defaults: defaults)
+        await userScan(next, inbox, into: documents)
+        #expect(next.filingSubfolderQuestion == nil && next.filingSuggestions.count == 3 && next.filingScanReadSubfolders)
+
+        next.setFilingAlwaysScansSubfolders(false)
+        await userScan(next, inbox, into: documents)
+        #expect(next.filingSubfolderQuestion != nil, "turned off, it asks again")
+    }
+
+    @Test func noQuestionWithNothingBelowOrOutsideAPlaceFilesWait() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingSubfolderNone")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let documents = root.appendingPathComponent("Documents")
+        try writeBytes(documents.appendingPathComponent("Finance/Statements/.keep"), bytes: 1)
+        let flat = root.appendingPathComponent("TODO")
+        try writeBytes(flat.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
+        try writeBytes(flat.appendingPathComponent("Empty/.keep"), bytes: 64)
+        let filed = root.appendingPathComponent("Taxes")
+        try writeBytes(filed.appendingPathComponent("Return.pdf"), bytes: 64)
+        try writeBytes(filed.appendingPathComponent("2025/W-2.pdf"), bytes: 64)
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.none"))
+
+        await userScan(m, flat, into: documents)
+        #expect(m.filingSubfolderQuestion == nil && m.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"],
+                "a hidden file below is nothing to ask about")
+        await userScan(m, filed, into: documents)
+        #expect(m.filingSubfolderQuestion == nil && m.filingSuggestions.map { $0.fileName } == ["Return.pdf"],
+                "a folder of filed documents is never asked about")
+        await userScan(m, flat, into: documents, asking: .never)
+        #expect(m.filingSubfolderQuestion == nil)
+    }
+
+    @Test func notNowScansNothing() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderNotNow")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.notNow"))
+        await userScan(m, inbox, into: root.appendingPathComponent("Documents"))
+        #expect(m.filingSubfolderQuestion?.looseFiles == 0)
+        m.dismissFilingSubfolderQuestion()
+        await m.filingScanTask?.value
+        #expect(m.filingSubfolderQuestion == nil && !m.hasSuggestedFiling && m.filingScanFolder == nil)
+    }
+
+    @Test func pastTheCountsCapTheQuestionSaysAtLeast() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingSubfolderCap")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = root.appendingPathComponent("TODO")
+        try writeBytes(inbox.appendingPathComponent("Near/Statement.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Deep/a/b/c/Statement.pdf"), bytes: 64)
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.cap"))
+        // Three listings: Near, Deep and Deep/a. The walk stops before Deep/a/b.
+        let capped = try #require(await m.subfolderQuestion(for: inbox, options: .init(), fileManager: FileManager.default,
+                                                           probeBudget: 3))
+        #expect(capped.atLeast && capped.files == 1, "a walk stopped early counts what it read, \(capped.files) here")
+        let whole = try #require(await m.subfolderQuestion(for: inbox, options: .init(), fileManager: FileManager.default))
+        #expect(!whole.atLeast && whole.files == 2)
+    }
+
+    @Test func theGroupsNameTheLargestFoldersBelowTheCommonPath() {
+        let parents = Array(repeating: "Finance/Schwab/IRA/2026", count: 3)
+            + Array(repeating: "Finance/Chase/Credit/2026", count: 2)
+            + ["Finance/Amex/Gold/2025", "Finance/Ally/2026", "Finance/Bank of America/2026", "Finance"]
+        let g = FilingSubfolderQuestion.groups(parents)
+        #expect(g.common == ["Finance"])
+        #expect(g.largest == ["Schwab", "Chase", "Ally"], "by count, then by name: \(g.largest)")
+        #expect(g.others == 2, "Amex and Bank of America; the file in Finance itself names no group")
+        let one = FilingSubfolderQuestion.groups(["Finance/Chase/2026", "Finance/Chase/2026"])
+        #expect(one.common == ["Finance", "Chase", "2026"] && one.largest.isEmpty && one.others == 0)
+        let apart = FilingSubfolderQuestion.groups(["Finance/2026", "Medical/2026"])
+        #expect(apart.common.isEmpty && apart.largest == ["Finance", "Medical"])
     }
 
     /// Never for a folder already filed into: scanning an account folder's subtree would offer
