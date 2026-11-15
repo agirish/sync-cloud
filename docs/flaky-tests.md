@@ -5636,3 +5636,47 @@ and Q1 is refused every time. 30 of 30 repeat runs green.
 
 **Tell.** A test with a hand-set `NodeBudget` or `probeBudget` that is red now and then on where
 the walk stopped. Give it one folder per level, or count only what every order reaches.
+
+### 62. A fight the fixture meant to end at once that AppKit's pixel alignment kept going on a 1x display — FIXED
+
+**Symptom.** `PaneColumnsAxisLockTests.testAFightingScrollCannotRecurseTheHold` red on hosted CI
+at `fightSets < 500`, the test 99–147 s into a FileExplorer chunk: runs 43764090732 (`d42a63780`),
+43769709246 (`33e729ab4`, and its rerun) and 43770638596 (`d1b534408`), 2026-11-15. Green on
+every earlier run, at 63–99 s. The commits touched nothing in Columns.
+
+**Mechanism.** The fixture's clip answers every revert by landing half a point off, so the hold
+fights it once per runloop turn, and the test counted sets over a 0.4 s `Date()` window against a
+bound of 500 that assumed about 50 turns. How long the fight lasts depends on the backing:
+
+- **On a Retina (2x) backing it ends at once.** A half point is on the pixel grid, so the second
+  revert lands where the first did, posts no bounds change, and the hold stops. Measured here:
+  **3** sets in the window. So the test could not see the recursion it is named for: with the
+  revert moved inside the notification, it passed.
+- **On a 1x backing it never ends.** `NSClipView` aligns its origin to the backing's pixels (the
+  alignment in mechanism 45), so the half point is moved again, which is a real bounds change and
+  starts the next revert. The hold is dated an hour ahead, so this goes on once per turn, and the
+  count is the main thread's turn rate over however long the test waits for its own wake-up.
+  Simulated here by making the fixture land a quarter point off: **6,770** sets in 0.4 s, idle, and
+  CI's exact message.
+
+The hosted runner's display scale was not printed; 1x is inferred, since nothing else moves this
+fixture's clip. Before `d42a63780` the turns in the window stayed under 500. That commit's one new
+test (4,222 → 4,223) dealt the FileExplorer suites into different `test-shards` chunks (chunk 2,
+the one this suite runs in, went from 738 tests to 687), and the new neighbours left more turns.
+
+**Fix, 2026-11-15.** The fixture lands a whole point off, 1 and then 2 in turn, so every revert is
+a real move at any scale and AppKit's alignment never joins or ends the fight. The test counts no
+sets per second. It waits for 20 sets, floored in passes, and asserts that `setBoundsOrigin` was
+never entered inside itself (`deepest == 1`), which is what an in-notification revert does. The
+fixture gives in past four nested sets, so a recursion fails the test instead of overflowing the
+stack. Then the fixture stops fighting, which ends the hold's chain instead of leaving it to spin
+the main thread for the rest of the chunk. With the revert moved inside the notification, it goes
+red at `deepest == 1`; the old test passed under the same mutation.
+
+**Tell.** A count of things done "once per turn", or a bound written as "about N turns elapse",
+over a wall-clock window. Its value is a rate, which the machine sets. Assert the property the
+count stood in for. And a fixture value on the half- or quarter-point grid can mean a different
+test on a 1x backing than on a Retina one.
+
+**See.** `PaneColumnsAxisLockTests.FightingClipView` in
+`Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift`.

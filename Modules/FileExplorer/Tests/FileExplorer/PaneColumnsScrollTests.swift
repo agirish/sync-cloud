@@ -882,16 +882,30 @@ import Sync
 @MainActor
 @Suite struct PaneColumnsAxisLockTests {
 
-    /// Never lands where the hold puts it: every revert to x comes back at x+0.5, as an animated
-    /// SwiftUI scroll moving the clip against the hold would.
+    /// Never lands where the hold puts it: every revert to x comes back at x+1 or x+2, in turn, as
+    /// an animated SwiftUI scroll moving the clip against the hold would. Whole points, and a new
+    /// one each time, so every revert is a real move on any display: a half point is a no-op on a
+    /// Retina backing (the fight ended after 3 sets) and is re-aligned by AppKit on a 1x one, which
+    /// made it a fight whose length was only the runloop's turn rate.
     private final class FightingClipView: NSClipView {
         var fightsBack = false
         private(set) var setCount = 0
+        /// The most `setBoundsOrigin` calls ever open at once. A revert made inside the bounds
+        /// notification runs inside the set that posted it, so it reads 2 or more.
+        private(set) var deepest = 0
+        private var depth = 0
+        private var nudge: CGFloat = 2
         override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
         override func setBoundsOrigin(_ newOrigin: NSPoint) {
             setCount += 1
-            let origin = fightsBack ? NSPoint(x: newOrigin.x + 0.5, y: newOrigin.y) : newOrigin
-            super.setBoundsOrigin(origin)
+            depth += 1
+            defer { depth -= 1 }
+            deepest = max(deepest, depth)
+            // Past a few nested calls it gives in, so a recursing hold fails the test instead of
+            // overflowing the stack and taking the whole test process with it.
+            guard fightsBack, depth <= 4 else { return super.setBoundsOrigin(newOrigin) }
+            nudge = nudge == 1 ? 2 : 1
+            super.setBoundsOrigin(NSPoint(x: newOrigin.x + nudge, y: newOrigin.y))
         }
     }
 
@@ -927,7 +941,7 @@ import Sync
                 "a vertical gesture's leaked delta moved the stack and the hold never reverted it, after \(held.passes) passes")
     }
 
-    /// A scroll that keeps fighting the hold gets at most one revert per runloop turn, never a
+    /// A scroll that keeps fighting the hold gets its reverts one runloop turn at a time, never a
     /// recursion inside the notification until the stack guard kills the app.
     @Test func testAFightingScrollCannotRecurseTheHold() async throws {
         let clip = FightingClipView()
@@ -945,19 +959,17 @@ import Sync
         clip.fightsBack = true
         clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
 
-        // Keep the runloop turning for a while; an in-notification revert would recurse thousands
-        // of frames deep inside the first setBoundsOrigin call.
-        let deadline = Date().addingTimeInterval(0.4)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        // Reaching this line is most of the assertion; ~50 turns elapse, so per-turn enforcement
-        // stays in that order where recursion would pile up thousands.
+        // The fight has no end while the gesture is in flight, so its length is the runloop's turn
+        // rate, which load sets: 6,770 sets in 0.4 s idle, and enough for 500 to fail on CI. So
+        // count no sets per second; wait for enough reverts that any recursion would have shown.
+        let fought = await LayoutPumpWait.poll(upTo: 15) { clip.setCount - mountSets > 20 }
         let fightSets = clip.setCount - mountSets
-        #expect(fightSets < 500,
-                "the hold fought a moving scroll \(fightSets) times — per-turn bounding is gone")
-        // More than the strand's own set: the hold really did engage and fight, once per turn.
-        #expect(fightSets > 1, "the fixture never engaged the hold at all — nothing was pinned")
+        // Ends the fight: the next revert lands, and nothing moves the clip after it.
+        clip.fightsBack = false
+        #expect(fought.held,
+                "the hold fought a moving scroll only \(fightSets) times in \(fought.passes) passes — it never engaged, or stopped")
+        #expect(clip.deepest == 1,
+                "a revert ran inside the bounds notification, \(clip.deepest) sets deep — the hold recurses")
     }
 
     /// Two stacks share one lock and a vertical gesture is in pane A: A's drift is reverted, B's own
