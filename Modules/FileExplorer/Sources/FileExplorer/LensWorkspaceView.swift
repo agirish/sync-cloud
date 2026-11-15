@@ -200,6 +200,15 @@ public struct LensWorkspaceView: View {
     @State private var pulledOutOfGroups: Set<String> = []
     /// File All's sheet, with the lines it was opened on: what it lists is what it files.
     @State private var filingBatchLines: [FilingBatchLine]?
+    /// What filed, set-aside and trashed cards leave in their place for a moment (filing motion).
+    @State private var filingReceipts: [FilingReceipt] = []
+    @State private var hoveredReceipt: UUID?
+    /// Receipts whose hold ran out under the pointer: they fold when it leaves.
+    @State private var expiredReceipts: Set<UUID> = []
+    /// The cards a set-aside or trash receipt puts back on Undo.
+    @State private var receiptRestores: [UUID: [FilingCardPosition]] = [:]
+    /// Cards whose File is running: they say "Filing…" and lock their buttons.
+    @State private var filingCardsInFlight: Set<String> = []
     /// Names typed into a card's "Create as", by file id: the list holds them so File All files under
     /// them too, and they outlive a card scrolled out of the lazy list.
     @State private var typedFolderNames: [String: String] = [:]
@@ -4453,36 +4462,129 @@ public struct LensWorkspaceView: View {
     }
 
     private func filingList(_ filing: [FilingSuggestion]) -> some View {
-        ScrollView {
+        let sections = FilingCardSections.sections(filing, pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))
+        let cardIDs = Set(sections.flatMap { $0.items.map(\.id) })
+        let laid: [(kind: FilingSectionKind, section: FilingCardSection?, rows: [FilingListRow])] =
+            FilingSectionKind.allCases.compactMap { kind in
+                let section = sections.first { $0.kind == kind }
+                let rows = section.map { FilingReceiptLayout.rows($0, receipts: filingReceipts, allCardIDs: cardIDs) }
+                    ?? filingReceipts.filter { $0.section == kind && ($0.cardID.map { !cardIDs.contains($0) } ?? true) }
+                        .map(FilingListRow.receipt)
+                return rows.isEmpty ? nil : (kind, section, rows)
+            }
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
                 // By what each card asks (Matched, Check first, Needs your pick), from the filtered
                 // rows, so a section the query empties loses its header too. Statements matched to
-                // the same account folder share one card.
-                ForEach(FilingCardSections.sections(filing, pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))) { section in
-                    filingSectionHeader(section)
-                    ForEach(section.items) { item in
-                        switch item {
-                        case .single(let suggestion):
+                // the same account folder share one card. A card that leaves stands as a receipt in
+                // its place for a moment (``FilingReceipt``).
+                ForEach(laid, id: \.kind) { entry in
+                    if let section = entry.section { filingSectionHeader(section) }
+                    ForEach(entry.rows) { row in
+                        switch row {
+                        case .card(.single(let suggestion)):
                             filingCard(suggestion)
-                                .transition(cardRemoval)
-                        case .group(let group):
+                                .transition(filingCardExit)
+                        case .card(.group(let group)):
                             filingGroupCard(group)
-                                .transition(cardRemoval)
+                                .transition(filingCardExit)
+                        case .receipt(let receipt):
+                            filingReceiptView(receipt)
+                                .transition(.opacity)
                         }
                     }
                 }
             }
             .padding(densityMetrics.cardListPadding)
-            // Slide and fade a filed or dismissed card out and settle the list. Keyed on the ids so
-            // only a leaving card animates; an emptied section's header falls away in the same pass.
-            .designAnimation(listSettle, value: RowIdentities(rows: filing))
+            // One soft motion for every change: a card cross-fades into its receipt, a receipt
+            // folds, and the cards below glide up. Keyed on the rows shown, so nothing animates
+            // while a card only changes in place.
+            .designAnimation(filingSettle, value: laid.flatMap { $0.rows.map(\.id) })
         }
         .scrollContentBackground(.hidden)
         .onGeometryChange(for: Bool.self) {
             $0.size.width - 2 * densityMetrics.cardListPadding < FilingGroupCard.narrowWidth
         } action: { filingListNarrow = $0 }
-        // A new scan's cards start grouped again.
-        .onChange(of: syncManager.isSuggestingFiles) { _, scanning in if scanning { pulledOutOfGroups = [] } }
+        // A new scan's cards start grouped again, and the last list's receipts go with it.
+        .onChange(of: syncManager.isSuggestingFiles) { _, scanning in
+            if scanning { pulledOutOfGroups = []; filingReceipts = []; filingCardsInFlight = [] }
+        }
+    }
+
+    // MARK: Filing motion (receipts)
+
+    /// A leaving card fades and settles a touch, rather than sliding off as if dismissed.
+    private var filingCardExit: AnyTransition {
+        .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
+    }
+
+    /// Fast out of the gate and a long soft landing; nil under Reduce motion, for an instant swap.
+    private var filingSettle: Animation? {
+        reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.34)
+    }
+
+    private func filingReceiptView(_ r: FilingReceipt) -> some View {
+        FilingReceiptView(receipt: r, canUndo: canUndoReceipt(r), onUndo: { undoReceipt(r) },
+                          onHover: { inside in
+                              hoveredReceipt = inside ? r.id : (hoveredReceipt == r.id ? nil : hoveredReceipt)
+                              if !inside, expiredReceipts.contains(r.id) { removeReceipt(r.id) }
+                          })
+    }
+
+    /// Starts a receipt for a card before its action runs: it stays unseen while the card shows,
+    /// and stands in its place once the card leaves the list.
+    private func beginReceipt(_ kind: FilingReceipt.Kind, cardID: String?, text: String, place: String? = nil) -> UUID {
+        let spot = filingCardSpot(cardID)
+        let r = FilingReceipt(kind: kind, cardID: cardID, section: spot.section, index: spot.index, text: text, place: place)
+        filingReceipts.append(r)
+        return r.id
+    }
+
+    /// The section and place a card has now.
+    private func filingCardSpot(_ cardID: String?) -> (section: FilingSectionKind, index: Int) {
+        let sections = FilingCardSections.sections(syncManager.filingSuggestions,
+                                                   pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))
+        for section in sections {
+            if let i = section.items.firstIndex(where: { $0.id == cardID }) { return (section.kind, i) }
+        }
+        return (.matched, 0)
+    }
+
+    /// The action finished: `done` keeps the receipt and starts its hold, with the undo step it can
+    /// take back; otherwise it goes (the card is still there, and says why).
+    private func finishReceipt(_ id: UUID, done: Bool, text: String? = nil, undoable: Bool = true,
+                               hold: Duration = FilingReceipt.hold) {
+        guard let i = filingReceipts.firstIndex(where: { $0.id == id }) else { return }
+        guard done else { filingReceipts.remove(at: i); return }
+        if let text { filingReceipts[i].text = text }
+        filingReceipts[i].finished = true
+        filingReceipts[i].undoActionName = undoable ? syncManager.undoManager?.undoActionName : nil
+        Task { @MainActor in
+            try? await Task.sleep(for: hold)
+            if hoveredReceipt == id { expiredReceipts.insert(id) } else { removeReceipt(id) }
+        }
+    }
+
+    private func removeReceipt(_ id: UUID) {
+        expiredReceipts.remove(id)
+        withDesignAnimation(filingSettle ?? .linear(duration: 0), reduceMotion: reduceMotion) {
+            filingReceipts.removeAll { $0.id == id }
+        }
+    }
+
+    /// Undo shows while it would take back this receipt's own step: the one ⌘Z would take now.
+    private func canUndoReceipt(_ r: FilingReceipt) -> Bool {
+        if r.kind == .setAside { return receiptRestores[r.id] != nil }
+        guard let name = r.undoActionName, let undo = syncManager.undoManager else { return false }
+        return undo.canUndo && undo.undoActionName == name
+    }
+
+    private func undoReceipt(_ r: FilingReceipt) {
+        if r.kind != .setAside { syncManager.undoManager?.undo() }
+        // A filing's undo brings its cards back itself; a set-aside or a trash needs them put back.
+        if let cards = receiptRestores[r.id] { syncManager.restoreFilingCards(cards) }
+        receiptRestores[r.id] = nil
+        removeReceipt(r.id)
     }
 
     /// What a card's file rows show and do: page 1's facts, and each row's ⋯ and context menu.
@@ -4502,11 +4604,19 @@ public struct LensWorkspaceView: View {
             trash: { s in
                 // Once: a second click while the first is out would ask to trash a file that's gone.
                 guard trashingFiles.insert(s.id).inserted else { return }
+                // A card of its own leaves a receipt; a group's row just leaves the group.
+                let receipt = inGroup ? nil : beginReceipt(.trashed, cardID: s.id, text: "Moved “\(s.fileName)” to the Trash")
+                let positions = syncManager.filingCardPositions([s.id])
                 Task {
                     // To the Trash, with ⌘Z; the card goes with it.
                     _ = await syncManager.deleteItems(at: [s.filePath])
-                    if !FileManager.default.fileExists(atPath: s.filePath) { syncManager.dismissFilingSuggestion(s) }
+                    let gone = !FileManager.default.fileExists(atPath: s.filePath)
+                    if gone { syncManager.dismissFilingSuggestion(s) }
                     trashingFiles.remove(s.id)
+                    if let receipt {
+                        if gone { receiptRestores[receipt] = positions }
+                        finishReceipt(receipt, done: gone)
+                    }
                 }
             })
         return FilingFileRowsHooks(
@@ -4536,8 +4646,17 @@ public struct LensWorkspaceView: View {
                 // A new account it makes is taught when the Remember box says so (on by default).
                 let teach = group.destination.createsAccountFolder && offersRemember(group)
                     && (rememberAccountChoice[group.id] ?? true)
-                Task { await syncManager.applyFilingGroup(group, teach: teach) }
+                let cardID = FilingCardItem.group(group).id
+                let receipt = beginReceipt(.filed, cardID: cardID, text: "Filed \(group.toFile.count)",
+                                           place: FilingReceiptLayout.place(group.destination, providerRoot: group.members.first?.providerRoot))
+                filingCardsInFlight.insert(cardID)
+                Task {
+                    let n = await syncManager.applyFilingGroup(group, teach: teach)
+                    filingCardsInFlight.remove(cardID)
+                    finishReceipt(receipt, done: n > 0, text: "Filed \(n)")
+                }
             },
+            isFiling: filingCardsInFlight.contains(FilingCardItem.group(group).id),
             onChooseFolder: { chooseFolder(forGroup: group) },
             onTrashCopies: { copies in
                 Task {
@@ -4669,12 +4788,18 @@ public struct LensWorkspaceView: View {
             densityMetrics: densityMetrics,
             onFileHere: { dest in
                 filedThisSession = true
+                let receipt = beginReceipt(.filed, cardID: suggestion.id, text: "Filed “\(suggestion.fileName)”",
+                                           place: FilingReceiptLayout.place(dest, providerRoot: suggestion.providerRoot))
+                filingCardsInFlight.insert(suggestion.id)
                 Task {
                     // Offer a rule only when the file actually moved: filing into the folder it
                     // already lives in (`.notNeeded`) is a no-op, and a rule from it is noise.
                     // A new account it makes is taught when the Remember box says so (on by default).
                     let teach = dest.createsAccountFolder && (rememberAccountChoice[suggestion.id] ?? true)
-                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: teach) == .moved else { return }
+                    let result = await syncManager.applyFilingSuggestion(suggestion, to: dest, teachAccount: teach)
+                    filingCardsInFlight.remove(suggestion.id)
+                    finishReceipt(receipt, done: result == .moved)
+                    guard result == .moved else { return }
                     offerRule(fileName: suggestion.fileName, filePath: suggestion.filePath,
                               destinationPath: dest.path,
                               providerRoot: suggestion.providerRoot ?? providerAnchor,
@@ -4684,8 +4809,12 @@ public struct LensWorkspaceView: View {
             onChooseFolder: { chooseFolder(for: suggestion) },
             onNotHere: {
                 dismissedThisSession = true
+                let receipt = beginReceipt(.setAside, cardID: suggestion.id, text: "Set aside “\(suggestion.fileName)”")
+                receiptRestores[receipt] = syncManager.filingCardPositions([suggestion.id])
                 syncManager.dismissFilingSuggestion(suggestion)
+                finishReceipt(receipt, done: true, undoable: false)
             },
+            isFiling: filingCardsInFlight.contains(suggestion.id),
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
             tryAnotherNote: syncManager.filingTryAnotherNotes[suggestion.filePath],
             onAskClaudeWithPage: syncManager.filingTryAnotherNotes[suggestion.filePath]?.offersClaudeWithPage == true
@@ -5005,7 +5134,14 @@ public struct LensWorkspaceView: View {
         guard !items.isEmpty else { return }
         filedThisSession = true
         let typed = typedDestinations
-        Task { await syncManager.applyFilingBatch(items, destinations: typed) }
+        Task {
+            let n = await syncManager.applyFilingBatch(items, destinations: typed)
+            guard n > 0 else { return }
+            // One line for the whole batch, at the top of the list, while its cards fold away.
+            let summary = beginReceipt(.summary, cardID: nil,
+                                       text: syncManager.banner?.message ?? "Filed \(n) file\(n == 1 ? "" : "s")")
+            finishReceipt(summary, done: true, hold: FilingReceipt.summaryHold)
+        }
     }
 
     // MARK: Actions

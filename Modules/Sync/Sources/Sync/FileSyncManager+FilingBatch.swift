@@ -44,7 +44,9 @@ extension FileSyncManager {
         isFilingBatchRunning = true
         defer { isFilingBatchRunning = false }
 
+        let positions = filingCardPositions(Set(homes.map(\.0.id)))
         let run = await fileHomes(homes)
+        let moved = Set(run.moves.map(\.from.path))
         let home = run.alreadyHome == 0 ? ""
             : "; \(run.alreadyHome) \(run.alreadyHome == 1 ? "was" : "were") already in place"
         guard !run.moves.isEmpty else {
@@ -60,7 +62,8 @@ extension FileSyncManager {
         // One ⌘Z for every move, copy and folder the batch made.
         registerFilingUndo(moves: run.moves, copies: run.copied,
                            actionName: "File \(CountedNoun.phrase(run.moves.count, "Item"))",
-                           createdFolders: run.createdFolders)
+                           createdFolders: run.createdFolders,
+                           restoring: positions.filter { moved.contains($0.suggestion.filePath) })
         for line in FilingBatchLog.lines(operation: "Filing batch", filed: run.filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: run.filed, failures: run.failures,
                                                                                     alreadyHome: run.alreadyHome)) {

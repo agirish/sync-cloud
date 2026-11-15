@@ -1820,6 +1820,7 @@ extension FileSyncManager {
         // file Verify All may be hashing.
         if refusedDuringVerifyAll("Wait for Verify All to finish before filing") { return .failed }
         let wouldCreate = missingFolders(for: [destination.path] + (fileOnce ? [] : destination.alsoCopiesTo.map(\.path)))
+        let position = filingCardPositions([suggestion.id])
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
             if let offer = suggestion.firstOffer {
@@ -1864,7 +1865,7 @@ extension FileSyncManager {
             noteFiledIntoLearnedAccounts(folders: [move.to.deletingLastPathComponent().path])
             registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)",
                                createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
-                               lesson: lesson)
+                               lesson: lesson, restoring: position)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName)" + Self.copiedPhrase(copied), undoable: true)
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remembered ? " (remembered as a rule)" : "")")

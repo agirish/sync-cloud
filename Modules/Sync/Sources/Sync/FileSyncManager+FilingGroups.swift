@@ -61,7 +61,9 @@ extension FileSyncManager {
             }
             return (s, dest)
         }
+        let positions = filingCardPositions(Set(homes.map(\.0.id)))
         let run = await fileHomes(homes, fileOnce: fileOnce, exceptCopiesTo: exceptCopiesTo)
+        let moved = Set(run.moves.map(\.from.path))
         let (moves, copied, filed, failures, alreadyHome) = (run.moves, run.copied, run.filed, run.failures, run.alreadyHome)
         let folderName = ((typed?.path ?? folder ?? group.destination.path) as NSString).lastPathComponent
         guard !moves.isEmpty else {
@@ -91,7 +93,8 @@ extension FileSyncManager {
         noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
         registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
                            createdFolders: run.createdFolders,
-                           priorFolderMove: priorFolderMove, lesson: lesson)
+                           priorFolderMove: priorFolderMove, lesson: lesson,
+                           restoring: positions.filter { moved.contains($0.suggestion.filePath) })
         for line in FilingBatchLog.lines(operation: "Filing group", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
                                                                                     alreadyHome: alreadyHome)) {

@@ -90,13 +90,17 @@ extension FileSyncManager {
     /// The move-undo for a filing, the copy-undo for its copies, and the removal of the folders it
     /// made, as one ⌘Z. In the order it runs: copies go, the files move back, the folders filing
     /// made go if empty, then (`priorFolderMove`) the account moves back into its archive, the
-    /// folders made for it go, and what referred to it is pointed back. No `await` inside, so
-    /// nothing else registers into the step.
+    /// folders made for it go, and what referred to it is pointed back. Last, the files' cards come
+    /// back to To File's list where they stood (`restoring`). No `await` inside, so nothing else
+    /// registers into the step.
     func registerFilingUndo(moves: [MoveItemState], copies: [CopyItemState], actionName: String,
                             createdFolders: [String] = [], priorFolderMove: PriorFolderMove? = nil,
-                            lesson: LessonUndo? = nil) {
-        let grouped = undoManager != nil && (!copies.isEmpty || !createdFolders.isEmpty || priorFolderMove != nil || lesson != nil)
+                            lesson: LessonUndo? = nil, restoring: [FilingCardPosition] = []) {
+        let grouped = undoManager != nil && (!copies.isEmpty || !createdFolders.isEmpty || priorFolderMove != nil
+                                             || lesson != nil || !restoring.isEmpty)
         if grouped { undoManager?.beginUndoGrouping() }
+        // Registered first, so it runs last: the cards return once the files are on their way back.
+        if !restoring.isEmpty { registerRestoreFilingCards(restoring) }
         // The lesson this filing taught goes back to what it was, by the same ⌘Z, once the files are.
         if let lesson { registerLessonUndo(taught: lesson.taught, previous: lesson.previous, batch: lesson.batch) }
         if let prior = priorFolderMove {
@@ -112,6 +116,19 @@ extension FileSyncManager {
             registerForgetCopySets(copies)
         }
         if grouped { undoManager?.endUndoGrouping() }
+    }
+
+    /// Undo puts the filed files' cards back in To File's list where they stood; redo takes them away
+    /// again.
+    func registerRestoreFilingCards(_ cards: [FilingCardPosition]) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.restoreFilingCards(cards)
+            target.undoManager?.registerUndo(withTarget: target) { t in
+                let ids = Set(cards.map(\.suggestion.id))
+                t.filingSuggestions.removeAll { ids.contains($0.id) }
+                t.registerRestoreFilingCards(cards)
+            }
+        }
     }
 
     /// Undo drops the Duplicates "kept separate" keys of copies it takes away; redo puts them back.

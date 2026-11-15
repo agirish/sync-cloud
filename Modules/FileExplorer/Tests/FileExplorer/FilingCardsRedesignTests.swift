@@ -363,3 +363,36 @@ import SwiftUI
         #expect(board.string(forType: .string) == "/D/Receipts/Tools/r.pdf")
     }
 }
+
+/// The filing motion: a receipt waits unseen while its card shows, then stands in its place.
+@Suite struct FilingReceiptLayoutTests {
+    private func card(_ name: String) -> FilingSuggestion {
+        FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
+                         candidates: [FilingDestination(path: "/D/Receipts", confidence: .high, reasons: ["r"], newSegments: [])],
+                         providerRoot: "/D")
+    }
+
+    @Test func aReceiptTakesItsCardsPlaceOnceTheCardHasGone() throws {
+        let a = card("a.pdf"), b = card("b.pdf"), c = card("c.pdf")
+        let receipt = FilingReceipt(kind: .filed, cardID: b.id, section: .matched, index: 1, text: "Filed “b.pdf”")
+        let before = try #require(FilingCardSections.sections([a, b, c]).first)
+        let shown = FilingReceiptLayout.rows(before, receipts: [receipt], allCardIDs: [a.id, b.id, c.id])
+        #expect(shown.map(\.id) == [a.id, b.id, c.id], "while the card shows, it says Filing… itself")
+        let after = try #require(FilingCardSections.sections([a, c]).first)
+        let gone = FilingReceiptLayout.rows(after, receipts: [receipt], allCardIDs: [a.id, c.id])
+        #expect(gone.map(\.id) == [a.id, "receipt:" + receipt.id.uuidString, c.id], "the receipt stands where b stood")
+    }
+
+    @Test func aSummaryLeadsItsSection() throws {
+        let a = card("a.pdf")
+        let summary = FilingReceipt(kind: .summary, cardID: nil, section: .matched, index: 0, text: "Filed 12 files into 3 accounts")
+        let section = try #require(FilingCardSections.sections([a]).first)
+        #expect(FilingReceiptLayout.rows(section, receipts: [summary], allCardIDs: [a.id]).first?.id == "receipt:" + summary.id.uuidString)
+    }
+
+    @Test func aReceiptNamesTheLastTwoFolders() {
+        let dest = FilingDestination(path: "/D/Finance/US/Credit Accounts/American Express/Credit 22002/2026",
+                                     confidence: .high, reasons: [], newSegments: ["2026"])
+        #expect(FilingReceiptLayout.place(dest, providerRoot: "/D") == "Credit 22002 › 2026")
+    }
+}

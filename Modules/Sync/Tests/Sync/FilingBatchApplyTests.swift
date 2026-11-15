@@ -82,6 +82,12 @@ import Foundation
         #expect(back.allSatisfy { FileManager.default.fileExists(atPath: $0) }, "one ⌘Z puts all five back")
         #expect(!FileManager.default.fileExists(atPath: year.path), "and removes the 2026 folder it made")
         #expect(!undo.canUndo, "the whole batch was one step")
+        // The cards come back where they stood, the Medium one never having left.
+        #expect(m.filingSuggestions.map(\.fileName) == ["01.pdf", "02.pdf", "c1.pdf", "c2.pdf", "Receipt 2026.pdf", "m.pdf"],
+                "undo puts the filed cards back in their places: \(m.filingSuggestions.map(\.fileName))")
+        undo.redo()
+        await waitUntil("redo files them again", timeout: 10) { !FileManager.default.fileExists(atPath: back[0]) }
+        #expect(m.filingSuggestions.map(\.fileName) == ["m.pdf"], "redo takes the cards away again")
     }
 
     /// A file gone since the scan stays listed as a card of its own; the rest still file.

@@ -14,6 +14,8 @@ struct FilingSuggestionCard: View {
     let onFileHere: (FilingDestination) -> Void
     let onChooseFolder: () -> Void
     let onNotHere: () -> Void
+    /// Its File is running: the button says "Filing…" and the card's buttons wait.
+    var isFiling = false
     /// Reject the current folder and get a different suggestion. nil hides the button.
     var onTryAnother: (() -> Void)? = nil
     /// What Try Another said about this card: why it stayed on this Mac, why Claude did not answer
@@ -115,6 +117,10 @@ struct FilingSuggestionCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: Bool.self) { $0.size.width < FilingGroupCard.narrowWidth } action: { measuredNarrow = $0 }
         .lensCard()
+        // While its File runs: dimmed, and its buttons wait, so a second click can't land.
+        .opacity(isFiling ? 0.72 : 1)
+        .disabled(isFiling)
+        .designAnimation(.easeOut(duration: 0.2), value: isFiling)
         // The typed name belongs to the destination it was typed for: "Try another" swaps `best`
         // under this card, which survives. The list keys the name on the home too
         // (`LensWorkspaceView.typedNameKey`), so a new home starts with an empty field.
@@ -392,7 +398,9 @@ struct FilingSuggestionCard: View {
         if let best, suggestion.hasConfidentHome {
             // The typed name, when the user typed one — see `newFolderNameField`.
             Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
-                Label(best.createsAccountFolder ? "Create and File" : "File Here", systemImage: "arrow.right.circle")
+                if isFiling { FilingBusyLabel() } else {
+                    Label(best.createsAccountFolder ? "Create and File" : "File Here", systemImage: "arrow.right.circle")
+                }
             }
                 .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
                 .chromeHover()
@@ -409,8 +417,10 @@ struct FilingSuggestionCard: View {
                 // Named for where it files: a name typed into Create as included.
                 let guess = best.renamingNewFolder(to: editedFolderName)
                 Button { onFileHere(guess) } label: {
-                    Text(FilingRouteText.guessButton(guess, providerRoot: suggestion.providerRoot, short: short))
-                        .lineLimit(1).truncationMode(.middle)
+                    if isFiling { FilingBusyLabel() } else {
+                        Text(FilingRouteText.guessButton(guess, providerRoot: suggestion.providerRoot, short: short))
+                            .lineLimit(1).truncationMode(.middle)
+                    }
                 }
                 .controlSize(.small)
                 .lockedDuringRun()

@@ -10,6 +10,8 @@ struct FilingGroupCard: View {
     let group: FilingCardGroup
     let densityMetrics: ListDensityMetrics
     let onFile: () -> Void
+    /// Its File N is running: the button says "Filing…" and the card's buttons wait.
+    var isFiling = false
     let onChooseFolder: () -> Void
     let onTrashCopies: ([FilingSuggestion]) -> Void
     /// Type the whole group's home in full, offered when its home creates folders.
@@ -100,6 +102,10 @@ struct FilingGroupCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: Bool.self) { $0.size.width < Self.narrowWidth } action: { measuredNarrow = $0 }
         .lensCard()
+        // While its File runs: dimmed, and its buttons wait, so a second click can't land.
+        .opacity(isFiling ? 0.72 : 1)
+        .disabled(isFiling)
+        .designAnimation(.easeOut(duration: 0.2), value: isFiling)
         .popover(isPresented: $editingPath, arrowEdge: .bottom) {
             if let pathEditor {
                 FilingPathEditor(hooks: pathEditor) { editingPath = false }
@@ -116,8 +122,12 @@ struct FilingGroupCard: View {
     private func actionLine(level: Int) -> some View {
         HStack(spacing: 9) {
             Button(action: onFile) {
-                Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
-                      systemImage: "arrow.right.circle")
+                if isFiling {
+                    FilingBusyLabel()
+                } else {
+                    Label(FilingGroupText.fileButton(group) + (onMoveOutOfArchive == nil ? "" : " in \(archiveName)"),
+                          systemImage: "arrow.right.circle")
+                }
             }
             .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
             .chromeHover().lockedDuringRun()
