@@ -2189,12 +2189,12 @@ public enum FilingBatchLog {
     /// split rather than written as one line the Activity Log renders whole.
     public static let namesPerLine = 200
 
-    /// What chose a recommended-batch home. Only two answers are possible: the blind batch takes
-    /// filename-derived homes alone (`FilingSuggestion.isBatchEligible` excludes content and AI
-    /// homes), and a filename home records only whether a rule or Automation taught it, not whether
-    /// the folder survey or the keyword engine found it.
+    /// What chose a batch's home: the account number page 1 prints, a rule or Automation, or the
+    /// file's name. A batch takes no other home (``FilingSuggestion/isMatched``), and a filename home
+    /// records only whether a rule taught it, not whether the folder survey or the keyword engine
+    /// found it.
     public static func source(of destination: FilingDestination) -> String {
-        destination.remembered ? "a rule you taught" : "its name"
+        destination.account != nil ? "its account number" : destination.remembered ? "a rule you taught" : "its name"
     }
 
     public static func lines(operation: String, filed: [Filed], summary: String) -> [String] {

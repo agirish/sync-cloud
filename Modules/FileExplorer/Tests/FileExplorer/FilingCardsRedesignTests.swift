@@ -1,0 +1,218 @@
+import AppKit
+import Foundation
+import Testing
+import Sync
+import SwiftUI
+@testable import FileExplorer
+
+/// The To File cards redesign (mockup v6): every card says what moves where, File All's sheet lists
+/// only Matched cards and files what is left ticked, and each file row's menu does what it says.
+@Suite struct FilingRouteTextTests {
+    static let docs = "/Users/a/Documents"
+    static let todo = "/Users/a/Documents/TODO"
+
+    private func statement(_ rel: String, to dest: String, account root: String, newSegments: [String] = [],
+                           confidence: FilingConfidence = .high, proposed: String? = nil) -> FilingSuggestion {
+        let acct = FilingAccount(root: root, ending: "2002", institution: "american express", archived: false, kind: .statement)
+        return FilingSuggestion(filePath: Self.todo + "/" + rel, fileName: (rel as NSString).lastPathComponent, size: 1,
+                                modificationDate: nil,
+                                candidates: [FilingDestination(path: dest, confidence: confidence, reasons: ["r"],
+                                                               newSegments: newSegments, fromContent: true,
+                                                               proposedName: proposed, account: acct)],
+                                providerRoot: Self.docs)
+    }
+
+    /// "From" is relative to the scanned folder, "Moves to" to the tree, both in full; the account
+    /// and its year are bold, and a year made inside an account it has is a quiet note.
+    @Test func fromAndMovesToAreWrittenOutInFull() {
+        let account = Self.docs + "/Finance/US/Credit Accounts/American Express/Credit 22002"
+        let s = statement("Finance/American Express/Credit 2002/2026/01. Jan 2026.pdf", to: account + "/2026",
+                          account: account, newSegments: ["2026"])
+        let lines = FilingRouteText.lines(members: [s], destination: s.best, scannedRoot: Self.todo)
+        #expect(lines.map(\.label) == ["From", "Moves to"])
+        #expect(lines[0].path.text == "TODO › Finance › American Express › Credit 2002 › 2026")
+        #expect(lines[1].path.text == "Documents › Finance › US › Credit Accounts › American Express › Credit 22002 › 2026")
+        #expect(lines[1].path.crumbs.filter(\.bold).map(\.name) == ["Credit 22002", "2026"])
+        #expect(lines[1].path.note == "new 2026 folder", "a year inside an existing account is quiet")
+        #expect(lines[1].path.crumbs.allSatisfy { $0.tag == nil })
+    }
+
+    /// A new account gets the accent tag on the account, and nothing shouts about its year.
+    @Test func aNewAccountIsTaggedOnTheAccount() {
+        let account = Self.docs + "/Finance/Chase/Checking 0779"
+        let s = statement("Chase/a.pdf", to: account + "/2026", account: account,
+                          newSegments: ["Checking 0779", "2026"], confidence: .medium)
+        let path = FilingRouteText.movesTo(s.best!, providerRoot: Self.docs)
+        #expect(path.crumbs.compactMap(\.tag) == ["new account"])
+        #expect(path.crumbs.first { $0.tag != nil }?.name == "Checking 0779")
+        #expect(path.note == nil)
+        #expect(FilingRouteText.offersCreateAs(s.best!), "Create as is offered for the account it invents")
+        let year = statement("x.pdf", to: Self.docs + "/Card/2026", account: Self.docs + "/Card", newSegments: ["2026"])
+        #expect(!FilingRouteText.offersCreateAs(year.best!), "never for a year")
+    }
+
+    /// A home it isn't sure of reads "Best guess"; files from different folders give the folder they
+    /// share, and each row then names its own.
+    @Test func bestGuessAndSeveralFolders() {
+        let low = FilingSuggestion(filePath: Self.todo + "/DIVIT.pdf", fileName: "DIVIT.pdf", size: 1, modificationDate: nil,
+                                   candidates: [FilingDestination(path: Self.docs + "/Finance/US/Social Security/2026",
+                                                                  confidence: .low, reasons: ["r"], newSegments: [])],
+                                   providerRoot: Self.docs)
+        let lowLines = FilingRouteText.lines(members: [low], destination: low.best, scannedRoot: Self.todo)
+        #expect(lowLines.map(\.label) == ["From", "Best guess"])
+        #expect(lowLines[0].path.text == "TODO")
+
+        let account = Self.docs + "/IRA 7863"
+        let a = statement("Schwab/2025/a.pdf", to: account, account: account)
+        let b = statement("Schwab/2026/b.pdf", to: account, account: account)
+        let from = FilingRouteText.from([a, b], scannedRoot: Self.todo)
+        #expect(from.text == "TODO › Schwab" && from.note == "several folders")
+        #expect(FilingRouteText.rowFrom(a, members: [a, b]) == "2025")
+        #expect(FilingRouteText.rowFrom(a, members: [a]) == nil)
+    }
+
+    @Test func aCloudRootIsNamedForItsCloud() {
+        #expect(FilingRouteText.rootLabel("/Users/a/Library/Mobile Documents/com~apple~CloudDocs") == "iCloud")
+        #expect(FilingRouteText.rootLabel("/Users/a/Library/CloudStorage/GoogleDrive-a@b.com") == "Google Drive")
+        #expect(FilingRouteText.rootLabel(Self.docs) == "Documents")
+    }
+
+    /// The group card's title and "why" line, as the mockup words them.
+    @Test func theGroupCardSaysWhoHowManyAndWhy() {
+        let account = Self.docs + "/Credit 22002"
+        let items = FilingCardGrouping.items([statement("01. Jan 2026.pdf", to: account, account: account),
+                                              statement("10. Oct 2026.pdf", to: account, account: account)])
+        guard case .group(let g) = items.first else { Issue.record("expected a group"); return }
+        #expect(FilingGroupText.title(g) == "American Express ••2002 · 2 statements")
+        #expect(FilingGroupText.why(g) == "Jan and Oct 2026 · account number on page 1 of both")
+    }
+
+    /// Each row says what page 1 is and the name it takes, and only what To File read.
+    @Test func aRowSaysWhatPageOneIsAndTheNameItTakes() {
+        #expect(FilingFileText.pageLine(DocumentFacts(page: "Statement Period\nClosing Date 01/29/2026\nAccount Ending 6-22002"))
+                == "Statement · Jan 29, 2026")
+        #expect(FilingFileText.pageLine(DocumentFacts(page: "Immunization Record\nName")) == "Page 1 begins “Immunization Record”")
+        let account = Self.docs + "/Credit 22002"
+        let renamed = statement("01. Jan 2026.pdf", to: account, account: account, proposed: "2026-01-29.pdf")
+        #expect(FilingFileText.landing(renamed) == ("2026-01-29.pdf", true))
+        #expect(FilingFileText.landing(statement("a.pdf", to: account, account: account)) == ("keeps its name", false))
+        #expect(FilingFileText.landing(renamed.alreadyFiled(at: ["x"])) == ("already filed", false))
+    }
+}
+
+@Suite struct FilingBatchPlanTests {
+    static let docs = "/D"
+
+    private func statement(_ name: String, account: String, ending: String = "7863",
+                           confidence: FilingConfidence = .high) -> FilingSuggestion {
+        let acct = FilingAccount(root: account, ending: ending, institution: "charles schwab", archived: false, kind: .statement)
+        return FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
+                                candidates: [FilingDestination(path: account, confidence: confidence, reasons: ["r"], newSegments: [],
+                                                               fromContent: true, account: acct)],
+                                providerRoot: Self.docs)
+    }
+
+    private func byName(_ name: String, to folder: String) -> FilingSuggestion {
+        FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
+                         candidates: [FilingDestination(path: folder, confidence: .high, reasons: ["r"], newSegments: [])],
+                         providerRoot: Self.docs)
+    }
+
+    /// The sheet lists every Matched card that has something to move, and nothing else: a Check
+    /// first card handed in, and a group whose files are all filed already, stay out.
+    @Test func theSheetListsMatchedCardsOnly() {
+        let ira = [statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863")]
+        let filed = [statement("a.pdf", account: "/D/Roth 4657", ending: "4657").alreadyFiled(at: ["Roth 4657"]),
+                     statement("b.pdf", account: "/D/Roth 4657", ending: "4657").alreadyFiled(at: ["Roth 4657"])]
+        let medium = statement("m.pdf", account: "/D/New 0779", ending: "0779", confidence: .medium)
+        let items = FilingCardGrouping.items(ira + filed + [byName("Receipt.pdf", to: "/D/Receipts"), medium])
+        let lines = FilingBatchPlan.lines(items, scannedRoot: "/D/TODO")
+        #expect(lines.map(\.title) == ["Charles Schwab", "Receipt.pdf"])
+        #expect(lines.map(\.count) == [2, 1])
+        #expect(lines[0].ending == "7863" && lines[0].source == nil)
+        #expect(lines[1].source == "by its name", "a name-placed file is marked so")
+        #expect(FilingBatchPlan.title(lines) == "File 3 files into 2 folders?")
+        #expect(FilingBatchPlan.title(Array(lines.prefix(1))) == "File 2 statements into 1 account?")
+    }
+
+    /// Unticked cards stay as cards: the button counts and files the rest, and the footer says what
+    /// stays.
+    @Test func untickingLeavesACardBehind() {
+        let items = FilingCardGrouping.items([statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863"),
+                                              statement("c.pdf", account: "/D/Card 2002", ending: "2002"),
+                                              statement("d.pdf", account: "/D/Card 2002", ending: "2002")])
+        let lines = FilingBatchPlan.lines(items, scannedRoot: "/D/TODO")
+        let off: Set<String> = [lines[1].id]
+        #expect(FilingBatchPlan.fileCount(lines, unticked: off) == 2)
+        #expect(FilingBatchPlan.ticked(lines, unticked: off).map(\.id) == [lines[0].id])
+        #expect(FilingBatchPlan.footer(lines, unticked: off) == "Unticked: Charles Schwab ••2002 (2) stays as its card.")
+        #expect(FilingBatchPlan.footer(lines, unticked: []) == nil)
+        #expect(FilingBatchPlan.title(lines, unticked: off) == "File 2 statements into 1 account?")
+        #expect(FilingBatchPlan.fileCount(lines, unticked: Set(lines.map(\.id))) == 0)
+    }
+}
+
+@MainActor
+@Suite struct FilingFileActionTests {
+    private let s = FilingSuggestion(filePath: "/D/TODO/01. Jan 2026.pdf", fileName: "01. Jan 2026.pdf", size: 1, modificationDate: nil,
+                                     candidates: [FilingDestination(path: "/D/Credit 22002/2026", confidence: .high, reasons: ["r"],
+                                                                    newSegments: [], proposedName: "2026-01-29.pdf")])
+
+    /// The menu's items in order, Pull Out only in a group's rows, Copy Destination Path only with a
+    /// destination; the selected row answers Finder's Space, ⌘Y and ⌥⌘C, and leaves the menu
+    /// bar's chords alone.
+    @Test func theMenuOffersWhatTheDesignLists() {
+        #expect(FilingFileAction.sections(inGroup: true, hasDestination: true).flatMap { $0 }.map(\.title) ==
+                ["Quick Look", "Open", "Reveal in Finder", "Copy Path", "Copy Destination Path", "Pull Out of This Card",
+                 "Choose a Folder for This File…", "Set Aside", "Move to Trash"])
+        #expect(!FilingFileAction.sections(inGroup: false, hasDestination: true).joined().contains(.pullOut))
+        #expect(!FilingFileAction.sections(inGroup: false, hasDestination: false).joined().contains(.copyDestinationPath))
+        #expect(FilingFileAction.forKey(.space, modifiers: []) == .quickLook)
+        #expect(FilingFileAction.forKey("y", modifiers: .command) == .quickLook)
+        #expect(FilingFileAction.forKey("c", modifiers: [.command, .option]) == .copyPath)
+        #expect(FilingFileAction.forKey("o", modifiers: .command) == nil, "⌘O is the menu bar's Open in Edit")
+        #expect(FilingFileAction.forKey("r", modifiers: .command) == nil, "⌘R is the menu bar's Rescan")
+        #expect(FilingFileAction.forKey(.delete, modifiers: .command) == nil, "⌘⌫ is the menu bar's Move Selection to Trash")
+        #expect(FilingFileAction.forKey("c", modifiers: .command) == nil, "⌘C alone is the window's Copy")
+        #expect(FilingFileAction.forKey(.delete, modifiers: []) == nil, "a bare ⌫ trashes nothing")
+    }
+
+    /// Each action reaches its own handler with this file, and the two copies put the right path on
+    /// the pasteboard.
+    @Test func eachActionDoesWhatItSays() {
+        var calls: [String] = []
+        let board = NSPasteboard(name: NSPasteboard.Name("FilingFileActionTests-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        let other = FilingSuggestion(filePath: "/D/TODO/10. Oct 2026.pdf", fileName: "10. Oct 2026.pdf", size: 1,
+                                     modificationDate: nil, candidates: [])
+        let runner = FilingFileActionRunner(
+            quickLook: { urls, url in calls.append("ql \(urls.map(\.lastPathComponent)) \(url.lastPathComponent)") },
+            open: { calls.append("open \($0.lastPathComponent)") },
+            reveal: { calls.append("reveal \($0.lastPathComponent)") },
+            pasteboard: board,
+            pullOut: { calls.append("pull \($0.fileName)") },
+            chooseFolder: { calls.append("choose \($0.fileName)") },
+            setAside: { calls.append("aside \($0.fileName)") },
+            trash: { calls.append("trash \($0.fileName)") })
+        for action in FilingFileAction.allCases where action != .copyPath && action != .copyDestinationPath {
+            runner.perform(action, on: s, members: [s, other])
+        }
+        #expect(calls == ["ql [\"01. Jan 2026.pdf\", \"10. Oct 2026.pdf\"] 01. Jan 2026.pdf",
+                          "open 01. Jan 2026.pdf", "reveal 01. Jan 2026.pdf", "pull 01. Jan 2026.pdf",
+                          "choose 01. Jan 2026.pdf", "aside 01. Jan 2026.pdf", "trash 01. Jan 2026.pdf"],
+                "Quick Look gets the card's files to step through, starting at this one")
+        runner.perform(.copyPath, on: s, members: [s])
+        #expect(board.string(forType: .string) == "/D/TODO/01. Jan 2026.pdf")
+        runner.perform(.copyDestinationPath, on: s, members: [s])
+        #expect(board.string(forType: .string) == "/D/Credit 22002/2026/2026-01-29.pdf", "where it lands, under its new name")
+    }
+}
+
+@MainActor
+@Suite struct FilingScopeLineTests {
+    @Test func theReadoutSaysWhereTheFilesCameFrom() {
+        #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: true, files: 257)
+                == "From TODO and its subfolders · 257 files")
+        #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 1) == "From TODO · 1 file")
+    }
+}

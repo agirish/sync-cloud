@@ -2,16 +2,15 @@ import SwiftUI
 import Sync
 import Design
 
-/// Every statement going to one account folder, as one card: "10 Charles Schwab statements →
-/// Traditional IRA 7863", filed with one click, expandable to pull a file out (design §5.1). What
-/// File N does is always on the card: the folder, its new levels, the name the files take and the
-/// months they cover, and what it leaves (copies already filed, duplicates in the inbox).
+/// Every statement going to one account folder, as one card: "Charles Schwab ••7863 · 10
+/// statements", filed with one click (design §5.1, cards mockup v6). What File N does is always on
+/// the card: From where, Moves to where, the folders it makes, the dates and the evidence, and what
+/// it leaves (copies already filed, duplicates in the inbox). Its files are rows to look at.
 struct FilingGroupCard: View {
     let group: FilingCardGroup
     let densityMetrics: ListDensityMetrics
     let onFile: () -> Void
     let onChooseFolder: () -> Void
-    let onPullOut: (FilingSuggestion) -> Void
     let onTrashCopies: ([FilingSuggestion]) -> Void
     /// Type the whole group's home in full, offered when its home creates folders.
     var pathEditor: FilingPathEditorHooks? = nil
@@ -27,8 +26,13 @@ struct FilingGroupCard: View {
     var onFileOnce: ((FilingPreference.Scope?) -> Void)? = nil
     /// What File N copies into now, under the preferences as they stand.
     var copies: [FilingCopy] = []
+    /// The folder the scan walked, which "From" is relative to.
+    var scannedRoot: String? = nil
+    /// What the file rows show and do.
+    var rowHooks = FilingFileRowsHooks()
 
     @State private var expanded: Bool? = nil
+    @State private var narrow = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -36,46 +40,33 @@ struct FilingGroupCard: View {
     /// Shown open when it is short enough to read at a glance.
     private var isExpanded: Bool { expanded ?? (group.members.count <= 3) }
 
+    /// Below this a card's route labels sit above their paths and the new names under the files'.
+    static let narrowWidth: CGFloat = 460
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "doc.on.doc")
-                    .scaledFont(.system(size: 20))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(FilingGroupText.title(group))
+                VStack(alignment: .leading, spacing: 6) {
+                    FilingGroupText.titleText(group)
                         .scaledFont(.system(size: 14, weight: .semibold))
-                    breadcrumb
-                    if let pathEditor {
-                        Button("Edit Path…") { editingPath = true }
-                            .buttonStyle(.hoverAffordance(.inline))
-                            .scaledFont(.system(size: 11))
-                            .help("Type where these go, anywhere in your folders; missing folders are made when you file")
-                            .popover(isPresented: $editingPath, arrowEdge: .bottom) {
-                                FilingPathEditor(hooks: pathEditor) { editingPath = false }
-                                    .presentedNativeControlAccent()
-                            }
-                    }
-                    Text(FilingGroupText.why(group))
-                        .scaledFont(.system(size: 11))
-                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let naming = FilingGroupText.naming(group) {
-                        Text(naming)
-                            .scaledFont(.system(size: 11, design: .monospaced))
+                    FilingRouteGrid(lines: FilingRouteText.lines(members: group.members, destination: group.destination,
+                                                                 scannedRoot: scannedRoot, copies: copies),
+                                    narrow: narrow, accent: hueAccent)
+                    if densityMetrics.showsSecondaryDetail || group.destination.confidence != .high {
+                        Text(FilingGroupText.why(group))
+                            .scaledFont(.system(size: 11.5))
                             .foregroundStyle(.secondary)
-                            .lineLimit(2).truncationMode(.middle)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if !group.alreadyFiled.isEmpty || !group.copies.isEmpty { leftBehindRow }
                 }
                 Spacer(minLength: 8)
-                HStack(spacing: 6) {
-                    ConfidenceMeter(tier: FilingConfidenceTier.of(group.destination.confidence))
-                    Pill(.mini, tint: group.destination.confidence == .high ? SemanticColor.success : SemanticColor.warning,
-                         systemImage: group.destination.confidence == .high ? "checkmark" : "circle.dashed",
-                         text: group.destination.confidence == .high ? "High" : "Medium")
-                }
+                FilingConfidencePill(confidence: group.destination.confidence)
+            }
+            if isExpanded {
+                Divider()
+                FilingFileRows(members: group.members, inGroup: true, narrow: narrow, accent: hueAccent, hooks: rowHooks)
             }
             if group.toFile.isEmpty {
                 // Every member is already filed or a copy: nothing for File N to move.
@@ -88,37 +79,23 @@ struct FilingGroupCard: View {
                     actionRow(compact: true)
                 }
             }
-            if let onFileOnce, !copies.isEmpty {
-                FilingCopiesRow(copies: copies, onFileOnce: onFileOnce)
-            }
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
-            if isExpanded { memberList }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
+        .padding(.vertical, max(densityMetrics.cardHeaderVerticalPadding, 10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onGeometryChange(for: Bool.self) { $0.size.width < Self.narrowWidth } action: { narrow = $0 }
         .lensCard()
-    }
-
-    private var breadcrumb: some View {
-        let comps = FilingGroupText.breadcrumb(group)
-        let newStart = comps.count - group.destination.newSegments.count
-        // One line, cut from the front: the account and its year are what matter.
-        var text = Text("")
-        for (i, comp) in comps.enumerated() {
-            if i > 0 { text = text + Text(" › ").foregroundStyle(.tertiary) }
-            let isNew = i >= newStart
-            var part = Text(comp).fontWeight(i == comps.count - 1 ? .semibold : .regular)
-                .foregroundStyle(isNew ? hueAccent : (i == comps.count - 1 ? Color.primary : Color.secondary))
-            if isNew { part = part + Text(" NEW").font(.system(size: 8, weight: .bold)).foregroundStyle(hueAccent) }
-            text = text + part
+        .popover(isPresented: $editingPath, arrowEdge: .bottom) {
+            if let pathEditor {
+                FilingPathEditor(hooks: pathEditor) { editingPath = false }
+                    .presentedNativeControlAccent()
+            }
         }
-        return text
-            .scaledFont(.system(size: 12, design: .monospaced))
-            .lineLimit(1).truncationMode(.head)
-            .accessibilityLabel(FilingGroupText.breadcrumbLabel(group))
     }
 
-    /// File N, Choose a Folder…, the archive offer and Show Files; compact puts the last two in ⋯.
+    /// File N, Choose a Folder…, Edit Path…, the archive offer, File Once Here and Show Files;
+    /// compact puts all but the first two in ⋯.
     private func actionRow(compact: Bool) -> some View {
         HStack(spacing: 9) {
             Button(action: onFile) {
@@ -131,20 +108,28 @@ struct FilingGroupCard: View {
                 .controlSize(.small).lockedDuringRun()
             if compact {
                 Menu {
+                    if pathEditor != nil { Button("Edit Path…") { editingPath = true } }
                     if let onMoveOutOfArchive {
                         Button("Move Out of \(archiveName), Then File", action: onMoveOutOfArchive)
                     }
-                    Button(isExpanded ? "Hide Files" : "Show Files") { toggleExpanded() }
+                    Button(isExpanded ? "Hide Files" : "Show \(group.members.count) Files") { toggleExpanded() }
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).fixedSize()
                 .accessibilityLabel("More actions")
                 .help("More actions")
+                if let onFileOnce, !copies.isEmpty { FilingFileOnceMenu(copies: copies, onFileOnce: onFileOnce) }
             } else {
+                if pathEditor != nil {
+                    Button("Edit Path…") { editingPath = true }
+                        .controlSize(.small)
+                        .help("Type where these go, anywhere in your folders; missing folders are made when you file")
+                }
                 if let onMoveOutOfArchive {
                     Button(action: onMoveOutOfArchive) { Label("Move Out of \(archiveName), Then File", systemImage: "archivebox") }
                         .controlSize(.small).lockedDuringRun()
                         .help("These are newer than anything in the account, so it looks live again: move its folder beside the archive, then file them. ⌘Z undoes both.")
                 }
+                if let onFileOnce, !copies.isEmpty { FilingFileOnceMenu(copies: copies, onFileOnce: onFileOnce) }
                 showFilesButton
             }
         }
@@ -152,7 +137,7 @@ struct FilingGroupCard: View {
 
     private var showFilesButton: some View {
         Button { toggleExpanded() } label: {
-            Label(isExpanded ? "Hide Files" : "Show Files", systemImage: isExpanded ? "chevron.down" : "chevron.right")
+            Text(isExpanded ? "Hide Files" : "Show \(group.members.count) Files")
         }
         .buttonStyle(.borderless).controlSize(.small)
         .accessibilityLabel(isExpanded ? "Hide the \(group.members.count) files" : "Show the \(group.members.count) files")
@@ -191,40 +176,30 @@ struct FilingGroupCard: View {
             }
         }
     }
+}
 
-    private var memberList: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(group.members) { s in
-                HStack(spacing: 8) {
-                    Text(s.fileName)
-                        .scaledFont(.system(size: 12))
-                        .lineLimit(1).truncationMode(.middle)
-                        .accessibilityLabel("\(s.fileName), files as \(FilingGroupText.landing(s))")
-                    Image(systemName: "arrow.right").scaledFont(.system(size: 10)).foregroundStyle(.tertiary)
-                    Text(FilingGroupText.landing(s))
-                        .scaledFont(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(s.isAlreadyFiled || s.duplicateOf != nil ? .secondary : .primary)
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    Button("Pull Out") { onPullOut(s) }
-                        .buttonStyle(.hoverAffordance(.inline))
-                        .scaledFont(.system(size: 11))
-                        .help("Show “\(s.fileName)” as its own card")
-                }
-                .accessibilityElement(children: .contain)
-            }
+/// A card's confidence, as the mockup draws it: High, Medium, or Pick a home.
+struct FilingConfidencePill: View {
+    let confidence: FilingConfidence?
+
+    var body: some View {
+        switch confidence {
+        case .high?: Pill(.mini, tint: SemanticColor.success, systemImage: "checkmark", text: "High")
+        case .medium?: Pill(.mini, tint: SemanticColor.warning, systemImage: "circle.dashed", text: "Medium")
+        default: Pill(.mini, tint: SemanticColor.warning, systemImage: "questionmark", text: "Pick a home")
         }
-        .padding(.leading, 38)
-        .padding(.top, 2)
     }
 }
 
 /// The group card's words, apart so they can be tested.
 enum FilingGroupText {
     static func bank(_ g: FilingCardGroup) -> String {
-        g.account.institutionName.isEmpty
-            ? g.account.institution.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
-            : g.account.institutionName
+        g.account.institutionName.isEmpty ? titleCased(g.account.institution) : g.account.institutionName
+    }
+
+    /// `charles schwab` as `Charles Schwab`.
+    static func titleCased(_ s: String) -> String {
+        s.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
     }
 
     static func noun(_ g: FilingCardGroup) -> String {
@@ -235,9 +210,18 @@ enum FilingGroupText {
         }
     }
 
+    /// "American Express ••2002 · 2 statements".
     static func title(_ g: FilingCardGroup) -> String {
         let n = g.members.count
-        return "\(n) \(bank(g)) \(noun(g))\(n == 1 ? "" : "s")"
+        return "\(bank(g)) ••\(g.account.ending) · \(n) \(noun(g))\(n == 1 ? "" : "s")"
+    }
+
+    /// ``title(_:)`` with the ending set in the muted monospaced face.
+    static func titleText(_ g: FilingCardGroup) -> Text {
+        let n = g.members.count
+        return Text(bank(g) + " ")
+            + Text("••" + g.account.ending).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+            + Text(" · \(n) \(noun(g))\(n == 1 ? "" : "s")")
     }
 
     static func why(_ g: FilingCardGroup) -> String {
@@ -247,10 +231,19 @@ enum FilingGroupText {
             if let r = g.dateRange { s += " · " + range(r.first, r.last) }
             return s + " · check before filing"
         }
-        var s = "Account ••\(g.account.ending) on page 1 of all \(g.members.count)"
-        if let r = g.dateRange { s += " · " + range(r.first, r.last) }
+        // The dates covered, then the evidence: "Jan and Oct 2026 · account number on page 1 of both".
+        let n = g.members.count
+        let evidence = "account number on page 1 of " + (n == 2 ? "both" : "all \(n)")
+        var s = g.dateRange.map { dates($0.first, $0.last, count: n) + " · " + evidence } ?? evidence.prefix(1).uppercased() + evidence.dropFirst()
         if g.destination.confidence != .high { s += " · check before filing" }
         return s
+    }
+
+    /// Two statements' months as "Jan and Oct 2026"; more as a range.
+    static func dates(_ a: DocumentFacts.Period, _ b: DocumentFacts.Period, count: Int) -> String {
+        let m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        guard count == 2, a.year == b.year, a.month != b.month else { return range(a, b) }
+        return "\(m[a.month - 1]) and \(m[b.month - 1]) \(a.year)"
     }
 
     static func range(_ a: DocumentFacts.Period, _ b: DocumentFacts.Period) -> String {
@@ -258,31 +251,6 @@ enum FilingGroupText {
         if a == b || (a.year == b.year && a.month == b.month) { return "\(m[a.month - 1]) \(a.year)" }
         if a.year == b.year { return "\(m[a.month - 1])–\(m[b.month - 1]) \(a.year)" }
         return "\(m[a.month - 1]) \(a.year) – \(m[b.month - 1]) \(b.year)"
-    }
-
-    /// "Named like its neighbours: Brokerage Statement_2026-01-31_863.PDF", when the files take one.
-    static func naming(_ g: FilingCardGroup) -> String? {
-        guard let sample = g.toFile.first?.best?.proposedName ?? g.members.first?.best?.proposedName else { return nil }
-        return g.destination.isNew ? "Named like this account’s statements: \(sample)"
-                                   : "Named like the files already there: \(sample)"
-    }
-
-    static func breadcrumb(_ g: FilingCardGroup) -> [String] {
-        let path = g.destination.path
-        let root = g.members.first?.providerRoot
-        if let root, path.hasPrefix(root + "/") {
-            return [(root as NSString).lastPathComponent] + path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
-        }
-        return (path as NSString).abbreviatingWithTildeInPath.split(separator: "/").map(String.init)
-    }
-
-    /// "Into Documents, Finance, Chase, new: Checking 0779, 2026", for VoiceOver.
-    static func breadcrumbLabel(_ g: FilingCardGroup) -> String {
-        let comps = breadcrumb(g)
-        let newCount = min(g.destination.newSegments.count, comps.count)
-        let existing = comps.dropLast(newCount)
-        let made = comps.suffix(newCount)
-        return "Into " + existing.joined(separator: ", ") + (made.isEmpty ? "" : ", new: " + made.joined(separator: ", "))
     }
 
     static func fileButton(_ g: FilingCardGroup) -> String {
@@ -308,12 +276,5 @@ enum FilingGroupText {
         let copies = g.copies.count
         if copies > 0 { parts.append("\(copies) \(copies == 1 ? "is a copy" : "are copies") of another file here") }
         return parts.joined(separator: "; ") + ". Filing the other \(g.toFile.count) leaves \(filed + copies == 1 ? "it" : "them") where \(filed + copies == 1 ? "it is" : "they are")."
-    }
-
-    /// Where one member lands: its new name, or what keeps it from moving.
-    static func landing(_ s: FilingSuggestion) -> String {
-        if s.isAlreadyFiled { return "already filed" }
-        if s.duplicateOf != nil { return "a copy of another file here" }
-        return s.best?.proposedName ?? s.fileName
     }
 }

@@ -11,7 +11,7 @@ import Testing
 /// only the move. Pixels, because every model-level test would still pass.
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct FilingRenameDisclosureTests {
 
-    private static let canvas = CGSize(width: 520, height: 200)
+    private static let canvas = CGSize(width: 520, height: 320)
 
     private static func suggestion(renamedTo proposed: String?) -> FilingSuggestion {
         FilingSuggestion(
@@ -27,8 +27,8 @@ import Testing
     private func mount(_ suggestion: FilingSuggestion) -> NSHostingView<AnyView> {
         let subject = FilingSuggestionCard(
             suggestion: suggestion, densityMetrics: ListDensity.comfortable.metrics,
-            onFileHere: { _ in }, onChooseFolder: {}, onReveal: {}, onNotHere: {})
-            .frame(width: Self.canvas.width)
+            onFileHere: { _ in }, onChooseFolder: {}, onNotHere: {})
+            .frame(width: Self.canvas.width, height: Self.canvas.height, alignment: .top)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
         let host = NSHostingView(rootView: AnyView(subject))
@@ -69,13 +69,12 @@ import Testing
     @MainActor
     @Test("A card whose filing also renames paints the new name")
     func theRenameIsDisclosed() {
-        let silent = ink(mount(Self.suggestion(renamedTo: nil)))
-        let disclosed = ink(mount(Self.suggestion(renamedTo: "04. Apr 2025.pdf")))
-        #expect(disclosed > silent, "the rename must reach the screen, not just the model")
-        // A whole line of text, not a stray pixel of relayout.
-        #expect(disclosed - silent > 150, "gained only \(disclosed - silent) inked pixels")
-        // Two mounts of a card that renames nothing are pixel-identical, so the difference above
-        // is the row.
-        #expect(ink(mount(Self.suggestion(renamedTo: nil))) == silent)
+        // The file's row says the name it takes: a longer one paints a longer line. A card that
+        // didn't draw it would paint the two alike.
+        let short = ink(mount(Self.suggestion(renamedTo: "Apr.pdf")))
+        let long = ink(mount(Self.suggestion(renamedTo: "04. Apr 2025 PG&E Detailed Bill.pdf")))
+        #expect(long - short > 150, "the longer new name gained only \(long - short) inked pixels")
+        // Two mounts of one card are pixel-identical, so the difference above is the name.
+        #expect(ink(mount(Self.suggestion(renamedTo: "Apr.pdf"))) == short)
     }
 }

@@ -3,8 +3,8 @@ import AppKit
 import Sync
 @testable import FileExplorer
 
-/// The Filing lens's pure helpers: confidence grouping (the High/Medium/Low sections the results
-/// list is split into) and the Filing-specific glyph vocabulary.
+/// The Filing lens's pure helpers: its sections (Matched, Check first, Needs your pick), the
+/// confidence tier a search matches, and the Filing-specific glyph vocabulary.
 @Suite struct FilingLensTests {
 
     private func suggestion(_ name: String, _ confidence: FilingConfidence?) -> FilingSuggestion {
@@ -15,7 +15,7 @@ import Sync
                                 size: 1, modificationDate: nil, candidates: candidates)
     }
 
-    /// Both overloads map to the same tiers, so the card's chip and its meter cannot disagree.
+    /// Both overloads map to the same tiers, so the card's pill and a search's chip cannot disagree.
     @Test func tierMirrorsBestConfidence() {
         #expect(FilingConfidenceTier.of(suggestion("a", .high)) == .high)
         #expect(FilingConfidenceTier.of(suggestion("b", .medium)) == .medium)
@@ -28,48 +28,51 @@ import Sync
         #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
     }
 
-    @Test func sectionsAreOrderedHighMediumLowAndDropEmptyTiers() {
-        let sections = FilingSuggestionGrouping.sections([
+    private func statement(_ name: String, _ confidence: FilingConfidence = .high, account root: String = "/root/IRA 7863",
+                           fromAI: Bool = false) -> FilingSuggestion {
+        let acct = FilingAccount(root: root, ending: "7863", institution: "schwab", archived: false, kind: .statement)
+        return FilingSuggestion(filePath: "/root/TODO/\(name)", fileName: name, size: 1, modificationDate: nil,
+                                candidates: [FilingDestination(path: root, confidence: confidence, reasons: [], newSegments: [],
+                                                               fromContent: true, fromAI: fromAI, account: acct)])
+    }
+
+    /// Sections by what the card asks: Matched (what File All files), Check first, Needs your
+    /// pick, in that order, empty ones dropped, the engine's order kept, statements grouped.
+    @Test func sectionsAreMatchedCheckFirstAndNeedsYourPick() {
+        let model = FilingSuggestion(filePath: "/root/TODO/model.pdf", fileName: "model.pdf", size: 1, modificationDate: nil,
+                                 candidates: [FilingDestination(path: "/root/Health", confidence: .high, reasons: [],
+                                                                newSegments: [], fromAI: true)])
+        let sections = FilingCardSections.sections([
             suggestion("low1", .low),
-            suggestion("high1", .high),
-            suggestion("med1", .medium),
-            suggestion("high2", .high),
+            statement("01.pdf"),
+            suggestion("byname", .high),
+            statement("new.pdf", .medium),
+            statement("02.pdf"),
+            model,
             suggestion("none", nil),
         ])
-        #expect(sections.map { $0.tier } == [.high, .medium, .low])
-        // Within a tier, the engine's original order is preserved (not re-sorted).
-        #expect(sections[0].suggestions.map { $0.fileName } == ["high1", "high2"])
-        #expect(sections[1].suggestions.map { $0.fileName } == ["med1"])
-        #expect(sections[2].suggestions.map { $0.fileName } == ["low1", "none"])
+        #expect(sections.map(\.kind) == [.matched, .checkFirst, .needsPick])
+        guard sections.count == 3, case .group(let g) = sections[0].items.first else { Issue.record("expected a group first"); return }
+        #expect(g.members.map(\.fileName) == ["01.pdf", "02.pdf"], "the two statements share a card where the first stood")
+        #expect(sections[0].items.dropFirst().map(\.id) == ["/root/Downloads/byname"], "the name-placed file follows")
+        #expect(sections[0].fileCount == 3)
+        #expect(sections[1].items.map(\.id) == ["/root/TODO/new.pdf", "/root/TODO/model.pdf"],
+                "a Medium and a model's High both need a look first")
+        #expect(sections[2].items.map(\.id) == ["/root/Downloads/low1", "/root/Downloads/none"])
     }
 
     @Test func emptyInputYieldsNoSections() {
-        #expect(FilingSuggestionGrouping.sections([]).isEmpty)
+        #expect(FilingCardSections.sections([]).isEmpty)
     }
 
-    @Test func singleTierYieldsOneSection() {
-        let sections = FilingSuggestionGrouping.sections([suggestion("a", .high), suggestion("b", .high)])
-        #expect(sections.count == 1)
-        #expect(sections[0].tier == .high)
-        #expect(sections[0].suggestions.count == 2)
-    }
-
-    // MARK: G5 — confidence meter + legend
-
-    @Test func filledBarsScaleStrictlyWithConfidence() {
-        #expect(FilingConfidenceTier.high.filledBars == 3)
-        #expect(FilingConfidenceTier.medium.filledBars == 2)
-        #expect(FilingConfidenceTier.low.filledBars == 1)
-        // Never an empty meter: even the weakest tier lights one bar.
-        #expect(FilingConfidenceTier.allCases.allSatisfy { (1...3).contains($0.filledBars) })
-    }
-
-    @Test func everyTierHasADistinctNonEmptyGloss() {
-        for tier in FilingConfidenceTier.allCases {
-            #expect(!tier.gloss.isEmpty, "\(tier) needs a legend gloss")
-        }
-        let glosses = FilingConfidenceTier.allCases.map { $0.gloss }
-        #expect(Set(glosses).count == glosses.count, "each tier's gloss should read differently")
+    /// "210 matched, in 21 accounts": accounts while every Matched file has one, folders otherwise,
+    /// and only what moves.
+    @Test func theReadoutCountsWhatMovesAndWhere() {
+        let filed = statement("03.pdf").alreadyFiled(at: ["IRA 7863"])
+        let accounts = FilingCardSections.matchedPlaces([statement("01.pdf"), statement("02.pdf", account: "/root/Roth 4657"), filed])
+        #expect(accounts.files == 2 && accounts.places == 2 && accounts.accounts)
+        let mixed = FilingCardSections.matchedPlaces([statement("01.pdf"), suggestion("byname", .high), suggestion("m", .medium)])
+        #expect(mixed.files == 2 && mixed.places == 2 && !mixed.accounts)
     }
 
     // MARK: G2 — remember-on-override predicate

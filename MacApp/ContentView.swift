@@ -430,6 +430,8 @@ struct ContentView: View {
 
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
+    /// What ← and → step through while the panel shows ``quickLookURL``; empty for one file alone.
+    @State var quickLookItems: [URL] = []
     /// Whether the open Quick Look panel belongs to the PANES, and so should follow their
     /// selection. Set by every pane entry point (Space, the row menu), cleared by every other one
     /// (a Differences row, the Info inspector) and by the panel closing. See
@@ -1322,7 +1324,7 @@ struct ContentView: View {
             guard isOpen, pendingDestination != nil else { return }
             showSetup = false
         }
-        .quickLookPreview($quickLookURL)
+        .quickLookPreview($quickLookURL, in: quickLookCollection)
         // An open panel follows the pane selection, Finder-style, and closes when it is cleared.
         // The rule is `CurrentSelection.previewFollow`; this only supplies the trigger.
         .onChange(of: paneQuickLookTarget) { _, _ in followPaneSelectionWithQuickLook() }
@@ -3391,14 +3393,24 @@ struct ContentView: View {
         settings.nameRuleType(for: lensTargetIsRight ? rightProviderId : leftProviderId)
     }
 
+    /// What the panel steps through: a card's files while it shows one of them, else the one file
+    /// shown (every other caller sets ``quickLookURL`` alone).
+    var quickLookCollection: [URL] {
+        guard let url = quickLookURL else { return [] }
+        return quickLookItems.contains(url) ? quickLookItems : [url]
+    }
+
     /// Toggles the shared Quick Look panel for `url`: opens it, or closes it when it already shows
     /// that file; a different file re-targets it. `.quickLookPreview($quickLookURL)` nils the
     /// binding on manual dismissal, keeping this in step.
     /// - Parameter followsPane: whether the preview follows the pane selection (re-targets as it
     ///   moves, closes when it clears). False for previews from a Differences row or the Info
     ///   inspector, which hold their own selections.
-    func toggleQuickLook(_ url: URL, followsPane: Bool = false) {
+    /// - Parameter among: the files ← and → step through in the panel (a To File card's), or empty
+    ///   for this one file alone.
+    func toggleQuickLook(_ url: URL, followsPane: Bool = false, among: [URL] = []) {
         let closing = quickLookURL == url
+        quickLookItems = closing || !among.contains(url) ? [] : among
         quickLookURL = closing ? nil : url
         quickLookFollowsPane = closing ? false : followsPane
     }
@@ -4727,6 +4739,8 @@ struct ContentView: View {
                 filingInboxFolder: filingInboxFolder,
                 fileInto: fileIntoChoice,
                 onQuickLook: { toggleQuickLook($0) },
+                // A To File card's files, so ← and → in the panel step through them.
+                onQuickLookIn: { toggleQuickLook($1, among: $0) },
                 onBuildStorage: buildStorageLensAction,
                 documentSurveyCard: documentSurveyCardState,
                 onStartDocumentSurvey: startDocumentSurveyAction,

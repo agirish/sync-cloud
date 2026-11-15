@@ -2,53 +2,41 @@ import Design
 import SwiftUI
 import Sync
 
-/// "Also copied to Roth IRA 4657" on a card whose statement names several accounts (decision 11),
-/// with File Once Here: this time, or from now on for an account, the bank, or every statement.
-struct FilingCopiesRow: View {
+/// File Once Here: file it only in the first account, without the copies, this time or from now
+/// on for an account, the bank, or every statement. Beside a card's File button, where its route
+/// already says "Copies to".
+struct FilingFileOnceMenu: View {
     let copies: [FilingCopy]
     /// nil scope: just this time.
     let onFileOnce: (FilingPreference.Scope?) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "doc.on.doc").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
-            Text(FilingCopiesText.line(copies))
-                .scaledFont(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Menu {
-                Button("Just This Time") { onFileOnce(nil) }
-                Divider()
-                ForEach(copies, id: \.account.root) { c in
-                    Button("Always for " + FilingCopiesText.accountLabel(c)) {
-                        onFileOnce(.account(institution: c.account.institution, ending: c.account.ending))
-                    }
+        Menu {
+            Button("Just This Time") { onFileOnce(nil) }
+            Divider()
+            ForEach(copies, id: \.account.root) { c in
+                Button("Always for " + FilingCopiesText.accountLabel(c)) {
+                    onFileOnce(.account(institution: c.account.institution, ending: c.account.ending))
                 }
-                if let bank = copies.first?.account {
-                    let bankName = FilingCopiesText.label(.institution(bank.institution), copies: copies)
-                    Button("Always for \(bankName)") {
-                        onFileOnce(.institution(bank.institution))
-                    }
-                }
-                Button("Always for Statements") { onFileOnce(.statements) }
-            } label: {
-                Text("File Once Here").scaledFont(.system(size: 11))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("File it only in the first account, without the copies; choose whether to do so from now on")
-            .lockedDuringRun()
+            if let bank = copies.first?.account {
+                let bankName = FilingCopiesText.label(.institution(bank.institution), copies: copies)
+                Button("Always for \(bankName)") {
+                    onFileOnce(.institution(bank.institution))
+                }
+            }
+            Button("Always for Statements") { onFileOnce(.statements) }
+        } label: {
+            Text("File Once Here").scaledFont(.system(size: 11))
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("File it only in the first account, without the copies; choose whether to do so from now on")
+        .lockedDuringRun()
     }
 }
 
 enum FilingCopiesText {
-    /// "Also copied to Roth IRA 4657", "Also copied to Roth IRA 4657 and HSA 0012".
-    static func line(_ copies: [FilingCopy]) -> String {
-        let names = copies.map { accountName($0) }
-        return "Also copied to " + ListFormatter.localizedString(byJoining: names)
-    }
-
     static func accountName(_ c: FilingCopy) -> String { (c.account.root as NSString).lastPathComponent }
 
     /// "Roth IRA 4657", or "Roth IRA ••4657" when the folder's name doesn't carry the number.

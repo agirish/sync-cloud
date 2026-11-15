@@ -323,6 +323,19 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
             && duplicateOf == nil
     }
 
+    /// In To File's Matched section, and so in its File All sheet (decision OQ): a High home inside
+    /// File Into from the account number page 1 prints, or from what ``isBatchEligible`` lets file
+    /// in a batch (its name or a rule you taught). Homes read from the page's words or given by a
+    /// model stay out: Medium is right 57% of the time and the model can be confidently wrong, so
+    /// each of those is a click of its own; so does a home outside File Into, when the scan walked
+    /// a wider tree. Already filed and copies count here, so a group card stays whole; the sheet
+    /// files only a card's ``FilingCardGroup/toFile``.
+    public var isMatched: Bool {
+        guard let best, best.confidence == .high, !best.fromAI,
+              best.account != nil || !best.fromContent else { return false }
+        return preferredRoot.map { PathBoundary.contains(best.path, under: $0) } ?? true
+    }
+
     /// This card scanned against a wider tree than File Into, `fileInto`.
     public func preferring(_ fileInto: String) -> FilingSuggestion {
         var s = self

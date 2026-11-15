@@ -30,6 +30,9 @@ public struct DocumentFacts: Sendable, Equatable {
     /// The page lower-cased, and its first 1,000 characters: the header an institution is read from.
     let text: String
     let header: String
+    /// Page 1's first line of words, as printed, at most 80 characters: what a card shows for a
+    /// document whose kind and date it can't name. nil for a page with no words.
+    public let firstLine: String?
 
     public struct Period: Sendable, Equatable, Hashable, Comparable {
         public let year: Int
@@ -46,10 +49,23 @@ public struct DocumentFacts: Sendable, Equatable {
         let lower = page.lowercased()
         text = lower
         header = String(lower.prefix(1000))
+        firstLine = Self.firstLine(of: page)
         ownNumbers = Self.ownNumbers(in: page)
         kind = Self.kind(of: lower)
         period = kind == .taxForm ? Self.taxYear(in: lower).map { Period(year: $0, month: 12, day: 31) }
                                   : Self.statementPeriod(in: page)
+    }
+
+    /// The first line holding a letter, its spaces collapsed, cut at a word near 80 characters.
+    static func firstLine(of page: String) -> String? {
+        for raw in page.split(whereSeparator: \.isNewline).prefix(40) {
+            let line = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard line.contains(where: \.isLetter) else { continue }
+            guard line.count > 80 else { return line }
+            let cut = line.prefix(80)
+            return String(cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut) + "…"
+        }
+        return nil
     }
 
     // MARK: Own numbers

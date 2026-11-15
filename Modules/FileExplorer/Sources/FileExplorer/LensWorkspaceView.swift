@@ -198,6 +198,8 @@ public struct LensWorkspaceView: View {
     /// scan starts (see `.onChange(of: isSuggestingFiles)`).
     /// Files the user pulled out of a group card, shown as cards of their own until the next scan.
     @State private var pulledOutOfGroups: Set<String> = []
+    /// File All's sheet, with the lines it was opened on: what it lists is what it files.
+    @State private var filingBatchLines: [FilingBatchLine]?
     /// "Remember ••NNNN where I choose", per card, where he changed it from the default: on for a
     /// group, off for a single file (decision 8).
     @State private var rememberAccountChoice: [String: Bool] = [:]
@@ -396,6 +398,9 @@ public struct LensWorkspaceView: View {
     /// Presents a Quick Look preview for a file (the same `quickLookPreview` binding the spacebar
     /// uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
+    /// Quick Look over a card's files, starting at one: ← and → in the panel step through the rest.
+    /// nil falls back to ``onQuickLook`` on the one file.
+    private let onQuickLookIn: (([URL], URL) -> Void)?
     /// Builds (or rebuilds) the read-only storage picture for the focused folder. The host derives
     /// the root.
     private let onBuildStorage: () -> Void
@@ -474,6 +479,7 @@ public struct LensWorkspaceView: View {
         filingInboxFolder: String? = nil,
         fileInto: FileIntoChoice? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
+        onQuickLookIn: (([URL], URL) -> Void)? = nil,
         onBuildStorage: @escaping () -> Void = {},
         documentSurveyCard: DocumentSurveyCardState? = nil,
         onStartDocumentSurvey: (() -> Void)? = nil,
@@ -533,6 +539,7 @@ public struct LensWorkspaceView: View {
         self.filingInboxFolder = filingInboxFolder
         self.fileInto = fileInto
         self.onQuickLook = onQuickLook
+        self.onQuickLookIn = onQuickLookIn
         self.onBuildStorage = onBuildStorage
         self.documentSurveyCard = documentSurveyCard
         self.onStartDocumentSurvey = onStartDocumentSurvey
@@ -1877,15 +1884,16 @@ public struct LensWorkspaceView: View {
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
 
-    /// "File all N confident", scoped to the filtered rows. `batch` comes from the rows on screen
-    /// and is both the label's count and what `applyRecommendedFiling` files, so a query leaving
-    /// 3 of 12 reads "File all 3 confident" and files exactly those.
+    /// "File All N…", N being the Matched count the readout shows, over the rows on screen: a query
+    /// leaving 3 of 12 counts and lists exactly those. It opens a sheet listing every Matched card,
+    /// each ticked, to look over and untick from before anything moves (decision OQ). Check first
+    /// and Needs your pick are never in it.
     @ViewBuilder
     private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {
-        let batch = filing.filter { $0.isBatchEligible }
-        if !batch.isEmpty {
-            Button { applyRecommendedFiling(batch) } label: {
-                Label("File All \(batch.count) Confident", systemImage: "arrow.right.circle.fill")
+        let n = FilingCardSections.matchedPlaces(filing).files
+        if n > 0 {
+            Button { openFilingBatch(filing) } label: {
+                Label("File All \(n.formatted())…", systemImage: "arrow.right.circle.fill")
             }
             .buttonStyle(.borderedProminent)
             .accentedProminent(glassHue)
@@ -1893,10 +1901,19 @@ public struct LensWorkspaceView: View {
             .controlSize(.small)
             .disabled(syncManager.isSuggestingFiles)
             .lockedDuringRun()
-            .help("Files the \(batch.count) name-matched suggestion\(batch.count == 1 ? "" : "s") with a confident home"
-                  + (isFiltered ? " among the \(filing.count) your search left showing" : "")
-                  + ". Content- and AI-based picks stay for you to review; every move undoes with ⌘Z.")
+            .help("Look over the \(n.formatted()) matched file\(n == 1 ? "" : "s")"
+                  + (isFiltered ? " your search left showing" : "")
+                  + ", untick any, and file the rest in one go. One ⌘Z undoes them all.")
         }
+    }
+
+    /// The sheet's lines, taken from the cards on screen now: the sheet files what it lists.
+    private func openFilingBatch(_ filing: [FilingSuggestion]) {
+        let pulled = pulledOutOfGroups.union(syncManager.filingGroupFailures)
+        let matched = FilingCardSections.sections(filing, pulledOut: pulled).first { $0.kind == .matched }?.items ?? []
+        let lines = FilingBatchPlan.lines(matched, scannedRoot: syncManager.filingScanFolder)
+        guard !lines.isEmpty else { return }
+        filingBatchLines = lines
     }
 
     /// "Refine N with Opus", Organize's opt-in second pass. The scan was free and on-device; this
@@ -2146,7 +2163,7 @@ public struct LensWorkspaceView: View {
     }
 
     /// To File's row 2 in a narrow workspace: Rescan and Refine behind one ⋯ menu, with File All
-    /// Confident beside it. The same actions and gates as the wide row, which reaches them as
+    /// beside it. The same actions and gates as the wide row, which reaches them as
     /// buttons.
     @ViewBuilder
     private func compactToFileActions(_ filing: [FilingSuggestion]) -> some View {
@@ -2174,22 +2191,39 @@ public struct LensWorkspaceView: View {
         if hasFilingResults { fileAllButton(filing) }
     }
 
-    /// The Rescan menu's items below its primary action: Ignore Saved Suggestions, and Refresh What’s
-    /// Learned. A property so the split button and the narrow ⋯ menu offer the same ones.
+    /// The Rescan menu's items below its primary action: the scope (the folder and its subfolders,
+    /// or its own files), Always Scan Subfolders, Ignore Saved Suggestions, Refresh What’s Learned,
+    /// and the Filing Scorecard. A property so the split button and the narrow ⋯ menu offer the
+    /// same ones.
     @ViewBuilder
     private var rescanMenuItems: some View {
-        Button {
-            onFindFilingSuggestionsFresh()
-        } label: {
-            Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
+        // The scope first (cards mockup v6): the folder and its subfolders, or its own files.
+        if syncManager.filingScanFolder != nil {
+            Button("Rescan \(filingFolderName) and Subfolders") {
+                syncManager.chooseFilingSubfolderScope(readsSubfolders: true)
+                onFindFilingSuggestions()
+            }
+            Button("Rescan Only \(filingFolderName)") {
+                syncManager.chooseFilingSubfolderScope(readsSubfolders: false)
+                onFindFilingSuggestions()
+            }
+            Divider()
         }
-        .help("Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
         // The question's checkbox, where it can be turned off again; Settings ▸ Organize ▸ To File too.
         Toggle(isOn: Binding(get: { alwaysScansSubfolders },
                              set: { syncManager.setFilingAlwaysScansSubfolders($0) })) {
             Label("Always Scan Subfolders", systemImage: "folder.badge.plus")
         }
         .help("Scan the files in a folder’s subfolders too, without asking first. Only for folders where files wait, like TODO or Downloads.")
+        Divider()
+        Button {
+            onFindFilingSuggestionsFresh()
+        } label: {
+            Label("Ignore Saved Suggestions", systemImage: "arrow.clockwise.circle")
+        }
+        // What the last scan reused, said where the way to ask afresh is.
+        .help(syncManager.filingLastCacheReuse.flatMap { $0.reused > 0 ? Self.reuseHelp($0) : nil }
+              ?? "Ask the model about every file again, even the ones that haven’t changed. With Claude selected this re-runs the paid classification for the whole folder.")
         if let onUpdateFolderMemory {
             Divider()
             // The last survey's result sits above the item that produced it; see
@@ -2210,6 +2244,12 @@ public struct LensWorkspaceView: View {
                 if let note = lastFolderSurveyNote { Text(note) }
             }
         }
+        Divider()
+        // The scorecard's home now it is out of the list (cards mockup v6).
+        Button { showsFilingScorecardDetails = true } label: {
+            Label("Filing Scorecard…", systemImage: "chart.bar.xaxis")
+        }
+        .help("How often To File’s first pick was kept, and where it was changed")
     }
 
     /// Organize's rescan, with the ignore-saved-suggestions variant hung off it. A split control,
@@ -2304,26 +2344,33 @@ public struct LensWorkspaceView: View {
     /// grows the card rather than covering this row. Drawn as `SummaryRun`s, not pills, because
     /// none of them is clickable; see ``SummaryRun``.
     private func filingSummary(_ filing: [FilingSuggestion]) -> some View {
-        let ready = filing.filter { $0.hasConfidentHome }.count
-        let newFolders = filing.filter { $0.best?.isNew == true }.count
-        let unsure = filing.count - ready
+        // By section, as the cards below are: what File All files, what to look at first, what
+        // needs a folder chosen. The matched count is the File All button's.
+        let matched = FilingCardSections.matchedPlaces(filing)
+        let checkFirst = filing.filter { FilingSectionKind.of($0) == .checkFirst }.count
+        let needsPick = filing.filter { FilingSectionKind.of($0) == .needsPick }.count
         return Group {
-            // "ready" = the showing files with a confident home.
-            SummaryRun(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
-            if newFolders > 0 {
-                SummaryRun(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
-                           color: glassHue.accentColor, systemImage: "folder.badge.plus")
+            // Where these came from, once: "From TODO and its subfolders · 257 files".
+            Text(Self.filingScopeLine(folder: syncManager.filingScanFolder, readSubfolders: syncManager.filingScanReadSubfolders,
+                                      files: filing.count))
+                .scaledFont(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+            if matched.files > 0 {
+                SummaryRun(count: matched.files,
+                           label: "matched, in \(matched.places.formatted()) "
+                               + (matched.accounts ? (matched.places == 1 ? "account" : "accounts")
+                                                   : (matched.places == 1 ? "folder" : "folders")),
+                           color: FilingSectionKind.matched.color, systemImage: "checkmark.circle")
             }
-            if unsure > 0 {
-                SummaryRun(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
+            if checkFirst > 0 {
+                SummaryRun(count: checkFirst, label: "to check first", color: FilingSectionKind.checkFirst.color,
+                           systemImage: "exclamationmark.circle")
             }
-            // A scan-level fact, like Duplicates' `need review` / `skipped`, so not recounted over
-            // the filtered rows: narrowing the search doesn't change how many files the model was
-            // asked about.
-            if let reuse = syncManager.filingLastCacheReuse, reuse.reused > 0 {
-                SummaryRun(count: reuse.reused, label: "reused", color: .secondary,
-                           systemImage: "clock.arrow.circlepath")
-                    .help(Self.reuseHelp(reuse))
+            if needsPick > 0 {
+                SummaryRun(count: needsPick, label: needsPick == 1 ? "needs your pick" : "need your pick",
+                           color: FilingSectionKind.needsPick.color, systemImage: "questionmark.circle")
             }
             // Durable evidence that the paid pass ran and what it bought; the banner goes away,
             // this stays with the rows. Pass-level like `reused`, for the same reason.
@@ -2397,6 +2444,12 @@ public struct LensWorkspaceView: View {
         }
         return "Asked about \(refine.asked). \(sent)\(reused) \(changed)"
             + FileSyncManager.hiddenFromClaudeNote(refine.hiddenFromClaude)
+    }
+
+    /// "From TODO and its subfolders · 257 files", the readout's first words.
+    static func filingScopeLine(folder: String?, readSubfolders: Bool, files: Int) -> String {
+        let name = folder.map { ($0 as NSString).lastPathComponent } ?? "this folder"
+        return "From \(name)" + (readSubfolders ? " and its subfolders" : "") + " · \(files.formatted()) file\(files == 1 ? "" : "s")"
     }
 
     /// Spells out what "reused" bought: the model wasn't asked, so with Claude selected it wasn't
@@ -4260,7 +4313,8 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private func filingContent(filing: [FilingSuggestion], counts: RailCounts) -> some View {
         VStack(spacing: 0) {
-            filingScorecard
+            // Out of the list until something is filed (cards mockup v6); Rescan ▾ has it always.
+            if filedThisSession { filingScorecard }
             // No teach prompt here: inserted above the cards after a move, it would slide the next
             // card's "File here" out from under the pointer. The offer rides in the move's "Filed …"
             // result message as "Save as rule…" (`FilingRuleOfferPanel`), so these cards never move.
@@ -4294,6 +4348,17 @@ public struct LensWorkspaceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .sheet(isPresented: $showsFilingScorecardDetails) {
+            FilingScorecardSheet(store: syncManager.filingScorecard, session: session,
+                                 syncManager: syncManager, accent: glassHue.accentColor)
+                .presentedNativeControlAccent()
+        }
+        .sheet(isPresented: Binding(get: { filingBatchLines != nil }, set: { if !$0 { filingBatchLines = nil } })) {
+            if let lines = filingBatchLines {
+                FilingBatchSheet(lines: lines, accent: glassHue.accentColor) { applyFilingBatch($0) }
+                    .presentedNativeControlAccent()
+            }
+        }
     }
 
     /// The line above the cards, or the notice Hide leaves. Not over Setup's introduction, where
@@ -4305,11 +4370,6 @@ public struct LensWorkspaceView: View {
                                 inset: densityMetrics.cardListPadding,
                                 shown: $showsFilingScorecard, justHidden: $filingScorecardJustHidden,
                                 onDetails: { showsFilingScorecardDetails = true })
-            .sheet(isPresented: $showsFilingScorecardDetails) {
-                FilingScorecardSheet(store: syncManager.filingScorecard, session: session,
-                                     syncManager: syncManager, accent: glassHue.accentColor)
-                    .presentedNativeControlAccent()
-            }
         }
     }
 
@@ -4367,14 +4427,12 @@ public struct LensWorkspaceView: View {
     private func filingList(_ filing: [FilingSuggestion]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
-                // Grouped by confidence (High / Medium / Low), so the list reads as sure, maybe and
-                // needs-you. Sectioned from the filtered rows, so a tier the query empties loses
-                // its header too.
-                ForEach(FilingSuggestionGrouping.sections(filing)) { section in
+                // By what each card asks (Matched, Check first, Needs your pick), from the filtered
+                // rows, so a section the query empties loses its header too. Statements matched to
+                // the same account folder share one card.
+                ForEach(FilingCardSections.sections(filing, pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))) { section in
                     filingSectionHeader(section)
-                    // Statements matched to the same account folder share one card.
-                    ForEach(FilingCardGrouping.items(section.suggestions,
-                                                     pulledOut: pulledOutOfGroups.union(syncManager.filingGroupFailures))) { item in
+                    ForEach(section.items) { item in
                         switch item {
                         case .single(let suggestion):
                             filingCard(suggestion)
@@ -4388,12 +4446,45 @@ public struct LensWorkspaceView: View {
             }
             .padding(densityMetrics.cardListPadding)
             // Slide and fade a filed or dismissed card out and settle the list. Keyed on the ids so
-            // only a leaving card animates; an emptied tier's header falls away in the same pass.
+            // only a leaving card animates; an emptied section's header falls away in the same pass.
             .designAnimation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
         // A new scan's cards start grouped again.
         .onChange(of: syncManager.isSuggestingFiles) { _, scanning in if scanning { pulledOutOfGroups = [] } }
+    }
+
+    /// What a card's file rows show and do: page 1's facts, and each row's ⋯ and context menu.
+    private func fileRowHooks(_ members: [FilingSuggestion], inGroup: Bool) -> FilingFileRowsHooks {
+        let runner = FilingFileActionRunner(
+            quickLook: { urls, url in
+                if let onQuickLookIn { onQuickLookIn(urls, url) } else { onQuickLook?(url) }
+            },
+            pullOut: { s in withDesignAnimation(listSettle, reduceMotion: reduceMotion) { _ = pulledOutOfGroups.insert(s.id) } },
+            chooseFolder: { chooseFolder(for: $0) },
+            setAside: { s in
+                dismissedThisSession = true
+                syncManager.dismissFilingSuggestion(s)
+            },
+            trash: { s in
+                Task {
+                    // To the Trash, with ⌘Z; the card goes with it.
+                    _ = await syncManager.deleteItems(at: [s.filePath])
+                    if !FileManager.default.fileExists(atPath: s.filePath) { syncManager.dismissFilingSuggestion(s) }
+                }
+            })
+        return FilingFileRowsHooks(
+            facts: { syncManager.filingDocumentFacts[$0.filePath] },
+            perform: { action, s in runner.perform(action, on: s, members: members) },
+            isEnabled: { action, s in
+                switch action {
+                case .quickLook: return onQuickLook != nil || onQuickLookIn != nil
+                case .pullOut: return inGroup
+                case .copyDestinationPath: return s.best != nil
+                case .chooseFolder, .trash: return !syncManager.isSuggestingFiles
+                case .open, .reveal, .copyPath, .setAside: return true
+                }
+            })
     }
 
     private func filingGroupCard(_ group: FilingCardGroup) -> some View {
@@ -4408,7 +4499,6 @@ public struct LensWorkspaceView: View {
                 Task { await syncManager.applyFilingGroup(group, teach: teach) }
             },
             onChooseFolder: { chooseFolder(forGroup: group) },
-            onPullOut: { s in withDesignAnimation(listSettle, reduceMotion: reduceMotion) { _ = pulledOutOfGroups.insert(s.id) } },
             onTrashCopies: { copies in
                 Task {
                     // To the Trash, with ⌘Z; the cards go with them.
@@ -4446,7 +4536,9 @@ public struct LensWorkspaceView: View {
                 Task { await syncManager.applyFilingGroup(group, exceptCopiesTo: skip) }
             },
             // What File N copies now, under the preferences as they stand.
-            copies: groupCopies(group)
+            copies: groupCopies(group),
+            scannedRoot: syncManager.filingScanFolder,
+            rowHooks: fileRowHooks(group.members, inGroup: true)
         )
     }
 
@@ -4509,20 +4601,15 @@ public struct LensWorkspaceView: View {
         ))
     }
 
-    private func filingSectionHeader(_ section: FilingSuggestionSection) -> some View {
-        // The 3-bar meter makes the header read as a scale, and the tier's gloss doubles as the
-        // once-per-screen legend for what raises confidence.
-        HStack(spacing: 8) {
-            ConfidenceMeter(tier: section.tier)
-            Text(section.tier.title)
+    private func filingSectionHeader(_ section: FilingCardSection) -> some View {
+        // The section's gloss doubles as the once-per-screen legend for what puts a card there.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(section.kind.title)
                 .scaledFont(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(section.suggestions.count.formatted())
-                .scaledFont(.system(size: 11, weight: .semibold))
+            Text(section.kind.gloss ?? section.shownCount.formatted())
+                .scaledFont(.system(size: 11.5))
                 .monospacedDigit()
-                .foregroundStyle(.tertiary)
-            Text("· \(section.tier.gloss)")
-                .scaledFont(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -4530,7 +4617,9 @@ public struct LensWorkspaceView: View {
         }
         .padding(.horizontal, 2).padding(.top, 4)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(section.tier.title), \(section.suggestions.count) file\(section.suggestions.count == 1 ? "" : "s"). \(section.tier.gloss)")
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("\(section.kind.title), \(section.shownCount) file\(section.shownCount == 1 ? "" : "s")"
+                            + (section.kind.gloss.map { ". " + $0 } ?? ""))
     }
 
     private func filingCard(_ suggestion: FilingSuggestion) -> some View {
@@ -4552,12 +4641,10 @@ public struct LensWorkspaceView: View {
                 }
             },
             onChooseFolder: { chooseFolder(for: suggestion) },
-            onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
             onNotHere: {
                 dismissedThisSession = true
                 syncManager.dismissFilingSuggestion(suggestion)
             },
-            onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
             tryAnotherNote: syncManager.filingTryAnotherNotes[suggestion.filePath],
             onAskClaudeWithPage: syncManager.filingTryAnotherNotes[suggestion.filePath]?.offersClaudeWithPage == true
@@ -4591,7 +4678,9 @@ public struct LensWorkspaceView: View {
                 let skip = Self.copiesSkipped(by: scope, copies: copies)
                 Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, exceptCopiesTo: skip) }
             },
-            copies: syncManager.copiesToMake(suggestion.best)
+            copies: syncManager.copiesToMake(suggestion.best),
+            scannedRoot: syncManager.filingScanFolder,
+            rowHooks: fileRowHooks([suggestion], inGroup: false)
         )
     }
 
@@ -4867,25 +4956,11 @@ public struct LensWorkspaceView: View {
                                   startingAt: folder.map { URL(fileURLWithPath: $0) }, canCreateDirectories: true)?.path
     }
 
-    /// Files `batch`, the exact array `fileAllButton` counted. Never re-derived from
-    /// `syncManager.filingSuggestions`: under a query that is a different, larger set, and the
-    /// confirmation names this one.
-    private func applyRecommendedFiling(_ batch: [FilingSuggestion]) {
-        guard !batch.isEmpty else { return }
-        let newFolders = batch.filter { $0.best?.isNew == true }.count
-        let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""
-        // `confirmChange`, not `confirmDestructive`: filing moves files and ⌘Z moves them back;
-        // nothing goes to the Trash. The destructive alert's caution icon and red default are
-        // reserved for a real Trash, as in the duplicate dialogs below. The confirm stays because
-        // this can create folders, which "Rename N files" and "Fix all N" never do.
-        let ok = NativeAlerts.confirmChange(
-            messageText: "File \(batch.count) file\(batch.count == 1 ? "" : "s") into their suggested homes?",
-            informativeText: "Moves each file into its suggested folder.\(folderNote) Unsure files stay put. Every move can be undone with ⌘Z.",
-            confirmTitle: "File"
-        )
-        guard ok else { return }
+    /// Files the cards the sheet left ticked, as one ⌘Z.
+    private func applyFilingBatch(_ items: [FilingCardItem]) {
+        guard !items.isEmpty else { return }
         filedThisSession = true
-        Task { await syncManager.applyRecommendedFiling(batch) }
+        Task { await syncManager.applyFilingBatch(items) }
     }
 
     // MARK: Actions

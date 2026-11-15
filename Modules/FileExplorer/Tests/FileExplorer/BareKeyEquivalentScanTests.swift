@@ -101,6 +101,8 @@ import Testing
         "EditorPDFCombineSplitSheet.swift":
             "modal sheet: Combine's and Split's Cancel/run pair (.cancelAction/.defaultAction)",
         // Apart from `EditorPDFFillPalette.swift`, which is mounted while the palette is up.
+        "FilingBatchSheet.swift":
+            "modal sheet: File All's Cancel/File N pair (.cancelAction/.defaultAction)",
         "EditorPDFSignatureSheet.swift":
             "modal sheet: Add Signature's Cancel/Add pair (.cancelAction/.defaultAction)",
     ]

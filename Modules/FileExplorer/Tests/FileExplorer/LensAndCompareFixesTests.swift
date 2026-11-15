@@ -165,16 +165,18 @@ import SwiftUI
 
     // MARK: LN20 — File N asks, but not as a Trash
 
+    /// File All N… asks through its sheet, which lists what will move (decision OQ), never the red
+    /// Trash-style alert: ⌘Z undoes a move.
     @Test func fileAllConfirmsWithoutTheDestructiveAlert() throws {
         let lens = try Self.code("LensWorkspaceView.swift")
-        let body = try #require(Self.after("private func applyRecommendedFiling(", in: lens, length: 900),
-                                "applyRecommendedFiling is gone")
-        #expect(body.contains("NativeAlerts.confirmChange("),
-                "File N no longer asks through the non-destructive confirm")
-        #expect(!body.contains("confirmDestructive"),
-                "File N asks with the red Trash-style alert for a move ⌘Z undoes")
-        #expect(body.contains("guard ok else { return }"),
-                "File N no longer waits for the answer — it creates folders, so it must ask")
+        let button = try #require(Self.after("private func fileAllButton(", in: lens, length: 700),
+                                  "fileAllButton is gone")
+        #expect(button.contains("openFilingBatch(filing)"), "File All N… no longer opens its sheet first")
+        #expect(!button.contains("applyFilingBatch"), "File All N… files without asking — it creates folders, so it must ask")
+        let apply = try #require(Self.after("private func applyFilingBatch(", in: lens, length: 400),
+                                 "applyFilingBatch is gone")
+        #expect(!apply.contains("confirmDestructive"),
+                "File All asks with the red Trash-style alert for a move ⌘Z undoes")
     }
 
     // MARK: LN22 — each page state has its own shape

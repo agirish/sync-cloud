@@ -463,7 +463,7 @@ import Sync
     @Test func everyApplyAllButtonGuardsAgainstAnEmptyList() throws {
         let view = try SourceText.fileExplorer("LensWorkspaceView.swift")
         let expected: [(decl: String, guardText: String)] = [
-            ("private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {", "if !batch.isEmpty {"),
+            ("private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {", "if n > 0 {"),
             ("private func applyAllButton(_ groups: [DuplicateGroup]) -> some View {", "if !batch.isEmpty {"),
             // Counts files, not plans: a plan whose steps are all applied is still a plan, so
             // `!plans.isEmpty` would leave the same zero-labelled button standing.

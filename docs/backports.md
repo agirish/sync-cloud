@@ -15598,3 +15598,22 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s subfolders=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No subfolder offer | CLOSED — checked, not owed (a feature) |
+
+## To File cards that say what moves where, and File All N… as a sheet — main only, checked, not owed
+
+2026-11-14, for v7.2. On `main`, every To File card writes out From and Moves to, shows each file
+as a row with its page 1, Quick Look and a menu of file actions, and sorts the cards into Matched,
+Check first and Needs your pick. "File All N…" opens a sheet listing every Matched card, account
+cards included (decision OQ), and files the ticked ones as one ⌘Z. It reworks the group cards of
+the statement-filing landings, which are `main`'s alone; every line keeps its own cards and its
+"File All N Confident", which still files only what it counts.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s groups=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingGroupCard.swift')"; done
+# measured 2026-11-14, against origin: groups=0 on every line (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The older cards and File All N Confident | CLOSED — checked, not owed (a feature) |

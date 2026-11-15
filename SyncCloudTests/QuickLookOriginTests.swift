@@ -33,11 +33,12 @@ import Foundation
     @Test func testTheScanFindsTheCallSites() throws {
         let sites = try Self.callSites()
         // Exact, not a floor: raising it means you decided what the new site does about
-        // `followsPane`. One of the six is the Edit rail's row menu, which isn't the pane's preview
-        // (see `testTheOtherSurfacesDoNotClaimThePaneSelection`).
-        #expect(sites.count == 6,
+        // `followsPane`. One of the seven is the Edit rail's row menu, which isn't the pane's
+        // preview (see `testTheOtherSurfacesDoNotClaimThePaneSelection`); another is a To File
+        // card's files, which hold their own selection and so don't follow the pane either.
+        #expect(sites.count == 7,
                 """
-                \(sites.count) Quick Look call sites, expected 6 — if you added one, decide whether \
+                \(sites.count) Quick Look call sites, expected 7 — if you added one, decide whether \
                 it owns the pane preview (`followsPane:`) and then update this count:
                 \(sites.joined(separator: "\n"))
                 """)

@@ -717,8 +717,8 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var filingRefineInFlight: UUID?
 
     /// True while a "File recommended" batch, a card's filing or a move out of an archive is
-    /// running: the latch behind ``applyRecommendedFiling(_:)``, `fileFilingGroup` and
-    /// `moveOutOfArchiveThenFile`, shaped like `isBulkSyncRunning` and `isApplyingRenames`.
+    /// running: the latch behind ``applyRecommendedFiling(_:)``, ``applyFilingBatch(_:)``,
+    /// `fileFilingGroup` and `moveOutOfArchiveThenFile`, shaped like `isBulkSyncRunning` and `isApplyingRenames`.
     ///
     /// Internal and not published: the button isn't disabled by it, so nothing observes it. It
     /// lets the re-entrancy test assert that its second call really overlapped the first;

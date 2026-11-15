@@ -19,49 +19,18 @@ enum FilingGlyph {
 
 // MARK: - Confidence grouping (G3)
 
-/// The confidence tier a Filing suggestion falls into, so the results list reads as "sure, maybe,
-/// needs you" rather than a wall of cards. Keyed on the best candidate, matching the card's chip.
+/// The confidence tier a Filing suggestion falls into, keyed on the best candidate as the card's
+/// pill is: what a search's `confidence:` chip matches.
 enum FilingConfidenceTier: String, CaseIterable, Identifiable {
     case high, medium, low
     var id: String { rawValue }
 
-    /// Section header title.
+    /// The search chip's words.
     var title: String {
         switch self {
         case .high:   return "High confidence"
         case .medium: return "Medium confidence"
         case .low:    return "Needs your pick"
-        }
-    }
-
-    /// The section marker's tint, matching the card's confidence chip.
-    var color: Color {
-        switch self {
-        case .high:   return SemanticColor.success
-        case .medium: return SemanticColor.warning
-        case .low:    return .secondary
-        }
-    }
-
-    /// How many of the meter's 3 bars this tier fills, so confidence reads as a quantity rather
-    /// than a color-word. Never 0: the weakest tier still lights one bar.
-    var filledBars: Int {
-        switch self {
-        case .high:   return 3
-        case .medium: return 2
-        case .low:    return 1
-        }
-    }
-
-    /// What raises a suggestion into this tier, so the tiers read as a scale ("what makes this
-    /// High?") rather than three arbitrary words.
-    var gloss: String {
-        switch self {
-        case .high:   return "filename match or a rule you taught"
-        // Medium mixes softer name/metadata matches with content reads (capped at medium), so
-        // the gloss can't claim one source.
-        case .medium: return "a likely match by name or contents"
-        case .low:    return "weak signal — pick a home"
         }
     }
 
@@ -76,32 +45,9 @@ enum FilingConfidenceTier: String, CaseIterable, Identifiable {
     }
 
     /// The tier a suggestion belongs to, by its best candidate's confidence (none is `.low`).
-    /// Mirrors `FilingSuggestionCard`'s chip.
+    /// Mirrors the card's pill.
     static func of(_ suggestion: FilingSuggestion) -> FilingConfidenceTier {
         of(suggestion.best?.confidence)
-    }
-}
-
-// MARK: - Confidence meter (G5)
-
-/// A compact 3-bar meter that reads confidence as a quantity (more bars, surer), tinted like the
-/// tier's chip. Shared by the card's confidence cluster and the section header.
-struct ConfidenceMeter: View {
-    let tier: FilingConfidenceTier
-    var barWidth: CGFloat = 3
-    var barHeight: CGFloat = 11
-    var spacing: CGFloat = 2
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: spacing) {
-            ForEach(0..<3, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(i < tier.filledBars ? tier.color : tier.color.opacity(0.18))
-                    .frame(width: barWidth, height: barHeight)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Confidence \(tier.filledBars) of 3")
     }
 }
 
@@ -123,20 +69,76 @@ enum FilingOverride {
     }
 }
 
-/// One confidence-grouped section of Filing suggestions.
-struct FilingSuggestionSection: Identifiable {
-    let tier: FilingConfidenceTier
-    let suggestions: [FilingSuggestion]
-    var id: String { tier.rawValue }
+// MARK: - Sections by what you have to do (cards mockup v6)
+
+/// To File's three sections, by what the card asks of you rather than by a raw confidence: file it
+/// (Matched, the File All sheet's cards), look first (Check first), or choose (Needs your pick).
+enum FilingSectionKind: String, CaseIterable, Identifiable {
+    case matched, checkFirst, needsPick
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .matched: return "Matched"
+        case .checkFirst: return "Check first"
+        case .needsPick: return "Needs your pick"
+        }
+    }
+
+    /// What puts a card here, once per screen. Needs your pick says only its count.
+    var gloss: String? {
+        switch self {
+        case .matched: return "High: the account number on page 1, or the file’s name"
+        case .checkFirst: return "a new account, or a likely match to look over"
+        case .needsPick: return nil
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .matched: return SemanticColor.success
+        case .checkFirst: return SemanticColor.warning
+        case .needsPick: return .secondary
+        }
+    }
+
+    /// The section a file's card sits in: Matched for what File All may file
+    /// (``FilingSuggestion/isMatched``), Check first for any other confident home, else Needs your
+    /// pick.
+    static func of(_ s: FilingSuggestion) -> FilingSectionKind {
+        s.isMatched ? .matched : s.hasConfidentHome ? .checkFirst : .needsPick
+    }
 }
 
-enum FilingSuggestionGrouping {
-    /// Splits suggestions into High, Medium and Low sections, dropping empty tiers and keeping the
-    /// engine's order within each. Pure, for tests.
-    static func sections(_ suggestions: [FilingSuggestion]) -> [FilingSuggestionSection] {
-        FilingConfidenceTier.allCases.compactMap { tier in
-            let matching = suggestions.filter { FilingConfidenceTier.of($0) == tier }
-            return matching.isEmpty ? nil : FilingSuggestionSection(tier: tier, suggestions: matching)
+/// One section of To File's cards.
+struct FilingCardSection: Identifiable {
+    let kind: FilingSectionKind
+    let items: [FilingCardItem]
+    var id: String { kind.rawValue }
+    /// How many files its cards would move.
+    var fileCount: Int { items.reduce(0) { $0 + $1.toFile.count } }
+    /// How many files its cards show.
+    var shownCount: Int { items.reduce(0) { $0 + $1.suggestions.count } }
+}
+
+enum FilingCardSections {
+    /// Splits suggestions into Matched, Check first and Needs your pick, dropping empty ones, and
+    /// groups each section's statements by account folder, keeping the engine's order. Pure, for
+    /// tests.
+    static func sections(_ suggestions: [FilingSuggestion], pulledOut: Set<String> = []) -> [FilingCardSection] {
+        FilingSectionKind.allCases.compactMap { kind in
+            let matching = suggestions.filter { FilingSectionKind.of($0) == kind }
+            return matching.isEmpty ? nil
+                : FilingCardSection(kind: kind, items: FilingCardGrouping.items(matching, pulledOut: pulledOut))
         }
+    }
+
+    /// "210 matched, in 21 accounts": the readout's first run, over the Matched files that move.
+    /// Accounts when every one has an account; folders otherwise.
+    static func matchedPlaces(_ suggestions: [FilingSuggestion]) -> (files: Int, places: Int, accounts: Bool) {
+        let matched = suggestions.filter { $0.isMatched && !$0.isAlreadyFiled && $0.duplicateOf == nil }
+        let accounts = matched.allSatisfy { $0.best?.account != nil }
+        let places = Set(matched.compactMap { $0.best?.account?.root ?? $0.best?.path }).count
+        return (matched.count, places, accounts)
     }
 }

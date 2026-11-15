@@ -49,8 +49,6 @@ extension FileSyncManager {
 
         // Page facts as they are now: a scan finishing while this runs replaces the manager's.
         let factsAtStart = filingDocumentFacts
-        var moves: [MoveItemState] = []
-        var copied: [CopyItemState] = []
         // Each member's home: the typed or chosen folder, else its own. The copies into the other
         // accounts it names stay with a chosen or typed home too, except one into where it now goes.
         let homes: [(FilingSuggestion, FilingDestination)] = group.toFile.compactMap { s in
@@ -63,32 +61,8 @@ extension FileSyncManager {
             }
             return (s, dest)
         }
-        // The folders filing these makes, the copies' included: ⌘Z removes them again.
-        let wouldCreate = missingFolders(for: homes.map(\.1.path) + (fileOnce ? [] : homes.flatMap { copiesToMake($0.1).map(\.path) }))
-        var filed: [FilingBatchLog.Filed] = []
-        var scored: [FilingScorecard.Record] = []
-        var failures = 0, alreadyHome = 0
-        for (s, dest) in homes {
-            switch await performFiling(s, to: dest) {
-            case .moved(let move):
-                moves.append(move)
-                if !fileOnce {
-                    copied += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) })
-                }
-                if let offer = s.firstOffer {
-                    scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
-                                                         renamedOffer: Self.isRenamedOffer(dest, of: s)))
-                }
-                filingScorecard.settle([s.filePath])
-                filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
-                                                  folder: move.to.deletingLastPathComponent().path,
-                                                  source: FilingBatchLog.source(of: dest)))
-            case .noMoveNeeded: alreadyHome += 1
-            case .failed:
-                failures += 1
-                filingGroupFailures.insert(s.id)
-            }
-        }
+        let run = await fileHomes(homes, fileOnce: fileOnce, exceptCopiesTo: exceptCopiesTo)
+        let (moves, copied, filed, failures, alreadyHome) = (run.moves, run.copied, run.filed, run.failures, run.alreadyHome)
         let folderName = ((typed?.path ?? folder ?? group.destination.path) as NSString).lastPathComponent
         guard !moves.isEmpty else {
             if failures > 0 {
@@ -98,7 +72,7 @@ extension FileSyncManager {
             }
             return 0
         }
-        filingScorecard.append(scored)
+        filingScorecard.append(run.scored)
         // What it teaches (decision 8): a group sent somewhere he chose, or a new account made.
         let chosen = typed?.path ?? folder
         // Filed into the new account it proposed (not a folder he chose instead).
@@ -116,7 +90,7 @@ extension FileSyncManager {
         // Counted after the lesson is taught, so ⌘Z's "as it was" is before this filing.
         noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
         registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
-                           createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
+                           createdFolders: run.createdFolders,
                            priorFolderMove: priorFolderMove, lesson: lesson)
         for line in FilingBatchLog.lines(operation: "Filing group", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
@@ -130,6 +104,52 @@ extension FileSyncManager {
             ? .warning("\(text); \(failures) couldn’t be filed and stay listed", undoable: true, log: .warn)
             : .success(text, undoable: true)
         return n
+    }
+
+    /// What ``fileHomes(_:fileOnce:exceptCopiesTo:)`` did: the moves and copies to register as one
+    /// ⌘Z, the folders it made, and what the log and scorecard record.
+    struct FilingHomesRun {
+        var moves: [MoveItemState] = []
+        var copied: [CopyItemState] = []
+        /// The folders the moves and copies made, deepest first: ⌘Z removes them again.
+        var createdFolders: [String] = []
+        var filed: [FilingBatchLog.Filed] = []
+        var scored: [FilingScorecard.Record] = []
+        var failures = 0
+        var alreadyHome = 0
+    }
+
+    /// Moves each file to its home and makes its copies, registering nothing: the caller registers
+    /// one ⌘Z for all of it. A file that fails stays listed as a card of its own
+    /// (``filingGroupFailures``).
+    func fileHomes(_ homes: [(FilingSuggestion, FilingDestination)], fileOnce: Bool = false,
+                   exceptCopiesTo: Set<String> = []) async -> FilingHomesRun {
+        // The folders filing these makes, the copies' included.
+        let wouldCreate = missingFolders(for: homes.map(\.1.path) + (fileOnce ? [] : homes.flatMap { copiesToMake($0.1).map(\.path) }))
+        var run = FilingHomesRun()
+        for (s, dest) in homes {
+            switch await performFiling(s, to: dest) {
+            case .moved(let move):
+                run.moves.append(move)
+                if !fileOnce {
+                    run.copied += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) })
+                }
+                if let offer = s.firstOffer {
+                    run.scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
+                                                             renamedOffer: Self.isRenamedOffer(dest, of: s)))
+                }
+                filingScorecard.settle([s.filePath])
+                run.filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
+                                                      folder: move.to.deletingLastPathComponent().path,
+                                                      source: FilingBatchLog.source(of: dest)))
+            case .noMoveNeeded: run.alreadyHome += 1
+            case .failed:
+                run.failures += 1
+                filingGroupFailures.insert(s.id)
+            }
+        }
+        run.createdFolders = wouldCreate.filter { fileManager.fileExists(atPath: $0) }
+        return run
     }
 
     /// Marks, among cards matched to an account, the ones whose document the account already holds

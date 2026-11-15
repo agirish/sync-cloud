@@ -20,8 +20,8 @@ import Sync
             providerRoot: "/root")
         return FilingSuggestionCard(
             suggestion: suggestion, densityMetrics: ListDensity.comfortable.metrics,
-            onFileHere: { _ in }, onChooseFolder: {}, onReveal: {}, onNotHere: {},
-            onPreview: {}, onTryAnother: {}, onReadScan: {})
+            onFileHere: { _ in }, onChooseFolder: {}, onNotHere: {},
+            onTryAnother: {}, onReadScan: {})
     }
 
     /// The width a row takes unconstrained.

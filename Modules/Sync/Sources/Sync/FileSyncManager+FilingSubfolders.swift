@@ -99,6 +99,13 @@ extension FileSyncManager {
         filingChosenSubfolderScopes[folder] = on
     }
 
+    /// Rescan ▾'s scope: the scanned folder's subfolders too, or its own files only, for this
+    /// session, so the rescan that follows doesn't ask.
+    public func chooseFilingSubfolderScope(readsSubfolders: Bool) {
+        guard let folder = filingScanFolder else { return }
+        setFilingScansSubfolders(readsSubfolders, for: folder)
+    }
+
     /// Scan All: reads the subfolders, and with `always` stops asking from now on.
     public func scanAllForFilingSubfolderQuestion(always: Bool) {
         guard let question = filingSubfolderQuestion else { return }
