@@ -172,3 +172,23 @@ import Foundation
         #expect(DocumentFacts(page: "123 456\n").firstLine == nil)
     }
 }
+
+/// "Try Another Folder" changes the card it was clicked on and no other (reported 2026-11-15, not
+/// reproduced on the fixture: pinned so it can't start).
+@MainActor
+@Suite struct FilingTryAnotherScopeTests {
+    @Test func tryAnotherChangesOnlyItsOwnCard() async {
+        func card(_ name: String) -> FilingSuggestion {
+            FilingSuggestion(filePath: "/In/" + name, fileName: name, size: 1, modificationDate: nil, candidates: [
+                FilingDestination(path: "/D/Social Security/2026", confidence: .low, reasons: ["r"], newSegments: [], nameOrigin: .template),
+                FilingDestination(path: "/D/Health/Immunizations", confidence: .low, reasons: ["r"], newSegments: [], nameOrigin: .template)])
+        }
+        let cards = [card("a.pdf"), card("b.pdf"), card("c.pdf")]
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingTryAnotherScopeTests"))
+        m.filingSuggestions = cards
+        await m.tryAnotherFolder(for: cards[1])
+        #expect(m.filingSuggestions.map { $0.best?.path } ==
+                ["/D/Social Security/2026", "/D/Health/Immunizations", "/D/Social Security/2026"],
+                "only b moved on to its next folder")
+    }
+}
