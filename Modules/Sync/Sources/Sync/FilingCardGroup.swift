@@ -1,16 +1,28 @@
 import Foundation
 
 /// One card for every statement going to the same account folder: "10 Schwab statements →
-/// Traditional IRA 7863", filed with one click and undone with one ⌘Z (design §5.1). Only files
-/// matched to an account by the number their page prints group; everything else stays a card of
-/// its own, and so does a file that is the only one for its folder.
+/// Traditional IRA 7863", filed with one click and undone with one ⌘Z (design §5.1). Files matched
+/// to an account by the number their page prints group; so, as a second pass, do Claude's
+/// suggestions sending files to the same folder for the same reason ("Fidelity statement · 6
+/// files"), which carry no account. Everything else stays a card of its own, and so does a file
+/// that is the only one for its folder.
 public struct FilingCardGroup: Identifiable, Sendable, Equatable {
-    /// The account root and the folder the members go to.
+    /// The account root and the folder the members go to; for Claude's suggestions, the folder and
+    /// the reason.
     public var id: String {
-        account.root + "\u{0}" + destination.path + "\u{0}" + destination.confidence.rawValue + "\u{0}" + account.ending
+        guard let account else {
+            return "ai\u{0}" + destination.path + "\u{0}" + destination.confidence.rawValue + "\u{0}"
+                + FilingCardGrouping.reasonKey(destination)
+        }
+        return account.root + "\u{0}" + destination.path + "\u{0}" + destination.confidence.rawValue + "\u{0}" + account.ending
             + "\u{0}" + account.kind.rawValue
     }
-    public let account: FilingAccount
+    /// nil for a group of Claude's suggestions: what they share is the folder and the reason.
+    public let account: FilingAccount?
+    /// Claude's reason the members share ("Fidelity statement"), for a group without an account.
+    public var reason: String? {
+        account == nil ? destination.reasons.first?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    }
     /// The shared home: the first member's best, which every member's best equals.
     public let destination: FilingDestination
     /// The files to move, in name order.
@@ -61,11 +73,20 @@ public enum FilingCardItem: Identifiable, Sendable, Equatable {
 public enum FilingCardGrouping {
     /// `suggestions` as cards, keeping their order: files matched to the same account and going to
     /// the same folder at the same confidence become one group card where the first of them stood.
-    /// `pulledOut` are files the user took out of a group; they stay cards of their own.
+    /// A second pass groups Claude's suggestions, which carry no account, by folder, confidence and
+    /// reason: "AT&T bill" six times into one folder is one decision, not six. `pulledOut` are files
+    /// the user took out of a group; they stay cards of their own.
     public static func items(_ suggestions: [FilingSuggestion], pulledOut: Set<String> = []) -> [FilingCardItem] {
         func key(_ s: FilingSuggestion) -> String? {
-            guard !pulledOut.contains(s.id), let best = s.best, let account = best.account,
-                  best.confidence >= .medium else { return nil }
+            guard !pulledOut.contains(s.id), let best = s.best, best.confidence >= .medium else { return nil }
+            guard let account = best.account else {
+                // Claude's only: the engine's own unmatched homes give reasons too general to title
+                // a card ("Similar files are here"). The same reason, so a 1099 and a statement
+                // Claude sent to one folder stay apart.
+                let reason = reasonKey(best)
+                guard best.fromAI, !reason.isEmpty else { return nil }
+                return "ai\u{0}" + best.path + "\u{0}" + best.confidence.rawValue + "\u{0}" + reason
+            }
             // The same own number too: a card says "account ••X on page 1 of all N".
             // And the same kind: a 1099 doesn't join "3 Schwab statements".
             return account.root + "\u{0}" + best.path + "\u{0}" + best.confidence.rawValue + "\u{0}" + account.ending
@@ -77,10 +98,16 @@ public enum FilingCardGrouping {
         var out: [FilingCardItem] = []
         for s in suggestions {
             guard let k = key(s), let group = members[k], group.count >= 2 else { out.append(.single(s)); continue }
-            guard emitted.insert(k).inserted, let best = group[0].best, let account = best.account else { continue }
-            out.append(.group(FilingCardGroup(account: account, destination: best,
+            guard emitted.insert(k).inserted, let best = group[0].best else { continue }
+            out.append(.group(FilingCardGroup(account: best.account, destination: best,
                                               members: group.sorted { $0.fileName < $1.fileName })))
         }
         return out
+    }
+
+    /// A Claude home's first reason, as grouping compares it: trimmed, case and width folded.
+    static func reasonKey(_ destination: FilingDestination) -> String {
+        (destination.reasons.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .widthInsensitive], locale: nil)
     }
 }

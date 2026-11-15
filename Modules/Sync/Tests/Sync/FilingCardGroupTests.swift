@@ -45,6 +45,47 @@ import CoreText
         #expect(FilingCardGrouping.items(mixed).count == 2, "a sure card and a check-me card aren't one click")
     }
 
+    private func claude(_ name: String, to folder: String, reason: String = "Fidelity statement",
+                        confidence: FilingConfidence = .medium, fromAI: Bool = true) -> FilingSuggestion {
+        let dest = FilingDestination(path: folder, confidence: confidence, reasons: [reason], newSegments: [], fromAI: fromAI)
+        return FilingSuggestion(filePath: "/In/" + name, fileName: name, size: 10, modificationDate: nil, candidates: [dest])
+    }
+
+    /// Refining with Claude drops the account, and the files it sends to one folder for one reason
+    /// are one decision: a second pass groups them where the first of them stood.
+    @Test func claudesSuggestionsForOneFolderAndReasonShareACard() {
+        let f = "/D/Fidelity/Statements/2026"
+        let s = [claude("02. Feb 2026.pdf", to: f), card("receipt.pdf", to: "/D/Receipts", account: nil),
+                 claude("07. Jul 2026.pdf", to: f), claude("08. Aug 2026.pdf", to: f, reason: "  fidelity STATEMENT ")]
+        let items = FilingCardGrouping.items(s)
+        #expect(items.count == 2, "one group and the receipt: \(items.map(\.id))")
+        guard case .group(let g) = items[0] else { Issue.record("the group stands where its first member was"); return }
+        #expect(g.account == nil && g.reason == "Fidelity statement")
+        #expect(g.members.map(\.fileName) == ["02. Feb 2026.pdf", "07. Jul 2026.pdf", "08. Aug 2026.pdf"])
+        #expect(g.id.hasPrefix("ai\u{0}"), "never the id of an account group")
+    }
+
+    @Test func claudesSuggestionsStayApartWhenAnythingDiffers() {
+        let f = "/D/Taxes/2025"
+        let reasons = [claude("a.pdf", to: f, reason: "1099-DIV"), claude("b.pdf", to: f, reason: "W-2")]
+        #expect(FilingCardGrouping.items(reasons).count == 2, "a 1099 and a W-2 Claude sent to one folder are two cards")
+        let folders = [claude("a.pdf", to: f), claude("b.pdf", to: "/D/Taxes/2026")]
+        #expect(FilingCardGrouping.items(folders).count == 2)
+        let mixed = [claude("a.pdf", to: f, confidence: .high), claude("b.pdf", to: f, confidence: .medium)]
+        #expect(FilingCardGrouping.items(mixed).count == 2, "a sure card and a check-me card aren't one click")
+        let low = [claude("a.pdf", to: f, confidence: .low), claude("b.pdf", to: f, confidence: .low)]
+        #expect(FilingCardGrouping.items(low).count == 2)
+        let engine = [claude("a.pdf", to: f, fromAI: false), claude("b.pdf", to: f, fromAI: false)]
+        #expect(FilingCardGrouping.items(engine).count == 2, "only Claude's homes: the engine's reasons are too general to title a card")
+        let blank = [claude("a.pdf", to: f, reason: " "), claude("b.pdf", to: f, reason: "")]
+        #expect(FilingCardGrouping.items(blank).count == 2, "no reason, nothing to say they share")
+        let pulled = [claude("a.pdf", to: f), claude("b.pdf", to: f)]
+        #expect(FilingCardGrouping.items(pulled, pulledOut: ["/In/b.pdf"]).count == 2)
+        // An account-matched file and Claude's going to the same folder: different evidence, two cards.
+        let acct = [card("a.pdf", to: f, account: f, confidence: .medium), claude("b.pdf", to: f)]
+        #expect(FilingCardGrouping.items(acct).count == 2)
+    }
+
     @Test func alreadyFiledAndCopiesAreLeftBehind() {
         let a = "/D/IRA 7863"
         var dup = card("01 copy.pdf", to: a, account: a)

@@ -15686,3 +15686,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s accounts=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## Claude's suggestions for one folder and reason share a card — main only, checked, not owed
+
+2026-11-15, for v7.2. On `main`, To File groups the homes Refine with Claude gives (which carry no
+account) into one card when they share the folder, the confidence and the reason, titled by the
+reason ("AT&T bill · 3 files"). It extends the account group cards, which are `main`'s alone.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s groups=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FilingCardGroup.swift')"; done
+# measured 2026-11-15, against origin: groups=0 on every line (main: 1)
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No group cards; one card per file | CLOSED — checked, not owed (a feature) |

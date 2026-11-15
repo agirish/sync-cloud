@@ -66,6 +66,10 @@ struct FilingGroupCard: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // Claude's group: the same pill its files had as cards of their own.
+                    if group.account == nil {
+                        Pill(.mini, tint: hueAccent, systemImage: "sparkles", text: "AI suggestion")
+                    }
                     // With the rows folded away, the names File N gives still show, at every density.
                     if !isExpanded, let renaming = FilingGroupText.renaming(group) {
                         Text(renaming)
@@ -231,8 +235,10 @@ struct FilingGroupCard: View {
 
 /// The group card's words, apart so they can be tested.
 enum FilingGroupText {
+    /// The bank's name; for Claude's group, the reason its members share ("Fidelity statement").
     static func bank(_ g: FilingCardGroup) -> String {
-        g.account.institutionName.isEmpty ? titleCased(g.account.institution) : g.account.institutionName
+        guard let account = g.account else { return g.reason ?? "Suggested by Claude" }
+        return account.institutionName.isEmpty ? titleCased(account.institution) : account.institutionName
     }
 
     /// `charles schwab` as `Charles Schwab`.
@@ -241,28 +247,40 @@ enum FilingGroupText {
     }
 
     static func noun(_ g: FilingCardGroup) -> String {
-        switch g.account.kind {
+        // Claude's group: its reason already says what they are ("AT&T bill · 4 files").
+        guard let account = g.account else { return "file" }
+        switch account.kind {
         case .statement: return "statement"
         case .taxForm: return "tax form"
         case .other: return "document"
         }
     }
 
-    /// "American Express ••2002 · 2 statements".
+    /// "American Express ••2002 · 2 statements"; for Claude's group, "Fidelity statement · 6 files".
     static func title(_ g: FilingCardGroup) -> String {
         let n = g.members.count
-        return "\(bank(g)) ••\(g.account.ending) · \(n) \(noun(g))\(n == 1 ? "" : "s")"
+        let ending = g.account.map { " ••" + $0.ending } ?? ""
+        return "\(bank(g))\(ending) · \(n) \(noun(g))\(n == 1 ? "" : "s")"
     }
 
     /// ``title(_:)`` with the ending set in the muted monospaced face.
     static func titleText(_ g: FilingCardGroup) -> Text {
         let n = g.members.count
+        guard let account = g.account else { return Text(title(g)) }
         return Text(bank(g) + " ")
-            + Text("••" + g.account.ending).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
+            + Text("••" + account.ending).font(.system(size: 12.5, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
             + Text(" · \(n) \(noun(g))\(n == 1 ? "" : "s")")
     }
 
     static func why(_ g: FilingCardGroup) -> String {
+        let n = g.members.count
+        // Claude's group: no number on the page backs it, so it says whose suggestion it is.
+        if g.account == nil {
+            let evidence = "Claude suggested this folder for " + (n == 2 ? "both" : "all \(n)")
+            var s = g.dateRange.map { dates($0.first, $0.last, count: n) + " · " + evidence } ?? evidence
+            if g.destination.confidence != .high { s += " · check before filing" }
+            return s
+        }
         // A new account: say so, and where its name came from.
         if g.destination.createsAccountFolder, let reason = g.destination.reasons.first {
             var s = reason
@@ -270,7 +288,6 @@ enum FilingGroupText {
             return s + " · check before filing"
         }
         // The dates covered, then the evidence: "Jan and Oct 2026 · account number on page 1 of both".
-        let n = g.members.count
         let evidence = "account number on page 1 of " + (n == 2 ? "both" : "all \(n)")
         var s = g.dateRange.map { dates($0.first, $0.last, count: n) + " · " + evidence } ?? evidence.prefix(1).uppercased() + evidence.dropFirst()
         if g.destination.confidence != .high { s += " · check before filing" }

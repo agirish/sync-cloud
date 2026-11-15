@@ -46,7 +46,7 @@ extension FileSyncManager {
     /// files are filed into the archive with no offer.
     public func archiveOffer(for group: FilingCardGroup) -> FilingArchiveOffer? {
         // Asked per render of the card: answered once per set of cards.
-        guard group.account.archived else { return nil }
+        guard group.account?.archived == true else { return nil }
         let key = group.id + "\u{0}" + group.toFile.map(\.filePath).joined(separator: "\u{0}")
         if filingArchiveOfferCache.generation != filingSuggestionsGeneration {
             filingArchiveOfferCache = (filingSuggestionsGeneration, [:])
@@ -58,8 +58,7 @@ extension FileSyncManager {
     }
 
     private func computeArchiveOffer(for group: FilingCardGroup) -> FilingArchiveOffer? {
-        let account = group.account
-        guard account.archived, group.toFile.count >= 2,
+        guard let account = group.account, account.archived, group.toFile.count >= 2,
               group.toFile.allSatisfy({ filingDocumentFacts[$0.filePath]?.kind == .statement }),
               let root = filingLastProviderRoot ?? group.members.first?.providerRoot,
               let relative = Self.relativePath(account.root, under: root) else { return nil }

@@ -134,7 +134,7 @@ import Foundation
                                                   filedCount: 1, teaching: [])]
         guard case .group(let group) = try #require(FilingCardGrouping.items(m.filingSuggestions).first { 
             if case .group = $0 { return true } else { return false } }) else { Issue.record("no group"); return }
-        #expect(group.account.archived)
+        #expect(group.account?.archived == true)
         let offer = try #require(m.archiveOffer(for: group))
         let live = docs.path + "/Investments/Charles Schwab/Roth IRA 2336"
         #expect(offer.target == live && offer.archiveName == "Archive")

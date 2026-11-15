@@ -87,6 +87,24 @@ import SwiftUI
         #expect(FilingGroupText.why(g) == "Jan and Oct 2026 · account number on page 1 of both")
     }
 
+    /// Claude's group has no account to name, so its reason titles it and the "why" says whose
+    /// suggestion it is, not that a page number backs it.
+    @Test func claudesGroupIsTitledByItsReason() {
+        let home = Self.docs + "/Home/Utilities/AT&T/2026"
+        func bill(_ name: String) -> FilingSuggestion {
+            FilingSuggestion(filePath: Self.todo + "/AT&T/" + name, fileName: name, size: 1, modificationDate: nil,
+                             candidates: [FilingDestination(path: home, confidence: .medium, reasons: ["AT&T bill"],
+                                                            newSegments: ["2026"], fromAI: true)],
+                             providerRoot: Self.docs)
+        }
+        let items = FilingCardGrouping.items([bill("04. Apr 2026.pdf"), bill("05. May 2026.pdf"), bill("06. Jun 2026.pdf")])
+        guard items.count == 1, case .group(let g) = items[0] else { Issue.record("expected one group: \(items.map(\.id))"); return }
+        #expect(g.account == nil)
+        #expect(FilingGroupText.title(g) == "AT&T bill · 3 files")
+        #expect(FilingGroupText.bank(g) == "AT&T bill")
+        #expect(FilingGroupText.why(g) == "Apr–Jun 2026 · Claude suggested this folder for all 3 · check before filing")
+    }
+
     /// Each row says what page 1 is and the name it takes, and only what To File read.
     @Test func aRowSaysWhatPageOneIsAndTheNameItTakes() {
         #expect(FilingFileText.pageLine(DocumentFacts(page: "Statement Period\nClosing Date 01/29/2026\nAccount Ending 6-22002"))

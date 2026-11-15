@@ -4731,10 +4731,16 @@ public struct LensWorkspaceView: View {
 
     /// Whether a group card offers "Remember ••NNNN where I choose": statements, and not where the
     /// account's folder name carries the number (that outranks any lesson), unless that folder is
-    /// the new one it proposes.
+    /// the new one it proposes. Claude's group has no account folder, so its page numbers decide.
     private func offersRemember(_ group: FilingCardGroup) -> Bool {
-        (!group.account.isNamedByFolder || group.destination.createsAccountFolder)
+        (group.account?.isNamedByFolder != true || group.destination.createsAccountFolder)
             && group.toFile.contains { syncManager.filingDocumentFacts[$0.filePath]?.kind == .statement }
+    }
+
+    /// Where Choose a Folder… opens for a group: its account folder, or for Claude's group the
+    /// nearest folder of its home that is there now.
+    private func groupFolder(_ group: FilingCardGroup) -> String {
+        group.account?.root ?? FilingRouteText.deepestExisting(group.destination.path) ?? group.destination.path
     }
 
     /// Asks where a whole group goes, then files every member there under its own name.
@@ -4750,14 +4756,14 @@ public struct LensWorkspaceView: View {
                 providerRoot: root,
                 providerName: fileInto.flatMap { $0.path == root ? $0.label : nil }
                     ?? ((providerName?.isEmpty == false) ? providerName! : "this provider"),
-                openAt: group.account.root
+                openAt: groupFolder(group)
             ),
             onCommit: { destination in
                 filedThisSession = true
                 let teach = offersRemember(group) && (rememberAccountChoice[group.id] ?? true)
                 Task { await syncManager.applyFilingGroup(group, into: destination, teach: teach) }
             },
-            onOther: { Self.runSystemFolderPanel(for: first.fileName, startingAt: group.account.root) }
+            onOther: { Self.runSystemFolderPanel(for: first.fileName, startingAt: groupFolder(group)) }
         ))
     }
 
