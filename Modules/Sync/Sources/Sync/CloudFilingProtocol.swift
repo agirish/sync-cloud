@@ -9,17 +9,6 @@ public enum CloudFilingProtocol {
     /// to Sonnet/Opus in Settings for harder cases.
     public static let defaultModel = "claude-haiku-4-5"
 
-    /// The models Settings offers, cheapest first: id and the label the picker shows, in one list so
-    /// the two can't drift apart and leave the picker blank. Labels name the generation, not just
-    /// the family: this is the only place the app says which Claude a scan will run on.
-    public static let selectableModelOptions: [(id: String, label: String)] = [
-        ("claude-haiku-4-5", "Haiku 4.5 — cheapest (default)"),
-        ("claude-sonnet-5", "Sonnet 5 — balanced"),
-        ("claude-opus-5", "Opus 5 — best quality"),
-    ]
-
-    /// Just the ids, in the same order, for the family-resolution and validation paths.
-    public static let selectableModels = selectableModelOptions.map(\.id)
     /// The version of the question asked about a file, not just of the words in this file.
     ///
     /// It is part of ``FilingVerdictKey``, so bumping it invalidates every cached verdict and the
@@ -151,22 +140,6 @@ public enum CloudFilingProtocol {
         case let s as String: return ["true": true, "false": false][s.lowercased().trimmingCharacters(in: .whitespaces)]
         default: return nil
         }
-    }
-
-    /// Maps a stored model ID onto the currently offered model of the same family. An older id (say
-    /// `claude-opus-4-8`) would leave the Settings picker with no selection and pin every scan to a
-    /// superseded model; resolved here, "the user picked Opus" keeps meaning today's Opus.
-    ///
-    /// A model outside the three families is left alone, as a deliberate hand-set choice. A dated
-    /// snapshot within a family (`claude-haiku-4-5-20251001`) is still rewritten to the family's
-    /// current alias, as `CloudFilingProtocolTests` pins.
-    public static func currentModel(for stored: String) -> String {
-        if selectableModels.contains(stored) { return stored }
-        return selectableModels.first { current in
-            // "claude-opus-4-8" and "claude-opus-5" share the "claude-opus" family prefix.
-            let family = current.split(separator: "-").prefix(2).joined(separator: "-")
-            return stored.hasPrefix(family + "-")
-        } ?? stored
     }
 
     /// The JSON request body, a plain dictionary for `JSONSerialization`. In the default ``RequestShape/legacy``
@@ -361,8 +334,7 @@ public enum CloudFilingProtocol {
     /// Approximate list price ($/million tokens) for a rough cost estimate; the Anthropic Console is
     /// the source of truth. nil for a model we have no rate for.
     ///
-    /// Sonnet is priced by generation: Sonnet 5 is $2/$10, an older Sonnet id $3/$15 (only reached
-    /// for such an id passed in directly; ``currentModel(for:)`` moves stored ones to Sonnet 5).
+    /// Sonnet is priced by generation: Sonnet 5 is $2/$10, an older Sonnet id $3/$15.
     /// These rates feed the spend caps as well as the log, so a family-wide rate would overcharge.
     public static func pricing(for model: String) -> (input: Double, output: Double)? {
         // The models Ask Claude offers are priced from its own table, which is the one the limit and

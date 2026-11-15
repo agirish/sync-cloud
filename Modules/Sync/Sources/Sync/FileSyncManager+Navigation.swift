@@ -76,19 +76,10 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
-    /// Sets the focused subfolder for both panes at once (⌥-click on a pane breadcrumb).
-    /// Panes already focused on `relativePath` keep their history untouched, so Back in each
-    /// pane still undoes exactly that pane's last move. No-op when both panes are already there.
-    ///
-    /// Both panes to the same root-relative path, which is right only while the two sources land in
-    /// the same place. `focusBoth(left:right:)` is the general form.
-    public func focusBoth(relativePath: String) {
-        focusBoth(left: relativePath, right: relativePath)
-    }
-
     /// Each pane to its own root-relative path, since a linked move must be translated across
     /// sources that may open at different depths. The caller translates (`PathBoundary.reanchor`):
-    /// it knows both landing folders.
+    /// it knows both landing folders. A pane already there keeps its history untouched, so Back
+    /// in each pane still undoes exactly that pane's last move. No-op when both are already there.
     public func focusBoth(left: String, right: String) {
         guard leftRelativePath != left || rightRelativePath != right else { return }
         clearSessionIgnoredPaths()

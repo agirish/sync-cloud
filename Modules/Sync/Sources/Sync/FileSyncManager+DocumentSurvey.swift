@@ -269,23 +269,17 @@ extension FileSyncManager {
         }
 
         // The ask-first every whole-tree pass makes: `~` or a whole volume can be a source.
-        let probe = NodeBudget(wholeTreeProbeBudget)
-        var walked = await Self.buildTree(url: root, sortOption: .name,
-                                          fileManager: fileManager, maxDepth: nil, budget: probe)
-        if Task.isCancelled { return .failure(.cancelled) }
-        if probe.didStopADescent {
-            let preflight = LargeWalkPreflight(pass: .filing, rootPath: root.path,
-                                               probeLimit: probe.limit)
-            guard largeWalkConfirmer(preflight) else { return .failure(.treeTooLargeAndDeclined) }
-            walked = await Self.buildTree(url: root, sortOption: .name,
-                                          fileManager: fileManager, maxDepth: nil)
-            if Task.isCancelled { return .failure(.cancelled) }
+        let walked: [FileNode]
+        switch await walkWholeTree(root, pass: .filing, fileManager: fileManager) {
+        case .walked(let tree): walked = tree
+        case .cancelled: return .failure(.cancelled)
+        case .declined: return .failure(.treeTooLargeAndDeclined)
         }
 
         // **A root that couldn't be listed must never reach a merge.** `buildTree` reports it as
         // one unexplored marker and `flatten` skips it, leaving an empty tree that looks like
         // every document was deleted. The incremental pass has the same guard.
-        if Self.isUnreadableRootMarker(walked, root: root) { return .failure(.rootUnreadable) }
+        if Self.isUnreadableRootWalk(walked, at: root.path) { return .failure(.rootUnreadable) }
 
         let flattenInput = walked
         let tree = await Task.detached(priority: .userInitiated) { FilingSurvey.flatten(flattenInput) }.value
@@ -389,8 +383,9 @@ extension FileSyncManager {
     /// is built, so there is nothing to adopt. Otherwise the run adopts the checkpoint, which is
     /// *Resume*. If the progress can't be removed, nothing starts.
     @discardableResult
-    public func runDocumentSurvey(plan: DocumentSurveyPlan, startingOver: Bool = false,
-                                  now: Date = Date()) async -> Result<DocumentSurveyReport, DocumentSurveyRefusal> {
+    public func runDocumentSurvey(plan: DocumentSurveyPlan, startingOver: Bool = false)
+        async -> Result<DocumentSurveyReport, DocumentSurveyRefusal> {
+        let now = Date()
         let root = plan.root
         // Taken by whichever run starts next, refused or not, so it can't linger and pause a
         // later Start over nobody paused.

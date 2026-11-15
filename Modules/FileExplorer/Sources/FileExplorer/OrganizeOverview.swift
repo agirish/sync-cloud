@@ -479,9 +479,6 @@ struct OrganizeOverview: View {
     /// Optional like `onUpdateFolderMemory`, for the same reason: a host that can't run it gets a
     /// card that says so rather than a button that no-ops.
     var onBuildStorage: (() -> Void)?
-    /// Whether Storage's analysis is running right now. The card's verb is withheld while it is,
-    /// gated exactly as the header's own button is.
-    var isBuildingStorage: Bool = false
 
     /// The document survey's card, or nil where there is nothing to say about one.
     ///

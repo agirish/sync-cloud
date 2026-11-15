@@ -144,7 +144,7 @@ import Combine
 
         // ⌥-click on a breadcrumb: both panes converge on the same relative path,
         // one new entry in each pane's own history.
-        manager.focusBoth(relativePath: "docs")
+        manager.focusBoth(left: "docs", right: "docs")
 
         #expect(manager.leftRelativePath == "docs")
         #expect(manager.rightRelativePath == "docs")
@@ -167,7 +167,7 @@ import Combine
         manager.focusOn(relativePath: "shared", isLeft: true)
 
         // Left is already at "shared": only the right pane gets a history entry.
-        manager.focusBoth(relativePath: "shared")
+        manager.focusBoth(left: "shared", right: "shared")
         #expect(manager.leftHistory.entries == ["", "shared"])
         #expect(manager.rightHistory.entries == ["", "shared"])
 
@@ -176,7 +176,7 @@ import Combine
         defer { subscription.cancel() }
 
         // Both already there: complete no-op.
-        manager.focusBoth(relativePath: "shared")
+        manager.focusBoth(left: "shared", right: "shared")
         #expect(manager.leftHistory.entries.count == 2)
         #expect(manager.rightHistory.entries.count == 2)
         #expect(refreshCount == 0)
@@ -189,7 +189,7 @@ import Combine
         manager.focusOn(relativePath: "a/b", isLeft: true)
         manager.goBack(isLeft: true, drawsColumns: true)
 
-        manager.focusBoth(relativePath: "c")
+        manager.focusBoth(left: "c", right: "c")
 
         #expect(manager.leftHistory.entries == ["", "a", "c"])
         #expect(manager.rightHistory.entries == ["", "c"])

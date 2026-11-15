@@ -42,29 +42,27 @@ extension FileSyncManager {
     }
 
     func sourceSurveyFingerprint(id: String) -> String? {
-        if let cached = sourceSurveyFingerprints[id] { return cached }
-        guard let directory = filingProfilesDirectory,
-              let fingerprint = FilingProfileStore.fingerprint(id: id, in: directory) else { return nil }
-        sourceSurveyFingerprints[id] = fingerprint
-        return fingerprint
+        cachedSourceSurvey(\.sourceSurveyFingerprints, id: id, load: FilingProfileStore.fingerprint(id:in:))
     }
 
     /// The source survey's learned memory, read once and kept; nil before its documents are read.
     func sourceSurveyMemory(id: String) -> FilingMemory? {
-        if let cached = sourceSurveyMemories[id] { return cached }
-        guard let directory = filingProfilesDirectory,
-              let memory = FilingProfileStore.memory(id: id, in: directory) else { return nil }
-        sourceSurveyMemories[id] = memory
-        return memory
+        cachedSourceSurvey(\.sourceSurveyMemories, id: id, load: FilingProfileStore.memory(id:in:))
     }
 
     /// The source's own survey, read once and kept; nil when absent or unreadable.
     func sourceSurveyProfile(id: String) -> FolderProfile? {
-        if let cached = sourceSurveyProfiles[id] { return cached }
-        guard let directory = filingProfilesDirectory,
-              let profile = FilingProfileStore.profile(id: id, in: directory) else { return nil }
-        sourceSurveyProfiles[id] = profile
-        return profile
+        cachedSourceSurvey(\.sourceSurveyProfiles, id: id, load: FilingProfileStore.profile(id:in:))
+    }
+
+    /// The memoised read behind the three above: the cached value, else `load` from the profiles
+    /// directory, kept only when it reads.
+    private func cachedSourceSurvey<Value>(_ cache: ReferenceWritableKeyPath<FileSyncManager, [String: Value]>,
+                                           id: String, load: (String, URL) -> Value?) -> Value? {
+        if let cached = self[keyPath: cache][id] { return cached }
+        guard let directory = filingProfilesDirectory, let value = load(id, directory) else { return nil }
+        self[keyPath: cache][id] = value
+        return value
     }
 
     /// Works out which survey places files filed into `providerRoot`, whose folders (relative to
@@ -408,8 +406,8 @@ extension FileSyncManager {
 
     /// Downloads a cloud-only document and waits, bounded, for its content to land. Returns
     /// at once for a provider that refuses; the reading then counts the document unavailable.
-    nonisolated static func fetchCloudOnly(_ path: String, deadline: Duration = .seconds(120),
-                                           pollEvery: Duration = .milliseconds(250)) async {
+    nonisolated static func fetchCloudOnly(_ path: String) async {
+        let deadline: Duration = .seconds(120)
         do {
             try MaterializationStatus.download(atPath: path)
         } catch {
@@ -421,7 +419,7 @@ extension FileSyncManager {
         while clock.now < end, !Task.isCancelled {
             // Nil is a file gone mid-download: nothing more will land.
             guard MaterializationStatus.isCloudOnlyIfKnown(atPath: MaterializationStatus.linkTarget(of: path)) == true else { return }
-            try? await Task.sleep(for: pollEvery)
+            try? await Task.sleep(for: .milliseconds(250))
         }
         Logger.shared.info("Document survey: \((path as NSString).lastPathComponent) had not downloaded after \(deadline) — left for a later reading")
     }

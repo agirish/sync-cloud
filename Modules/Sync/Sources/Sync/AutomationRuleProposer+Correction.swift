@@ -143,10 +143,10 @@ extension AutomationRuleProposer {
     /// sample, not the router's first 400 characters).
     static func correctionFacts(fileName: String, destination: String, pageSample: String?,
                                 modificationDate: Date?) -> AutomationFileFacts {
-        AutomationFileFacts(path: destination + "/" + fileName, name: fileName,
+        AutomationFileFacts(name: fileName,
                             parentFolderName: (destination as NSString).lastPathComponent,
                             parentPath: destination, sizeBytes: 0, modificationDate: modificationDate,
-                            isDirectory: false, snippet: pageSample?.lowercased(),
+                            snippet: pageSample?.lowercased(),
                             contentTokens: pageSample.map { FilingEngine.nameTokens($0) } ?? [])
     }
 

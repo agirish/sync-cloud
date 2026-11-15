@@ -33,7 +33,7 @@ public enum RestructureVerbResolver {
                                storeIsReadable: Bool,
                                alreadyScaffolded: Set<String> = []) -> Resolution {
         // Both verbs need the store and refuse without it. A plan's first act is to save a draft; a
-        // scaffold is a landing, and `restructureLandingRefusal` refuses one whose ledger record
+        // scaffold is a landing, and `restructureLandingBlocker` refuses one whose ledger record
         // can't be kept, so an enabled `.setUp` would warn and do nothing.
         if !storeIsReadable {
             return .refuse(verb == .plan

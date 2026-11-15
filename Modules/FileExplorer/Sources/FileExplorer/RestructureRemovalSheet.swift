@@ -29,7 +29,6 @@ struct RestructureRemovalSheet: View {
     }
 
     let candidates: [Candidate]
-    let accent: Color
     /// True when these are pre-existing empties from the crowding strip, not folders a landing
     /// drained. Only the title and opening sentence differ, but they are the sheet's claim about
     /// where the list came from.

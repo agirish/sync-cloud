@@ -44,7 +44,7 @@ import Foundation
     @Test func testIgnoreInSubfolderIsStoredRootRelative() {
         let (manager, store) = makeManagerWithStore()
 
-        manager.focusBoth(relativePath: "Docs/Work")
+        manager.focusBoth(left: "Docs/Work", right: "Docs/Work")
         manager.ignoredPaths = ["draft.txt"]
         #expect(store.rootRelativePaths == ["Docs/Work/draft.txt"])
     }
@@ -167,7 +167,7 @@ import Foundation
     @Test func testUnignoreRootRelativeClearsBothLayers() {
         let (manager, store) = makeManagerWithStore()
 
-        manager.focusBoth(relativePath: "Docs")
+        manager.focusBoth(left: "Docs", right: "Docs")
         manager.ignoredPaths = ["draft.txt"]
         #expect(store.rootRelativePaths == ["Docs/draft.txt"])
 

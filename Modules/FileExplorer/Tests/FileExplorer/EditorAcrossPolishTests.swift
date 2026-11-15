@@ -167,8 +167,7 @@ import Testing
     /// name: `FilingClassifier.swift` is two files.
     @Test func exemptionsCoverOnlyWhatTheyName() throws {
         let literals = try AppCopyScan.literals()
-        for (path, fragment) in [("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "cheapest (default)"),
-                                 ("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "Chosen by Claude"),
+        for (path, fragment) in [("Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", "Chosen by Claude"),
                                  ("Modules/Sync/Sources/Sync/MappingRefine.swift", "reverses your")] {
             let shown = try #require(literals.first { $0.path == path && $0.text.contains(fragment) },
                                      "“\(fragment)” is gone from \(path) — re-read this test")

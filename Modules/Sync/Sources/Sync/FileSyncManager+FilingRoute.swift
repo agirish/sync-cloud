@@ -49,10 +49,9 @@ extension FileSyncManager {
         filingRouterIndexBuilds += 1
     }
 
-    /// The context handed to a classifier: the taxonomy plus whatever has been learned about it.
+    /// The context handed to a classifier: the taxonomy plus the profile learned about it.
     func filingContext(taxonomyFolders: [String]) -> FilingContext {
-        FilingContext(taxonomyFolders: taxonomyFolders,
-                      profile: filingRoutingProfile, memory: filingRoutingMemory)
+        FilingContext(taxonomyFolders: taxonomyFolders, profile: filingRoutingProfile)
     }
 
     /// The folders worth spending the classifier's budget on, most deserving first: the router's
@@ -159,7 +158,7 @@ extension FileSyncManager {
     /// moves files nobody has looked at.
     nonisolated static func route(
         _ s: FilingSuggestion, index: FilingRouter.Index, snippets: [String: String],
-        providerRoot: String, rejectedByFile: [String: Set<String>], shortlistLimit: Int = 8,
+        providerRoot: String, rejectedByFile: [String: Set<String>],
         peerNames: ((String) -> [String])? = nil, preferring preferredSubtree: String? = nil
     ) -> (suggestion: FilingSuggestion, routed: Bool, shortlist: [String]) {
         if s.best?.remembered == true { return (s, false, []) }   // an explicit user rule outranks this
@@ -172,7 +171,7 @@ extension FileSyncManager {
         // which folders to show the model, so skipping it for a file with a home would ask the
         // model about that file against a menu built from every file except it.
         let ranked = FilingRouter.rank(fileName: s.fileName, contentSnippet: snippets[s.filePath],
-                                       index: index, excluding: excluded, limit: shortlistLimit)
+                                       index: index, excluding: excluded, limit: 8)
         // The peer-name rerank takes effect here and nowhere else. It is for a folder and its own
         // subfolder a percent apart (`Son OCI Photo.jpg`), which only the filenames already in them
         // can separate; without this line the lookup is built and passed and nothing uses it.
@@ -284,8 +283,8 @@ extension FileSyncManager {
     /// the survey. Called for every filing SyncCloud makes, whatever chose the folder (To File or
     /// Ask Claude). `filedPath` is where the file landed: a filing undone stops teaching
     /// (``forgetUndoneFilings()``).
-    func learnFromFiling(fileName: String, sourcePath: String, into folder: String, filedPath: String? = nil,
-                         now: Date = Date()) {
+    func learnFromFiling(fileName: String, sourcePath: String, into folder: String, filedPath: String? = nil) {
+        let now = Date()
         let anchors = FilingSurvey.filedAnchors(fileName: fileName, page1: filingPageSamples[sourcePath])
         guard !anchors.isEmpty else { return }
         filingFiledSinceSurvey.append(FilingFiledSinceSurvey(folder: folder, anchors: anchors.sorted(),
@@ -433,8 +432,7 @@ extension FileSyncManager {
                        index: FilingRouter.Index) -> (best: FilingDestination?, refused: Bool) {
         let rejected = filingRejections(under: URL(fileURLWithPath: root))
         var rejectedByFile: [String: Set<String>] = [:]
-        let paths = Self.rejectedPaths(forFileNamed: live.fileName, in: rejected)
-            .union(filingSessionRejections[live.id] ?? [])
+        let paths = rejectedFolders(fileName: live.fileName, filePath: live.id, in: rejected)
         if !paths.isEmpty { rejectedByFile[live.id] = paths }
 
         // Routed as a homeless file whatever the card currently shows: the point of the click is

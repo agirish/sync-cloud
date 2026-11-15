@@ -37,6 +37,15 @@ extension Progress {
         "Wait for \(run) to finish"
     }
 
+    /// A cancellable run's progress, titled, with its reason built from `run`. Not published: the
+    /// caller puts it on `activeProgress` when the run starts.
+    convenience init(totalUnitCount: Int64, title: String, waitingFor run: String) {
+        self.init(totalUnitCount: totalUnitCount)
+        localizedDescription = title
+        isCancellable = true
+        runLockReason = Progress.runLockReason(waitingFor: run)
+    }
+
     /// The run's work is done and only its undo is still being armed (the identity walk a copy,
     /// move or merge awaits). Nothing is left to stop, so the capsule drops Stop and ⌘. and says
     /// so. The run lock stays up until the run returns, because ⌘Z must not reach an undo whose

@@ -134,7 +134,7 @@ import Testing
         #expect(sentence.contains("read-only"), "the sentence says what the state is")
 
         // And the scaffold refuses too, for its own reason: it saves no draft, but it is a
-        // landing, and `restructureLandingRefusal` refuses one whose ledger record could not be
+        // landing, and `restructureLandingBlocker` refuses one whose ledger record could not be
         // kept. Left enabled, the menu item would run a handler that warns and does nothing.
         let scaffold = RestructureVerbResolver.resolve(
             .setUp, folder: "\(Self.root)/Health/Dental/2026", root: Self.root,

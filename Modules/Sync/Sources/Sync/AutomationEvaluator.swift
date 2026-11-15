@@ -6,7 +6,6 @@ import Foundation
 /// never touches disk. `snippet` is the on-device text excerpt, lowercased and filled in only when
 /// a rule reads content.
 public struct AutomationFileFacts: Sendable, Equatable {
-    public let path: String
     public let name: String
     /// The immediate parent folder's name.
     public let parentFolderName: String
@@ -14,7 +13,6 @@ public struct AutomationFileFacts: Sendable, Equatable {
     public let parentPath: String
     public let sizeBytes: Int
     public let modificationDate: Date?
-    public let isDirectory: Bool
     /// On-device text excerpt (PDFKit / OCR / plain text), already lowercased. nil = not read.
     public var snippet: String?
     /// Canonical tokens from the file's *contents* (from the Organize scan's content pass, or
@@ -32,25 +30,21 @@ public struct AutomationFileFacts: Sendable, Equatable {
     public var personFolderName: String?
 
     public init(
-        path: String,
         name: String,
         parentFolderName: String,
         parentPath: String,
         sizeBytes: Int,
         modificationDate: Date?,
-        isDirectory: Bool,
         snippet: String? = nil,
         contentTokens: Set<String> = [],
         personIds: Set<String> = [],
         personFolderName: String? = nil
     ) {
-        self.path = path
         self.name = name
         self.parentFolderName = parentFolderName
         self.parentPath = parentPath
         self.sizeBytes = sizeBytes
         self.modificationDate = modificationDate
-        self.isDirectory = isDirectory
         self.snippet = snippet
         self.contentTokens = contentTokens
         self.personIds = personIds

@@ -569,13 +569,6 @@ public class FileSyncManager: ObservableObject {
         get { storageLensLifecycle.root }
         set { storageLensLifecycle.root = newValue }
     }
-    /// Numeric progress for the build. The walk has no granular count, so it stays 0 and the UI
-    /// shows a spinner; its own property, like `duplicateScanProgress`, for a future determinate
-    /// pass.
-    ///
-    /// Not `@Published`: it is written only to 0 and read nowhere, and every `@Published` write on
-    /// this manager re-evaluates the observing view. Add the wrapper back with a reader.
-    public var storageLensProgress: Double = 0
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
 
@@ -722,6 +715,15 @@ public class FileSyncManager: ObservableObject {
     /// mid-round-trip (a provider switch) doesn't release or overwrite its successor's. Keep it the
     /// only copy, so the guard has one place to break.
     @Published public internal(set) var filingRefineInFlight: UUID?
+
+    /// True while a "File recommended" batch, a card's filing or a move out of an archive is
+    /// running: the latch behind ``applyRecommendedFiling(_:)``, `fileFilingGroup` and
+    /// `moveOutOfArchiveThenFile`, shaped like `isBulkSyncRunning` and `isApplyingRenames`.
+    ///
+    /// Internal and not published: the button isn't disabled by it, so nothing observes it. It
+    /// lets the re-entrancy test assert that its second call really overlapped the first;
+    /// otherwise a run that never overlapped looks like one the latch refused.
+    var isFilingBatchRunning = false
 
     /// The Refine plan each source has open, waiting for Send: one per source, replaced by the next
     /// prepare and taken by a send. Cleared with the filing state.
@@ -1184,7 +1186,7 @@ public class FileSyncManager: ObservableObject {
     /// 3's queued moves and drops to zero while steps 6–7 re-derive the profile through long
     /// awaits. A second landing entering then would record itself under a profile id the first is
     /// about to replace, wedging the undo chain behind two permanent refusals. Checked by
-    /// `restructureLandingRefusal`.
+    /// `restructureLandingBlocker`.
     ///
     /// Published and public so a surface can show that a landing is running: "Update the survey"
     /// walks the tree for seconds, and with no busy state it reads as a dead button and gets
@@ -1427,7 +1429,8 @@ public class FileSyncManager: ObservableObject {
     var filingSatelliteBuilds = 0
 
     /// Rebuilds ``filingSatelliteHomes`` when the indexes behind it have moved.
-    func refreshSatelliteHomes(providerRoot: String?, fileManager fm: FileManager = .default) {
+    func refreshSatelliteHomes(providerRoot: String?) {
+        let fm = FileManager.default
         guard let providerRoot, let profile = filingRoutingProfile,
               let directory = contentIndexDirectory
         else {
@@ -2554,6 +2557,14 @@ public class FileSyncManager: ObservableObject {
     /// `verifiedIdenticalForCopy`. Internal so tests can pin the refusal without racing a real run.
     var isVerifyAllRunning = false
 
+    /// A write pass's Verify All guard: while one runs, posts `text` as an info refusal and answers
+    /// true, so the caller returns before touching anything.
+    func refusedDuringVerifyAll(_ text: String) -> Bool {
+        guard isVerifyAllRunning else { return false }
+        banner = .refusal(text, log: .info)
+        return true
+    }
+
     /// Current subfolder path relative to the left pane root (empty = root). This is the pane's
     /// comparison scope, not just where it's looking: assigning it goes through `focusOn` →
     /// `syncPathsFromHistory` → `refreshSubject`, reloading the tree and rescanning. Where the pane
@@ -2685,15 +2696,6 @@ public class FileSyncManager: ObservableObject {
     /// can't be taken back, and it would void the auto-verify batch with no rescan to re-run it,
     /// leaving those rows listed as differences.
     internal private(set) var fileOperationsEpoch = 0
-
-    /// Records that a file operation is about to run (`fileOperationsEpoch`). Called only from
-    /// `enqueueFileOperation`, the serial queue every user file operation goes through. The
-    /// orphaned-temp sweep is the one write that isn't, by design: it only removes age-gated
-    /// `.tmp_<UUID>` staging artifacts, which can't make a differing pair hash identical
-    /// (`sweepOrphanedTempArtifacts` explains).
-    private func noteFileOperationBegan() {
-        fileOperationsEpoch += 1
-    }
     /// Real-time progress for the active bulk file operation. While it is set the window greys
     /// every action that writes to disk; each publisher names its run in
     /// ``Foundation/Progress/runLockReason`` for the tooltip that says why.
@@ -2933,7 +2935,11 @@ public class FileSyncManager: ObservableObject {
 
     private func claimFileOperationSlot(alreadyCounted: Bool) -> FileOperationSlot {
         if !alreadyCounted { activeFileOperationsCount += 1 }
-        noteFileOperationBegan()
+        // A file operation is about to run. Bumped only here, on the serial queue every user file
+        // operation goes through. The orphaned-temp sweep is the one write that isn't, by design:
+        // it only removes age-gated `.tmp_<UUID>` staging artifacts, which can't make a differing
+        // pair hash identical (`sweepOrphanedTempArtifacts` explains).
+        fileOperationsEpoch += 1
         let predecessor = fileOperationTask
         let slot = FileOperationSlot(predecessor: predecessor)
         // The successor's claim chains on this: it waits for our predecessor, then for our body's
@@ -3566,10 +3572,7 @@ public class FileSyncManager: ObservableObject {
         // to START while anything is writing, but a transfer starting MID-verify could still
         // overwrite a file as it's hashed — the pair can read "identical" against bytes that
         // no longer exist, poisoning the copy-to-match-dates offer.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before syncing", log: .info)
-            return false
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before syncing") { return false }
 
         // The other half of syncAll's "a single row may be mid-flight" guard. syncAll latches
         // `isBulkSyncRunning` before its confirmation prompt, whose modal spins the run loop, so

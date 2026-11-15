@@ -15,9 +15,9 @@ import Testing
         snippet: String? = nil
     ) -> AutomationFileFacts {
         AutomationFileFacts(
-            path: "/root/\(parent)/\(name)", name: name,
+            name: name,
             parentFolderName: parent, parentPath: "/root/\(parent)",
-            sizeBytes: size, modificationDate: modified, isDirectory: false,
+            sizeBytes: size, modificationDate: modified,
             snippet: snippet?.lowercased()
         )
     }

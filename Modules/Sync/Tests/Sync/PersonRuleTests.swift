@@ -17,9 +17,9 @@ import Testing
 
     static func facts(_ name: String, snippet: String? = nil,
                       registry: PersonRegistry? = household) -> AutomationFileFacts {
-        AutomationFileFacts(path: "/root/TODO/\(name)", name: name, parentFolderName: "TODO",
+        AutomationFileFacts(name: name, parentFolderName: "TODO",
                             parentPath: "/root/TODO", sizeBytes: 1_000, modificationDate: now,
-                            isDirectory: false, snippet: snippet?.lowercased(),
+                            snippet: snippet?.lowercased(),
                             contentTokens: snippet.map { FilingEngine.nameTokens($0) } ?? [])
             .attributing(registry)
     }

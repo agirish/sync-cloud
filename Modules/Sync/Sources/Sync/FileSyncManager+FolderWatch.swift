@@ -168,11 +168,6 @@ extension FileSyncManager {
 
     // MARK: - Absorbing a batch
 
-    /// Whether a change touched nothing but extended attributes (whatever kind of item it is).
-    nonisolated static func onlyExtendedAttributes(_ change: FolderWatchEvent.Change) -> Bool {
-        change.isOnlyExtendedAttributes
-    }
-
     /// Applies one coalesced batch: marks the panes whose folder it touched, drops the cached walks
     /// it made stale, bumps the scan-config epoch so the next refresh isn't swallowed as a
     /// duplicate of one running, and tells the app which panes now show a stale listing.
@@ -212,7 +207,7 @@ extension FileSyncManager {
         // tag) is news only while the panes read tags, which they do only when sorting by them.
         let tagsListed = sortOption == .tags
         var newest: [String: FolderWatchEvent] = [:]
-        for event in batch.events where !event.isOwn && (tagsListed || !Self.onlyExtendedAttributes(event.change)) {
+        for event in batch.events where !event.isOwn && (tagsListed || !event.change.isOnlyExtendedAttributes) {
             if let seen = newest[event.path], seen.id >= event.id { continue }
             newest[event.path] = event
         }

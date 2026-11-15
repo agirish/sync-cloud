@@ -17,9 +17,9 @@ extension FileSyncManager {
         let parent = (path as NSString).deletingLastPathComponent
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         let facts = AutomationFileFacts(
-            path: path, name: name, parentFolderName: (parent as NSString).lastPathComponent, parentPath: parent,
+            name: name, parentFolderName: (parent as NSString).lastPathComponent, parentPath: parent,
             sizeBytes: (attributes?[.size] as? Int) ?? 0, modificationDate: attributes?[.modificationDate] as? Date,
-            isDirectory: false, snippet: snippet?.lowercased(),
+            snippet: snippet?.lowercased(),
             contentTokens: snippet.map { FilingEngine.nameTokens($0) } ?? [])
             .attributing(filingPersonRegistry, identity: filingPersonIdentity)
         let now = Date()

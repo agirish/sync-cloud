@@ -39,7 +39,7 @@ struct Elapsed {
         return "\(format(active)) + \(format(asleep)) asleep"
     }
 
-    private static func format(_ seconds: Double) -> String {
+    fileprivate static func format(_ seconds: Double) -> String {
         seconds < 1 ? String(format: "%.1f ms", seconds * 1000)
                     : String(format: "%.2f s", seconds)
     }
@@ -360,8 +360,7 @@ extension FileSyncManager {
     /// - Note: prefer ``Elapsed`` for anything that can run long. This reads one wall clock and so
     ///   cannot say whether a large number is work or a sleeping Mac; see that type.
     nonisolated static func durationText(since start: CFAbsoluteTime) -> String {
-        let seconds = CFAbsoluteTimeGetCurrent() - start
-        return seconds < 1 ? String(format: "%.1f ms", seconds * 1000) : String(format: "%.2f s", seconds)
+        Elapsed.format(CFAbsoluteTimeGetCurrent() - start)
     }
 
     /// How long ago a cached walk read its folder, for the scan's line: "just now", "42 s ago",
@@ -401,7 +400,9 @@ extension FileSyncManager {
     /// Whether `tree` is a walk of `folder` that couldn't list it: `buildTree` returns the folder
     /// itself marked unexplored, never a bare `[]`, so the cache and the diff know its contents are
     /// unknown, not empty. Each consumer handles the shape: a pane unwraps it, a column graft leaves
-    /// it alone, and a source switch doesn't keep it.
+    /// it alone, and a source switch doesn't keep it. Every name scan must check it: the detector
+    /// can't tell the marker from a real entry, so it would flag the root, and "Fix all" would
+    /// rename a folder it can't list (a rename needs only parent-write).
     nonisolated static func isUnreadableRootWalk(_ tree: [FileNode], at folder: String) -> Bool {
         tree.count == 1 && tree[0].isUnexplored == true && tree[0].id == folder
     }
@@ -604,14 +605,14 @@ extension FileSyncManager {
     ///   part a caller or test can observe synchronously; without it "nothing swept" and "nothing
     ///   swept yet" look the same.
     @discardableResult
-    func sweepOrphanedTempArtifacts(now: Date = Date()) -> Bool {
+    func sweepOrphanedTempArtifacts() -> Bool {
         guard activeFileOperationsCount == 0 else {
             Logger.shared.debug("Skipping the orphaned-temp sweep: \(activeFileOperationsCount) file operation(s) in flight")
             return false
         }
         let scan = OrphanSweeper.findArtifacts(
             inTrees: [rawLeftTree, rawRightTree],
-            olderThan: now.addingTimeInterval(-OrphanSweeper.minimumAge)
+            olderThan: Date().addingTimeInterval(-OrphanSweeper.minimumAge)
         )
         if scan.rollbackCount > 0 {
             Logger.shared.debug("Leaving \(scan.rollbackCount) .rollback_ replacement backup(s) in place (restorable copies of replaced files)")

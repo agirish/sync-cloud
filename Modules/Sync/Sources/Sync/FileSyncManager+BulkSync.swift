@@ -49,10 +49,9 @@ extension FileSyncManager {
         isBulkSyncRunning = true
         let toCopyIDs = Set(toCopy.map { $0.id })
 
-        let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = "Matching the dates of \(CountedNoun.phrase(total, "file"))"
-        progress.isCancellable = true
-        progress.runLockReason = Progress.runLockReason(waitingFor: "the date match")
+        let progress = Progress(totalUnitCount: Int64(total),
+                                title: "Matching the dates of \(CountedNoun.phrase(total, "file"))",
+                                waitingFor: "the date match")
         activeProgress = progress
 
         markSyncing(ids: toCopyIDs)
@@ -381,13 +380,9 @@ extension FileSyncManager {
         guard !isBulkSyncRunning else { return [] }
         // A Verify All in flight is hashing the files this run would overwrite, and would read
         // them half-written. Tell the user rather than drop silently.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
-            return []
-        }
         // A single-row syncFile in flight (perhaps parked at its prompt) may target these rows,
         // and two flows could write one difference twice. Mirrors Verify All's guard.
-        guard syncingDifferenceIds.isEmpty else {
+        guard !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
             banner = .refusal("Wait for the current operation to finish before syncing", log: .info)
             return []
         }
@@ -429,10 +424,9 @@ extension FileSyncManager {
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
 
-        let progress = Progress(totalUnitCount: Int64(total))
-        progress.localizedDescription = "\(isMove ? "Moving" : "Syncing") \(CountedNoun.phrase(total, "file"))"
-        progress.isCancellable = true
-        progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the sync")
+        let progress = Progress(totalUnitCount: Int64(total),
+                                title: "\(isMove ? "Moving" : "Syncing") \(CountedNoun.phrase(total, "file"))",
+                                waitingFor: isMove ? "the move" : "the sync")
         activeProgress = progress
 
         markSyncing(ids: toSyncIDs)

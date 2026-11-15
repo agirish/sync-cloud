@@ -41,13 +41,11 @@ import Testing
         #expect(FilingSpendBudget.monthlySpend(entries: [entry(cost: 5, at: lastMonth)], now: now, calendar: cal) == 0)
     }
 
-    // MARK: FilingSpendPreflight.wouldExceedCap (monthly + total dimensions)
+    // MARK: FilingSpendPreflight.wouldExceedCap (the monthly cap)
 
-    private func preflight(est: Double, monthlySpent: Double = 0, monthlyCap: Double = 0,
-                           totalSpent: Double = 0, totalCap: Double = 0) -> FilingSpendPreflight {
-        FilingSpendPreflight(fileCount: 10, model: "claude-haiku-4-5", estInputTokens: 5000,
-                             estOutputTokens: 1000, estCostUSD: est, monthlySpentUSD: monthlySpent,
-                             monthlyCapUSD: monthlyCap, totalSpentUSD: totalSpent, totalCapUSD: totalCap)
+    private func preflight(est: Double, monthlySpent: Double = 0, monthlyCap: Double = 0) -> FilingSpendPreflight {
+        FilingSpendPreflight(fileCount: 10, model: "claude-haiku-4-5", estCostUSD: est,
+                             monthlySpentUSD: monthlySpent, monthlyCapUSD: monthlyCap)
     }
 
     @Test func preflightWouldExceedMonthlyCapLogic() {
@@ -61,29 +59,12 @@ import Testing
         #expect(preflight(est: 1.50, monthlySpent: 4.00, monthlyCap: 5).wouldExceedMonthlyCap == true)
     }
 
-    @Test func preflightWouldExceedTotalCapLogic() {
-        // Total cap 0 → never exceeds.
-        #expect(preflight(est: 100, totalSpent: 100, totalCap: 0).wouldExceedTotalCap == false)
-        // Under → not exceeding.
-        #expect(preflight(est: 0.50, totalSpent: 3.00, totalCap: 5).wouldExceedTotalCap == false)
-        // At the boundary → not exceeding (strict >).
-        #expect(preflight(est: 2.00, totalSpent: 3.00, totalCap: 5).wouldExceedTotalCap == false)
-        // Over → exceeding.
-        #expect(preflight(est: 2.50, totalSpent: 3.00, totalCap: 5).wouldExceedTotalCap == true)
-    }
-
-    @Test func preflightWouldExceedCapCombinesBothDimensions() {
-        // Neither cap breached → allowed.
-        #expect(preflight(est: 0.10, monthlySpent: 1, monthlyCap: 5, totalSpent: 1, totalCap: 5)
-            .wouldExceedCap == false)
-        // Monthly fine, TOTAL breached → blocked (the $5 lifetime backstop catches it even mid-month).
-        #expect(preflight(est: 0.10, monthlySpent: 0.20, monthlyCap: 5, totalSpent: 4.99, totalCap: 5)
-            .wouldExceedCap == true)
-        // Total off (0), monthly breached → still blocked.
-        #expect(preflight(est: 2.00, monthlySpent: 4.00, monthlyCap: 5, totalSpent: 100, totalCap: 0)
-            .wouldExceedCap == true)
-        // Both off → never blocked.
-        #expect(preflight(est: 1000, monthlySpent: 1000, monthlyCap: 0, totalSpent: 1000, totalCap: 0)
-            .wouldExceedCap == false)
+    @Test func preflightWouldExceedCapIsTheMonthlyCap() {
+        // Cap not breached → allowed.
+        #expect(preflight(est: 0.10, monthlySpent: 1, monthlyCap: 5).wouldExceedCap == false)
+        // Monthly breached → blocked.
+        #expect(preflight(est: 2.00, monthlySpent: 4.00, monthlyCap: 5).wouldExceedCap == true)
+        // Cap off → never blocked.
+        #expect(preflight(est: 1000, monthlySpent: 1000, monthlyCap: 0).wouldExceedCap == false)
     }
 }

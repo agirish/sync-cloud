@@ -39,13 +39,8 @@ extension FileSyncManager {
 
     /// The guard set shared by every Restructure landing (the scaffold, a plan apply and a ledger
     /// undo), which all move things inside subtrees the scans read: better a refusal than a race.
-    /// Returns the sentence, or nil to proceed.
-    func restructureLandingRefusal() -> String? {
-        restructureLandingBlocker
-    }
-
-    /// What would refuse a landing or a ledger undo right now: the sentence, or nil. Read-only, so
-    /// a surface can say so before it asks, rather than refusing a Yes the moment it is given.
+    /// The sentence, or nil to proceed. Read-only, so a surface can say so before it asks, rather
+    /// than refusing a Yes the moment it is given.
     public var restructureLandingBlocker: String? {
         // First: the one hazard the counts below can't see. A landing holds this flag across its
         // whole run, including re-derive awaits with no file operation queued and no scan running.
@@ -101,7 +96,7 @@ extension FileSyncManager {
     /// caught up.
     public func applyScaffold(for finding: StructureFinding, now: Date = Date()) async
         -> ScaffoldOutcome {
-        if let refusal = restructureLandingRefusal() {
+        if let refusal = restructureLandingBlocker {
             return ScaffoldOutcome(refusal: refusal)
         }
         restructureLandingInProgress = true
@@ -226,7 +221,7 @@ extension FileSyncManager {
         let key = RestructureDiskProbeMemo.Key(
             owner: ObjectIdentifier(self), root: root,
             ledger: RestructureDiskProbeMemo.signature(of: applied))
-        if let hit = RestructureDiskProbeMemo.scaffolded.value(for: key, now: now) { return hit }
+        if let hit = RestructureDiskProbeMemo.scaffolded.value(for: key, id: "", now: now) { return hit }
         let expandedRoot = (root as NSString).expandingTildeInPath
         var subjects: Set<String> = []
         for record in applied where record.manifest.kind == .backlog {
@@ -240,7 +235,7 @@ extension FileSyncManager {
                 subjects.insert((first as NSString).deletingLastPathComponent)
             }
         }
-        RestructureDiskProbeMemo.scaffolded.store(subjects, for: key, now: now)
+        RestructureDiskProbeMemo.scaffolded.store(subjects, for: key, id: "", now: now)
         return subjects
     }
 
@@ -300,38 +295,11 @@ enum RestructureDiskProbeMemo {
             + "\($0.undoneAt ?? "-")" }.joined(separator: "|")
     }
 
-    /// One remembered answer, valid while the key holds and the window hasn't run out. A clock
-    /// gone backwards (a manual change, an NTP step) invalidates rather than serving forever.
-    @MainActor
-    final class Entry<Value> {
-        private var key: Key?
-        private var value: Value?
-        private var at: Date?
-
-        func value(for key: Key, now: Date) -> Value? {
-            guard let stored = value, self.key == key, let at,
-                  now.timeIntervalSince(at) >= 0, now.timeIntervalSince(at) < window
-            else { return nil }
-            return stored
-        }
-
-        func store(_ value: Value, for key: Key, now: Date) {
-            self.key = key
-            self.value = value
-            self.at = now
-        }
-
-        /// Drops whatever is held, so tests start from a known state.
-        func clear() {
-            key = nil
-            value = nil
-            at = nil
-        }
-    }
-
-    /// The same, for a probe asked about many subjects under one key: the ledger cards ask once
-    /// per record in one render, which would evict a one-slot cache every time. The map drops
-    /// whole when the key changes or the window runs out, since all were probed on one tree.
+    /// Remembered answers by id, valid while the key holds and the window hasn't run out. A clock
+    /// gone backwards (a manual change, an NTP step) invalidates rather than serving forever. A map
+    /// because the ledger cards ask once per record in one render, which would evict a one-slot
+    /// cache every time; it drops whole when the key changes or the window runs out, since all
+    /// were probed on one tree. `scaffolded` holds one answer, under the id `""`.
     @MainActor
     final class MapEntry<Value> {
         private var key: Key?
@@ -365,7 +333,7 @@ enum RestructureDiskProbeMemo {
         }
     }
 
-    static let scaffolded = Entry<Set<String>>()
+    static let scaffolded = MapEntry<Set<String>>()
     static let standingEmpties = MapEntry<Bool>()
 }
 

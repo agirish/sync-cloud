@@ -205,7 +205,7 @@ import Testing
                 .init(path: "Finance/IN/SBI NRE/Statements", isStillEmpty: true),
                 .init(path: "Health/Dental/2024", isStillEmpty: false),
             ],
-            accent: .blue, isStanding: true,
+            isStanding: true,
             onRemove: { _ in .landed(removed: 2, skippedCount: 0, caveat: nil) },
             onClose: {})
         // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.

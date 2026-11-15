@@ -78,36 +78,7 @@ import Testing
         #expect(verdicts.isEmpty)                                      // index 5 has no file → skipped
     }
 
-    // MARK: Model selection
-
-    @Test func currentModelResolvesSupersededIDsAndLeavesEverythingElseAlone() {
-        // The three offered models pass through untouched.
-        for model in CloudFilingProtocol.selectableModels {
-            #expect(CloudFilingProtocol.currentModel(for: model) == model)
-        }
-        // A model picked before a refresh still means its family's current model, so the Settings
-        // picker keeps a selection and the scan doesn't stay pinned to the superseded one.
-        #expect(CloudFilingProtocol.currentModel(for: "claude-opus-4-8") == "claude-opus-5")
-        #expect(CloudFilingProtocol.currentModel(for: "claude-opus-4-1") == "claude-opus-5")
-        #expect(CloudFilingProtocol.currentModel(for: "claude-sonnet-4-5") == "claude-sonnet-5")
-        #expect(CloudFilingProtocol.currentModel(for: "claude-haiku-4-5-20251001") == "claude-haiku-4-5")
-        // Outside the three families it can only have been set by hand — honor it as written.
-        #expect(CloudFilingProtocol.currentModel(for: "claude-fable-5") == "claude-fable-5")
-        #expect(CloudFilingProtocol.currentModel(for: "gpt-9") == "gpt-9")
-        // Every offered model has a picker label, and the id list comes from the same table, so a
-        // refresh can't update one and leave the other behind (which blanks the picker).
-        #expect(CloudFilingProtocol.selectableModelOptions.map(\.id) == CloudFilingProtocol.selectableModels)
-        #expect(CloudFilingProtocol.selectableModelOptions.allSatisfy { !$0.label.isEmpty })
-        // Each label names its generation, not just the family: the scan's model is otherwise
-        // invisible in the UI, and "Opus" alone goes stale with the next generation.
-        for option in CloudFilingProtocol.selectableModelOptions {
-            let generation = option.id.split(separator: "-").dropFirst(2).joined(separator: ".")
-            #expect(option.label.contains(generation),
-                    "\(option.label) should name generation \(generation)")
-        }
-        // The default is one of the offered models (Settings' picker default matches it).
-        #expect(CloudFilingProtocol.selectableModels.contains(CloudFilingProtocol.defaultModel))
-    }
+    // MARK: Pricing
 
     @Test func sonnetIsPricedByGeneration() throws {
         // The Sonnet Settings offers is Sonnet 5, at $2/$10 — not the family's older $3/$15.

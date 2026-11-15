@@ -191,20 +191,6 @@ private final class CallLog: @unchecked Sendable {
                               existingRelative: ["Documents", "Documents/Vehicles"]) == nil)
     }
 
-    @Test func removeAllUnderRootForgetsOnlyThatProvider() {
-        var cache = FilingVerdictCache()
-        let existing: Set<String> = ["Documents", "Documents/Vehicles"]
-        cache.record(verdict, for: key("/iCloud/f.pdf"), providerRoot: "/iCloud",
-                     existingRelative: existing, now: Date())
-        cache.record(verdict, for: key("/Dropbox/f.pdf"), providerRoot: "/Dropbox",
-                     existingRelative: existing, now: Date())
-
-        cache.removeAll(under: "/iCloud")
-        #expect(cache.count == 1)
-        #expect(cache.verdict(for: key("/Dropbox/f.pdf"), providerRoot: "/Dropbox",
-                              existingRelative: existing) != nil)
-    }
-
     // MARK: End to end, through the manager
 
     /// Builds a fixture folder with one loose file that a classifier can place.

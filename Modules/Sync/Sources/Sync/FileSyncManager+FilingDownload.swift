@@ -96,8 +96,7 @@ extension FileSyncManager {
         let existing = Set(filingLastExistingFolders.map { root + "/" + $0 }).union([root])
         let file = FileNode(id: live.filePath, name: live.fileName, isDirectory: false,
                             modificationDate: live.modificationDate, fileSize: live.size)
-        let rejected = Self.rejectedPaths(forFileNamed: live.fileName, in: filingRejections(under: rootURL))
-            .union(filingSessionRejections[live.id] ?? [])
+        let rejected = rejectedFolders(fileName: live.fileName, filePath: live.id, in: filingRejections(under: rootURL))
         let suggested = FilingEngine.suggest(
             looseFiles: [file], learned: FilingEngine.LearnedTaxonomy(profiles: [], existingPaths: existing),
             providerRoot: root, contentTokens: filingTokensFromText.map { [live.filePath: $0(text)] } ?? [:],

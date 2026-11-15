@@ -60,16 +60,6 @@ import Testing
         #expect(OrganizeLens.storage.searchLens == .storage)
     }
 
-    @Test func aCallerNamingALensGetsTheRailItemThatIsThatLens() {
-        // Not a strict inverse of `searchLens`, and can't be: three items share `.filing`, so this
-        // picks the one that is the filing queue, not whichever shares its grammar.
-        #expect(OrganizeLens(.filing) == .toFile)
-        #expect(OrganizeLens(.duplicates) == .duplicates)
-        #expect(OrganizeLens(.automations) == .rules)
-        // Storage is a rail item, so a caller naming it gets the lens.
-        #expect(OrganizeLens(.storage) == .storage)
-    }
-
     // MARK: Persistence and presentation
 
     @Test func theRawValuesAreStableAndDistinct() {

@@ -322,10 +322,7 @@ extension FileSyncManager {
         }
         // Verify All's exclusion, as in syncFile: a transfer mid-verify could overwrite a file
         // as it's hashed.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before copying or moving items", log: .info)
-            return []
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before copying or moving items") { return [] }
         if isMove, let refusal = oneWaySyncRefusal?(nodes.map(\.id)) {
             banner = .refusal(refusal, log: .warn)
             return []
@@ -373,13 +370,12 @@ extension FileSyncManager {
         // From here the operation runs, so its finish line carries the time it took.
         let elapsed = Elapsed()
 
-        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-        if let progress {
-            // Sentence case, as Finder titles its progress; the undo name stays Title Case.
-            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "item"))"
-            progress.isCancellable = true
-            progress.runLockReason = Progress.runLockReason(waitingFor: isMove ? "the move" : "the copy")
-        }
+        // Sentence case, as Finder titles its progress; the undo name stays Title Case.
+        let progress: Progress? = total > 0
+            ? Progress(totalUnitCount: total,
+                       title: "\(isMove ? "Moving" : "Copying") \(CountedNoun.phrase(Int(total), "item"))",
+                       waitingFor: isMove ? "the move" : "the copy")
+            : nil
 
         let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [ItemError], transferred: [(from: URL, to: URL, overwritten: URL?)], identityWalks: [Task<CopyIdentityReading, Never>], alreadyThere: Int, mergedNodeIDs: Set<String>, trashedMergeSources: [(node: Int, before: Int, item: MoveItemState)], nodeStarts: [Int], redirectedIntoTrash: [URL: URL], landedIdentities: [URL: ItemIdentity]) in
             guard self != nil else { return ([], [], [], 0, [], [], [], [:], [:]) }
@@ -881,10 +877,7 @@ extension FileSyncManager {
     func renameItem(at path: String, to newName: String, fileManager fm: FileManaging, caseSensitiveVolume: Bool) async {
         // Verify All's exclusion, as every write has: a rename mid-verify moves a file out from
         // under its hash.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before renaming", log: .info)
-            return
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before renaming") { return }
         if let refusal = oneWaySyncRefusal?([path]) {
             banner = .refusal(refusal, log: .warn)
             return
@@ -946,10 +939,7 @@ extension FileSyncManager {
     
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before making a folder", log: .info)
-            return
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before making a folder") { return }
         if let reason = Self.validateItemName(name) {
             present(SyncError(title: "Couldn’t Create Folder", message: reason, path: path))
             return
@@ -1289,10 +1279,7 @@ extension FileSyncManager {
                             resumingProgress: Progress? = nil) async -> DeleteOutcome {
         // Verify All's exclusion, as in syncFile: a delete mid-verify could remove a file as it's
         // hashed.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before deleting items", log: .info)
-            return DeleteOutcome()
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before deleting items") { return DeleteOutcome() }
         if let refusal = oneWaySyncRefusal?(paths) {
             banner = .refusal(refusal, log: .warn)
             return DeleteOutcome()
@@ -1327,13 +1314,12 @@ extension FileSyncManager {
         }.mapValues { $0.map(\.path) }
 
         let total = Int64(prunedPaths.count)
-        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-        if let progress {
-            // Accurate: a no-Trash volume asks first, in its own alert, before deleting outright.
-            progress.localizedDescription = "Moving \(CountedNoun.phrase(Int(total), "item")) to the Trash"
-            progress.isCancellable = true
-            progress.runLockReason = Progress.runLockReason(waitingFor: "the move to the Trash")
-        }
+        // Accurate: a no-Trash volume asks first, in its own alert, before deleting outright.
+        let progress: Progress? = total > 0
+            ? Progress(totalUnitCount: total,
+                       title: "Moving \(CountedNoun.phrase(Int(total), "item")) to the Trash",
+                       waitingFor: "the move to the Trash")
+            : nil
 
         let result = await enqueueFileOperation { [weak self, progress, prunedPaths, swallowedByAncestor] () -> (errors: [ItemError], items: [(original: URL, trashed: URL?, reachedTrash: Bool)], declined: Int, refused: Int, stoppedShort: Bool) in
             guard self != nil else { return ([], [], 0, 0, false) }

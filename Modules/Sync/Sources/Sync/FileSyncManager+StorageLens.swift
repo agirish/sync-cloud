@@ -81,18 +81,14 @@ extension FileSyncManager {
     /// Walks `root` in full, analyzes it (pure), and publishes the report on the main actor.
     func buildStorageLens(
         root: URL,
-        options: StorageLensOptions = .init(),
-        fileManager fm: FileManaging? = nil
+        options: StorageLensOptions = .init()
     ) async {
         guard !isBuildingStorageLens else { return }
-        let fileManager = fm ?? self.fileManager
         beginScan(\.storageLensLifecycle, status: "Analyzing \(root.lastPathComponent)…")
-        storageLensProgress = 0
         // hasCompleted flips only on completion (below), so a cancelled build leaves the
         // prior state intact rather than flashing an empty report.
         defer {
             endScan(\.storageLensLifecycle)
-            storageLensProgress = 0
         }
 
         // 1. Walk the full subtree (off-main inside buildTree). maxDepth: nil = unlimited.
@@ -101,24 +97,15 @@ extension FileSyncManager {
         // the answer can't be budgeted, but the probe finds out how big the tree is. Under the
         // budget the probe is the tree and nothing is walked twice. Over it, the real pass would
         // take minutes (the home folder or boot volume is one click away), so ask first.
-        let probe = NodeBudget(wholeTreeProbeBudget)
-        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil, budget: probe)
-        if Task.isCancelled { return }
-        if probe.didStopADescent {
-            let preflight = LargeWalkPreflight(pass: .storageLens, rootPath: root.path,
-                                               probeLimit: probe.limit)
-            guard largeWalkConfirmer(preflight) else {
-                // Logged, and the previous report stays on screen: `hasCompleted` never flips, as
-                // for a cancelled build.
-                Logger.shared.info("Storage: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not analysed")
-                return
-            }
-            // Confirmed: walk again in full. The probe's tree can't be extended, because its
-            // unexplored nodes look the same as cycle-guarded and permission-denied ones.
-            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil)
-            if Task.isCancelled { return }
+        let tree: [FileNode]
+        switch await walkWholeTree(root, pass: .storageLens, fileManager: fileManager) {
+        case .walked(let walked): tree = walked
+        case .cancelled: return
+        case .declined(let preflight):
+            // Logged, and the previous report stays on screen: `hasCompleted` never flips, as
+            // for a cancelled build.
+            Logger.shared.info("Storage: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not analysed")
+            return
         }
 
         // 2. Analyze (pure, no disk), detached: the analyzer walks the whole tree, too long for the

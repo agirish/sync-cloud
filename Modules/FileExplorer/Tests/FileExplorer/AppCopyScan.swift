@@ -165,8 +165,8 @@ enum AppCopyScan {
             .init(file: "Modules/Sync/Sources/Sync/FilingSurveyStore.swift", contains: "already-filed documents say", reason: data),
             .init(file: "MacApp/FilingClassifier.swift", contains: "the single word 'none'", reason: prompt),
             .init(file: "MacApp/FilingClassifier.swift", contains: "You organize a user's files", reason: prompt),
-            // The prompt literals only: the same files hold the model picker's labels, the
-            // "Chosen by Claude" reason and the plan sheet's reversal notes, which people read.
+            // The prompt literals only: the same files hold the "Chosen by Claude" reason and the
+            // plan sheet's reversal notes, which people read.
             .init(file: "Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", contains: "You organize a user's files", reason: prompt),
             .init(file: "Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", contains: "The user's existing folders", reason: prompt),
             .init(file: "Modules/Sync/Sources/Sync/CloudFilingProtocol.swift", contains: "the file's index from the list", reason: prompt),

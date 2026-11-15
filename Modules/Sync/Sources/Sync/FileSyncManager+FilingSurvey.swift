@@ -149,22 +149,13 @@ extension FileSyncManager {
             // The same ask-first the other whole-tree passes make: Refresh is one click, and a
             // source can be `~` or a whole volume. Reuses `.filing`, since the memory belongs to the
             // Filing feature and the prompt should name what the user knows.
-            let probe = NodeBudget(wholeTreeProbeBudget)
-            var tree = await Self.buildTree(url: root, sortOption: .name,
-                                            fileManager: fileManager, maxDepth: nil, budget: probe)
-            if Task.isCancelled { return .none }
-            if probe.didStopADescent {
-                let preflight = LargeWalkPreflight(pass: .filing, rootPath: root.path,
-                                                   probeLimit: probe.limit)
-                guard largeWalkConfirmer(preflight) else {
-                    Logger.shared.info("Refresh: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not re-surveyed")
-                    return .none
-                }
-                tree = await Self.buildTree(url: root, sortOption: .name,
-                                            fileManager: fileManager, maxDepth: nil)
-                if Task.isCancelled { return .none }
+            switch await walkWholeTree(root, pass: .filing, fileManager: fileManager) {
+            case .walked(let tree): walked = tree
+            case .cancelled: return .none
+            case .declined(let preflight):
+                Logger.shared.info("Refresh: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not re-surveyed")
+                return .none
             }
-            walked = tree
         }
         if Task.isCancelled { return .none }
         // A root that couldn't be listed must never reach the merge. `buildTree` reports a
@@ -173,8 +164,8 @@ extension FileSyncManager {
         // drop the whole corpus and `write` would replace both artifacts with empty ones: months of
         // page-1 reads gone, with no error. Nor would a second click recover it, since the surveyed
         // region is derived from the emptied corpus and the next run would survey the whole tree
-        // unscoped. The rename pass, risky-name scan and name normalizer carry the same guard.
-        if Self.isUnreadableRootMarker(walked, root: root) {
+        // unscoped. The rename pass and risky-name scan carry the same guard.
+        if Self.isUnreadableRootWalk(walked, at: root.path) {
             Logger.shared.warning("Refresh: could not read \(root.lastPathComponent) — "
                                   + "permission denied or unavailable. Nothing was re-surveyed, and "
                                   + "the memory already on disk was left exactly as it was.")

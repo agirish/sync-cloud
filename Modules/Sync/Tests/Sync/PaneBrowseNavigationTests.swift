@@ -113,7 +113,7 @@ import Events
         m.rightBrowsePath.drill(into: "Photos", atDepth: 0)
 
         // The left pane is already at "Documents"; the right one is not.
-        m.focusBoth(relativePath: "Documents")
+        m.focusBoth(left: "Documents", right: "Documents")
         #expect(m.leftBrowsePath.components == ["Invoices"], "a pane that didn't move keeps its columns")
         #expect(m.rightBrowsePath.isEmpty)
     }

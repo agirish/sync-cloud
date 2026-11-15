@@ -124,7 +124,6 @@ extension FileSyncManager {
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
-        fileManager fm: FileManaging? = nil,
         sampleAbove: Int = duplicateEdgeSampleAbove,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         cache: ContentHashCache? = .shared,
@@ -133,7 +132,6 @@ extension FileSyncManager {
         textlessCache: ContentHashCache? = .sharedTextless
     ) async {
         guard !isFindingDuplicates else { return }
-        let fileManager = fm ?? self.fileManager
         // The caches must be distinct instances. They share a key shape (`ContentHashKey`) and both
         // store a 64-hex string, so one instance holding both would silently serve a file's SHA-256
         // as its fingerprint, or the reverse. Decline the cache rather than trap: re-reading
@@ -169,20 +167,13 @@ extension FileSyncManager {
         // probe learns the tree's size before committing. Past the walk this hashes every
         // size-colliding file, so a tree too big for the probe costs real content reads, and the
         // user confirms it first.
-        let probe = NodeBudget(wholeTreeProbeBudget)
-        var tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil, budget: probe)
-        if Task.isCancelled { return }
-        if probe.didStopADescent {
-            let preflight = LargeWalkPreflight(pass: .duplicates, rootPath: root.path,
-                                               probeLimit: probe.limit)
-            guard largeWalkConfirmer(preflight) else {
-                Logger.shared.info("Duplicates: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
-                return
-            }
-            tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
-                                        maxDepth: nil)
-            if Task.isCancelled { return }
+        let tree: [FileNode]
+        switch await walkWholeTree(root, pass: .duplicates, fileManager: fileManager) {
+        case .walked(let walked): tree = walked
+        case .cancelled: return
+        case .declined(let preflight):
+            Logger.shared.info("Duplicates: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
+            return
         }
 
         // 2. Only files whose size collides with another can be identical, so hash just those.
@@ -399,7 +390,6 @@ extension FileSyncManager {
     nonisolated static func fingerprintDocuments(
         _ paths: [String],
         fileManager: FileManaging,
-        maxConcurrent: Int = 6,
         cache: ContentHashCache?,
         textless: ContentHashCache? = nil,
         extract: @escaping @Sendable (String) async -> FingerprintReading,
@@ -408,46 +398,33 @@ extension FileSyncManager {
         guard !paths.isEmpty else { return [:] }
         var out: [String: String] = [:]
         out.reserveCapacity(paths.count)
-        var next = 0
         var completed = 0
-        await withTaskGroup(of: (String, String?).self) { group in
-            func schedule(_ path: String) {
-                group.addTask {
-                    let key = fingerprintCacheKey(forPath: path, fileManager: fileManager)
-                    if let key {
-                        if let cached = await cache?.hash(for: key),
-                           !ContentFingerprint.isNoFingerprintMarker(cached) { return (path, cached) }
-                        // Only this scheme's negative is believed; another's is a miss, and the
-                        // document is read again below.
-                        if await textless?.hash(for: key) == ContentFingerprint.tooLittleTextMarker {
-                            return (path, nil)
-                        }
-                    }
-                    switch await extract(path) {
-                    case .digest(let digest):
-                        if let key { await cache?.store(digest, for: key) }
-                        return (path, digest)
-                    case .tooLittleText:
-                        if let key { await textless?.store(ContentFingerprint.tooLittleTextMarker, for: key) }
-                        return (path, nil)
-                    case .unreadable:
-                        return (path, nil)
-                    }
+        await forEachBounded(paths, width: contentReadWidth, work: { path -> (String, String?) in
+            let key = fingerprintCacheKey(forPath: path, fileManager: fileManager)
+            if let key {
+                if let cached = await cache?.hash(for: key),
+                   !ContentFingerprint.isNoFingerprintMarker(cached) { return (path, cached) }
+                // Only this scheme's negative is believed; another's is a miss, and the
+                // document is read again below.
+                if await textless?.hash(for: key) == ContentFingerprint.tooLittleTextMarker {
+                    return (path, nil)
                 }
             }
-            let initial = min(maxConcurrent, paths.count)
-            while next < initial { schedule(paths[next]); next += 1 }
-            for await (path, digest) in group {
-                if let digest { out[path] = digest }
-                completed += 1
-                onProgress?(completed)
-                if Task.isCancelled {
-                    group.cancelAll()
-                    continue
-                }
-                if next < paths.count { schedule(paths[next]); next += 1 }
+            switch await extract(path) {
+            case .digest(let digest):
+                if let key { await cache?.store(digest, for: key) }
+                return (path, digest)
+            case .tooLittleText:
+                if let key { await textless?.store(ContentFingerprint.tooLittleTextMarker, for: key) }
+                return (path, nil)
+            case .unreadable:
+                return (path, nil)
             }
-        }
+        }, collect: { (path, digest) in
+            if let digest { out[path] = digest }
+            completed += 1
+            onProgress?(completed)
+        })
         return out
     }
 
@@ -1654,10 +1631,7 @@ extension FileSyncManager {
         defer { mergingGroupIDs.remove(group.id) }
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): the merge copies into the keeper while Verify All may be hashing it.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before merging duplicates", log: .info)
-            return false
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before merging duplicates") { return false }
         // A vanished keeper must refuse, not silently recreate itself from the copies being folded.
         guard keeperStillExists(group) else {
             banner = .refusal("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.", log: .warn)
@@ -1667,10 +1641,8 @@ extension FileSyncManager {
         // on `activeProgress` drives the toolbar's progress capsule (bar, per-file line,
         // Cancel). One unit per redundant copy; the current file name rides along as the
         // additional description from inside the copy loop.
-        let progress = Progress(totalUnitCount: Int64(group.redundantCopies.count))
-        progress.localizedDescription = "Merging “\(group.name)”"
-        progress.isCancellable = true
-        progress.runLockReason = Progress.runLockReason(waitingFor: "the merge")
+        let progress = Progress(totalUnitCount: Int64(group.redundantCopies.count),
+                                title: "Merging “\(group.name)”", waitingFor: "the merge")
         activeProgress = progress
         defer {
             // Clear only if still ours: a queued operation may have published its own by now.
@@ -2406,13 +2378,37 @@ extension FileSyncManager {
     nonisolated static func hashFiles(
         _ paths: [String],
         fileManager: FileManaging,
-        maxConcurrent: Int = 6,
         cache: ContentHashCache?,
-        onProgress: (@Sendable (Int) -> Void)? = nil,
         isCancelled: @escaping @Sendable () -> Bool = { false }
     ) async -> [String: String] {
-        await hashFilesCounting(paths, fileManager: fileManager, maxConcurrent: maxConcurrent,
-                                cache: cache, onProgress: onProgress, isCancelled: isCancelled).hashes
+        await hashFilesCounting(paths, fileManager: fileManager,
+                                cache: cache, isCancelled: isCancelled).hashes
+    }
+
+    /// How many hashes, fingerprints or edge samples run at once.
+    nonisolated static let contentReadWidth = 6
+
+    /// Runs `work` over `items` with at most `width` in flight, started in index order and refilled
+    /// one per completion. Each result reaches `collect` as it lands. Once `stop()` holds after a
+    /// result, nothing new starts and the children in flight are cancelled, but still drained and
+    /// collected.
+    nonisolated static func forEachBounded<Item: Sendable, Output: Sendable>(
+        _ items: [Item],
+        width: Int,
+        stop: () -> Bool = { Task.isCancelled },
+        work: @escaping @Sendable (Item) async -> Output,
+        collect: (Output) -> Void
+    ) async {
+        var next = 0
+        await withTaskGroup(of: Output.self) { group in
+            func schedule(_ item: Item) { group.addTask { await work(item) } }
+            while next < min(width, items.count) { schedule(items[next]); next += 1 }
+            for await output in group {
+                collect(output)
+                if stop() { group.cancelAll(); continue }
+                if next < items.count { schedule(items[next]); next += 1 }
+            }
+        }
     }
 
     /// ``hashFiles`` plus per-reason skip counts. `isCloudOnly` is injectable for tests (a dataless
@@ -2430,7 +2426,6 @@ extension FileSyncManager {
     nonisolated static func hashFilesCounting(
         _ paths: [String],
         fileManager: FileManaging,
-        maxConcurrent: Int = 6,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         cache: ContentHashCache?,
         onProgress: (@Sendable (Int) -> Void)? = nil,
@@ -2440,40 +2435,27 @@ extension FileSyncManager {
         guard !paths.isEmpty else { return HashBatchOutcome() }
         var result = HashBatchOutcome()
         result.hashes.reserveCapacity(paths.count)
-        var next = 0
         var completed = 0
-        await withTaskGroup(of: (String, FileContentVerifier.HashOutcome).self) { group in
-            func schedule(_ path: String) {
-                group.addTask {
-                    (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
-                                                                 cache: cache,
-                                                                 isCloudOnly: isCloudOnly,
-                                                                 isCancelled: isCancelled))
-                }
+        // Cancellation stops scheduling new work, and the hashes in flight stop at their next chunk
+        // (`cancelAll` reaches them through ``FileContentVerifier/hashOutcome``; `isCancelled` they
+        // ask themselves).
+        await forEachBounded(paths, width: contentReadWidth, stop: { Task.isCancelled || isCancelled() }, work: { path in
+            (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
+                                                         cache: cache,
+                                                         isCloudOnly: isCloudOnly,
+                                                         isCancelled: isCancelled))
+        }, collect: { (path, outcome) in
+            switch outcome {
+            case .hashed(let hash): result.hashes[path] = hash
+            case .skippedCloudOnly: result.skippedCloudOnly += 1
+            // Counted, not dropped. See `DuplicateScanSkips.unverifiable`.
+            case .unverifiable: result.unverifiable += 1
+            // Not a skip: the scan was stopped, and a stopped scan publishes nothing.
+            case .cancelled: break
             }
-            let initial = min(maxConcurrent, paths.count)
-            while next < initial { schedule(paths[next]); next += 1 }
-            for await (path, outcome) in group {
-                switch outcome {
-                case .hashed(let hash): result.hashes[path] = hash
-                case .skippedCloudOnly: result.skippedCloudOnly += 1
-                // Counted, not dropped. See `DuplicateScanSkips.unverifiable`.
-                case .unverifiable: result.unverifiable += 1
-                // Not a skip: the scan was stopped, and a stopped scan publishes nothing.
-                case .cancelled: break
-                }
-                completed += 1
-                onProgress?(completed)
-                // Cancellation stops scheduling new work, and the hashes in flight stop at their
-                // next chunk (`cancelAll` reaches them through ``FileContentVerifier/hashOutcome``;
-                // `isCancelled` they ask themselves).
-                if Task.isCancelled || isCancelled() {
-                    group.cancelAll()
-                    continue
-                }
-                if next < paths.count { schedule(paths[next]); next += 1 }
-            }
-        }
+            completed += 1
+            onProgress?(completed)
+        })
         return result
     }
 
@@ -2497,7 +2479,6 @@ extension FileSyncManager {
     /// with any uncached file is sampled whole, since samples compare only with samples.
     nonisolated static func edgeSamples(
         _ files: [(path: String, size: Int)],
-        maxConcurrent: Int = 6,
         fileManager: FileManaging,
         cache: ContentHashCache?,
         isCloudOnly: @escaping @Sendable (String) -> Bool
@@ -2505,41 +2486,23 @@ extension FileSyncManager {
         var files = files
         if let cache {
             var cached = Set<String>()
-            await withTaskGroup(of: (String, Bool).self) { group in
-                var next = 0
-                func schedule(_ path: String) {
-                    group.addTask {
-                        (path, await FileContentVerifier.cachedDigest(filePath: path, fileManager: fileManager,
-                                                                      cache: cache) != nil)
-                    }
-                }
-                while next < min(maxConcurrent, files.count) { schedule(files[next].path); next += 1 }
-                for await (path, isCached) in group {
-                    if isCached { cached.insert(path) }
-                    if Task.isCancelled { group.cancelAll(); continue }
-                    if next < files.count { schedule(files[next].path); next += 1 }
-                }
-            }
+            await forEachBounded(files.map(\.path), width: contentReadWidth, work: { path in
+                (path, await FileContentVerifier.cachedDigest(filePath: path, fileManager: fileManager,
+                                                              cache: cache) != nil)
+            }, collect: { (path, isCached) in
+                if isCached { cached.insert(path) }
+            })
             let sizes = Dictionary(grouping: files, by: \.size)
             let fullyCached = Set(sizes.filter { $0.value.allSatisfy { cached.contains($0.path) } }.keys)
             files = files.filter { !fullyCached.contains($0.size) }
         }
         var samples: [String: String] = [:]
-        var next = 0
-        await withTaskGroup(of: (String, String?).self) { group in
-            func schedule(_ file: (path: String, size: Int)) {
-                group.addTask {
-                    (file.path, await FileContentVerifier.edgeSample(filePath: file.path, size: file.size,
-                                                                     isCloudOnly: isCloudOnly))
-                }
-            }
-            while next < min(maxConcurrent, files.count) { schedule(files[next]); next += 1 }
-            for await (path, sample) in group {
-                if let sample { samples[path] = sample }
-                if Task.isCancelled { group.cancelAll(); continue }
-                if next < files.count { schedule(files[next]); next += 1 }
-            }
-        }
+        await forEachBounded(files, width: contentReadWidth, work: { file in
+            (file.path, await FileContentVerifier.edgeSample(filePath: file.path, size: file.size,
+                                                             isCloudOnly: isCloudOnly))
+        }, collect: { (path, sample) in
+            if let sample { samples[path] = sample }
+        })
         return samples
     }
 

@@ -9,15 +9,6 @@ extension FileSyncManager {
 
     // MARK: Scan
 
-    /// True when a walk came back as nothing but the unreadable root itself. `buildTree` reports
-    /// a permission-denied root as one unexplored marker with the root's own path, which the
-    /// detector can't tell from a real entry. It would flag the root, and "Fix all" would rename a
-    /// folder it can't list (a rename needs only parent-write), dangling the pane focus, the
-    /// provider root and everything aimed at the old path. Every name scan must check it.
-    static func isUnreadableRootMarker(_ tree: [FileNode], root: URL) -> Bool {
-        tree.count == 1 && tree.first?.isUnexplored == true && tree.first?.id == root.path
-    }
-
     /// Flags provider-hostile names on a tree the caller has already walked. The Filing scan walks
     /// the whole provider anyway, so risky names come back on that pass with no second walk or
     /// button. Detached, to keep the main actor free.
@@ -27,7 +18,7 @@ extension FileSyncManager {
     func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType,
                           isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
         // Never offer to rename an unreadable provider root.
-        if Self.isUnreadableRootMarker(tree, root: root) {
+        if Self.isUnreadableRootWalk(tree, at: root.path) {
             riskyNames = []
             completeScan(\.nameScanLifecycle, root: root)
             Logger.shared.warning("Filing scan: could not read \(root.lastPathComponent) — permission denied; no names checked")
@@ -63,10 +54,7 @@ extension FileSyncManager {
     public func normalizeNames(_ selected: [RiskyName]) async {
         // Verify All's write exclusion, as in syncFile and Filing: a rename moves an item Verify
         // All may be hashing.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before normalizing names", log: .info)
-            return
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before normalizing names") { return }
         guard !selected.isEmpty, !isNormalizingNames else { return }
         isNormalizingNames = true
         defer { isNormalizingNames = false }
@@ -138,10 +126,9 @@ extension FileSyncManager {
     // MARK: Helpers
 
     /// Number of path components — the sort key for deepest/shallowest-first ordering.
-    private nonisolated static func componentCount(_ path: String) -> Int {
+    private func pathDepth(_ path: String) -> Int {
         URL(fileURLWithPath: path).pathComponents.count
     }
-    private func pathDepth(_ path: String) -> Int { Self.componentCount(path) }
 
     /// Flattens a walked tree into `(relativePath, absolutePath, name, isDirectory)` for every
     /// node, folders included (``flattenFiles(_:)`` and

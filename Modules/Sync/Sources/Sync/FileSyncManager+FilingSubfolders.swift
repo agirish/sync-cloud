@@ -160,7 +160,7 @@ extension FileSyncManager {
             || (folder as NSString).lastPathComponent == "Downloads"
         guard let profile, let root = profile.recordedFolderPath else { return waits }
         if PathBoundary.contains(root, under: folder) { return false }
-        guard FilingSurveyInUse.isAtOrInsideSurvey(folder, root) else { return true }
+        guard FilingSurveyInUse.isAtOrInside(folder, root) else { return true }
         guard let relative = relativePath(folder, under: root) else { return false }
         if FolderProfile.isInboxPath(relative) { return true }
         // A folder that refuses new files for its own reason (a closed account) is still filed

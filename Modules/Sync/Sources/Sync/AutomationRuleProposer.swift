@@ -456,13 +456,11 @@ public enum AutomationRuleProposer {
                              modificationDate: Date?) -> AutomationFileFacts {
         let sample = evidence.pageSample.map { String($0.prefix(FilingRouter.contentSampleChars)) }
         return AutomationFileFacts(
-            path: destination + "/" + fileName,
             name: fileName,
             parentFolderName: (destination as NSString).lastPathComponent,
             parentPath: destination,
             sizeBytes: 0,
             modificationDate: modificationDate,
-            isDirectory: false,
             snippet: sample?.lowercased(),
             contentTokens: sample.map { FilingEngine.nameTokens($0) } ?? [])
             // Attributed, or the self-match check silently drops every person variant: `personIs`

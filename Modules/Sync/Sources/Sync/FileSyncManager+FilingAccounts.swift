@@ -296,9 +296,8 @@ extension FileSyncManager {
                                                     sharedStatementFolders: filingSharedStatementFolders,
                                                     isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
                                                     preferences: filingPreferences,
-                                                    rejected: [suggestion.filePath: Self.rejectedPaths(forFileNamed: suggestion.fileName,
-                                                                                                        in: filingRejections(under: URL(fileURLWithPath: root)))
-                                                        .union(filingSessionRejections[suggestion.filePath] ?? [])])
+                                                    rejected: [suggestion.filePath: rejectedFolders(fileName: suggestion.fileName, filePath: suggestion.filePath,
+                                                                                                    in: filingRejections(under: URL(fileURLWithPath: root)))])
         if let f = facts[suggestion.filePath] { filingDocumentFacts[suggestion.filePath] = f }
         return placed.first ?? suggestion
     }

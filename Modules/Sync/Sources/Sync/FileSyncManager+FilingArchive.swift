@@ -98,14 +98,14 @@ extension FileSyncManager {
     @discardableResult
     public func moveOutOfArchiveThenFile(_ group: FilingCardGroup, offer: FilingArchiveOffer) async -> Int {
         let fm = fileManager
-        guard !isVerifyAllRunning, !filingBatchInFlight.contains(ObjectIdentifier(self)) else {
+        guard !isVerifyAllRunning, !isFilingBatchRunning else {
             banner = .refusal("Wait for the filing or Verify All in progress to finish", log: .info)
             return 0
         }
         guard let root = filingLastProviderRoot ?? group.members.first?.providerRoot else { return 0 }
         // Held from here to the end: no other filing starts between the move and the filing.
-        filingBatchInFlight.insert(ObjectIdentifier(self))
-        defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
+        isFilingBatchRunning = true
+        defer { isFilingBatchRunning = false }
         guard !fm.fileExists(atPath: offer.target) else {
             banner = .refusal("“\((offer.target as NSString).lastPathComponent)” is already beside \(offer.archiveName); filed nothing", log: .info)
             return 0

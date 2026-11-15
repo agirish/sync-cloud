@@ -163,8 +163,8 @@ import Testing
         #expect(try JSONDecoder().decode([AutomationCondition].self, from: data) == [condition])
         let rule = AutomationRule(name: "r", conditions: [condition], destinationTemplate: "T")
         func facts(_ name: String) -> AutomationFileFacts {
-            AutomationFileFacts(path: "/x/" + name, name: name, parentFolderName: "x", parentPath: "/x",
-                                sizeBytes: 0, modificationDate: nil, isDirectory: false)
+            AutomationFileFacts(name: name, parentFolderName: "x", parentPath: "/x",
+                                sizeBytes: 0, modificationDate: nil)
         }
         #expect(AutomationEvaluator.matches(rule, facts("Japan Airlines receipt.pdf"), now: Date()))
         #expect(AutomationEvaluator.matches(rule, facts("JAL.pdf"), now: Date()))
@@ -177,8 +177,8 @@ import Testing
         let rule = AutomationRule(name: "r", conditions: [.nameMatches("*jal*")],
                                   destinationTemplate: "Trips/{travel-year}")
         #expect(rule.requiresContent)
-        let facts = AutomationFileFacts(path: "/x/JAL.pdf", name: "JAL.pdf", parentFolderName: "x", parentPath: "/x",
-                                        sizeBytes: 0, modificationDate: nil, isDirectory: false)
+        let facts = AutomationFileFacts(name: "JAL.pdf", parentFolderName: "x", parentPath: "/x",
+                                        sizeBytes: 0, modificationDate: nil)
         #expect(AutomationRuleSet.eligible([rule]).contentCouldStillDecide(facts, now: Date()))
         let plain = AutomationRule(name: "p", conditions: [.nameMatches("*jal*")], destinationTemplate: "Trips")
         #expect(!AutomationRuleSet.eligible([plain]).contentCouldStillDecide(facts, now: Date()))

@@ -917,8 +917,8 @@ import Combine
         }
 
         // Names sort Finder-style (numeric-aware), so hashing schedules f0…f119 in order and
-        // f50–f55 are the 6 in flight when the 50th completion publishes. 6 is hashFiles'
-        // `maxConcurrent` default: if that widens, the waitUntil below times out (a failure, not
+        // f50–f55 are the 6 in flight when the 50th completion publishes. 6 is
+        // `contentReadWidth`: if that widens, the waitUntil below times out (a failure, not
         // a hang); widen this set to match.
         let gate = GatingFileManager(gatedNames: Set((50...55).map { "f\($0).bin" }))
         defer { gate.release() }   // never leave hasher tasks parked if an assertion bails early

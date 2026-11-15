@@ -190,10 +190,9 @@ extension FileSyncManager {
         // re-checked before publishing too.
         let startOperationsEpoch = fileOperationsEpoch
 
-        let progress = Progress(totalUnitCount: Int64(toVerify.count))
-        progress.localizedDescription = "Verifying \(CountedNoun.phrase(toVerify.count, "file"))"
-        progress.isCancellable = true
-        progress.runLockReason = Progress.runLockReason(waitingFor: "Verify All")
+        let progress = Progress(totalUnitCount: Int64(toVerify.count),
+                                title: "Verifying \(CountedNoun.phrase(toVerify.count, "file"))",
+                                waitingFor: "Verify All")
         activeProgress = progress
         verifyAllProgress = (0, toVerify.count)
 

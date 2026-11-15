@@ -65,7 +65,6 @@ import Testing
         let m = manager(spend: 3.5, limit: 10)
         let p = try #require(preflight(m))
         #expect(p.monthlyCapUSD == 10 && p.monthlySpentUSD == 3.5, "the chat's spend counts")
-        #expect(p.totalCapUSD == 0 && p.totalSpentUSD == 0, "the old lifetime cap is not read")
         #expect(!p.wouldExceedCap)
         #expect(try #require(preflight(manager(spend: 9.999, limit: 10))).wouldExceedCap)
         // The old Organize caps, by the strings they were stored under, are not read at all.

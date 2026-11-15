@@ -169,7 +169,7 @@ import Testing
         #expect(!m.leftChangedOnDisk, "a \"last opened\" stamp marked the pane changed")
         #expect(m.prefetchedTrees[f.left] != nil, "a \"last opened\" stamp dropped the cached walk")
         // The same with other flags is news: an attribute change alongside an edit.
-        #expect(!FileSyncManager.onlyExtendedAttributes([.extendedAttributes, .modified, .isFile]))
+        #expect(!FolderWatchEvent.Change([.extendedAttributes, .modified, .isFile]).isOnlyExtendedAttributes)
         m.sortOption = .tags
         await Self.settle(m)
         let tagged = FolderWatchEvent(id: FolderWatcher.currentEventId() + 1, root: f.left, path: path, realPath: path,

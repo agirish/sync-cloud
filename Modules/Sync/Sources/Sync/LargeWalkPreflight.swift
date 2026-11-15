@@ -54,3 +54,31 @@ public struct LargeWalkPreflight: Sendable, Equatable {
         FolderSource.defaultDisplayName(forPath: rootPath, volumeName: FolderSource.volumeName(of:))
     }
 }
+
+/// How `FileSyncManager.walkWholeTree` ended.
+enum WholeTreeWalk {
+    case walked([FileNode])
+    /// The probe hit its budget and `largeWalkConfirmer` said no. The caller logs its own decline.
+    case declined(LargeWalkPreflight)
+    case cancelled
+}
+
+extension FileSyncManager {
+    /// The ask-first every whole-tree pass makes. Walks `root` under `wholeTreeProbeBudget` first:
+    /// under the budget the probe is the tree and nothing is walked twice; over it,
+    /// `largeWalkConfirmer` decides whether to walk again in full. The probe's tree can't be
+    /// extended, because its unexplored nodes look the same as cycle-guarded and
+    /// permission-denied ones.
+    func walkWholeTree(_ root: URL, pass: LargeWalkPreflight.Pass, fileManager: FileManaging) async -> WholeTreeWalk {
+        let probe = NodeBudget(wholeTreeProbeBudget)
+        let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager,
+                                        maxDepth: nil, budget: probe)
+        if Task.isCancelled { return .cancelled }
+        guard probe.didStopADescent else { return .walked(tree) }
+        let preflight = LargeWalkPreflight(pass: pass, rootPath: root.path, probeLimit: probe.limit)
+        guard largeWalkConfirmer(preflight) else { return .declined(preflight) }
+        let full = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        if Task.isCancelled { return .cancelled }
+        return .walked(full)
+    }
+}

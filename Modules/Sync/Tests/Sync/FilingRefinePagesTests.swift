@@ -467,7 +467,7 @@ extension HandBuiltRefineSuites {
         let m = manager(Seen())
         await scan(m, root: root)
         let plan = try #require(await m.prepareFilingRefine(m.filingSuggestions))
-        #expect(plan.modelID == m.filingRefineModelID && plan.modelName == m.filingRefineModelName)
+        #expect(plan.modelName == m.filingRefineModelName)
 
         // Send builds again with the plan's own options: a tick the plan was not made with is not applied.
         let ticked = try #require(await m.prepareFilingRefine(m.filingSuggestions, options: .init(pagesFromAskEachTime: true)))

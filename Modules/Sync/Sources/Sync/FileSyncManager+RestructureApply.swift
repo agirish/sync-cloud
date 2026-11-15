@@ -161,7 +161,7 @@ extension FileSyncManager {
         -> RestructureApplyOutcome {
         let elapsed = Elapsed()
         var outcome = RestructureApplyOutcome()
-        if let refusal = restructureLandingRefusal() {
+        if let refusal = restructureLandingBlocker {
             outcome.refusal = refusal
             return outcome
         }
@@ -381,7 +381,7 @@ extension FileSyncManager {
                                                          in: profilesDirectory)
         let jurisdictions = RestructureRederive.entryJurisdictions(of: profile)
         // As the file spells it, `~` and all, never the `~` a file without one decodes to: every
-        // landing refuses that profile first (`restructureLandingRefusal`).
+        // landing refuses that profile first (`restructureLandingBlocker`).
         let recordedRoot = profile.root
         // `carryOver` rides in the same detached hop: a pure function rebuilding thousands of
         // entries, with no reason to be on the main actor. One hop, since only it reads the build.
@@ -588,7 +588,7 @@ extension FileSyncManager {
     /// Returns `.updated` with the folder counts, or `.refused` with the sentence the card shows.
     /// A refusal is never queued: "wait for the scan" means wait and press it again.
     public func refreshDerivedProfile(now: Date = Date()) async -> SurveyRefreshOutcome {
-        if let refusal = restructureLandingRefusal() { return .refused(refusal) }
+        if let refusal = restructureLandingBlocker { return .refused(refusal) }
         restructureLandingInProgress = true
         // `rederiveProfile` publishes progress, and `applyPlan`'s defer doesn't run here, so this
         // one clears it, or the next plan sheet would open on a stale checklist.
@@ -633,10 +633,11 @@ extension FileSyncManager {
     /// *Undo this reorganisation*: the ledger's inverse, run through the same guards and
     /// re-probes, then `profiles.json` re-pointed back to `appliedUnderProfileId`, kept for this.
     /// Unlike ⌘Z it survives a quit. A file that moved on since is skipped and reported.
-    public func undoReorganisation(manifestId: String, now: Date = Date()) async
+    public func undoReorganisation(manifestId: String) async
         -> RestructureApplyOutcome {
+        let now = Date()
         var outcome = RestructureApplyOutcome()
-        if let refusal = restructureLandingRefusal() {
+        if let refusal = restructureLandingBlocker {
             outcome.refusal = refusal
             return outcome
         }

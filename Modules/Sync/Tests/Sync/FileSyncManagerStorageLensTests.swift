@@ -29,7 +29,6 @@ import Foundation
         #expect(manager.storageLensLifecycle.hasCompleted)
         #expect(manager.isBuildingStorageLens == false)
         #expect(manager.storageLensLifecycle.status == nil)
-        #expect(manager.storageLensProgress == 0)
     }
 
     @MainActor
@@ -79,7 +78,6 @@ import Foundation
         #expect(manager.storageLensLifecycle.hasCompleted, "hasCompleted flips only on completion")
         #expect(manager.isBuildingStorageLens == false)
         #expect(manager.storageLensLifecycle.status == nil)
-        #expect(manager.storageLensProgress == 0)
     }
 
     @MainActor

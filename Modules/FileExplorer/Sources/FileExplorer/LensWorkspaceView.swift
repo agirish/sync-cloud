@@ -18,15 +18,6 @@ public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
     /// action lenses.
     case storage = "Storage"
     public var id: String { rawValue }
-
-    /// The lens's name, shown in the header card. Kept separate from `rawValue` so it can be
-    /// reworded without breaking a stored id (Filing shows as "Organize").
-    public var title: String {
-        switch self {
-        case .filing: return "Organize"
-        default: return rawValue
-        }
-    }
 }
 
 /// Filter over the match type of duplicate groups.
@@ -59,33 +50,15 @@ enum DuplicateMatchFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// The symbol/color/label vocabulary for a match type — reuses SyncCloud's difference palette
-/// (green seal = certain, orange = attention, yellow = name conflict, purple = versions).
+/// The color/badge vocabulary for a match type — reuses SyncCloud's difference palette
+/// (green = certain, orange = attention, yellow = name conflict, purple = versions).
 enum DuplicateMatchStyle {
-    static func symbol(_ type: DuplicateMatchType) -> String {
-        switch type {
-        case .identical: return "checkmark.seal.fill"
-        // A seal, like `identical`, but unfilled: the same claim made with less certainty behind
-        // it. The glyph pair is the vocabulary — nothing here relies on the colour alone.
-        case .sameText: return "checkmark.seal"
-        case .overlapping: return "square.on.square"
-        case .versions: return "clock.arrow.circlepath"
-        }
-    }
     static func color(_ type: DuplicateMatchType) -> Color {
         switch type {
         case .identical: return SemanticColor.success
         case .sameText: return SemanticColor.caution
         case .overlapping: return SemanticColor.warning
         case .versions: return .purple
-        }
-    }
-    static func label(_ type: DuplicateMatchType) -> String {
-        switch type {
-        case .identical: return "Identical"
-        case .sameText: return "Same text"
-        case .overlapping(let f): return "Overlapping · \(Int((f * 100).rounded()))%"
-        case .versions: return "Versions"
         }
     }
 
@@ -2521,18 +2494,6 @@ public struct LensWorkspaceView: View {
         .accessibilityHint(help)
     }
 
-    /// The risky-names pills, over the rows on screen. No count pill, because the rail badge
-    /// carries it, and no root of its own: the scope chip names the subject for every lens.
-    private func renameSummary(_ risky: [RiskyName]) -> some View {
-        let folders = risky.filter(\.isDirectory).count
-        return Group {
-            if folders > 0 {
-                SummaryRun(count: folders, label: folders == 1 ? "folder" : "folders",
-                           color: .secondary, systemImage: "folder")
-            }
-        }
-    }
-
     /// Automations' pills, over the filtered rules. The folder chip names the focused folder, the
     /// one a preview would run over, since rules aren't scanned from anywhere.
     private func automationsSummary(_ rules: [AutomationRule]) -> some View {
@@ -2663,7 +2624,7 @@ public struct LensWorkspaceView: View {
     /// "Rename N files", over the plans on screen: the same value the label counts and the action
     /// applies, as in `applyAllButton`.
     ///
-    /// Gated on there being some, like `fixAllButton`, `fileAllButton` and `applyAllButton`: the
+    /// Gated on there being some, like `fileAllButton` and `applyAllButton`: the
     /// caller's gate reads the global backlog while these rows are narrowed, so a scope with no
     /// drifted folders would otherwise show an enabled "Rename 0 files". The gate counts files,
     /// not plans: a plan whose steps have all been applied is still a plan.
@@ -2683,32 +2644,6 @@ public struct LensWorkspaceView: View {
             .help("Renames \(files) file\(files == 1 ? "" : "s") across \(plans.count) "
                   + "folder\(plans.count == 1 ? "" : "s") to match each folder’s own convention. "
                   + "One undoable change — ⌘Z puts every name back.")
-        }
-    }
-
-    /// "Fix all N", scoped to the filtered risky names. `onNormalize` takes its rows explicitly,
-    /// so this is safe by construction given the filtered array.
-    @ViewBuilder
-    private func fixAllButton(_ risky: [RiskyName]) -> some View {
-        if !risky.isEmpty {
-            // Built as a value, not concatenated inside `.help`: a ternary with two interpolations
-            // joined by `+` to two more literals exceeds the type-checker's budget, which depends
-            // on the deployment target's overload sets.
-            let scope = isFiltered
-                ? "the \(risky.count) name\(risky.count == 1 ? "" : "s") your search left showing"
-                : "every risky name above"
-            let help = "Renames \(scope) to its cloud-safe form. Never overwrites an existing "
-                + "file, and the whole pass undoes with a single ⌘Z."
-            Button { onNormalizeNames(risky) } label: {
-                Label("Fix All \(risky.count)", systemImage: "checkmark.circle.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .accentedProminent(glassHue)
-            .chromeHover()
-            .controlSize(.small)
-            .disabled(syncManager.isNormalizingNames)
-            .lockedDuringRun()
-            .help(help)
         }
     }
 
@@ -2857,7 +2792,6 @@ public struct LensWorkspaceView: View {
         .sheet(item: $removalRequest) { request in
             RestructureRemovalSheet(
                 candidates: request.candidates,
-                accent: glassHue.accentColor,
                 isStanding: request.isStanding,
                 onRemove: { paths in await removeEmptied(paths, for: request) },
                 onClose: { removalRequest = nil })
@@ -3451,7 +3385,6 @@ public struct LensWorkspaceView: View {
             // Storage's own verb, not `onRun`: it is in no `OrganizePass`, so `rescanControl` has
             // nothing to build a button from. Gated as the header's button is.
             onBuildStorage: onBuildStorage,
-            isBuildingStorage: syncManager.isBuildingStorageLens,
             documentSurvey: documentSurveyCard,
             onStartDocumentSurvey: onStartDocumentSurvey,
             onStartDocumentSurveyOver: onStartDocumentSurveyOver,
@@ -5028,22 +4961,6 @@ public struct LensWorkspaceView: View {
                                                        listIsEmpty: syncManager.duplicateGroups.isEmpty)
         if let id = plan.expandsGroupID { expanded.insert(id) }
         revealedGroupID = plan.revealedGroupID
-    }
-
-    /// Test seam: what the lens shows as a result of a handoff. One value, so a test asserts the
-    /// landing (which group is open, which is marked, what the field says).
-    struct RevealState: Equatable {
-        var expandedGroupIDs: Set<UUID>
-        var revealedGroupID: UUID?
-        var landing: DuplicateReveal.Landing?
-        var query: String
-        var filter: DuplicateMatchFilter
-    }
-
-    var revealState: RevealState {
-        RevealState(expandedGroupIDs: expanded, revealedGroupID: revealedGroupID,
-                    landing: revealLanding, query: searchQueries[.duplicates] ?? "",
-                    filter: filter)
     }
 
     private func toggle(_ id: UUID) {

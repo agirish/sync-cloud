@@ -15,12 +15,11 @@ extension FileSyncManager {
     /// walk or button: the Filing scan already reads the whole provider, and ``RenamePlanner`` is
     /// pure, so the backlog comes back on that pass for free. Detached, like the names detector:
     /// planning thousands of folders inline would block the main actor.
-    func detectRenamePlans(in tree: [FileNode], root: URL,
-                           isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
+    func detectRenamePlans(in tree: [FileNode], root: URL) async {
         // The names detector's wall: an unreadable root walks back as one marker carrying the
         // root's own path, and planning renames for a folder we can't list is the worst thing this
         // feature could do with it.
-        if Self.isUnreadableRootMarker(tree, root: root) {
+        if Self.isUnreadableRootWalk(tree, at: root.path) {
             renamePlans = []
             Logger.shared.warning("Filing scan: could not read \(root.lastPathComponent) — permission denied; no renames planned")
             return
@@ -32,7 +31,7 @@ extension FileSyncManager {
         let plans = await Task.detached(priority: .userInitiated) {
             Self.planRenames(in: tree, rootPath: rootPath, profile: profile)
         }.value
-        if isCancelled() { return }
+        if Task.isCancelled { return }
 
         renamePlans = plans
         let steps = plans.reduce(0) { $0 + $1.steps.count }
@@ -204,10 +203,7 @@ extension FileSyncManager {
     public func applyRenamePlans(_ plans: [RenamePlan]) async {
         // Verify All's write-exclusion guard, as in `normalizeNames`: a rename moves a file Verify
         // All may be hashing.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before renaming", log: .info)
-            return
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before renaming") { return }
         guard !plans.isEmpty, !isApplyingRenames else { return }
         isApplyingRenames = true
         defer { isApplyingRenames = false }

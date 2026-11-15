@@ -304,9 +304,6 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
     public var isAlreadyFiled: Bool { !alreadyFiledAt.isEmpty }
-    /// The rename the card offers alongside the move, or nil when the best home doesn't name its
-    /// files by a convention this pass can read.
-    public var proposedName: String? { best?.proposedName }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
     /// Eligible for the blind "File recommended" batch: a `.high` home derived from the filename
     /// (not content, not the LLM). Content and AI homes still get a per-file "File here" but aren't
@@ -793,12 +790,11 @@ public enum FilingEngine {
                                 identity: PersonIdentityIndex? = nil) -> AutomationFileFacts {
         let parentPath = (file.id as NSString).deletingLastPathComponent
         return AutomationFileFacts(
-            path: file.id, name: file.name,
+            name: file.name,
             parentFolderName: (parentPath as NSString).lastPathComponent,
             parentPath: parentPath,
             sizeBytes: file.fileSize ?? 0,
             modificationDate: file.modificationDate,
-            isDirectory: file.isDirectory,
             // Lowercased here, the one choke point on the scan path: the facts contract says
             // "already lowercased", the scan hands over raw extractor text, and `contentContains`
             // compares against a lowercased needle, so "Invoice" would never match "invoice".

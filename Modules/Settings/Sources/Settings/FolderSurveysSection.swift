@@ -93,7 +93,7 @@ struct FolderSurveysSection: View {
     }
 
     private func isPrimary(_ root: String) -> Bool {
-        primaryRoot.map { FilingSurveyInUse.isAtOrInsideSurvey(root, $0) } ?? false
+        primaryRoot.map { FilingSurveyInUse.isAtOrInside(root, $0) } ?? false
     }
 
     @ViewBuilder

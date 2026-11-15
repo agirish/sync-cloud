@@ -40,21 +40,11 @@ import Design
         #expect(!DuplicateMatchFilter.versions.matches(group(.overlapping(sharedFraction: 0.9))))
     }
 
-    @Test func overlapLabelShowsPercent() {
-        #expect(DuplicateMatchStyle.label(.overlapping(sharedFraction: 0.92)) == "Overlapping · 92%")
-        #expect(DuplicateMatchStyle.label(.identical) == "Identical")
-    }
-
     @Test func lensSymbolNamesExistInSFSymbols() {
-        // A typo'd symbol renders blank at runtime; pin every name the lens workspace uses (mirrors
+        // A typo'd symbol renders blank at runtime; pin each name the lens workspace holds in a
+        // constant, not a `systemImage:` literal, so the source scan below can't see it (mirrors
         // DifferenceGlyphTests.testSymbolNamesExistInSFSymbols).
-        var symbols: [String] = [
-            // match-type badges
-            DuplicateMatchStyle.symbol(.identical), DuplicateMatchStyle.symbol(.overlapping(sharedFraction: 0.5)),
-            DuplicateMatchStyle.symbol(.versions),
-        ]
-        // A constant, not a `systemImage:` literal, so the source scan below can't see it.
-        symbols.append(RevealGlyph.inFinder)
+        let symbols = [RevealGlyph.inFinder]
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
                     "missing SF Symbol \(symbol)")

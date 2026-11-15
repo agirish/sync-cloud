@@ -185,20 +185,6 @@ import Foundation
         #expect(OrganizeScopeFilter.matches(keeperOutside, scope: s))
     }
 
-    @Test func theOutOfScopeCopiesOfAnAdmittedGroupAreLabelledNotHidden() {
-        // A straddling group keeps both copies, and the label's predicate tells them apart. Hiding
-        // half a group turns a two-copy decision into a one-copy one, and the wrong copy gets
-        // trashed.
-        let s = Self.scope(Self.legal)
-        let straddling = Self.group(["/Users/x/Documents/Legal/a.pdf",
-                                     "/Users/x/Documents/Medical/a.pdf"])
-        #expect(straddling.copies.count == 2)
-        #expect(OrganizeScopeFilter.isCopyInScope(straddling.copies[0], scope: s))
-        #expect(!OrganizeScopeFilter.isCopyInScope(straddling.copies[1], scope: s))
-        // Unscoped, the label never renders.
-        #expect(straddling.copies.allSatisfy { OrganizeScopeFilter.isCopyInScope($0, scope: nil) })
-    }
-
     // MARK: Handoffs
 
     /// A reveal clears the scope only for a file outside it. The reveal resolves against the whole

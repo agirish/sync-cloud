@@ -233,11 +233,6 @@ public struct FilingVerdictCache: Sendable, Equatable {
             .prefix(limit)
         entries = Dictionary(uniqueKeysWithValues: survivors.map { ($0.key, $0) })
     }
-
-    /// Forgets every entry for files under `root`: the per-provider clear.
-    public mutating func removeAll(under root: String) {
-        entries = entries.filter { !PathBoundary.contains($0.key.filePath, under: root) }
-    }
 }
 
 // MARK: - Codable

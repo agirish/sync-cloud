@@ -213,12 +213,10 @@ extension FileSyncManager {
         destinationRoot: URL? = nil,
         providerName: String?,
         only: UUID? = nil,
-        fileManager fm: FileManaging? = nil,
         now: Date = Date()
     ) async {
         guard !automationDryRunLifecycle.isRunning else { return }
         ensureAutomationRulesLoaded()
-        let fileManager = fm ?? self.fileManager
         // Destinations resolve against the provider root; with none given (tests on a temp dir),
         // against the scanned folder.
         let destinationAnchor = destinationRoot ?? root
@@ -272,13 +270,11 @@ extension FileSyncManager {
         for file in looseFiles {
             if Task.isCancelled { return }
             var facts = AutomationFileFacts(
-                path: file.id,
                 name: file.name,
                 parentFolderName: parentFolderName,
                 parentPath: parentPath,
                 sizeBytes: file.fileSize ?? 0,
-                modificationDate: file.modificationDate,
-                isDirectory: file.isDirectory
+                modificationDate: file.modificationDate
             ).attributing(registry, identity: identity)
 
             // Read the text only when it could still change a rule's outcome. A rule the name
@@ -391,10 +387,7 @@ extension FileSyncManager {
     @discardableResult
     public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
         // Don't move files Verify All may be checksumming (same guard Filing uses).
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before filing", log: .info)
-            return (0, 0)
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before filing") { return (0, 0) }
         let fm = fileManager
         let logger = Logger.shared
         let actionable = rows.filter { $0.destinationDir != nil }

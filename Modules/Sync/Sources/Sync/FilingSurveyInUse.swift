@@ -74,11 +74,9 @@ public struct FilingSurveyInUse: Equatable, Sendable {
         return (fraction >= borrowThreshold ? .borrowed : .byName, false)
     }
 
-    /// `path` is the survey's folder or inside it: the test that makes a tree the primary one.
-    public static func isAtOrInsideSurvey(_ path: String, _ root: String) -> Bool { isAtOrInside(path, root) }
-
-    /// `path` is `root` or a folder inside it, in either spelling of a link on the way.
-    static func isAtOrInside(_ path: String, _ root: String) -> Bool {
+    /// `path` is `root` or a folder inside it, in either spelling of a link on the way: the test
+    /// that makes a tree the survey's primary one.
+    public static func isAtOrInside(_ path: String, _ root: String) -> Bool {
         func real(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
         for (p, r) in [(path, root), (real(path), real(root))] {
             let p = p.lowercased(), r = r.hasSuffix("/") ? String(r.dropLast()).lowercased() : r.lowercased()

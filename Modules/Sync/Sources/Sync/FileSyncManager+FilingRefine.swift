@@ -227,7 +227,6 @@ extension FileSyncManager {
         let routedToCloud: Bool
         let existingRelative: Set<String>
         let preAwaitGeneration: Int
-        let excludedByFile: [String: [String]]
         let keysByFile: [String: FilingVerdictKey]
         let cachedVerdicts: [String: FilingVerdict]
         /// The saved answers that were given with the file's page 1.
@@ -304,7 +303,7 @@ extension FileSyncManager {
         let excludedByFile = Dictionary(uniqueKeysWithValues: eligible.map { s in
             // A rejected folder goes out as "avoid: …", so a hidden one is left off, and so is one
             // Customize… left out: its name goes nowhere.
-            (s.filePath, rejectedFolders(for: s, in: scopedRejections)
+            (s.filePath, rejectedFolders(fileName: s.fileName, filePath: s.filePath, in: scopedRejections)
                 .filter { !hidden.isHidden($0) }
                 .compactMap { Self.relativePath($0, under: root) }
                 .filter { !Self.isLeftOut($0, in: leftOut) })
@@ -313,9 +312,8 @@ extension FileSyncManager {
         // Split against the cache first (see the doc above for why this precedes the pre-flight).
         let identity = resolvedFilingVerdictIdentity(for: .refine)
         let routedToCloud = filingRoutesToCloud(.refine)
-        let downloadsBeforeAsking = filingReadsContents && filingSnippetExtractor != nil
-            && filingRoutesToCloud(.refine)
         let hadReader = filingReadsContents && filingSnippetExtractor != nil
+        let downloadsBeforeAsking = hadReader && routedToCloud
         func isShared(_ s: FilingSuggestion) -> Bool { shared.holds(s.filePath) }
         /// Whether this file's page 1 would go with its name: its folder is shared without asking,
         /// or the tick is on.
@@ -516,7 +514,7 @@ extension FileSyncManager {
         }
         return RefineWork(root: root, classifier: classifier, eligible: eligible, hiddenCount: hiddenCount,
                           hidden: hidden, privacyLists: privacyLists, routedToCloud: routedToCloud, existingRelative: existingRelative,
-                          preAwaitGeneration: preAwaitGeneration, excludedByFile: excludedByFile,
+                          preAwaitGeneration: preAwaitGeneration,
                           keysByFile: keysByFile, cachedVerdicts: cachedVerdicts, cachedWithPage: cachedWithPage,
                           cloudOnly: cloudOnly,
                           snippets: snippets, files: files, shortlists: shortlists, context: context,
@@ -637,7 +635,7 @@ extension FileSyncManager {
         let liveRejections = filingRejections(under: URL(fileURLWithPath: root))
         var rejectedByFile: [String: Set<String>] = [:]
         for s in filingSuggestions {
-            let paths = rejectedFolders(for: s, in: liveRejections)
+            let paths = rejectedFolders(fileName: s.fileName, filePath: s.filePath, in: liveRejections)
             if !paths.isEmpty { rejectedByFile[s.filePath] = paths }
         }
         // `uniqueKeysWithValues` is safe here, unlike on `scope`: this maps the manager's own
@@ -859,19 +857,6 @@ extension FileSyncManager {
         }
         return text
     }
-
-    /// Every folder rejected for `suggestion`: this session's path-keyed rejections plus the
-    /// persisted token-keyed ones. One derivation, so the request's exclusion list and the apply
-    /// filter differ only in when they ran.
-    ///
-    /// `scopedRejections` is passed in, not read here: `filingRejections` decodes JSON from
-    /// `UserDefaults` on every access, so fetching it here would decode the whole store once per
-    /// suggestion, on the main actor, twice per pass. Each caller decodes once.
-    private func rejectedFolders(for suggestion: FilingSuggestion,
-                                 in scopedRejections: [FilingRejection]) -> Set<String> {
-        Self.rejectedPaths(forFileNamed: suggestion.fileName, in: scopedRejections)
-            .union(filingSessionRejections[suggestion.filePath] ?? [])
-    }
 }
 
 // MARK: - A plan that waits for a click (TE335, C1)
@@ -962,7 +947,6 @@ extension FileSyncManager {
         let generation: Int
         let before: [String: [FilingDestination]]
         let after: [String: String]
-        public var count: Int { before.count }
     }
 
     /// Whether Undo Refine can put the suggestions back now.
@@ -1030,8 +1014,7 @@ extension FileSyncManager {
         public let billing: Billing
         /// What the person chose for this pass.
         public let options: FilingRefineOptions
-        /// The model the pass runs on (the chat's) and its short name.
-        public let modelID: String
+        /// The short name of the model the pass runs on (the chat's).
         public let modelName: String
         /// Folder names that go, and the ones Customize… left out.
         public let folderNames: Int
@@ -1235,11 +1218,10 @@ extension FileSyncManager {
                                                                    files: Array(work.files.prefix(low)))
             }
         }
-        let model = filingRefineModelID
         return FilingRefinePlan(id: UUID(), providerRoot: work.root, eligible: work.eligible.count,
                                 hiddenFromClaude: work.hiddenCount, reused: work.cachedVerdicts.count,
                                 toSend: work.files.count, downloads: work.cloudOnly.count, billing: billing,
-                                options: work.options, modelID: model, modelName: filingRefineModelName,
+                                options: work.options, modelName: filingRefineModelName,
                                 folderNames: work.facts.folderNames, folderNamesLeftOut: work.facts.folderNamesLeftOut,
                                 pagesShared: work.facts.pagesShared, pagesAskEachTime: work.facts.pagesAskEachTime,
                                 pagesWaiting: work.facts.pagesWaiting, waitingForPage: work.facts.waitingForPage,
@@ -1349,15 +1331,11 @@ extension FileSyncManager {
                 + "Ask Claude chat’s menu under the text box.")
             return .unavailable
         }
-        let tokens = MappingRefineProtocol.estimateTokens(request: request)
         let preflight = FilingSpendPreflight(
             fileCount: request.rows.count, model: model,
-            estInputTokens: tokens.input, estOutputTokens: tokens.output,
             estCostUSD: estCost,
             monthlySpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
-            monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults),
-            totalSpentUSD: 0, totalCapUSD: 0,
-            unit: "folder name")
+            monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults))
         // No dialog: the sheet showed this price beside its button, and the click was the consent. Over
         // Ask Claude's limit nothing runs, and nothing answers in Claude's place.
         guard !preflight.wouldExceedCap else {

@@ -309,19 +309,10 @@ public enum OrganizeScopeFilter {
     ///
     /// Any, not all: this is the feature's safety rule. The user acts on a group by choosing which
     /// copy survives, and showing only its in-scope half would present a two-copy decision as a
-    /// one-copy one, which is how the wrong copy gets trashed. So the group is admitted whole, and
-    /// ``isCopyInScope(_:scope:)`` lets the row label the copies outside rather than hide them.
+    /// one-copy one, which is how the wrong copy gets trashed. So the group is admitted whole.
     public static func matches(_ group: DuplicateGroup, scope: OrganizeScope?) -> Bool {
         guard let scope else { return true }
         return group.copies.contains { scope.contains($0.path) }
-    }
-
-    /// Whether one copy of an in-scope group is itself inside the scope: the row's "outside this
-    /// folder" label. True for every copy with no scope, so the label never shows in the global
-    /// view.
-    public static func isCopyInScope(_ copy: DuplicateCopy, scope: OrganizeScope?) -> Bool {
-        guard let scope else { return true }
-        return scope.contains(copy.path)
     }
 
     // MARK: Restructure — inside, or about the folder above

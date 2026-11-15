@@ -8,23 +8,6 @@ import UniformTypeIdentifiers
 /// operation.
 extension FileSyncManager {
 
-    /// Aggregate numbers for the Filing results view.
-    public struct FilingSummary: Sendable, Equatable {
-        public var fileCount: Int
-        public var withConfidentHome: Int
-        public var needNewFolders: Int
-    }
-
-    public var filingSummary: FilingSummary {
-        var confident = 0, needFolders = 0
-        for s in filingSuggestions {
-            if s.hasConfidentHome { confident += 1 }
-            if s.best?.isNew == true { needFolders += 1 }
-        }
-        return FilingSummary(fileCount: filingSuggestions.count,
-                             withConfidentHome: confident, needNewFolders: needFolders)
-    }
-
     /// The phase a running Filing scan is in. Suggestions are published once, at the end, so the
     /// results stay empty while phases 2–3 (on-device content, intelligent homes) keep refining.
     /// Showing the phase, and "suggestions still improving" for the slow later passes, through
@@ -152,8 +135,7 @@ extension FileSyncManager {
     @discardableResult
     public func autoRescanFilingIfEligible(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            nameProvider: CloudProvider.ProviderType? = nil,
-                                           reportsTreeFindings: Bool = true,
-                                           options: FilingOptions = .init()) -> Bool {
+                                           reportsTreeFindings: Bool = true) -> Bool {
         guard lensScanTargetIsRemembered(folder.path, forKey: Self.lastFilingScanFolderKey),
               Self.isReachableDirectory(folder.path, fileManager: fileManager),
               !isSuggestingFiles, !hasSuggestedFiling,
@@ -163,8 +145,7 @@ extension FileSyncManager {
         // The scope chosen for the folder this session stands; after a launch, the question.
         startFindFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                    providerName: providerName, nameProvider: nameProvider,
-                                   reportsTreeFindings: reportsTreeFindings, asking: .unlessChosen,
-                                   options: options)
+                                   reportsTreeFindings: reportsTreeFindings, asking: .unlessChosen)
         return true
     }
 
@@ -190,15 +171,10 @@ extension FileSyncManager {
     /// the setting would raise a payment dialog for a free pass. Safe because the app's classifier
     /// uses the same router with the same inputs: if this says on-device, the call can't be billed.
     ///
-    /// An `if let` on the closure, never `filingBackendIdentity?(tier) ?? …`: optional chaining
-    /// flattens, so a closure that returned nil would look unset. nil means "the app can't vouch
-    /// for which backend will run", and for a money gate the safe reading is to fall back on what
-    /// settings configure, and so ask, rather than assume free and spend silently.
+    /// An unset closure and one that answers nil (the app can't vouch for the backend) both fall
+    /// back on what settings configure, and so ask, rather than assume free and spend silently.
     func filingRoutesToCloud(_ tier: FilingClassifierTier) -> Bool {
-        if let resolveBackend = filingBackendIdentity, let identity = resolveBackend(tier) {
-            return identity.hasPrefix("cloud:")
-        }
-        return configuredFilingBackendIdentity(for: tier).hasPrefix("cloud:")
+        (filingBackendIdentity?(tier) ?? configuredFilingBackendIdentity(for: tier)).hasPrefix("cloud:")
     }
 
     /// Whether to offer the cloud Refine button at all: the UI's question, before it picks between
@@ -352,23 +328,16 @@ extension FileSyncManager {
         if Task.isCancelled { return }
 
         enter(.learningFolders)
-        // Budgeted first, as a probe (see `buildStorageLens`). A taxonomy missing folders the walk
+        // Budgeted first, as a probe (see `walkWholeTree`). A taxonomy missing folders the walk
         // never reached doesn't fail; it quietly suggests the wrong home, the most expensive way
         // for this pass to be wrong.
-        let taxonomyProbe = NodeBudget(wholeTreeProbeBudget)
-        var taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name,
-                                            fileManager: fileManager, maxDepth: nil, budget: taxonomyProbe)
-        if Task.isCancelled { return }
-        if taxonomyProbe.didStopADescent {
-            let preflight = LargeWalkPreflight(pass: .filing, rootPath: providerRoot.path,
-                                               probeLimit: taxonomyProbe.limit)
-            guard largeWalkConfirmer(preflight) else {
-                Logger.shared.info("Filing: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
-                return
-            }
-            taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name,
-                                            fileManager: fileManager, maxDepth: nil)
-            if Task.isCancelled { return }
+        var taxonomy: [FileNode]
+        switch await walkWholeTree(providerRoot, pass: .filing, fileManager: fileManager) {
+        case .walked(let walked): taxonomy = walked
+        case .cancelled: return
+        case .declined(let preflight):
+            Logger.shared.info("Filing: “\(preflight.rootName)” holds more than \(preflight.probeLimit) entries — not scanned")
+            return
         }
 
         // Names, on the pass that is already here. This walk covers the whole provider, so folding
@@ -430,8 +399,7 @@ extension FileSyncManager {
         for f in looseFiles {
             // Token-keyed persisted rejections plus this session's path-keyed ones, the only record
             // for token-less filenames, which can't persist a rejection.
-            let paths = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
-                .union(filingSessionRejections[f.id] ?? [])
+            let paths = rejectedFolders(fileName: f.name, filePath: f.id, in: scopedRejections)
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
         }
         let rejectedWords = filingRejectedWords(under: providerRoot)
@@ -963,7 +931,7 @@ extension FileSyncManager {
 
     /// Decides whether the cloud (Claude) classifier may run for this batch. True at once when the
     /// pass won't reach the paid backend. Otherwise builds a cost estimate (`FilingSpendPreflight`)
-    /// from this month's and lifetime spend, both caps and the batch's estimated tokens, asks
+    /// from this month's spend and the monthly cap, asks
     /// `filingCloudSpendConfirmer`, and returns its answer, logging a skipped call so a paused or
     /// declined pass is auditable. False leaves the suggestions as the free scan left them.
     ///
@@ -985,8 +953,7 @@ extension FileSyncManager {
         case .billable(let preflight):
             if filingCloudSpendConfirmer(preflight) { return true }
             let monthNote = preflight.monthlyCapUSD > 0 ? " / month cap \(FilingSpendFormat.cost(preflight.monthlyCapUSD))" : ""
-            let totalNote = preflight.totalCapUSD > 0 ? " / total cap \(FilingSpendFormat.cost(preflight.totalCapUSD))" : ""
-            Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month \(FilingSpendFormat.cost(preflight.monthlySpentUSD))\(monthNote), lifetime \(FilingSpendFormat.cost(preflight.totalSpentUSD))\(totalNote))")
+            Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(preflight.estCostUSD)), this month \(FilingSpendFormat.cost(preflight.monthlySpentUSD))\(monthNote))")
             return false
         }
     }
@@ -1048,14 +1015,11 @@ extension FileSyncManager {
         // The chat's model, priced from Ask Claude's table, so the cost confirmed is for the model the
         // call will name.
         let model = filingRefineModelID
-        let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
         // An unpriced model is not a free one. `pricing(for:)` answers nil outside its
-        // `claude-<family>` arms, and `currentModel(for:)` passes such an id through untouched (a
-        // hand-set choice is honoured), so a typed `tidyFilingCloudModel` or an old dated id arrives
+        // `claude-<family>` arms, so a typed `tidyFilingCloudModel` or an old dated id arrives
         // with no rate. Coerced to zero, the dialog would quote "$0.0000" for a call nothing here
-        // can price, and `spent + estCostUSD` could never cross either cap, the default $5 lifetime
-        // backstop included; nor would recorded spend catch up, since `CloudFilingClassifier`
-        // records it as `estimatedCostUSD: 0, costUnpriced: true`.
+        // can price, and `spent + estCostUSD` could never cross the cap; nor would recorded spend
+        // catch up, since `CloudFilingClassifier` records it as `estimatedCostUSD: 0, costUnpriced: true`.
         //
         // No substitute number is honest, so the pass stands down and keeps the free on-device
         // suggestions, as `CloudFilingClassifier` does when the spend record can't be read: no paid
@@ -1070,14 +1034,13 @@ extension FileSyncManager {
             return .blocked
         }
         // Ask Claude's one monthly limit and this month's spend against it. The old Organize caps are
-        // not read: there is no lifetime cap, so its half of the pre-flight is off.
+        // not read: there is no lifetime cap.
         return .billable(FilingSpendPreflight(
             fileCount: files.count, model: model,
-            estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
             estCostUSD: estCost,
             monthlySpentUSD: AskClaudeSpend.spent(in: filingContentDefaults),
             monthlyCapUSD: AskClaudeSpend.limit(in: filingContentDefaults),
-            totalSpentUSD: 0, totalCapUSD: 0, downloadCount: downloading))
+            downloadCount: downloading))
     }
 
     static func modificationYear(_ date: Date?) -> String? {
@@ -1085,24 +1048,19 @@ extension FileSyncManager {
         return Calendar(identifier: .gregorian).dateComponents([.year], from: date).year.map(String.init)
     }
 
+    /// How many snippet or content extractions run at once.
+    nonisolated static let extractorWidth = 4
+
     /// Runs the injected snippet extractor over the given paths with bounded concurrency.
     nonisolated static func extractSnippets(
-        for paths: [String], using extractor: @escaping @Sendable (String) async -> String?,
-        maxConcurrent: Int = 4
+        for paths: [String], using extractor: @escaping @Sendable (String) async -> String?
     ) async -> [String: String] {
         guard !paths.isEmpty else { return [:] }
         var result: [String: String] = [:]
-        var next = 0
-        await withTaskGroup(of: (String, String?).self) { group in
-            func schedule(_ p: String) { group.addTask { (p, await extractor(p)) } }
-            let initial = min(maxConcurrent, paths.count)
-            while next < initial { schedule(paths[next]); next += 1 }
-            for await (path, text) in group {
-                if let text, !text.isEmpty { result[path] = text }
-                if Task.isCancelled { group.cancelAll(); continue }
-                if next < paths.count { schedule(paths[next]); next += 1 }
-            }
-        }
+        await forEachBounded(paths, width: extractorWidth, work: { p in (p, await extractor(p)) },
+                             collect: { (path, text) in
+            if let text, !text.isEmpty { result[path] = text }
+        })
         return result
     }
 
@@ -1218,7 +1176,8 @@ extension FileSyncManager {
     /// Records this scan's fresh verdicts and writes the cache back. Only files present in `keys`
     /// are recorded, which is what keeps a cache-disabled scan from writing.
     func recordFilingVerdicts(_ verdicts: [String: FilingVerdict], keys: [String: FilingVerdictKey],
-                              providerRoot: String, existingRelative: Set<String>, now: Date = Date()) {
+                              providerRoot: String, existingRelative: Set<String>) {
+        let now = Date()
         guard !verdicts.isEmpty, !keys.isEmpty, let url = filingVerdictCacheURL else { return }
         var cache = filingVerdictCacheNow()
         var recorded = 0
@@ -1234,17 +1193,13 @@ extension FileSyncManager {
         FilingVerdictStore.saveInBackground(cache, to: url)
     }
 
-    /// Forgets cached verdicts, all or just those under `providerRoot`. The next scan re-asks the
-    /// backend, which for the cloud means paying again; the UI that offers this should say so.
-    public func clearFilingVerdictCache(under providerRoot: String? = nil) {
+    /// Forgets every cached verdict. The next scan re-asks the backend, which for the cloud means
+    /// paying again; the UI that offers this should say so.
+    public func clearFilingVerdictCache() {
         guard let url = filingVerdictCacheURL else { return }
         var cache = filingVerdictCacheNow()
         let before = cache.count
-        if let providerRoot {
-            cache.removeAll(under: providerRoot)
-        } else {
-            cache = FilingVerdictCache()
-        }
+        cache = FilingVerdictCache()
         filingVerdictCache = cache
         // Through the queue, never the synchronous `save`. A scan's own write is queued there
         // (`recordFilingVerdicts`, a multi-megabyte encode at the entry cap), and a synchronous
@@ -1282,9 +1237,8 @@ extension FileSyncManager {
     /// destination. Returns the saved rule for review; nil when the filename has nothing
     /// distinctive to key on.
     @discardableResult
-    public func rememberAutomationRule(fileName: String, contentTokens: Set<String> = [],
-                                       destinationPath: String) -> AutomationRule? {
-        guard let derived = FilingEngine.rule(forFileNamed: fileName, contentTokens: contentTokens,
+    public func rememberAutomationRule(fileName: String, destinationPath: String) -> AutomationRule? {
+        guard let derived = FilingEngine.rule(forFileNamed: fileName, contentTokens: [],
                                               filedInto: destinationPath) else { return nil }
         ensureAutomationRulesLoaded()
         let condition = AutomationCondition.mentionsAll(derived.tokens)
@@ -1307,8 +1261,7 @@ extension FileSyncManager {
     public func proposeAutomationRule(fileName: String,
                                       filePath: String,
                                       destinationRelativePath: String,
-                                      modificationDate: Date?,
-                                      now: Date = Date()) -> AutomationRuleProposer.Proposal? {
+                                      modificationDate: Date?) -> AutomationRuleProposer.Proposal? {
         ensureAutomationRulesLoaded()
         let evidence = AutomationRuleProposer.Evidence(pageSample: filingPageSamples[filePath],
                                                        index: filingRouterIndex,
@@ -1317,7 +1270,7 @@ extension FileSyncManager {
                                               destinationRelativePath: destinationRelativePath,
                                               evidence: evidence,
                                               modificationDate: modificationDate,
-                                              now: now)
+                                              now: Date())
     }
 
     // MARK: Rejections + "Try another" (negative feedback)
@@ -1380,6 +1333,19 @@ extension FileSyncManager {
             out.insert(r.path)
         }
         return out
+    }
+
+    /// Every folder rejected for a file: this session's path-keyed rejections (the only record for
+    /// token-less filenames) plus the persisted token-keyed ones. One derivation, so the scan, the
+    /// refine's exclusion list and apply filter, and Try Another can't disagree.
+    ///
+    /// `scopedRejections` is passed in, not read here: `filingRejections` decodes JSON from
+    /// `UserDefaults` on every access, so fetching it here would decode the whole store once per
+    /// file, on the main actor. Each caller decodes once.
+    func rejectedFolders(fileName: String, filePath: String,
+                         in scopedRejections: [FilingRejection]) -> Set<String> {
+        Self.rejectedPaths(forFileNamed: fileName, in: scopedRejections)
+            .union(filingSessionRejections[filePath] ?? [])
     }
 
     /// Records that the user rejected `destinationPath` for a file like `fileName`.
@@ -1461,11 +1427,8 @@ extension FileSyncManager {
         }
 
         // Every folder rejected for this file (this session's + persisted).
-        let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: suggestion.fileName))
-        let allRejected = Set(filingRejections
-            .filter { !$0.tokens.isEmpty && Set($0.tokens).isSubset(of: fileTokens) }
-            .map { $0.path })
-            .union(filingSessionRejections[suggestion.filePath] ?? [])
+        let allRejected = rejectedFolders(fileName: suggestion.fileName, filePath: suggestion.filePath,
+                                          in: filingRejections)
 
         // Cycle to the next candidate the file already carries.
         let remaining = suggestion.candidates.filter { !allRejected.contains($0.path) }
@@ -1744,22 +1707,14 @@ extension FileSyncManager {
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
     nonisolated static func extractContent(
-        for paths: [String], using extractor: @escaping @Sendable (String) async -> Set<String>,
-        maxConcurrent: Int = 4
+        for paths: [String], using extractor: @escaping @Sendable (String) async -> Set<String>
     ) async -> [String: Set<String>] {
         guard !paths.isEmpty else { return [:] }
         var result: [String: Set<String>] = [:]
-        var next = 0
-        await withTaskGroup(of: (String, Set<String>).self) { group in
-            func schedule(_ p: String) { group.addTask { (p, await extractor(p)) } }
-            let initial = min(maxConcurrent, paths.count)
-            while next < initial { schedule(paths[next]); next += 1 }
-            for await (path, tokens) in group {
-                if !tokens.isEmpty { result[path] = tokens }
-                if Task.isCancelled { group.cancelAll(); continue }
-                if next < paths.count { schedule(paths[next]); next += 1 }
-            }
-        }
+        await forEachBounded(paths, width: extractorWidth, work: { p in (p, await extractor(p)) },
+                             collect: { (path, tokens) in
+            if !tokens.isEmpty { result[path] = tokens }
+        })
         return result
     }
 
@@ -1852,10 +1807,7 @@ extension FileSyncManager {
                                       fileOnce: Bool = false, exceptCopiesTo: Set<String> = []) async -> FilingApplyResult {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves a
         // file Verify All may be hashing.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before filing", log: .info)
-            return .failed
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before filing") { return .failed }
         let wouldCreate = missingFolders(for: [destination.path] + (fileOnce ? [] : destination.alsoCopiesTo.map(\.path)))
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
@@ -1936,15 +1888,6 @@ extension FileSyncManager {
         filingSuggestions.filter { $0.isBatchEligible }
     }
 
-    /// True while a "File recommended" batch is running for this manager; see the latch at the
-    /// foot of this file and the guard in ``applyRecommendedFiling(_:)``.
-    ///
-    /// Internal and not published: the storage is a file-private set nothing observes, so a
-    /// SwiftUI view reading it would never be told it changed, and the button isn't disabled by
-    /// it. It lets the re-entrancy test assert that its second call really overlapped the first;
-    /// otherwise a run that never overlapped looks like one the latch refused.
-    var isFilingBatchRunning: Bool { filingBatchInFlight.contains(ObjectIdentifier(self)) }
-
     /// Files the batch-eligible suggestions among `scope` into their suggested homes.
     ///
     /// `scope` is required, as for `applyRecommendedDuplicates`: a search can narrow the list, so
@@ -1954,10 +1897,7 @@ extension FileSyncManager {
     public func applyRecommendedFiling(_ scope: [FilingSuggestion]) async {
         // Verify All's exclusion guard, in the write direction (as in `syncFile`): filing moves
         // files Verify All may be hashing.
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before filing", log: .info)
-            return
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before filing") { return }
         let batch = scope.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
         // The in-flight latch every sibling write pass has. `isVerifyAllRunning` is another pass's
@@ -1970,13 +1910,11 @@ extension FileSyncManager {
         // Refused silently: the user pressed the same button twice, and the first press is still
         // running and will report for both.
         //
-        // File-private storage keyed by manager identity, since an extension can't add a stored
-        // property; otherwise the sibling shape (`isBulkSyncRunning`, `isApplyingRenames`,
-        // `mergingGroupIDs`): refuse at entry, latch, release in a `defer` on every exit. The
-        // caller's `await` keeps `self` alive for the whole window, so the key can't be reused.
-        guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else { return }
-        filingBatchInFlight.insert(ObjectIdentifier(self))
-        defer { filingBatchInFlight.remove(ObjectIdentifier(self)) }
+        // The sibling shape (`isBulkSyncRunning`, `isApplyingRenames`, `mergingGroupIDs`): refuse
+        // at entry, latch, release in a `defer` on every exit.
+        guard !isFilingBatchRunning else { return }
+        isFilingBatchRunning = true
+        defer { isFilingBatchRunning = false }
         var moves: [MoveItemState] = []
         // What the log names: each file, the folder it landed in and what chose it. Batch filing
         // writes no per-file line, so these are the only record of where each one went.
@@ -2220,19 +2158,6 @@ extension FileSyncManager {
             : URL(fileURLWithPath: providerRoot)
     }
 }
-
-/// Which managers have a "File recommended" batch in flight: the latch behind
-/// ``FileSyncManager/applyRecommendedFiling(_:)``, shaped like its siblings (`isBulkSyncRunning`,
-/// `isApplyingRenames`, `mergingGroupIDs`, `filingRefineInFlight`) but file-private, because an
-/// extension can't hold a stored property.
-///
-/// Keyed by `ObjectIdentifier` so two managers (tests make many) latch independently. Safe because
-/// a latched manager can't be deallocated: the caller awaits `applyRecommendedFiling`, which holds
-/// `self` for the whole window, and its `defer` clears the entry before returning.
-///
-/// `@MainActor` because `FileSyncManager` is: the read, insert and `defer` remove each happen in
-/// one main-actor turn, which is what makes this a latch.
-@MainActor var filingBatchInFlight: Set<ObjectIdentifier> = []
 
 /// The lines a filing batch writes to the log: one per destination folder naming every file filed
 /// there and what chose its home, sorted, at most ``namesPerLine`` names a line, then the summary.

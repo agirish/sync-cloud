@@ -196,24 +196,6 @@ extension OrganizeLens {
         case .storage: return .storage
         }
     }
-
-    /// The rail item a programmatic caller naming a ``WorkspaceLensKind`` is asking for.
-    ///
-    /// Not a strict inverse of ``searchLens`` and can't be: three rail items share `.filing`, so
-    /// this picks the one that is the filing queue. Every other kind answers the one rail item that
-    /// owns it.
-    ///
-    /// Every kind bridges to a rail item today, so this never returns `nil`. It stays failable so
-    /// an apparatus added without a rail item has somewhere to say so, the reason ``railItems`` is
-    /// kept.
-    public init?(_ lens: WorkspaceLensKind) {
-        switch lens {
-        case .filing: self = .toFile
-        case .duplicates: self = .duplicates
-        case .automations: self = .rules
-        case .storage: self = .storage
-        }
-    }
 }
 
 // MARK: - What each item promises

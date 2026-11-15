@@ -36,19 +36,16 @@ extension FileSyncManager {
                          typed: FilingDestination? = nil, teach: Bool = false, fileOnce: Bool = false,
                          exceptCopiesTo: Set<String> = [],
                          priorFolderMove: PriorFolderMove? = nil, holdsGuard: Bool = false) async -> Int {
-        guard !isVerifyAllRunning else {
-            banner = .refusal("Wait for Verify All to finish before filing", log: .info)
-            return 0
-        }
+        if refusedDuringVerifyAll("Wait for Verify All to finish before filing") { return 0 }
         // `holdsGuard`: the caller (moving an account out of its archive first) holds it already.
         if !holdsGuard {
-            guard !filingBatchInFlight.contains(ObjectIdentifier(self)) else {
+            guard !isFilingBatchRunning else {
                 banner = .refusal("Another filing is still running — try again when it finishes", log: .info)
                 return 0
             }
-            filingBatchInFlight.insert(ObjectIdentifier(self))
+            isFilingBatchRunning = true
         }
-        defer { if !holdsGuard { filingBatchInFlight.remove(ObjectIdentifier(self)) } }
+        defer { if !holdsGuard { isFilingBatchRunning = false } }
 
         // Page facts as they are now: a scan finishing while this runs replaces the manager's.
         let factsAtStart = filingDocumentFacts

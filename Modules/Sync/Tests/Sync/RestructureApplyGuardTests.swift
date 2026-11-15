@@ -527,7 +527,7 @@ import Testing
         manager.filingProfileDirectoryId = "t"
         manager.restructureStore = RestructureStore(directory: profiles, profileId: "t")
 
-        let refusal = try #require(manager.restructureLandingRefusal(),
+        let refusal = try #require(manager.restructureLandingBlocker,
                                    "a profile that names no folder was let through to the landings")
         #expect(refusal.contains("does not say which folder it describes"),
                 "refused for another reason — the fixture tripped an earlier guard: \(refusal)")

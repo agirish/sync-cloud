@@ -75,21 +75,18 @@ public enum FilingClassifierTier: Sendable, Equatable {
 }
 
 /// What a backend reasons about: the taxonomy, and what the app has learned about it. The folder
-/// paths are still the contract (a verdict names one); the learned parts save a backend from
-/// re-deriving per file what is stable about the tree. Both are optional and per-tree, with no
-/// default: a context with neither is a bare taxonomy.
+/// paths are still the contract (a verdict names one); the profile saves a backend from
+/// re-deriving per file what is stable about the tree. It is optional and per-tree, with no
+/// default: a context without one is a bare taxonomy.
 public struct FilingContext: Sendable {
     /// Destination folders, relative to the provider root: the vocabulary a verdict answers in.
     public let taxonomyFolders: [String]
     /// What each folder *is*: role, axes, naming convention, and whether it may receive files.
     public let profile: FolderProfile?
-    /// What each folder has *received*: the discriminative content already filed in it.
-    public let memory: FilingMemory?
 
-    public init(taxonomyFolders: [String], profile: FolderProfile? = nil, memory: FilingMemory? = nil) {
+    public init(taxonomyFolders: [String], profile: FolderProfile? = nil) {
         self.taxonomyFolders = taxonomyFolders
         self.profile = profile
-        self.memory = memory
     }
 
     /// Folders that may actually receive a file. **A backend must route into this, not

@@ -117,7 +117,7 @@ import Testing
                 .init(path: "Finance/US/Income Tax/2013/2013", isStillEmpty: true),
                 .init(path: "Finance/US/Income Tax/2016/Payment", isStillEmpty: false),
             ],
-            accent: .blue, onRemove: { _ in .landed(removed: 1, skippedCount: 0, caveat: nil) },
+            onRemove: { _ in .landed(removed: 1, skippedCount: 0, caveat: nil) },
             onClose: {})
         // An ink floor, not a width: `fittingSize.width > 0` holds for an empty `VStack`.
         let rep = try #require(RestructureRender.raster(sheet, width: 480, height: 400))
