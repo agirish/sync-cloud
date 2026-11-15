@@ -311,4 +311,138 @@ import Foundation
         let account = try #require(named.adding(read: read).accounts.first { $0.root == home })
         #expect(account.institution == "chase", "\(account)")
     }
+
+    // MARK: ScholarShare: a bank named only below the header
+
+    /// `Finance/US/Investments/ScholarShare/{Aditi,Divit}`, Aditi's 529 statements filed by year,
+    /// Divit's folder holding no statements yet, and Schwab's IRA beside them under `Investments`.
+    /// "Aditi" and "Divit" name folders all over a family's tree, as household names do.
+    private var scholarShareTree: [FileNode] {
+        let inv = "Finance/US/Investments"
+        let ss = inv + "/ScholarShare"
+        let schwab = inv + "/Charles Schwab"
+        let quarters = [3, 6, 9, 12]
+        let household = (1...8).map { dir("P\($0)", [dir("P\($0)/Aditi", []), dir("P\($0)/Divit", [])]) }
+        return [dir("Finance", [dir("Finance/US", [dir(inv, [
+            dir(schwab, [dir(schwab + "/Traditional IRA 7863",
+                monthly(schwab + "/Traditional IRA 7863") { String(format: "Brokerage Statement_2025-%02d-28_863.PDF", $0) })]),
+            dir(ss, [
+                dir(ss + "/Aditi", [2024, 2025].map { y in dir(ss + "/Aditi/\(y)", quarters.map { m in
+                    file(ss + "/Aditi/\(y)/" + String(format: "%02d. %@ %d.pdf", m, Self.months[m - 1], y)) }) }),
+                dir(ss + "/Divit", [file(ss + "/Divit/confirmPDF.cs-2.pdf")]),
+            ]),
+        ])])])] + household
+    }
+
+    /// A ScholarShare quarterly statement as page 1 reads: the header is the owner's address and
+    /// performance boilerplate about "your investments"; the plan is named in a footnote.
+    static func scholarSharePage(account: String, beneficiary: String, period: String) -> String {
+        "Abhishek Girish\n73210 Via Vicenza\nSan Ramon, CA 94583\nAccount Statement\nStatement Period: \(period)\n"
+            + String(repeating: "Your personal performance is based on the performance of your investments. ", count: 14)
+            + "\nAccount Owner: Abhishek Girish\nBeneficiary: \(beneficiary)\nAccount #: \(account)\nAccount Type: Individual 529\n"
+            + "Assets are allocated to a funding agreement issued by Teachers Insurance and Annuity Association of America "
+            + "and guaranteed to the ScholarShare Investment Board.\nscholarshare529.com 1-800-544-5248"
+    }
+
+    private func scholarShareIndex() -> AccountIndex {
+        let t = scholarShareTree
+        let named = AccountIndex.build(tree: t)
+        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+                                                             period: "1/1/2025 - 3/31/2025"))
+        let read = named.unnamedSamples(tree: t).filter { $0.file.contains("ScholarShare/Aditi") }.map { (sample: $0, facts: page) }
+        return named.adding(read: read)
+    }
+
+    @Test func aBankNamedOnlyInAFootnoteIsTheBankNotTheCategoryAboveIt() throws {
+        let page = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+                                                             period: "1/1/2025 - 3/31/2025"))
+        #expect(!page.header.contains("scholarshare") && page.header.contains("investments"),
+                "the header must name the category and not the plan for this to test anything")
+        let index = scholarShareIndex()
+        let aditi = try #require(index.accounts.first { $0.root.hasSuffix("ScholarShare/Aditi") }, "\(index.accounts.map(\.root))")
+        #expect(aditi.identities == ["9701"] && aditi.institution == "scholarshare", "\(aditi)")
+        // Her next statement, its plan named only in the footnote, is hers at High.
+        let next = DocumentFacts(page: Self.scholarSharePage(account: "942046797-01", beneficiary: "Aditi Abhishek",
+                                                             period: "1/1/2026 - 3/31/2026"))
+        guard case .high(let a, _) = index.match(next) else { Issue.record("\(index.match(next))"); return }
+        #expect(a.root == aditi.root)
+    }
+
+    /// Divit's statements print a number no folder holds. The folder they came from and the
+    /// footnote name ScholarShare, and the page names Divit: his folder there, laid out like
+    /// Aditi's, ahead of a word match on "Association" (an HOA's).
+    @Test func aNewNumberAtAKnownBankGoesToThePersonsFolderThere() throws {
+        let t = scholarShareTree + [dir("Home", [dir("Home/HOA", [file("Home/HOA/Master Association.pdf")])])]
+        let index = scholarShareIndex()
+        let path = "/D/TODO/Finance/ScholarShare 529/529 6797-02/2026/03. Mar 2026.pdf"
+        let hoa = FilingDestination(path: "/D/Home/HOA", base: .medium, evidence: .content,
+                                    reasons: ["Matched “association” read from the file"], newSegments: [])
+        let card = FilingSuggestion(filePath: path, fileName: "03. Mar 2026.pdf", size: 1, modificationDate: nil,
+                                    candidates: [hoa], providerRoot: "/D")
+        let page = Self.scholarSharePage(account: "942046797-02", beneficiary: "Divit Abhishek", period: "1/1/2026 - 3/31/2026")
+        let registry = PersonRegistry(people: [
+            Person(id: "abhishek", displayName: "Abhishek", fullNames: ["Abhishek Girish"]),
+            Person(id: "aditi", displayName: "Aditi", fullNames: ["Aditi Abhishek"]),
+            Person(id: "divit", displayName: "Divit", fullNames: ["Divit Abhishek"]),
+        ])
+        func place(registry: PersonRegistry?) throws -> FilingDestination {
+            let (out, _) = FileSyncManager.applyingAccounts([card], index: index, snippets: [path: page], taxonomy: t,
+                                                            root: "/D", scannedFolder: "/D/TODO", registry: registry)
+            return try #require(out.first?.best)
+        }
+        let best = try place(registry: registry)
+        #expect(best.path == "/D/Finance/US/Investments/ScholarShare/Divit/2026", "\(best.path) \(best.reasons)")
+        #expect(best.confidence == .medium && best.newSegments == ["2026"] && best.account?.ending == "9702")
+        #expect(best.proposedName == "03. Mar 2026.pdf", "named like Aditi's")
+        // With no people known, the bank's own folder, still ahead of the HOA.
+        let bankOnly = try place(registry: nil)
+        #expect(bankOnly.path == "/D/Finance/US/Investments/ScholarShare" && bankOnly.confidence == .medium,
+                "\(bankOnly.path) \(bankOnly.reasons)")
+    }
+
+    /// An insurer no account folder names. The inbox folder names GEICO, and so does the page;
+    /// `Vehicles/Honda/Insurance` holds the files named for it, so that is the home, ahead of a
+    /// page word matched in a medical folder. The policy number the inbox folder names makes it
+    /// that account's.
+    @Test func aCompanyTheInboxNamesGoesWhereItsFilesAre() throws {
+        let ins = "Vehicles/Honda/Insurance"
+        let t = scholarShareTree + [
+            dir("Vehicles", [dir("Vehicles/Honda", [dir(ins, [
+                file(ins + "/GEICO Declarations - Jan 2026 to Jul 2026.pdf"), file(ins + "/GEICO Letter - Feb 2026.pdf"),
+                file(ins + "/Proof_of_Insurance.pdf")])])]),
+            dir("Home", [dir("Home/Insurance", [file("Home/Insurance/GEICO-Homesite Condo Policy 42316834.pdf")])]),
+        ]
+        let index = AccountIndex.build(tree: t)
+        let path = "/D/TODO/Finance/GEICO/Auto 0652/2026/05. May 2026 - ID Card.pdf"
+        let kaiser = FilingDestination(path: "/D/Health/Medical/Kaiser/Bills/2026", base: .low, evidence: .measuredContent,
+                                       reasons: ["Fits how this folder is used"], newSegments: [])
+        let card = FilingSuggestion(filePath: path, fileName: "05. May 2026 - ID Card.pdf", size: 1, modificationDate: nil,
+                                    candidates: [kaiser], providerRoot: "/D")
+        let page = "Policy Number: 6133-57-06-52\nGEICO Protection Insurance Company\nImportant Information\nPlease send"
+        let (out, _) = FileSyncManager.applyingAccounts([card], index: index, snippets: [path: page], taxonomy: t,
+                                                        root: "/D", scannedFolder: "/D/TODO")
+        let best = try #require(out.first?.best)
+        #expect(best.path == "/D/" + ins && best.confidence == .medium, "\(best.path) \(best.reasons)")
+        #expect(best.account?.ending == "0652", "the policy number its inbox folder names")
+        // A header naming a bank the tree knows (the card it is paid with) doesn't make it that bank's.
+        let amex = try #require(FileSyncManager.applyingAccounts([card], index: index,
+                                                                 snippets: [path: "Charles Schwab statement credit\n" + page],
+                                                                 taxonomy: t, root: "/D", scannedFolder: "/D/TODO").suggestions.first?.best)
+        #expect(amex.path == "/D/" + ins, "\(amex.path) \(amex.reasons)")
+        // Sorting a folder that isn't an inbox, GEICO's papers already in it are no home.
+        let downloads = "Downloads/GEICO/Auto 0652/2026"
+        let sortedTree = t + [dir("Downloads", [dir("Downloads/GEICO", [dir("Downloads/GEICO/Auto 0652", [dir(downloads,
+            (1...5).map { file(downloads + "/GEICO Bill \($0).pdf") })])])])]
+        let loose = "/D/" + downloads + "/05. May 2026 - ID Card.pdf"
+        let fromDownloads = FilingSuggestion(filePath: loose, fileName: "05. May 2026 - ID Card.pdf", size: 1,
+                                             modificationDate: nil, candidates: [kaiser], providerRoot: "/D")
+        let notHere = try #require(FileSyncManager.applyingAccounts([fromDownloads], index: index, snippets: [loose: page],
+                                                                    taxonomy: sortedTree, root: "/D",
+                                                                    scannedFolder: "/D/Downloads").suggestions.first?.best)
+        #expect(notHere.path == "/D/" + ins, "\(notHere.path)")
+        // A page that doesn't name the company is left to the other signals.
+        let silent = FileSyncManager.applyingAccounts([card], index: index, snippets: [path: "Important Information\nPlease send"],
+                                                      taxonomy: t, root: "/D", scannedFolder: "/D/TODO").suggestions
+        #expect(silent.first?.best?.path == kaiser.path)
+    }
 }

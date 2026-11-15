@@ -640,10 +640,12 @@ extension FileSyncManager {
             let shared = sharedFolders
             let preferences = filingPreferences
             let refused = rejectedByFile
+            let registry = filingPersonRegistry
             let (placed, facts) = await Task.detached(priority: .userInitiated) {
                 Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
                                       root: root, scannedFolder: scannedFolder, sharedStatementFolders: shared,
-                                      isArchived: isArchived, preferences: preferences, rejected: refused)
+                                      isArchived: isArchived, preferences: preferences, rejected: refused,
+                                      registry: registry)
             }.value
             if Task.isCancelled { return }
             suggestions = placed

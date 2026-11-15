@@ -14,7 +14,8 @@ extension FileSyncManager {
         sharedStatementFolders shared: Set<String>? = nil,
         isArchived: @escaping (String) -> Bool = { _ in false },
         preferences: [FilingPreference] = [],
-        rejected: [String: Set<String>] = [:]
+        rejected: [String: Set<String>] = [:],
+        registry: PersonRegistry? = nil
     ) -> (suggestions: [FilingSuggestion], facts: [String: DocumentFacts]) {
         var facts: [String: DocumentFacts] = [:]
         let nodes = accountNodes(index, in: taxonomy)
@@ -102,7 +103,7 @@ extension FileSyncManager {
             case .none:
                 return proposingAccount(for: s, facts: f, period: period, hint: hint, index: index,
                                         taxonomy: taxonomy, root: root, sharedStatementFolders: sharedStatementFolders,
-                                        isArchived: isArchived)
+                                        isArchived: isArchived, registry: registry)
             }
         }
         _ = isArchived
@@ -155,8 +156,21 @@ extension FileSyncManager {
                                              period: DocumentFacts.Period?, hint: String, index: AccountIndex,
                                              taxonomy: [FileNode], root: String,
                                              sharedStatementFolders: Set<String> = [],
-                                             isArchived: (String) -> Bool = { _ in false }) -> FilingSuggestion {
-        guard f.kind != .taxForm, let institution = index.headerInstitution(f) else { return s }
+                                             isArchived: (String) -> Bool = { _ in false },
+                                             registry: PersonRegistry? = nil) -> FilingSuggestion {
+        guard f.kind != .taxForm else { return s }
+        // The bank: the one page 1's header names; else the one the folder it came from names (his
+        // own words, `ScholarShare 529/529 6797-02`). Not the rest of the page, where a GEICO
+        // letter names the card it is paid with.
+        guard let institution = index.headerInstitution(f) ?? index.institution(namedIn: hint.lowercased()) else {
+            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root)
+        }
+        // The inbox folder names another company the page names too (`GEICO`, on a declarations
+        // page whose header mentions American Express): his folder says whose it is.
+        let company = companyWords(hint: hint, facts: f, index: index, taxonomy: taxonomy)
+        if !company.isEmpty, company.isDisjoint(with: index.institutionTokens[institution] ?? []) {
+            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root)
+        }
         let hinted = AccountProposal.typeAndDigits(inHint: hint)
         // A page not read as a statement (a lease bill, a page whose words OCR split apart) still
         // gets one when the number it prints for itself is the one its inbox folder names.
@@ -184,8 +198,13 @@ extension FileSyncManager {
                                      proposedName: dest.proposedName, account: dest.account, nameOrigin: dest.nameOrigin)
             return s.replacingCandidates(inserting(dest, into: s.candidates))
         }
-        guard let type = hinted?.type,
-              let p = AccountProposal.propose(institution: institution, type: type, ending: ending,
+        guard let type = hinted?.type else {
+            return f.kind == .statement
+                ? homeAtInstitution(for: s, facts: f, period: period, institution: institution, index: index,
+                                    taxonomy: taxonomy, root: root, isArchived: isArchived, registry: registry)
+                : s
+        }
+        guard let p = AccountProposal.propose(institution: institution, type: type, ending: ending,
                                               // The folder's own spelling, when it is this account's.
                                               name: hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil },
                                               index: index, tree: taxonomy, period: period, fileName: s.fileName,
@@ -214,6 +233,127 @@ extension FileSyncManager {
             path: root + "/" + p.folder, confidence: .medium, reasons: [reason], newSegments: p.newSegments,
             fromContent: true, evidenceToken: ending.map { "••" + $0 }, account: account)
         return s.replacingCandidates(inserting(dest, into: s.candidates))
+    }
+
+    /// A statement from a known bank that no account matches and whose folder names no account type
+    /// to call a new one by (`529 6797-02`, or loose): the bank's own folder, when the tree has just
+    /// one. Inside it, the folder of the one person page 1 names that holds no other account
+    /// (`ScholarShare/Divit` for Divit's 529, beside Aditi's account `ScholarShare/Aditi`), laid out
+    /// like the bank's live account there. Medium either way: no number placed it.
+    nonisolated static func homeAtInstitution(for s: FilingSuggestion, facts f: DocumentFacts,
+                                              period: DocumentFacts.Period?, institution: String,
+                                              index: AccountIndex, taxonomy: [FileNode], root: String,
+                                              isArchived: (String) -> Bool,
+                                              registry: PersonRegistry?) -> FilingSuggestion {
+        let folders = AccountProposal.folders(namedFor: institution, in: taxonomy, isArchived: isArchived)
+        guard folders.count == 1, let bankFolder = folders.first,
+              let bankNode = AccountProposal.node(at: bankFolder, in: taxonomy) else { return s }
+        let bank = AccountProposal.displayName(institution, from: folders)
+        let ending = f.matchingNumbers.first?.ending
+        let accountsHere = index.accounts.filter { $0.root.hasPrefix(bankFolder + "/") }
+        var reason = "No \(bank) folder holds " + (ending.map { "••" + $0 } ?? "this account")
+        // The person's folder: named on the page, resolved by the registry so `Divit Abhishek` is
+        // Divit, and not another account's (Aditi's statements print her own number).
+        if let registry, let person = { () -> FileNode? in
+            let named = registry.detect(in: f.text)
+            let people = (bankNode.children ?? []).filter { c in
+                let path = bankFolder + "/" + c.name
+                return c.isDirectory && !AccountIndex.isArchiveName(c.name) && !isArchived(path)
+                    && !accountsHere.contains { $0.root == path || $0.root.hasPrefix(path + "/") }
+                    && registry.person(forAxisValue: c.name).map(named.contains) == true
+            }
+            return people.count == 1 ? people[0] : nil
+        }() {
+            let home = bankFolder + "/" + person.name
+            // Laid out like the bank's live account: its year folder and its newest name.
+            var path = home
+            var name: String?
+            if let model = accountsHere.first(where: { !$0.archived }),
+               let modelNode = AccountProposal.node(at: model.root, in: taxonomy) {
+                let place = AccountPlacement.place(in: modelNode, period: period, taxForm: false, fileName: s.fileName)
+                if !place.yearUnknown, !place.folder.isEmpty { path = home + "/" + place.folder }
+                if !place.yearUnknown { name = place.name }
+            }
+            reason += " · page 1 names \(person.name)"
+            var account = FilingAccount(root: root + "/" + home, ending: ending ?? "", institution: institution,
+                                        archived: false, kind: .statement)
+            account.institutionName = bank
+            let dest = FilingDestination(
+                path: root + "/" + path, confidence: .medium, reasons: [reason],
+                newSegments: AccountProposal.missing(path, in: taxonomy), fromContent: true,
+                evidenceToken: ending.map { "••" + $0 }, proposedName: name, account: account,
+                nameOrigin: name == nil ? .planner : .template)
+            return s.replacingCandidates(inserting(dest, into: s.candidates))
+        }
+        // The bank's folder itself, unless a home in it is already offered.
+        if let best = s.best, best.confidence >= .medium,
+           PathBoundary.contains(best.path, under: root + "/" + bankFolder) { return s }
+        let dest = FilingDestination(path: root + "/" + bankFolder, confidence: .medium, reasons: [reason],
+                                     newSegments: [], fromContent: true, evidenceToken: ending.map { "••" + $0 })
+        return s.replacingCandidates(inserting(dest, into: s.candidates))
+    }
+
+    /// A page from a company no account folder names (an insurer: `TODO/Finance/GEICO/Auto 0652`),
+    /// whose folder in the inbox names it and whose page 1 names it too: the one folder holding the
+    /// most files named for it (`Vehicles/Honda/Insurance`, eight `GEICO …` files). When the page
+    /// prints the number that folder names (policy ••0652), that is its account. Medium: a name, not
+    /// a number, chose the folder.
+    nonisolated static func companyHome(for s: FilingSuggestion, facts f: DocumentFacts, hint: String,
+                                        index: AccountIndex, taxonomy: [FileNode], root: String) -> FilingSuggestion {
+        let words = companyWords(hint: hint, facts: f, index: index, taxonomy: taxonomy)
+        guard !words.isEmpty else { return s }
+        // The folder being sorted, which `hint` is relative to: nothing in it is a home.
+        let parent = (s.filePath as NSString).deletingLastPathComponent
+        let sorted = hint.isEmpty || !parent.hasSuffix("/" + hint) ? parent : String(parent.dropLast(hint.count + 1))
+        var counts: [String: Int] = [:]
+        func visit(_ nodes: [FileNode], _ prefix: String) {
+            for n in nodes where n.isDirectory {
+                let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+                // Never an archive or an inbox, nor the folder being sorted.
+                if AccountIndex.isArchiveName(n.name) || FolderProfile.isInboxPath(rel)
+                    || PathBoundary.contains(root + "/" + rel, under: sorted) { continue }
+                let named = (n.children ?? []).filter { c in
+                    !c.isDirectory && !words.isDisjoint(with: AccountIndex.words(c.name))
+                }.count
+                if named > 0 { counts[rel] = named }
+                visit(n.children ?? [], rel)
+            }
+        }
+        visit(taxonomy, "")
+        guard let top = counts.max(by: { $0.value < $1.value || ($0.value == $1.value && $0.key > $1.key) }),
+              counts.values.filter({ $0 == top.value }).count == 1 else { return s }
+        let company = (hint.split(separator: "/").map(String.init).first { seg in
+            !words.isDisjoint(with: AccountIndex.words(seg))
+        }) ?? words.sorted()[0]
+        var reason = "\(top.value) file\(top.value == 1 ? "" : "s") here \(top.value == 1 ? "is" : "are") named for \(company), as the folder it came from is"
+        var account: FilingAccount?
+        if let hinted = AccountProposal.typeAndDigits(inHint: hint),
+           f.matchingNumbers.contains(where: { $0.ending == hinted.digits }) {
+            reason += " · ••\(hinted.digits) on page 1"
+            var a = FilingAccount(root: root + "/" + top.key, ending: hinted.digits, institution: company.lowercased(),
+                                  archived: false, kind: f.kind)
+            a.institutionName = company
+            account = a
+        }
+        let dest = FilingDestination(path: root + "/" + top.key, confidence: .medium, reasons: [reason],
+                                     newSegments: [], fromContent: true,
+                                     evidenceToken: account.map { "••" + $0.ending }, account: account)
+        return s.replacingCandidates(inserting(dest, into: s.candidates))
+    }
+
+    /// The company the inbox folder names, as words page 1 names too: the folders' own words, less
+    /// a category (`Finance`), a year, the account folder (`Auto 0652`) and words common to many
+    /// folder names. `TODO/Finance/GEICO/Auto 0652/2026` gives `geico`.
+    nonisolated static func companyWords(hint: String, facts f: DocumentFacts, index: AccountIndex,
+                                         taxonomy: [FileNode]) -> Set<String> {
+        let categories = Set(taxonomy.filter(\.isDirectory).map { $0.name.lowercased() })
+        return Set(hint.split(separator: "/").map(String.init).filter { seg in
+            !categories.contains(seg.lowercased()) && !FolderProfileEntry.looksLikeYear(seg)
+                && AccountIndex.accountDigits(inFolderNamed: seg).isEmpty
+        }.flatMap(AccountIndex.words).filter { w in
+            w.count >= 4 && !index.genericWords.contains(w) && !AccountIndex.stopWords.contains(w)
+                && !FilingPeriod.isMonthWord(w) && AccountIndex.wordCount(w, in: f.text) > 0
+        })
     }
 
     /// The walked node for each account root.
@@ -297,7 +437,8 @@ extension FileSyncManager {
                                                     isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
                                                     preferences: filingPreferences,
                                                     rejected: [suggestion.filePath: rejectedFolders(fileName: suggestion.fileName, filePath: suggestion.filePath,
-                                                                                                    in: filingRejections(under: URL(fileURLWithPath: root)))])
+                                                                                                    in: filingRejections(under: URL(fileURLWithPath: root)))],
+                                                    registry: filingPersonRegistry)
         if let f = facts[suggestion.filePath] { filingDocumentFacts[suggestion.filePath] = f }
         return placed.first ?? suggestion
     }

@@ -1438,7 +1438,9 @@ public enum FilingEngine {
             var kept: [FilingDestination] = []
             var firstRefusal: PersonVeto?
             for c in s.candidates {
-                if c.remembered { kept.append(c); continue }
+                // An account's home is placed by the statement's own number, which outranks a
+                // name on its page: a child's 529 statement names its parent as the owner first.
+                if c.remembered || c.account != nil { kept.append(c); continue }
                 if let veto = personVeto(fileName: s.fileName, destination: c.path,
                                          providerRoot: providerRoot, profile: profile,
                                          registry: registry, identity: identity,

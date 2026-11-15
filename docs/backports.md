@@ -15667,3 +15667,22 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s accounts=%s prompt=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The prompt without the archive rule; no twin step | RECORDED — not owed (prompt rule); CLOSED — checked, not owed (twin) |
+
+## Statements from a bank named low on the page, or an insurer named by the inbox — main only, checked, not owed
+
+2026-11-15, for v7.2. On `main`, the account phase of To File reads a statement's bank from the rest
+of page 1 when its header names none, both when learning an account named without digits (a
+ScholarShare 529 had been learned as `Investments`) and when matching one; a number no folder holds
+goes to the bank's folder, or the folder there of the person the page names; a company the inbox
+folder and the page both name (GEICO, Homesite) goes where the files named for it are; and the
+cross-person check no longer refuses an account's home. The account phase is `main`'s alone:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s accounts=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AccountIdentity.swift')"; done
+# measured 2026-11-15, against origin: accounts=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

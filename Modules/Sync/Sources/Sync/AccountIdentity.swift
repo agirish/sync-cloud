@@ -591,8 +591,11 @@ public struct AccountIndex: Sendable {
     }
 
     /// The one institution the page's header names most, or nil for none or a tie.
-    public func headerInstitution(_ facts: DocumentFacts) -> String? {
-        let counts = institutionTokens.keys.map { ($0, mentions($0, in: facts.header)) }.filter { $0.1 > 0 }
+    public func headerInstitution(_ facts: DocumentFacts) -> String? { institution(namedIn: facts.header) }
+
+    /// The one institution `text` (lower-cased) names most, or nil for none or a tie.
+    public func institution(namedIn text: String) -> String? {
+        let counts = institutionTokens.keys.map { ($0, mentions($0, in: text)) }.filter { $0.1 > 0 }
         guard let top = counts.max(by: { $0.1 < $1.1 }) else { return nil }
         return counts.filter { $0.1 == top.1 }.count == 1 ? top.0 : nil
     }
@@ -626,7 +629,11 @@ public struct AccountIndex: Sendable {
         let rival = institutionTokens.keys.filter { $0 != account.institution }
             .map { mentions($0, in: facts.header) }.max() ?? 0
         if rival > own { return .none }
-        if own == 0 { return .medium(account, number: number, why: .institutionSilent) }
+        // A header naming no bank at all: the rest of page 1 may (a 529 plan in its footnote, a
+        // mortgage servicer near the 1,000th character), when it names no other bank as often.
+        if own == 0, institution(namedIn: facts.text) != account.institution {
+            return .medium(account, number: number, why: .institutionSilent)
+        }
         guard facts.kind == .statement else { return .medium(account, number: number, why: .notAStatement) }
         return .high(account, number: number)
     }
@@ -839,17 +846,23 @@ extension AccountIndex {
             if named.isEmpty { (named, known) = naming(\.text) }
             if known.count == 1 { institution = known[0] } else if known.isEmpty, named.count == 1 { institution = named[0] }
             // ...else the deepest segment of its path the headers name, skipping words common to
-            // many folder names (`Statements`, a household name): `Citi`, `ScholarShare`.
-            if institution == nil {
+            // many folder names (`Statements`, a household name): `Citi`, `ScholarShare`. When no
+            // header names one, the rest of page 1: a ScholarShare 529 statement names its plan
+            // only in a footnote, while its header's boilerplate says "your investments".
+            for read in [\DocumentFacts.header, \DocumentFacts.text] where institution == nil {
                 for (i, seg) in segments.enumerated().reversed() {
                     // Not the top level of a deep path: that is a category (`Investments`). In a
                     // shallow one (`Citi/Statements`) it is the bank.
                     guard i > 0 || segments.count <= 2, !AccountIndex.isArchiveName(seg), !seg.contains(where: { $0.isNumber }) else { continue }
+                    // Nor a folder holding another account: that is a category too, at any depth
+                    // (`Finance/US/Investments` over Schwab's and Fidelity's).
+                    let prefix = segments[...i].joined(separator: "/") + "/"
+                    guard !accounts.contains(where: { $0.root.hasPrefix(prefix) }) else { continue }
                     let words = AccountIndex.words(seg).filter {
                         $0.count >= 4 && !AccountIndex.stopWords.contains($0) && !genericWords.contains($0)
                     }
                     guard !words.isEmpty else { continue }
-                    let naming = hits.filter { h in words.contains { AccountIndex.wordCount($0, in: h.1.header) > 0 } }.count
+                    let naming = hits.filter { h in words.contains { AccountIndex.wordCount($0, in: h.1[keyPath: read]) > 0 } }.count
                     if naming * 2 > hits.count {
                         institution = seg.lowercased()
                         categoryWords[seg.lowercased(), default: []].formUnion(segments[..<i].flatMap(AccountIndex.words))

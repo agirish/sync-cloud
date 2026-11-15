@@ -59,6 +59,23 @@ import Testing
 
     // MARK: The sweep
 
+    /// A statement's own account number outranks a name on its page: a child's account prints its
+    /// parent as owner. The same folder reached any other way is still refused.
+    @Test func anAccountsHomeIsKeptWhateverNameThePagePrints() throws {
+        let file = "\(Self.root)/Downloads/Statement.pdf"
+        var byNumber = Self.dest("Immigration/OCI/Son")
+        byNumber = FilingDestination(path: byNumber.path, confidence: .high, reasons: ["Account ••9702 on page 1"],
+                                     newSegments: [], fromContent: true,
+                                     account: FilingAccount(root: byNumber.path, ending: "9702", institution: "bank",
+                                                            archived: false, kind: .statement))
+        let page = [file: "Account Owner: Daughter Father"]
+        let kept = try #require(Self.sweep([Self.card("Statement.pdf", [byNumber])], pageSamples: page).first)
+        #expect(kept.best?.path == byNumber.path)
+        let guessed = try #require(Self.sweep([Self.card("Statement.pdf", [Self.dest("Immigration/OCI/Son")])], pageSamples: page).first)
+        #expect(guessed.best == nil, "the control: no account, so the page's name refuses it")
+    }
+
+
     /// The whole point: a home nobody asked a model about is refused, and the next candidate leads.
     @Test func aWrongPersonHomeIsDroppedAndTheNextCandidateLeads() throws {
         let out = Self.sweep([Self.card("Daughter OCI.pdf", [
