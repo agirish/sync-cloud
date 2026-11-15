@@ -665,7 +665,7 @@ extension FileSyncManager {
             else { return true }   // unresolvable: applyVerdicts drops it anyway
             return !hidden.isHidden(dest.path)
         }
-        let refined = FilingEngine.applyVerdicts(usable, to: filingSuggestions,
+        let answered = FilingEngine.applyVerdicts(usable, to: filingSuggestions,
                                                  existingRelative: existingRelative,
                                                  providerRoot: root, nameProvider: filingLastNameProvider,
                                                  rejectedByFile: rejectedByFile,
@@ -684,6 +684,10 @@ extension FileSyncManager {
                                                  onVeto: { [weak self] refusal in
                                                      self?.recordPersonVeto(refusal)
                                                  })
+        // An answer naming an archived folder whose folder carries on outside it: the live one.
+        let refined = Self.preferringLiveTwins(answered, taxonomy: filingAccountTaxonomy, root: root,
+                                               isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
+                                               facts: filingDocumentFacts, rejected: rejectedByFile)
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         // Cards whose home stood while Claude named another folder, now next under Try Another
         // Folder. Counted so "no better homes found" isn't said over an answer that is on the card.

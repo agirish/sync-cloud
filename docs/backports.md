@@ -15644,3 +15644,26 @@ above, 2026-11-15: panel=0 on every line).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## To File prefers a live folder over its archived twin — prompt rule recorded, twin main only
+
+2026-11-15, for v7.2. On `main`, a To File home picked inside an archive (`Home/Archive/Old House/
+Utilities/PG&E`, statements to 2021) gives way to its live twin outside it (`Home/Utilities/PG&E`,
+statements since), whichever pass picked it. It mends picks of `main`'s statement-filing passes,
+which the lines lack; their cards have no such step and keep whatever the classifier chose.
+
+Claude's filing instructions (cloud and on-device) also gain a rule: a folder inside an archive
+keeps closed or past things, chosen only when nothing outside the archive fits. Every line carries
+those instructions without the rule, so a Claude placement there can pick an archived folder for a
+new document.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s accounts=%s prompt=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sync/AccountIdentity.swift')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/CloudFilingProtocol.swift | grep -c 'Strongly prefer an existing folder')"; done
+# measured 2026-11-15, against origin: accounts=0 prompt=1 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The prompt without the archive rule; no twin step | RECORDED — not owed (prompt rule); CLOSED — checked, not owed (twin) |

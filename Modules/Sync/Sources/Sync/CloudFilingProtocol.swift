@@ -18,7 +18,7 @@ public enum CloudFilingProtocol {
     /// these are assembled outside this file. A cached answer to the old question would silently
     /// keep the change from taking effect. Wording that can't change a verdict needs no bump; when
     /// unsure, bump: the cost is one scan's worth of re-asking.
-    public static let promptVersion = 7
+    public static let promptVersion = 8
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
@@ -157,6 +157,9 @@ public enum CloudFilingProtocol {
         is still right. A parent is the answer only when none of its children fit. If the list has \
         both "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is \
         an H-1B visa issued in that period, the answer is the second.
+        • A folder inside an archive (its path runs through "Archive", "Archives" or "Archived") keeps \
+        closed or past things. Choose one only when nothing outside the archive fits: for a new \
+        water bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water".
         • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
         parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla") — and say so by \
         setting createsNewFolder to true. Copying a path from the list means createsNewFolder is \

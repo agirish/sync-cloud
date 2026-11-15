@@ -102,6 +102,9 @@ enum OnDeviceFilingClassifier {
     still right. A parent is the answer only when none of its children fit. If the list has both \
     "Immigration/Visa/US" and "Immigration/Visa/US/H-1B Visa/2024-2026" and the document is an H-1B \
     visa issued in that period, the answer is the second.
+    • A folder inside an archive (its path runs through "Archive", "Archives" or "Archived") keeps \
+    closed or past things. Choose one only when nothing outside the archive fits: for a new water \
+    bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water".
     • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
     parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Car Two") — and say so by \
     setting createsNewFolder to true. Copying a path from the list means createsNewFolder is false. \

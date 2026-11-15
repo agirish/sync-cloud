@@ -835,6 +835,16 @@ extension FileSyncManager {
             identity: filingPersonIdentity, pageSamples: pageSamples,
             onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
 
+        // A home in an archive whose folder carries on outside it leads to the live one, before the
+        // naming pass names the file for where it now goes.
+        let twinInput = suggestions, twinFacts = readFacts, twinRefused = rejectedByFile
+        let twinRoot = providerRoot.path
+        suggestions = await Task.detached(priority: .userInitiated) {
+            Self.preferringLiveTwins(twinInput, taxonomy: taxonomy, root: twinRoot, isArchived: isArchived,
+                                     isInbox: isInbox, facts: twinFacts, rejected: twinRefused)
+        }.value
+        if Task.isCancelled { return }
+
         // What each file would be called once it lands, computed against the taxonomy this scan
         // walked, so the queue answers "where does this go" and "what is it called there" in one
         // pass. See `namingSuggestions`. Detached, like `detectRiskyNames` and `detectRenamePlans`:
