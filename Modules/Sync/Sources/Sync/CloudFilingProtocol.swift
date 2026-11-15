@@ -18,7 +18,7 @@ public enum CloudFilingProtocol {
     /// these are assembled outside this file. A cached answer to the old question would silently
     /// keep the change from taking effect. Wording that can't change a verdict needs no bump; when
     /// unsure, bump: the cost is one scan's worth of re-asking.
-    public static let promptVersion = 8
+    public static let promptVersion = 9
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
@@ -159,7 +159,8 @@ public enum CloudFilingProtocol {
         an H-1B visa issued in that period, the answer is the second.
         • A folder inside an archive (its path runs through "Archive", "Archives" or "Archived") keeps \
         closed or past things. Choose one only when nothing outside the archive fits: for a new \
-        water bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water".
+        water bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water". When the \
+        only folder that fits is archived, choose it, not a broader folder above where it would go.
         • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
         parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla") — and say so by \
         setting createsNewFolder to true. Copying a path from the list means createsNewFolder is \

@@ -104,7 +104,8 @@ enum OnDeviceFilingClassifier {
     visa issued in that period, the answer is the second.
     • A folder inside an archive (its path runs through "Archive", "Archives" or "Archived") keeps \
     closed or past things. Choose one only when nothing outside the archive fits: for a new water \
-    bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water".
+    bill, "Home/Utilities/Water" over "Home/Archive/Old House/Utilities/Water". When the only \
+    folder that fits is archived, choose it, not a broader folder above where it would go.
     • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
     parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Car Two") — and say so by \
     setting createsNewFolder to true. Copying a path from the list means createsNewFolder is false. \

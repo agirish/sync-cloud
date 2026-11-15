@@ -422,8 +422,7 @@ extension FileSyncManager {
         let archivedFolders = Self.archivedFolders(in: filingRoutingProfile)
         let isArchived: @Sendable (String) -> Bool = { archivedFolders.contains($0) }
         // Inboxes by name, and the ones the survey marks as such: never an account.
-        let inboxFolders = Set((filingRoutingProfile?.folders ?? [:]).filter { $0.value.role == .inbox }.keys)
-        let isInbox: @Sendable (String) -> Bool = { FolderProfile.isInboxPath($0) || inboxFolders.contains($0) }
+        let isInbox = Self.inboxPredicate(profile: filingRoutingProfile)
         let namedAccounts = await Task.detached(priority: .userInitiated) {
             AccountIndex.build(tree: walkedTaxonomy, isArchived: isArchived, isInbox: isInbox)
         }.value
@@ -772,9 +771,16 @@ extension FileSyncManager {
                 // backend and the one the user explicitly asks for.
                 // The folder menu: what the router already thinks plausible for these files, then
                 // the shallow structural list. See ``FilingEngine/classifierFolders``.
+                // Each archived folder on it brings its live twin, put first.
+                let walked = taxonomy
+                let archiveTwins = files.isEmpty ? [:] : await Task.detached(priority: .userInitiated) {
+                    LiveTwinFinder(taxonomy: walked, isArchived: isArchived, isInbox: isInbox).allTwins()
+                }.value
+                if Task.isCancelled { return }
                 let menu = FilingEngine.classifierFolders(
-                    preferred: Self.preferredFolders(for: files, shortlists: routerShortlists,
-                                                     in: suggestions, providerRoot: providerRoot.path),
+                    preferred: Self.withLiveTwins(Self.preferredFolders(for: files, shortlists: routerShortlists,
+                                                                        in: suggestions, providerRoot: providerRoot.path),
+                                                  twins: archiveTwins),
                     fallback: filingLastTaxonomyFolders)
 
                 var verdicts = cachedVerdicts
@@ -823,6 +829,17 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
 
+        // A home in an archive whose folder carries on outside it leads to the live one: before the
+        // cross-person rule, which judges the folder it now leads with, and the naming pass, which
+        // names the file for where it now goes.
+        let twinInput = suggestions, twinFacts = readFacts, twinPages = routerSnippets, twinRefused = rejectedByFile
+        let twinRoot = providerRoot.path
+        suggestions = await Task.detached(priority: .userInitiated) {
+            Self.preferringLiveTwins(twinInput, taxonomy: taxonomy, root: twinRoot, isArchived: isArchived,
+                                     isInbox: isInbox, facts: twinFacts, pages: twinPages, rejected: twinRefused)
+        }.value
+        if Task.isCancelled { return }
+
         // The cross-person rule, applied to the cards rather than the model. A home can reach a card
         // without a backend verdict (the keyword engine, the router, and with no Apple Intelligence
         // those are the only two), so the veto runs on the cards. See
@@ -836,16 +853,6 @@ extension FileSyncManager {
             profile: filingRoutingProfile, registry: filingPersonRegistry,
             identity: filingPersonIdentity, pageSamples: pageSamples,
             onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })
-
-        // A home in an archive whose folder carries on outside it leads to the live one, before the
-        // naming pass names the file for where it now goes.
-        let twinInput = suggestions, twinFacts = readFacts, twinRefused = rejectedByFile
-        let twinRoot = providerRoot.path
-        suggestions = await Task.detached(priority: .userInitiated) {
-            Self.preferringLiveTwins(twinInput, taxonomy: taxonomy, root: twinRoot, isArchived: isArchived,
-                                     isInbox: isInbox, facts: twinFacts, rejected: twinRefused)
-        }.value
-        if Task.isCancelled { return }
 
         // What each file would be called once it lands, computed against the taxonomy this scan
         // walked, so the queue answers "where does this go" and "what is it called there" in one
@@ -1620,7 +1627,18 @@ extension FileSyncManager {
             return dest
         }()
         if let dest = accepted {
-            replaceFilingSuggestion(suggestion.id, candidates: [dest])
+            // An archived folder whose folder carries on outside it: the live one leads, judged by
+            // the same rule, and the archive is next.
+            let twinned = Self.preferringLiveTwins(
+                [suggestion.replacingCandidates([dest])], taxonomy: filingAccountTaxonomy, root: root,
+                isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
+                isInbox: Self.inboxPredicate(profile: filingRoutingProfile),
+                facts: filingDocumentFacts, pages: filingPageSamples, rejected: [suggestion.filePath: allRejected])[0]
+            let vetted = twinned.candidates.count == 1 ? twinned : FilingEngine.refusingCrossPersonHomes(
+                [twinned], providerRoot: root, profile: filingRoutingProfile, registry: filingPersonRegistry,
+                identity: filingPersonIdentity, pageSamples: filingPageSamples,
+                onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })[0]
+            replaceFilingSuggestion(suggestion.id, candidates: vetted.candidates.isEmpty ? [dest] : vetted.candidates)
         } else {
             replaceFilingSuggestion(suggestion.id, candidates: [])
         }

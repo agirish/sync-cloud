@@ -72,6 +72,20 @@ import Sync
         #expect(text.contains("copy its path exactly"))
     }
 
+    /// This Mac's model is told what Claude is about archives, word for word.
+    @Test func bothModelsGetTheSameArchiveRule() throws {
+        func rule(_ text: String) -> String? {
+            guard let start = text.range(of: "A folder inside an archive"),
+                  let end = text.range(of: "above where it would go.", range: start.upperBound..<text.endIndex)
+            else { return nil }
+            return text[start.lowerBound..<end.upperBound].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let body = CloudFilingProtocol.requestBody(taxonomyFolders: ["Home"], files: [])
+        let system = try #require((body["system"] as? [[String: Any]])?.first?["text"] as? String)
+        let cloud = try #require(rule(system))
+        #expect(rule(OnDeviceFilingClassifier.onDeviceInstructions) == cloud)
+    }
+
     // MARK: Model answer → verdict mapping (FolderPick.asVerdict delegates here)
 
     @Test func declinesMapToNil() {

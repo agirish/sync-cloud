@@ -416,6 +416,14 @@ extension FileSyncManager {
         }
         let chosen = sendList(ticked: options.pagesFromAskEachTime)
         let sending = chosen.send
+        // Each archived folder on the menu brings its live twin (`withLiveTwins`).
+        let walked = filingAccountTaxonomy
+        let isArchived: @Sendable (String) -> Bool = { [archived = filingArchivedFolders] in archived.contains($0) }
+        let isInbox = Self.inboxPredicate(profile: filingRoutingProfile)
+        let archiveTwins = await Task.detached(priority: .userInitiated) {
+            LiveTwinFinder(taxonomy: walked, isArchived: isArchived, isInbox: isInbox).allTwins()
+        }.value
+        if Task.isCancelled { return nil }
         /// The request this pass would send, from the pages in hand. Built twice when cloud-only
         /// files are downloaded after the price is agreed.
         func request(_ snippets: [String: String], ticked: Bool? = nil,
@@ -464,8 +472,9 @@ extension FileSyncManager {
                 })
             }
             // Filtered too: a card's own candidates can name a hidden folder the scan chose.
-            preferred = Self.preferredFolders(for: files, shortlists: shortlists,
-                                              in: eligible, providerRoot: root).filter(shown)
+            preferred = Self.withLiveTwins(Self.preferredFolders(for: files, shortlists: shortlists,
+                                                                 in: eligible, providerRoot: root),
+                                           twins: archiveTwins).filter(shown)
             let context = filingContext(
                 taxonomyFolders: FilingEngine.classifierFolders(preferred: preferred,
                                                                 fallback: taxonomyFolders))
@@ -694,10 +703,22 @@ extension FileSyncManager {
                                                  onVeto: { [weak self] refusal in
                                                      self?.recordPersonVeto(refusal)
                                                  })
-        // An answer naming an archived folder whose folder carries on outside it: the live one.
-        let refined = Self.preferringLiveTwins(answered, taxonomy: filingAccountTaxonomy, root: root,
+        // An answer naming an archived folder whose folder carries on outside it: the live one,
+        // judged by the cross-person rule `applyVerdicts` applied to the answer.
+        // On the main actor, unlike the scan's: an await here would reopen the window the guard
+        // above closed. The tree is walked only when a card leads into an archive.
+        let twinned = Self.preferringLiveTwins(answered, taxonomy: filingAccountTaxonomy, root: root,
                                                isArchived: { [archived = filingArchivedFolders] in archived.contains($0) },
-                                               facts: filingDocumentFacts, rejected: rejectedByFile)
+                                               isInbox: Self.inboxPredicate(profile: filingRoutingProfile),
+                                               facts: filingDocumentFacts, pages: filingPageSamples,
+                                               rejected: rejectedByFile)
+        let refined = zip(answered, twinned).map { was, now in
+            was.best?.path == now.best?.path ? now
+                : FilingEngine.refusingCrossPersonHomes(
+                    [now], providerRoot: root, profile: filingRoutingProfile, registry: filingPersonRegistry,
+                    identity: filingPersonIdentity, pageSamples: filingPageSamples,
+                    onVeto: { [weak self] refusal in self?.recordPersonVeto(refusal) })[0]
+        }
         let changed = refined.filter { before[$0.id] != $0.best?.path }.count
         // Cards whose home stood while Claude named another folder, now next under Try Another
         // Folder. Counted so "no better homes found" isn't said over an answer that is on the card.
