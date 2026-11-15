@@ -1266,6 +1266,10 @@ Needs an API key and Ask Claude open (⌘J). The guess and the model's starter n
   appears without the fade.
 - [ ] **Under an earlier chat.** After an hour away (or Continue's "Earlier" line), the new chat shows
   starters under "Earlier · Claude doesn’t see this", without the intro.
+- [ ] **None under a chat under way.** Leave a chat with a card waiting until "Your next question
+  starts a new chat" shows under it: no starters appear under that line, and the suggestion chip,
+  if any, stays above the box. Ask something: the new chat starts and its rows show, still without
+  starters.
 - [ ] **Suggestion leads.** With three new files in Downloads and a new chat, "File the new files in
   iCloud › Downloads" is the first starter and no chip shows above the box. Right-click it: Not Now,
   Don't Suggest New Files in Downloads and Suggestion Settings…, as on the chip; Not Now takes it out

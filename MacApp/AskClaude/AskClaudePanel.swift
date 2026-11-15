@@ -362,7 +362,8 @@ struct AskClaudePanel: View {
                         AskClaudeEarlierLine.priced(title: "Your next question starts a new chat · Claude won’t see what’s above",
                                                     defaults: chat.settingsDefaults, resume: { _ in chat.currentResume },
                                                     onContinue: { chat.continueThisChat() })
-                        if !chat.items.isEmpty, keySaved == true { starters(intro: false) }
+                        // No starters under it: a chat with rows is still under way, and a card in
+                        // it may be waiting on them. They come back in the new chat, once it starts.
                     }
                     if chat.isRunning && chat.isThinking {
                         HStack(spacing: 6) {
@@ -720,9 +721,10 @@ struct AskClaudePanel: View {
 
     // MARK: Starters (TE347b)
 
-    /// Wherever the next question starts a new chat (V1). TE309's chip stays away meanwhile: its
-    /// suggestion leads the starters instead (B-R8).
-    private var startersShow: Bool { chat.items.isEmpty || chat.currentResume != nil }
+    /// In an empty chat only, under an earlier one too (V1); never under a chat with rows, even one
+    /// whose next question starts a new chat. TE309's chip stays away meanwhile: its suggestion
+    /// leads the starters instead (B-R8), and it shows in the chat under way.
+    private var startersShow: Bool { chat.items.isEmpty }
 
     /// TE309's chip as it would show over an empty box, so a new chat's starters can lead with it.
     /// Not the box as it is: typing would take it out of the starters and move the rest up.

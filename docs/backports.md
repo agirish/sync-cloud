@@ -15617,3 +15617,19 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s groups=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The older cards and File All N Confident | CLOSED — checked, not owed (a feature) |
+
+## No starters under a chat under way — main only, recorded, not owed
+
+2026-11-15, for v7.2. On `main`: Ask Claude's starter questions show in an empty chat only, no longer
+under a chat whose next question starts a new one. Only Ask Claude's panel changes, which no
+maintenance line has:
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s panel=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AskClaudePanel.swift')"; done
+# measured 2026-11-15, against origin: panel=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
