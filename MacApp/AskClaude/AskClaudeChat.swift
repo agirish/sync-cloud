@@ -929,6 +929,29 @@ final class AskClaudeChat: ObservableObject {
         return now().timeIntervalSince(last) > Self.idleReset
     }
 
+    /// Whether coming back to the panel, or something the app puts in it (Refine with Claude, File
+    /// With), finds a chat left behind rather than one under way: an hour since the thread last
+    /// changed, a card's update included. Not `startsOverAtNextQuestion`: an hour past the last
+    /// question with a Refine card answered minutes ago is a session under way, and the question
+    /// that starts over keeps that card (`aCardsUpdateKeepsTheThreadButNotClaudesChat`). Continue
+    /// pressed means they chose to carry on.
+    var isLeftBehind: Bool {
+        guard !isRunning, !items.isEmpty, !continuing, carryFrom == nil else { return false }
+        guard let last = lastActivity else { return false }
+        return now().timeIntervalSince(last) > Self.idleReset
+    }
+
+    /// A chat left behind goes to Past Chats, out of view, and a fresh one starts: they came back,
+    /// or the app is starting something of its own, so the old thread is only in the way. A question
+    /// typed under it still starts over keeping it in view (decision JK). True when it started one.
+    @discardableResult
+    func startAfreshIfLeftBehind() -> Bool {
+        guard isLeftBehind else { return false }
+        startOver()
+        Logger.shared.info("Ask Claude: a chat left behind went to Past Chats, and a new one started")
+        return true
+    }
+
     /// What Continue does for the chat on screen, when the next question would start a new one;
     /// nil when it carries on anyway.
     var currentResume: AskClaudePastChats.Resume? {

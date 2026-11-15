@@ -85,6 +85,51 @@ import Sync
         #expect(past.entries.map(\.firstQuestion) == ["one"])
     }
 
+    /// Coming back after an hour (the panel opening, Refine, File With): the chat left behind goes
+    /// to Past Chats out of view, not above the new one as a typed question leaves it. Mutation:
+    /// `startOver(keepingInView: true)` leaves it as `earlier`.
+    @Test func aChatLeftBehindGoesToPastChatsOutOfView() async {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_792_000_000)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
+        clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
+        #expect(chat.isLeftBehind)
+        #expect(chat.startAfreshIfLeftBehind())
+        #expect(chat.items.isEmpty)
+        #expect(chat.earlier == nil)
+        #expect(past.entries.map(\.firstQuestion) == ["one"])
+        // A fresh chat has nothing to leave behind.
+        #expect(!chat.startAfreshIfLeftBehind())
+    }
+
+    /// Within the hour the chat is under way and stays. Mutation: dropping the hour check starts
+    /// afresh here.
+    @Test func aChatWithinTheHourIsNotLeftBehind() async {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_792_000_000)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
+        clock = clock.addingTimeInterval(AskClaudeChat.idleReset - 60)
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.items.contains { $0.kind == .user("one") })
+        #expect(past.entries.isEmpty)
+    }
+
+    /// Continue pressed on a chat over an hour old: they chose to carry on, so coming back to it
+    /// doesn't put it away. Mutation: dropping the `continuing` guard starts afresh.
+    @Test func continuePressedKeepsAnOldChat() async {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_792_000_000)
+        let (chat, _) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
+        clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
+        chat.continueThisChat()
+        #expect(chat.continuing)
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.items.contains { $0.kind == .user("one") })
+    }
+
     /// Decision JJ: Continue on a chat this build wrote reads it back in, as it was.
     @Test func continueReadsAPastChatBackInAndItLeavesTheList() async throws {
         let d = defaults()

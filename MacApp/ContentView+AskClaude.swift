@@ -376,6 +376,8 @@ extension ContentView {
     func askClaudeAttach(_ paths: [String]) {
         let items = askClaudeChips(paths)
         guard !items.isEmpty else { return }
+        // About to ask about these: not under a chat left behind.
+        askClaudeChat.startAfreshIfLeftBehind()
         askClaudeChat.attach(items)
         Logger.shared.info("Ask Claude: attached \(items.count) item\(items.count == 1 ? "" : "s") from a row’s menu")
         askClaudeHolder.visibility.restored = false
@@ -413,6 +415,8 @@ extension ContentView {
         let question = AskClaudeFileWith.question(files: chips.filter { !$0.isDirectory }.count,
                                                   folders: chips.filter(\.isDirectory).count)
         let chat = askClaudeChat
+        // A new question of the app's own, so not under a chat left behind.
+        chat.startAfreshIfLeftBehind()
         let wasOpen = askClaudeHolder.visibility.isOpen
         askClaudeHolder.visibility.restored = false
         askClaudeHolder.visibility.tucked = false

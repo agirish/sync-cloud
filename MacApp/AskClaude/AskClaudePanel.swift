@@ -129,6 +129,8 @@ struct AskClaudePanel: View {
             leavingForAnotherWindow = false
             guard !hasAppeared else { return }
             hasAppeared = true
+            // Opened after a while, or at launch: a chat left behind goes to Past Chats.
+            chat.startAfreshIfLeftBehind()
             // A draft left when the panel closed comes back with it.
             draft = chat.draft
             if takesKeyboardOnAppear { composerFocused = true }

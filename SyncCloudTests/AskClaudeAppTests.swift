@@ -4482,6 +4482,28 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(!AskClaudeChat.lasts(.refine(closed)))
     }
 
+    /// A Refine card answered minutes ago, an hour past the last question: a session under way, not
+    /// a chat left behind, though the next question starts over. Mutation: counting
+    /// `startsOverAtNextQuestion` as left behind sends the card, and its Undo, to Past Chats.
+    @Test func aRecentCardKeepsAnHourOldChatUnderWay() async throws {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        clock += 50 * 60
+        let id = chat.addRefineCard(card())
+        clock += 15 * 60
+        #expect(chat.startsOverAtNextQuestion)
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.refineCard(id) != nil)
+        // An hour past the card too, it is left behind.
+        clock += 60 * 60
+        #expect(chat.startAfreshIfLeftBehind())
+        #expect(chat.items.isEmpty)
+    }
+
     /// A Refine card's update isn't them talking to Claude: an hour after the last question the
     /// next one starts a new chat however recently a card changed, so a cold transcript isn't
     /// replayed at uncached prices. The thread, card and all, is still kept across a relaunch for

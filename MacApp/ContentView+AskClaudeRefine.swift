@@ -43,6 +43,9 @@ extension ContentView {
             return
         }
         let chat = askClaudeChat
+        // From Organize, a Refine starts a new chat over one left behind. From a card in the chat
+        // it stays: its answers update that card (TE342).
+        if forCard == nil { chat.startAfreshIfLeftBehind() }
         let source = named ?? (lensProviderName.isEmpty ? "this folder" : lensProviderName)
         if !askClaudeHolder.visibility.isOpen { toggleAskClaude() }
         Task { @MainActor in

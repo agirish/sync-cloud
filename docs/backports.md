@@ -15633,3 +15633,14 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s panel=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## A chat left behind goes to Past Chats when they come back — main only, recorded, not owed
+
+2026-11-15, for v7.2. On `main`: opening the Ask Claude panel, Refine with Claude from Organize, and
+a row's File with Claude or Ask Claude About This put a chat whose thread hasn't changed in an hour
+into Past Chats and start a new one. Ask Claude only, which no maintenance line has (measured as
+above, 2026-11-15: panel=0 on every line).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
