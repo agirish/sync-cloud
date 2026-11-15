@@ -69,9 +69,10 @@ enum FilingFileAction: String, CaseIterable, Identifiable {
 
 /// The words and paths a row's actions use, apart from the views so they can be tested.
 enum FilingFileText {
-    /// Where the file lands, in full: its home and the name it takes. nil with no home.
-    static func destinationPath(_ s: FilingSuggestion) -> String? {
-        guard let best = s.best else { return nil }
+    /// Where the file lands, in full: its home (`home`, a typed one, or its best) and the name it
+    /// takes. nil with no home.
+    static func destinationPath(_ s: FilingSuggestion, home: FilingDestination? = nil) -> String? {
+        guard let best = home ?? s.best else { return nil }
         return (best.path as NSString).appendingPathComponent(best.proposedName ?? s.fileName)
     }
 
@@ -164,8 +165,9 @@ struct FilingFileRows: View {
                 move(press.key == .downArrow ? 1 : -1)
                 return .handled
             }
-            guard let action = FilingFileAction.forKey(press.key, modifiers: press.modifiers),
-                  let s = selectedMember, hooks.isEnabled(action, s) else { return .ignored }
+            guard let action = FilingFileAction.forKey(press.key, modifiers: press.modifiers) else { return .ignored }
+            // Taken even with no row selected: let through, Space would preview the pane's selection.
+            guard let s = selectedMember, hooks.isEnabled(action, s) else { return .handled }
             hooks.perform(action, s)
             return .handled
         }
@@ -332,6 +334,8 @@ struct FilingFileActionRunner {
     var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
     var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     var pasteboard: NSPasteboard = .general
+    /// The file's home as the card shows it: a name typed into Create as included.
+    var home: (FilingSuggestion) -> FilingDestination? = { $0.best }
     var pullOut: (FilingSuggestion) -> Void
     var chooseFolder: (FilingSuggestion) -> Void
     var setAside: (FilingSuggestion) -> Void
@@ -347,9 +351,9 @@ struct FilingFileActionRunner {
         case .open: open(url)
         case .reveal: reveal(url)
         case .openFolder: open(url.deletingLastPathComponent())
-        case .openDestinationFolder: if let best = s.best { open(URL(fileURLWithPath: best.path, isDirectory: true)) }
+        case .openDestinationFolder: if let best = home(s) { open(URL(fileURLWithPath: best.path, isDirectory: true)) }
         case .copyPath: copy(s.filePath)
-        case .copyDestinationPath: if let path = FilingFileText.destinationPath(s) { copy(path) }
+        case .copyDestinationPath: if let path = FilingFileText.destinationPath(s, home: home(s)) { copy(path) }
         case .pullOut: pullOut(s)
         case .chooseFolder: chooseFolder(s)
         case .setAside: setAside(s)

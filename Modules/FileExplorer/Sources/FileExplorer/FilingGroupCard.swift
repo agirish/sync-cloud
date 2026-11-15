@@ -138,7 +138,7 @@ struct FilingGroupCard: View {
             Spacer(minLength: 8)
             FilingCardFileActions(target: selectedMember,
                                   folder: FilingRouteText.commonFolder(group.members.map { ($0.filePath as NSString).deletingLastPathComponent }),
-                                  destinationFolder: group.destination.isNew ? nil : group.destination.path,
+                                  destinationFolder: FilingRouteText.deepestExisting(group.destination.path),
                                   hooks: rowHooks, folded: level == 2,
                                   foldedItems: level >= 1 ? foldedLesser : [])
         }
@@ -146,7 +146,13 @@ struct FilingGroupCard: View {
 
     /// The row the card's line acts on, while it is still one of the card's.
     private var selectedMember: FilingSuggestion? {
-        isExpanded ? group.members.first { $0.id == selectedRow } : nil
+        Self.target(members: group.members, selected: selectedRow, expanded: isExpanded)
+    }
+
+    /// The file a group card's Quick Look and Trash act on: the selected row, only while it is still
+    /// a member and the rows are showing. nil offers Open Folder alone.
+    nonisolated static func target(members: [FilingSuggestion], selected: String?, expanded: Bool) -> FilingSuggestion? {
+        expanded ? members.first { $0.id == selected } : nil
     }
 
     /// The left half's lesser buttons, as ⋯ items on the narrowest line.
@@ -183,6 +189,12 @@ struct FilingGroupCard: View {
                 .lockedDuringRun()
                 .help(FilingGroupText.trashHelp(group))
             showFilesButton
+            Spacer(minLength: 8)
+            // The same look as every card: to see the copies before they go.
+            FilingCardFileActions(target: selectedMember,
+                                  folder: FilingRouteText.commonFolder(group.members.map { ($0.filePath as NSString).deletingLastPathComponent }),
+                                  destinationFolder: FilingRouteText.deepestExisting(group.destination.path),
+                                  hooks: rowHooks)
         }
     }
 

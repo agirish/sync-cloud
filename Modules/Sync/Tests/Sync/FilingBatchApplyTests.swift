@@ -119,6 +119,25 @@ import Foundation
         #expect(m.banner?.message.hasPrefix("Nothing left to file") == true)
     }
 
+    /// A card re-answered while the sheet was open (Refine, Download and Read) files only to the
+    /// home the sheet showed; given another home since, it is skipped.
+    @Test func aCardGivenAnotherHomeSinceTheSheetOpenedIsSkipped() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingBatchRehomed")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ira = root.appendingPathComponent("Docs/IRA 7863"), roth = root.appendingPathComponent("Docs/Roth 4657")
+        for d in [ira, roth] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        let shown = try statement(root, "01.pdf", into: ira, account: ira, proposed: "IRA_01.pdf")
+        let now = FilingSuggestion(filePath: shown.filePath, fileName: shown.fileName, size: 1, modificationDate: nil,
+                                   candidates: [FilingDestination(path: roth.path, confidence: .high, reasons: ["r"], newSegments: [],
+                                                                  fromContent: true,
+                                                                  account: FilingAccount(root: roth.path, ending: "4657", institution: "x",
+                                                                                         archived: false, kind: .statement))])
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.5"))
+        m.filingSuggestions = [now]
+        #expect(await m.applyFilingBatch([.single(shown)]) == 0, "the sheet showed IRA; the list now says Roth")
+        #expect(FileManager.default.fileExists(atPath: shown.filePath))
+    }
+
     /// A new folder's name typed on its card is the name the batch makes.
     @Test func aTypedFolderNameIsKept() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingBatchTyped")

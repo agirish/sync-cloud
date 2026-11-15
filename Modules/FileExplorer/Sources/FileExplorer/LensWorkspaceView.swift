@@ -203,6 +203,8 @@ public struct LensWorkspaceView: View {
     /// Names typed into a card's "Create as", by file id: the list holds them so File All files under
     /// them too, and they outlive a card scrolled out of the lazy list.
     @State private var typedFolderNames: [String: String] = [:]
+    /// Files a row's Move to Trash is moving now: the button waits for the first click.
+    @State private var trashingFiles: Set<String> = []
     /// The card list is too narrow for the route's label column (the column beside Ask Claude).
     /// Measured once on the list, so a card scrolled into view draws right from its first frame.
     @State private var filingListNarrow = false
@@ -2220,7 +2222,8 @@ public struct LensWorkspaceView: View {
     @ViewBuilder
     private var rescanMenuItems: some View {
         // The scope first (cards mockup v6): the folder and its subfolders, or its own files.
-        if syncManager.filingScanFolder != nil {
+        // Not once the pane has moved on: they would name the last scan's folder and scan the new one.
+        if syncManager.filingScanFolder != nil, !filingTargetMoved {
             Button("Rescan \(filingFolderName) and Subfolders") {
                 syncManager.chooseFilingSubfolderScope(readsSubfolders: true)
                 onFindFilingSuggestions()
@@ -4484,10 +4487,12 @@ public struct LensWorkspaceView: View {
 
     /// What a card's file rows show and do: page 1's facts, and each row's ⋯ and context menu.
     private func fileRowHooks(_ members: [FilingSuggestion], inGroup: Bool) -> FilingFileRowsHooks {
+        let typed = typedDestinations
         let runner = FilingFileActionRunner(
             quickLook: { urls, url in
                 if let onQuickLookIn { onQuickLookIn(urls, url) } else { onQuickLook?(url) }
             },
+            home: { typed[$0.id] ?? $0.best },
             pullOut: { s in withDesignAnimation(listSettle, reduceMotion: reduceMotion) { _ = pulledOutOfGroups.insert(s.id) } },
             chooseFolder: { chooseFolder(for: $0) },
             setAside: { s in
@@ -4495,10 +4500,13 @@ public struct LensWorkspaceView: View {
                 syncManager.dismissFilingSuggestion(s)
             },
             trash: { s in
+                // Once: a second click while the first is out would ask to trash a file that's gone.
+                guard trashingFiles.insert(s.id).inserted else { return }
                 Task {
                     // To the Trash, with ⌘Z; the card goes with it.
                     _ = await syncManager.deleteItems(at: [s.filePath])
                     if !FileManager.default.fileExists(atPath: s.filePath) { syncManager.dismissFilingSuggestion(s) }
+                    trashingFiles.remove(s.id)
                 }
             })
         return FilingFileRowsHooks(
@@ -4509,7 +4517,8 @@ public struct LensWorkspaceView: View {
                 case .quickLook: return onQuickLook != nil || onQuickLookIn != nil
                 case .pullOut: return inGroup
                 case .copyDestinationPath: return s.best != nil
-                case .chooseFolder, .trash: return !syncManager.isSuggestingFiles
+                case .chooseFolder: return !syncManager.isSuggestingFiles
+                case .trash: return !syncManager.isSuggestingFiles && !trashingFiles.contains(s.id)
                 case .openDestinationFolder:
                     // Only a folder that is there: one filing would make has nothing to show.
                     return s.best.map { !$0.isNew && FileManager.default.fileExists(atPath: $0.path) } ?? false

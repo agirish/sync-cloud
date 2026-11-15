@@ -319,3 +319,46 @@ import SwiftUI
         #expect(FilingRouteText.weakGuess(token: "Age") == "A guess: only the word “Age” in the file ties it there")
     }
 }
+
+/// What the second adversarial review found, pinned.
+@Suite struct FilingCardsReviewTwoTests {
+    private func card(_ name: String, to path: String, newSegments: [String] = [], confidence: FilingConfidence = .high) -> FilingSuggestion {
+        FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
+                         candidates: [FilingDestination(path: path, confidence: confidence, reasons: ["r"], newSegments: newSegments)],
+                         providerRoot: "/D")
+    }
+
+    /// Open Destination Folder for a home filing would make opens the deepest folder that is there,
+    /// so a group's ⋯ is never empty.
+    @Test func theDestinationFolderIsTheDeepestThatExists() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("DeepestExisting-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Credit 22002"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 22002/2026") == root.path + "/Credit 22002")
+        #expect(FilingRouteText.deepestExisting(root.path + "/Credit 22002") == root.path + "/Credit 22002")
+    }
+
+    /// A group's Quick Look and Trash act on the selected row, only while it is a member and the
+    /// rows show.
+    @Test func aGroupActsOnItsSelectedRowOnly() {
+        let a = card("01.pdf", to: "/D/IRA"), b = card("02.pdf", to: "/D/IRA")
+        #expect(FilingGroupCard.target(members: [a, b], selected: b.id, expanded: true)?.id == b.id)
+        #expect(FilingGroupCard.target(members: [a, b], selected: b.id, expanded: false) == nil, "folded: no row to act on")
+        #expect(FilingGroupCard.target(members: [a], selected: b.id, expanded: true) == nil, "pulled out or trashed: gone")
+        #expect(FilingGroupCard.target(members: [a, b], selected: nil, expanded: true) == nil)
+    }
+
+    /// A name typed into Create as is where the guess's button says it files, and what Copy
+    /// Destination Path copies.
+    @MainActor @Test func aTypedNameReachesTheGuessAndTheCopiedPath() {
+        let s = card("r.pdf", to: "/D/Receipts/Hardware", newSegments: ["Hardware"], confidence: .low)
+        let typed = s.best!.renamingNewFolder(to: "Tools")
+        #expect(FilingRouteText.guessButton(typed, providerRoot: "/D", short: false) == "File in Receipts › Tools")
+        let board = NSPasteboard(name: NSPasteboard.Name("FilingCardsReviewTwoTests-\(UUID().uuidString)"))
+        defer { board.releaseGlobally() }
+        let runner = FilingFileActionRunner(quickLook: { _, _ in }, pasteboard: board, home: { _ in typed },
+                                            pullOut: { _ in }, chooseFolder: { _ in }, setAside: { _ in }, trash: { _ in })
+        runner.perform(.copyDestinationPath, on: s, members: [s])
+        #expect(board.string(forType: .string) == "/D/Receipts/Tools/r.pdf")
+    }
+}

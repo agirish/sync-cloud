@@ -113,6 +113,18 @@ enum FilingRouteText {
         return FilingRoutePath(crumbs: crumbs, note: note)
     }
 
+    /// The deepest folder of `path` that is on disk now: the destination itself, or, for a home
+    /// filing would make (a new 2026 inside an account), the account it goes in. nil if none is.
+    static func deepestExisting(_ path: String, fileManager: FileManager = .default) -> String? {
+        var p = path
+        while !p.isEmpty, p != "/" {
+            var isDir: ObjCBool = false
+            if fileManager.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue { return p }
+            p = (p as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
     /// The guess's button on a card with no confident home: "File in Social Security › 2026", or
     /// "File in 2026" on the narrowest line.
     static func guessButton(_ dest: FilingDestination, providerRoot: String?, short: Bool) -> String {

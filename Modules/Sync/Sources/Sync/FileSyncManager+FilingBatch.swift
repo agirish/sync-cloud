@@ -21,9 +21,12 @@ extension FileSyncManager {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
         }
-        let listed = Set(filingSuggestions.map(\.id))
-        let homes: [(FilingSuggestion, FilingDestination)] = items.flatMap(\.toFile).compactMap { s in
-            guard s.isMatched, listed.contains(s.id), let best = s.best else { return nil }
+        // As the list stands now: a card re-answered while the sheet was open (Refine, Download
+        // and Read, a rescan) files only if it is still Matched to the same home the sheet showed.
+        let listed = Dictionary(filingSuggestions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let homes: [(FilingSuggestion, FilingDestination)] = items.flatMap(\.toFile).compactMap { shown in
+            guard let s = listed[shown.id], s.isMatched, let best = s.best, best.path == shown.best?.path,
+                  !s.isAlreadyFiled, s.duplicateOf == nil else { return nil }
             return (s, destinations[s.id] ?? best)
         }
         guard !homes.isEmpty else {

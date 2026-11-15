@@ -2,9 +2,9 @@ import SwiftUI
 import Sync
 import Design
 
-/// One loose file as a Filing suggestion card, built like a group card (cards mockup v6): its name,
-/// From and Moves to written out (the folders it would make marked), the reason, a confidence pill,
-/// the file itself as a row to look at, and the actions.
+/// One loose file as a Filing suggestion card, built like a group card (cards mockup v8): its name,
+/// From and Moves to written out (the folders it would make marked), the reason, the file itself as
+/// a row to look at, and one line of actions.
 struct FilingSuggestionCard: View {
     @Environment(\.colorScheme) private var colorScheme
     let suggestion: FilingSuggestion
@@ -116,8 +116,8 @@ struct FilingSuggestionCard: View {
         .onGeometryChange(for: Bool.self) { $0.size.width < FilingGroupCard.narrowWidth } action: { measuredNarrow = $0 }
         .lensCard()
         // The typed name belongs to the destination it was typed for: "Try another" swaps `best`
-        // under this card and `@State` survives. Keyed on the proposed leaf, the string the field
-        // edits, so the same name under a different parent keeps what the user typed.
+        // under this card, which survives. The list keys the name on the home too
+        // (`LensWorkspaceView.typedNameKey`), so a new home starts with an empty field.
         .onChange(of: best?.newSegments.last) { _, _ in folderName.wrappedValue = "" }
         .popover(isPresented: $editingPath, arrowEdge: .bottom) {
             if let pathEditor {
@@ -333,7 +333,7 @@ struct FilingSuggestionCard: View {
             Spacer(minLength: 8)
             FilingCardFileActions(target: suggestion,
                                   folder: (suggestion.filePath as NSString).deletingLastPathComponent,
-                                  destinationFolder: best.flatMap { $0.isNew ? nil : $0.path },
+                                  destinationFolder: best.flatMap { FilingRouteText.deepestExisting($0.path) },
                                   hooks: rowHooks, folded: level == 3,
                                   foldedItems: level >= 1 ? foldedSecondaries : [])
         }
@@ -342,7 +342,7 @@ struct FilingSuggestionCard: View {
     @ViewBuilder
     private var secondaryButtons: some View {
         if best != nil, let onTryAnother {
-            Button(action: onTryAnother) { Label("Try Another", systemImage: "arrow.triangle.2.circlepath") }
+            Button(action: onTryAnother) { Label("Try Another Folder", systemImage: "arrow.triangle.2.circlepath") }
                 .controlSize(.small)
                 .disabled(isTryAnotherBusy)
                 .help("Reject this folder and suggest a different one — remembered for next time")
@@ -405,13 +405,15 @@ struct FilingSuggestionCard: View {
                 .chromeHover()
                 .lockedDuringRun()
             if let best {
-                Button { onFileHere(best.renamingNewFolder(to: editedFolderName)) } label: {
-                    Text(FilingRouteText.guessButton(best, providerRoot: suggestion.providerRoot, short: short))
+                // Named for where it files: a name typed into Create as included.
+                let guess = best.renamingNewFolder(to: editedFolderName)
+                Button { onFileHere(guess) } label: {
+                    Text(FilingRouteText.guessButton(guess, providerRoot: suggestion.providerRoot, short: short))
                         .lineLimit(1).truncationMode(.middle)
                 }
                 .controlSize(.small)
                 .lockedDuringRun()
-                .help("File it in " + FilingRouteText.movesTo(best, providerRoot: suggestion.providerRoot).text)
+                .help("File it in " + FilingRouteText.movesTo(guess, providerRoot: suggestion.providerRoot).text)
             }
         }
     }
