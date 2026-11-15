@@ -758,6 +758,16 @@ extension FileSyncManager {
         return group.copies.filter { removalPaths.contains($0.path) && copyDriftedInPlace($0) }
     }
 
+    /// The first copy in `group` that no longer holds what the scan saw: a removal candidate whose
+    /// bytes changed, else a folder, candidate or keeper, whose contents did. The one spelling of
+    /// "has this group drifted?" for every path that trashes. A folder with no baseline can come
+    /// only from the folder walk, since `copyDriftedInPlace` answers false for every folder, so a
+    /// caller tells the two refusals apart on the copy alone.
+    private func firstDrift(in group: DuplicateGroup) async -> DuplicateCopy? {
+        if let drifted = driftedRemovalCandidates(group).first { return drifted }
+        return await driftedFolderInGroup(group)
+    }
+
     /// Drops every group whose recommended copies are all off the disk — trashed just now,
     /// trashed via a pruned ancestor, or already gone externally — keeping partially or wholly
     /// failed groups visible for a retry. Returns the resolved groups. The disk is the ground
@@ -838,10 +848,7 @@ extension FileSyncManager {
             if !keeperStillExists(group) {
                 kind = .drifted
                 culprit = group.keeper
-            } else if let drifted = driftedRemovalCandidates(group).first {
-                kind = .drifted
-                culprit = drifted
-            } else if let drifted = await driftedFolderInGroup(group) {
+            } else if let drifted = await firstDrift(in: group) {
                 kind = (drifted.isDirectory && drifted.contentSnapshot == nil) ? .missingBaseline : .drifted
                 culprit = drifted
             } else if let holder = group.redundantCopies.first(where: { copy in
@@ -924,9 +931,7 @@ extension FileSyncManager {
             banner = .refusal("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.", log: .loggedAtSite)
             return false
         }
-        var driftedCopy = driftedRemovalCandidates(group).first
-        if driftedCopy == nil { driftedCopy = await driftedFolderInGroup(group) }
-        if let drifted = driftedCopy {
+        if let drifted = await firstDrift(in: group) {
             // Two refusals, told apart: a folder with no baseline was never fully read by the scan,
             // so "changed since it was scanned" would claim a change nobody measured, and a rescan
             // would reproduce the nil. The refusal stands either way; only the wording changes.
@@ -1311,12 +1316,7 @@ extension FileSyncManager {
                 Logger.shared.warning("Duplicates: batch refused copies of “\(group.keeper.name)” — the keeper (\(group.keeper.path)) is no longer what the scan saw")
                 continue
             }
-            if let drifted = driftedRemovalCandidates(group).first {
-                refused += 1
-                Logger.shared.warning("Duplicates: batch refused copies of “\(group.keeper.name)” (keeper \(group.keeper.path)) — “\(drifted.name)” (\(drifted.path)) changed after the scan")
-                continue
-            }
-            if let drifted = await driftedFolderInGroup(group) {
+            if let drifted = await firstDrift(in: group) {
                 refused += 1
                 // Same two-refusal split as `resolveDuplicateGroup`: a folder with a nil baseline
                 // was never fully read by the scan — "couldn't be checked", not "changed".
