@@ -994,16 +994,23 @@ For the after-GA-prep sitting. Ask two short questions in one chat first, then N
   “Continue · N¢” at the bottom. ‹ Past Chats and Esc go back to the list; Esc again, back to the chat.
 - [ ] **Continue.** Click Continue: it's the chat you're in again, a line over the box says the
   next question reads it back in, and the next answer's receipt costs about what the button said.
-- [ ] **An hour away.** Leave a chat for over an hour (or quit and relaunch after an hour): a line
-  under it reads “Your next question starts a new chat” with Continue. Ask without Continue: the old
-  chat stays above “Earlier · Claude doesn't see this”, greyed, and the new answer is below.
+- [ ] **An hour away.** Leave a chat for over an hour with the column open: a line under it reads
+  “Your next question starts a new chat” with Continue. Ask without Continue: the old chat stays
+  above “Earlier · Claude doesn't see this”, greyed, and the new answer is below.
+- [ ] **Left behind.** Close the column on a chat and wait over an hour with nothing new in it (or
+  quit and relaunch after an hour, the column open). Open it: the chat is empty, with starters, and
+  the old one is first in Past Chats. The same for Refine with Claude in Organize, File with Claude
+  and Ask Claude About This on a row, with the column open or closed.
+- [ ] **Not left behind.** The same wait with a PDF card still running, a chat holding only a
+  Refine card, or Continue pressed under it within the hour: opening the column keeps the chat.
 - [ ] **Search.** Opening the list puts the keyboard in its search field (⌘F still finds in the
   pane). Type a word from an answer: only matching chats stay, each with the matching line. Return
   opens the first. Esc from the field, and from an opened chat, goes back.
 - [ ] **Delete and Undo.** Hover a row, click the bin: the chat is deleted, not opened, and
   “Deleted …” shows with Undo; Undo brings it back. Right-click ▸ Delete Chat does the same.
-- [ ] **Old cards.** Quit with a card offered (a plan, say), relaunch after an hour: the chat is
-  back with the card's buttons off and “From an earlier session, so its buttons are off.”
+- [ ] **Old cards.** Quit with a card offered (a plan, say), relaunch after an hour: the chat is in
+  Past Chats. Open it and Continue: the card's buttons are off, with “From an earlier session, so
+  its buttons are off.”
 - [ ] **Hidden later.** Hide a folder a past chat named: its row says “hid 1 item”, the name reads
   “a hidden item” in the chat, search for it finds nothing, and Continue reads “Continue in a New
   Chat · N¢”. Press it: the note over the box has Cancel, and the next question carries only your

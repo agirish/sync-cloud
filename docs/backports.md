@@ -15726,3 +15726,15 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s placement=%s identity=%s plan
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The rename pass, padding every ordinal; no account phase | RECORDED — owed (rename pass pads quarterly folders); account naming does not apply |
 | `v3.x` / `v2.x` | Neither | CLOSED — does not apply |
+
+## A chat under way is never left behind — main only, recorded, not owed
+
+2026-11-15, for v7.2. On `main`: the left-behind rule (above) now spares a chat with a card at work
+or a run that just ended, a question back in the box for Edit, Continue pressed within the hour, a
+chat Past Chats wouldn't keep, and one opened from Organize's link to its Refine card; untucking the
+column counts as opening it, and the chip shows where starters can't. Ask Claude only, which no
+maintenance line has (measured as above, 2026-11-15: panel=0 on every line).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |

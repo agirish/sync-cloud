@@ -4504,6 +4504,107 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(chat.items.isEmpty)
     }
 
+    /// A card still at work is a session under way however long since its last change: a PDF
+    /// run's progress isn't activity, and a run can outlast the hour. Mutation: dropping the
+    /// at-work guard sends the running card to Past Chats while its run goes on.
+    @Test func aCardAtWorkKeepsAChatUnderWay() async throws {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        var sending = card(); sending.phase = .sending(answered: nil)
+        let id = chat.addRefineCard(sending)
+        clock += 2 * 60 * 60
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.refineCard(id) != nil)
+        // Once it ends, an hour on, the chat is left behind.
+        chat.updateRefine(id) { $0.phase = .done; $0.answers = .init() }
+        clock += 61 * 60
+        #expect(chat.startAfreshIfLeftBehind())
+    }
+
+    /// Refine cards with no question are a chat Past Chats doesn't keep: starting afresh would throw
+    /// the answered card away, not put it away. Mutation: dropping the keep test discards it.
+    @Test func aChatOfRefineCardsAloneIsNotThrownAway() {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        var done = card(); done.phase = .done; done.answers = .init()
+        let id = chat.addRefineCard(done)
+        clock += 2 * 60 * 60
+        #expect(!chat.isLeftBehind)
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.refineCard(id) != nil)
+    }
+
+    /// A plan applied a minute ago, its question long before: the run ending is the chat changing,
+    /// so it is under way, with its Undo. Mutation: card runs not counting as activity puts it away.
+    @Test func aRunThatJustEndedKeepsAChatUnderWay() async throws {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        chat.showPlan(AskClaudePlan(title: "Move 2 Files", subtitle: "in Downloads", rows: []))
+        let id = try #require(chat.items.last?.id)
+        clock += 50 * 60
+        chat.updatePlan(id) { $0.state = .applying }
+        clock += 15 * 60
+        chat.updatePlan(id) { $0.state = .applied }
+        clock += 2 * 60
+        #expect(!chat.startAfreshIfLeftBehind())
+        // A tick isn't a run: an hour after it ended, ticks or not, the chat is left behind.
+        clock += 61 * 60
+        chat.updatePlan(id) { _ in }
+        #expect(chat.startAfreshIfLeftBehind())
+    }
+
+    /// Organize's link to the chat's Refine card: going there on purpose keeps the chat when the
+    /// column opens for it. Mutation: `markInUse` doing nothing leaves it to be put away.
+    @Test func goingToTheChatOnPurposeKeepsIt() async {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        chat.ask("one", screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        clock += 2 * 60 * 60
+        #expect(chat.isLeftBehind)
+        chat.markInUse()
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(!chat.items.isEmpty)
+    }
+
+    /// A question back in the box for Edit is them at work in the chat: Ask Claude About This then
+    /// mustn't put it away under them. Mutation: dropping the `editing` guard does.
+    @Test func aQuestionBeingEditedKeepsTheChat() async throws {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_000_000)
+        let screen = AskClaudeScreen(workspace: "Browse", source: "iCloud", folder: "", sort: "Name", rows: [],
+                                     selection: [], toolsAvailable: true)
+        let chat = makeChat(OneLineTransport(text: "hi"), defaults: d, now: { clock })
+        chat.ask("one", editable: true, screen: screen, tools: NoTools()); await waitUntilIdle(chat)
+        clock += 2 * 60 * 60
+        let question = try #require(chat.lastQuestion)
+        #expect(chat.beginEdit(question) == "one")
+        #expect(!chat.startAfreshIfLeftBehind())
+        chat.cancelEdit()
+        #expect(chat.startAfreshIfLeftBehind())
+    }
+
+    /// The states that count as at work, and only those: a restored chat's never do (`notWaiting`).
+    @Test func cardsAtWork() {
+        var sending = card(); sending.phase = .sending(answered: 2)
+        var done = card(); done.phase = .done
+        #expect(AskClaudeChat.isAtWork(.refine(sending)))
+        #expect(!AskClaudeChat.isAtWork(.refine(done)))
+        #expect(!AskClaudeChat.isAtWork(.refine(card())))
+        #expect(!AskClaudeChat.isAtWork(AskClaudeChat.notWaiting(.init(kind: .refine(sending))).kind))
+    }
+
     /// A Refine card's update isn't them talking to Claude: an hour after the last question the
     /// next one starts a new chat however recently a card changed, so a cold transcript isn't
     /// replayed at uncached prices. The thread, card and all, is still kept across a relaunch for

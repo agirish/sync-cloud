@@ -125,7 +125,11 @@ extension ContentView {
     /// a narrow window, the first press brings it back.
     func toggleAskClaude() {
         let visibility = askClaudeHolder.visibility
+        let untucking = visibility.isOpen && visibility.tucked
         withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { visibility.toggle() }
+        // A tucked column keeps its panel, so bringing it back isn't an appearance: it is the
+        // column opening all the same.
+        if untucking { askClaudeChat.startAfreshIfLeftBehind() }
         if visibility.isOpen { visibility.focusRequests += 1 }
     }
 

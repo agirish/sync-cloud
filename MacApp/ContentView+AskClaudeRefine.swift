@@ -43,9 +43,6 @@ extension ContentView {
             return
         }
         let chat = askClaudeChat
-        // From Organize, a Refine starts a new chat over one left behind. From a card in the chat
-        // it stays: its answers update that card (TE342).
-        if forCard == nil { chat.startAfreshIfLeftBehind() }
         let source = named ?? (lensProviderName.isEmpty ? "this folder" : lensProviderName)
         if !askClaudeHolder.visibility.isOpen { toggleAskClaude() }
         Task { @MainActor in
@@ -60,6 +57,10 @@ extension ContentView {
             }
             var card = AskClaudeRefineCard(sourceName: source, plan: plan, scopePaths: scope.map(\.filePath))
             card.forCard = forCard
+            // From Organize, the plan starts a new chat over one left behind; a Refine with nothing
+            // to ask leaves the chat as it was. From a card in the chat it stays: its answers
+            // update that card (TE342).
+            if forCard == nil { chat.startAfreshIfLeftBehind() }
             chat.addRefineCard(card)
             Logger.shared.info("Ask Claude: a Refine plan for \(plan.eligible) file(s) is waiting for Send")
         }
@@ -70,7 +71,11 @@ extension ContentView {
         let chat = askClaudeChat
         return LensRefineChatLink(
             isAvailable: { chat.items.contains { if case .refine(let card) = $0.kind, card.answers != nil { true } else { false } } },
-            show: { if !askClaudeHolder.visibility.isOpen { toggleAskClaude() } })
+            show: {
+                // Going to this chat's card on purpose: opening the column for it keeps the chat.
+                chat.markInUse()
+                if !askClaudeHolder.visibility.isOpen { toggleAskClaude() }
+            })
     }
 
     /// Once, at the window's setup: Try Another's requests count on one running line in the chat,

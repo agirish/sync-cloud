@@ -116,15 +116,39 @@ import Sync
         #expect(past.entries.isEmpty)
     }
 
-    /// Continue pressed on a chat over an hour old: they chose to carry on, so coming back to it
-    /// doesn't put it away. Mutation: dropping the `continuing` guard starts afresh.
-    @Test func continuePressedKeepsAnOldChat() async {
+    /// Continue pressed on a chat over an hour old: they chose to carry on, so coming back within
+    /// the hour keeps it; an hour after the press with no question, it is left behind like any
+    /// other. Mutations: Continue not counting as activity starts afresh at once; a `continuing`
+    /// guard keeps it for good.
+    @Test func continuePressedKeepsAnOldChatForTheHour() async {
         let d = defaults()
         var clock = Date(timeIntervalSince1970: 1_792_000_000)
-        let (chat, _) = make(RecordingTransport(), d, now: { clock })
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
         await ask(chat, "one")
         clock = clock.addingTimeInterval(AskClaudeChat.idleReset + 1)
         chat.continueThisChat()
+        #expect(chat.continuing)
+        clock = clock.addingTimeInterval(AskClaudeChat.idleReset - 60)
+        #expect(!chat.startAfreshIfLeftBehind())
+        #expect(chat.items.contains { $0.kind == .user("one") })
+        clock = clock.addingTimeInterval(120)
+        #expect(chat.startAfreshIfLeftBehind())
+        #expect(chat.items.isEmpty)
+        #expect(!chat.continuing)
+        #expect(past.entries.map(\.firstQuestion) == ["one"])
+    }
+
+    /// Continue on a past chat brings it back as under way, though its last change was long ago.
+    /// Mutation: leaving the restored chat's own `lastActivity` puts it straight back.
+    @Test func continueOnAPastChatIsNotLeftBehindAtOnce() async throws {
+        let d = defaults()
+        var clock = Date(timeIntervalSince1970: 1_792_000_000)
+        let (chat, past) = make(RecordingTransport(), d, now: { clock })
+        await ask(chat, "one")
+        chat.newChat()
+        clock = clock.addingTimeInterval(3 * AskClaudeChat.idleReset)
+        let id = try #require(past.entries.first?.id)
+        #expect(chat.continuePast(id))
         #expect(chat.continuing)
         #expect(!chat.startAfreshIfLeftBehind())
         #expect(chat.items.contains { $0.kind == .user("one") })

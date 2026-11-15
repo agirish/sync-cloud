@@ -930,15 +930,33 @@ final class AskClaudeChat: ObservableObject {
     }
 
     /// Whether coming back to the panel, or something the app puts in it (Refine with Claude, File
-    /// With), finds a chat left behind rather than one under way: an hour since the thread last
-    /// changed, a card's update included. Not `startsOverAtNextQuestion`: an hour past the last
-    /// question with a Refine card answered minutes ago is a session under way, and the question
-    /// that starts over keeps that card (`aCardsUpdateKeepsTheThreadButNotClaudesChat`). Continue
-    /// pressed means they chose to carry on.
+    /// With, Ask Claude About This), finds a chat left behind rather than one under way: an hour
+    /// since the thread last changed, a card's update or Continue included. Not
+    /// `startsOverAtNextQuestion`: an hour past the last question with a Refine card answered
+    /// minutes ago is a session under way, and the question that starts over keeps that card
+    /// (`aCardsUpdateKeepsTheThreadButNotClaudesChat`).
+    ///
+    /// Never a chat with a card still at work (a PDF run's progress isn't activity, and it can
+    /// outlast the hour), nor one with a question back in the box for Edit, and never one Past
+    /// Chats wouldn't keep: one with no question, such as Refine cards alone, would be thrown away
+    /// rather than put away.
     var isLeftBehind: Bool {
-        guard !isRunning, !items.isEmpty, !continuing, carryFrom == nil else { return false }
-        guard let last = lastActivity else { return false }
-        return now().timeIntervalSince(last) > Self.idleReset
+        guard !isRunning, !items.isEmpty, editing == nil, let last = lastActivity else { return false }
+        guard now().timeIntervalSince(last) > Self.idleReset else { return false }
+        guard !items.contains(where: { Self.isAtWork($0.kind) }) else { return false }
+        return AskClaudePastChats.isWorthKeeping(items)
+    }
+
+    /// A card whose work is still going on this Mac: a PDF run, a plan being applied, a Refine
+    /// request, a download. A restored chat has none (`notWaiting`).
+    static func isAtWork(_ kind: Item.Kind) -> Bool {
+        switch kind {
+        case .plan(let plan): plan.state == .applying
+        case .pdf(let card): card.state == .running
+        case .refine(let card): if case .sending = card.phase { true } else { false }
+        case .download(_, .downloading): true
+        default: false
+        }
     }
 
     /// A chat left behind goes to Past Chats, out of view, and a fresh one starts: they came back,
@@ -976,6 +994,8 @@ final class AskClaudeChat: ObservableObject {
         switch resume {
         case .readBack:
             continuing = true
+            // Choosing to carry on is activity: the chat is under way for the next hour, no longer.
+            lastActivity = now()
             expiredCards.formUnion(items.map(\.id))
             save()
             Logger.shared.info("Ask Claude: Continue — the next question reads this chat back in")
@@ -1000,6 +1020,7 @@ final class AskClaudeChat: ObservableObject {
             load(stored)
             continuing = true
             carryFrom = nil
+            lastActivity = now()
             expiredCards.formUnion(items.map(\.id))
             save()
             Logger.shared.info("Ask Claude: Continue — a past chat is back, and the next question reads it back in")
@@ -1553,15 +1574,34 @@ final class AskClaudeChat: ObservableObject {
 
     private func setDownload(_ id: UUID, _ state: DownloadState) {
         guard let index = items.firstIndex(where: { $0.id == id }), case .download(let download, _) = items[index].kind else { return }
+        let before = items[index].kind
         items[index].kind = .download(download, state: state)
+        noteRunChange(from: before, to: items[index].kind)
+        if !isRunning { save() }
+    }
+
+    /// A card's run starting, going or ending is the thread changing: a PDF run that ended a minute
+    /// ago, with its Undo, is a chat under way however old its question. A tick, or a card read
+    /// again at launch, is not.
+    private func noteRunChange(from before: Item.Kind, to after: Item.Kind) {
+        if Self.isAtWork(before) || Self.isAtWork(after) { lastActivity = now() }
+    }
+
+    /// The person went to this chat on purpose (Organize's link to its Refine card): it is under
+    /// way, so the column opening for it doesn't put it away. Nothing in an empty chat.
+    func markInUse() {
+        guard !items.isEmpty else { return }
+        lastActivity = now()
         if !isRunning { save() }
     }
 
     /// Changes a card's rows (a tick, a folder picked from a row's menu); nothing on disk.
     func updatePlan(_ id: UUID, _ change: (inout AskClaudePlan) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }), case .plan(var plan) = items[index].kind else { return }
+        let before = items[index].kind
         change(&plan)
         items[index].kind = .plan(plan)
+        noteRunChange(from: before, to: items[index].kind)
         if !isRunning { save() }
     }
 
@@ -1632,8 +1672,10 @@ final class AskClaudeChat: ObservableObject {
     /// Changes the PDF card `id` in place — its options, what its files are, how its run ended.
     func updatePDFCard(_ id: UUID, _ change: (inout AskClaudePDFCard) -> Void) {
         guard let index = items.firstIndex(where: { $0.id == id }), case .pdf(var card) = items[index].kind else { return }
+        let before = items[index].kind
         change(&card)
         items[index].kind = .pdf(card)
+        noteRunChange(from: before, to: items[index].kind)
         if !isRunning { save() }
     }
 
