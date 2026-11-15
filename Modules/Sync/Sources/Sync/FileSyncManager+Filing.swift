@@ -1729,6 +1729,7 @@ extension FileSyncManager {
         filingSubfolderQuestion = nil
         filingPendingScan = nil
         filingChosenSubfolderScopes = [:]
+        filingPinnedSubfolderScopes = [:]
         filingScanReadSubfolders = false
         filingGroupFailures = []
         filingLastCacheReuse = nil

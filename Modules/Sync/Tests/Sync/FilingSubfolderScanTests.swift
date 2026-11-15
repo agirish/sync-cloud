@@ -97,6 +97,35 @@ import EventsTestSupport
         #expect(m.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"] && !m.filingScanReadSubfolders)
     }
 
+    /// Rescan ▾'s scope items: the rescan they start doesn't ask, and "Only" holds even with
+    /// Always Scan Subfolders on, until that preference is changed.
+    @Test func theRescanMenusScopeIsTheAnswer() async throws {
+        let (root, inbox) = try makeInbox("FilingSubfolderMenu")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBytes(inbox.appendingPathComponent("Loose receipt.pdf"), bytes: 64)
+        let documents = root.appendingPathComponent("Documents")
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.menu"))
+        await userScan(m, inbox, into: documents)
+        m.scanFolderOnlyForFilingSubfolderQuestion()
+        await m.filingScanTask?.value
+
+        m.chooseFilingSubfolderScope(readsSubfolders: true)
+        await userScan(m, inbox, into: documents)
+        #expect(m.filingSubfolderQuestion == nil, "Rescan TODO and Subfolders doesn't ask")
+        #expect(m.filingSuggestions.count == 4 && m.filingScanReadSubfolders)
+
+        m.setFilingAlwaysScansSubfolders(true)
+        m.chooseFilingSubfolderScope(readsSubfolders: false)
+        await userScan(m, inbox, into: documents)
+        #expect(m.filingSubfolderQuestion == nil && m.filingSuggestions.map { $0.fileName } == ["Loose receipt.pdf"]
+                && !m.filingScanReadSubfolders, "Rescan Only TODO means only TODO, Always or not")
+
+        m.setFilingAlwaysScansSubfolders(false)
+        m.setFilingAlwaysScansSubfolders(true)
+        await userScan(m, inbox, into: documents)
+        #expect(m.filingScanReadSubfolders, "changing the preference retires the menu's pick")
+    }
+
     @Test func alwaysScanSubfoldersSkipsTheQuestion() async throws {
         let (root, inbox) = try makeInbox("FilingSubfolderAlways")
         defer { try? FileManager.default.removeItem(at: root) }

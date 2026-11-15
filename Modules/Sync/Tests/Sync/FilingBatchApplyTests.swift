@@ -63,6 +63,7 @@ import Foundation
         #expect(items.count == 4, "two groups, the receipt and the Medium card: \(items.map(\.id))")
 
         let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.1"))
+        m.filingSuggestions = iraCards + cardCards + [byName, medium]
         let undo = UndoManager()
         m.undoManager = undo
         let filed = await m.applyFilingBatch(items)
@@ -93,9 +94,47 @@ import Foundation
                      try statement(root, "02.pdf", into: ira, account: ira, proposed: "IRA_02.pdf")]
         try FileManager.default.removeItem(atPath: cards[1].filePath)
         let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.2"))
+        m.filingSuggestions = cards
         let filed = await m.applyFilingBatch(FilingCardGrouping.items(cards))
         #expect(filed == 1)
         #expect(m.filingGroupFailures == [cards[1].id])
+    }
+
+    /// The sheet's lines are taken when it opens. A card filed from its own button meanwhile is no
+    /// longer listed: the batch skips it, and nothing is reported as failed.
+    @Test func aCardFiledWhileTheSheetWasOpenIsSkippedNotFailed() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingBatchStale")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ira = root.appendingPathComponent("Docs/IRA 7863")
+        try FileManager.default.createDirectory(at: ira, withIntermediateDirectories: true)
+        let cards = [try statement(root, "01.pdf", into: ira, account: ira, proposed: "IRA_01.pdf"),
+                     try statement(root, "02.pdf", into: ira, account: ira, proposed: "IRA_02.pdf")]
+        let sheet = FilingCardGrouping.items(cards)
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.3"))
+        m.filingSuggestions = cards
+        guard case .group(let group) = sheet[0] else { Issue.record("expected a group"); return }
+        #expect(await m.applyFilingGroup(group) == 2, "filed from its own card first")
+        #expect(await m.applyFilingBatch(sheet) == 0)
+        #expect(m.filingGroupFailures.isEmpty, "nothing that was filed is called a failure")
+        #expect(m.banner?.message.hasPrefix("Nothing left to file") == true)
+    }
+
+    /// A new folder's name typed on its card is the name the batch makes.
+    @Test func aTypedFolderNameIsKept() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingBatchTyped")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let receipts = root.appendingPathComponent("Docs/Receipts")
+        try FileManager.default.createDirectory(at: receipts, withIntermediateDirectories: true)
+        let f = root.appendingPathComponent("In/Receipt.pdf")
+        try writeBytes(f, Data("r".utf8))
+        let best = FilingDestination(path: receipts.path + "/Hardware", confidence: .high, reasons: ["r"], newSegments: ["Hardware"])
+        let s = FilingSuggestion(filePath: f.path, fileName: "Receipt.pdf", size: 1, modificationDate: nil, candidates: [best])
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingBatchApplyTests.4"))
+        m.filingSuggestions = [s]
+        let typed = best.renamingNewFolder(to: "Tools")
+        #expect(await m.applyFilingBatch([.single(s)], destinations: [s.id: typed]) == 1)
+        #expect(FileManager.default.fileExists(atPath: receipts.path + "/Tools/Receipt.pdf"))
+        #expect(!FileManager.default.fileExists(atPath: receipts.path + "/Hardware"))
     }
 }
 

@@ -216,3 +216,74 @@ import SwiftUI
         #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 1) == "From TODO · 1 file")
     }
 }
+
+/// What the first adversarial review of the cards found, pinned.
+@Suite struct FilingCardsReviewOneTests {
+    private func statement(_ name: String, account root: String, ending: String = "7863", archived: Bool = false,
+                           to dest: String? = nil, newSegments: [String] = [], proposed: String? = nil) -> FilingSuggestion {
+        let acct = FilingAccount(root: root, ending: ending, institution: "charles schwab", archived: archived, kind: .statement)
+        return FilingSuggestion(filePath: "/D/TODO/" + name, fileName: name, size: 1, modificationDate: nil,
+                                candidates: [FilingDestination(path: dest ?? root, confidence: .high, reasons: ["r"],
+                                                               newSegments: newSegments, fromContent: true,
+                                                               proposedName: proposed, account: acct)],
+                                providerRoot: "/D")
+    }
+
+    /// The sheet says what a batch makes, copies and where it files: new folders, copies into
+    /// other accounts, and the archive.
+    @Test func theSheetSaysWhatItMakesCopiesAndWhere() {
+        let archived = statement("a.pdf", account: "/D/Archive/IRA 7863", archived: true)
+        let roth = FilingCopy(path: "/D/Roth IRA 4657/2026", proposedName: nil,
+                              account: FilingAccount(root: "/D/Roth IRA 4657", ending: "4657", institution: "charles schwab",
+                                                     archived: false, kind: .statement))
+        let year = statement("b.pdf", account: "/D/Card 2002", ending: "2002", to: "/D/Card 2002/2026", newSegments: ["2026"])
+        let lines = FilingBatchPlan.lines([.single(archived), .single(year)], scannedRoot: "/D/TODO",
+                                          copies: { $0.fileName == "b.pdf" ? [roth] : [] })
+        #expect(lines[0].extras == ["into the archive"])
+        #expect(lines[1].extras == ["also copies into Roth IRA 4657"])
+        #expect(lines[1].to.note == "new 2026 folder", "the new year folder reaches the sheet's line")
+    }
+
+    /// A name typed into "Create as" is the folder the sheet shows and files into.
+    @Test func theSheetShowsATypedFolderName() {
+        let s = FilingSuggestion(filePath: "/D/TODO/r.pdf", fileName: "r.pdf", size: 1, modificationDate: nil,
+                                 candidates: [FilingDestination(path: "/D/Receipts/Hardware", confidence: .high, reasons: ["r"],
+                                                                newSegments: ["Hardware"])], providerRoot: "/D")
+        let typed = s.best!.renamingNewFolder(to: "Tools")
+        let lines = FilingBatchPlan.lines([.single(s)], scannedRoot: "/D/TODO", destinations: [s.id: typed])
+        #expect(lines.first?.to.text.hasSuffix("Tools") == true)
+    }
+
+    /// A folded group still says its files take new names.
+    @Test func aFoldedGroupSaysItRenames() {
+        let a = statement("01.pdf", account: "/D/IRA 7863", proposed: "IRA_01.pdf")
+        let b = statement("02.pdf", account: "/D/IRA 7863", proposed: "02.pdf")
+        guard case .group(let g) = FilingCardGrouping.items([a, b]).first else { Issue.record("expected a group"); return }
+        #expect(FilingGroupText.renaming(g) == "1 of 2 take new names, like IRA_01.pdf")
+        let keep = [statement("01.pdf", account: "/D/IRA 7863"), statement("02.pdf", account: "/D/IRA 7863")]
+        guard case .group(let k) = FilingCardGrouping.items(keep).first else { Issue.record("expected a group"); return }
+        #expect(FilingGroupText.renaming(k) == nil)
+    }
+
+    /// The page-1 view says "(marked)" only when it marked something, and marks whole numbers only.
+    @Test func thePageViewMarksOnlyWhatItFinds() {
+        let s = statement("01.pdf", account: "/D/IRA 7863")
+        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: false) == "account ••7863")
+        #expect(FilingPageRender.matchedLine(s, facts: nil, marked: true) == "account ••7863 (marked)")
+        #expect(FilingPageRender.wholeRange(of: "7863", in: "Ref 178630 · Account ending 7863")
+                == NSRange(location: 28, length: 4), "never the 7863 inside 178630")
+        #expect(FilingPageRender.wholeRange(of: "7863", in: "Ref 178630") == nil)
+    }
+
+    /// VoiceOver hears which path is which.
+    @Test func eachRouteLineIsSpokenWithItsLabel() {
+        let line = FilingRouteLine(label: "Moves to", path: FilingRoutePath(crumbs: [.init(name: "Documents"), .init(name: "2026")]))
+        #expect(FilingRouteGrid.spoken(line) == "Moves to: Documents, 2026")
+    }
+
+    @MainActor @Test func theReadoutSaysHowManyASearchLeft() {
+        #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 3, of: 257)
+                == "From TODO · 3 of 257 files")
+        #expect(LensWorkspaceView.filingScopeLine(folder: "/D/TODO", readSubfolders: false, files: 4, of: 4) == "From TODO · 4 files")
+    }
+}

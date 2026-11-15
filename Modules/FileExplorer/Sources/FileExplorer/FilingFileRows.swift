@@ -217,7 +217,14 @@ struct FilingFileRows: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(lines.primary), \(landing.moves ? "files as " : "")\(landing.text)")
         .accessibilityAddTraits(selected == s.id ? .isSelected : [])
-        .accessibilityAction(named: "Quick Look") { hooks.perform(.quickLook, s) }
+        // The combined row hides its buttons from VoiceOver, so each is a named action instead.
+        .accessibilityActions {
+            Button("Show Page 1") { peeking = s.id }
+            ForEach(FilingFileAction.sections(inGroup: inGroup, hasDestination: s.best != nil).joined()
+                .filter { hooks.isEnabled($0, s) }) { action in
+                Button(action.title) { hooks.perform(action, s) }
+            }
+        }
     }
 
     private func landingText(_ landing: (text: String, moves: Bool), prefix: String) -> some View {

@@ -92,7 +92,7 @@ struct FilingPagePeek: View {
     private func factsGrid(_ s: FilingSuggestion) -> some View {
         let f = facts(s)
         return Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
-            if let matched = FilingPageRender.matchedLine(s, facts: f) {
+            if let matched = FilingPageRender.matchedLine(s, facts: f, marked: !(page?.marks.isEmpty ?? true)) {
                 GridRow {
                     label("Matched")
                     Text(matched).fixedSize(horizontal: false, vertical: true)
@@ -162,12 +162,21 @@ struct FilingPageRender: @unchecked Sendable {
                 "\(long) \(d), \(p.year)", "\(short) \(d), \(p.year)"]
     }
 
-    /// "••22002, and Jan 29, 2026 (marked)": what page 1 matched on, in words.
-    static func matchedLine(_ s: FilingSuggestion, facts: DocumentFacts?) -> String? {
+    /// "account ••22002, Jan 29, 2026 (marked)": what page 1 matched on, in words, and "(marked)"
+    /// only when the picture marks something.
+    static func matchedLine(_ s: FilingSuggestion, facts: DocumentFacts?, marked: Bool) -> String? {
         var parts: [String] = []
         if let ending = s.best?.account?.ending { parts.append("account ••" + ending) }
         if let p = facts?.period { parts.append(FilingFileText.date(p)) }
-        return parts.isEmpty ? nil : parts.joined(separator: ", ") + " (marked)"
+        return parts.isEmpty ? nil : parts.joined(separator: ", ") + (marked ? " (marked)" : "")
+    }
+
+    /// Where `term` first sits in `text` as a whole number or phrase: not inside a longer run of
+    /// digits, so "7863" never marks part of "178630".
+    static func wholeRange(of term: String, in text: String) -> NSRange? {
+        let pattern = "(?<![0-9])" + NSRegularExpression.escapedPattern(for: term) + "(?![0-9])"
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        return re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))?.range
     }
 
     static func render(path: String, marking terms: [String]) async -> FilingPageRender? {
@@ -185,8 +194,8 @@ struct FilingPageRender: @unchecked Sendable {
             for term in terms where !term.isEmpty && page.rotation == 0 {
                 // The first place a term sits on page 1; the account number's digits print once in
                 // the header on most statements, and a date may repeat in the transactions.
-                guard let hit = doc.findString(term, withOptions: [.caseInsensitive]).first(where: { $0.pages.contains(page) })
-                else { continue }
+                guard let text = page.string, let range = wholeRange(of: term, in: text),
+                      let hit = page.selection(for: range) else { continue }
                 let r = hit.bounds(for: page)
                 marks.append(CGRect(x: r.minX - bounds.minX, y: bounds.maxY - r.maxY, width: r.width, height: r.height))
                 if marks.count >= 3 { break }

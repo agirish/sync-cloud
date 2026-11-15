@@ -188,8 +188,12 @@ struct FilingRouteGrid: View {
         if narrow {
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(lines) { line in
-                    label(line.label).padding(.top, line.id == lines.first?.id ? 0 : 3)
-                    FilingRoutePathText(path: line.path, accent: accent)
+                    VStack(alignment: .leading, spacing: 1) {
+                        label(line.label).padding(.top, line.id == lines.first?.id ? 0 : 3)
+                        FilingRoutePathText(path: line.path, accent: accent)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Self.spoken(line))
                 }
             }
         } else {
@@ -199,10 +203,15 @@ struct FilingRouteGrid: View {
                         label(line.label).frame(width: labelWidth, alignment: .leading)
                         FilingRoutePathText(path: line.path, accent: accent)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Self.spoken(line))
                 }
             }
         }
     }
+
+    /// "Moves to: Documents, Finance, …": which path is which, for VoiceOver.
+    static func spoken(_ line: FilingRouteLine) -> String { line.label + ": " + line.path.spoken }
 
     private func label(_ text: String) -> some View {
         Text(text.uppercased())

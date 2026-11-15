@@ -9,20 +9,29 @@ extension FileSyncManager {
     ///
     /// `items` are the cards the sheet left ticked, never re-derived from ``filingSuggestions``: the
     /// sheet named exactly these. Each file is checked again (``FilingSuggestion/isMatched``), so a
-    /// caller can't make this file a card that needs a look first. Files that fail stay listed as
-    /// cards of their own.
+    /// caller can't make this file a card that needs a look first, and a file no longer listed
+    /// (filed from its own card, set aside, or replaced by a scan while the sheet was open) is
+    /// skipped rather than counted as a failure. Files that fail stay listed as cards of their own.
+    /// `destinations` overrides a file's home by id: a new folder's name typed on its card.
     /// - Returns: how many files moved.
     @discardableResult
-    public func applyFilingBatch(_ items: [FilingCardItem]) async -> Int {
+    public func applyFilingBatch(_ items: [FilingCardItem],
+                                 destinations: [String: FilingDestination] = [:]) async -> Int {
         guard !isVerifyAllRunning else {
             banner = .refusal("Wait for Verify All to finish before filing", log: .info)
             return 0
         }
+        let listed = Set(filingSuggestions.map(\.id))
         let homes: [(FilingSuggestion, FilingDestination)] = items.flatMap(\.toFile).compactMap { s in
-            guard s.isMatched, let best = s.best else { return nil }
-            return (s, best)
+            guard s.isMatched, listed.contains(s.id), let best = s.best else { return nil }
+            return (s, destinations[s.id] ?? best)
         }
-        guard !homes.isEmpty else { return 0 }
+        guard !homes.isEmpty else {
+            if !items.isEmpty {
+                banner = .success("Nothing left to file — those cards were filed or changed since the list opened.")
+            }
+            return 0
+        }
         // The same latch as a group card's File N and the old File All: the sheet's button is one
         // click from a second one while the first batch waits on the file-operation queue.
         guard !isFilingBatchRunning else {
@@ -54,8 +63,11 @@ extension FileSyncManager {
                                                                                     alreadyHome: run.alreadyHome)) {
             Logger.shared.info(line)
         }
-        let folders = Set(run.moves.map { $0.to.deletingLastPathComponent().path }).count
-        let text = "Filed \(CountedNoun.phrase(run.moves.count, "file")) into \(CountedNoun.phrase(folders, "folder"))"
+        // Counted as the sheet counts: accounts when every file went to one, else folders.
+        let accounts = homes.allSatisfy { $0.1.account != nil }
+        let places = Set(homes.map { $0.1.account?.root ?? $0.1.path }).count
+        let text = "Filed \(CountedNoun.phrase(run.moves.count, "file")) into "
+            + CountedNoun.phrase(places, accounts ? "account" : "folder")
             + home + Self.copiedPhrase(run.copied)
         banner = run.failures > 0
             ? .warning("\(text); \(run.failures) couldn’t be filed and stay listed", undoable: true, log: .warn)

@@ -49,14 +49,23 @@ struct FilingSuggestionCard: View {
     var scannedRoot: String? = nil
     /// What the file's row shows and does.
     var rowHooks = FilingFileRowsHooks()
-    @State private var narrow = false
+    /// The list's own answer to "too narrow for the label column", so a card scrolled into view
+    /// draws narrow from its first frame. nil measures the card itself.
+    var isNarrow: Bool? = nil
+    @State private var measuredNarrow = false
+    private var narrow: Bool { isNarrow ?? measuredNarrow }
 
     /// The name typed into "Create as" over a proposed new folder, empty while untouched: the
     /// proposed name is the model's, not the user's, so they can change it before filing.
     ///
     /// Cleared whenever the destination changes. The card's identity is the suggestion, and "Try
     /// another" swaps the destination under it, so a stale name would be applied to the next one.
-    @State private var editedFolderName: String = ""
+    ///
+    /// Held by the list when it passes `typedFolderName`, so File All files under the typed name too.
+    var typedFolderName: Binding<String>? = nil
+    @State private var localFolderName = ""
+    private var folderName: Binding<String> { typedFolderName ?? $localFolderName }
+    private var editedFolderName: String { folderName.wrappedValue }
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -102,12 +111,12 @@ struct FilingSuggestionCard: View {
         .padding(.horizontal, 14)
         .padding(.vertical, max(densityMetrics.cardHeaderVerticalPadding, 10))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: Bool.self) { $0.size.width < FilingGroupCard.narrowWidth } action: { narrow = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width < FilingGroupCard.narrowWidth } action: { measuredNarrow = $0 }
         .lensCard()
         // The typed name belongs to the destination it was typed for: "Try another" swaps `best`
         // under this card and `@State` survives. Keyed on the proposed leaf, the string the field
         // edits, so the same name under a different parent keeps what the user typed.
-        .onChange(of: best?.newSegments.last) { _, _ in editedFolderName = "" }
+        .onChange(of: best?.newSegments.last) { _, _ in folderName.wrappedValue = "" }
         .popover(isPresented: $editingPath, arrowEdge: .bottom) {
             if let pathEditor {
                 FilingPathEditor(hooks: pathEditor) { editingPath = false }
@@ -158,7 +167,7 @@ struct FilingSuggestionCard: View {
                         Image(systemName: "folder.badge.plus")
                             .scaledFont(.system(size: 11)).foregroundStyle(hueAccent)
                         Text("Create as").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
-                        TextField(leaf, text: $editedFolderName)
+                        TextField(leaf, text: folderName)
                             .textFieldStyle(.roundedBorder)
                             .scaledFont(.system(size: 12))
                             .frame(maxWidth: 220)

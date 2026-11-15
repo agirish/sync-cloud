@@ -14,6 +14,9 @@ struct FilingBatchLine: Identifiable, Equatable {
     let to: FilingRoutePath
     /// What placed a card with no account: "by its name", "by a rule you taught". nil for an account.
     let source: String?
+    /// What else filing it does, said on its line: "into the archive", "also copies into Roth IRA
+    /// 4657". The route's own new-folder tags are on `to`.
+    var extras: [String] = []
     var id: String { item.id }
     var accountRoot: String? { item.suggestions.first?.best?.account?.root }
     var isStatements: Bool {
@@ -26,21 +29,33 @@ struct FilingBatchLine: Identifiable, Equatable {
 enum FilingBatchPlan {
     /// Every Matched card with something to move, in the list's order. Check first and Needs your
     /// pick are never here (``FilingSuggestion/isMatched``).
-    static func lines(_ items: [FilingCardItem], scannedRoot: String?) -> [FilingBatchLine] {
+    ///
+    /// `destinations` are homes typed on a card (a new folder's name), by file id; `copies` says what
+    /// filing a file copies into under the preferences now.
+    static func lines(_ items: [FilingCardItem], scannedRoot: String?,
+                      destinations: [String: FilingDestination] = [:],
+                      copies: (FilingSuggestion) -> [FilingCopy] = { $0.best?.alsoCopiesTo ?? [] }) -> [FilingBatchLine] {
         items.compactMap { item in
             let files = item.toFile.filter(\.isMatched)
-            guard let first = files.first, let best = first.best else { return nil }
+            guard let first = files.first, let best = destinations[first.id] ?? first.best else { return nil }
             let from = FilingRouteText.short(FilingRouteText.from(files, scannedRoot: scannedRoot), keep: 2)
             let to = FilingRouteText.short(FilingRouteText.movesTo(best, providerRoot: first.providerRoot), keep: 3, dropRoot: true)
+            var extras: [String] = []
+            if best.account?.archived == true { extras.append("into the archive") }
+            var seen = Set<String>()
+            let copied = files.flatMap(copies).filter { seen.insert($0.account.root).inserted }
+            if !copied.isEmpty {
+                extras.append("also copies into " + ListFormatter.localizedString(byJoining: copied.map(FilingCopiesText.accountLabel)))
+            }
             if let account = best.account {
                 let bank: String
                 if case .group(let g) = item { bank = FilingGroupText.bank(g) }
                 else { bank = account.institutionName.isEmpty ? FilingGroupText.titleCased(account.institution) : account.institutionName }
                 return FilingBatchLine(item: item, title: bank, ending: account.ending, count: files.count,
-                                       from: from, to: to, source: nil)
+                                       from: from, to: to, source: nil, extras: extras)
             }
             return FilingBatchLine(item: item, title: first.fileName, ending: nil, count: files.count, from: from, to: to,
-                                   source: "by " + FilingBatchLog.source(of: best))
+                                   source: "by " + FilingBatchLog.source(of: best), extras: extras)
         }
     }
 
@@ -173,6 +188,12 @@ struct FilingBatchSheet: View {
                 (Text("→ ").foregroundStyle(.tertiary) + boldPath(line.to)
                  + Text(line.source.map { "  " + $0 } ?? "").font(.system(size: 10.5)).foregroundStyle(.tertiary))
                     .lineLimit(1).truncationMode(.head)
+                if !line.extras.isEmpty {
+                    Text(line.extras.joined(separator: " · "))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .scaledFont(.system(size: 11.5, design: .monospaced))
             .foregroundStyle(.secondary)
@@ -187,7 +208,10 @@ struct FilingBatchSheet: View {
         for (i, c) in p.crumbs.enumerated() {
             if i > 0 { t = t + Text(" › ").foregroundStyle(.tertiary) }
             t = t + Text(c.name).fontWeight(c.bold ? .semibold : .regular).foregroundStyle(c.bold ? Color.primary : Color.secondary)
+            // What the batch makes, as the card says it.
+            if let tag = c.tag { t = t + Text(" " + tag).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(accent) }
         }
+        if let note = p.note { t = t + Text("  " + note).font(.system(size: 10.5)).foregroundStyle(.tertiary) }
         return t
     }
 }

@@ -84,6 +84,8 @@ extension FileSyncManager {
         guard on != filingAlwaysScansSubfolders else { return }
         objectWillChange.send()
         filingContentDefaults.set(on, forKey: Self.alwaysScanSubfoldersDefaultsKey)
+        // A change of mind about every folder retires the per-folder picks from Rescan ▾.
+        filingPinnedSubfolderScopes = [:]
         Logger.shared.info("Filing: always scan subfolders turned \(on ? "on" : "off")")
     }
 
@@ -91,19 +93,23 @@ extension FileSyncManager {
     /// this session. Never remembered past a launch (the per-folder `tidyFilingRecursiveFolders`
     /// list that did is no longer read): a new scan asks again.
     func filingScansSubfolders(_ folder: String) -> Bool {
-        filingAlwaysScansSubfolders || filingChosenSubfolderScopes[folder] == true
+        if let pinned = filingPinnedSubfolderScopes[folder] { return pinned }
+        return filingAlwaysScansSubfolders || filingChosenSubfolderScopes[folder] == true
     }
 
     /// Records the scope chosen for `folder` this session, which automatic rescans keep.
     func setFilingScansSubfolders(_ on: Bool, for folder: String) {
         filingChosenSubfolderScopes[folder] = on
+        filingPinnedSubfolderScopes[folder] = nil
     }
 
     /// Rescan ▾'s scope: the scanned folder's subfolders too, or its own files only, for this
-    /// session, so the rescan that follows doesn't ask.
+    /// session. The rescan that follows doesn't ask, and "only" holds even with Always Scan
+    /// Subfolders on (``filingScansSubfolders(_:)``).
     public func chooseFilingSubfolderScope(readsSubfolders: Bool) {
         guard let folder = filingScanFolder else { return }
-        setFilingScansSubfolders(readsSubfolders, for: folder)
+        filingChosenSubfolderScopes[folder] = readsSubfolders
+        filingPinnedSubfolderScopes[folder] = readsSubfolders
     }
 
     /// Scan All: reads the subfolders, and with `always` stops asking from now on.
@@ -141,7 +147,9 @@ extension FileSyncManager {
     /// to scan straight away. Records the scope when it settles one.
     func filingSubfolderQuestionBeforeScan(folder: URL, providerRoot: URL, asking: FilingSubfolderAsking,
                                            options: FilingOptions) async -> FilingSubfolderQuestion? {
-        guard asking != .never, !filingAlwaysScansSubfolders else { return nil }
+        // A scope picked from Rescan ▾ is the answer already.
+        guard asking != .never, filingPinnedSubfolderScopes[folder.path] == nil,
+              !filingAlwaysScansSubfolders else { return nil }
         let fileInto = filingRouting(forFileInto: providerRoot).fileInto
         guard Self.subfolderOfferEligible(folder: folder.path, profile: filingFolderProfile,
                                           fileInto: fileInto.path) else { return nil }

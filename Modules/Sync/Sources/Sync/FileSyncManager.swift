@@ -1052,6 +1052,10 @@ public class FileSyncManager: ObservableObject {
     /// The answer chosen for each folder this session (true: with its subfolders), which automatic
     /// rescans keep. Never persisted: a scan after a launch asks again.
     var filingChosenSubfolderScopes: [String: Bool] = [:]
+    /// The scope picked from Rescan ▾ for each folder this session. It outranks the question and
+    /// the Always Scan Subfolders preference, so "Rescan Only TODO" means only TODO, until the
+    /// question is answered again or the preference is changed.
+    var filingPinnedSubfolderScopes: [String: Bool] = [:]
     /// Whether the scan behind the current suggestions read its folder's subfolders too.
     @Published public internal(set) var filingScanReadSubfolders = false
     /// The survey root the last scan walked in place of File Into, when it walked a wider tree;

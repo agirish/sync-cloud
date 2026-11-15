@@ -200,6 +200,12 @@ public struct LensWorkspaceView: View {
     @State private var pulledOutOfGroups: Set<String> = []
     /// File All's sheet, with the lines it was opened on: what it lists is what it files.
     @State private var filingBatchLines: [FilingBatchLine]?
+    /// Names typed into a card's "Create as", by file id: the list holds them so File All files under
+    /// them too, and they outlive a card scrolled out of the lazy list.
+    @State private var typedFolderNames: [String: String] = [:]
+    /// The card list is too narrow for the route's label column (the column beside Ask Claude).
+    /// Measured once on the list, so a card scrolled into view draws right from its first frame.
+    @State private var filingListNarrow = false
     /// "Remember ••NNNN where I choose", per card, where he changed it from the default: on for a
     /// group, off for a single file (decision 8).
     @State private var rememberAccountChoice: [String: Bool] = [:]
@@ -1911,9 +1917,25 @@ public struct LensWorkspaceView: View {
     private func openFilingBatch(_ filing: [FilingSuggestion]) {
         let pulled = pulledOutOfGroups.union(syncManager.filingGroupFailures)
         let matched = FilingCardSections.sections(filing, pulledOut: pulled).first { $0.kind == .matched }?.items ?? []
-        let lines = FilingBatchPlan.lines(matched, scannedRoot: syncManager.filingScanFolder)
+        let lines = FilingBatchPlan.lines(matched, scannedRoot: syncManager.filingScanFolder,
+                                          destinations: typedDestinations,
+                                          copies: { syncManager.copiesToMake(self.typedDestinations[$0.id] ?? $0.best) })
         guard !lines.isEmpty else { return }
         filingBatchLines = lines
+    }
+
+    /// A typed name belongs to the home it was typed for: Try Another, or a rescan, gives the file a
+    /// new home and so a fresh, empty field, even for a card scrolled out of the lazy list.
+    static func typedNameKey(_ s: FilingSuggestion) -> String { s.id + "\u{0}" + (s.best?.path ?? "") }
+
+    /// The homes typed on cards: each card's best with its new folder renamed as typed.
+    private var typedDestinations: [String: FilingDestination] {
+        var out: [String: FilingDestination] = [:]
+        for s in syncManager.filingSuggestions {
+            guard let name = typedFolderNames[Self.typedNameKey(s)], !name.isEmpty, let best = s.best else { continue }
+            out[s.id] = best.renamingNewFolder(to: name)
+        }
+        return out
     }
 
     /// "Refine N with Opus", Organize's opt-in second pass. The scan was free and on-device; this
@@ -2352,7 +2374,7 @@ public struct LensWorkspaceView: View {
         return Group {
             // Where these came from, once: "From TODO and its subfolders · 257 files".
             Text(Self.filingScopeLine(folder: syncManager.filingScanFolder, readSubfolders: syncManager.filingScanReadSubfolders,
-                                      files: filing.count))
+                                      files: filing.count, of: syncManager.filingSuggestions.count))
                 .scaledFont(.system(size: 11.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2447,9 +2469,12 @@ public struct LensWorkspaceView: View {
     }
 
     /// "From TODO and its subfolders · 257 files", the readout's first words.
-    static func filingScopeLine(folder: String?, readSubfolders: Bool, files: Int) -> String {
+    /// "From TODO · 3 of 257 files" while a search narrows the list.
+    static func filingScopeLine(folder: String?, readSubfolders: Bool, files: Int, of total: Int? = nil) -> String {
         let name = folder.map { ($0 as NSString).lastPathComponent } ?? "this folder"
-        return "From \(name)" + (readSubfolders ? " and its subfolders" : "") + " · \(files.formatted()) file\(files == 1 ? "" : "s")"
+        let shown = total.map { $0 > files ? "\(files.formatted()) of \($0.formatted())" : files.formatted() } ?? files.formatted()
+        let noun = (total ?? files) == 1 ? "file" : "files"
+        return "From \(name)" + (readSubfolders ? " and its subfolders" : "") + " · \(shown) \(noun)"
     }
 
     /// Spells out what "reused" bought: the model wasn't asked, so with Claude selected it wasn't
@@ -4450,6 +4475,9 @@ public struct LensWorkspaceView: View {
             .designAnimation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
+        .onGeometryChange(for: Bool.self) {
+            $0.size.width - 2 * densityMetrics.cardListPadding < FilingGroupCard.narrowWidth
+        } action: { filingListNarrow = $0 }
         // A new scan's cards start grouped again.
         .onChange(of: syncManager.isSuggestingFiles) { _, scanning in if scanning { pulledOutOfGroups = [] } }
     }
@@ -4538,7 +4566,8 @@ public struct LensWorkspaceView: View {
             // What File N copies now, under the preferences as they stand.
             copies: groupCopies(group),
             scannedRoot: syncManager.filingScanFolder,
-            rowHooks: fileRowHooks(group.members, inGroup: true)
+            rowHooks: fileRowHooks(group.members, inGroup: true),
+            isNarrow: filingListNarrow
         )
     }
 
@@ -4680,7 +4709,10 @@ public struct LensWorkspaceView: View {
             },
             copies: syncManager.copiesToMake(suggestion.best),
             scannedRoot: syncManager.filingScanFolder,
-            rowHooks: fileRowHooks([suggestion], inGroup: false)
+            rowHooks: fileRowHooks([suggestion], inGroup: false),
+            isNarrow: filingListNarrow,
+            typedFolderName: Binding(get: { typedFolderNames[Self.typedNameKey(suggestion)] ?? "" },
+                                     set: { typedFolderNames[Self.typedNameKey(suggestion)] = $0 })
         )
     }
 
@@ -4960,7 +4992,8 @@ public struct LensWorkspaceView: View {
     private func applyFilingBatch(_ items: [FilingCardItem]) {
         guard !items.isEmpty else { return }
         filedThisSession = true
-        Task { await syncManager.applyFilingBatch(items) }
+        let typed = typedDestinations
+        Task { await syncManager.applyFilingBatch(items, destinations: typed) }
     }
 
     // MARK: Actions

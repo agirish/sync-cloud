@@ -31,8 +31,11 @@ struct FilingGroupCard: View {
     /// What the file rows show and do.
     var rowHooks = FilingFileRowsHooks()
 
+    /// The list's own answer to "too narrow for the label column"; nil measures the card itself.
+    var isNarrow: Bool? = nil
     @State private var expanded: Bool? = nil
-    @State private var narrow = false
+    @State private var measuredNarrow = false
+    private var narrow: Bool { isNarrow ?? measuredNarrow }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -55,6 +58,13 @@ struct FilingGroupCard: View {
                                     narrow: narrow, accent: hueAccent)
                     if densityMetrics.showsSecondaryDetail || group.destination.confidence != .high {
                         Text(FilingGroupText.why(group))
+                            .scaledFont(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // With the rows folded away, the names File N gives still show, at every density.
+                    if !isExpanded, let renaming = FilingGroupText.renaming(group) {
+                        Text(renaming)
                             .scaledFont(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -84,7 +94,7 @@ struct FilingGroupCard: View {
         .padding(.horizontal, 14)
         .padding(.vertical, max(densityMetrics.cardHeaderVerticalPadding, 10))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: Bool.self) { $0.size.width < Self.narrowWidth } action: { narrow = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width < Self.narrowWidth } action: { measuredNarrow = $0 }
         .lensCard()
         .popover(isPresented: $editingPath, arrowEdge: .bottom) {
             if let pathEditor {
@@ -251,6 +261,16 @@ enum FilingGroupText {
         if a == b || (a.year == b.year && a.month == b.month) { return "\(m[a.month - 1]) \(a.year)" }
         if a.year == b.year { return "\(m[a.month - 1])–\(m[b.month - 1]) \(a.year)" }
         return "\(m[a.month - 1]) \(a.year) – \(m[b.month - 1]) \(b.year)"
+    }
+
+    /// "Each takes a new name, like 2026-01-29.pdf", "3 of 10 take new names, like …", or nil when
+    /// every file keeps its own.
+    static func renaming(_ g: FilingCardGroup) -> String? {
+        let renamed = g.toFile.compactMap { s in s.best?.proposedName.flatMap { $0 == s.fileName ? nil : $0 } }
+        guard let sample = renamed.first else { return nil }
+        if renamed.count == 1, g.toFile.count == 1 { return "Takes a new name: \(sample)" }
+        return renamed.count == g.toFile.count ? "Each takes a new name, like \(sample)"
+            : "\(renamed.count) of \(g.toFile.count) take new names, like \(sample)"
     }
 
     static func fileButton(_ g: FilingCardGroup) -> String {
