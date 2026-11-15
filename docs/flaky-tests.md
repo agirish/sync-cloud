@@ -5615,3 +5615,24 @@ it at `audioEnded`; its claim is about the tap, not about how fast the transcrib
 - `AskClaudeVoiceEngineTests.aSecondTapSendsWhatWasSaidSoFar`: 2026-11-13, ~22:50, full app run.
   Two other sessions report it red twice more in loaded full app runs on 2026-11-13/14, green
   narrow (relayed, not checked).
+
+### 61. A small walk budget spent by whichever sibling folder's task listed first — FIXED
+
+**Symptom.** `FilingSubfolderScanTests.pastTheCountsCapTheQuestionSaysAtLeast` red on hosted CI at
+its first `#require`: `subfolderQuestion(for:…, probeBudget: 3)` returned nil, after 1.68 s. Seen
+once, 2026-11-14, run 43686835348 (for `60c2d102b`); green on the next commit's run and locally.
+
+**Mechanism.** `buildTree` walks sibling folders in parallel child tasks on the real filesystem
+(`walkChildren`), and `NodeBudget` is one shared counter that each folder checks before its listing
+and charges after it. The fixture had two folders side by side, `Near` (one file) and `Deep` (a
+chain down to a file). Which of them, or of `Deep`'s descendants, spent the last of a budget of 3
+depended on task order. When `Deep` charged first, `Near` found the budget spent, was never listed,
+no file below was counted, and the question was nil. With the 20,000 default the order never
+matters; only a budget small enough to run out mid-level does.
+
+**Fix, 2026-11-15.** The fixture is one folder per level (`Finance/Statement.pdf`,
+`Finance/2026/Q1/Statement.pdf`), so there is no sibling to race: Finance charges 2, 2026 charges 1,
+and Q1 is refused every time. 30 of 30 repeat runs green.
+
+**Tell.** A test with a hand-set `NodeBudget` or `probeBudget` that is red now and then on where
+the walk stopped. Give it one folder per level, or count only what every order reaches.

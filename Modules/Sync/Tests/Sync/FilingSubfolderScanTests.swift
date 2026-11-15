@@ -156,10 +156,12 @@ import EventsTestSupport
         let root = try makeCanonicalTempRoot(prefix: "FilingSubfolderCap")
         defer { try? FileManager.default.removeItem(at: root) }
         let inbox = root.appendingPathComponent("TODO")
-        try writeBytes(inbox.appendingPathComponent("Near/Statement.pdf"), bytes: 64)
-        try writeBytes(inbox.appendingPathComponent("Deep/a/b/c/Statement.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/Statement.pdf"), bytes: 64)
+        try writeBytes(inbox.appendingPathComponent("Finance/2026/Q1/Statement.pdf"), bytes: 64)
         let m = FileSyncManager(defaults: ScratchDefaults("FilingSubfolderScanTests.cap"))
-        // Three listings: Near, Deep and Deep/a. The walk stops before Deep/a/b.
+        // One folder per level, so where the budget runs out can't depend on which sibling the
+        // walk's parallel tasks list first. Finance's listing charges 2 and 2026's charges 1;
+        // the walk stops before Q1.
         let capped = try #require(await m.subfolderQuestion(for: inbox, options: .init(), fileManager: FileManager.default,
                                                            probeBudget: 3))
         #expect(capped.atLeast && capped.files == 1, "a walk stopped early counts what it read, \(capped.files) here")
