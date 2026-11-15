@@ -117,6 +117,21 @@ import Foundation
         #expect(AccountPlacement.place(in: ordinal, period: .init(year: 2026, month: 2), taxForm: false,
                                        fileName: "x.pdf").name == "02. Feb 2026.pdf")
     }
+
+    @Test func theOrdinalIsPaddedByCadenceNotCopied() {
+        let mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        // BofA Credit 6397: a monthly account whose newest name slipped to one digit. February is
+        // `02.`, not a copy of January's `1.`.
+        let monthly = dir("Credit 6397", [
+            dir("2025", (1...12).map { file(String(format: "%02d. ", $0) + mon[$0 - 1] + " 2025.pdf") }),
+            dir("2026", [file("1. Jan 2026.pdf")])])
+        #expect(AccountPlacement.place(in: monthly, period: .init(year: 2026, month: 2), taxForm: false,
+                                       fileName: "x.pdf").name == "02. Feb 2026.pdf")
+        // A quarterly account written one-digit stays one-digit.
+        let quarterly = dir("Brokerage 4410", [dir("2025", [3, 6, 9, 12].map { file("\($0). \(mon[$0 - 1]) 2025.pdf") })])
+        #expect(AccountPlacement.place(in: quarterly, period: .init(year: 2026, month: 3), taxForm: false,
+                                       fileName: "x.pdf").name == "3. Mar 2026.pdf")
+    }
 }
 
 /// The phase in a scan: a statement whose page prints its account's number leads with that account,

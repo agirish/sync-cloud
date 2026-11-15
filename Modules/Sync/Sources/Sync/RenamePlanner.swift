@@ -350,6 +350,38 @@ public enum RenamePlanner {
         var summaries: [(file: FolderFile, parsed: OrdinalMonthName.Parsed)] = []
         var unplaced: [FolderFile] = []
 
+        // His width rule: two digits for a monthly folder (one file a month, more than ten a year:
+        // `01. Jan 2026.pdf`), and every width there is fixed. Anything else keeps the width its
+        // names already use, with no width-only rename; a sparse folder with no ordinal names yet
+        // gets one digit (quarterly `1. Mar 2026.pdf`), and one with no evidence at all (empty, or
+        // a month or two) two, as most statement folders are monthly. Judged by cadence as well as count, so a current year's ten months or
+        // a part year of monthly bills is still monthly. `files` already holds `incoming`.
+        let parsedNames = files.compactMap { OrdinalMonthName.parse($0.name) }
+        let monthIndexes = Set(files.compactMap { f -> Int? in
+            if let p = OrdinalMonthName.parse(f.name) {
+                guard let m = p.month, let y = p.year else { return nil }
+                return y * 12 + m
+            }
+            return FileNameDate.mine(f.name).map { $0.year * 12 + $0.month }
+        }).sorted()
+        let gaps = zip(monthIndexes.dropFirst(), monthIndexes).map { $0 - $1 }.sorted()
+        let monthly = files.count > 10 || (monthIndexes.count >= 3 && gaps[(gaps.count - 1) / 2] <= 1)
+        let sparse = !monthly && monthIndexes.count >= 3
+        let fixesWidth = monthly
+        let ordinalWidths = parsedNames.map(\.ordinalDigits)
+        let padded = monthly || (ordinalWidths.isEmpty
+            ? !sparse
+            : ordinalWidths.filter { $0 >= 2 }.count * 2 > ordinalWidths.count)
+        /// One width for the whole folder, so two names for one slot (`1. Mar` beside `01. Mar`)
+        /// still compare equal and the collision guard sees them.
+        func canonical(_ p: OrdinalMonthName.Parsed, ordinal: Int? = nil) -> String {
+            p.canonicalName(ordinal: ordinal ?? p.ordinal, padded: padded)
+        }
+        /// A rename that would only change the ordinal's width: proposed only where width matters.
+        func widthOnly(_ p: OrdinalMonthName.Parsed, _ name: String) -> Bool {
+            !fixesWidth && p.canonicalNameKeepingWidth == name
+        }
+
         for f in files {
             if let p = OrdinalMonthName.parse(f.name) {
                 if let m = p.month, let y = p.year {
@@ -378,18 +410,18 @@ public enum RenamePlanner {
         //    Emitted below only when no cascade runs: a cascade re-renders every dated file itself,
         //    and two steps for one file is not a plan.
         func paddingSteps() -> [RenameStep] {
-            dated.filter { !$0.parsed.isCanonical }.map { d in
+            dated.filter { canonical($0.parsed) != $0.file.name && !widthOnly($0.parsed, $0.file.name) }.map { d in
                 RenameStep(currentPath: d.file.path, currentName: d.file.name,
-                           proposedName: d.parsed.canonicalName, kind: .tidied,
+                           proposedName: canonical(d.parsed), kind: .tidied,
                            reason: d.parsed.ordinalDigits == 1
                                ? "Padded to two digits — a one-digit ordinal sorts after “10.”"
                                : "Tidied to the folder’s “NN. Mon YYYY” form")
             }
         }
-        for sum in summaries where !sum.parsed.isCanonical {
+        for sum in summaries where canonical(sum.parsed) != sum.file.name && !widthOnly(sum.parsed, sum.file.name) {
             out.steps.append(RenameStep(
                 currentPath: sum.file.path, currentName: sum.file.name,
-                proposedName: sum.parsed.canonicalName, kind: .tidied,
+                proposedName: canonical(sum.parsed), kind: .tidied,
                 reason: "Padded to two digits — a one-digit ordinal sorts after “10.”"))
         }
 
@@ -470,10 +502,10 @@ public enum RenamePlanner {
             let ext = (p.file.name as NSString).pathExtension
             guard let day = p.key.day else {
                 return OrdinalMonthName.render(ordinal: slot, month: p.key.month,
-                                               year: p.key.year, ext: ext)
+                                               year: p.key.year, ext: ext, padded: padded)
             }
             return OrdinalMonthName.render(ordinal: slot, month: p.key.month, day: day,
-                                           year: p.key.year, ext: ext)
+                                           year: p.key.year, ext: ext, padded: padded)
         }
 
         // 3. Ordinals.
@@ -566,7 +598,7 @@ public enum RenamePlanner {
                 .joined(separator: ", ")
             for d in dated {
                 let target = ordinals[d.key] ?? d.parsed.ordinal
-                let name = d.parsed.canonicalName(ordinal: target)
+                let name = canonical(d.parsed, ordinal: target)
                 guard name != d.file.name else { continue }
                 // A file whose slot doesn't move is only being widened, which is right either way,
                 // so it keeps cohort 0 and survives a cascade that has to stand down.

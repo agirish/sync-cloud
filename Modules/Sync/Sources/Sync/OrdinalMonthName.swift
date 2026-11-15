@@ -85,11 +85,17 @@ public enum OrdinalMonthName {
         /// The same name at a different slot: what a renumbering writes. The body rule above
         /// matters more here, since a renumber touches files already correct:
         /// `1. Jun 2014 NRE.pdf` at slot 2 becomes `02. Jun 2014 NRE.pdf`, not `02. Jun 2014.pdf`.
-        public func canonicalName(ordinal newOrdinal: Int) -> String {
+        public func canonicalName(ordinal newOrdinal: Int, padded: Bool = true) -> String {
             guard let month, let year, bodyIsBareDate else {
-                return OrdinalMonthName.render(ordinal: newOrdinal, body: body, ext: ext)
+                return OrdinalMonthName.render(ordinal: newOrdinal, body: body, ext: ext, padded: padded)
             }
-            return OrdinalMonthName.render(ordinal: newOrdinal, month: month, year: year, ext: ext)
+            return OrdinalMonthName.render(ordinal: newOrdinal, month: month, year: year, ext: ext, padded: padded)
+        }
+
+        /// The canonical name keeping this name's own ordinal width (`4.` stays one digit): for a
+        /// folder small enough that no width is wrong.
+        public var canonicalNameKeepingWidth: String {
+            canonicalName(ordinal: ordinal, padded: ordinalDigits >= 2)
         }
 
         /// True when the body is a month word and a four-digit year and nothing else.
@@ -221,20 +227,21 @@ public enum OrdinalMonthName {
     }
 
     /// `09. May 15 2026.pdf`: the canonical name for a slot in a day-keyed folder.
-    public static func render(ordinal: Int, month: Int, day: Int, year: Int, ext: String) -> String {
-        render(ordinal: ordinal, body: body(month: month, day: day, year: year), ext: ext)
+    public static func render(ordinal: Int, month: Int, day: Int, year: Int, ext: String, padded: Bool = true) -> String {
+        render(ordinal: ordinal, body: body(month: month, day: day, year: year), ext: ext, padded: padded)
     }
 
-    /// `04. Apr 2025.pdf`: the canonical name for a slot. Always two digits: a one-digit ordinal
-    /// misorders past September (`10.` sorts before `9.`), which the convention exists to prevent.
-    public static func render(ordinal: Int, month: Int, year: Int, ext: String) -> String {
-        render(ordinal: ordinal, body: body(month: month, year: year), ext: ext)
+    /// `04. Apr 2025.pdf`: the canonical name for a slot. Two digits in a folder of more than ten
+    /// files, where a one-digit ordinal misorders past September (`10.` sorts before `9.`); one
+    /// digit (`4. Apr 2025.pdf`) in a smaller one, a quarterly account say, as he names them.
+    public static func render(ordinal: Int, month: Int, year: Int, ext: String, padded: Bool = true) -> String {
+        render(ordinal: ordinal, body: body(month: month, year: year), ext: ext, padded: padded)
     }
 
     /// `NN. <body>.ext`, for a body this grammar does not generate: a summary slot's wording, or a
     /// renumbering that must leave the tail exactly as the user wrote it.
-    public static func render(ordinal: Int, body: String, ext: String) -> String {
-        let stem = String(format: "%02d. %@", ordinal, body)
+    public static func render(ordinal: Int, body: String, ext: String, padded: Bool = true) -> String {
+        let stem = String(format: padded ? "%02d. %@" : "%d. %@", ordinal, body)
         return ext.isEmpty ? stem : stem + "." + ext
     }
 }

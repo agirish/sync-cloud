@@ -265,11 +265,34 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         // `Savings NRI/2014` really holds two June statements, one per account. Rendering the name
         // from the parsed month and year alone would call both `01. Jun 2014.pdf` — deleting the one
         // word that tells them apart, and colliding into the bargain.
-        let p = plan(["1. Jun 2014 NRE.pdf", "1. Jun 2014 NRO.pdf", "2. Jul 2014.pdf"], year: "2014")
+        let p = plan(["1. Jun 2014 NRE.pdf", "1. Jun 2014 NRO.pdf", "2. Jul 2014.pdf",
+                      "3. Aug 2014.pdf"], year: "2014")
         #expect(targets(p) == ["1. Jun 2014 NRE.pdf": "01. Jun 2014 NRE.pdf",
                                "1. Jun 2014 NRO.pdf": "01. Jun 2014 NRO.pdf",
-                               "2. Jul 2014.pdf": "02. Jul 2014.pdf"])
+                               "2. Jul 2014.pdf": "02. Jul 2014.pdf",
+                               "3. Aug 2014.pdf": "03. Aug 2014.pdf"])
         #expect(p.skips.isEmpty)
+    }
+
+    @Test("A quarterly folder keeps one-digit ordinals, and its next file follows them")
+    func quarterlyStaysUnpadded() {
+        // His rule: zero-padding is for monthly folders. A quarterly `1. Mar` sorts fine among
+        // four files, so it is not "fixed", and the December statement arriving is `4.` too.
+        let names = ["1. Mar 2026.pdf", "2. Jun 2026.pdf", "3. Sep 2026.pdf"]
+        #expect(plan(names, year: "2026").steps.isEmpty)
+        let p = plan(names + ["9829custbill12182026.pdf"], year: "2026")
+        #expect(targets(p) == ["9829custbill12182026.pdf": "4. Dec 2026.pdf"])
+        // Non-vacuity: the same one-digit names a month apart are a monthly folder, and padded.
+        #expect(plan(["1. Jan 2026.pdf", "2. Feb 2026.pdf", "3. Mar 2026.pdf"], year: "2026")
+            .steps.count == 3)
+    }
+
+    @Test("A folder of more than ten files is padded whatever its spacing")
+    func moreThanTenIsPadded() {
+        let names = (1...11).map { "\($0). \(OrdinalMonthName.monthAbbreviations[$0 - 1]) 2025.pdf" }
+        let p = plan(names, year: "2025")
+        #expect(targets(p)["1. Jan 2025.pdf"] == "01. Jan 2025.pdf")
+        #expect(p.steps.count == 9, "10. and 11. already have two digits")
     }
 
     @Test("A month spelled out IS respelled, when that is the whole body")
@@ -293,7 +316,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
 
     @Test("A summary slot is padded but keeps its own wording")
     func padsSummarySlot() {
-        let p = plan(["0. Summary 2022.pdf", "01. Jan 2022.pdf", "02. Feb 2022.pdf"], year: "2022")
+        let p = plan(["0. Summary 2022.pdf", "01. Jan 2022.pdf", "02. Feb 2022.pdf",
+                      "03. Mar 2022.pdf"], year: "2022")
         #expect(targets(p) == ["0. Summary 2022.pdf": "00. Summary 2022.pdf"])
     }
 
@@ -358,7 +382,8 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
 
     @Test("Two names canonicalising to one target leave both alone")
     func refusesTwoStepsWantingOneName() {
-        let p = plan(["4. Apr 2021.pdf", "04. Apr 2021.pdf", "05. May 2021.pdf"], year: "2021")
+        let p = plan(["4. Apr 2021.pdf", "04. Apr 2021.pdf", "05. May 2021.pdf",
+                      "06. Jun 2021.pdf"], year: "2021")
         #expect(p.steps.isEmpty)
         #expect(p.skips.count == 1)
         #expect(p.skips.first?.fileName == "4. Apr 2021.pdf")

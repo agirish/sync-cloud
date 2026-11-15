@@ -138,11 +138,12 @@ import EventsTestSupport
     @Test func applyReDerivesAgainstTheDiskAndSkipsWhatChangedUnderIt() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = try writeBucket(root, "2021", [("1", "Mar"), ("2", "Apr")])
+        // Three months a month apart: a monthly folder, so its one-digit names are padded.
+        let bucket = try writeBucket(root, "2021", [("1", "Mar"), ("2", "Apr"), ("3", "May")])
         let manager = FileSyncManager()
         manager.filingFolderProfile = profile(root: root.path, rel: "2021", year: "2021")
         let plan = self.plan("2021", try names(in: bucket), bucket.path, manager)
-        #expect(plan.steps.count == 2)
+        #expect(plan.steps.count == 3)
 
         // While the plan is open, March is renamed by hand onto the name the plan wanted for it.
         try FileManager.default.moveItem(at: bucket.appendingPathComponent("1. Mar 2021.pdf"),
@@ -150,8 +151,8 @@ import EventsTestSupport
 
         await manager.applyRenamePlans([plan])
 
-        // April still gets its padding; March's step is dropped, and nothing is overwritten.
-        #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf"])
+        // April and May still get their padding; March's step is dropped, and nothing is overwritten.
+        #expect(try names(in: bucket) == ["01. Mar 2021.pdf", "02. Apr 2021.pdf", "03. May 2021.pdf"])
         // The banner says so rather than reporting a clean pass.
         #expect(manager.banner?.message.contains("had already changed") == true)
     }
@@ -237,7 +238,7 @@ import EventsTestSupport
     @Test func clearingTheFilingScanClearsTheBacklogItProduced() async throws {
         let root = try makeCanonicalTempRoot(prefix: "RenamePass")
         defer { try? FileManager.default.removeItem(at: root) }
-        let bucket = try writeBucket(root, "Utilities/PGE/2021", [("1", "Mar"), ("2", "Apr")])
+        let bucket = try writeBucket(root, "Utilities/PGE/2021", [("1", "Mar"), ("2", "Apr"), ("3", "May")])
         try writeBytes(root.appendingPathComponent("Inbox/.keep"), bytes: 8)
 
         let manager = FileSyncManager()

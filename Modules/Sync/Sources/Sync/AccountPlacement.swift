@@ -72,7 +72,8 @@ public enum AccountPlacement {
             // `10. Oct 2025` → `10. Oct 2026`; a month folder whose name can't be re-dated ends the path.
             guard let parsed = parse(seg + ".x"),
                   let renamed = Template(prefix: parsed.prefix, form: parsed.form, suffix: parsed.suffix,
-                                         dayOffsetFromMonthEnd: nil, originalExtension: "").fill(period, ext: "") else {
+                                         dayOffsetFromMonthEnd: nil, originalExtension: "",
+                                         padOrdinal: parsed.ordinalDigits >= 2).fill(period, ext: "") else {
                 // A month folder whose name can't be re-dated (`July`): the folder inside the
                 // account isn't sure, so neither is the card.
                 let here = segments.joined(separator: "/")
@@ -119,6 +120,9 @@ public enum AccountPlacement {
         /// statement's own date.
         let dayOffsetFromMonthEnd: Int?
         let originalExtension: String
+        /// `01.` rather than `1.`: two digits for an account filing more than ten statements a year
+        /// (monthly), else the width its own names use (`1. Mar 2026` for a quarterly one).
+        var padOrdinal: Bool = true
 
         func fill(_ p: DocumentFacts.Period, ext: String) -> String? {
             func two(_ n: Int) -> String { String(format: "%02d", n) }
@@ -136,7 +140,7 @@ public enum AccountPlacement {
                 guard let day else { return nil }
                 date = "\(p.year)\(two(p.month))\(two(day))"
             case .ordinalMonthYear:
-                date = "\(two(p.month)). \(Self.monthNames[p.month - 1]) \(p.year)"
+                date = "\(padOrdinal ? two(p.month) : String(p.month)). \(Self.monthNames[p.month - 1]) \(p.year)"
             case .monthYear:
                 date = "\(Self.monthNames[p.month - 1]) \(p.year)"
             case .ymDash(let sep):
@@ -175,11 +179,21 @@ public enum AccountPlacement {
             return d - monthEnd(m.period.year, m.period.month)
         }
         let offset = offsets.count == parsed.count && Set(offsets).count == 1 && abs(offsets[0]) <= 3 ? offsets[0] : nil
+        // His width rule: two digits for a monthly account (`01. Jan 2026.pdf`), judged by how far
+        // apart its statements' months are; a sparser one keeps the width its newest names use
+        // (`1. Mar 2026.pdf` for a quarterly account that writes it so).
+        let months = Array(Set(members.map { $0.period.year * 12 + $0.period.month })).sorted()
+        let gaps = zip(months.dropFirst(), months).map { $0 - $1 }.sorted()
+        let monthly = !gaps.isEmpty && gaps[(gaps.count - 1) / 2] <= 1
+        let pad = monthly || parsed.filter { $0.ordinalDigits >= 2 }.count * 2 > parsed.count
         return Template(prefix: first.prefix, form: first.form, suffix: first.suffix,
-                        dayOffsetFromMonthEnd: offset, originalExtension: first.ext)
+                        dayOffsetFromMonthEnd: offset, originalExtension: first.ext, padOrdinal: pad)
     }
 
-    struct Parsed { let prefix: String; let form: Template.DateForm; let suffix: String; let day: Int?; let ext: String }
+    struct Parsed {
+        let prefix: String; let form: Template.DateForm; let suffix: String; let day: Int?; let ext: String
+        var ordinalDigits: Int = 2
+    }
 
     static func parse(_ name: String) -> Parsed? {
         let ext = (name as NSString).pathExtension
@@ -198,8 +212,11 @@ public enum AccountPlacement {
         if let (p, d, s) = split(#"(?<!\d)(19|20)\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)"#) {
             return Parsed(prefix: p, form: .ymdCompact, suffix: s, day: Int(d.suffix(2)), ext: ext)
         }
-        if let (p, _, s) = split(#"(?<!\d)\d{2}\. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (19|20)\d\d"#) {
-            return Parsed(prefix: p, form: .ordinalMonthYear, suffix: s, day: nil, ext: ext)
+        // `01. Jan 2026` or `1. Jan 2026`: the ordinal is the month's number, written one or two
+        // digits wide (``Template/padOrdinal``), never a fixed prefix.
+        if let (p, d, s) = split(#"(?<!\d)\d{1,2}\. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (19|20)\d\d"#) {
+            return Parsed(prefix: p, form: .ordinalMonthYear, suffix: s, day: nil, ext: ext,
+                          ordinalDigits: d.prefix { $0.isNumber }.count)
         }
         if let (p, _, s) = split(#"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (19|20)\d\d"#) {
             return Parsed(prefix: p, form: .monthYear, suffix: s, day: nil, ext: ext)
