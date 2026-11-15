@@ -138,6 +138,38 @@ import Foundation
                 "banner: \(m.banner?.message ?? "nil")")
     }
 
+    /// The same refusal when the moved item is gone before ⌘Z (the user deleted it): nothing is
+    /// left to move back, and a stranger at the backup's Trash path still stays, counted as a
+    /// restore failure.
+    @MainActor
+    @Test func aMoveUndoOfADeletedItemLeavesAStrangerFromTheTrash() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "undo-trash-identity-move-vanished")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = ScratchTrash(in: root)
+        let from = root.appendingPathComponent("src/f.txt")
+        let to = root.appendingPathComponent("dst/f.txt")
+        try writeText("moved", from)
+        try writeText("replaced", to)
+        let m = manager()
+        let backup = try #require(try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: trash))
+        let action = "Move 1 Item \(UUID().uuidString)"
+        await m.registerMoveUndo(items: [(from: from, to: to, overwritten: backup)], actionName: action, fileManager: trash).value
+        try FileManager.default.removeItem(at: to)
+        try replaceInTrash(backup)
+
+        let lines = try await logLines(tag: "move-vanished-stranger \(UUID().uuidString)") {
+            await undoAndDrain(m)
+        }
+
+        #expect(!entryExists(to), "a file the move never displaced was put at its destination")
+        #expect(!entryExists(from), "the item the user deleted came back at its source")
+        #expect(readText(backup) == "an unrelated file the user trashed later")
+        #expect(m.banner?.message.contains("isn’t the one SyncCloud put there") == true,
+                "banner: \(m.banner?.message ?? "nil")")
+        #expect(lines.contains { $0.contains("Undo (\(action)): moved 0 of 1 item(s) back to source, 1 restore failure(s)") },
+                "lines: \(lines.filter { $0.contains(action) })")
+    }
+
     /// Makes `folder` unreadable (mode 000), as a subfolder another account owns or a cloud folder
     /// that doesn't answer leaves a deep walk partial. Returns the undo for a `defer`.
     private func lock(_ folder: URL) throws -> () -> Void {

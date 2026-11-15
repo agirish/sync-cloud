@@ -564,10 +564,11 @@ extension FileSyncManager {
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
     enum UndoRestoreOutcome { case restored, failed, nothingToRestore }
 
-    /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, reporting any
-    /// failure. Shared by `registerCopyUndo`'s Trash path and its permanent-delete fallback.
-    /// `verdict` is `trashBackupVerdict`'s answer, read by the caller before it removed the copy; a
-    /// stranger at the backup's location is refused and counted as a failure.
+    /// Restores the backup a copy or move displaced (`overwritten`) onto `destination`, reporting any
+    /// failure. Shared by the copy-undo's Trash path and its permanent-delete fallback, and by the
+    /// move-undo. `verdict` is `trashBackupVerdict`'s answer, read by the caller before it removed
+    /// the copy or moved the item back; a stranger at the backup's location is refused and counted
+    /// as a failure.
     nonisolated static func restoreOverwrittenBackup(
         _ overwritten: URL?,
         verdict: DriftVerdict,
@@ -1159,23 +1160,14 @@ extension FileSyncManager {
                                 if run.admit(.info, kind: "no longer on disk", name: item.to.path) {
                                     logger.info("Undo (\(actionName)): \(item.to.lastPathComponent) is no longer on disk — nothing to move back")
                                 }
-                                if let trashed = item.overwritten {
-                                    // Only the item this move put in the Trash.
-                                    let backupVerdict = FileSyncManager.trashBackupVerdict(
-                                        recorded: item.overwrittenIdentity, at: trashed, fileManager: fm)
-                                    if backupVerdict != .unchanged {
-                                        restoreFailures += 1
-                                        await FileSyncManager.reportUndoRefusedTrashStranger(
-                                            at: trashed, restoring: item.to, actionName: actionName,
-                                            verdict: backupVerdict, run: run, on: target)
-                                        continue
-                                    }
-                                    do {
-                                        try fm.moveItem(at: trashed, to: item.to)
-                                    } catch {
-                                        restoreFailures += 1
-                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, run: run, on: target)
-                                    }
+                                // Only the item this move put in the Trash.
+                                let backupVerdict = item.overwritten.map {
+                                    FileSyncManager.trashBackupVerdict(recorded: item.overwrittenIdentity, at: $0, fileManager: fm)
+                                } ?? .unchanged
+                                if case .failed = await FileSyncManager.restoreOverwrittenBackup(
+                                    item.overwritten, verdict: backupVerdict, to: item.to, actionName: actionName,
+                                    fileManager: fm, run: run, on: target) {
+                                    restoreFailures += 1
                                 }
                                 continue
                             }
@@ -1239,22 +1231,12 @@ extension FileSyncManager {
                             // item actually left it (move-back succeeded). If we refused, or the
                             // move-back failed, item.to still holds the item and this would just
                             // collide and mis-report a second failure.
-                            if movedBackOK, let trashed = item.overwritten {
-                                // Only the item this move put in the Trash: a stranger with its name
-                                // stays, and the destination stays empty.
-                                if backupVerdict != .unchanged {
-                                    restoreFailures += 1
-                                    await FileSyncManager.reportUndoRefusedTrashStranger(
-                                        at: trashed, restoring: item.to, actionName: actionName,
-                                        verdict: backupVerdict, run: run, on: target)
-                                } else {
-                                    do {
-                                        try fm.moveItem(at: trashed, to: item.to)
-                                    } catch {
-                                        restoreFailures += 1
-                                        await FileSyncManager.reportUndoRestoreFailure(of: item.to, from: trashed, actionName: actionName, error: error, run: run, on: target)
-                                    }
-                                }
+                            // Only the item this move put in the Trash: a stranger with its name
+                            // stays, and the destination stays empty.
+                            if movedBackOK, case .failed = await FileSyncManager.restoreOverwrittenBackup(
+                                item.overwritten, verdict: backupVerdict, to: item.to, actionName: actionName,
+                                fileManager: fm, run: run, on: target) {
+                                restoreFailures += 1
                             }
                         }
                         // Read each restored item's identity after the whole loop, since that is what
