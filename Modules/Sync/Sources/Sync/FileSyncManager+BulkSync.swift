@@ -493,6 +493,15 @@ extension FileSyncManager {
         func reservedKey(_ path: String) -> String {
             destinationIsCaseSensitive(URL(fileURLWithPath: path)) ? path : path.lowercased()
         }
+        /// A free name beside `url`, unused on disk and in this batch's reserved set as it stands
+        /// now. Off the main actor: it probes the disk.
+        func uniquified(_ url: URL) async -> URL {
+            let claimed = reservedTargets
+            let caseSensitive = destinationIsCaseSensitive(url)
+            return await Task.detached(priority: .userInitiated) {
+                Self.generateUniqueURL(for: url, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
+            }.value
+        }
         // The batch stat ran before the first prompt, and a prompt can hold this loop for any
         // length of time. A destination created meanwhile would be replaced without its prompt,
         // so once a prompt has shown, re-stat the "missing" results (off the main actor).
@@ -546,12 +555,7 @@ extension FileSyncManager {
                     skippedCount += 1
                     continue
                 case .keepBoth:
-                    let collidingURL = toURL
-                    let claimed = reservedTargets
-                    let caseSensitive = destinationIsCaseSensitive(collidingURL)
-                    toURL = await Task.detached(priority: .userInitiated) {
-                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
-                    }.value
+                    toURL = await uniquified(toURL)
                 case .replace:
                     break
                 }
@@ -560,12 +564,7 @@ extension FileSyncManager {
             // claimed this batch. Uniquify against disk and the reserved set so no two items share
             // a destination.
             if reservedTargets.contains(reservedKey(toURL.path)) {
-                let claimedURL = toURL
-                let claimed = reservedTargets
-                let caseSensitive = destinationIsCaseSensitive(claimedURL)
-                toURL = await Task.detached(priority: .userInitiated) {
-                    Self.generateUniqueURL(for: claimedURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
-                }.value
+                toURL = await uniquified(toURL)
             }
             reservedTargets.insert(reservedKey(toURL.path))
             preparedList.append((candidate.difference, candidate.fromURL, toURL, isMove))
