@@ -144,7 +144,8 @@ import Foundation
         m.filingTokensFromText = { _ in [] }
         await m.findFilingSuggestions(folder: inbox, providerRoot: docs)
         let best = try #require(m.filingSuggestions.first { $0.filePath == lease.path }?.best)
-        #expect(best.path == docs.path + "/Credit Accounts/Chase/Auto Lease 2388", "\(best.path)")
+        // No other lease to copy: laid out like Chase's live account beside it, by year.
+        #expect(best.path == docs.path + "/Credit Accounts/Chase/Auto Lease 2388/2026", "\(best.path)")
         #expect(best.confidence == .medium && best.createsAccountFolder)
         let unproposed = try #require(m.filingSuggestions.first { $0.filePath == other.path })
         #expect(unproposed.best?.createsAccountFolder != true, "its number isn't the folder's")

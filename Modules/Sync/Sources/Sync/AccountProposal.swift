@@ -79,10 +79,17 @@ public enum AccountProposal {
         let accountName = name ?? [type, ending].compactMap { $0 }.joined(separator: " ")
         guard !accountName.isEmpty, !accountName.hasPrefix("."), FileSyncManager.validateItemName(accountName) == nil else { return nil }
         let accountRoot = parent + "/" + accountName
-        // Inside it, the layout of the account it copies (`<year>`, `Statements/<year>`).
+        // Inside it, the layout of the account it copies (`<year>`, `Statements/<year>`); with no
+        // account of its type to copy, of the bank's own live account beside it (`Fidelity/Brokerage
+        // 1750` laid out like `Fidelity/Roth IRA 4657`).
         var inside = ""
-        if let model, let node = node(at: model.root, in: tree) {
-            let place = AccountPlacement.place(in: node, period: period, taxForm: false, fileName: fileName)
+        let layout = model ?? index.accounts.first { a in
+            !a.archived && a.institution == institution && (a.root as NSString).deletingLastPathComponent == parent
+        }
+        if let layout, let node = node(at: layout.root, in: tree) {
+            let bank = AccountIndex.institutionFolder(of: layout.root, isArchived: isArchived)
+                .flatMap { Self.node(at: $0.0, in: tree) }
+            let place = AccountPlacement.place(in: node, period: period, taxForm: false, fileName: fileName, bank: bank)
             if !place.yearUnknown { inside = place.folder }
         }
         let full = inside.isEmpty ? accountRoot : accountRoot + "/" + inside

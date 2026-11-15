@@ -41,7 +41,7 @@ extension FileSyncManager {
             case .high(let account, let number), .medium(let account, let number, _):
                 guard let node = nodes[account.root] else { return s }
                 let place = AccountPlacement.place(in: node, period: period, taxForm: f.kind == .taxForm,
-                                                   fileName: s.fileName)
+                                                   fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy))
                 // High only when the folder inside the account is sure too.
                 let confidence: FilingConfidence
                 if case .high = match, !place.yearUnknown { confidence = .high } else { confidence = .medium }
@@ -66,7 +66,8 @@ extension FileSyncManager {
                 for (account, number) in pairs {
                     guard let node = nodes[account.root] else { continue }
                     placed.append((account, number, AccountPlacement.place(in: node, period: period, taxForm: false,
-                                                                           fileName: s.fileName)))
+                                                                           fileName: s.fileName,
+                                                                           bank: bankNode(of: account.root, in: taxonomy))))
                 }
                 guard let (account, number, place) = placed.first else { return s }
                 let sure = placed.allSatisfy { !$0.2.yearUnknown }
@@ -148,8 +149,9 @@ extension FileSyncManager {
     }
 
     /// A new account folder for a statement from a known bank that no account matches
-    /// (``AccountProposal``), unless the bank keeps such statements together in one folder
-    /// (`Fidelity/Statements`), or a home in an account of this type is already offered. When the
+    /// (``AccountProposal``), unless the bank keeps such statements together in one folder and no
+    /// account in a folder of its own (`Citi/Statements`), or a home in an account of this type is
+    /// already offered. When the
     /// folder the statement came from names an account the tree already has, that account is the
     /// home instead.
     nonisolated static func proposingAccount(for s: FilingSuggestion, facts f: DocumentFacts,
@@ -163,13 +165,15 @@ extension FileSyncManager {
         // own words, `ScholarShare 529/529 6797-02`). Not the rest of the page, where a GEICO
         // letter names the card it is paid with.
         guard let institution = index.headerInstitution(f) ?? index.institution(namedIn: hint.lowercased()) else {
-            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root)
+            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root,
+                               period: period)
         }
         // The inbox folder names another company the page names too (`GEICO`, on a declarations
         // page whose header mentions American Express): his folder says whose it is.
         let company = companyWords(hint: hint, facts: f, index: index, taxonomy: taxonomy)
         if !company.isEmpty, company.isDisjoint(with: index.institutionTokens[institution] ?? []) {
-            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root)
+            return companyHome(for: s, facts: f, hint: hint, index: index, taxonomy: taxonomy, root: root,
+                               period: period)
         }
         let hinted = AccountProposal.typeAndDigits(inHint: hint)
         // A page not read as a statement (a lease bill, a page whose words OCR split apart) still
@@ -188,7 +192,8 @@ extension FileSyncManager {
                return named.first { !$0.archived } ?? named.first
            }(),
            let node = accountNodes(AccountIndex(accounts: [account], institutionTokens: [:]), in: taxonomy)[account.root] {
-            let place = AccountPlacement.place(in: node, period: period, taxForm: false, fileName: s.fileName)
+            let place = AccountPlacement.place(in: node, period: period, taxForm: false, fileName: s.fileName,
+                                               bank: bankNode(of: account.root, in: taxonomy))
             var dest = destination(for: account, number: DocumentFacts.OwnNumber(digits: digits, masked: false),
                                    place: place, kind: .statement, confidence: .medium, root: root,
                                    match: .medium(account, number: DocumentFacts.OwnNumber(digits: digits, masked: false), why: .institutionSilent))
@@ -209,9 +214,15 @@ extension FileSyncManager {
                                               name: hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil },
                                               index: index, tree: taxonomy, period: period, fileName: s.fileName,
                                               isArchived: isArchived) else { return s }
-        // The bank keeps statements of this category together in one folder: no account folders.
+        // The bank keeps statements of this category together in one folder (`Citi/Statements`): no
+        // account folders. Unless it keeps a live account in a folder of its own there too
+        // (`Fidelity/Roth IRA 4657` beside `Fidelity/Statements`): then each account gets one.
         let parent = (p.accountRoot as NSString).deletingLastPathComponent
-        if sharedStatementFolders.contains(where: { $0 == parent || $0.hasPrefix(parent + "/") }) { return s }
+        let ownFolders = index.accounts.contains { a in
+            !a.archived && a.institution == institution && (a.root as NSString).deletingLastPathComponent == parent
+                && !sharedStatementFolders.contains(a.root)
+        }
+        if !ownFolders, sharedStatementFolders.contains(where: { $0 == parent || $0.hasPrefix(parent + "/") }) { return s }
         // A Medium home already offered inside an account of this type (or this number) is the home.
         if let best = s.best, best.confidence >= .medium,
            let rel = relativePath(best.path, under: root),
@@ -270,7 +281,8 @@ extension FileSyncManager {
             var name: String?
             if let model = accountsHere.first(where: { !$0.archived }),
                let modelNode = AccountProposal.node(at: model.root, in: taxonomy) {
-                let place = AccountPlacement.place(in: modelNode, period: period, taxForm: false, fileName: s.fileName)
+                let place = AccountPlacement.place(in: modelNode, period: period, taxForm: false, fileName: s.fileName,
+                                                   bank: bankNode)
                 if !place.yearUnknown, !place.folder.isEmpty { path = home + "/" + place.folder }
                 if !place.yearUnknown { name = place.name }
             }
@@ -299,7 +311,8 @@ extension FileSyncManager {
     /// prints the number that folder names (policy ••0652), that is its account. Medium: a name, not
     /// a number, chose the folder.
     nonisolated static func companyHome(for s: FilingSuggestion, facts f: DocumentFacts, hint: String,
-                                        index: AccountIndex, taxonomy: [FileNode], root: String) -> FilingSuggestion {
+                                        index: AccountIndex, taxonomy: [FileNode], root: String,
+                                        period: DocumentFacts.Period? = nil) -> FilingSuggestion {
         let words = companyWords(hint: hint, facts: f, index: index, taxonomy: taxonomy)
         guard !words.isEmpty else { return s }
         // The folder being sorted, which `hint` is relative to: nothing in it is a home.
@@ -335,10 +348,33 @@ extension FileSyncManager {
             a.institutionName = company
             account = a
         }
-        let dest = FilingDestination(path: root + "/" + top.key, confidence: .medium, reasons: [reason],
-                                     newSegments: [], fromContent: true,
+        // Inside it, the year's folder when the folder keeps its newest files by year
+        // (`Home/Insurance/2025` holds 2025's renewal, so 2026's goes to `2026`).
+        var path = top.key
+        var newSegments: [String] = []
+        if let year = period?.year, let node = AccountProposal.node(at: top.key, in: taxonomy),
+           let folder = yearFolder(in: node, for: year) {
+            path += "/" + folder.name
+            if folder.isNew { newSegments = [folder.name] }
+        }
+        let dest = FilingDestination(path: root + "/" + path, confidence: .medium, reasons: [reason],
+                                     newSegments: newSegments, fromContent: true,
                                      evidenceToken: account.map { "••" + $0.ending }, account: account)
         return s.replacingCandidates(inserting(dest, into: s.candidates))
+    }
+
+    /// The folder for `year` inside `node`, when `node` files by year: it has year folders, and no
+    /// file loose in it is dated later than the newest of them (`Vehicles/Honda/Insurance` has
+    /// folders up to 2021 but keeps 2024–2026 loose, so it doesn't).
+    nonisolated static func yearFolder(in node: FileNode, for year: Int) -> (name: String, isNew: Bool)? {
+        let kids = node.children ?? []
+        let years = kids.filter { $0.isDirectory && $0.name.count == 4 && FolderProfileEntry.looksLikeYear($0.name) }
+            .compactMap { Int($0.name) }
+        guard let newestFolder = years.max() else { return nil }
+        let newestLoose = kids.filter { !$0.isDirectory }
+            .compactMap { StatementFamily.period(ofName: $0.name, folder: "")?.year }.max()
+        if let newestLoose, newestLoose > newestFolder { return nil }
+        return (String(year), !years.contains(year))
     }
 
     /// The company the inbox folder names, as words page 1 names too: the folders' own words, less
@@ -369,6 +405,12 @@ extension FileSyncManager {
         }
         visit(taxonomy, "")
         return out
+    }
+
+    /// The bank's folder above an account (`Investments/Fidelity` for `…/Fidelity/Roth IRA 4657`).
+    nonisolated static func bankNode(of accountRoot: String, in taxonomy: [FileNode]) -> FileNode? {
+        AccountIndex.institutionFolder(of: accountRoot, isArchived: { _ in false })
+            .flatMap { AccountProposal.node(at: $0.0, in: taxonomy) }
     }
 
     nonisolated static func destination(for account: AccountIndex.Account, number: DocumentFacts.OwnNumber,

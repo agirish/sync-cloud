@@ -253,9 +253,9 @@ public struct DocumentFacts: Sendable, Equatable {
     }
 
     /// Dates the page labels as something other than the period, matched as words ("vest" is not
-    /// in "investment").
+    /// in "investment"). An insurer's policy term runs a year ahead of the bill it is printed on.
     private static let nonPeriodLabel = try! NSRegularExpression(pattern:
-        #"\b(?:due|payments?|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|(?:beginning|opening)(?:\s+\w+)?\s+(?:balance|value))\b"#, options: [.caseInsensitive])
+        #"\b(?:due|payments?|(?:policy|coverage)\s+(?:term|period)|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|(?:beginning|opening)(?:\s+\w+)?\s+(?:balance|value))\b"#, options: [.caseInsensitive])
     private static let periodLabel = try! NSRegularExpression(pattern:
         #"\b(?:statement|billing|period|cycle)\b"#, options: [.caseInsensitive])
     /// A date the page names as its statement's (`Closing Date`, `Statement Date`, `Period Ending`).

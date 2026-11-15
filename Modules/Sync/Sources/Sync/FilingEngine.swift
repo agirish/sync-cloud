@@ -1281,8 +1281,10 @@ public enum FilingEngine {
         guard !verdicts.isEmpty else { return suggestions }
         return suggestions.map { s in
             if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
-            // So does the account a statement's own number names, at High.
+            // So does the account a statement's own number names, at High, or at Medium when the
+            // account folder's name carries that number (his inbox folder's, or page 1's).
             if s.best?.account != nil, s.best?.confidence == .high { return s }
+            if let best = s.best, FileSyncManager.isSettledByAccountNumber(best) { return s }
             guard let v = verdicts[s.filePath],
                   let rawDest = destination(from: v, providerRoot: providerRoot,
                                             existingRelative: existingRelative, fileName: s.fileName,

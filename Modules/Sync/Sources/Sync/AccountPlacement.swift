@@ -20,9 +20,10 @@ public enum AccountPlacement {
     }
 
     /// `node` is the account root as walked. `period` is the statement's, or nil when page 1 named
-    /// none. `taxForm` sends a tax form to the account's own tax folder when it has one.
+    /// none. `taxForm` sends a tax form to the account's own tax folder when it has one. `bank` is
+    /// the bank's folder, whose other statement folders say whether an empty one files by year.
     public static func place(in node: FileNode, period: DocumentFacts.Period?, taxForm: Bool,
-                             fileName: String) -> Placement {
+                             fileName: String, bank: FileNode? = nil) -> Placement {
         let ext = (fileName as NSString).pathExtension
         if taxForm {
             // A child whose name says tax (`Tax`, `Tax Forms`), else the root: the root counts as
@@ -35,7 +36,22 @@ public enum AccountPlacement {
             }
             return Placement(folder: tax.name, newSegments: [], name: nil)
         }
-        let families = StatementFamily.families(below: node).filter { StatementFamily.isRegular($0.value) }
+        // Statements filed in a tax folder (`Roth IRA 4657/Tax` holds 2022's) were his misfiles,
+        // never the account's layout.
+        let families = StatementFamily.families(below: node)
+            .mapValues { $0.filter { !isTaxFolder($0.folder) } }
+            .filter { StatementFamily.isRegular($0.value) }
+        // The account's own `Statements` folder, still empty: his word for where they go now.
+        if let statements = emptyStatementsFolder(in: node) {
+            let byYear = bank.map(filesStatementsByYear) ?? false
+            let members = families.values.flatMap { $0 }
+            let name = period.map { houseName($0, members: members, ext: ext) }
+            guard byYear else { return resolve(statements.name, in: node, name: name) }
+            guard let period else {
+                return Placement(folder: statements.name, newSegments: [], name: nil, yearUnknown: true)
+            }
+            return resolve(statements.name + "/" + String(period.year), in: node, name: name)
+        }
         // The statement family: among families of the incoming file's type (PDFs for a PDF, never a
         // CSV export), the one whose newest member is newest.
         func newestPeriod(_ m: [StatementFamily.Member]) -> DocumentFacts.Period { m.map(\.period).max() ?? .init(year: 0, month: 0) }
@@ -100,6 +116,35 @@ public enum AccountPlacement {
         let e = own.lowercased() == ext.lowercased() ? own : ext
         return (pad ? String(format: "%02d", p.month) : String(p.month)) + ". "
             + Template.monthNames[p.month - 1] + " \(p.year)" + (e.isEmpty ? "" : "." + e)
+    }
+
+    /// A folder path, relative to the account, running through a tax folder (`Tax`, `Tax Forms`).
+    static func isTaxFolder(_ relative: String) -> Bool {
+        relative.split(separator: "/").contains { seg in AccountIndex.words(String(seg)).contains { $0.hasPrefix("tax") } }
+    }
+
+    /// The account's own `Statements` folder when it holds no file yet.
+    static func emptyStatementsFolder(in node: FileNode) -> FileNode? {
+        func holdsFiles(_ n: FileNode) -> Bool {
+            (n.children ?? []).contains { $0.isDirectory ? holdsFiles($0) : !$0.name.hasPrefix(".") }
+        }
+        return (node.children ?? []).first { c in
+            c.isDirectory && AccountIndex.words(c.name).contains { $0 == "statements" || $0 == "statement" } && !holdsFiles(c)
+        }
+    }
+
+    /// The bank keeps statements by year somewhere outside an archive: a `Statements` folder of its
+    /// own (`Fidelity/Statements/2026`) or an account's.
+    static func filesStatementsByYear(_ bank: FileNode) -> Bool {
+        func visit(_ n: FileNode, depth: Int) -> Bool {
+            guard depth < 4, n.isDirectory, !AccountIndex.isArchiveName(n.name) else { return false }
+            let kids = n.children ?? []
+            if AccountIndex.words(n.name).contains(where: { $0 == "statements" || $0 == "statement" }),
+               kids.contains(where: { $0.isDirectory && FolderProfileEntry.looksLikeYear($0.name)
+                   && ($0.children ?? []).contains { !$0.isDirectory } }) { return true }
+            return kids.contains { visit($0, depth: depth + 1) }
+        }
+        return visit(bank, depth: 0)
     }
 
     /// `relative` under `node`, with the segments that don't exist yet.

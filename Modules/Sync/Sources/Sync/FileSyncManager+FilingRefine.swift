@@ -99,11 +99,21 @@ extension FileSyncManager {
         var seen: Set<String> = []
         return scope.filter {
             // A statement already matched to its account at High is settled: asking would pay
-            // for an answer the account match outranks.
+            // for an answer the account match outranks. So is one whose account folder carries the
+            // number page 1 or his inbox folder gives (`Roth IRA 4657`, a new `Brokerage 1750`):
+            // Claude sees neither the inbox path nor the accounts, and once put all eight of a
+            // bank's statements in one folder.
             $0.providerRoot == root && $0.best?.remembered != true && !hidden.isHidden($0.filePath)
                 && !($0.best?.account != nil && $0.best?.confidence == .high)
+                && !($0.best.map(Self.isSettledByAccountNumber) ?? false)
                 && seen.insert($0.filePath).inserted
         }
+    }
+
+    /// A statement's home inside an account folder whose own name carries the statement's number.
+    nonisolated static func isSettledByAccountNumber(_ d: FilingDestination) -> Bool {
+        guard let a = d.account, a.kind == .statement, !a.ending.isEmpty, d.confidence >= .medium else { return false }
+        return a.isNamedByFolder
     }
 
     /// How many suggestions in `scope` Refine leaves out because their file is hidden from Claude:

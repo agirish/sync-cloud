@@ -15738,3 +15738,13 @@ maintenance line has (measured as above, 2026-11-15: panel=0 on every line).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Ask Claude | CLOSED — does not apply |
+
+## Account folders laid out like his: a statement's own `Statements` folder, new accounts beside named ones, insurance by year — main only
+
+2026-11-15, for v7.2. To File sent Fidelity Roth IRA 4657 statements to that account's `Tax` folder (where his 2022 statements sit) and every Brokerage 1750 statement to the shared `Fidelity/Statements`, one to Kaiser on the word "Envelope"; Homesite bills went to `Home/Insurance` with no year, dated by next year's policy term. Now: statements skip tax folders and take an account's empty `Statements` folder, by year when the bank files by year; a bank with an account folder of its own beside a shared one gets a new folder per account (his call), laid out like that account; Claude no longer moves a statement whose account folder carries its number; a company home takes its year folder; a policy term is never a statement period.
+
+All of it is in the account phase (`AccountPlacement.swift`, `AccountProposal.swift`, `FileSyncManager+FilingAccounts.swift`), which no maintenance line carries (measured in the statement-names section above: placement=0 identity=0 on every line).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
