@@ -15702,3 +15702,27 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s groups=%s\n' $l \
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No group cards; one card per file | CLOSED — checked, not owed (a feature) |
+
+## Statement names: his `01. Jan 2026` form, padded by cadence, and a mortgage's bank learned past the header — rename pass owed on `v4.x`–`v6.x`, the rest main only
+
+2026-11-15, for v7.2. Three landings on `main`:
+- `472716767` pads a month ordinal by the folder's cadence. A monthly folder gets two digits and every width there is fixed; a quarterly or sparser one keeps one digit, with no width-only rename.
+- `a16a5f0df` reads a learned account's bank from the rest of page 1 when the header names none. Chase Mortgage had been learned as `mortgage` in some runs.
+- `29b6997b7` names every statement To File places `NN. Mon YYYY` (his call), not the bank's or the account's older names. `RenamePlanner` uses the same quarterly test.
+
+The account phase (`AccountIdentity.swift`, `AccountPlacement.swift`) is `main`'s alone. The rename pass is not: `v4.x`–`v6.x` carry `RenamePlanner.swift`, and it pads every one-digit ordinal. So in a quarterly folder (`1. Mar 2026.pdf`, `2. Jun 2026.pdf`) it proposes `01.`, `02.` against his convention.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s placement=%s identity=%s planner=%s cadence=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AccountPlacement.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'AccountIdentity.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sync/RenamePlanner.swift')" \
+  "$(git show origin/$l:Modules/Sync/Sources/Sync/RenamePlanner.swift 2>/dev/null | grep -c fixesWidth)"; done
+# measured 2026-11-15, against origin: placement=0 identity=0 on every line; planner=1 cadence=0 on
+# v6.x, v5.x, v4.x; planner=0 on v3.x, v2.x
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The rename pass, padding every ordinal; no account phase | RECORDED — owed (rename pass pads quarterly folders); account naming does not apply |
+| `v3.x` / `v2.x` | Neither | CLOSED — does not apply |
