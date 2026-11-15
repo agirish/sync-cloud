@@ -211,7 +211,7 @@ struct FilingBatchSheet: View {
             // What the batch makes, as the card says it.
             if let tag = c.tag { t = t + Text(" " + tag).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(accent) }
         }
-        if let note = p.note { t = t + Text("  " + note).font(.system(size: 10.5)).foregroundStyle(.tertiary) }
+        if let note = p.note { t = t + Text("  (" + note + ")").font(.system(size: 10.5)).italic().foregroundStyle(.tertiary) }
         return t
     }
 }

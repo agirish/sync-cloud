@@ -90,6 +90,7 @@ struct FilingGroupCard: View {
                     actionLine(level: 0)
                     actionLine(level: 1)
                     actionLine(level: 2)
+                    actionLine(level: 3)
                 }
             }
             if let rememberAccount { FilingRememberAccountRow(remember: rememberAccount) }
@@ -110,7 +111,8 @@ struct FilingGroupCard: View {
     /// The action line (cards mockup v8). Left: File N, Choose a Folder…, Edit Path…, the archive
     /// offer, File Once Here and Show Files. Right: ``FilingCardFileActions``, acting on the selected
     /// row, or with none selected offering Open Folder. Level 1 folds the left half's lesser buttons
-    /// into ⋯, so Quick Look stays in sight; level 2 folds the right half in too.
+    /// into ⋯, so Quick Look stays in sight; level 2 drops the right half's words; level 3 folds it
+    /// in too.
     private func actionLine(level: Int) -> some View {
         HStack(spacing: 9) {
             Button(action: onFile) {
@@ -139,7 +141,7 @@ struct FilingGroupCard: View {
             FilingCardFileActions(target: selectedMember,
                                   folder: FilingRouteText.commonFolder(group.members.map { ($0.filePath as NSString).deletingLastPathComponent }),
                                   destinationFolder: FilingRouteText.deepestExisting(group.destination.path),
-                                  hooks: rowHooks, folded: level == 2,
+                                  hooks: rowHooks, folded: level == 3, labeled: level < 2,
                                   foldedItems: level >= 1 ? foldedLesser : [])
         }
     }

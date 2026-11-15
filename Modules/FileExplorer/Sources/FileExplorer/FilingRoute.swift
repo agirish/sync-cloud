@@ -266,7 +266,8 @@ struct FilingRoutePathText: View {
             }
         }
         if let note = path.note {
-            text = text + Text("  " + note.replacingOccurrences(of: " ", with: "\u{00A0}")).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+            // Set apart from the path it follows: "(new 2026 folder)", quiet but plainly a note.
+            text = text + Text("  (" + note.replacingOccurrences(of: " ", with: "\u{00A0}") + ")").italic().font(.system(size: 10.5)).foregroundStyle(.tertiary)
         }
         return text
             .scaledFont(.system(size: 11.5, design: .monospaced))

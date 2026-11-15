@@ -15,8 +15,10 @@ struct FilingFoldedItem: Identifiable {
 /// Open Folder always; Quick Look and Move to Trash for one file only, the single file's card or a
 /// group's selected row, so a whole account never goes to the Trash in one click; then ⋯.
 ///
-/// `folded` puts Open Folder, Quick Look and Trash into ⋯, and `foldedItems` adds the left half's
-/// buttons the line had no room for, so the line stays one line at every width.
+/// The buttons carry icon and words while the line has room, icons alone when it runs short
+/// (`labeled`), and fold into ⋯ last (`folded`); `foldedItems` adds the left half's buttons the line
+/// had no room for, so the line stays one line at every width. ⋯ is grayed out when it holds
+/// nothing: a group card with no row selected and nothing folded.
 struct FilingCardFileActions: View {
     /// The file the buttons act on: the card's one file, or its selected row. nil on a group card
     /// with nothing selected.
@@ -27,11 +29,14 @@ struct FilingCardFileActions: View {
     let destinationFolder: String?
     let hooks: FilingFileRowsHooks
     var folded = false
+    /// Icon and words on the buttons; false shows icons alone.
+    var labeled = true
     var foldedItems: [FilingFoldedItem] = []
 
-    /// The words on the buttons and in ⋯, apart so they can be tested.
+    /// The words on the buttons and in ⋯, apart so they can be tested. With no file, ⋯ holds only
+    /// what folding put there.
     static func menuActions(target: FilingSuggestion?, folded: Bool) -> [FilingFileAction] {
-        guard target != nil else { return folded ? [.openFolder, .openDestinationFolder] : [.openDestinationFolder] }
+        guard target != nil else { return folded ? [.openFolder] : [] }
         let looks: [FilingFileAction] = folded ? [.quickLook, .open, .reveal, .openFolder, .openDestinationFolder]
                                                : [.open, .reveal, .openDestinationFolder]
         return looks + [.copyPath, .copyDestinationPath] + (folded ? [.trash] : [])
@@ -40,22 +45,15 @@ struct FilingCardFileActions: View {
     var body: some View {
         HStack(spacing: 6) {
             if !folded {
-                Button(action: openFolder) { Label("Open Folder", systemImage: "folder") }
-                    .labelStyle(.iconOnly)
+                Button(action: openFolder) { label("Open Folder", "folder") }
                     .help(target == nil ? "Open the folder these came from" : "Open the folder it came from")
                     .accessibilityLabel("Open Folder")
                 if let target {
-                    Button { hooks.perform(.quickLook, target) } label: {
-                        HStack(spacing: 5) {
-                            Text("Quick Look")
-                            Text("Space").scaledFont(.system(size: 10)).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .help("Quick Look “\(target.fileName)” (Space or ⌘Y)")
-                    .accessibilityLabel("Quick Look")
-                    .disabled(!hooks.isEnabled(.quickLook, target))
-                    Button { hooks.perform(.trash, target) } label: { Label("Move to Trash", systemImage: "trash") }
-                        .labelStyle(.iconOnly)
+                    Button { hooks.perform(.quickLook, target) } label: { label("Quick Look", "eye") }
+                        .help("Quick Look “\(target.fileName)” (Space or ⌘Y)")
+                        .accessibilityLabel("Quick Look")
+                        .disabled(!hooks.isEnabled(.quickLook, target))
+                    Button { hooks.perform(.trash, target) } label: { label("Trash", "trash") }
                         .help("Move “\(target.fileName)” to the Trash — ⌘Z puts it back")
                         .accessibilityLabel("Move \(target.fileName) to the Trash")
                         .disabled(!hooks.isEnabled(.trash, target))
@@ -66,6 +64,14 @@ struct FilingCardFileActions: View {
         .controlSize(.small)
         .fixedSize()
     }
+
+    @ViewBuilder
+    private func label(_ title: String, _ systemImage: String) -> some View {
+        if labeled { Label(title, systemImage: systemImage) } else { Label(title, systemImage: systemImage).labelStyle(.iconOnly) }
+    }
+
+    /// Whether ⋯ has anything in it.
+    private var hasMore: Bool { !Self.menuActions(target: target, folded: folded).isEmpty || !foldedItems.isEmpty }
 
     private func openFolder() {
         if let target { hooks.perform(.openFolder, target) } else { hooks.openFolder(folder) }
@@ -82,8 +88,6 @@ struct FilingCardFileActions: View {
                     .disabled(!hooks.isEnabled(action, target))
                 } else if action == .openFolder {
                     Button { hooks.openFolder(folder) } label: { Label(action.title, systemImage: action.systemImage) }
-                } else if let destinationFolder {
-                    Button { hooks.openFolder(destinationFolder) } label: { Label(action.title, systemImage: action.systemImage) }
                 }
             }
             if !foldedItems.isEmpty {
@@ -99,7 +103,9 @@ struct FilingCardFileActions: View {
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("More actions")
+        // Grayed out, not hidden: the line keeps its shape, and a click on a row fills it.
+        .disabled(!hasMore)
+        .help(hasMore ? "More actions" : "Select a file to see what else it can do")
         .accessibilityLabel("More actions")
     }
 }

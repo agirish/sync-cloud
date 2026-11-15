@@ -303,8 +303,9 @@ import SwiftUI
     /// With no file to act on (a group, nothing selected) there is no Quick Look and no Trash, only
     /// the folders; with one, the line's ⋯ holds the file's own actions, and Trash only when folded.
     @Test func quickLookAndTrashAreForOneFile() {
-        #expect(FilingCardFileActions.menuActions(target: nil, folded: false) == [.openDestinationFolder])
-        #expect(FilingCardFileActions.menuActions(target: nil, folded: true) == [.openFolder, .openDestinationFolder])
+        #expect(FilingCardFileActions.menuActions(target: nil, folded: false).isEmpty,
+                "no file selected: ⋯ is grayed out, Open Folder is on the line")
+        #expect(FilingCardFileActions.menuActions(target: nil, folded: true) == [.openFolder])
         let shown = FilingCardFileActions.menuActions(target: s, folded: false)
         #expect(!shown.contains(.quickLook) && !shown.contains(.trash), "on the line itself, not in ⋯")
         let folded = FilingCardFileActions.menuActions(target: s, folded: true)

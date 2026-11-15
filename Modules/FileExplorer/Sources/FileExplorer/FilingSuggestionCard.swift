@@ -318,14 +318,15 @@ struct FilingSuggestionCard: View {
             actionLine(level: 1)
             actionLine(level: 2)
             actionLine(level: 3)
+            actionLine(level: 4)
         }
     }
 
     /// The full line, or the most folded one (the narrowest).
-    func actionRow(compact: Bool) -> some View { actionLine(level: compact ? 3 : 0) }
+    func actionRow(compact: Bool) -> some View { actionLine(level: compact ? 4 : 0) }
 
     /// 0: everything shown; 1: the left half's lesser buttons folded into ⋯; 2: the guess's button
-    /// names only its last folder; 3: the right half folds into ⋯ too.
+    /// names only its last folder; 3: the right half's buttons lose their words; 4: they fold into ⋯.
     func actionLine(level: Int) -> some View {
         HStack(spacing: 9) {
             primaryButtons(short: level >= 2)
@@ -334,7 +335,7 @@ struct FilingSuggestionCard: View {
             FilingCardFileActions(target: suggestion,
                                   folder: (suggestion.filePath as NSString).deletingLastPathComponent,
                                   destinationFolder: best.flatMap { FilingRouteText.deepestExisting($0.path) },
-                                  hooks: rowHooks, folded: level == 3,
+                                  hooks: rowHooks, folded: level == 4, labeled: level < 3,
                                   foldedItems: level >= 1 ? foldedSecondaries : [])
         }
     }
