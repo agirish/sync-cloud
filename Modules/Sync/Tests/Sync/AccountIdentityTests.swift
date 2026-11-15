@@ -287,4 +287,28 @@ import Foundation
         guard case .high(let b, _) = index.match(boa) else { Issue.record("\(index.match(boa))"); return }
         #expect(b.root.hasSuffix("Checking 5696"))
     }
+    @Test func aServicerNamedBelowTheHeaderStillNamesTheBank() throws {
+        // `Home/Mortgage/Statements` of Chase mortgage statements, whose page 1 names Chase only
+        // around its 1,000th character. The header alone said `mortgage statement`, so the bank was
+        // learned as `mortgage` whenever that line fell just out of range.
+        let chase = "Finance/US/Credit Accounts/Chase"
+        let home = "Home/Mortgage/Statements"
+        let t = [
+            dir("Finance", [dir("Finance/US", [dir("Finance/US/Credit Accounts", [dir(chase, [
+                dir(chase + "/Credit 8436", [dir(chase + "/Credit 8436/2025",
+                    monthly(chase + "/Credit 8436/2025") { String(format: "%02d. %@ 2025.pdf", $0, Self.months[$0 - 1]) })])])])])]),
+            dir("Home", [dir("Home/Mortgage", [dir(home, [dir(home + "/2025",
+                monthly(home + "/2025") { String(format: "2025%02d16-statements-8857-.pdf", $0) })])])]),
+        ]
+        let named = AccountIndex.build(tree: t)
+        let page = "Mortgage Statement\nStatement date 03/16/2026\nLoan number 4033208857\n"
+            + String(repeating: "Escrow and payment details for this period. ", count: 24)
+            + "\nJPMorgan Chase Bank, N.A. is the servicer of this loan."
+        let facts = DocumentFacts(page: page)
+        #expect(!facts.header.contains("chase"), "the bank must sit past the header for this to test anything")
+        let read = named.unnamedSamples(tree: t).filter { $0.file.hasPrefix(home) }.map { (sample: $0, facts: facts) }
+        #expect(!read.isEmpty)
+        let account = try #require(named.adding(read: read).accounts.first { $0.root == home })
+        #expect(account.institution == "chase", "\(account)")
+    }
 }

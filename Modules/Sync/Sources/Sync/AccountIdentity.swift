@@ -824,10 +824,19 @@ extension AccountIndex {
             var institution: String?
             // A bank the tree knows, named by these pages: by most of them, or by any when it is
             // the only one any of them names (a mortgage page names its servicer once, low down).
-            let named = institutionTokens.keys.filter { name in hits.contains { mentions(name, in: $0.1.header) > 0 } }
-            let known = institutionTokens.keys.filter { name in
-                hits.filter { mentions(name, in: $0.1.header) > 0 }.count * 2 > hits.count
+            // Read from the header first; when it names none, from the rest of page 1, where a
+            // mortgage statement names its servicer (`JPMorgan Chase Bank`) near the 1,000th
+            // character. Judged on the header alone, that one line fell in or out of range from
+            // page to page, and the account was learned as the bank one run and `Mortgage` the next.
+            func naming(_ text: (DocumentFacts) -> String) -> (named: [String], known: [String]) {
+                let named = institutionTokens.keys.filter { name in hits.contains { mentions(name, in: text($0.1)) > 0 } }
+                let known = institutionTokens.keys.filter { name in
+                    hits.filter { mentions(name, in: text($0.1)) > 0 }.count * 2 > hits.count
+                }
+                return (named, known)
             }
+            var (named, known) = naming(\.header)
+            if named.isEmpty { (named, known) = naming(\.text) }
             if known.count == 1 { institution = known[0] } else if known.isEmpty, named.count == 1 { institution = named[0] }
             // ...else the deepest segment of its path the headers name, skipping words common to
             // many folder names (`Statements`, a household name): `Citi`, `ScholarShare`.
