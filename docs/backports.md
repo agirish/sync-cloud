@@ -15800,7 +15800,8 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s corpus=%s garbled=%s\n' $l \
 to it, a statement's number is its position by date (`1. Jan · 2. Jun · 3. Oct`), one digit below
 twelve statements and two from twelve on, a range by its end month, a CSV sharing its PDF's number,
 `0.` outside the count (`StatementOrdinals`). The rename pass proposes that and nothing else there,
-and File Here renames the statements a filing displaces, with one ⌘Z for all of it. Every other
+and File Here renames the statements a filing displaces, with one ⌘Z for all of it; from
+2026-11-16 so does a copy into a second account the statement names. Every other
 folder numbers as before. `v6.x`, `v5.x` and `v4.x` carry the rename pass with the old rule (pad by
 cadence, month numbers kept), so their pass would propose padding his renamed folders; `v3.x` and
 `v2.x` have no pass.

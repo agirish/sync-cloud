@@ -159,4 +159,108 @@ import Testing
         #expect(home.proposedName == "2. Mar 2025.pdf")
         #expect(home.renumbersOthers == 1)
     }
+
+    // MARK: Copies into a second account
+
+    static let brokerage = "Finance/US/Investments/Fidelity/Brokerage 1750"
+    static let roth = "Finance/US/Investments/Fidelity/Roth IRA 4657"
+
+    /// A card filing `loose` into `brokerage/2025` as `proposed`, copied into Roth's 2025 under the
+    /// same account name, as a combined statement naming both accounts is.
+    private func combined(_ loose: URL, proposed: String, root: URL) -> FilingSuggestion {
+        let rothRoot = root.appendingPathComponent(Self.roth).path
+        let copy = FilingCopy(path: rothRoot + "/2025", proposedName: proposed,
+                              account: FilingAccount(root: rothRoot, ending: "4657", institution: "fidelity",
+                                                     archived: false, kind: .statement))
+        var dest = FilingDestination(path: root.appendingPathComponent(Self.brokerage + "/2025").path,
+                                     confidence: .high, reasons: [], newSegments: [],
+                                     proposedName: proposed, nameOrigin: .template)
+        dest.alsoCopiesTo = [copy]
+        return FilingSuggestion(filePath: loose.path, fileName: loose.lastPathComponent, size: 7, modificationDate: nil,
+                                candidates: [dest], providerRoot: root.path)
+    }
+
+    private func accountYear(_ root: URL, _ account: String) throws -> URL {
+        let dir = root.appendingPathComponent(account + "/2025")
+        for (i, n) in ["1. Jan 2025.pdf", "2. Jun 2025.pdf"].enumerated() {
+            try writeBytes(dir.appendingPathComponent(n), bytes: 100 + i)
+        }
+        return dir
+    }
+
+    @MainActor
+    @Test func theCopyIntoASecondAccountTakesItsPlaceThereAndUndoesWithTheFiling() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "StatementFiling")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let brokerage = try accountYear(root, Self.brokerage), roth = try accountYear(root, Self.roth)
+        let loose = root.appendingPathComponent("TODO/Statement_20250331.pdf")
+        try writeBytes(loose, bytes: 7)
+
+        let manager = FileSyncManager(defaults: ScratchDefaults("StatementFilingTests.copy"))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        let suggestion = combined(loose, proposed: "03. Mar 2025.pdf", root: root)
+        manager.publishFilingSuggestions([suggestion])
+
+        #expect(await manager.applyFilingSuggestion(suggestion, to: try #require(suggestion.best)) == .moved)
+        let after = ["1. Jan 2025.pdf", "2. Mar 2025.pdf", "3. Jun 2025.pdf"]
+        #expect(names(in: brokerage) == after)
+        #expect(names(in: roth) == after, "not “03. Mar” beside 1. and 2.")
+        #expect(size(roth.appendingPathComponent("2. Mar 2025.pdf")) == 7, "the copy")
+        #expect(size(roth.appendingPathComponent("3. Jun 2025.pdf")) == 101, "Roth’s June, moved up one")
+        let pair = [brokerage, roth].map { $0.appendingPathComponent("2. Mar 2025.pdf").path }.sorted()
+        #expect(manager.ignoredDuplicateKeys.contains(pair.joined(separator: "\n")), "kept apart under the names they have")
+
+        undo.undo()
+        await waitUntil("one ⌘Z took the filing, the copy and both renumberings back") {
+            names(in: brokerage) == ["1. Jan 2025.pdf", "2. Jun 2025.pdf"]
+                && names(in: roth) == ["1. Jan 2025.pdf", "2. Jun 2025.pdf"]
+                && FileManager.default.fileExists(atPath: loose.path)
+        }
+        #expect(size(roth.appendingPathComponent("2. Jun 2025.pdf")) == 101)
+    }
+
+    @MainActor
+    @Test func aLaterCopyRenumbersAnEarlierOneAndUndoFindsItWhereItIs() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "StatementFiling")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let brokerage = try accountYear(root, Self.brokerage), roth = try accountYear(root, Self.roth)
+        let april = root.appendingPathComponent("TODO/April.pdf"), march = root.appendingPathComponent("TODO/March.pdf")
+        try writeBytes(april, bytes: 4)
+        try writeBytes(march, bytes: 3)
+
+        let manager = FileSyncManager(defaults: ScratchDefaults("StatementFilingTests.batch"))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        manager.undoManager = undo
+        // April first: March then lands before it, in both accounts.
+        let cards = [combined(april, proposed: "04. Apr 2025.pdf", root: root),
+                     combined(march, proposed: "03. Mar 2025.pdf", root: root)]
+        manager.publishFilingSuggestions(cards)
+        let run = await manager.fileHomes(try cards.map { ($0, try #require($0.best)) })
+        manager.registerFilingUndo(moves: run.undoMoves, copies: run.copied, actionName: "File 2 Items")
+
+        let after = ["1. Jan 2025.pdf", "2. Mar 2025.pdf", "3. Apr 2025.pdf", "4. Jun 2025.pdf"]
+        #expect(names(in: brokerage) == after)
+        #expect(names(in: roth) == after)
+        #expect(size(roth.appendingPathComponent("3. Apr 2025.pdf")) == 4)
+        #expect(Set(run.copied.map(\.destination.lastPathComponent)) == ["2. Mar 2025.pdf", "3. Apr 2025.pdf"],
+                "April’s copy where March’s pushed it, not where it first landed")
+        #expect(!run.undoMoves.contains { $0.from.deletingLastPathComponent().path == roth.path
+                                          && $0.to.lastPathComponent == "3. Apr 2025.pdf" },
+                "a copy renumbered is still a copy, not a move to undo")
+        let aprilPair = [brokerage, roth].map { $0.appendingPathComponent("3. Apr 2025.pdf").path }.sorted()
+        #expect(manager.ignoredDuplicateKeys.contains(aprilPair.joined(separator: "\n")))
+
+        undo.undo()
+        await waitUntil("both filings, both copies and every renumbering are back") {
+            names(in: brokerage) == ["1. Jan 2025.pdf", "2. Jun 2025.pdf"]
+                && names(in: roth) == ["1. Jan 2025.pdf", "2. Jun 2025.pdf"]
+                && FileManager.default.fileExists(atPath: april.path)
+                && FileManager.default.fileExists(atPath: march.path)
+        }
+        #expect(size(roth.appendingPathComponent("2. Jun 2025.pdf")) == 101)
+        #expect(size(brokerage.appendingPathComponent("2. Jun 2025.pdf")) == 101)
+    }
 }

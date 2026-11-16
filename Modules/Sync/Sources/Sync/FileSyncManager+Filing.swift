@@ -1871,9 +1871,12 @@ extension FileSyncManager {
                                         providerRoot: suggestion.providerRoot,
                                         evidenceWord: suggested.evidenceToken)
             }
-            let copied = fileOnce ? [] : await performFilingCopies(of: move.to, copies: copiesToMake(destination).filter {
+            let copySteps = fileOnce ? [] : await performFilingCopies(of: move.to, copies: copiesToMake(destination).filter {
                 !exceptCopiesTo.contains($0.account.root)
-            })
+            }, providerRoot: suggestion.providerRoot)
+            let done = Self.settled(renumbered.map(FilingStep.move) + [.move(move)] + copySteps)
+            let copied = done.copies
+            keepCopySetsApart(copied)
             // What it teaches (decision 8): a statement he sent somewhere with "Remember" ticked,
             // or the first statement of an account it made.
             var lesson: LessonUndo?
@@ -1888,7 +1891,7 @@ extension FileSyncManager {
                 }
             }
             noteFiledIntoLearnedAccounts(folders: [move.to.deletingLastPathComponent().path])
-            registerFilingUndo(moves: Self.undoOrder(renumbered + [move]), copies: copied,
+            registerFilingUndo(moves: done.moves, copies: copied,
                                actionName: "File \(suggestion.fileName)",
                                createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
                                lesson: lesson, restoring: position)
@@ -2132,38 +2135,7 @@ extension FileSyncManager {
                 let landing = Self.filingLanding(fileName: suggestion.fileName, destination: destination,
                                                  folder: destFolder, providerRoot: suggestion.providerRoot,
                                                  profile: profile, fileManager: fm)
-                let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: destFolder)
-                var renumbered: [MoveItemState] = []
-                func putBack() {
-                    for m in renumbered.reversed() {
-                        do {
-                            _ = try FileSyncManager.safeMoveItem(at: m.to, to: m.from, fileManager: fm,
-                                                                 caseSensitiveVolume: caseSensitive)
-                        } catch {
-                            logger.error("Filing: could not put “\(m.to.lastPathComponent)” back to “\(m.from.lastPathComponent)” in \(destFolder.path): \(error.localizedDescription)")
-                        }
-                    }
-                }
-                for step in landing.renumbers {
-                    let from = URL(fileURLWithPath: step.currentPath)
-                    let to = destFolder.appendingPathComponent(step.proposedName)
-                    // Never over another file: a name taken since the listing stops the renumbering.
-                    if fm.fileExists(atPath: to.path),
-                       !Self.isCaseOnlyRenaming(source: from, destination: to, caseSensitiveVolume: caseSensitive) {
-                        logger.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(destFolder.lastPathComponent): the name is taken")
-                        putBack()
-                        throw FileOperationError.renumberingFailed(folderName: destFolder.lastPathComponent)
-                    }
-                    do {
-                        let overwritten = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: fm,
-                                                                           caseSensitiveVolume: caseSensitive)
-                        renumbered.append((from: from, to: to, overwritten: overwritten))
-                    } catch {
-                        logger.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
-                        putBack()
-                        throw FileOperationError.renumberingFailed(folderName: destFolder.lastPathComponent)
-                    }
-                }
+                let renumbered = try Self.renumber(landing.renumbers, in: destFolder, fileManager: fm)
                 var dst = destFolder.appendingPathComponent(landing.name)
                 if fm.fileExists(atPath: dst.path) {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
@@ -2173,7 +2145,7 @@ extension FileSyncManager {
                     return .moved(to: dst, overwritten: overwritten, renumbered: renumbered)
                 } catch {
                     // Not filed, so its neighbours keep the numbers they had.
-                    putBack()
+                    Self.putBack(renumbered, in: destFolder, fileManager: fm)
                     throw error
                 }
             } catch {
@@ -2205,6 +2177,49 @@ extension FileSyncManager {
                 logger.info("Filing: renumbered \(renumbered.count) statement(s) in \(dst.deletingLastPathComponent().lastPathComponent) to make room for “\(dst.lastPathComponent)”")
             }
             return .moved((from: src, to: dst, overwritten: overwritten), renumbered: renumbered)
+        }
+    }
+
+    /// Renames the statements a governed folder renumbers (``StatementOrdinals``), in plan order.
+    /// Never over another file: a name taken since the listing, or a rename that fails, puts back
+    /// the ones already made and throws `.renumberingFailed`, so the folder is never left half
+    /// renumbered. Returns the renames made, in the order made.
+    nonisolated static func renumber(_ steps: [RenameStep], in folder: URL,
+                                     fileManager fm: FileManaging) throws -> [MoveItemState] {
+        let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: folder)
+        var renumbered: [MoveItemState] = []
+        for step in steps {
+            let from = URL(fileURLWithPath: step.currentPath)
+            let to = folder.appendingPathComponent(step.proposedName)
+            if fm.fileExists(atPath: to.path),
+               !isCaseOnlyRenaming(source: from, destination: to, caseSensitiveVolume: caseSensitive) {
+                Logger.shared.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(folder.lastPathComponent): the name is taken")
+                putBack(renumbered, in: folder, fileManager: fm)
+                throw FileOperationError.renumberingFailed(folderName: folder.lastPathComponent)
+            }
+            do {
+                let overwritten = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: fm,
+                                                                   caseSensitiveVolume: caseSensitive)
+                renumbered.append((from: from, to: to, overwritten: overwritten))
+            } catch {
+                Logger.shared.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(folder.lastPathComponent) failed: \(error.localizedDescription)")
+                putBack(renumbered, in: folder, fileManager: fm)
+                throw FileOperationError.renumberingFailed(folderName: folder.lastPathComponent)
+            }
+        }
+        return renumbered
+    }
+
+    /// Takes back `renumbered`, last first.
+    nonisolated static func putBack(_ renumbered: [MoveItemState], in folder: URL, fileManager fm: FileManaging) {
+        let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: folder)
+        for m in renumbered.reversed() {
+            do {
+                _ = try FileSyncManager.safeMoveItem(at: m.to, to: m.from, fileManager: fm,
+                                                     caseSensitiveVolume: caseSensitive)
+            } catch {
+                Logger.shared.error("Filing: could not put “\(m.to.lastPathComponent)” back to “\(m.from.lastPathComponent)” in \(folder.path): \(error.localizedDescription)")
+            }
         }
     }
 

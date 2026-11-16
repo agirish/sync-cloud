@@ -135,15 +135,16 @@ extension FileSyncManager {
         // The folders filing these makes, the copies' included.
         let wouldCreate = missingFolders(for: homes.map(\.1.path) + (fileOnce ? [] : homes.flatMap { copiesToMake($0.1).map(\.path) }))
         var run = FilingHomesRun()
-        var applied: [MoveItemState] = []
+        var steps: [FilingStep] = []
         var filedHere: [(suggestion: FilingSuggestion, destination: FilingDestination, move: MoveItemState)] = []
         for (s, dest) in homes {
             switch await performFiling(s, to: dest) {
             case .moved(let move, let renumbered):
-                applied += renumbered + [move]
+                steps += renumbered.map(FilingStep.move) + [.move(move)]
                 filedHere.append((s, dest, move))
                 if !fileOnce {
-                    run.copied += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) })
+                    steps += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) },
+                                                       providerRoot: s.providerRoot)
                 }
                 filingScorecard.settle([s.filePath])
             case .noMoveNeeded: run.alreadyHome += 1
@@ -153,8 +154,12 @@ extension FileSyncManager {
             }
         }
         // Where each file is once the whole run is done: a later statement can renumber an
-        // earlier one, and the scorecard, the lesson and the log name the file where it is.
-        run.undoMoves = Self.undoOrder(applied)
+        // earlier one, or a copy of it, and the scorecard, the lesson and the log name the file
+        // where it is.
+        let done = Self.settled(steps)
+        run.undoMoves = done.moves
+        run.copied = done.copies
+        keepCopySetsApart(run.copied)
         let now = Dictionary(run.undoMoves.map { ($0.from.path, $0.to) }, uniquingKeysWith: { a, _ in a })
         for (s, dest, move) in filedHere {
             let landed = (from: move.from, to: now[move.from.path] ?? move.to, overwritten: move.overwritten)

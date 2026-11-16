@@ -4,15 +4,26 @@ import Foundation
 /// Copies of a statement into the other accounts it names (decision 11).
 extension FileSyncManager {
 
+    /// One thing a filing did on disk, in the order it did it: a move (the filing itself, or a
+    /// statement renumbered to make room) or a copy into another account.
+    enum FilingStep: Sendable {
+        case move(MoveItemState)
+        case copy(CopyItemState)
+    }
+
     /// Copies `landed` into each of `copies`, under the name that account's statements take (" 2"
-    /// on a clash), making the folder if it isn't there. A copy that fails is skipped and logged;
-    /// the main filing stands. The set is marked as kept apart in Duplicates: copies on purpose.
-    func performFilingCopies(of landed: URL, copies: [FilingCopy]) async -> [CopyItemState] {
+    /// on a clash), making the folder if it isn't there. In a folder ``StatementOrdinals`` governs
+    /// the copy takes its place by date, and the statements after it are renumbered first, as
+    /// filing there would. A copy that fails is skipped and logged, its renumbering put back; the
+    /// main filing stands. Returns what it did, in order: hand it to ``settled(_:)`` with the rest
+    /// of the filing, then to ``keepCopySetsApart(_:)``.
+    func performFilingCopies(of landed: URL, copies: [FilingCopy], providerRoot: String?) async -> [FilingStep] {
         guard !copies.isEmpty else { return [] }
+        let profile = filingRoutingProfile
         // In the file-operation queue, like the move it follows.
-        let done: [CopyItemState] = await enqueueFileOperation {
+        return await enqueueFileOperation {
             let fm = FileManager.default
-            var done: [CopyItemState] = []
+            var done: [FilingStep] = []
             for copy in copies {
                 // The account must still be there: renamed or moved in Finder since the scan, the
                 // copy would make its old folder again.
@@ -22,9 +33,17 @@ extension FileSyncManager {
                     continue
                 }
                 let folder = URL(fileURLWithPath: copy.path)
-                let name = copy.proposedName ?? landed.lastPathComponent
+                var renumbered: [MoveItemState] = []
                 do {
                     try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
+                    // The account's own name for it, placed by date where the folder is governed.
+                    let landing = Self.filingLanding(
+                        fileName: landed.lastPathComponent,
+                        destination: FilingDestination(path: copy.path, confidence: .high, reasons: [], newSegments: [],
+                                                       proposedName: copy.proposedName, nameOrigin: .template),
+                        folder: folder, providerRoot: providerRoot, profile: profile, fileManager: fm)
+                    renumbered = try Self.renumber(landing.renumbers, in: folder, fileManager: fm)
+                    let name = landing.name
                     var target = folder.appendingPathComponent(name)
                     var n = 2
                     let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
@@ -33,19 +52,54 @@ extension FileSyncManager {
                         n += 1
                     }
                     try fm.copyItem(at: landed, to: target)
-                    done.append((source: landed, destination: target, overwritten: nil))
+                    done += renumbered.map(FilingStep.move)
+                    done.append(.copy((source: landed, destination: target, overwritten: nil)))
+                    if !renumbered.isEmpty {
+                        Logger.shared.info("Filing: renumbered \(renumbered.count) statement(s) in \(folder.lastPathComponent) to make room for the copy “\(target.lastPathComponent)”")
+                    }
                 } catch {
+                    Self.putBack(renumbered, in: folder, fileManager: fm)
                     Logger.shared.warning("Filing: couldn’t copy “\(landed.lastPathComponent)” to \(copy.path): \(error.localizedDescription)")
                 }
             }
             return done
         }
-        if !done.isEmpty {
-            var keys = ignoredDuplicateKeys
-            keys.insert(Self.copySetKey(landed: landed, copies: done))
-            ignoredDuplicateKeys = keys
+    }
+
+    /// What one ⌘Z takes back, from a filing's steps in the order made: the moves for
+    /// ``undoOrder(_:)``, and each copy where it is now. A copy a later step renumbered (a second
+    /// statement copied into the same folder, say) is one copy at its new name, not a copy and a
+    /// move, and a copy follows its source when a later step renumbers that.
+    nonisolated static func settled(_ steps: [FilingStep]) -> (moves: [MoveItemState], copies: [CopyItemState]) {
+        var moves: [MoveItemState] = []
+        var copies: [CopyItemState] = []
+        for step in steps {
+            switch step {
+            case .copy(let c):
+                copies.append(c)
+            case .move(let m):
+                for i in copies.indices where copies[i].source.path == m.from.path {
+                    copies[i] = (source: m.to, destination: copies[i].destination, overwritten: copies[i].overwritten)
+                }
+                if let i = copies.firstIndex(where: { $0.destination.path == m.from.path }) {
+                    copies[i] = (source: copies[i].source, destination: m.to, overwritten: copies[i].overwritten)
+                } else {
+                    moves.append(m)
+                }
+            }
         }
-        return done
+        return (undoOrder(moves), copies)
+    }
+
+    /// Marks each statement and its copies as kept apart in Duplicates: copies on purpose. Given
+    /// the copies where they ended up (``settled(_:)``), since the key is their exact paths.
+    func keepCopySetsApart(_ copies: [CopyItemState]) {
+        guard !copies.isEmpty else { return }
+        var keys = ignoredDuplicateKeys
+        for (source, set) in Dictionary(grouping: copies, by: \.source) {
+            keys.insert(Self.copySetKey(landed: source, copies: set))
+        }
+        ignoredDuplicateKeys = keys
     }
 
     /// The Duplicates "kept separate" key for a statement and its copies.
