@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Organize ▸ the rename backlog, sectioned by operation, most consequential first
 /// (`RenameCategories`). Each section carries its own definition and bulk button, so accepting
-/// hundreds of mechanical pads never shares a click with a few judgment calls. Within a section,
+/// hundreds of mechanical tidies never shares a click with a few judgment calls. Within a section,
 /// folders are cards in path order, each listing its renames in two aligned columns.
 ///
 /// One card per folder, the unit the planner decides and the manager applies. A mixed folder lives
@@ -35,7 +35,7 @@ struct RenamePassLens: View {
     @State private var sectionMemo = LensWorkspaceView.RenderMemo<
         [RenamePlan], (sections: [RenameCategories.Section], leftAlone: [RenamePlan])>()
 
-    /// No collapsible layers: no folder needs a chevron opened before it can be read. `pad`, the
+    /// No collapsible layers: no folder needs a chevron opened before it can be read. `tidy`, the
     /// bulk section, comes last, so collapsing it would only save scrolling past the end. Bulk
     /// actions are each section's `Rename All` and each card's `Rename n`.
     var body: some View {
@@ -210,12 +210,12 @@ struct RenamePassLens: View {
     // MARK: Category sections
 
     /// The section's tint: naming takes the accent, a reshuffle wears the caution tier (the one
-    /// operation that moves a file which was already correct — "your call"), a pad stays quiet.
+    /// operation that moves a file which was already correct — "your call"), a tidy stays quiet.
     private func tint(_ category: RenameCategories.Category) -> Color {
         switch category {
         case .name: return accent
         case .reshuffle: return SemanticColor.caution
-        case .pad: return .secondary
+        case .tidy: return .secondary
         }
     }
 
@@ -241,7 +241,7 @@ struct RenamePassLens: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .buttonWordsTint(section.category == .pad ? accent : tint(section.category))
+                .buttonWordsTint(section.category == .tidy ? accent : tint(section.category))
                 .layoutPriority(1)
                 .fixedSize()
                 .disabled(syncManager.isApplyingRenames || syncManager.isSuggestingFiles)

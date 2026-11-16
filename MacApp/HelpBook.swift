@@ -658,7 +658,7 @@ enum HelpBook {
                         "Names that won’t store cleanly — this provider’s own rules, plus the invisible hazards any cloud mangles, which is why an iCloud or a plain-folder source fills this section too.",
                         "Files that don’t follow the convention their own folder uses.",
                         "Files renumbered to make room for one of those.",
-                        "Files whose one-digit ordinals gain a leading zero, so 1. Jan 2011.pdf becomes 01. Jan 2011.pdf and the folder sorts the way you meant.",
+                        "Files respelled without moving their number: a month written out, as in 4. June 2018.pdf becoming 4. Jun 2018.pdf, or a leading zero added or dropped to match the folder.",
                     ]),
                     .paragraph("What gets renamed here is always a file. A folder is how the list groups the work — never the thing being renamed. Folders are Restructure’s half, and it only renames one as part of a plan you have reviewed."),
                     .tip("Nothing is renamed without your say-so, and every rename is undoable. Organize ▸ Fix Name renames a pane’s selected item to its safe form at once, and Always Allow This Name tells SyncCloud to stop proposing a change for it."),

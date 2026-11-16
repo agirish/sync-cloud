@@ -48,6 +48,9 @@ extension FileSyncManager {
         /// permanent removal stopped part-way. Both are kept: the copy is the only whole one.
         /// `replacedItemKeptAt` says where a Replace put the item it replaced; nil if none.
         case originalPartlyRemoved(name: String, replacedItemKeptAt: ReplacedItemPlace? = nil)
+        /// Filing a statement renumbers the ones already in its folder, and one of those renames
+        /// couldn't be made. Everything was put back and the statement wasn't filed.
+        case renumberingFailed(folderName: String)
 
         /// Where a Replace kept the item it replaced.
         enum ReplacedItemPlace: Equatable, Sendable {
@@ -89,6 +92,8 @@ extension FileSyncManager {
                 return "“\(name)” is the folder this side opens at, so it can only be merged into the folder the other side opens at — replacing that, or keeping both, would put it over or beside everything that side shows. It was left where it is."
             case .itemAboveOpeningFolder(let itemName):
                 return "“\(itemName)” is above the folder its source opens at, and the other source has no folder at that level to put it in. It was left where it is."
+            case .renumberingFailed(let folderName):
+                return "The statements already in “\(folderName)” couldn’t be renumbered to make room, so nothing was filed and they were left as they were."
             case .originalPartlyRemoved(let name, let replaced):
                 let text = "“\(name)” was copied, but its original couldn’t be put in the Trash and may have been only partly removed. The complete copy is at the destination; what is left of the original is still where it was."
                 switch replaced {

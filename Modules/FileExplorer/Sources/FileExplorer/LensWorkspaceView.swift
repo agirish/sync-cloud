@@ -1675,7 +1675,7 @@ public struct LensWorkspaceView: View {
 
     /// Organize's readout while the rename backlog is on screen: what the listed plans would do,
     /// in files, since nothing renames a folder. A large backlog is mostly zero-padding, and
-    /// "1,192 renames · 1,134 to pad" says so at a glance. The headline is a `SummaryRun` and the
+    /// "1,192 renames · 1,134 to tidy" says so at a glance. The headline is a `SummaryRun` and the
     /// kinds behind it are prose; see ``RenameBacklogTally/breakdown`` for why.
     @ViewBuilder
     private func renameBacklogSummary(_ plans: [RenamePlan]) -> some View {
@@ -3717,7 +3717,7 @@ public struct LensWorkspaceView: View {
                     lens: item,
                     // All three categories in one line, in the order the list draws them: the list
                     // carries provider-hostile names, files ignoring their folder's convention and
-                    // numbering to pad, not just folders that drifted from their numbering.
+                    // names to tidy, not just folders that drifted from their numbering.
                     blurb: renameParts.isEmpty
                         ? "Names worth changing — to sync, to convention, to order."
                         : "Names worth changing — \(renameParts.joined(separator: " · ")).",
@@ -4910,8 +4910,8 @@ public struct LensWorkspaceView: View {
             triggerHelp: "One walk of the tree answers To File and this backlog. Free, and on-device.",
             samplesTitle: "What a finding looks like",
             samplesAccessibility: "Example of the rename formats: a provider-hostile name and "
-                + "its safe form, a file renamed to its folder’s convention, and a one-digit "
-                + "ordinal padded to two. These are samples, not files on your disk.",
+                + "its safe form, a file renamed to its folder’s convention, and a name "
+                + "respelled without moving its number. These are samples, not files on your disk.",
             onStart: onFindFilingSuggestions
         ) {
             LensSetupSampleRow {
@@ -4927,10 +4927,10 @@ public struct LensWorkspaceView: View {
                 Text("07. Jul 2023.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
             }
             LensSetupSampleRow {
-                Pill(.mini, tint: .secondary, text: "to pad")
-                Text("1. Jan 2011.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
+                Pill(.mini, tint: .secondary, text: "to tidy")
+                Text("4. June 2018.pdf").scaledFont(.caption.monospaced()).lineLimit(1)
                 Image(systemName: "arrow.right").scaledFont(.system(size: 9)).foregroundStyle(.tertiary)
-                Text("01. Jan 2011.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
+                Text("4. Jun 2018.pdf").scaledFont(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }

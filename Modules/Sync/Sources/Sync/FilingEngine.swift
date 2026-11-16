@@ -78,6 +78,12 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// (decision 11): this home is the account whose number comes first. Empty for every other home.
     public var alsoCopiesTo: [FilingCopy] = []
 
+    /// How many statements already in the folder File Here renames to make room, when the folder
+    /// numbers its statements by date (``StatementOrdinals``): Mar into `1. Jan · 2. Jun` renames
+    /// Jun, and the twelfth respells all eleven. Said on the card; the renames themselves are worked
+    /// out again from the disk when it files.
+    public var renumbersOthers: Int = 0
+
     public var isNew: Bool { !newSegments.isEmpty }
 
     /// The home makes the account's own folder, not just a year inside an account it has: a new
@@ -167,6 +173,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                  proposedName: winner.proposedName, fromSurvey: winner.fromSurvey,
                                  account: winner.account ?? account ?? other.account,
                                  nameOrigin: winner.nameOrigin)
+            .renumbering(winner.renumbersOthers)
     }
 
     /// A copy of this destination with its final folder renamed, for a new folder the user edits
@@ -197,6 +204,7 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                   proposedName: proposedName, fromSurvey: fromSurvey,
                                   account: acct, nameOrigin: nameOrigin)
         d.alsoCopiesTo = alsoCopiesTo
+        d.renumbersOthers = renumbersOthers
         return d
     }
 
@@ -210,6 +218,14 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                   proposedName: proposedName, fromSurvey: fromSurvey,
                                   account: account, nameOrigin: nameOrigin)
         d.alsoCopiesTo = alsoCopiesTo
+        d.renumbersOthers = renumbersOthers
+        return d
+    }
+
+    /// A copy of this destination saying File Here renames `count` files already there.
+    public func renumbering(_ count: Int) -> FilingDestination {
+        var d = self
+        d.renumbersOthers = count
         return d
     }
 
@@ -220,7 +236,8 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
                                   remembered: remembered, fromAI: fromAI, evidenceToken: evidenceToken,
                                   neighborMatches: neighborMatches, proposedName: name, fromSurvey: fromSurvey,
                                   account: account, nameOrigin: name == nil ? .planner : origin)
-        // Copies into the other accounts it names travel with every rebuild of the home.
+        // Copies into the other accounts it names travel with every rebuild of the home. What it
+        // renumbers doesn't: it is the name's consequence, set beside each new name.
         d.alsoCopiesTo = alsoCopiesTo
         return d
     }

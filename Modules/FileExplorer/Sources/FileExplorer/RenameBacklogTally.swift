@@ -5,7 +5,7 @@ import Sync
 ///
 /// The backlog's chip counts folders, the unit the planner decides and the manager applies, so it
 /// matches the list beside it. But nothing renames a folder: this says what that number costs in
-/// files, e.g. `1,240 renames · 44 to name · 16 to reshuffle · 1,180 to pad · 6 left alone`.
+/// files, e.g. `1,240 renames · 44 to name · 16 to reshuffle · 1,180 to tidy · 6 left alone`.
 ///
 /// The header and the folder rows take their words from here, so they read as one measurement.
 /// Pure, so the arithmetic is testable without mounting anything.
@@ -14,7 +14,7 @@ struct RenameBacklogTally: Equatable {
     let renames: Int
     /// Steps that only respell a name already in the grammar (`4. Apr 2021.pdf` →
     /// `04. Apr 2021.pdf`). Usually the bulk of a backlog; they don't change where a file sits.
-    let padded: Int
+    let tidied: Int
     /// Steps giving a raw name a slot it did not have (`9829custbill07182023.pdf` →
     /// `07. Jul 2023.pdf`).
     let named: Int
@@ -26,25 +26,25 @@ struct RenameBacklogTally: Equatable {
 
     init(_ plans: [RenamePlan]) {
         renames = plans.reduce(0) { $0 + $1.steps.count }
-        padded = plans.reduce(0) { $0 + $1.tidied }
+        tidied = plans.reduce(0) { $0 + $1.tidied }
         named = plans.reduce(0) { $0 + $1.placed }
         reshuffled = plans.reduce(0) { $0 + $1.renumbered }
         skipped = plans.reduce(0) { $0 + $1.skips.count }
     }
 
     /// The three step kinds, in the order a folder's own row names them: rare and consequential
-    /// first, bulk last, not biggest first. Leading with `1,134 to pad` would bury the few renames
+    /// first, bulk last, not biggest first. Leading with `1,134 to tidy` would bury the few renames
     /// worth a second look.
     private var stepParts: [String] {
         var parts: [String] = []
         if named > 0 { parts.append("\(named.formatted()) to name") }
         if reshuffled > 0 { parts.append("\(reshuffled.formatted()) to reshuffle") }
-        if padded > 0 { parts.append("\(padded.formatted()) to pad") }
+        if tidied > 0 { parts.append("\(tidied.formatted()) to tidy") }
         return parts
     }
 
     /// The kinds behind the headline, as one quiet run of prose: `42 to name · 16 to reshuffle ·
-    /// 1,134 to pad · 7 left alone`. One string, not more badges, so the breakdown stays
+    /// 1,134 to tidy · 7 left alone`. One string, not more badges, so the breakdown stays
     /// subordinate to its total.
     ///
     /// Empty when there is nothing to break down, so the caller draws no dangling separator.
@@ -73,7 +73,7 @@ struct RenameBacklogTally: Equatable {
         } else if reshuffled > 0 {
             parts.append("\(reshuffled.formatted()) to reshuffle")
         }
-        if padded > 0 { parts.append("\(padded.formatted()) to pad") }
+        if tidied > 0 { parts.append("\(tidied.formatted()) to tidy") }
         // With no renames the header reads "0 renames", and the skips are the only thing that
         // explains the zero, so they come back.
         if parts.isEmpty && skipped > 0 { parts.append("\(skipped.formatted()) left alone") }

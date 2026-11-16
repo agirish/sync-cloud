@@ -15793,3 +15793,26 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s corpus=%s garbled=%s\n' $l \
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The corpus, no garbled-layer OCR to read again with | RECORDED — not owed |
 | `v3.x` / `v2.x` | No corpus | CLOSED — does not apply |
+
+## His statements numbered by position by date in `Finance/US` — main only, recorded, not owed
+
+2026-11-15, for v7.2. In `Finance/US` and `Vehicles/Tesla/Lease Statements`, the folders he renamed
+to it, a statement's number is its position by date (`1. Jan · 2. Jun · 3. Oct`), one digit below
+twelve statements and two from twelve on, a range by its end month, a CSV sharing its PDF's number,
+`0.` outside the count (`StatementOrdinals`). The rename pass proposes that and nothing else there,
+and File Here renames the statements a filing displaces, with one ⌘Z for all of it. Every other
+folder numbers as before. `v6.x`, `v5.x` and `v4.x` carry the rename pass with the old rule (pad by
+cadence, month numbers kept), so their pass would propose padding his renamed folders; `v3.x` and
+`v2.x` have no pass.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s planner=%s rule=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sources/Sync/RenamePlanner.swift')" \
+  "$(git grep -l 'enum StatementOrdinals' origin/$l -- Modules | wc -l | tr -d ' ')"; done
+# measured 2026-11-15, against origin: planner=1 on v6.x v5.x v4.x, 0 on v3.x v2.x; rule=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The rename pass with the old numbering | RECORDED — not owed |
+| `v3.x` / `v2.x` | No rename pass | CLOSED — does not apply |

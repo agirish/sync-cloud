@@ -5,7 +5,7 @@ import Foundation
 
 /// The rename backlog's category sections. The partition is total (every plan with steps in exactly
 /// one section, skip-only plans in the footnote), classification follows the most consequential
-/// step (a mixed folder is a judgment call, never buried under "to pad"), sections keep consequence
+/// step (a mixed folder is a judgment call, never buried under "to tidy"), sections keep consequence
 /// order and vanish at zero, and folders follow path order within a section.
 @Suite struct RenameCategoriesTests {
 
@@ -22,9 +22,9 @@ import Foundation
     }
 
     @Test func classificationFollowsTheMostConsequentialStep() {
-        #expect(RenameCategories.category(of: plan("A", steps: [step(.tidied)])) == .pad)
+        #expect(RenameCategories.category(of: plan("A", steps: [step(.tidied)])) == .tidy)
         #expect(RenameCategories.category(of: plan("B", steps: [step(.renumbered), step(.tidied)])) == .reshuffle)
-        // The mixed case that must not be buried: nine pads and one naming is a judgment call.
+        // The mixed case that must not be buried: nine tidies and one naming is a judgment call.
         #expect(RenameCategories.category(of:
             plan("C", steps: [step(.tidied), step(.tidied), step(.placed)])) == .name)
         // Skip-only plans have no category — they are the footnote.
@@ -41,7 +41,7 @@ import Foundation
         ]
         let sections = RenameCategories.sections(plans)
         // No reshuffle plans → no reshuffle section, not an empty one.
-        #expect(sections.map(\.category) == [.name, .pad])
+        #expect(sections.map(\.category) == [.name, .tidy])
         let sectioned = sections.flatMap(\.plans).map(\.relativePath)
         let leftAlone = RenameCategories.leftAlone(plans).map(\.relativePath)
         #expect(Set(sectioned).count == sectioned.count)
@@ -56,7 +56,7 @@ import Foundation
             plan("Finance/IN/SBI/2020", steps: [step(.tidied)]),
             plan("Finance/IN/SBI/2019", steps: [step(.tidied)]),
         ]
-        let pad = RenameCategories.sections(plans).first { $0.category == .pad }!
+        let pad = RenameCategories.sections(plans).first { $0.category == .tidy }!
         #expect(pad.plans.map(\.relativePath) == ["Finance/IN/SBI/2019",
                                                  "Finance/IN/SBI/2020",
                                                  "Finance/US/eTrade/2015"])

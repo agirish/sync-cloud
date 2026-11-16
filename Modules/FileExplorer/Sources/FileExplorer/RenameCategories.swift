@@ -1,28 +1,28 @@
 import Foundation
 import Sync
 
-/// The rename backlog, category-first: sections by what the pass would do (name, reshuffle, pad),
+/// The rename backlog, category-first: sections by what the pass would do (name, reshuffle, tidy),
 /// because the three ask different things of the user. Within a section, folders follow path
 /// order and are drawn as cards.
 ///
 /// The plan stays the atomic unit: a folder's steps are chosen against each other, so half a plan
 /// is not a smaller plan. A section holds whole folders, classified by the most consequential step
-/// their plan contains, and every button applies whole plans. A mixed folder's pads ride along
+/// their plan contains, and every button applies whole plans. A mixed folder's tidies ride along
 /// with its namings; the section changes where you find the folder, not what applying it does.
 enum RenameCategories {
 
     /// Most consequential first, the order `RenameBacklogTally` uses too: naming is a judgment
-    /// about intent, a reshuffle touches files that were already correct, a pad only respells.
+    /// about intent, a reshuffle touches files that were already correct, a tidy only respells.
     /// Also the section order on screen.
     enum Category: Int, CaseIterable, Equatable {
-        case name, reshuffle, pad
+        case name, reshuffle, tidy
 
         /// The step kind that puts a plan in this category.
         var kind: RenameStep.Kind {
             switch self {
             case .name: return .placed
             case .reshuffle: return .renumbered
-            case .pad: return .tidied
+            case .tidy: return .tidied
             }
         }
 
@@ -31,7 +31,7 @@ enum RenameCategories {
             switch self {
             case .name: return "to name"
             case .reshuffle: return "to reshuffle"
-            case .pad: return "to pad"
+            case .tidy: return "to tidy"
             }
         }
 
@@ -40,7 +40,7 @@ enum RenameCategories {
             switch self {
             case .name: return "Files that don’t follow their folder’s convention — a judgment about intent."
             case .reshuffle: return "Renumbers files that already have numbers — shifts their neighbors."
-            case .pad: return "Leading zeros so one-digit ordinals sort before “10.” — mechanical."
+            case .tidy: return "Respells a name without moving its number — a leading zero, a month written out."
             }
         }
     }
@@ -51,7 +51,7 @@ enum RenameCategories {
         let plans: [RenamePlan]
         var fileCount: Int { plans.reduce(0) { $0 + $1.steps.count } }
         /// Steps of the section's own kind — the pill's number. A mixed folder contributes its
-        /// pads to `fileCount` (the button applies them) but not to this claim.
+        /// tidies to `fileCount` (the button applies them) but not to this claim.
         var kindCount: Int {
             let kind = category.kind
             return plans.reduce(0) { $0 + $1.steps.filter { $0.kind == kind }.count }

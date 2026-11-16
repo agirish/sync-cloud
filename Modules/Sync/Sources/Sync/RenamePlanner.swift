@@ -166,6 +166,12 @@ public enum RenamePlanner {
         incoming: FolderFile? = nil
     ) -> RenamePlan {
         let all = files + (incoming.map { [$0] } ?? [])
+        // His statement folders number by position by date, whatever the profile mined from them
+        // before he renamed them (2026-11-15): see ``StatementOrdinals``.
+        if !isStagingArea(relativePath, entry: entry), StatementOrdinals.governs(relativePath) {
+            return planStatements(folderPath: folderPath, relativePath: relativePath, files: files,
+                                  entry: entry, incoming: incoming)
+        }
         guard !isStagingArea(relativePath, entry: entry),
               let granularity = slotGranularity(files: files, entry: entry) else {
             return RenamePlan(folderPath: folderPath, relativePath: relativePath,

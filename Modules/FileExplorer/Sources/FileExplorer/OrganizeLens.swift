@@ -221,7 +221,7 @@ extension OrganizeLens {
         case .renames:     what = "Names that need changing — to sync, to convention, to order: "
                                 + "names this provider rejects or any cloud would mangle, files "
                                 + "that ignore their folder’s convention, and files whose "
-                                + "numbering has to shift or pad."
+                                + "numbering has to shift or be respelled."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
         case .rules:       what = "The rules that file things without asking. Configuration, so "

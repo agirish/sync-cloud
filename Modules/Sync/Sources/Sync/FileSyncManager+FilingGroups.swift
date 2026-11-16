@@ -91,7 +91,7 @@ extension FileSyncManager {
         }
         // Counted after the lesson is taught, so ⌘Z's "as it was" is before this filing.
         noteFiledIntoLearnedAccounts(folders: moves.map { $0.to.deletingLastPathComponent().path })
-        registerFilingUndo(moves: moves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
+        registerFilingUndo(moves: run.undoMoves, copies: copied, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))",
                            createdFolders: run.createdFolders,
                            priorFolderMove: priorFolderMove, lesson: lesson,
                            restoring: positions.filter { moved.contains($0.suggestion.filePath) })
@@ -112,7 +112,12 @@ extension FileSyncManager {
     /// What ``fileHomes(_:fileOnce:exceptCopiesTo:)`` did: the moves and copies to register as one
     /// ⌘Z, the folders it made, and what the log and scorecard record.
     struct FilingHomesRun {
+        /// One per file filed, from where it was to where it is now: a statement a later one in
+        /// the run renumbered is where the renumbering put it.
         var moves: [MoveItemState] = []
+        /// Every move the run made, the renumberings included, as ⌘Z takes them back
+        /// (``FileSyncManager/undoOrder(_:)``).
+        var undoMoves: [MoveItemState] = []
         var copied: [CopyItemState] = []
         /// The folders the moves and copies made, deepest first: ⌘Z removes them again.
         var createdFolders: [String] = []
@@ -130,26 +135,37 @@ extension FileSyncManager {
         // The folders filing these makes, the copies' included.
         let wouldCreate = missingFolders(for: homes.map(\.1.path) + (fileOnce ? [] : homes.flatMap { copiesToMake($0.1).map(\.path) }))
         var run = FilingHomesRun()
+        var applied: [MoveItemState] = []
+        var filedHere: [(suggestion: FilingSuggestion, destination: FilingDestination, move: MoveItemState)] = []
         for (s, dest) in homes {
             switch await performFiling(s, to: dest) {
-            case .moved(let move):
-                run.moves.append(move)
+            case .moved(let move, let renumbered):
+                applied += renumbered + [move]
+                filedHere.append((s, dest, move))
                 if !fileOnce {
                     run.copied += await performFilingCopies(of: move.to, copies: copiesToMake(dest).filter { !exceptCopiesTo.contains($0.account.root) })
                 }
-                if let offer = s.firstOffer {
-                    run.scored.append(FilingScorecard.record(offer, landedFile: move.to.path,
-                                                             renamedOffer: Self.isRenamedOffer(dest, of: s)))
-                }
                 filingScorecard.settle([s.filePath])
-                run.filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
-                                                      folder: move.to.deletingLastPathComponent().path,
-                                                      source: FilingBatchLog.source(of: dest)))
             case .noMoveNeeded: run.alreadyHome += 1
             case .failed:
                 run.failures += 1
                 filingGroupFailures.insert(s.id)
             }
+        }
+        // Where each file is once the whole run is done: a later statement can renumber an
+        // earlier one, and the scorecard, the lesson and the log name the file where it is.
+        run.undoMoves = Self.undoOrder(applied)
+        let now = Dictionary(run.undoMoves.map { ($0.from.path, $0.to) }, uniquingKeysWith: { a, _ in a })
+        for (s, dest, move) in filedHere {
+            let landed = (from: move.from, to: now[move.from.path] ?? move.to, overwritten: move.overwritten)
+            run.moves.append(landed)
+            if let offer = s.firstOffer {
+                run.scored.append(FilingScorecard.record(offer, landedFile: landed.to.path,
+                                                         renamedOffer: Self.isRenamedOffer(dest, of: s)))
+            }
+            run.filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: landed.to.lastPathComponent,
+                                                  folder: landed.to.deletingLastPathComponent().path,
+                                                  source: FilingBatchLog.source(of: dest)))
         }
         run.createdFolders = wouldCreate.filter { fileManager.fileExists(atPath: $0) }
         return run

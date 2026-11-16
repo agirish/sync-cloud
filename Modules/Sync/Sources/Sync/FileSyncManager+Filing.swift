@@ -1709,10 +1709,13 @@ extension FileSyncManager {
         // Read from disk, not the scan's taxonomy: this runs long after the walk, on one folder the
         // user just chose, and one listing is cheaper than being wrong about a tree that moved on.
         let named = candidates.map { dest -> FilingDestination in
-            guard dest.newSegments.isEmpty, dest.nameOrigin == .planner else { return dest }
-            return dest.naming(Self.liveIncomingName(
-                for: s.fileName, destination: dest.path, providerRoot: s.providerRoot,
-                profile: filingRoutingProfile, fileManager: fileManager))
+            guard let root = s.providerRoot else { return dest.nameOrigin == .planner ? dest.naming(nil) : dest }
+            let live = dest.newSegments.isEmpty
+                ? Self.liveFiles(in: URL(fileURLWithPath: dest.path), fileManager: fileManager) : []
+            // Unlistable: the planner's name is dropped, never a stale slot; an account's stands.
+            guard live != nil || dest.nameOrigin != .planner else { return dest.naming(nil) }
+            return Self.named(dest, fileName: s.fileName, rootPath: root, folderFiles: live,
+                              profile: filingRoutingProfile)
         }
         let replaced = s.replacingCandidates(named)
         filingSuggestions[i] = reoffer ? replaced.offeredAnew() : replaced
@@ -1812,7 +1815,9 @@ extension FileSyncManager {
 
     // MARK: Apply
 
-    enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
+    /// `renumbered`: files already in the folder renamed to make room (``StatementOrdinals``), in the
+    /// order applied. Undo takes them through ``undoOrder(_:)`` with the move.
+    enum FilingOutcome { case moved(MoveItemState, renumbered: [MoveItemState]); case noMoveNeeded; case failed }
 
     /// The outcome of a single `applyFilingSuggestion`. `moved` vs `notNeeded` lets a caller act
     /// only on a real move (offering a learned rule, the remember-override prompt) without
@@ -1842,7 +1847,7 @@ extension FileSyncManager {
         let wouldCreate = missingFolders(for: [destination.path] + (fileOnce ? [] : destination.alsoCopiesTo.map(\.path)))
         let position = filingCardPositions([suggestion.id])
         switch await performFiling(suggestion, to: destination) {
-        case .moved(let move):
+        case .moved(let move, let renumbered):
             if let offer = suggestion.firstOffer {
                 filingScorecard.append([FilingScorecard.record(offer, landedFile: move.to.path,
                                                                renamedOffer: Self.isRenamedOffer(destination, of: suggestion))])
@@ -1883,7 +1888,8 @@ extension FileSyncManager {
                 }
             }
             noteFiledIntoLearnedAccounts(folders: [move.to.deletingLastPathComponent().path])
-            registerFilingUndo(moves: [move], copies: copied, actionName: "File \(suggestion.fileName)",
+            registerFilingUndo(moves: Self.undoOrder(renumbered + [move]), copies: copied,
+                               actionName: "File \(suggestion.fileName)",
                                createdFolders: wouldCreate.filter { fileManager.fileExists(atPath: $0) },
                                lesson: lesson, restoring: position)
             let folderName = (destination.path as NSString).lastPathComponent
@@ -1956,19 +1962,30 @@ extension FileSyncManager {
         // out would count fewer files than went.
         var alreadyHome = 0
         var scored: [FilingScorecard.Record] = []
+        var applied: [MoveItemState] = []
+        var filedHere: [(suggestion: FilingSuggestion, destination: FilingDestination, move: MoveItemState)] = []
         for s in batch {
             guard let dest = s.best else { continue }
             switch await performFiling(s, to: dest) {
-            case .moved(let move):
-                moves.append(move)
-                if let offer = s.firstOffer { scored.append(FilingScorecard.record(offer, landedFile: move.to.path)) }
+            case .moved(let move, let renumbered):
+                applied += renumbered + [move]
+                filedHere.append((s, dest, move))
                 filingScorecard.settle([s.filePath])
-                filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: move.to.lastPathComponent,
-                                                  folder: move.to.deletingLastPathComponent().path,
-                                                  source: FilingBatchLog.source(of: dest)))
             case .noMoveNeeded: alreadyHome += 1
             case .failed: failures += 1
             }
+        }
+        // Named where each file is once the batch is done: a later statement can renumber an
+        // earlier one (``fileHomes(_:fileOnce:exceptCopiesTo:)`` does the same).
+        let undoMoves = Self.undoOrder(applied)
+        let now = Dictionary(undoMoves.map { ($0.from.path, $0.to) }, uniquingKeysWith: { a, _ in a })
+        for (s, dest, move) in filedHere {
+            let to = now[move.from.path] ?? move.to
+            moves.append((from: move.from, to: to, overwritten: move.overwritten))
+            if let offer = s.firstOffer { scored.append(FilingScorecard.record(offer, landedFile: to.path)) }
+            filed.append(FilingBatchLog.Filed(fileName: s.fileName, landedAs: to.lastPathComponent,
+                                              folder: to.deletingLastPathComponent().path,
+                                              source: FilingBatchLog.source(of: dest)))
         }
         let home = alreadyHome == 0 ? ""
             : "\(alreadyHome) \(alreadyHome == 1 ? "was" : "were") already in \(alreadyHome == 1 ? "its folder" : "their folders")"
@@ -1988,7 +2005,7 @@ extension FileSyncManager {
         }
         filingScorecard.append(scored)
         // One undo action reverts the whole batch, so ⌘Z is honest.
-        registerMoveUndo(items: moves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
+        registerMoveUndo(items: undoMoves, actionName: "File \(CountedNoun.phrase(moves.count, "Item"))", fileManager: fileManager)
         let n = moves.count
         for line in FilingBatchLog.lines(operation: "Filing batch", filed: filed,
                                          summary: FilingBatchLog.recommendedSummary(filed: filed, failures: failures,
@@ -2110,21 +2127,55 @@ extension FileSyncManager {
                 //
                 // Given that consent, the slot is re-derived against the destination as it stands
                 // now, since a folder gains files while a queue is open: the card decides whether,
-                // the disk decides which.
-                let landingName = destination.proposedName == nil ? suggestion.fileName
-                    // A name copied from the account's statements or typed on the card lands as
-                    // shown; only the planner's slot is re-derived against the folder now.
-                    : destination.nameOrigin != .planner ? (destination.proposedName ?? suggestion.fileName)
-                    : (Self.liveIncomingName(
-                        for: suggestion.fileName, destination: destFolder.path,
-                        providerRoot: suggestion.providerRoot, profile: profile,
-                        fileManager: fm) ?? suggestion.fileName)
-                var dst = destFolder.appendingPathComponent(landingName)
+                // the disk decides which. So are the statements a governed folder renumbers to make
+                // room (``StatementOrdinals``), renamed here first, in the same operation.
+                let landing = Self.filingLanding(fileName: suggestion.fileName, destination: destination,
+                                                 folder: destFolder, providerRoot: suggestion.providerRoot,
+                                                 profile: profile, fileManager: fm)
+                let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: destFolder)
+                var renumbered: [MoveItemState] = []
+                func putBack() {
+                    for m in renumbered.reversed() {
+                        do {
+                            _ = try FileSyncManager.safeMoveItem(at: m.to, to: m.from, fileManager: fm,
+                                                                 caseSensitiveVolume: caseSensitive)
+                        } catch {
+                            logger.error("Filing: could not put “\(m.to.lastPathComponent)” back to “\(m.from.lastPathComponent)” in \(destFolder.path): \(error.localizedDescription)")
+                        }
+                    }
+                }
+                for step in landing.renumbers {
+                    let from = URL(fileURLWithPath: step.currentPath)
+                    let to = destFolder.appendingPathComponent(step.proposedName)
+                    // Never over another file: a name taken since the listing stops the renumbering.
+                    if fm.fileExists(atPath: to.path),
+                       !Self.isCaseOnlyRenaming(source: from, destination: to, caseSensitiveVolume: caseSensitive) {
+                        logger.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(destFolder.lastPathComponent): the name is taken")
+                        putBack()
+                        throw FileOperationError.renumberingFailed(folderName: destFolder.lastPathComponent)
+                    }
+                    do {
+                        let overwritten = try FileSyncManager.safeMoveItem(at: from, to: to, fileManager: fm,
+                                                                           caseSensitiveVolume: caseSensitive)
+                        renumbered.append((from: from, to: to, overwritten: overwritten))
+                    } catch {
+                        logger.warning("Filing: renumbering “\(step.currentName)” → “\(step.proposedName)” in \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
+                        putBack()
+                        throw FileOperationError.renumberingFailed(folderName: destFolder.lastPathComponent)
+                    }
+                }
+                var dst = destFolder.appendingPathComponent(landing.name)
                 if fm.fileExists(atPath: dst.path) {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
                 }
-                let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
-                return .moved(to: dst, overwritten: overwritten)
+                do {
+                    let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
+                    return .moved(to: dst, overwritten: overwritten, renumbered: renumbered)
+                } catch {
+                    // Not filed, so its neighbours keep the numbers they had.
+                    putBack()
+                    throw error
+                }
             } catch {
                 // Record the cause: the generic alert below can't carry it.
                 logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
@@ -2132,7 +2183,8 @@ extension FileSyncManager {
                 // back in, rescan"), unlike a generic I/O failure, so it says so instead of
                 // "couldn't file this item", as do a document destination and a changed file.
                 switch error as? FileOperationError {
-                case .destinationIsADocument?, .sourceChangedSinceScan?, .destinationRootUnavailable?:
+                case .destinationIsADocument?, .sourceChangedSinceScan?, .destinationRootUnavailable?,
+                     .renumberingFailed?:
                     return .failed(reason: error.localizedDescription)
                 default:
                     return .failed(reason: nil)
@@ -2145,18 +2197,22 @@ extension FileSyncManager {
             present(.filingFailed(item: suggestion.fileName, path: suggestion.filePath,
                                   reason: reason ?? "Couldn’t file this item; it was left in place."))
             return .failed
-        case .moved(let dst, let overwritten):
+        case .moved(let dst, let overwritten, let renumbered):
             filingSuggestions.removeAll { $0.id == suggestion.id }
             learnFromFiling(fileName: suggestion.fileName, sourcePath: suggestion.filePath,
                             into: dst.deletingLastPathComponent().path, filedPath: dst.path)
-            return .moved((from: src, to: dst, overwritten: overwritten))
+            if !renumbered.isEmpty {
+                logger.info("Filing: renumbered \(renumbered.count) statement(s) in \(dst.deletingLastPathComponent().lastPathComponent) to make room for “\(dst.lastPathComponent)”")
+            }
+            return .moved((from: src, to: dst, overwritten: overwritten), renumbered: renumbered)
         }
     }
 
     /// What the enqueued move did. An enum so a destination can never be returned alongside a
     /// failure.
     private enum FilingMoveOutcome: Sendable {
-        case moved(to: URL, overwritten: URL?)
+        /// `renumbered`: the statements already there renamed to make room, in the order applied.
+        case moved(to: URL, overwritten: URL?, renumbered: [MoveItemState])
         /// `reason` is user-facing when the failure is one the user can act on; nil falls back to
         /// the generic "couldn't file this item". No retryable flag: the filing alert has no Retry
         /// to offer (`present` is given no retry).

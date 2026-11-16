@@ -60,7 +60,7 @@ extension FileSyncManager {
         filingScorecard.append(run.scored)
         noteFiledIntoLearnedAccounts(folders: run.moves.map { $0.to.deletingLastPathComponent().path })
         // One ⌘Z for every move, copy and folder the batch made.
-        registerFilingUndo(moves: run.moves, copies: run.copied,
+        registerFilingUndo(moves: run.undoMoves, copies: run.copied,
                            actionName: "File \(CountedNoun.phrase(run.moves.count, "Item"))",
                            createdFolders: run.createdFolders,
                            restoring: positions.filter { moved.contains($0.suggestion.filePath) })

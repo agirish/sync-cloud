@@ -85,25 +85,66 @@ extension FileSyncManager {
     ///
     /// The same planner the backlog pass runs, handed the file as `incoming`, so the two can't
     /// disagree: a file renamed on the way in and then flagged by the backlog pass would be the app
-    /// arguing with itself.
+    /// arguing with itself. Nil, too, when the name holds only if files already there are renamed
+    /// with it: a caller wanting those asks ``incomingLanding(for:as:into:relativePath:folderFiles:profile:)``.
     nonisolated static func incomingName(for fileName: String, into folderPath: String,
                                          relativePath: String, folderFiles: [FolderFile],
                                          profile: FolderProfile?) -> String? {
-        let incoming = FolderFile(path: folderPath + "/" + fileName, name: fileName)
+        guard let landing = incomingLanding(for: fileName, into: folderPath, relativePath: relativePath,
+                                            folderFiles: folderFiles, profile: profile),
+              landing.renumbers.isEmpty else { return nil }
+        return landing.name
+    }
+
+    /// What landing a file in a folder does to names: the one it takes, and the renames of files
+    /// already there that must go with it.
+    struct IncomingLanding: Sendable, Equatable {
+        /// The name it lands under; nil keeps the one it has.
+        let name: String?
+        /// Files already in the folder renamed with it, in an order safe to apply
+        /// (``RenamePlanner/sequenced(_:)``). Only in a folder ``StatementOrdinals`` governs, where a
+        /// statement arriving mid-year renumbers the ones after it and the twelfth respells all
+        /// eleven before it. Everywhere else, empty.
+        let renumbers: [RenameStep]
+    }
+
+    /// The landing `fileName` gets in `folderPath`, or nil when the planner declines to name it.
+    ///
+    /// `proposed` is a statement name already chosen for it (an account's own, from its newest
+    /// statements), whose number is the rule's to decide. Nil names it from `fileName`.
+    ///
+    /// In a governed folder the whole folder's renumbering comes back with it, to be applied with
+    /// the move (his call, 2026-11-15: File Here renumbers the neighbours itself). Anywhere else a
+    /// name that only works if its neighbours move is declined: under position numbering a file
+    /// arriving before the months already there takes slot 01 and pushes the rest up, and the
+    /// planner puts all those steps in one cohort. Taking only the placement out of it is the
+    /// half-applied cascade the cohort prevents: a February bill filed into
+    /// `01. Mar · 02. Apr · 03. May` would land as `01. Feb` beside `01. Mar`. There the backlog
+    /// pass proposes the renumbering, reviewed as the folder-wide change it is.
+    nonisolated static func incomingLanding(for fileName: String, as proposed: String? = nil,
+                                            into folderPath: String, relativePath: String,
+                                            folderFiles: [FolderFile],
+                                            profile: FolderProfile?) -> IncomingLanding? {
+        let name = proposed ?? fileName
+        let governed = StatementOrdinals.governs(relativePath)
+        // Its path only names it inside the plan. In a governed folder it can't be a file already
+        // there: the planner tells them apart by flag, but steps are matched back here by path.
+        let incoming = FolderFile(path: folderPath + (governed ? "/\u{1}" : "/") + name, name: name)
         let plan = RenamePlanner.plan(folderPath: folderPath, relativePath: relativePath,
                                       files: folderFiles, entry: profile?.folders[relativePath],
                                       incoming: incoming)
-        guard let step = plan.steps.first(where: { $0.currentPath == incoming.path }) else { return nil }
-        // A name that only works if its neighbours move is not one this path may offer. Under
-        // position numbering, a file arriving before the months already there takes slot 01 and
-        // pushes the rest up, and the planner puts all those steps in one cohort. Taking only the
-        // placement out of it is the half-applied cascade the cohort prevents: a February bill
-        // filed into `01. Mar · 02. Apr · 03. May` would land as `01. Feb` beside `01. Mar`.
-        //
-        // Filing one file is not the moment to renumber a folder, so the file keeps its own name;
-        // the backlog pass proposes the renumbering, reviewed as the folder-wide change it is.
-        guard step.cohort == 0 else { return nil }
-        return step.proposedName
+        let step = plan.steps.first { $0.currentPath == incoming.path }
+        guard governed else {
+            guard let step, step.cohort == 0 else { return nil }
+            return IncomingLanding(name: step.proposedName, renumbers: [])
+        }
+        // Refused, or its renumbering refused whole by the collision guard: nothing it lands
+        // under would keep the folder in order.
+        if plan.skips.contains(where: { $0.id == incoming.path }) { return nil }
+        let others = plan.steps.filter { $0.currentPath != incoming.path }
+        // A name the rule already gives it, with nothing to renumber: nothing to do.
+        guard step != nil || !others.isEmpty || proposed != nil else { return nil }
+        return IncomingLanding(name: step?.proposedName ?? proposed, renumbers: others)
     }
 
     /// Fills in ``FilingDestination/proposedName`` for every candidate of every suggestion, from
@@ -132,18 +173,45 @@ extension FileSyncManager {
 
         return suggestions.map { suggestion in
             let named = suggestion.candidates.map { dest -> FilingDestination in
-                // A destination whose folders don't exist yet has no files and no convention to
-                // read, so it never proposes a rename.
-                // A name the account's own statements gave it stands; the planner names the rest.
-                guard dest.nameOrigin == .planner, dest.newSegments.isEmpty, !unlisted.contains(dest.path),
-                      let rel = FileSyncManager.relativePath(dest.path, under: rootPath)
-                else { return dest }
-                return dest.naming(incomingName(for: suggestion.fileName, into: dest.path,
-                                                relativePath: rel,
-                                                folderFiles: filesByFolder[dest.path] ?? [],
-                                                profile: profile))
+                named(dest, fileName: suggestion.fileName, rootPath: rootPath,
+                      folderFiles: unlisted.contains(dest.path) ? nil : filesByFolder[dest.path] ?? [],
+                      profile: profile)
             }
             return suggestion.replacingCandidates(named)
+        }
+    }
+
+    /// `dest` with the name the file takes there, and how many files already there it renames.
+    /// `folderFiles` is the folder's listing; nil when it couldn't be listed, which names nothing.
+    ///
+    /// - A name typed on the card stands.
+    /// - A name the account's own statements gave it stands too, except for its number in a folder
+    ///   ``StatementOrdinals`` governs, which is the file's position by date there. A folder not
+    ///   made yet counts as empty: `10. Oct 2027.PDF` becomes `1. Oct 2027.PDF` in a new `2027`.
+    /// - The planner names the rest. A destination whose folders don't exist yet has no files and
+    ///   no convention to read, so it proposes no rename.
+    nonisolated static func named(_ dest: FilingDestination, fileName: String, rootPath: String,
+                                  folderFiles: [FolderFile]?, profile: FolderProfile?) -> FilingDestination {
+        guard let rel = FileSyncManager.relativePath(dest.path, under: rootPath) else { return dest }
+        switch dest.nameOrigin {
+        case .typed:
+            return dest
+        case .template:
+            guard StatementOrdinals.governs(rel), let proposed = dest.proposedName,
+                  let files = dest.newSegments.isEmpty ? folderFiles : [],
+                  let landing = incomingLanding(for: fileName, as: proposed, into: dest.path, relativePath: rel,
+                                                folderFiles: files, profile: profile)
+            else { return dest }
+            return dest.naming(landing.name ?? proposed, origin: .template).renumbering(landing.renumbers.count)
+        case .planner:
+            guard dest.newSegments.isEmpty, let files = folderFiles else { return dest }
+            guard let landing = incomingLanding(for: fileName, into: dest.path, relativePath: rel,
+                                                folderFiles: files, profile: profile)
+            else { return dest.naming(nil) }
+            // Keeping its own name while others are renamed is still a rename the card asks for:
+            // File Here applies only what the card offered.
+            let name = landing.name ?? (landing.renumbers.isEmpty ? nil : fileName)
+            return dest.naming(name).renumbering(landing.renumbers.count)
         }
     }
 
@@ -161,6 +229,61 @@ extension FileSyncManager {
         else { return nil }
         return incomingName(for: fileName, into: destination, relativePath: rel,
                             folderFiles: live, profile: profile)
+    }
+
+    /// The name a card's file lands under in `folder`, and the files already there renamed with
+    /// it, worked out against the disk at File Here.
+    ///
+    /// Renamed only if the card offered a rename (a `proposedName`). A typed name lands as typed;
+    /// an account's name lands as shown, except for its number in a governed folder; the planner's
+    /// is re-derived. A folder that can't be listed renumbers nothing.
+    nonisolated static func filingLanding(fileName: String, destination: FilingDestination, folder: URL,
+                                          providerRoot: String?, profile: FolderProfile?,
+                                          fileManager fm: FileManaging) -> (name: String, renumbers: [RenameStep]) {
+        guard let proposed = destination.proposedName else { return (fileName, []) }
+        let template = destination.nameOrigin == .template
+        switch destination.nameOrigin {
+        case .typed:
+            return (proposed, [])
+        case .template, .planner:
+            if let providerRoot, let rel = relativePath(folder.path, under: providerRoot),
+               StatementOrdinals.governs(rel), let live = liveFiles(in: folder, fileManager: fm) {
+                guard let landing = incomingLanding(for: fileName, as: template ? proposed : nil,
+                                                    into: folder.path, relativePath: rel,
+                                                    folderFiles: live, profile: profile)
+                else { return (template ? proposed : fileName, []) }
+                return (landing.name ?? (template ? proposed : fileName), landing.renumbers)
+            }
+            if template { return (proposed, []) }
+            return (liveIncomingName(for: fileName, destination: folder.path, providerRoot: providerRoot,
+                                     profile: profile, fileManager: fm) ?? fileName, [])
+        }
+    }
+
+    /// Moves recorded in the order they were made, as one ⌘Z must take them back.
+    ///
+    /// Undo moves its items back first to last, so the last move goes first. And a file moved twice
+    /// is one item: a statement filed in one move and renumbered by the next is moved back from
+    /// where it is now, not from where it first landed, where nothing is left to find.
+    /// `1. Jul 2016.pdf` → `2. Jul 2016.pdf` beside `2. Jul 2016.pdf` → `3. Jul 2016.pdf` is why
+    /// the order matters: undone first to last, the first would find its old name taken.
+    nonisolated static func undoOrder(_ applied: [MoveItemState]) -> [MoveItemState] {
+        var items: [MoveItemState] = []
+        var order: [Int] = []          // indexes into `items`, by the move that last touched each
+        var at: [String: Int] = [:]    // where each item is now → its index
+        for m in applied {
+            if let i = at.removeValue(forKey: m.from.path) {
+                items[i] = (from: items[i].from, to: m.to, overwritten: items[i].overwritten ?? m.overwritten)
+                order.removeAll { $0 == i }
+                order.append(i)
+                at[m.to.path] = i
+            } else {
+                items.append(m)
+                order.append(items.count - 1)
+                at[m.to.path] = items.count - 1
+            }
+        }
+        return order.reversed().map { items[$0] }
     }
 
     // MARK: Apply
@@ -268,7 +391,9 @@ extension FileSyncManager {
                 // All cohort-0 steps run before any cohort, whatever order `plan.steps` had. Safe for
                 // the planner reason the rollback relies on: a cohort-0 step only widens an ordinal it
                 // already holds, so it neither frees nor takes a name any cohort member targets.
-                for id in byCohort.keys.sorted() { units.append((id, byCohort[id]!)) }
+                // A cohort in an order that never lands a file on a name another member has yet to
+                // vacate (`RenamePlanner.sequenced`).
+                for id in byCohort.keys.sorted() { units.append((id, RenamePlanner.sequenced(byCohort[id]!))) }
 
                 var appliedHere = false
                 for unit in units {
@@ -386,7 +511,7 @@ extension FileSyncManager {
 
         // One grouped undo for the whole pass, as the name normalizer registers one.
         let n = result.moves.count
-        registerMoveUndo(items: result.moves, actionName: "Rename \(CountedNoun.phrase(n, "File"))",
+        registerMoveUndo(items: Self.undoOrder(result.moves), actionName: "Rename \(CountedNoun.phrase(n, "File"))",
                          fileManager: fm)
 
         // Drop the folders that were fully or partly applied: their paths are stale either way,

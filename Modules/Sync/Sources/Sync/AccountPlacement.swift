@@ -108,6 +108,11 @@ public enum AccountPlacement {
     /// (decision OR, 2026-11-14): `01. Jan 2026.pdf`. One digit for a quarterly or sparser account
     /// (`1. Mar 2026.pdf`) unless its own names use two. The extension as the account's files
     /// spell it (`.PDF`).
+    ///
+    /// In a folder ``StatementOrdinals`` governs (his `Finance/US`), the number here is only a
+    /// placeholder: the naming pass renumbers it as the statement's position by date there
+    /// (``FileSyncManager/named(_:fileName:rootPath:folderFiles:profile:)``), and File Here renames
+    /// the statements it displaces.
     static func houseName(_ p: DocumentFacts.Period, members: [StatementFamily.Member], ext: String) -> String {
         let monthly = OrdinalMonthName.isQuarterlyOrSparser(Set(members.map { $0.period.year * 12 + $0.period.month })) != true
         let widths = members.compactMap { parse($0.name) }.filter { $0.form == .ordinalMonthYear }.map(\.ordinalDigits)

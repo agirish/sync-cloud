@@ -107,6 +107,15 @@ enum FilingFileText {
         return (best.proposedName ?? s.fileName, true)
     }
 
+    /// What File Here does beside the move, when the home numbers its statements by date and this
+    /// one renumbers some already there: "renumbers 2 others". nil when it renumbers none.
+    static func renumbering(_ s: FilingSuggestion) -> String? {
+        guard let best = s.best, s.hasConfidentHome, !s.isAlreadyFiled, s.duplicateOf == nil,
+              best.renumbersOthers > 0 else { return nil }
+        let n = best.renumbersOthers
+        return "renumbers \(n == 1 ? "1 other" : "\(n) others")"
+    }
+
     /// The row's two lines. In a group, the file's name over what page 1 says; on a card of its
     /// own, whose title is the name already, what page 1 says over its size.
     static func lines(_ s: FilingSuggestion, facts: DocumentFacts?, inGroup: Bool) -> (primary: String, secondary: String) {
@@ -193,6 +202,7 @@ struct FilingFileRows: View {
         let showsActs = inGroup && (selected == s.id || hovered == s.id)
         let lines = FilingFileText.lines(s, facts: hooks.facts(s), inGroup: inGroup)
         let landing = FilingFileText.landing(s)
+        let renumbering = FilingFileText.renumbering(s)
         let ownFrom = inGroup ? FilingRouteText.rowFrom(s, members: members) : nil
         return HStack(alignment: .center, spacing: Self.gap) {
             thumbnail(s)
@@ -204,14 +214,14 @@ struct FilingFileRows: View {
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.tail)
-                if narrow, let landing { landingText(landing, prefix: "→ ") }
+                if narrow, let landing { landingText(landing, prefix: "→ ", note: renumbering) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !narrow, let landing {
                 Text("→").scaledFont(.system(size: 12)).foregroundStyle(.tertiary)
                     .frame(width: Self.arrow)
                     .accessibilityHidden(true)
-                landingText(landing, prefix: "")
+                landingText(landing, prefix: "", note: renumbering)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if inGroup { acts(s).frame(width: Self.acts, alignment: .trailing).opacity(showsActs ? 1 : 0) }
@@ -227,7 +237,8 @@ struct FilingFileRows: View {
         .onHover { hovered = $0 ? s.id : (hovered == s.id ? nil : hovered) }
         .contextMenu { menuItems(s) }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(lines.primary + (landing.map { ", " + ($0.moves ? "files as " : "") + $0.text } ?? ""))
+        .accessibilityLabel(lines.primary + (landing.map { ", " + ($0.moves ? "files as " : "") + $0.text } ?? "")
+                            + (renumbering.map { ", " + $0 } ?? ""))
         .accessibilityAddTraits(selected == s.id ? .isSelected : [])
         // The combined row hides its buttons from VoiceOver, so each is a named action instead.
         .accessibilityActions {
@@ -239,12 +250,18 @@ struct FilingFileRows: View {
         }
     }
 
-    private func landingText(_ landing: (text: String, moves: Bool), prefix: String) -> some View {
-        Text(prefix + landing.text)
-            .scaledFont(.system(size: 11.5, design: landing.moves ? .monospaced : .default))
-            .italic(!landing.moves)
-            .foregroundStyle(landing.moves ? Color.primary : Color.secondary)
-            .lineLimit(1).truncationMode(.middle)
+    private func landingText(_ landing: (text: String, moves: Bool), prefix: String, note: String?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(prefix + landing.text)
+                .scaledFont(.system(size: 11.5, design: landing.moves ? .monospaced : .default))
+                .italic(!landing.moves)
+                .foregroundStyle(landing.moves ? Color.primary : Color.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            // The neighbours File Here renames too, said before it does.
+            if let note {
+                Text(note).scaledFont(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+            }
+        }
     }
 
     /// Page 1, made only for rows on screen; a click opens the app's own page-1 view.
