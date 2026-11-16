@@ -296,6 +296,46 @@ public enum FilingSurvey {
             && Double(totalLength) / Double(words.count) >= 3.5
     }
 
+    /// Whether a PDF's extracted text is a text layer gone wrong: plenty of characters, almost none
+    /// of them in words. A font with a broken `ToUnicode` map draws a readable page and extracts
+    /// as punctuation (`)%& '( & + %' ,+23%& 0 (.`), so the page is worth reading with OCR.
+    ///
+    /// Judged by the share of visible characters inside ASCII words of three letters or more, as
+    /// ``isDecodable(_:)`` counts words. Measured 15 Nov 2026 over the 10,052 PDFs with text in
+    /// his `~/Documents`: 154 share 0.02 or less (138 glyph soup, all 50 live PG&E statements
+    /// among them; 15 pages of inline pictures, U+FFFC; one table of primes, where OCR costs only
+    /// time), then nothing until two white papers at 0.06 and an amortization table at 0.07.
+    /// Clean statements sit near 0.6. Not ``isDecodable(_:)``'s negation: that also fails 207
+    /// readable pages there (an org chart, a ticket, a map: too few ordinary words), which OCR
+    /// would read no better, and passes a traffic-school certificate whose one clean heading,
+    /// printed twice, sits over 18,000 characters of soup.
+    ///
+    /// A page under ``garbledMinimumCharacters`` visible characters is never garbled: too little
+    /// to judge, and an empty one is a scan, which Read Scan offers instead.
+    public static func isGarbled(_ text: String) -> Bool {
+        var visible = 0
+        var inWords = 0
+        var run = 0
+        for ch in text.unicodeScalars {
+            if CharacterSet.letters.contains(ch), ch.isASCII {
+                run += 1
+            } else {
+                if run >= 3 { inWords += run }
+                run = 0
+            }
+            if !CharacterSet.whitespacesAndNewlines.contains(ch) { visible += 1 }
+        }
+        if run >= 3 { inWords += run }
+        guard visible >= garbledMinimumCharacters else { return false }
+        return Double(inWords) / Double(visible) < garbledWordShare
+    }
+
+    /// Below this many visible characters a page says too little to call garbled.
+    static let garbledMinimumCharacters = 100
+    /// The word share under which a page is garbled: between the soup's 0.02 and the cleanest
+    /// real page's 0.06 (``isGarbled(_:)``).
+    static let garbledWordShare = 0.04
+
     /// Words ordinary enough that real correspondence contains some. Not a stop list: they are
     /// evidence for readability, and several are good anchors too.
     static let commonWords: Set<String> = [

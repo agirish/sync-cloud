@@ -208,6 +208,71 @@ import UniformTypeIdentifiers
         #expect(failures.isEmpty, "a successful OCR logged a failure: \(failures.map(\.message))")
     }
 
+    // MARK: A garbled text layer is read with OCR
+
+    /// A one-page PDF that draws `lines` in Helvetica while its text layer extracts as punctuation:
+    /// the font's `ToUnicode` map sends every printable code to one of fifteen symbols, the way a
+    /// broken map garbles every live PG&E statement on his tree. Hand-written, since CoreGraphics
+    /// always writes a correct map.
+    private static func writeGarbledPDF(lines: [String], to path: String) throws {
+        let symbols = Array("!\"#$%&'()*+,-./".unicodeScalars)
+        let codes = 0x20...0x7E
+        var cmap = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CMapName /Garbled def\n"
+            + "/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n\(codes.count) beginbfchar\n"
+        for c in codes {
+            cmap += String(format: "<%02X> <%04X>\n", c, Int(symbols[c % symbols.count].value))
+        }
+        cmap += "endbfchar\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n"
+        let escaped = lines.map {
+            $0.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "(", with: "\\(").replacingOccurrences(of: ")", with: "\\)")
+        }
+        let content = "BT /F1 14 Tf 18 TL 50 740 Td\n" + escaped.map { "(\($0)) Tj T*\n" }.joined() + "ET\n"
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode 6 0 R >>",
+            "<< /Length \(content.utf8.count) >>\nstream\n\(content)endstream",
+            "<< /Length \(cmap.utf8.count) >>\nstream\n\(cmap)endstream",
+        ]
+        var pdf = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        for (i, object) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(i + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n"
+            + offsets.map { String(format: "%010d 00000 n \n", $0) }.joined()
+            + "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        try Data(pdf.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    /// A statement whose text layer is garbled is read from its page instead: the account number
+    /// and dates the scan matches on come from OCR. Without the fallback the snippet is the soup.
+    /// Pinned: Vision's `.accurate` recognizer fails on GitHub's hosted VMs.
+    @Test(.machinePinned(.textRecognition)) func aGarbledTextLayerIsReadWithOCR() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("garbled-statement.pdf")
+        try Self.writeGarbledPDF(lines: [
+            "ENERGY STATEMENT", "Account No: 1234567890-5", "Statement Date: 03/18/2026",
+            "Due Date: 04/08/2026", "Your Account Summary", "Amount Due on Previous Statement $351.24",
+            "Total Amount Due $330.76",
+        ], to: path)
+
+        // The fixture must be garbled, or the read below proves nothing.
+        let layer = try #require(await ContentSignalExtractor.snippet(forFileAt: path, ocr: false))
+        #expect(FilingSurvey.isGarbled(layer), "the fixture's text layer reads: \(layer)")
+        #expect(!layer.contains("Account"))
+
+        let snippet = try #require(await ContentSignalExtractor.snippet(forFileAt: path))
+        #expect(snippet.contains("Account No: 1234567890-5"), "read: \(snippet)")
+        let facts = DocumentFacts(page: snippet)
+        #expect(facts.ownNumbers.map(\.ending).contains("8905"))
+        #expect(facts.period?.year == 2026 && facts.period?.month == 3)
+    }
+
     // MARK: PDF extraction is serialized
 
     /// PDFKit's text extraction is not thread-safe, so this queue must stay serial: read

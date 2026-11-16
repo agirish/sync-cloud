@@ -5,6 +5,7 @@ import NaturalLanguage
 import ImageIO
 import Sync
 import Events
+import FileExplorer
 
 /// On-device content signals for Filing. Reads a bounded amount of a file's text (PDF text via
 /// PDFKit, image text via Vision OCR, or a plain-text head) and pulls entity and keyword tokens via
@@ -67,13 +68,8 @@ enum ContentSignalExtractor {
     ///
     /// Not part of `snippet(forFileAt:)`: rendering plus Vision takes 0.5–2.1 s per file against
     /// milliseconds for an existing text layer, so the scan records which files would benefit and
-    /// the user chooses to spend it (`FileSyncManager.readScan(for:)`). 2× is the smallest scale
-    /// that reads body text reliably; at 1× Vision misses it.
-    ///
-    /// The PDFKit half takes ``PDFKitSerialAccess``'s lane; Vision does not. Opening and
-    /// drawing the page is the unsafe machinery ``pdfText(_:)`` serializes. Recognition is the
-    /// expensive part and is not PDFKit, so the lane is released once there is a bitmap rather
-    /// than stalling every scan extraction behind one OCR.
+    /// the user chooses to spend it (`FileSyncManager.readScan(for:)`). A page whose text layer is
+    /// garbled is different: `snippet(forFileAt:)` reads it this way itself (``pdfText(_:ocr:)``).
     static func ocrPDFFirstPage(atPath path: String) async -> String? {
         await withCheckedContinuation { continuation in
             workQueue.async {
@@ -81,52 +77,55 @@ enum ContentSignalExtractor {
                 // Same provider-agnostic guard as `extractTextSync`: rendering page 1 opens the
                 // document, and opening a placeholder is what makes the provider fetch it.
                 guard FilingSurvey.isAvailable(url.path) else { return continuation.resume(returning: nil) }
-                let image: CGImage? = PDFKitSerialAccess.run {
-                    guard let doc = PDFDocument(url: url), !doc.isLocked,
-                          let page = doc.page(at: 0) else { return nil }
-                    let bounds = page.bounds(for: .mediaBox)
-                    let scale: CGFloat = 2
-                    let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-                    guard size.width > 1, size.height > 1,
-                          let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height),
-                                              bitsPerComponent: 8, bytesPerRow: 0,
-                                              space: CGColorSpaceCreateDeviceRGB(),
-                                              bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
-                    else { return nil }
-                    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-                    ctx.fill(CGRect(origin: .zero, size: size))
-                    ctx.scaleBy(x: scale, y: scale)
-                    page.draw(with: .mediaBox, to: ctx)
-                    return ctx.makeImage()
-                }
-                guard let image else { return continuation.resume(returning: nil) }
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
-                do {
-                    try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-                } catch {
-                    // Logged here, the only place the cause exists: this returns nil both for a
-                    // recognizer that failed and for a blank page, and the caller
-                    // (`FileSyncManager.readScan(for:)`) logs both as "no text". Warning, not
-                    // error: one file's read failed and the button stays offered.
-                    warn(url.lastPathComponent, "Filing: OCR failed on “\(url.lastPathComponent)”: "
-                                          + "\(error.localizedDescription)")
-                }
-                // Falls through rather than returning early: `perform` may leave partial results
-                // behind, and those are still used.
-                let text = (request.results ?? [])
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                continuation.resume(returning: text.isEmpty ? nil : String(text.prefix(maxTextChars)))
+                continuation.resume(returning: ocrFirstPageSync(url))
             }
         }
+    }
+
+    /// Page 1 read with OCR, or nil when it could not be drawn or Vision found nothing.
+    ///
+    /// The PDFKit half takes ``PDFKitSerialAccess``'s lane; Vision does not. Opening and drawing
+    /// the page is the unsafe machinery ``pdfText(_:ocr:)`` serializes. Recognition is the
+    /// expensive part and is not PDFKit, so the lane is released once there is a bitmap rather
+    /// than stalling every scan extraction behind one OCR. 2× is the smallest scale that reads
+    /// body text reliably; at 1× Vision misses it.
+    ///
+    /// Read by `PictureText`, which tries again on the CPU when the Neural Engine refuses: it can
+    /// refuse every request for hours while macOS recompiles its models, and a scan reading
+    /// garbled pages would otherwise read every one as nothing for that long.
+    private static func ocrFirstPageSync(_ url: URL) -> String? {
+        let image: CGImage? = PDFKitSerialAccess.run {
+            guard let doc = PDFDocument(url: url), !doc.isLocked,
+                  let page = doc.page(at: 0) else { return nil }
+            let bounds = page.bounds(for: .mediaBox)
+            let scale: CGFloat = 2
+            let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+            guard size.width > 1, size.height > 1,
+                  let ctx = CGContext(data: nil, width: Int(size.width), height: Int(size.height),
+                                      bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+            else { return nil }
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.scaleBy(x: scale, y: scale)
+            page.draw(with: .mediaBox, to: ctx)
+            return ctx.makeImage()
+        }
+        guard let image else { return nil }
+        // nil when Vision failed on both processors, which `PictureText` has already logged; the
+        // caller (`FileSyncManager.readScan(for:)`) logs that and a blank page alike as "no text".
+        guard let text = PictureText.text(in: image, reader: "Filing (\(url.lastPathComponent))"),
+              !text.isEmpty else { return nil }
+        return String(text.prefix(maxTextChars))
     }
 
     /// The seam the manager injects for the AI classifier: a bounded plain-text excerpt of the file
     /// (PDF text / OCR / plain), or nil when there's nothing readable. Same cloud-only guard and
     /// bounds as the token path — nothing leaves the device.
-    /// `ocr` false leaves a picture unread (an empty answer): Ask Claude's look-ahead over a
-    /// folder's loose files reads 50 at a time and ranks pictures by their names (TE343).
+    /// `ocr` false leaves a picture unread (an empty answer) and a garbled PDF as its text layer
+    /// reads: Ask Claude's look-ahead over a folder's loose files reads 50 at a time and ranks
+    /// pictures by their names (TE343).
     static func snippet(forFileAt path: String, ocr: Bool = true) async -> String? {
         await withCheckedContinuation { continuation in
             // Read here, in the task: a task-local isn't visible inside the queue's block.
@@ -160,7 +159,7 @@ enum ContentSignalExtractor {
         guard FilingSurvey.isAvailable(url.path) else { return "" }
 
         let ext = url.pathExtension.lowercased()
-        if ext == "pdf" { return pdfText(url) }
+        if ext == "pdf" { return pdfText(url, ocr: ocr) }
         if imageExtensions.contains(ext) { return ocr ? ocrText(url) : "" }
         if textExtensions.contains(ext) { return plainText(url) }
         return ""
@@ -189,8 +188,23 @@ enum ContentSignalExtractor {
     /// **The lane is ``PDFKitSerialAccess``, shared with `PDFTextExtractor`, never one of this
     /// type's own:** two serial queues race exactly like one concurrent queue, and a folder-memory
     /// survey and a duplicate scan can extract at the same time.
-    private static func pdfText(_ url: URL) -> String {
-        PDFKitSerialAccess.run { pdfTextSync(url) }
+    ///
+    /// **A garbled text layer is read again with OCR** when `ocr` allows (``ocrFirstPageSync(_:)``):
+    /// a font with a broken `ToUnicode` map draws a readable page and extracts as punctuation, so
+    /// every reader downstream (the account match, the router, Claude) sees nothing to go on. All
+    /// 50 live PG&E statements on his tree read that way, and no content signal pointed at their
+    /// folder. Spent, not offered as Read Scan is: 154 of his 10,052 PDFs with text are garbled
+    /// (`FilingSurvey.isGarbled`), against the half of an inbox that is scans. Page 1 only, and
+    /// kept only when it reads better; otherwise the layer stands, as before.
+    private static func pdfText(_ url: URL, ocr: Bool) -> String {
+        let layer = PDFKitSerialAccess.run { pdfTextSync(url) }
+        guard ocr, FilingSurvey.isGarbled(layer) else { return layer }
+        guard let read = ocrFirstPageSync(url), !FilingSurvey.isGarbled(read) else {
+            Logger.shared.debug("Filing: “\(url.lastPathComponent)” has a garbled text layer, and OCR read no better")
+            return layer
+        }
+        Logger.shared.debug("Filing: “\(url.lastPathComponent)” has a garbled text layer; read page 1 with OCR")
+        return read
     }
 
     private static func pdfTextSync(_ url: URL) -> String {

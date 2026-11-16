@@ -15752,3 +15752,23 @@ All of it is in the account phase (`AccountPlacement.swift`, `AccountProposal.sw
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A PDF whose text layer is garbled is read with OCR — main only, recorded, not owed
+
+2026-11-15, for v7.2. On `main`, Filing's page reader (To File's scan, the account phase and its
+statements named without digits, Refine, the survey, Ask Claude's filing help) reads page 1 with OCR when
+a PDF's text layer comes out as punctuation (`FilingSurvey.isGarbled`), and keeps the OCR text when
+it reads better. All 50 live PG&E statements on his tree read that way. Every line reads PDFs
+through the same `ContentSignalExtractor` without the check, so a garbled statement gives its
+account, dates and words to nobody there.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s extractor=%s garbled=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'MacApp/ContentSignalExtractor.swift')" \
+  "$(git grep -l 'isGarbled' origin/$l -- Modules MacApp | wc -l | tr -d ' ')"; done
+# measured 2026-11-15, against origin: extractor=1 garbled=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The reader without the check | RECORDED — not owed |

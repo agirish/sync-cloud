@@ -184,8 +184,9 @@ import Testing
         let one = FilingScorecard.summary([Self.r(.kept), Self.r(.changed)], range: .all, now: Self.now)
         #expect(one.byUpdate.isEmpty)
         let two = FilingScorecard.summary([Self.r(.kept, revision: 1), Self.r(.changed, revision: 1),
-                                           Self.r(.kept, revision: 2)], range: .all, now: Self.now)
-        #expect(two.byUpdate.map(\.label) == ["Update 2", "Before"], "newest first; the oldest reads Before")
+                                           Self.r(.kept, revision: 99)], range: .all, now: Self.now)
+        // 99, a revision `revisions` doesn't name, so the label is pinned whatever ships next.
+        #expect(two.byUpdate.map(\.label) == ["Update 99", "Before"], "newest first; the oldest reads Before")
         #expect(two.byUpdate.map(\.total) == [1, 2])
     }
 
