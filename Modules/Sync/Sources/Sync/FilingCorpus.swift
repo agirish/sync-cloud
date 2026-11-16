@@ -50,12 +50,29 @@ public struct FilingCorpusDocument: Sendable, Equatable {
     public let anchors: [String]
     /// Digit-bearing page-1 tokens, salted-hashed.
     public let idHashes: [String]
+    /// Which page reader produced the tokens (``currentReader``). An entry stamped before the
+    /// field existed decodes as ``legacyReader``. It lets a survey read again what an older reader
+    /// left blank but this one can read (``FilingSurvey/readsAgain(_:_:)``), which the stamp alone
+    /// never would: the file hasn't changed, the reader has.
+    public let reader: Int
 
-    public init(size: Int, modified: Int, anchors: [String], idHashes: [String]) {
+    /// Every entry from before readers were stamped: the offline builder's, and the app's until
+    /// 15 Nov 2026.
+    public static let legacyReader = 1
+    /// The first reader that reads a PDF's garbled text layer with OCR, as the app's extractor
+    /// has since 113e76fb1 (`FilingSurvey.isGarbled`). Before it, such a page recorded blank.
+    public static let garbledLayerReader = 2
+    /// What a survey reading today stamps. Raise it only with a reader that reads something an
+    /// older one could not, and say in ``FilingSurvey/readsAgain(_:_:)`` what is read again.
+    public static let currentReader = garbledLayerReader
+
+    public init(size: Int, modified: Int, anchors: [String], idHashes: [String],
+                reader: Int = FilingCorpusDocument.currentReader) {
         self.size = size
         self.modified = modified
         self.anchors = anchors
         self.idHashes = idHashes
+        self.reader = reader
     }
 
     /// True when the document was read and yielded nothing usable: an image-only scan, a PDF whose
@@ -70,7 +87,9 @@ public struct FilingCorpusDocument: Sendable, Equatable {
 extension FilingCorpusDocument: Codable {
     /// Short keys: across thousands of documents, full key names are a real share of the file, and
     /// nobody hand-inspects this one the way they do the memory and profile.
-    private enum Key: String, CodingKey { case size = "s", modified = "m", anchors = "a", idHashes = "i" }
+    private enum Key: String, CodingKey {
+        case size = "s", modified = "m", anchors = "a", idHashes = "i", reader = "r"
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
@@ -78,6 +97,7 @@ extension FilingCorpusDocument: Codable {
         modified = try c.decodeIfPresent(Int.self, forKey: .modified) ?? 0
         anchors = try c.decodeIfPresent([String].self, forKey: .anchors) ?? []
         idHashes = try c.decodeIfPresent([String].self, forKey: .idHashes) ?? []
+        reader = try c.decodeIfPresent(Int.self, forKey: .reader) ?? FilingCorpusDocument.legacyReader
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -88,6 +108,8 @@ extension FilingCorpusDocument: Codable {
         // scans.
         if !anchors.isEmpty { try c.encode(anchors, forKey: .anchors) }
         if !idHashes.isEmpty { try c.encode(idHashes, forKey: .idHashes) }
+        // Omitted for the legacy reader, which is what its absence decodes as.
+        if reader != FilingCorpusDocument.legacyReader { try c.encode(reader, forKey: .reader) }
     }
 }
 

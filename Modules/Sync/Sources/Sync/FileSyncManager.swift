@@ -800,7 +800,9 @@ public class FileSyncManager: ObservableObject {
     /// refine.
     public var mappingRefiner: MappingRefiner?
     /// Extracts a bounded text excerpt for the classifier (PDF text, OCR, plain), injected by the
-    /// app. Gated by the same read-contents setting as `filingContentExtractor`.
+    /// app. Gated by the same read-contents setting as `filingContentExtractor`. A survey stamps
+    /// what it reads with ``FilingCorpusDocument/currentReader``, which says this reads a garbled
+    /// PDF layer with OCR, as the app's does: a host whose extractor doesn't must not survey.
     public var filingSnippetExtractor: (@Sendable (String) async -> String?)?
     /// The same excerpt without OCR, for Ask Claude's look-ahead over a folder's loose files
     /// (TE343): a picture is ranked by its name until a card reads it in full. Same gate.

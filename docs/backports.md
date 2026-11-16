@@ -15772,3 +15772,24 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s extractor=%s garbled=%s\n' $l
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The reader without the check | RECORDED — not owed |
+
+## A survey reads again the PDFs an older reader left blank — main only, recorded, not owed
+
+2026-11-15, for v7.2. Corpus entries now carry the reader that produced them
+(`FilingCorpusDocument.reader`), and a survey reads once more a blank PDF from before the reader
+that OCRs a garbled text layer (`FilingSurvey.readsAgain`), so the 50 PG&E statements frozen blank
+in his corpus are read and their folders learn them. It follows the section above: a line without
+that OCR has nothing better to read them with. `v6.x`, `v5.x` and `v4.x` have the corpus, `v3.x`
+and `v2.x` none.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s corpus=%s garbled=%s\n' $l \
+  "$(git grep -l 'struct FilingCorpusDocument' origin/$l -- Modules | wc -l | tr -d ' ')" \
+  "$(git grep -l 'isGarbled' origin/$l -- Modules MacApp | wc -l | tr -d ' ')"; done
+# measured 2026-11-15, against origin: corpus=1 on v6.x v5.x v4.x, 0 on v3.x v2.x; garbled=0 on every line
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The corpus, no garbled-layer OCR to read again with | RECORDED — not owed |
+| `v3.x` / `v2.x` | No corpus | CLOSED — does not apply |

@@ -147,8 +147,9 @@ public enum FilingSurvey {
         return false
     }
 
-    /// Documents whose page 1 must be read again: new, restamped, or never indexed. Shallowest
-    /// first, then by name, so progress is recognisable and two runs read in the same order.
+    /// Documents whose page 1 must be read again: new, restamped, never indexed, or left blank by
+    /// a reader this one reads better (``readsAgain(_:_:)``). Shallowest first, then by name, so
+    /// progress is recognisable and two runs read in the same order.
     public static func documentsToRead(tree: Tree, corpus: FilingCorpus?,
                                        memory: FilingMemory? = nil) -> [String] {
         let relocated = relocations(tree: tree, corpus: corpus)
@@ -159,13 +160,30 @@ public enum FilingSurvey {
             guard readableExtensions.contains(ext) else { continue }
             guard isInScope(path, region: region) else { continue }
             // A file that only moved is already accounted for: its tokens travel with it.
-            if relocated[path] != nil { continue }
-            if let known = corpus?.documents[path], known.size == stamp.size, known.modified == stamp.modified {
+            if let before = relocated[path], let doc = corpus?.documents[before],
+               !readsAgain(before, doc) { continue }
+            if let known = corpus?.documents[path], known.size == stamp.size, known.modified == stamp.modified,
+               !readsAgain(path, known) {
                 continue
             }
             out.append(path)
         }
         return FilingEngine.shallowestFirst(out, then: <)
+    }
+
+    /// Whether an unchanged document is read again because an older reader left it blank and
+    /// today's may not: a PDF recorded blank before ``FilingCorpusDocument/garbledLayerReader``,
+    /// whose text layer may be glyph soup that OCR now reads (``isGarbled(_:)``). All 50 live
+    /// PG&E statements on his tree sat in the corpus that way, so their folders learned nothing.
+    ///
+    /// Once: the read stamps today's reader, blank or not. Most such entries are scans with no
+    /// layer at all, which cost one PDFKit open each and stay blank; a garbled one costs an OCR of
+    /// page 1. Never anything with tokens (that reader read it), and never a type other than PDF:
+    /// images were OCR'd already, and Office files can't be read here at all, so their tokens are
+    /// the offline builder's to keep (``readableExtensions``).
+    static func readsAgain(_ path: String, _ doc: FilingCorpusDocument) -> Bool {
+        doc.isBlank && doc.reader < FilingCorpusDocument.garbledLayerReader
+            && (path as NSString).pathExtension.lowercased() == "pdf"
     }
 
     /// New path → the corpus path whose tokens belong to it, for documents that only moved, the most
