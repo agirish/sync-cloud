@@ -161,6 +161,18 @@ one monthly limit ($25 by default).
   <img src="docs/assets/screenshots/edit-pdf.png" alt="Filling in and signing a PDF in Edit" width="900">
 </p>
 
+### 🔐 Vault
+A locked panel over the window (**⌘U**, or the lock in the toolbar) for the numbers you get asked
+for: a passport number, a member ID, a loan number.
+- **Sealed on this Mac**: one encrypted file, its key in your login keychain. Nothing in it is sent
+  to Claude or written to the log.
+- **Touch ID or your Mac password** to show or copy a number in full. The list itself only ever
+  shows a name and the last four characters.
+- **Built for a phone call**: type to search, Return to copy, and **Large Type** to read a number
+  out in groups of four. A copy clears from the clipboard after a minute.
+- **Locks itself** when it closes, after two idle minutes, and when the Mac sleeps. **Settings ▸
+  Vault** changes when it asks, or turns the lock off after one more Touch ID.
+
 ### 🧭 Guided setup
 A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask
 about you and your household with your own folder names in front of you. Nothing is saved until you press

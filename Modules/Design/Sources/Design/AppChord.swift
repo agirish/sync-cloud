@@ -76,6 +76,9 @@ public extension AppChord {
     /// also shows the chord where people look. Free, not reserved by macOS, and no ⌥, per the
     /// invariant `AppChordTests` guards.
     static let commandPalette = AppChord("k", .command)
+    /// ⌘U, the Vault. Free here, not one of macOS's reserved equivalents, and not a key the field
+    /// editor claims: plain text fields have no underline to toggle. A menu item, for ⌘K's reason.
+    static let vault = AppChord("u", .command)
 
     // View ▸ Text Size: the whole app's type, stepped from the keyboard.
     //
@@ -305,7 +308,7 @@ public extension AppChord {
     /// left out. `workspace(_:)` is excluded: a family, which the reference lists as the range
     /// `⌘ 1 – ⌘ N`, pinned by its own test.
     static let registry: [AppChord] = [
-        settings, infoInspector, askClaude, activityLog, shortcutsReference, commandPalette,
+        settings, infoInspector, askClaude, activityLog, shortcutsReference, commandPalette, vault,
         selectAll, cut, copy, paste,
         findInPane, paneBack, paneForward, rescan, newFolder,
         saveDocument, newTextFile, printDocument, openInEditor,

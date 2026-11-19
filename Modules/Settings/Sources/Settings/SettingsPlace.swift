@@ -121,6 +121,7 @@ public struct SettingsPlace: Hashable, Sendable {
     // paged tab without saying which page.
     static let general = SettingsPlace(SettingsView.SettingsTab.general)
     static let advanced = SettingsPlace(SettingsView.SettingsTab.advanced)
+    static let vault = SettingsPlace(SettingsView.SettingsTab.vault)
     static let look = SettingsPlace(SettingsSubTab.look)
     static let textAndSpacing = SettingsPlace(SettingsSubTab.textAndSpacing)
     static let cloudProviders = SettingsPlace(SettingsSubTab.cloudProviders)

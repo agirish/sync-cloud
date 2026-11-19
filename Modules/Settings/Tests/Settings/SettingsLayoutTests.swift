@@ -233,6 +233,7 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         // Non-nil closures, or sections go unmeasured: the setup, reset, rules and help buttons are
         // drawn only when their closure is there.
         [(SettingsPlace(.general), AnyView(GeneralSettingsTab().environmentObject(settings))),
+         (SettingsPlace(.vault), AnyView(VaultSettingsTab())),
          (SettingsPlace(.look), AnyView(AppearanceSettingsTab())),
          (SettingsPlace(.textAndSpacing), AnyView(ReadabilitySettingsTab())),
          (SettingsPlace(.panes), AnyView(BrowseSettingsTab(page: .panes, onCustomizePaneBar: {},
@@ -452,13 +453,18 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
 
     /// The rail at the window's content floor (`windowFloor`), its real worst case. Asserted as the
     /// exact list of sizes that fit, so a change either way fails and the list is updated.
+    ///
+    /// Every size until the Vault's row made ten tabs. Since then the two enlarged sizes overrun
+    /// at the floor and the rail scrolls there (`.basedOnSize`), as it already did in a smaller
+    /// host (`theRailIsWhatTheFloorSizedSheetRunsOutOf`). On the 1280×800 display the rail is
+    /// budgeted against, every size still fits (`theRailFitsItsOpening`).
     @MainActor
-    @Test func theRailFitsTheWindowFloorAtEveryTextSize() async throws {
+    @Test func theRailFitsTheWindowFloorUpToTheDefaultTextSize() async throws {
         let fitting = FontSize.allCases.filter {
             tabListMargin(at: $0.scale, available: Self.windowFloor) >= 0
         }
 
-        #expect(fitting == FontSize.allCases,
+        #expect(fitting == FontSize.allCases.filter { $0.percent <= 100 },
                 """
                 At the window's own floor (\(Self.windowFloor.width)×\(Self.windowFloor.height)) \
                 the tab list fits at \(fitting.map { "\($0.percent)%" }) — the boundary recorded on \

@@ -820,7 +820,23 @@ enum HelpBook {
                     .paragraph("Setup asks for the list and proposes what a walk of your folders found, but nothing is ever locked in: a name can be added, changed or removed here at any time, and ⌘K’s People rows gather everything belonging to whoever is on it."),
                     .tip("Nothing here leaves your Mac, and no document text is kept — only the names you add. A name left off costs nothing but attribution; those documents are sorted by their content instead."),
                 ],
-                related: ["setup", "file-loose-items", "command-palette"]
+                related: ["setup", "file-loose-items", "command-palette", "vault"]
+            )),
+            Topic(id: "vault", title: "The Vault", systemImage: "lock.doc", article: Article(
+                intro: "The Vault keeps the numbers you get asked for — a passport number, a member ID, a loan number — sealed on this Mac and shown only once you prove it is you. Open it with the lock in the toolbar, View ▸ Vault, or ⌘U.",
+                blocks: [
+                    .bullets([
+                        "Add a number with +: what it is, the number, whose it is, and a note such as the issuer. The people are the ones on the People page of Settings ▸ Organize; Household is for a number nobody in particular owns.",
+                        "The list shows each number’s name and its last four characters, never the whole number. The whole number appears beside the list, for the row you chose.",
+                        "Showing or copying a number asks for Touch ID or your Mac password. Opening the Vault asks at once, so one touch opens everything until it locks again.",
+                        "Type in the search field to narrow the list by name or note, move with the arrow keys, and press Return to copy the chosen number.",
+                        "A copied number is marked as a secret for clipboard managers and cleared from the clipboard after a minute.",
+                        "Large Type draws the number big, in groups of four, for reading it out on a call.",
+                    ]),
+                    .paragraph("The Vault locks when it closes, after two idle minutes, and whenever the Mac sleeps or its screen locks. Settings ▸ Vault changes when it asks and when it locks again, and can turn the lock off; turning it off takes Touch ID or your password first."),
+                    .tip("Nothing in the Vault is sent to Claude or written to the log, and search never looks at the numbers themselves. They are kept in one encrypted file whose key is in your login keychain, so the file alone cannot be read anywhere else."),
+                ],
+                related: ["people", "ask-claude-privacy"]
             )),
             Topic(id: "sync-preferences", title: "Copying and comparing preferences", systemImage: "slider.horizontal.3", article: Article(
                 intro: "Control how SyncCloud decides and confirms. Each setting applies to the very next operation.",

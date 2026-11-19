@@ -82,6 +82,8 @@ public struct SettingsView: View {
         case edit
         /// Shown as "Ask Claude": the chat, its privacy, the key and what Claude costs.
         case intelligence
+        /// The Vault's lock. The numbers are in the panel behind ⌘U, never here.
+        case vault
         case advanced
 
         /// The human-readable tab name shown in the rail and as the dim subtitle on a search
@@ -101,6 +103,7 @@ public struct SettingsView: View {
             // One tab for everything Claude (TE332 JT). `SettingsSearchIndex` carries "API key"
             // and "Anthropic" here.
             case .intelligence: return "Ask Claude"
+            case .vault: return "Vault"
             case .advanced: return "Advanced"
             }
         }
@@ -119,6 +122,8 @@ public struct SettingsView: View {
             case .filing: return "folder.badge.gearshape"
             case .edit: return "square.and.pencil"
             case .intelligence: return "sparkles"
+            // The toolbar button's glyph: the row and the button reach the same feature.
+            case .vault: return "lock.doc"
             case .advanced: return "wrench.and.screwdriver"
             }
         }
@@ -171,7 +176,7 @@ public struct SettingsView: View {
             [.general, .appearance],
             [.providers],
             [.browse, .sync, .filing, .edit],
-            [.intelligence, .advanced],
+            [.intelligence, .vault, .advanced],
         ]
     }
 
@@ -410,6 +415,8 @@ public struct SettingsView: View {
             EditSettingsTab(page: subTab ?? .text, savedSignatures: savedSignatures)
         case .intelligence:
             IntelligenceSettingsTab(page: subTab ?? .claudeGeneral)
+        case .vault:
+            VaultSettingsTab()
         case .advanced:
             AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings,
                                 onRunSetup: onRunSetup, onResetSetup: onResetSetup,
@@ -836,6 +843,14 @@ enum SettingsSearchIndex {
               keywords: ["ask claude spend", "chat cost", "spent", "usage", "cost"]),
         .init(at: .keyAndSpending, title: "Of that, Organize",
               keywords: ["organize spend", "refine spend", "refine cost", "try another", "refine names", "filing cost"]),
+        // Vault
+        .init(at: .vault, title: "Require Touch ID or your Mac password",
+              keywords: ["vault", "touch id", "password", "lock", "unlock", "fingerprint", "secure",
+                         "passport", "numbers", "turn off lock"]),
+        .init(at: .vault, title: "When to ask",
+              keywords: ["vault", "every number", "when vault opens", "ask each time", "touch id"]),
+        .init(at: .vault, title: "Lock again",
+              keywords: ["vault", "relock", "timeout", "idle", "two minutes", "ten minutes", "auto lock"]),
         // Advanced
         .init(at: .advanced, title: "Run Setup Again",
               keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",

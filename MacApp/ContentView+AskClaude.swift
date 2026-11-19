@@ -1235,6 +1235,9 @@ extension ContentView {
         if editorDivergenceReview != nil { return "a question about an edited file is open" }
         if showSettings { return "Settings is open" }
         if showHelp { return "Help is open" }
+        // Claude is told that much and no more: the column pauses under the panel, so nothing in
+        // the Vault is ever part of what a question describes.
+        if showVault { return "the Vault is open" }
         if showSetup || shouldAutoShowSetup { return "setup is open" }
         if syncManager.currentError != nil { return "an error message is open" }
         // The column is in the window these overlays cover: open, it pauses under them, and closed,

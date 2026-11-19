@@ -519,6 +519,24 @@ public enum SettingsCatalog {
         e("intelligence.savedSuggestionsClear", .suggestions, "Saved suggestions", indexed: true, others: ["Clear…"],
           control: .button("Clear…"), tier: .asksTwice, raises: .always),
 
+        // MARK: Vault
+        // `.notInChat`, all three: the lock is the user's own, and Claude neither reads nor proposes it.
+        // Turning it off is the less safe way, and the switch itself asks for Touch ID first
+        // (`VaultSettingsTab`).
+        e("vault.requiresAuthentication", .vault, "Require Touch ID or your Mac password", indexed: true,
+          storage: app(VaultLockSettings.requiresAuthenticationKey, "VaultLockSettings.requiresAuthenticationKey", "true"),
+          control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
+        e("vault.ask", .vault, "When to ask", indexed: true,
+          storage: app(VaultLockSettings.askKey, "VaultLockSettings.askKey", ".whenOpened"),
+          control: .menu(VaultLockSettings.Ask.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
+          default: .string(VaultLockSettings.Ask.whenOpened.rawValue), tier: .notInChat,
+          dependsOn: ["vault.requiresAuthentication"]),
+        e("vault.relock", .vault, "Lock again", indexed: true,
+          storage: app(VaultLockSettings.relockKey, "VaultLockSettings.relockKey", ".afterTwoMinutes"),
+          control: .menu(VaultLockSettings.Relock.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
+          default: .string(VaultLockSettings.Relock.afterTwoMinutes.rawValue), tier: .notInChat,
+          dependsOn: ["vault.requiresAuthentication"]),
+
         // MARK: Advanced
         e("advanced.resetSetup", .advanced, "Reset Setup", indexed: true, others: ["Reset Setup…"],
           control: .button("Reset Setup…"), tier: .asksTwice),

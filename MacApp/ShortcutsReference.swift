@@ -72,6 +72,7 @@ enum ShortcutsReference {
             // that has the keyboard (`PDFZoomVerbs`), so the row names both, as ⌘I's does.
             Item(keys: "⌘ + / ⌘ − / ⌘ 0", action: "Bigger / smaller / default text size, or zoom a focused PDF"),
             Item(keys: "⌘ ,", action: "Open Settings"),
+            Item(keys: "⌘ U", action: "Open or close the Vault"),
             Item(keys: "⌘ /", action: "Show this shortcuts reference"),
             Item(keys: "⌘ ?", action: "Open SyncCloud Help"),
             // One row for two undo stacks, since the editor's text view keeps its own. A second

@@ -90,25 +90,21 @@ import FileExplorer
         }
     }
 
-    /// What the floor lands on, per text size: the bar keeps its labels at every size, and the
-    /// pill spells itself out at the smaller sizes and drops its word at the two larger ones.
-    /// Erring toward shedding is the safe direction, since an over-optimistic row folds behind the
-    /// chevron; `reservedChrome` is deliberately generous and unmeasured.
-    @Test func testTheFloorKeepsItsLabelsAtEveryTextSize() {
-        // Every size keeps the words at the narrowest window. The tightest margin is at Largest,
-        // and it is what another label or a wider pill would spend first.
+    /// What the floor lands on, per text size. The ⌘K pill drops its word at every size, and the
+    /// bar keeps its labels at Small and Default and drops them at Large and Largest. That is the
+    /// cost of the Vault's toolbar button (see `reservedChrome`). Erring toward shedding is the
+    /// safe direction, since an over-optimistic row folds behind the chevron.
+    @Test func testWhatTheFloorKeepsAtEachTextSize() {
+        // Asserted per size, because a flat answer could be right by accident and hide a split.
         for size in FontSize.allCases {
             let resolved = styles(contentWidth: Self.windowFloor,
                                   labelWidths: labelWidths(scale: size.scale), scale: size.scale)
-            #expect(resolved.workspace == .full,
-                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.percent)% — the narrowest window is glyphs again at this size")
-            // The pill splits instead: spelled out at Small and Default, compact at the two larger
-            // sizes. The cheap word goes first and the navigation labels never go. Asserted per
-            // size, because a flat answer could be right by accident and hide a split.
-            let expectedPill: CommandPaletteBarStyle =
-                (size == .large || size == .extraLarge) ? .compact : .full
-            #expect(resolved.search == expectedPill,
-                    "at the floor the ⌘K pill is \(resolved.search) at \(size.percent)%, expected \(expectedPill)")
+            let expectedBar: WorkspaceBarStyle =
+                (size == .large || size == .extraLarge) ? .iconOnly : .full
+            #expect(resolved.workspace == expectedBar,
+                    "at the \(Self.windowFloor)pt floor the bar is \(resolved.workspace) at \(size.percent)%, expected \(expectedBar)")
+            #expect(resolved.search == .compact,
+                    "at the floor the ⌘K pill is \(resolved.search) at \(size.percent)%, expected compact")
         }
     }
 
@@ -134,24 +130,21 @@ import FileExplorer
         }
     }
 
-    /// The shipping bar never reaches the icon-only rung (field closed) at any legal width or text
-    /// size, yet the rung is still live: it answers `.iconOnly` for a wider bar, and one more
-    /// segment would bring it back into range.
-    @Test func testTheIconOnlyRungIsOutOfTheShippingBarsReachButStillLive() {
-        // The shipping bar, at the floor, at the largest text the app offers: the hardest case.
-        // It keeps its labels.
-        #expect(styles(contentWidth: Self.windowFloor,
-                       labelWidths: labelWidths(scale: FontSize.extraLarge.scale),
-                       scale: FontSize.extraLarge.scale).workspace == .full,
-                "the shipping four-segment bar sheds its labels at the floor — the rung is back in reach, so this test and the floor test above now disagree and one of them is describing an app that no longer exists")
-
-        // …and no width in the app's legal range reaches it either. Swept from the floor, because
-        // narrower is not a window a user can make.
+    /// With the field closed, the shipping bar reaches the icon-only rung only in a corner: Large
+    /// or Largest text in a window within a few dozen points of the floor. At Small and Default it
+    /// never does, at any legal width.
+    @Test func testTheIconOnlyRungIsACornerOfTheRange() {
         for size in FontSize.allCases {
             let widths = labelWidths(scale: size.scale)
+            let large = size == .large || size == .extraLarge
             for width in stride(from: Self.windowFloor, through: 2400.0, by: 5.0) {
-                #expect(styles(contentWidth: width, labelWidths: widths, scale: size.scale).workspace == .full,
-                        "at \(width)pt and \(size.percent)% the shipping bar is glyphs — the rung is reachable again")
+                let bar = styles(contentWidth: width, labelWidths: widths, scale: size.scale).workspace
+                // Narrower is not a window a user can make, so the sweep starts at the floor. The
+                // corner ends by 860pt; a wider one is a narrow window losing its navigation.
+                if !large || width >= 860 {
+                    #expect(bar == .full,
+                            "at \(width)pt and \(size.percent)% the shipping bar is glyphs")
+                }
             }
         }
 
@@ -316,17 +309,21 @@ import FileExplorer
         #expect(styles(contentWidth: contentWidth + 1, labelWidths: widths, open: true).workspace == .full)
     }
 
-    /// At the window's floor the field is still above its own floor at every text size, so the
-    /// branch that opens it under 320pt is defensive; the field floor's real job is deciding when
-    /// the labels shed.
-    @Test func testTheNarrowestWindowStillClearsTheFieldsFloor() throws {
+    /// At the window's floor the open field gets everything the glyph bar leaves. That falls short
+    /// of its own 320pt floor by less than the Vault button's seat, and the short invitation absorbs
+    /// the difference (`testTheNarrowestWindowShortensTheInvitation`).
+    @Test func testTheNarrowestWindowOpensTheFieldAsWideAsTheRowAllows() throws {
         for size in FontSize.allCases {
-            let resolved = styles(contentWidth: Self.windowFloor,
-                                  labelWidths: labelWidths(scale: size.scale), scale: size.scale, open: true)
+            let widths = labelWidths(scale: size.scale)
+            let resolved = styles(contentWidth: Self.windowFloor, labelWidths: widths,
+                                  scale: size.scale, open: true)
             let width = try #require(resolved.field?.width)
             #expect(resolved.workspace == .iconOnly)
-            #expect(width >= GoToFieldMetrics.floorWidth,
-                    "at the window floor / \(size.percent)% the field opens at \(width), under its own floor")
+            #expect(width == Self.windowFloor - WorkspaceBarMetrics.reservedChrome
+                        - WorkspaceBarMetrics.iconOnlyWidth(segmentCount: widths.count),
+                    "the shed did not hand the field all of the row at \(size.percent)%")
+            #expect(width > GoToFieldMetrics.floorWidth - 44,
+                    "at the window floor / \(size.percent)% the field opens at \(width), more than a button's seat under its floor")
         }
     }
 

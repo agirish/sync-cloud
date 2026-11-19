@@ -14,6 +14,7 @@ import Foundation
         #expect(AppChord.activityLog.display == "⌘L")
         #expect(AppChord.shortcutsReference.display == "⌘/")
         #expect(AppChord.commandPalette.display == "⌘K")
+        #expect(AppChord.vault.display == "⌘U")
         #expect(AppChord.selectAll.display == "⌘A")
         #expect(AppChord.cut.display == "⌘X")
         #expect(AppChord.copy.display == "⌘C")

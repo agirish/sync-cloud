@@ -717,6 +717,7 @@ extension ContentView {
         case .activityLog:
             ActivityCenter.shared.tab = .log
             openWindow(id: ActivityCenter.windowID)
+        case .vault: showVault = true
         }
     }
 }

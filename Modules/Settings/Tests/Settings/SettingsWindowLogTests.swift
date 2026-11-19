@@ -97,7 +97,7 @@ import Testing
     @Test func everyChangeableEntryLogsInTheWindowOrHasAnOwnerThatDoes() throws {
         let sources = try ["SettingsView.swift", "GeneralRows.swift", "CloudKeyRow.swift", "NotesForClaudeSection.swift",
                            "AskClaudeSuggestionsSection.swift", "AskClaudeIntroSection.swift", "AskClaudePastChatsSettings.swift", "FolderSurveysSection.swift",
-                           "ProviderOptionRows.swift"]
+                           "ProviderOptionRows.swift", "VaultSettings.swift"]
             .map { try settingsSource($0, minLength: 1) }.joined(separator: "\n")
         var missing: [String] = []
         for entry in SettingsCatalog.all where Self.changes(entry) && !Self.loggedByOwner.keys.contains(entry.id) {

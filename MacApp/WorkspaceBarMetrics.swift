@@ -5,10 +5,11 @@ import FileExplorer
 
 /// Whether the workspace bar can afford to spell its segments out.
 ///
-/// Measured through `styles` beside a compact ⌘K pill, the four labels need 683.8pt of content
-/// width at the default text size (741.6 at Largest), under the window's 804pt minimum width
-/// (`ContentView`), so the bar keeps its labels at every text size at the narrowest window. The
-/// margin to watch is Largest's; a fifth segment would have to fit inside it.
+/// Measured through `styles` beside a compact ⌘K pill, the four labels need 771.8pt of content
+/// width at the default text size (754.8 at Small, 813.1 at Large, 829.6 at Largest). The window's
+/// minimum width is 804pt (`ContentView`), so at the narrowest window the bar keeps its labels at
+/// Small and Default and shows glyphs at the two larger sizes. The margin to watch is Default's; a
+/// fifth segment would have to fit inside it.
 ///
 /// A toolbar that does not fit does not wrap or truncate: macOS folds the overflow behind a
 /// chevron, and the only control for switching workspace disappears.
@@ -63,13 +64,19 @@ enum WorkspaceBarMetrics {
     // one workspace that changes a file's contents, belongs to no group.
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
-    /// before the trailing group, the utility pill (Settings, Activity Log, Info), and Ask Claude's
+    /// before the trailing group, the utility pill (Vault, Settings, Activity Log), and Ask Claude's
     /// button and its gap (44, a generous estimate). Generous on purpose: too cautious costs a
     /// label, too optimistic costs the whole control behind an overflow chevron.
     ///
+    /// 176 is the pill's three glyph buttons at 44, plus 44 more. Charged at 132, the Vault's
+    /// arrival looked free on paper, because that figure was set when Info sat in the pill. On the
+    /// installed app at the 804pt floor, though, Activity and Ask Claude folded behind the
+    /// chevron. So the floor pays for the Vault instead: the ⌘K pill drops its word there at
+    /// every text size, and at Large and Largest the workspace bar drops its labels.
+    ///
     /// The ⌘K pill is not in here: its width depends on its own rung, so it is charged per rung in
     /// ``styles(contentWidth:labelWidths:searchLabelWidth:searchKeycapWidth:openField:)``.
-    static let reservedChrome: CGFloat = 78 + 24 + 132 + 44
+    static let reservedChrome: CGFloat = 78 + 24 + 176 + 44
 
     /// Width of the bar with every label spelled out.
     ///

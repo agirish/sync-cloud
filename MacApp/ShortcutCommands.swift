@@ -2748,6 +2748,9 @@ struct InspectorAndAskClaudeCommands: View {
     var body: some View {
         ToggleInspectorCommand()
         ToggleAskClaudeCommand()
+        // The third panel the window can show. Here, not a child of its own: the View menu's
+        // builder is at its ten.
+        ToggleVaultCommand()
     }
 }
 

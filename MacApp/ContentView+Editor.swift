@@ -1066,6 +1066,7 @@ extension ContentView {
         var closed: [String] = []
         if showSettings { showSettings = false; closed.append("Settings") }
         if showHelp { showHelp = false; closed.append("Help") }
+        if showVault { showVault = false; closed.append("the Vault") }
         if compareDifferencePair != nil { compareDifferencePair = nil; closed.append("the side-by-side comparison") }
         if compareFilePair != nil { compareFilePair = nil; closed.append("Compare Copies") }
         if !closed.isEmpty {

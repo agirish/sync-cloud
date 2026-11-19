@@ -16028,3 +16028,20 @@ alone and would port as they are.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The unmasked excerpt | RECORDED — not owed |
+
+## The Vault — main only, recorded, not owed
+
+2026-11-18, for v7.2. A new panel over the window (View ▸ Vault, ⌘U, the lock in the toolbar) that keeps
+the numbers a household is asked for, typed in by hand: a passport number, a member ID, a loan
+number. Each is sealed in one AES-GCM file, `~/Library/Application Support/SyncCloud/vault.sealed`
+(`VaultStore`, `VaultFile`), under a key in the login Keychain (service
+`com.synccloud.vault-key`, `VaultKeychain`). Showing or copying a number in full takes Touch ID
+or the login password (`VaultDeviceOwnerProof`, `VaultLock`), a copy is concealed and cleared
+after a minute, and nothing in the Vault reaches Claude or a log. Settings ▸ Vault holds the lock:
+`vaultRequiresAuthentication`, `vaultAsk`, `vaultRelock`. No maintenance line has any of it;
+it is the first place the app keeps a number in full, so it is a feature to build, not a fix to
+carry.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

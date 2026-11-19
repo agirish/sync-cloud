@@ -90,6 +90,8 @@ public enum PaletteAction: String, CaseIterable, Sendable {
     case settings
     case shortcuts
     case activityLog
+    /// View ▸ Vault: the panel, not a number in it. What is inside never reaches the palette.
+    case vault
 
     public var title: String {
         switch self {
@@ -103,6 +105,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .settings: return "Settings…"
         case .shortcuts: return "Keyboard Shortcuts"
         case .activityLog: return "Activity Log"
+        case .vault: return "Vault"
         }
     }
 
@@ -116,6 +119,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .settings: return "gearshape"
         case .shortcuts: return "keyboard"
         case .activityLog: return "list.bullet.rectangle"
+        case .vault: return "lock.doc"
         }
     }
 
@@ -132,6 +136,7 @@ public enum PaletteAction: String, CaseIterable, Sendable {
         case .settings: return ["preferences", "options"]
         case .shortcuts: return ["keys", "chords", "help"]
         case .activityLog: return ["log", "history"]
+        case .vault: return ["numbers", "passport", "member id", "account number", "locked", "secure"]
         }
     }
 }

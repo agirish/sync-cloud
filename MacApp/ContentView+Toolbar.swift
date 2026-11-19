@@ -392,6 +392,20 @@ extension ContentView {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            // The Vault: a panel over the window, like Settings beside it. Tinted while it is up,
+            // as the Sidebar and Ask Claude buttons are. Refused during a destination pick at the
+            // latch (`onChange(of: showVault)`), so the button is dimmed then too.
+            Button(action: { showVault.toggle() }) {
+                Label("Vault", systemImage: "lock.doc")
+                    .foregroundStyle(showVault ? AnyShapeStyle(glassHue.accentColor)
+                                               : AnyShapeStyle(.primary))
+                    .shortcutKeycap(AppChord.vault.display)
+            }
+            .help(ShortcutHint.tooltip(showVault ? "Close the Vault" : "Open the Vault", AppChord.vault.display))
+            .accessibilityLabel("Vault")
+            .accessibilityAddTraits(showVault ? .isSelected : [])
+            .disabled(pendingDestination != nil)
+
             Button(action: { showSettings = true }) {
                 Label("Settings", systemImage: "gear")
                     // On the label, not the Button: a toolbar item's own bounds are AppKit's, and an

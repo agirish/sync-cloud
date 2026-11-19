@@ -29,6 +29,13 @@ struct ContentView: View {
     /// The topic Help opens on when a surface pointed here. Cleared on close, so the next ⌘? opens
     /// the book at its front.
     @State private var helpTopic: String?
+    /// Drives the in-window Vault overlay (View ▸ Vault, ⌘U, the toolbar's lock). Owned here, not
+    /// by the App: its menu item reaches it through a focused value, as Ask Claude's does
+    /// (``VaultHost``). Not `private`: the toolbar and ⌘K are in extensions of this view.
+    @State var showVault = false
+    /// The Vault's own state: what is in it and whether it is open. It reads nothing from disk or
+    /// the Keychain until the panel first appears.
+    @StateObject var vault = VaultModel.live()
 
     /// What the last plan found, and in which tree.
     ///
@@ -1218,6 +1225,10 @@ struct ContentView: View {
                 settingsOverlay
             } else if showHelp {
                 helpOverlay
+            } else if showVault {
+                // After Settings and Help, which close it as they open (`VaultHost`, and the two
+                // observers below), so the order only matters for the frame in between.
+                vaultOverlay
             } else if showSetup || shouldAutoShowSetup {
                 // Wait for provider discovery to finish before showing the form. Its Sources step
                 // lists what was discovered, which is empty at first render (discovery runs async
@@ -1248,6 +1259,9 @@ struct ContentView: View {
         .designAnimation(.easeOut(duration: 0.15), value: editorDivergenceReview)
         .designAnimation(.easeOut(duration: 0.15), value: compareFilePair)
         .designAnimation(.easeOut(duration: 0.15), value: compareDifferencePair)
+        .designAnimation(.easeOut(duration: 0.15), value: showVault)
+        // ⌘U's binding, the latch that refuses it mid-pick, and locking when the Mac does.
+        .modifier(vaultHost)
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: showSetup)
@@ -1307,6 +1321,7 @@ struct ContentView: View {
             settingsTabBeforeDeepLink = nil
             settingsPagesBeforeDeepLink = nil
             showHelp = false
+            showVault = false
         }
         .onChange(of: showHelp) { _, isOpen in
             // One observer rather than a clear at each dismissal: Help closes from four places (its
@@ -1314,7 +1329,8 @@ struct ContentView: View {
             // each must clear `helpTopic` or the next ⌘? opens on a topic instead of the front of
             // the book.
             guard isOpen else { helpTopic = nil; return }
-            guard pendingDestination != nil else { return }
+            // An honoured open puts the Vault away, as Settings does.
+            guard pendingDestination != nil else { showVault = false; return }
             showHelp = false
         }
         // Setup is the third member of the same chain. A destination pick answers something the
@@ -2493,6 +2509,35 @@ struct ContentView: View {
             openAt: helpTopic ?? HelpBook.topicID(for: selectedWorkspace, pdfIsOpen: editorPDF.path != nil),
             onClose: { showHelp = false; helpTopic = nil }
         )
+    }
+
+    /// The in-window Vault overlay (View ▸ Vault / ⌘U). `VaultOverlay` owns the backdrop and the
+    /// card; this hands it the surface style, the household, and the two ways out.
+    @ViewBuilder
+    private var vaultOverlay: some View {
+        VaultOverlay(
+            model: vault,
+            people: syncManager.filingPeopleStore?.people ?? [],
+            glassHue: glassHue,
+            glassLevel: glassLevel,
+            surfaceTint: surfaceTint,
+            onClose: { showVault = false },
+            // Settings and the Vault are members of one chain, so the panel closes on the way
+            // rather than staying behind the sheet, the hand-off Settings makes to Help.
+            onOpenSettings: {
+                showVault = false
+                openSettings(on: SettingsPlace(.vault))
+            }
+        )
+    }
+
+    /// ⌘U's binding and the Vault's latch, as one modifier (see ``VaultHost``).
+    private var vaultHost: VaultHost {
+        VaultHost(isShown: $showVault, suspended: pendingDestination != nil, model: vault,
+                  onOpened: {
+                      showSettings = false
+                      showHelp = false
+                  })
     }
 
     /// Whether the form opens itself, given everything this window knows.

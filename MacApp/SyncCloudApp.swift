@@ -691,7 +691,7 @@ struct SyncCloudApp: App {
                 PaneChromeCommands()            // ⇧⌘T, and Status Bar with no chord
                 ToggleHiddenFilesCommand()      // ⇧⌘.
                 // With Ask Claude after it, as one child. See the type.
-                InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J
+                InspectorAndAskClaudeCommands() // ⌘I (and Italic in Edit's document), ⌘J, ⌘U
                 ToggleDifferencesListCommand()  // ⌘D
                 FoldAllDifferencesCommand()     // ⇧⌘F
                 ToggleFilingScorecardCommand()  // no chord
