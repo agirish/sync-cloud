@@ -66,6 +66,19 @@ public enum AccountPlacement {
         // be chosen: it stops above the first year level.
         var segments: [String] = []
         for seg in newest.folder.split(separator: "/").map(String.init) {
+            // A financial year (`2017-2018`, Apr–Mar in India): the span the statement falls in,
+            // starting in the month the account's own files start their spans with.
+            if let span = fiscalSpan(seg) {
+                guard let period else {
+                    return Placement(folder: segments.joined(separator: "/"),
+                                     newSegments: resolve(segments.joined(separator: "/"), in: node, name: nil).newSegments,
+                                     name: nil, yearUnknown: true)
+                }
+                let start = fiscalStartMonth(members)
+                let first = period.month >= start ? period.year : period.year - 1
+                segments.append(span.name(first))
+                continue
+            }
             // A year inside a longer name (`Statements 2025`, `Tax Year 2025`) moves with it too.
             if seg.count > 4, FilingPeriod.monthSlot(ofFolderNamed: seg) == nil,
                let r = seg.range(of: #"\b(19|20)\d\d\b"#, options: .regularExpression) {
@@ -148,6 +161,36 @@ public enum AccountPlacement {
         if let d = end.day, d <= 5 { last -= 1 }
         guard last > first, first / 12 == last / 12, last / 12 == end.year else { return nil }
         return (first % 12 + 1, last % 12 + 1)
+    }
+
+    /// A folder named for a span of two consecutive years (`2017-2018`, `2017-18`): a financial
+    /// year. `name` spells another span the same way.
+    struct FiscalSpan { let name: (Int) -> String }
+    static func fiscalSpan(_ seg: String) -> FiscalSpan? {
+        guard let m = seg.range(of: #"^(19|20)\d\d\s*[-–]\s*(\d{2}|\d{4})$"#, options: .regularExpression) else { return nil }
+        let s = String(seg[m])
+        let parts = s.split(whereSeparator: { $0 == "-" || $0 == "–" }).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2, let y1 = Int(parts[0]), let y2 = Int(parts[1]) else { return nil }
+        let short = parts[1].count == 2
+        guard (short ? y2 == (y1 + 1) % 100 : y2 == y1 + 1) else { return nil }
+        let sep = s.contains("–") ? "–" : "-"
+        let spaced = s.contains(" ")
+        return FiscalSpan { first in
+            let second = short ? String(format: "%02d", (first + 1) % 100) : String(first + 1)
+            return "\(first)" + (spaced ? " \(sep) " : sep) + second
+        }
+    }
+
+    /// The month an account's financial years start: the earliest month its files in a span
+    /// folder carry in that span's first year. April, India's, when none says.
+    static func fiscalStartMonth(_ members: [StatementFamily.Member]) -> Int {
+        var months: [Int] = []
+        for m in members {
+            for seg in m.folder.split(separator: "/").map(String.init) where fiscalSpan(seg) != nil {
+                if let y1 = Int(seg.prefix(4)), m.period.year == y1 { months.append(m.period.month) }
+            }
+        }
+        return months.min() ?? 4
     }
 
     /// A folder path, relative to the account, running through a tax folder (`Tax`, `Tax Forms`).

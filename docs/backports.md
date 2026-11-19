@@ -15957,3 +15957,16 @@ carries (measured in the account-folders section above).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A statement in a financial-year folder takes the span it falls in — main only
+
+2026-11-18, for v7.2. His Finance/IN accounts file by Indian financial year (`2017-2018`, April to
+March). Placement swapped the first year in such a name for the statement's year, so a January 2018
+statement was offered `2018-2017`. A two-year span folder is now read as a financial year: the
+statement takes the span it falls in, starting in the month the account's own files start theirs
+(April when none says). It is in the account phase, which no maintenance line carries (measured
+in the account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

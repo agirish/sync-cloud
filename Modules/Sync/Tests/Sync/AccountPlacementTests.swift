@@ -156,6 +156,36 @@ import Foundation
     }
 }
 
+/// An account filed by financial year (`2017-2018`, Apr–Mar) takes the span its statement falls
+/// in, never a span ending the year it starts.
+@Suite struct FiscalYearFolderTests {
+    typealias P = DocumentFacts.Period
+    private func file(_ p: String) -> FileNode { FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: false) }
+    private func dir(_ p: String, _ c: [FileNode]) -> FileNode {
+        FileNode(id: "/D/" + p, name: (p as NSString).lastPathComponent, isDirectory: true, children: c)
+    }
+    private let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    @Test func aStatementGoesToTheSpanItFallsIn() {
+        let a = "Savings NRI"
+        // Apr 2016 – Mar 2017, numbered by position.
+        let span = [(4, 2016), (5, 2016), (6, 2016), (7, 2016), (8, 2016), (9, 2016), (10, 2016), (11, 2016),
+                    (12, 2016), (1, 2017), (2, 2017), (3, 2017)]
+        let files = span.enumerated().map { i, p in file(a + "/2016-2017/" + String(format: "%02d. ", i + 1) + months[p.0 - 1] + " \(p.1).pdf") }
+        let account = dir(a, [dir(a + "/2016-2017", files)])
+        func folder(_ y: Int, _ m: Int) -> String {
+            AccountPlacement.place(in: account, period: P(year: y, month: m, day: 15), taxForm: false, fileName: "x.pdf").folder
+        }
+        #expect(folder(2018, 1) == "2017-2018", "January belongs to the span that began the April before")
+        #expect(folder(2018, 3) == "2017-2018")
+        #expect(folder(2018, 4) == "2018-2019", "April starts the next")
+        #expect(folder(2016, 12) == "2016-2017")
+        #expect(AccountPlacement.fiscalStartMonth([]) == 4)
+        #expect(AccountPlacement.fiscalSpan("2010-11")?.name(2012) == "2012-13")
+        #expect(AccountPlacement.fiscalSpan("2010-2012") == nil, "two years apart is not one financial year")
+    }
+}
+
 /// The phase in a scan: a statement whose page prints its account's number leads with that account,
 /// at High, never in the unseen batch, and the model isn't asked about it.
 @MainActor
