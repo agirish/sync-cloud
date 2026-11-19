@@ -826,7 +826,7 @@ enum HelpBook {
                 intro: "The Vault keeps the numbers you get asked for — a passport number, a member ID, a loan number — sealed on this Mac and shown only once you prove it is you. Open it with the lock in the toolbar, View ▸ Vault, or ⌘U.",
                 blocks: [
                     .bullets([
-                        "Numbers are shown as cards by kind: Passports, US Visas, I-94 Records, USCIS Cases, Driver’s Licenses, Social Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, and Loans & Mortgage. The button beside the people switches to one list.",
+                        "Numbers are shown as cards by kind: Passports, US Visas, I-94 Records, USCIS Cases, Driver’s Licenses, Social Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, and Loans & Mortgage. The button beside the people switches to one list. Drag any edge or corner of the Vault to make it bigger; it keeps that size.",
                         "Add a number with +: what it is, the number, whose it is, its kind (which card it goes on), and a note such as the issuer. The people are the ones on the People page of Settings ▸ Organize; Household is for a number nobody in particular owns.",
                         "Each row shows whose a number is and its last four characters, never the whole number. The whole number appears beside the cards, for the row you chose, with its details: expiry, issuing country, validity and the like, each with its own Copy. A date copies as MM/DD/YYYY.",
                         "Showing or copying a number asks for Touch ID or your Mac password. Opening the Vault asks at once, so one touch opens everything until it locks again.",

@@ -14,10 +14,21 @@ enum VaultCardSize {
     static let margin: CGFloat = 48
     static let detailWidth: CGFloat = 330
 
-    static func fitted(within available: CGSize) -> CGSize {
-        ResizableCardSize.clamped(preferred, minimum: minimum,
-                                  within: CGSize(width: available.width - margin,
-                                                 height: available.height - margin))
+    /// The remembered size, as Compare and Help keep theirs: two keys, `0` for never resized.
+    static let widthDefaultsKey = "vaultOverlayWidth"
+    static let heightDefaultsKey = "vaultOverlayHeight"
+
+    /// What the window leaves for the card.
+    static func available(in window: CGSize) -> CGSize {
+        CGSize(width: window.width - margin, height: window.height - margin)
+    }
+
+    /// The size to draw at: the remembered one when there is one, else the preferred; always held
+    /// to the floor and to what the window can show, on every draw, since the window can shrink
+    /// between sessions.
+    static func fitted(within window: CGSize, stored: CGSize? = nil) -> CGSize {
+        let wanted = stored.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? preferred
+        return ResizableCardSize.clamped(wanted, minimum: minimum, within: available(in: window))
     }
 }
 
@@ -43,9 +54,18 @@ struct VaultOverlay: View {
     /// and the full name a document prints. Nil when People isn't available.
     let onAddPerson: (_ displayName: String, _ fullName: String) -> Person?
 
+    @AppStorage(VaultCardSize.widthDefaultsKey) private var storedWidth: Double = 0
+    @AppStorage(VaultCardSize.heightDefaultsKey) private var storedHeight: Double = 0
+    /// The live size while a grip is held, committed to defaults once, on release.
+    @State private var dragging: CGSize?
+
     var body: some View {
         GeometryReader { proxy in
-            let size = VaultCardSize.fitted(within: proxy.size)
+            // A drag measures from the committed size, never the live one, which would compound
+            // `ResizableCardSize.resized`'s doubling and run the card away from the pointer.
+            let committed = VaultCardSize.fitted(within: proxy.size,
+                                                 stored: CGSize(width: storedWidth, height: storedHeight))
+            let size = dragging ?? committed
             ZStack {
                 OverlayScrim(level: glassLevel)
                     .ignoresSafeArea()
@@ -62,6 +82,23 @@ struct VaultOverlay: View {
                     .overlayPanelShadow()
                     // Absorb clicks on the card so they don't fall through to the backdrop.
                     .contentShape(Rectangle())
+                    // Drag any edge or corner to resize; the size is remembered, as Compare's
+                    // and Help's are.
+                    .overlay {
+                        ResizableCardGrips(
+                            onDrag: { translation, grip in
+                                dragging = ResizableCardSize.resized(
+                                    from: committed, by: translation, grip: grip,
+                                    minimum: VaultCardSize.minimum, within: VaultCardSize.available(in: proxy.size))
+                            },
+                            onCommit: {
+                                if let dragging {
+                                    storedWidth = dragging.width
+                                    storedHeight = dragging.height
+                                }
+                                dragging = nil
+                            })
+                    }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
