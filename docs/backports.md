@@ -15903,3 +15903,16 @@ account-folders section above).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A statement covering several months is named for them, and three more period forms are read — main only
+
+2026-11-18, for v7.2. His rule: a statement covering two months or more is named `3. Jan-Mar 2020`.
+The account phase now keeps the period's start as well as its end (`DocumentFacts.periodStart`),
+reads `04-26-13 through 05-28-13`, an em dash, and `May 29 - June 28, 2016`, and names a range when
+it spans 45 days or more (a start on or after the 20th counts from the next month, an end by the
+5th as the month before). All of it is in the account phase, which no maintenance line carries
+(measured in the account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

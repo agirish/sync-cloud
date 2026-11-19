@@ -133,6 +133,29 @@ import Foundation
     }
 }
 
+/// A statement covering two months or more is named for them: `3. Jan-Mar 2026`.
+@Suite struct StatementRangeNameTests {
+    typealias P = DocumentFacts.Period
+    @Test func theMonthsAStatementCovers() {
+        func covered(_ s: P, _ e: P) -> String? {
+            AccountPlacement.coveredMonths(start: s, end: e).map { "\($0.first)-\($0.last)" }
+        }
+        #expect(covered(P(year: 2026, month: 1, day: 1), P(year: 2026, month: 3, day: 31)) == "1-3")
+        #expect(covered(P(year: 2026, month: 2, day: 26), P(year: 2026, month: 3, day: 27)) == nil, "a monthly cycle stays one month")
+        #expect(covered(P(year: 2025, month: 12, day: 21), P(year: 2026, month: 3, day: 20)) == "1-3", "a start on the 20th counts from the next month")
+        #expect(covered(P(year: 2026, month: 4, day: 1), P(year: 2026, month: 6, day: 3)) == "4-5", "an end by the 5th counts as the month before")
+        #expect(covered(P(year: 2025, month: 11, day: 1), P(year: 2026, month: 1, day: 31)) == nil, "across a new year: the end alone")
+    }
+
+    @Test func aQuarterlyIsNamedForItsMonths() {
+        let members = [3, 6, 9, 12].map { StatementFamily.Member(name: "\($0). x 2025.pdf", folder: "", period: P(year: 2025, month: $0)) }
+        #expect(AccountPlacement.houseName(P(year: 2026, month: 3, day: 31), start: P(year: 2026, month: 1, day: 1),
+                                           members: members, ext: "pdf") == "3. Jan-Mar 2026.pdf")
+        #expect(AccountPlacement.houseName(P(year: 2026, month: 3, day: 31), members: members, ext: "pdf") == "3. Mar 2026.pdf",
+                "without a start, as before")
+    }
+}
+
 /// The phase in a scan: a statement whose page prints its account's number leads with that account,
 /// at High, never in the unseen batch, and the model isn't asked about it.
 @MainActor
@@ -211,6 +234,33 @@ import Foundation
         #expect(best.account?.ending == "5696")
         #expect(best.confidence == .medium)
         #expect(best.reasons.contains { $0.contains("month from the file name") }, "\(best.reasons)")
+    }
+
+    /// A quarterly statement's card names the months it covers, from the range page 1 prints.
+    @Test func aQuarterlyCardIsNamedForItsMonths() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAccountQuarter")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Savings 5582")
+        for (m, mon) in [(3, "Mar"), (6, "Jun"), (9, "Sep"), (12, "Dec")] {
+            try writeBytes(account.appendingPathComponent("2025/\(m). \(mon) 2025.pdf"), Data(repeating: 0x41, count: 64))
+        }
+        let inbox = root.appendingPathComponent("Inbox")
+        let statement = inbox.appendingPathComponent("eStmt_2026-04-02.pdf")
+        try writeBytes(statement, Data(repeating: 0x41, count: 64))
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.4"))
+        let page = """
+        Bank of America Advantage Savings
+        Statement Period January 1, 2026 - March 31, 2026
+        Account number: 2370 2420 5582
+        """
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { $0 == statement.path ? page : nil }
+        m.filingTokensFromText = { _ in [] }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Docs"))
+        let best = try #require(m.filingSuggestions.first { $0.filePath == statement.path }?.best)
+        #expect(best.path == account.path + "/2026")
+        #expect(best.proposedName == "3. Jan-Mar 2026.pdf", "\(String(describing: best.proposedName))")
     }
     /// A policy paper's home is moved to its term's year after every lane has spoken
     /// (``PolicyTerms``), whichever lane found the policy's folder.

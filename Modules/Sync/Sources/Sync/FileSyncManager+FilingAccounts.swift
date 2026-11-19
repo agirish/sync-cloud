@@ -45,7 +45,8 @@ extension FileSyncManager {
             case .high(let account, let number), .medium(let account, let number, _):
                 guard let node = nodes[account.root] else { return s }
                 let place = AccountPlacement.place(in: node, period: period, taxForm: f.kind == .taxForm,
-                                                   fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy))
+                                                   fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy),
+                                                   periodStart: monthFromName ? nil : f.periodStart)
                 // High only when the folder inside the account is sure too.
                 let confidence: FilingConfidence
                 if case .high = match, !place.yearUnknown, !monthFromName { confidence = .high } else { confidence = .medium }
@@ -72,7 +73,8 @@ extension FileSyncManager {
                     guard let node = nodes[account.root] else { continue }
                     placed.append((account, number, AccountPlacement.place(in: node, period: period, taxForm: false,
                                                                            fileName: s.fileName,
-                                                                           bank: bankNode(of: account.root, in: taxonomy))))
+                                                                           bank: bankNode(of: account.root, in: taxonomy),
+                                                                           periodStart: monthFromName ? nil : f.periodStart)))
                 }
                 guard let (account, number, place) = placed.first else { return s }
                 let sure = placed.allSatisfy { !$0.2.yearUnknown } && !monthFromName

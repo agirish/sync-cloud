@@ -27,6 +27,9 @@ public struct DocumentFacts: Sendable, Equatable {
     /// `Closing Date 01/27/2026`, `through`). Due, payment, maturity, vest and trust dates are not
     /// periods. `day` is nil when only a month is known.
     public let period: Period?
+    /// Where that period began, when page 1 prints it as a range (`02/01/2026 - 02/28/2026`): what
+    /// tells a quarterly statement (`Jan-Mar 2026`) from a monthly one. nil for a single date.
+    public let periodStart: Period?
     /// The page lower-cased, and its first 1,000 characters: the header an institution is read from.
     let text: String
     let header: String
@@ -52,8 +55,9 @@ public struct DocumentFacts: Sendable, Equatable {
         firstLine = Self.firstLine(of: page)
         ownNumbers = Self.ownNumbers(in: page)
         kind = Self.kind(of: lower)
-        period = kind == .taxForm ? Self.taxYear(in: lower).map { Period(year: $0, month: 12, day: 31) }
-                                  : Self.statementPeriod(in: page)
+        let range = kind == .taxForm ? nil : Self.statementRange(in: page)
+        period = kind == .taxForm ? Self.taxYear(in: lower).map { Period(year: $0, month: 12, day: 31) } : range?.end
+        periodStart = range?.start
     }
 
     /// The first line holding a letter, its spaces collapsed, cut at a word near 80 characters.
@@ -203,14 +207,17 @@ public struct DocumentFacts: Sendable, Equatable {
     // MARK: Kind and period
 
     private static let monthRE = #"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"#
-    /// `03/31/2026`, `31/03/2026`, `2026-03-31`, `March 31, 2026`, `March 1-31, 2026`,
+    /// `03/31/2026`, `31/03/2026`, `2026-03-31`, `04-26-13`, `March 31, 2026`, `March 1-31, 2026`,
     /// `31 March 2026`, `31-Mar-2026`.
-    static let dateRE = #"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}[ -]"# + monthRE + #"[a-z]*\.?[ -]\d{4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
+    static let dateRE = #"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}-\d{1,2}-\d{2,4}(?!\d)|\d{1,2}[ -]"# + monthRE + #"[a-z]*\.?[ -]\d{4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
     private static let taxRE = try! NSRegularExpression(pattern: #"form\s*(1099|1098|5498|w-2)|tax year \d{4}"#)
     private static let statementWordsRE = try! NSRegularExpression(pattern:
         #"statement period|billing period|statement date|closing date|opening/closing|statement closing|account summary|summary of your account"#)
-    private static let rangeRE = try! NSRegularExpression(pattern: dateRE + #"[\s|]*(?:to|through|thru|-|–|ending)[\s|:]*"# + dateRE)
+    private static let rangeRE = try! NSRegularExpression(pattern: dateRE + #"[\s|]*(?:to|through|thru|-|–|—|ending)[\s|:]*"# + dateRE)
     private static let monthDayRangeRE = try! NSRegularExpression(pattern: #"\b"# + monthRE + #"[a-z]* \d{1,2}\s*-\s*\d{1,2}, \d{4}"#)
+    /// `May 29 - June 28, 2016`: two months and days, the year printed once, at the end.
+    private static let monthToMonthRE = try! NSRegularExpression(pattern:
+        #"\b("# + monthRE + #")[a-z]*\.? (\d{1,2})\s*[-–—]\s*("# + monthRE + #")[a-z]*\.? (\d{1,2}),? (\d{4})"#)
 
     static func kind(of lower: String) -> Kind {
         // A form names itself at the top; a statement saying "your 2025 Form 1099 is available"
@@ -268,12 +275,15 @@ public struct DocumentFacts: Sendable, Equatable {
     private static let weakDateRE = try! NSRegularExpression(pattern:
         #"(?:through|thru|as of)[\s:|]*("# + dateRE + ")")
     /// What joins a range's two dates.
-    private static let rangeJoiner = try! NSRegularExpression(pattern: #"^[\s|]*(?:to|through|thru|-|–)[\s|:]*"#)
-    private static let numericDateRE = try! NSRegularExpression(pattern: #"^(\d{1,2})/(\d{1,2})/(\d{2,4})"#)
+    private static let rangeJoiner = try! NSRegularExpression(pattern: #"^[\s|]*(?:to|through|thru|-|–|—)[\s|:]*"#)
+    private static let numericDateRE = try! NSRegularExpression(pattern: #"^(\d{1,2})([/-])(\d{1,2})\2(\d{2,4})"#)
 
     /// The period end: the end of a labelled range, else a date after a period label. Every
     /// candidate is checked against the few words before it.
-    static func statementPeriod(in page: String) -> Period? {
+    static func statementPeriod(in page: String) -> Period? { statementRange(in: page)?.end }
+
+    /// The period, with its start when the page prints one: the first range it prints wins.
+    static func statementRange(in page: String) -> (start: Period?, end: Period)? {
         let lower = page.lowercased()
         let ns = lower as NSString
         func labelBefore(_ loc: Int) -> String { ns.substring(with: NSRange(location: max(0, loc - 30), length: min(30, loc))) }
@@ -289,7 +299,10 @@ public struct DocumentFacts: Sendable, Equatable {
         for m in rangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length))
         where labelled(m.range.location) && !rejected(m.range.location) {
             let s = ns.substring(with: m.range)
-            if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
+            let dates = matchesOf(dateRE, in: s)
+            if let last = dates.last, let p = parseDate(last, endOfRange: true) {
+                return (dates.first.flatMap { parseDate($0) }, p)
+            }
         }
         // A date the page labels (`Closing Date 01/27/2026`, `Statement Date: 10/15/2026`) next:
         // ahead of any range it merely prints (`0% APR 01/15/2025 through 01/15/2027`).
@@ -299,23 +312,39 @@ public struct DocumentFacts: Sendable, Equatable {
             let rest = ns.substring(from: end)
             if let j = rangeJoiner.firstMatch(in: rest, range: NSRange(location: 0, length: (rest as NSString).length)) {
                 let afterJoiner = (rest as NSString).substring(from: j.range.length)
-                if let second = matchesOf("^" + dateRE, in: afterJoiner).first, let p = parseDate(second, endOfRange: true) { return p }
+                if let second = matchesOf("^" + dateRE, in: afterJoiner).first, let p = parseDate(second, endOfRange: true) {
+                    return (parseDate(ns.substring(with: m.range(at: 1))), p)
+                }
             }
-            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
+            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return (nil, p) }
         }
         // `March 1-31, 2026`: a month with a day range.
         for m in monthDayRangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
-            if let p = parseDate(ns.substring(with: m.range), endOfRange: true) { return p }
+            let raw = ns.substring(with: m.range)
+            if let p = parseDate(raw, endOfRange: true) { return (parseDate(raw), p) }
+        }
+        // `May 29 - June 28, 2016`: the year once, at the end; a start month after the end month
+        // is the year before.
+        for m in monthToMonthRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
+            func int(_ i: Int) -> Int? { Int(ns.substring(with: m.range(at: i))) }
+            guard let m1 = FilingPeriod.month(of: ns.substring(with: m.range(at: 1))),
+                  let m2 = FilingPeriod.month(of: ns.substring(with: m.range(at: 3))),
+                  let d1 = int(2), let d2 = int(4), let year = int(5), (1990...2100).contains(year),
+                  (1...31).contains(d1), (1...31).contains(d2) else { continue }
+            return (Period(year: m1 > m2 ? year - 1 : year, month: m1, day: d1), Period(year: year, month: m2, day: d2))
         }
         // `February 26, 2026 to March 27, 2026`, `12/28/2025 - 01/27/2026`: the second date.
         for m in rangeRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
             // The range's second date, whatever joins them (`to`, `through`, a dash).
             let s = ns.substring(with: m.range)
-            if let last = matchesOf(dateRE, in: s).last, let p = parseDate(last, endOfRange: true) { return p }
+            let dates = matchesOf(dateRE, in: s)
+            if let last = dates.last, let p = parseDate(last, endOfRange: true) {
+                return (dates.first.flatMap { parseDate($0) }, p)
+            }
         }
         // `through October 31, 2026`, `as of 01/31/2026`: last, behind any range.
         for m in weakDateRE.matches(in: lower, range: NSRange(location: 0, length: ns.length)) where !rejected(m.range.location) {
-            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return p }
+            if let p = parseDate(ns.substring(with: m.range(at: 1))) { return (nil, p) }
         }
         return nil
     }
@@ -338,7 +367,7 @@ public struct DocumentFacts: Sendable, Equatable {
         }
         if let m = numericDateRE.firstMatch(in: s, range: NSRange(location: 0, length: sn.length)) {
             let n = sn.substring(with: m.range)
-            var p = n.split(separator: "/").compactMap { Int($0) }
+            var p = n.split(whereSeparator: { $0 == "/" || $0 == "-" }).compactMap { Int($0) }
             guard p.count == 3 else { return nil }
             // Month first, as US statements print it; day first when that is the only reading
             // (`31/03/2026`).

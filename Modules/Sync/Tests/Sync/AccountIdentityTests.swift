@@ -261,6 +261,24 @@ import Foundation
         #expect(DocumentFacts(page: ytd).period?.month == 3)
     }
 
+    /// The period's start is kept with its end, and three more ways of printing it are read:
+    /// two-digit dashed dates, an em dash, and two months with the year once at the end.
+    @Test func aPeriodsStartIsReadInEveryForm() {
+        typealias P = DocumentFacts.Period
+        func range(_ page: String) -> (P?, P?) { let f = DocumentFacts(page: page); return (f.periodStart, f.period) }
+        let dashed = range("Account summary\nStatement Period 04-26-13 through 05-28-13")
+        #expect(dashed.0 == P(year: 2013, month: 4, day: 26) && dashed.1 == P(year: 2013, month: 5, day: 28))
+        let emDash = range("Account summary\nStatement Period: January 1, 2026 \u{2014} March 31, 2026")
+        #expect(emDash.0 == P(year: 2026, month: 1, day: 1) && emDash.1 == P(year: 2026, month: 3, day: 31))
+        let yearOnce = range("Account summary\nMay 29 - June 28, 2016")
+        #expect(yearOnce.0 == P(year: 2016, month: 5, day: 29) && yearOnce.1 == P(year: 2016, month: 6, day: 28))
+        let acrossYears = range("Account summary\nDecember 15 - January 14, 2016")
+        #expect(acrossYears.0 == P(year: 2015, month: 12, day: 15))
+        let slashes = range("Statement Period 02/01/2026 - 02/28/2026")
+        #expect(slashes.0 == P(year: 2026, month: 2, day: 1) && slashes.1 == P(year: 2026, month: 2, day: 28))
+        #expect(range("Account summary\nClosing Date 01/27/2026").0 == nil, "a single date has no start")
+    }
+
     // MARK: Tier 3: accounts named without digits
 
     @Test func anAccountNamedWithoutDigitsIsLearnedFromItsStatements() throws {

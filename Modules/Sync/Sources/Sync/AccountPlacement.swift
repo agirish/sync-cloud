@@ -23,7 +23,8 @@ public enum AccountPlacement {
     /// none. `taxForm` sends a tax form to the account's own tax folder when it has one. `bank` is
     /// the bank's folder, whose other statement folders say whether an empty one files by year.
     public static func place(in node: FileNode, period: DocumentFacts.Period?, taxForm: Bool,
-                             fileName: String, bank: FileNode? = nil) -> Placement {
+                             fileName: String, bank: FileNode? = nil,
+                             periodStart: DocumentFacts.Period? = nil) -> Placement {
         let ext = (fileName as NSString).pathExtension
         if taxForm {
             // A child whose name says tax (`Tax`, `Tax Forms`), else the root: the root counts as
@@ -100,7 +101,7 @@ public enum AccountPlacement {
         }
         let folder = segments.joined(separator: "/")
         let sameTypeMembers = members.filter { ($0.name as NSString).pathExtension.lowercased() == ext.lowercased() }
-        let name = period.map { houseName($0, members: sameTypeMembers.isEmpty ? members : sameTypeMembers, ext: ext) }
+        let name = period.map { houseName($0, start: periodStart, members: sameTypeMembers.isEmpty ? members : sameTypeMembers, ext: ext) }
         return resolve(folder, in: node, name: name)
     }
 
@@ -113,14 +114,40 @@ public enum AccountPlacement {
     /// placeholder: the naming pass renumbers it as the statement's position by date there
     /// (``FileSyncManager/named(_:fileName:rootPath:folderFiles:profile:)``), and File Here renames
     /// the statements it displaces.
-    static func houseName(_ p: DocumentFacts.Period, members: [StatementFamily.Member], ext: String) -> String {
+    ///
+    /// A statement covering two months or more is named for them (`03. Jan-Mar 2026`): a start on
+    /// or after the 20th counts from the next month, an end on or before the 5th as the month
+    /// before, and a cycle under 45 days stays one month, the end's. A range across a new year
+    /// keeps the end's month alone.
+    static func houseName(_ p: DocumentFacts.Period, start: DocumentFacts.Period? = nil,
+                          members: [StatementFamily.Member], ext: String) -> String {
         let monthly = OrdinalMonthName.isQuarterlyOrSparser(Set(members.map { $0.period.year * 12 + $0.period.month })) != true
         let widths = members.compactMap { parse($0.name) }.filter { $0.form == .ordinalMonthYear }.map(\.ordinalDigits)
         let pad = monthly || widths.filter { $0 >= 2 }.count * 2 > widths.count
         let own = members.max { $0.period < $1.period }.map { ($0.name as NSString).pathExtension } ?? ""
         let e = own.lowercased() == ext.lowercased() ? own : ext
+        let months = coveredMonths(start: start, end: p)
+        let label = months.map { Template.monthNames[$0.first - 1] + "-" + Template.monthNames[$0.last - 1] }
+            ?? Template.monthNames[p.month - 1]
         return (pad ? String(format: "%02d", p.month) : String(p.month)) + ". "
-            + Template.monthNames[p.month - 1] + " \(p.year)" + (e.isEmpty ? "" : "." + e)
+            + label + " \(p.year)" + (e.isEmpty ? "" : "." + e)
+    }
+
+    /// The first and last month a statement covers, when it covers two or more of one year; nil
+    /// for a single month (see ``houseName(_:start:members:ext:)``).
+    static func coveredMonths(start: DocumentFacts.Period?, end: DocumentFacts.Period) -> (first: Int, last: Int)? {
+        guard let start, start < end else { return nil }
+        func dayNumber(_ p: DocumentFacts.Period, _ fallback: Int) -> Int {
+            var c = DateComponents(); c.year = p.year; c.month = p.month; c.day = p.day ?? fallback
+            return Calendar(identifier: .gregorian).date(from: c).map { Int($0.timeIntervalSince1970 / 86_400) } ?? 0
+        }
+        guard dayNumber(end, 28) - dayNumber(start, 1) >= 45 else { return nil }
+        var first = start.year * 12 + start.month - 1
+        var last = end.year * 12 + end.month - 1
+        if (start.day ?? 1) >= 20 { first += 1 }
+        if let d = end.day, d <= 5 { last -= 1 }
+        guard last > first, first / 12 == last / 12, last / 12 == end.year else { return nil }
+        return (first % 12 + 1, last % 12 + 1)
     }
 
     /// A folder path, relative to the account, running through a tax folder (`Tax`, `Tax Forms`).
