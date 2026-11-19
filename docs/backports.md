@@ -15929,3 +15929,18 @@ no maintenance line carries (measured in the account-folders section above).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## Tax forms file by their tax year into his `Income Tax` layout — main only, recorded, not owed
+
+2026-11-18, for v7.2. On `main`, a last pass in To File's scan (`TaxLane`) leads a 1099, 1099-R,
+W-2, 1098-T, 1095, 5498 or 1040 into `Income Tax/<the year it prints>/…`, in the folder named for
+its kind in the newest year that has one (`Income/Form 1099`, `Deductions/Form 1098-T`,
+`Tax Returns`). A 1099 matched to its account keeps the account's folder as a copy, his rule; a
+mortgage 1098 is left to the mortgage. Before, a matched 1099 went only to its account's `Tax`, and
+a return could follow the refund account it names. `v6.x`, `v5.x` and `v4.x` carry the router that
+placed those, without the pass; `v3.x` and `v2.x` have no router. It is new house behaviour.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The router, no tax pass | RECORDED — not owed |
+| `v3.x` / `v2.x` | No router | CLOSED — does not apply |

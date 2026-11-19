@@ -877,6 +877,10 @@ extension FileSyncManager {
         // already-filed checks, which look where it now goes. See ``PolicyTerms``.
         suggestions = PolicyTerms.placing(suggestions, pages: routerSnippets, taxonomy: taxonomy,
                                           root: providerRoot.path)
+        // A tax form goes to its tax year's folder for its kind, a 1099 keeping its account's
+        // folder as a copy. See ``TaxLane``.
+        suggestions = TaxLane.placing(suggestions, pages: routerSnippets, taxonomy: taxonomy,
+                                      root: providerRoot.path)
         // Which of these the tree already holds: after the naming pass, since "already filed in X"
         // is about the document, not the name it would land under, and before the publish so the
         // queue never shows a duplicate as ordinary for a frame.

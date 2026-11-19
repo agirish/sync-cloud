@@ -236,6 +236,31 @@ import Foundation
         #expect(best.reasons.contains { $0.contains("month from the file name") }, "\(best.reasons)")
     }
 
+    /// A tax form leads into its tax year's folder for its kind, after every other lane (``TaxLane``).
+    @Test func aW2GoesToItsTaxYear() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingTaxLane")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tax = root.appendingPathComponent("Docs/Finance/US/Income Tax")
+        try writeBytes(tax.appendingPathComponent("2024/Income/Form W-2/W-2 2024.pdf"), Data(repeating: 0x41, count: 64))
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        for m in 1...6 {
+            try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
+        }
+        let inbox = root.appendingPathComponent("Inbox")
+        let w2 = inbox.appendingPathComponent("W2_2025.pdf")
+        try writeBytes(w2, Data(repeating: 0x41, count: 64))
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.5"))
+        let page = "Form W-2 Wage and Tax Statement 2025\nEmployer identification number 12-3456789"
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { $0 == w2.path ? page : nil }
+        m.filingTokensFromText = { _ in [] }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Docs"))
+        let best = try #require(m.filingSuggestions.first { $0.filePath == w2.path }?.best)
+        #expect(best.path == tax.path + "/2025/Income/Form W-2", "\(best.path)")
+        #expect(best.newSegments == ["2025", "Income", "Form W-2"])
+    }
+
     /// A quarterly statement's card names the months it covers, from the range page 1 prints.
     @Test func aQuarterlyCardIsNamedForItsMonths() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAccountQuarter")
