@@ -536,6 +536,12 @@ public enum SettingsCatalog {
           control: .menu(VaultLockSettings.Relock.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
           default: .string(VaultLockSettings.Relock.afterTwoMinutes.rawValue), tier: .notInChat,
           dependsOn: ["vault.requiresAuthentication"]),
+        // Never in chat, and a count only: a folder's name can say what kind of papers are in it.
+        e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],
+          storage: .owner("VaultReadFolders"), control: .list, tier: .notInChat, privacy: .countOnly),
+        // Fingerprints only, never numbers; still not Claude's to clear.
+        e("vault.setAside", .vault, "Numbers set aside", indexed: true, others: ["Forget"],
+          control: .button("Forget"), tier: .notInChat),
 
         // MARK: Advanced
         e("advanced.resetSetup", .advanced, "Reset Setup", indexed: true, others: ["Reset Setup…"],

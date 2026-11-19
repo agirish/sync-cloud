@@ -75,7 +75,7 @@ extension SettingsView.SettingsTab {
         case .filing: return "Suggestions, people, duplicates"
         case .edit: return "Text, Markdown, and PDF"
         case .intelligence: return "Model, privacy, key, spending"
-        case .vault: return "Touch ID, when to ask, locking"
+        case .vault: return "Touch ID, locking, folders to read"
         case .advanced: return "Logging, digests, setup, resets"
         }
     }

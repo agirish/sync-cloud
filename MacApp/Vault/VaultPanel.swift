@@ -77,7 +77,16 @@ struct VaultCard: View {
     private enum Editing: Equatable {
         case new
         case existing(UUID)
+        /// A number read from a document, being checked before it is added.
+        case confirming(UUID)
     }
+
+    /// Read Documents, so closing the panel stops it.
+    @State private var readTask: Task<Void, Never>?
+    /// Read Documents was asked for with no folder chosen yet.
+    @State private var askingForFolders = false
+    /// The folders Read Documents looks in, read again as the panel appears and after a change.
+    @State private var readFolders: [String] = []
 
     @State private var editing: Editing?
     @State private var draft = VaultModel.Draft()
@@ -85,8 +94,23 @@ struct VaultCard: View {
     @State private var largeType: UUID?
     /// The entry whose Copy just ran, for the button's two seconds of "Copied".
     @State private var copied: UUID?
-    @State private var confirmingRemoval = false
+    /// What Remove… or ⌘⌫ is asking about, until the dialog is answered.
+    @State private var removing: Removal?
     @FocusState private var searchFocused: Bool
+
+    /// Remove… asks before anything goes: a number is removed for good, and a find set aside is
+    /// not offered again.
+    private enum Removal: Identifiable {
+        case entry(VaultEntry)
+        case find(VaultFind)
+
+        var id: UUID {
+            switch self {
+            case .entry(let entry): return entry.id
+            case .find(let find): return find.id
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -104,6 +128,7 @@ struct VaultCard: View {
             }
         }
         .task {
+            readFolders = VaultReadFolders.folders()
             await model.opened()
             searchFocused = true
         }
@@ -115,7 +140,45 @@ struct VaultCard: View {
                 model.tick()
             }
         }
-        .onDisappear { model.closed() }
+        .onDisappear {
+            readTask?.cancel()
+            model.closed()
+        }
+        // ⌘⌫ removes the chosen row, after asking. Not while the search has text, where it
+        // deletes to the start of the line as usual, nor while the editor is open.
+        .background {
+            Button("Remove the Chosen Number") { askToRemoveChosen() }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(!model.query.isEmpty || editing != nil || model.isAsking)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .confirmationDialog(removalTitle, isPresented: Binding(get: { removing != nil },
+                                                               set: { if !$0 { removing = nil } }),
+                            presenting: removing) { removal in
+            switch removal {
+            case .entry(let entry):
+                Button("Remove", role: .destructive) { remove(entry.id) }
+            case .find(let find):
+                Button("Not This", role: .destructive) { model.setAside(find.id) }
+            }
+        } message: { removal in
+            switch removal {
+            case .entry(let entry):
+                Text(entry.sourcePath == nil
+                     ? "The number is removed for good."
+                     : "The number is removed for good, and Read Documents won’t offer it again. The document it came from isn’t touched.")
+            case .find:
+                Text("It comes off To Confirm and isn’t offered again. Settings ▸ Vault can forget the numbers set aside.")
+            }
+        }
+        .alert("Choose folders to read", isPresented: $askingForFolders) {
+            Button("Choose Folders…") { addFolders() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from this button’s arrow or in Settings ▸ Vault.")
+        }
     }
 
     // MARK: Header
@@ -139,6 +202,7 @@ struct VaultCard: View {
             .help("Add a number")
             .accessibilityLabel("Add a number")
             .disabled(model.contents != .loaded)
+            readMenu
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")
             }
@@ -153,6 +217,45 @@ struct VaultCard: View {
         .controlSize(.small)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// Read Documents, with its folders beside it: a click reads what is new or changed; the
+    /// arrow lists the folders, adds one, or reads everything again.
+    private var readMenu: some View {
+        Menu {
+            Button("Read New and Changed Documents") { readDocuments() }
+            Button("Read Everything Again") { readDocuments(again: true) }
+            Divider()
+            if readFolders.isEmpty {
+                Text("No folders chosen yet")
+            } else {
+                Section("Folders") {
+                    ForEach(readFolders, id: \.self) { folder in
+                        Menu((folder as NSString).lastPathComponent) {
+                            Button("Show in Finder") {
+                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)])
+                            }
+                            Button("Stop Reading This Folder") {
+                                VaultReadFolders.remove(folder)
+                                readFolders = VaultReadFolders.folders()
+                            }
+                        }
+                    }
+                }
+            }
+            Button("Add Folder…") { addFolders() }
+            Button("Folder Settings…", action: onOpenSettings)
+        } label: {
+            Image(systemName: "doc.text.viewfinder")
+        } primaryAction: {
+            readDocuments()
+        }
+        .menuIndicator(.visible)
+        .fixedSize()
+        .help(model.reading == nil ? "Read Documents: find numbers in the folders you chose. The arrow lists the folders."
+                                   : "Reading your documents…")
+        .accessibilityLabel("Read Documents")
+        .disabled(model.contents != .loaded || model.reading != nil)
     }
 
     @ViewBuilder
@@ -223,10 +326,12 @@ struct VaultCard: View {
                            caption: "The sealed file has been left as it is.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .notLoaded, .loaded:
-            if model.entries.isEmpty, editing == nil {
+            if model.entries.isEmpty, model.finds.isEmpty, editing == nil {
                 EmptyStateView(icon: "lock.doc", title: "Nothing in the Vault yet",
                                message: "Keep the numbers you get asked for here: a passport number, a member ID, a loan number. Each is sealed on this Mac and shown only to you.",
-                               primary: .init("Add a Number", systemImage: "plus") { startAdding() })
+                               caption: model.lastReading.map { "Read \(Self.documents($0.documents)); none held a number the Vault reads yet." },
+                               primary: .init("Add a Number", systemImage: "plus") { startAdding() },
+                               secondary: .init("Read Documents", systemImage: "doc.text.viewfinder") { readDocuments() })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
@@ -283,19 +388,44 @@ struct VaultCard: View {
 
     private var list: some View {
         let visible = model.visibleEntries
+        let finds = model.visibleFinds
         return ScrollViewReader { scroller in
             ScrollView {
-                if model.entries.isEmpty {
+                if model.entries.isEmpty, model.finds.isEmpty {
                     // The first number is being typed beside this: nothing to list, and nothing
                     // failed to match.
                     Color.clear.frame(height: 1)
-                } else if visible.isEmpty {
+                } else if visible.isEmpty, finds.isEmpty, model.olderFindCount == 0 {
                     EmptyStateView(icon: "magnifyingglass", title: "No numbers match",
                                    message: "Search looks at names and notes, never at the numbers themselves.",
                                    layout: .compact)
                         .padding(.top, 24)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 2) {
+                        // Read from documents and not yet added: first, since each is waiting on
+                        // a decision.
+                        if !finds.isEmpty || model.olderFindCount > 0 {
+                            let current = finds.filter { !$0.isOlder }
+                            HStack(spacing: 6) {
+                                Text("To Confirm")
+                                Text(current.count.formatted())
+                                    .scaledFont(.caption.weight(.semibold).monospacedDigit())
+                            }
+                            .scaledFont(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 8)
+                            .padding(.bottom, 2)
+                            ForEach(current) { find in
+                                findRow(find).id(find.id)
+                            }
+                            if model.olderFindCount > 0 {
+                                olderToggle
+                                ForEach(finds.filter(\.isOlder)) { find in
+                                    findRow(find).id(find.id)
+                                }
+                            }
+                        }
                         ForEach(VaultEntry.Kind.allCases, id: \.self) { kind in
                             let rows = visible.filter { $0.kind == kind }
                             if !rows.isEmpty {
@@ -344,6 +474,9 @@ struct VaultCard: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
+                if entry.isOlder {
+                    Pill(.mini, tint: .secondary, text: "Older")
+                }
                 // An ending, always. See the type's note.
                 Text(VaultMask.masked(entry.value))
                     .scaledFont(.callout.monospaced())
@@ -357,7 +490,96 @@ struct VaultCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Copy") { copy(entry.id) }
+            Button("Edit…") { startEditing(entry) }
+            Divider()
+            Button("Remove…", role: .destructive) { removing = .entry(entry) }
+        }
         .accessibilityLabel("\(entry.title), \(owner(of: entry))")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Older numbers read from documents: a past passport, an earlier I-94. Folded away until
+    /// asked for, since the current ones are what a form usually wants.
+    private var olderToggle: some View {
+        Button {
+            model.showsOlderFinds.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .scaledFont(.caption.weight(.semibold))
+                    .rotationEffect(.degrees(model.olderFindsShown ? 90 : 0))
+                Text("Older")
+                Text(model.olderFindCount.formatted())
+                    .scaledFont(.caption.weight(.semibold).monospacedDigit())
+                Spacer()
+            }
+            .scaledFont(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Numbers from older documents: expired or run out, replaced by a newer one for the same person, or filed in an Archive folder.")
+        .accessibilityLabel(model.olderFindsShown ? "Hide older numbers" : "Show \(model.olderFindCount) older numbers")
+    }
+
+    /// "Apr 2026", the month and year a find or entry is dated, for its row.
+    /// In UTC, the zone a document's date is read in, so a date never shows as the month before.
+    private static func month(_ date: Date?) -> String? {
+        date?.formatted(Date.FormatStyle(timeZone: .gmt).month(.abbreviated).year())
+    }
+
+    /// A number read from a document: its name, where it was read, and its ending.
+    private func findRow(_ find: VaultFind) -> some View {
+        let isSelected = model.selection == find.id
+        return Button {
+            model.selection = find.id
+            editing = nil
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "doc.text.viewfinder")
+                    .scaledFont(.callout)
+                    .foregroundStyle(glassHue.accentColor)
+                    .frame(width: 24, height: 24)
+                    .background(RoundedRectangle(cornerRadius: Radius.chip)
+                        .strokeBorder(glassHue.accentColor.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(find.title)
+                        .scaledFont(.body.weight(.semibold))
+                        .lineLimit(1)
+                    Text([Self.month(find.dated), VaultMask.fileName(find.sourcePath)]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .scaledFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                if find.isOlder {
+                    Pill(.mini, tint: .secondary, text: "Older")
+                }
+                Text(VaultMask.masked(find.value))
+                    .scaledFont(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: Radius.chip)
+                .fill(isSelected ? glassHue.accentColor.opacity(0.16) : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Review and Add…") { startConfirming(find) }
+            Button("Open Document") { NSWorkspace.shared.open(URL(fileURLWithPath: find.sourcePath)) }
+            Divider()
+            Button("Not This", role: .destructive) { model.setAside(find.id) }
+        }
+        .accessibilityLabel("\(find.title), \(find.isOlder ? "older, " : "")to confirm")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -369,6 +591,8 @@ struct VaultCard: View {
             editor
         } else if let entry = model.selectedEntry {
             detail(entry)
+        } else if let find = model.selectedFind {
+            findDetail(find)
         } else {
             EmptyStateView(icon: "number", title: "No number chosen", layout: .compact)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -419,10 +643,13 @@ struct VaultCard: View {
                 }
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
                     fact("Belongs to", owner(of: entry))
-                    fact("Kind", entry.kind.title)
+                    fact("Kind", entry.isOlder ? "\(entry.kind.title), older" : entry.kind.title)
                     if !entry.note.isEmpty { fact("Note", entry.note) }
+                    if let dated = entry.dated {
+                        fact("Dated", dated.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: .gmt)))
+                    }
                     fact("Added", entry.addedAt.formatted(date: .abbreviated, time: .omitted))
-                    if let source = entry.sourcePath { fact("Found in", source) }
+                    if let source = entry.sourcePath { fact("Found in", foundIn(source, shown: shown)) }
                 }
                 // A row of their own: beside Show and Copy, the third button's label was cut short.
                 HStack(spacing: 6) {
@@ -432,12 +659,86 @@ struct VaultCard: View {
                         Label("Large Type", systemImage: "textformat.size")
                     }
                     Button("Edit…") { startEditing(entry) }
+                    Button(role: .destructive) {
+                        removing = .entry(entry)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .help(ShortcutHint.tooltip("Remove…", "⌘⌫"))
+                    .accessibilityLabel("Remove")
                 }
                 .disabled(model.isAsking)
                 noticeText
             }
             .padding(14)
         }
+    }
+
+    /// A number read from a document, before it is added: check it against the page, then add it
+    /// or set it aside.
+    private func findDetail(_ find: VaultFind) -> some View {
+        let shown = model.canShow(find)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(find.title)
+                        .scaledFont(.title3.weight(.semibold))
+                    Text(find.isOlder
+                         ? "An older number: its document has run out, a newer one of its kind was read for the same person, or it’s in an Archive folder. Add it if a form may ask for a past number."
+                         : "Read from a document. Check it against the page, then add it.")
+                        .scaledFont(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(model.drawn(find))
+                    .scaledFont(.title2.monospaced().weight(.semibold))
+                    .foregroundStyle(shown ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: Radius.well)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.well)
+                        .strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .accessibilityLabel(shown ? "The number" : "The number, hidden")
+                HStack(spacing: 6) {
+                    if !shown {
+                        Button {
+                            Task { await model.show(find.id) }
+                        } label: {
+                            Label("Show", systemImage: "touchid")
+                        }
+                    }
+                    Button {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: find.sourcePath))
+                    } label: {
+                        Label("Open Document", systemImage: "doc")
+                    }
+                }
+                .disabled(model.isAsking)
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
+                    if !find.note.isEmpty { fact("Note", find.note) }
+                    if let dated = find.dated {
+                        fact("Dated", dated.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted, timeZone: .gmt)))
+                    }
+                    fact("Found in", foundIn(find.sourcePath, shown: shown))
+                }
+                HStack(spacing: 6) {
+                    Button("Review and Add…") { startConfirming(find) }
+                        .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+                    Button("Not This") { model.setAside(find.id) }
+                        .help("Takes it off To Confirm for good. Settings ▸ Vault can forget the numbers set aside.")
+                }
+                .disabled(model.isAsking)
+                noticeText
+            }
+            .padding(14)
+        }
+    }
+
+    /// Where a number was read: the whole path while it shows, the file's name with any number in
+    /// it cut to its ending while it is hidden.
+    private func foundIn(_ path: String, shown: Bool) -> String {
+        shown ? (path as NSString).abbreviatingWithTildeInPath : VaultMask.fileName(path)
     }
 
     private func fact(_ label: String, _ value: String) -> some View {
@@ -464,7 +765,7 @@ struct VaultCard: View {
     private var editor: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Text(editing == .new ? "New Number" : "Edit Number")
+                Text(editorTitle)
                     .scaledFont(.headline)
                 field("What it is") {
                     TextField("What it is", text: $draft.title, prompt: Text("Mortgage loan number"))
@@ -492,13 +793,23 @@ struct VaultCard: View {
                 field("Note") {
                     TextField("Note", text: $draft.note, prompt: Text("The issuer, or anything else"))
                 }
+                // The editor hides its controls' labels, as each field is titled above it; this
+                // one's label is its own text beside the box.
                 HStack(spacing: 6) {
-                    if case .existing = editing {
-                        Button("Remove…", role: .destructive) { confirmingRemoval = true }
+                    Toggle("Older number, kept for reference", isOn: $draft.isOlder)
+                        .toggleStyle(.checkbox)
+                    Text("Older number, kept for reference")
+                        .scaledFont(.callout)
+                        .onTapGesture { draft.isOlder.toggle() }
+                }
+                .help("A past passport or I-94 a form may still ask for. Listed after the current numbers of its kind.")
+                HStack(spacing: 6) {
+                    if case .existing(let id) = editing, let entry = model.entries.first(where: { $0.id == id }) {
+                        Button("Remove…", role: .destructive) { removing = .entry(entry) }
                     }
                     Spacer()
                     Button("Cancel") { editing = nil }
-                    Button("Save") { save() }
+                    Button(isConfirming ? "Add to Vault" : "Save") { save() }
                         .buttonStyle(.borderedProminent).accentedProminent(glassHue)
                         .keyboardShortcut(.defaultAction)
                         .disabled(!draft.isComplete || model.isAsking)
@@ -510,10 +821,26 @@ struct VaultCard: View {
             .textFieldStyle(.roundedBorder)
             .padding(14)
         }
-        .confirmationDialog("Remove “\(draft.title)” from the Vault?", isPresented: $confirmingRemoval) {
-            Button("Remove", role: .destructive) { remove() }
-        } message: {
-            Text("The number is removed for good. The document it came from isn’t touched.")
+    }
+
+    private var removalTitle: String {
+        switch removing {
+        case .entry(let entry): return "Remove “\(entry.title)” from the Vault?"
+        case .find(let find): return "Set “\(find.title)” aside?"
+        case nil: return ""
+        }
+    }
+
+    private var isConfirming: Bool {
+        if case .confirming = editing { return true }
+        return false
+    }
+
+    private var editorTitle: String {
+        switch editing {
+        case .new: return "New Number"
+        case .confirming: return "Add a Read Number"
+        default: return "Edit Number"
         }
     }
 
@@ -532,10 +859,23 @@ struct VaultCard: View {
         HStack(spacing: 14) {
             hint("↑↓", "Move")
             hint("↩", "Copy")
+            hint("⌘⌫", "Remove")
             hint("esc", "Close")
             Spacer()
-            Text("Sealed on this Mac. Never sent to Claude.")
-                .foregroundStyle(.secondary)
+            if let reading = model.reading {
+                ProgressView()
+                    .controlSize(.mini)
+                Text(reading.total == 0 ? "Finding documents…"
+                                        : "Reading \(reading.done.formatted()) of \(Self.documents(reading.total))…")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            } else if let last = model.lastReading {
+                Text(Self.summary(last))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Sealed on this Mac. Never sent to Claude.")
+                    .foregroundStyle(.secondary)
+            }
         }
         .scaledFont(.subheadline)
         .padding(.horizontal, 14)
@@ -563,6 +903,29 @@ struct VaultCard: View {
 
     private func subtitle(of entry: VaultEntry) -> String {
         entry.note.isEmpty ? owner(of: entry) : "\(owner(of: entry)) · \(entry.note)"
+    }
+
+    static func documents(_ count: Int) -> String {
+        count == 1 ? "1 document" : "\(count.formatted()) documents"
+    }
+
+    /// The footer after a read: "Read 3 new or changed of 812 documents: 1 new number to confirm."
+    static func summary(_ last: VaultModel.ReadingSummary) -> String {
+        if last.opened == last.documents {
+            return "Read \(documents(last.documents)): \(newNumbers(last.newNumbers))."
+        }
+        if last.opened == 0 {
+            return "No new or changed documents among \(last.documents.formatted())."
+        }
+        return "Read \(last.opened.formatted()) new or changed of \(documents(last.documents)): \(newNumbers(last.newNumbers))."
+    }
+
+    static func newNumbers(_ count: Int) -> String {
+        switch count {
+        case 0: return "nothing new"
+        case 1: return "1 new number to confirm"
+        default: return "\(count.formatted()) new numbers to confirm"
+        }
     }
 
     // MARK: Acts
@@ -601,14 +964,64 @@ struct VaultCard: View {
             if model.add(draft) != nil { editing = nil }
         case .existing(let id):
             Task { if await model.update(id, to: draft) { editing = nil } }
+        case .confirming(let id):
+            if model.confirm(id, as: draft) != nil { editing = nil }
         case nil:
             break
         }
     }
 
-    private func remove() {
-        guard case .existing(let id) = editing else { return }
-        Task { if await model.delete(id) { editing = nil } }
+    /// The editor, filled from what was read. It draws the number in full, so it opens only once
+    /// that is allowed, as Edit does.
+    private func startConfirming(_ find: VaultFind) {
+        Task {
+            guard await model.show(find.id) else { return }
+            draft = VaultModel.Draft(find, people: people)
+            editing = .confirming(find.id)
+        }
+    }
+
+    /// Read Documents, over the folders chosen here or in Settings ▸ Vault. `again` opens every
+    /// file, not only the new and changed ones.
+    private func readDocuments(again: Bool = false) {
+        let folders = VaultReadFolders.folders()
+        readFolders = folders
+        guard !folders.isEmpty else {
+            askingForFolders = true
+            return
+        }
+        readTask = Task { await model.readDocuments(with: VaultFolderReader(folders: folders), again: again) }
+    }
+
+    /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.
+    private func addFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Read for Numbers"
+        panel.message = "Choose the folders that hold your passport scans, I-94s and USCIS notices."
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { VaultReadFolders.add(url.path) }
+        readFolders = VaultReadFolders.folders()
+    }
+
+    /// ⌘⌫: asks about the chosen row, a number or a find.
+    private func askToRemoveChosen() {
+        if let entry = model.selectedEntry {
+            removing = .entry(entry)
+        } else if let find = model.selectedFind {
+            removing = .find(find)
+        }
+    }
+
+    /// Removes an entry, from the detail, the editor or a row's menu. The proof, when one is owed,
+    /// is the model's.
+    private func remove(_ id: UUID) {
+        Task {
+            guard await model.delete(id) else { return }
+            if editing == .existing(id) { editing = nil }
+        }
     }
 
     private func copy(_ id: UUID) {

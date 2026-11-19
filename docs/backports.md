@@ -16080,3 +16080,12 @@ port as it is. It changes which cards read as sure, so it is not carried.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The High rule, no year check | RECORDED — not owed |
+
+## The Vault reads documents — main only, recorded, not owed
+
+2026-11-19, for v7.2. Read Documents in the Vault reads the folders listed under Settings ▸ Vault ▸
+Folders to Read (`vaultReadFolders`, `VaultReadFolders`) with Vision at its accurate level
+(`VaultFolderReader`), and offers what `VaultReading` trusts under To Confirm: a passport's
+machine-readable zone whose check digits agree (`PassportMRZ`), USCIS receipt numbers, and
+labelled I-94 numbers. Finds stay in memory until confirmed, and are let go when the Vault locks.
+It builds on the Vault, which no maintenance line has, so there is nothing to carry.

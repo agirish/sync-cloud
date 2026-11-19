@@ -49,10 +49,21 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     public var sourcePath: String?
     public var addedAt: Date
     public var updatedAt: Date
+    /// The document's own date, when it was read: a passport's expiry, an I-94's date of entry.
+    public var dated: Date?
+    /// Stored only when set, so a Vault file from before it opens unchanged.
+    private var older: Bool?
+
+    /// Kept for reference: an older passport or I-94 a form may still ask for. Listed after the
+    /// current numbers of its kind, and marked.
+    public var isOlder: Bool {
+        get { older ?? false }
+        set { older = newValue ? true : nil }
+    }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
                 note: String = "", kind: Kind = .other, sourcePath: String? = nil,
-                addedAt: Date, updatedAt: Date? = nil) {
+                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil, isOlder: Bool = false) {
         self.id = id
         self.title = title
         self.value = value
@@ -62,6 +73,8 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         self.sourcePath = sourcePath
         self.addedAt = addedAt
         self.updatedAt = updatedAt ?? addedAt
+        self.dated = dated
+        self.older = isOlder ? true : nil
     }
 }
 
@@ -92,6 +105,25 @@ public enum VaultMask {
             toHide -= 1
             return dot
         })
+    }
+
+    /// A document's name with any number in it cut to its ending. People name a scan after what
+    /// is on it ("Passport A38291647.pdf"), so a file's name can hold the very number the Vault
+    /// is hiding. A run of five or more letters and digits, four or more of them digits, counts as
+    /// a number; a year or a page number does not.
+    public static func fileName(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        var out = ""
+        var run = ""
+        func flush() {
+            out += run.count >= 5 && run.filter(\.isNumber).count >= 4 ? masked(run) : run
+            run = ""
+        }
+        for character in name {
+            if character.isLetter || character.isNumber { run.append(character) } else { flush(); out.append(character) }
+        }
+        flush()
+        return out
     }
 
     /// The letters and digits in groups of `size`, for reading a number out loud: Large Type

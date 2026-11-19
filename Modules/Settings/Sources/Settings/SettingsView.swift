@@ -851,6 +851,11 @@ enum SettingsSearchIndex {
               keywords: ["vault", "every number", "when vault opens", "ask each time", "touch id"]),
         .init(at: .vault, title: "Lock again",
               keywords: ["vault", "relock", "timeout", "idle", "two minutes", "ten minutes", "auto lock"]),
+        .init(at: .vault, title: "Folders to read",
+              keywords: ["vault", "read documents", "scan", "passport", "receipt number", "i-94",
+                         "folders", "what to read"]),
+        .init(at: .vault, title: "Numbers set aside",
+              keywords: ["vault", "not this", "set aside", "forget", "offered again", "read documents"]),
         // Advanced
         .init(at: .advanced, title: "Run Setup Again",
               keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",

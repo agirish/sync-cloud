@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Sync
 
@@ -13,6 +14,10 @@ struct VaultSettingsTab: View {
     @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterTwoMinutes
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
+    /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
+    @State private var readFolders: [String] = []
+    /// How many numbers Read Documents keeps out, counted when the page appears.
+    @State private var setAsideCount = 0
 
     var body: some View {
         SettingsPage {
@@ -47,6 +52,83 @@ struct VaultSettingsTab: View {
                 // Asking for every number leaves nothing unlocked to time out.
                 .disabled(!requiresAuthentication || ask == .everyNumber)
             }
+            SettingsSection(
+                "Folders to Read",
+                caption: "Read Documents in the Vault looks in these folders for passport numbers, USCIS receipt numbers and I-94 numbers. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
+            ) {
+                SettingsRow("Folders") {
+                    // One column, right-aligned: each folder's Remove lines up under the last, and
+                    // Add… under them.
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if readFolders.isEmpty {
+                            Text("None yet").foregroundStyle(.secondary)
+                        }
+                        ForEach(readFolders, id: \.self) { folder in
+                            HStack(spacing: 8) {
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text((folder as NSString).abbreviatingWithTildeInPath)
+                                        .lineLimit(1).truncationMode(.middle)
+                                    if !FileManager.default.fileExists(atPath: folder) {
+                                        Text("Not found. Renamed or moved?")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
+                                }
+                                Button("Remove") {
+                                    VaultReadFolders.remove(folder)
+                                    SettingsWindowLog.log("vault.readFolders", "removed")
+                                    readFolders = VaultReadFolders.folders()
+                                }
+                                .controlSize(.small)
+                                .frame(minWidth: 70, alignment: .trailing)
+                                .accessibilityLabel("Stop reading \((folder as NSString).lastPathComponent)")
+                            }
+                        }
+                        Button("Add…") {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.allowsMultipleSelection = true
+                            panel.prompt = "Read for Numbers"
+                            if panel.runModal() == .OK {
+                                for url in panel.urls { VaultReadFolders.add(url.path) }
+                                SettingsWindowLog.log("vault.readFolders", "added")
+                                readFolders = VaultReadFolders.folders()
+                            }
+                        }
+                        .controlSize(.small)
+                        .frame(minWidth: 70, alignment: .trailing)
+                    }
+                    .help("Folders and everything in them: the first three pages of each scan or PDF, skipping files over 60 MB.")
+                }
+            }
+            SettingsSection(
+                "Set Aside",
+                caption: "Numbers you chose Not This for, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
+            ) {
+                SettingsRow("Numbers set aside") {
+                    HStack(spacing: 8) {
+                        Text(setAsideCount == 1 ? "1 number" : "\(setAsideCount) numbers")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                        // No question first: forgetting only lets the next read offer them again,
+                        // and Not This sets each one aside once more.
+                        Button("Forget") {
+                            VaultSetAside.forget()
+                            SettingsWindowLog.log("vault.setAside", "forgotten")
+                            setAsideCount = 0
+                        }
+                        .controlSize(.small)
+                        .frame(minWidth: 70, alignment: .trailing)
+                        .disabled(setAsideCount == 0)
+                    }
+                    .help("Forget, and the next Read Documents opens every file and offers these numbers again.")
+                }
+            }
+        }
+        .onAppear {
+            readFolders = VaultReadFolders.folders()
+            setAsideCount = VaultSetAside.fingerprints().count
         }
     }
 

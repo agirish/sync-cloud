@@ -172,6 +172,13 @@ for: a passport number, a member ID, a loan number.
   out in groups of four. A copy clears from the clipboard after a minute.
 - **Locks itself** when it closes, after two idle minutes, and when the Mac sleeps. **Settings ▸
   Vault** changes when it asks, or turns the lock off after one more Touch ID.
+- **Read Documents** looks in folders you choose for passport numbers (checked against the
+  passport's own check digits), USCIS receipt numbers and I-94 numbers. What it finds waits in
+  **To Confirm** until you check it against the page and add it, or choose **Not This** so it isn't
+  offered again. Each person's current passport and I-94 come first; older ones (an earlier
+  document, or one in an `Archive` folder) are kept under **Older** with their date. After the
+  first read only new and changed files are opened.
+- **Remove** a number with ⌘⌫, the trash button or a right-click; the Vault asks first.
 
 ### 🧭 Guided setup
 A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask
