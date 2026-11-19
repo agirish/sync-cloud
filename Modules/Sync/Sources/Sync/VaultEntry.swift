@@ -170,7 +170,10 @@ public enum VaultMask {
         path.split(separator: "/", omittingEmptySubsequences: false).map { name(String($0)) }.joined(separator: "/")
     }
 
-    private static let joinedRun = try! NSRegularExpression(pattern: #"[A-Za-z0-9]+(?:[ ._-][A-Za-z0-9]+)*"#)
+    /// Letters and digits joined by up to three separators: "123 - 45 - 6789", "(123) 45 6789",
+    /// "2345,6789,0123" are each one number written out.
+    private static let joinedRun = try! NSRegularExpression(pattern: #"[A-Za-z0-9]+(?:[ ._,+()-]{1,3}[A-Za-z0-9]+)*"#)
+    private static let separators: Set<Character> = [" ", ".", "_", "-", ",", "+", "(", ")"]
     private static let dateLike = try! NSRegularExpression(
         pattern: #"^(?:(?:19|20)\d{2}[._-]\d{1,2}(?:[._-]\d{1,2})?|\d{1,2}[._-]\d{1,2}[._-](?:19|20)?\d{2}|(?:19|20)\d{2}[ ._-]+(?:19|20)\d{2})$"#)
 
@@ -181,7 +184,7 @@ public enum VaultMask {
         for match in joinedRun.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
             let whole = ns.substring(with: match.range)
             // Judge each stretch of the run that holds digits: words around a number stay.
-            let words = whole.split(omittingEmptySubsequences: false, whereSeparator: { " ._-".contains($0) })
+            let words = whole.split(omittingEmptySubsequences: false, whereSeparator: { separators.contains($0) })
             var masked = whole
             var start: Int?
             func judge(_ from: Int, _ to: Int) {
@@ -195,18 +198,26 @@ public enum VaultMask {
             }
             // Digit groups, and a short capital prefix such as "WAC", join into one stretch; a word
             // mixing letters and digits ("V9416925", "797A") is judged on its own.
+            // Two separators side by side ("123 - 45") leave an empty word between them, which
+            // neither ends a stretch nor belongs to one.
+            var last = 0
             for (index, word) in words.enumerated() {
-                let digitsOnly = !word.isEmpty && word.allSatisfy(\.isNumber)
-                let prefix = word.count <= 3 && !word.isEmpty && word.allSatisfy { $0.isUppercase }
+                if word.isEmpty { continue }
+                let digitsOnly = word.allSatisfy(\.isNumber)
+                let prefix = word.count <= 3 && word.allSatisfy { $0.isUppercase }
                 let mixed = word.contains(where: \.isNumber) && word.contains(where: \.isLetter)
                 if digitsOnly || prefix {
                     start = start ?? index
+                    last = index
                 } else {
-                    if let s = start { judge(s, index - 1); start = nil }
-                    if mixed { judge(index, index) }
+                    if let s = start { judge(s, last); start = nil }
+                    // A word mixing letters and digits starts a stretch of its own: the digit
+                    // groups after it are the rest of it ("D123 4567 8901"), and a stretch before
+                    // it is judged apart ("I-797A" stays).
+                    if mixed { start = index; last = index }
                 }
             }
-            if let s = start { judge(s, words.count - 1) }
+            if let s = start { judge(s, last) }
             out = (out as NSString).replacingCharacters(in: match.range, with: masked)
         }
         return out

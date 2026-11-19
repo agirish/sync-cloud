@@ -175,7 +175,7 @@ import Testing
         #expect(find.facts.issuer == "UTO")
         #expect(find.sourcePath == "/scan.pdf")
         #expect(find.facts.primary?.role == "Passport photo page")
-        #expect(find.facts.details.map(\.label) == ["Issuing country", "Expired"])
+        #expect(find.facts.details.map(\.label) == ["Issuing country", "Valid until"])
         #expect(!find.facts.details.contains { $0.label.lowercased().contains("birth") }, "a date of birth is never a detail")
     }
 

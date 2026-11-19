@@ -16131,3 +16131,21 @@ Vault, which no maintenance line has.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## The Vault, reviewed end to end — main only, recorded, not owed
+
+2026-11-19, for v7.2. Fixes from an adversarial review of the whole Vault. A removal or change
+asked for during a proof no longer acts on a Vault the closing panel let go (which could write it
+empty, or crash). A number read from several documents is rebuilt from those that remain
+(`VaultModel.merged`), a read that sees no files keeps what it had, and choices survive a change
+of rules. One person's documents are weighed together with or without a birth date
+(`VaultPeopleClusters`). Readers take ASCII digits only and stop taking a surname and phone
+number for a receipt, a hospital's admission number for an I-94, or "epic" for a voter ID. Paths
+from the Vault are masked in the log, "lock off" needs a seal only this Mac's Vault key makes
+(`VaultLockSwitch.sealOff`), a copy stays on this Mac and is cleared on quit, and every type that
+holds a number prints without it (`VaultRedaction.swift`). It builds on the Vault, which no
+maintenance line has.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

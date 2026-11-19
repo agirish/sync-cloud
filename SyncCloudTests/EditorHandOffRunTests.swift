@@ -440,7 +440,7 @@ import FileExplorer
                 "Reveal in Browse asks some other workspace's view mode")
         #expect(reveal.unlabeled == ["path"] && reveal.passes("from", "door"))
         #expect(reveal.passes("showBrowse", "{ selectedWorkspace = .browse }"), "the act does not switch to Browse")
-        #expect(reveal.passes("owe", "{ owePaneSelection($0, with: companions, replacing: replaces) }"), "the act owes nothing — Browse lands with no selection")
+        #expect(reveal.passes("owe", "{ owePaneSelection($0, with: companions, replacing: replaces, masksInLog: door == .vault) }"), "the act owes nothing — Browse lands with no selection")
         #expect(!body.contains("focusOn(") && !body.contains("focusPane("), "Reveal re-roots again")
     }
 }

@@ -104,7 +104,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Set Aside",
-                caption: "Numbers you chose Not This for, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
+                caption: "Numbers you marked Not a Real Number, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
             ) {
                 SettingsRow("Numbers set aside") {
                     HStack(spacing: 8) {
@@ -112,7 +112,7 @@ struct VaultSettingsTab: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         // No question first: forgetting only lets the next read offer them again,
-                        // and Not This sets each one aside once more.
+                        // and Not a Real Number sets each one aside once more.
                         Button("Forget") {
                             VaultSetAside.forget()
                             SettingsWindowLog.log("vault.setAside", "forgotten")
@@ -148,6 +148,12 @@ struct VaultSettingsTab: View {
 
     private func set(_ on: Bool) {
         let old = requiresAuthentication
+        // Sealed first, so the Vault never reads an unsealed "off" and turns the lock back on.
+        if on {
+            VaultLockSwitch.unseal(in: .standard)
+        } else {
+            VaultLockSwitch.sealOff(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
+        }
         requiresAuthentication = on
         SettingsWindowLog.log("vault.requiresAuthentication", from: .bool(old), to: .bool(on))
     }

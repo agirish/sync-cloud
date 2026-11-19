@@ -3,7 +3,9 @@ import Foundation
 /// A number read from a document, waiting in To Confirm until it is added or set aside.
 ///
 /// Sealed to disk with the Vault's key between reads (``VaultReadingState``), and let go from
-/// memory when the Vault locks, like the entries. Like ``VaultEntry`` it never prints its number.
+/// memory as the entries are: when the Vault closes locked, and when the Mac sleeps or its
+/// screen locks. An open panel that locks keeps them, drawn with only their ending. Like
+/// ``VaultEntry`` it never prints its number.
 public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
     public let id: UUID
     /// What it is: "Passport", "US visa", "I-129 · H-1B extension".
@@ -85,7 +87,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 9
+    public static let version = 10
 
     /// Every number on a document, once each, and the numbers it only names.
     public static func read(pages: [[String]], from path: String) -> (finds: [VaultFind], mentions: [VaultMention]) {
@@ -112,8 +114,12 @@ public enum VaultReading {
                 }
             }
         }
-        for find in receiptNumbers(in: text, from: path) { keep(find) }
-        for find in admissionNumbers(in: text, from: path) { keep(find) }
+        // Page by page: one PDF can hold two notices, each for its own person, form and dates.
+        for page in pages {
+            let pageText = page.joined(separator: "\n")
+            for find in receiptNumbers(in: pageText, from: path) { keep(find) }
+            for find in admissionNumbers(in: pageText, from: path) { keep(find) }
+        }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
         let identity = pages.flatMap { identityNumbers(on: $0, from: path) }.enumerated().sorted { a, b in
@@ -173,19 +179,19 @@ public enum VaultReading {
     static let receiptCenters = ["IOE", "EAC", "WAC", "LIN", "SRC", "MSC", "NBC", "YSC"]
 
     private static let receiptPattern = try! NSRegularExpression(
-        pattern: #"\b(\#(receiptCenters.joined(separator: "|")))[\s-]?([0-9OQDILZSBG]{2}[\s-]?[0-9OQDILZSBG]{3}[\s-]?[0-9OQDILZSBG]{5})\b"#,
+        pattern: #"\b(?-i:(\#(receiptCenters.joined(separator: "|"))))[\s-]?([0-9OQDILZSBG]{2}[\s-]?[0-9OQDILZSBG]{3}[\s-]?[0-9OQDILZSBG]{5})\b"#,
         options: [.caseInsensitive])
 
     /// A form named on the page other than the notice itself: "I-129" on an I-797 approval.
-    private static let formPattern = try! NSRegularExpression(pattern: #"\bI-(\d{3}[A-Z]?)\b"#)
+    private static let formPattern = try! NSRegularExpression(pattern: #"\bI-([0-9]{3}[A-Z]?)\b"#)
     /// "Valid from 10/01/2026 to 09/30/2029" on an approval notice.
     private static let validPattern = try! NSRegularExpression(
-        pattern: #"valid\s*from\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*to\s*(\d{1,2})/(\d{1,2})/(\d{4})"#,
+        pattern: #"valid\s*from\s*([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})\s*to\s*([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})"#,
         options: [.caseInsensitive])
     private static let noticeDatePattern = try! NSRegularExpression(
-        pattern: #"notice\s*date\s*:?\s*(\d{1,2})/(\d{1,2})/(\d{4})"#, options: [.caseInsensitive])
+        pattern: #"notice\s*date\s*:?\s*([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})"#, options: [.caseInsensitive])
     private static let receivedDatePattern = try! NSRegularExpression(
-        pattern: #"received\s*date\s*:?\s*(\d{1,2})/(\d{1,2})/(\d{4})"#, options: [.caseInsensitive])
+        pattern: #"received\s*date\s*:?\s*([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})"#, options: [.caseInsensitive])
     /// The person a case is for: "Beneficiary ERIKSSON, ANNA" on an I-129, "Applicant" on others.
     /// Never the petitioner, who is the employer.
     private static let caseHolderPattern = try! NSRegularExpression(
@@ -240,8 +246,14 @@ public enum VaultReading {
         if let holder { notes.append(holder) }
         if let validUntil { notes.append("valid to \(spelled(validUntil))") }
         let source = VaultSource(path: path, role: notice?.role ?? "USCIS notice", rank: notice?.rank ?? Rank.mention)
+        // A center's letters set apart from the digits ("LIN 4155551234") are as likely a surname
+        // and a phone number: taken only on a page about a case. Run together, they are a receipt.
+        let lower = text.lowercased()
+        let aboutACase = ["receipt", "uscis", "case", "notice", "i-797", "immigration"].contains(where: lower.contains)
         return receiptPattern.matches(in: text, range: whole).compactMap { match in
             let center = ns.substring(with: match.range(at: 1)).uppercased()
+            let joined = match.range(at: 2).location == match.range(at: 1).location + match.range(at: 1).length
+            guard joined || aboutACase else { return nil }
             let read = normalized(ns.substring(with: match.range(at: 2)))
             // Mostly digits as printed: look-alikes are forgiven a few at a time, and a run of
             // letters that only become digits once fixed is a word, not a number.
@@ -284,13 +296,13 @@ public enum VaultReading {
     /// The printout's date of entry: "Arrival/Issued Date: 2026 April 12" since 2025, "Most Recent
     /// Date of Entry: 2015 Jan 12" before.
     private static let entryDatePattern = try! NSRegularExpression(
-        pattern: #"(?:(?:arrival\s*/\s*issued\s*date|date\s*of\s*entry)[ \t]*:?[ \t]*)+(\d{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+(\d{1,2})"#,
+        pattern: #"(?:(?:arrival\s*/\s*issued\s*date|date\s*of\s*entry)[ \t]*:?[ \t]*)+([0-9]{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+([0-9]{1,2})"#,
         options: [.caseInsensitive])
     private static let admitUntilPattern = try! NSRegularExpression(
-        pattern: #"(?:admit\s*until\s*date[ \t]*:?[ \t]*)+(\d{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+(\d{1,2})"#,
+        pattern: #"(?:admit\s*until\s*date[ \t]*:?[ \t]*)+([0-9]{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+([0-9]{1,2})"#,
         options: [.caseInsensitive])
     private static let birthDatePattern = try! NSRegularExpression(
-        pattern: #"(?:birth\s*date[ \t]*:?[ \t]*)+(\d{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+(\d{1,2})"#, options: [.caseInsensitive])
+        pattern: #"(?:birth\s*date[ \t]*:?[ \t]*)+([0-9]{4})[ \t]+([A-Za-z]{3,9})\.?[ \t]+([0-9]{1,2})"#, options: [.caseInsensitive])
     private static let classPattern = try! NSRegularExpression(
         pattern: #"(?:class\s*of\s*admission[ \t]*:?[ \t]*)+([A-Z0-9]{1,3}(?:-?[0-9A-Z]{1,2})?)\b"#, options: [.caseInsensitive])
     private static let surnamePattern = try! NSRegularExpression(
@@ -356,7 +368,14 @@ public enum VaultReading {
         if !holder.isEmpty { notes.append(holder) }
         if let entered { notes.append("entered \(spelled(entered))") }
         if let until { notes.append("admitted until \(spelled(until))") }
+        // "Admission" alone labels a hospital's admission number as readily as CBP's: it counts
+        // only on a page that is about an I-94.
+        let aboutAnI94 = ["i-94", "i94", "i\u{00AD}94", "1-94", "cbp", "admit until", "arrival/departure", "class of admission"]
+            .contains(where: lower.contains)
         return admissionPattern.matches(in: text, range: whole).compactMap { match in
+            let label = ns.substring(with: NSRange(location: match.range.location,
+                                                   length: match.range(at: 1).location - match.range.location))
+            guard label.contains("94") || aboutAnI94 else { return nil }
             let raw = normalized(ns.substring(with: match.range(at: 1)))
             guard raw.count == 11, raw.prefix(9).filter(\.isNumber).count >= 6 else { return nil }
             let chars = Array(raw)
@@ -411,10 +430,10 @@ public enum VaultReading {
          "nov": "november", "dec": "december"][short] ?? short
     }
 
-    private static let isoDateInName = try! NSRegularExpression(pattern: #"(?<!\d)((?:19|20)\d{2})[-_.](\d{1,2})(?:[-_.](\d{1,2}))?(?!\d)"#)
+    private static let isoDateInName = try! NSRegularExpression(pattern: #"(?<![0-9])((?:19|20)[0-9]{2})[-_.]([0-9]{1,2})(?:[-_.]([0-9]{1,2}))?(?![0-9])"#)
     private static let monthYearInName = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z])([A-Za-z]{3,9})\.?[\s_-]*((?:19|20)\d{2})(?!\d)"#)
-    private static let yearInName = try! NSRegularExpression(pattern: #"(?<!\d)((?:19|20)\d{2})(?!\d)"#)
+        pattern: #"(?<![A-Za-z])([A-Za-z]{3,9})\.?[\s_-]*((?:19|20)[0-9]{2})(?![0-9])"#)
+    private static let yearInName = try! NSRegularExpression(pattern: #"(?<![0-9])((?:19|20)[0-9]{2})(?![0-9])"#)
 
     /// A date in a file's name: "2024-07-15", "Jul 2024", "July 2025", or a year alone
     /// ("Form I-94 2015.pdf", read as that year's first day). Nil when the name has none.
@@ -549,7 +568,7 @@ public struct MachineZone: Equatable, Sendable {
         let where_ = page.map { " · page \($0)" } ?? ""
         var details = [VaultDetail("Issuing country", .text(issuer))]
         if nationality != issuer && !nationality.isEmpty { details.append(VaultDetail("Nationality", .text(nationality))) }
-        details.append(VaultDetail(VaultReading.hasRunOut(expires, now: Date()) ? "Expired" : "Expires", .date(expires)))
+        details.append(VaultDetail("Valid until", .date(expires)))
         let facts = VaultReadFacts(category: .passport, holder: holder.isEmpty ? nil : holder, born: born,
                                    issuer: issuer, dated: expires, validUntil: expires, details: details,
                                    sources: [VaultSource(path: path, role: "Passport photo page" + where_,
@@ -563,9 +582,14 @@ public struct MachineZone: Equatable, Sendable {
     func visaFind(from path: String, page: Int?, text: String) -> VaultFind? {
         let ns = text as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        guard let control = Self.controlNumberPattern.firstMatch(in: text, range: whole)
+        guard let read = Self.controlNumberPattern.firstMatch(in: text, range: whole)
             .map({ VaultReading.normalized(ns.substring(with: $0.range(at: 1))) }),
-              control.filter(\.isNumber).count >= 8 else { return nil }
+              read.filter(\.isNumber).count >= 8 else { return nil }
+        // The digits Vision read as look-alike letters (2O24… for 2024…), put back; the letters a
+        // Control Number may end with are kept.
+        let digitsRun = read.prefix { $0.isNumber || "OIL".contains($0) }
+        let control = String(digitsRun.map { $0 == "O" ? "0" : $0 == "I" || $0 == "L" ? "1" : $0 })
+            + read.dropFirst(digitsRun.count)
         let where_ = page.map { " · page \($0)" } ?? ""
         let visaClass = Self.visaClassPattern.firstMatch(in: text, range: whole)
             .map { ns.substring(with: $0.range(at: 1)).uppercased() }
@@ -573,7 +597,7 @@ public struct MachineZone: Equatable, Sendable {
         var details: [VaultDetail] = []
         if let visaClass { details.append(VaultDetail("Visa class", .text(visaClass))) }
         if let issued { details.append(VaultDetail("Issued", .date(issued))) }
-        details.append(VaultDetail(VaultReading.hasRunOut(expires, now: Date()) ? "Expired" : "Expires", .date(expires)))
+        details.append(VaultDetail("Valid until", .date(expires)))
         details.append(VaultDetail("In passport", .number(number)))
         let country = issuer == "USA" ? "US" : issuer
         let facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born,
@@ -591,7 +615,7 @@ public struct MachineZone: Equatable, Sendable {
     private static let visaClassPattern = try! NSRegularExpression(
         pattern: #"(?:visa\s*type\s*/?\s*class|class)\s*:?\s*\n?\s*([A-Z]-?[0-9][A-Z0-9]?)\b"#, options: [.caseInsensitive])
     private static let issueDatePattern = try! NSRegularExpression(
-        pattern: #"issue\s*date\s*:?\s*\n?\s*(\d{2})\s*([A-Z]{3})\s*(\d{4})"#, options: [.caseInsensitive])
+        pattern: #"issue\s*date\s*:?\s*\n?\s*([0-9]{2})\s*([A-Z]{3})\s*([0-9]{4})"#, options: [.caseInsensitive])
 
     /// "02OCT2024", as a visa foil prints its dates.
     private static func foilDate(_ pattern: NSRegularExpression, in text: String) -> Date? {
@@ -805,12 +829,15 @@ public struct MachineZone: Equatable, Sendable {
 
     private enum Century { case past, future }
 
-    /// `YYMMDD`. An expiry is read as 20YY; a birth date as 19YY when 20YY would be in the future.
+    /// `YYMMDD`. A birth date is 19YY when 20YY would be in the future. An expiry is 20YY unless
+    /// that is further ahead than any passport runs (ten years, with room): a passport that ran
+    /// out in 1999 is not good until 2099.
     private static func date(_ field: Substring, century: Century) -> Date? {
-        guard field.count == 6, field.allSatisfy(\.isNumber), let yy = Int(field.prefix(2)),
+        guard field.count == 6, field.allSatisfy({ $0.isASCII && $0.isNumber }), let yy = Int(field.prefix(2)),
               let mm = Int(field.dropFirst(2).prefix(2)), let dd = Int(field.suffix(2)) else { return nil }
         let thisYear = Calendar(identifier: .gregorian).component(.year, from: Date()) % 100
-        let year = century == .future || yy <= thisYear ? 2000 + yy : 1900 + yy
+        let year = century == .future ? (yy <= thisYear + 15 ? 2000 + yy : 1900 + yy)
+            : (yy <= thisYear ? 2000 + yy : 1900 + yy)
         return VaultReading.calendarDate(year: year, month: mm, day: dd)
     }
 
@@ -901,14 +928,51 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// Documents that name a number without being its source, by the number: kept so a passport
     /// read later still gets them, and so a saved one does.
     public var mentions: [String: [VaultSource]]
+    /// What each document said about each number, by number and then by file, which a waiting
+    /// number is rebuilt from when a file changes or goes (``VaultModel/merged(_:)``).
+    public var copies: [String: [String: VaultFind]]
+    /// Choices made about waiting numbers under an older build's rules, by number: carried onto
+    /// what the next read finds, since that read starts again from nothing.
+    public var choices: [String: VaultChoice]
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
-                finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:]) {
+                finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
+                copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:]) {
         self.version = version
         self.generation = generation
         self.finds = finds
         self.read = read
         self.mentions = mentions
+        self.copies = copies
+        self.choices = choices
+    }
+
+    private enum CodingKeys: String, CodingKey { case version, generation, finds, read, mentions, copies, choices }
+
+    /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
+    /// finds' choices can still be carried over.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        generation = try c.decode(Int.self, forKey: .generation)
+        finds = try c.decode([VaultFind].self, forKey: .finds)
+        read = try c.decodeIfPresent([String: String].self, forKey: .read) ?? [:]
+        mentions = try c.decodeIfPresent([String: [VaultSource]].self, forKey: .mentions) ?? [:]
+        copies = try c.decodeIfPresent([String: [String: VaultFind]].self, forKey: .copies) ?? [:]
+        choices = try c.decodeIfPresent([String: VaultChoice].self, forKey: .choices) ?? [:]
+    }
+}
+
+/// What the user chose about one waiting number: kept across a change of rules.
+public struct VaultChoice: Codable, Equatable, Sendable {
+    public var id: UUID
+    public var pin: VaultPin?
+    public var assignment: VaultAssignment?
+
+    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?) {
+        self.id = id
+        self.pin = pin
+        self.assignment = assignment
     }
 }
 

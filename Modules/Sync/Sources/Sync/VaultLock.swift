@@ -199,4 +199,38 @@ public enum VaultLockSwitch {
         case .cancelled, .failed: return false
         }
     }
+
+    /// Where the seal on "the lock is off" is kept.
+    public static let sealKey = "vaultLockOffSeal"
+    private static let sealPhrase = "vault lock off"
+
+    /// Seals the lock as off, once the owner proved it: a keyed fingerprint only this Mac's Vault
+    /// key makes. The setting itself is a plain preference, which `defaults write` can change
+    /// without any proof; unsealed, an "off" is read as on (``VaultLockSettings/init(defaults:store:)``).
+    public static func sealOff(in defaults: UserDefaults, store: VaultStore?) {
+        guard let seal = store?.fingerprint(sealPhrase, makingKey: true) else { return }
+        defaults.set(seal, forKey: sealKey)
+    }
+
+    /// The lock is on again: no seal is left to reuse.
+    public static func unseal(in defaults: UserDefaults) {
+        defaults.removeObject(forKey: sealKey)
+    }
+
+    /// Whether "off" was set by Settings after a proof on this Mac.
+    static func isSealedOff(in defaults: UserDefaults, store: VaultStore?) -> Bool {
+        guard let seal = defaults.string(forKey: sealKey), let expected = store?.fingerprint(sealPhrase) else { return false }
+        return seal == expected
+    }
+}
+
+extension VaultLockSettings {
+    /// The saved settings as the Vault obeys them: an "off" that Settings did not seal after a
+    /// proof is read as on, so the lock cannot be taken off from Terminal.
+    public init(defaults: UserDefaults, store: VaultStore?) {
+        self.init(defaults: defaults)
+        if !requiresAuthentication, !VaultLockSwitch.isSealedOff(in: defaults, store: store) {
+            requiresAuthentication = true
+        }
+    }
 }

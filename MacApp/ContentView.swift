@@ -33,6 +33,8 @@ struct ContentView: View {
     /// by the App: its menu item reaches it through a focused value, as Ask Claude's does
     /// (``VaultHost``). Not `private`: the toolbar and ⌘K are in extensions of this view.
     @State var showVault = false
+    /// The Quick Look panel shows a document the Vault opened, and closes with the Vault.
+    @State var quickLookFromVault = false
     /// The Vault's own state: what is in it and whether it is open. It reads nothing from disk or
     /// the Keychain until the panel first appears.
     @StateObject var vault = VaultModel.live()
@@ -1361,7 +1363,14 @@ struct ContentView: View {
         // Dismissing the panel by hand nils the binding without going through `toggleQuickLook`, so
         // the origin flag is cleared here, or the next preview (opened from a Differences row)
         // would inherit "follows the panes" and be yanked by a pane click.
-        .onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }
+        .onChange(of: quickLookURL) { _, url in
+            if url == nil { quickLookFollowsPane = false; quickLookFromVault = false }
+        }
+        // A document the Vault previewed goes when the Vault does: closed, or locked by the Mac
+        // sleeping, the scan of a passport is not left on screen.
+        .onChange(of: showVault) { _, open in
+            if !open, quickLookFromVault { quickLookURL = nil }
+        }
         .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
         // The theme is the one Appearance control no view can render on its own: it lives on NSApp,
         // so the AppKit surfaces (NSAlert prompts, NSOpenPanel, the About panel, the Activity Log
@@ -2529,7 +2538,10 @@ struct ContentView: View {
                 openSettings(on: SettingsPlace(.vault))
             },
             // Over the Vault, which stays open behind it.
-            onQuickLook: { path in quickLookURL = URL(fileURLWithPath: path) },
+            onQuickLook: { path in
+                quickLookURL = URL(fileURLWithPath: path)
+                quickLookFromVault = true
+            },
             // Browse is where a document opens: the Vault steps aside for it.
             onReveal: { path in
                 showVault = false

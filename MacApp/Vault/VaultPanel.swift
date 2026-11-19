@@ -172,6 +172,20 @@ struct VaultCard: View {
         }
         // People changed in Settings, or a person was added here: whose each number is follows.
         .onChange(of: people) { _, now in model.people = now }
+        // Access ran out (Lock Now, the idle limit, a number's thirty seconds): nothing that draws
+        // a number in full stays up. The editor draws it in its field; Large Type draws it big.
+        .onChange(of: model.now) { _, now in
+            if let id = largeType, !model.lock.canShow(id, at: now) { largeType = nil }
+            switch editing {
+            case .existing(let id)?, .confirming(let id)?:
+                if !model.lock.canShow(id, at: now) { editing = nil }
+            default: break
+            }
+        }
+        // Back to the search once the editor or Large Type closes, so the arrows, Return and
+        // Space work again without a click.
+        .onChange(of: editing) { _, now in if now == nil { searchFocused = true } }
+        .onChange(of: largeType) { _, now in if now == nil { searchFocused = true } }
         .onDisappear {
             readTask?.cancel()
             model.closed()
@@ -222,7 +236,7 @@ struct VaultCard: View {
             Button("Choose Folders…") { addFolders() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from this button’s arrow or in Settings ▸ Vault.")
+            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from the arrow beside Read Documents or in Settings ▸ Vault.")
         }
     }
 
@@ -377,9 +391,9 @@ struct VaultCard: View {
                 // Space looks at the chosen number's document, while nothing is typed; once a
                 // search is under way it is a space.
                 .onKeyPress(.space) {
-                    guard model.query.isEmpty, editing == nil, let row = model.selectedRow,
-                          let path = row.documents.first?.path else { return .ignored }
-                    quickLook(path, for: row)
+                    guard model.query.trimmingCharacters(in: .whitespaces).isEmpty, editing == nil,
+                          let row = model.selectedRow else { return .ignored }
+                    if let path = row.documents.first?.path { quickLook(path, for: row) }
                     return .handled
                 }
                 .onSubmit { if let id = model.selection, editing == nil { copy(id) } }
@@ -404,7 +418,7 @@ struct VaultCard: View {
             if model.entries.isEmpty, model.finds.isEmpty, editing == nil {
                 EmptyStateView(icon: "lock.doc", title: "Nothing in the Vault yet",
                                message: "Keep the numbers you get asked for here: a passport number, a member ID, a loan number. Each is sealed on this Mac and shown only to you.",
-                               caption: model.lastReading.map { "Read \(Self.documents($0.documents)); none held a number the Vault reads yet." },
+                               caption: model.lastReading.map { "Read \(Self.documents($0.documents)); nothing new to confirm." },
                                primary: .init("Add a Number", systemImage: "plus") { startAdding() },
                                secondary: .init("Read Documents", systemImage: "doc.text.viewfinder") { readDocuments() })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -665,7 +679,7 @@ struct VaultCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu { rowMenu(row) }
-        .accessibilityLabel("\(rowTitle(row)), \(row.category.singular)\(row.isSaved ? "" : ", to confirm")")
+        .accessibilityLabel(Self.rowSpoken(title: rowTitle(row), row: row))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -728,7 +742,8 @@ struct VaultCard: View {
             } label: {
                 if row.isHousehold { Label("Household", systemImage: "checkmark") } else { Text("Household") }
             }
-            if !row.isHousehold, row.personID == nil, let holder = row.facts?.holder {
+            if !row.isHousehold, row.personID == nil, let holder = row.facts?.holder,
+               PersonRegistry(people: people).detect(in: holder).isEmpty {
                 Divider()
                 Button("Add “\(holder)” to People") {
                     if let person = addPerson(named: holder) { model.assign(row.id, to: .person(person.id)) }
@@ -742,7 +757,8 @@ struct VaultCard: View {
             // A name read from the document that matches nobody in People says so, rather than
             // passing for a person of the household.
             if !row.isHousehold, row.personID == nil, let holder = row.facts?.holder {
-                Text("\(holder) · Not in People")
+                Text(PersonRegistry(people: people).detect(in: holder).count > 1
+                     ? "\(holder) · Choose Who" : "\(holder) · Not in People")
             } else {
                 Text(row.isHousehold ? "Household" : row.whose)
             }
@@ -863,13 +879,15 @@ struct VaultCard: View {
                         .foregroundStyle(.secondary)
                     belongsToMenu(row)
                         .menuStyle(.borderlessButton)
-                        .fixedSize()
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 240, alignment: .leading)
                 }
                 .help("Whose this number is. A choice here wins over the name on the document, and later reads keep it.")
                 if row.standing.inUse {
                     callout("Still in use: a visa that is still good is in this passport, so carry it with the new one.",
                             tint: SemanticColor.info)
-                } else if row.standing.expired, row.standing.tab == .current {
+                } else if row.standing.expired, row.standing.tab == .current, model.reading == nil {
                     callout("Expired, and the newest of its kind read for \(row.whose). It stays here until a newer one is read.",
                             tint: SemanticColor.warning)
                 }
@@ -927,11 +945,11 @@ struct VaultCard: View {
                 .foregroundStyle(shown ? .primary : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .textSelection(.enabled)
-                // An element of its own: a label on selectable text's own node is the shape that
-                // crashed VoiceOver (`SelectableTextLabelTests`).
+                // Not selectable: ⌘C on selected text would put the number on the clipboard
+                // plainly, never concealed nor cleared. Copy and Large Type are the ways out.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(shown ? "The number" : "The number, hidden")
+                .accessibilityValue(Self.spokenNumber(row.value, shown: shown))
             Spacer(minLength: 4)
             // Large Type beside the number, for reading it out on a call; behind Touch ID while
             // the number is hidden, as Show is.
@@ -995,7 +1013,7 @@ struct VaultCard: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("More: Large Type, Mark as Older or Make Current, and Remove")
+            .help("More: Mark as Older or Make Current, and Remove")
             .accessibilityLabel("More")
         }
         .disabled(model.isAsking)
@@ -1138,7 +1156,7 @@ struct VaultCard: View {
                         Text("Household").tag(Self.belongsTag(.household))
                         // A read number may also go by the name on its document.
                         if let holder = draft.facts?.holder {
-                            Text("As the document says (\(holder))").tag(Self.belongsTag(nil))
+                            Text("As the Document Says (\(holder))").tag(Self.belongsTag(nil))
                         }
                     }
                 }
@@ -1281,6 +1299,24 @@ struct VaultCard: View {
 
     // MARK: Acts
 
+    /// What VoiceOver says of the number: each character apart while shown, so it is spelled out
+    /// rather than read as one large number; its last four while hidden.
+    static func spokenNumber(_ value: String, shown: Bool) -> String {
+        let plain = VaultReading.normalized(value)
+        guard shown else { return plain.count > 4 ? "ending \(plain.suffix(4).map(String.init).joined(separator: " "))" : "" }
+        return plain.map(String.init).joined(separator: " ")
+    }
+
+    /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.
+    static func rowSpoken(title: String, row: VaultModel.Row) -> String {
+        var parts = [title, row.category.singular, spokenNumber(row.value, shown: false)]
+        if row.standing.inUse { parts.append("in use") }
+        if row.standing.expired { parts.append("expired") }
+        if row.standing.pending { parts.append("pending") }
+        parts.append(row.isSaved ? "in Vault" : row.standing.tab == .archive ? "older" : "to confirm")
+        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
     /// esc and the ✕ undo one thing at a time: Large Type, then the editor, then the panel.
     private func escape() {
         if largeType != nil {
@@ -1295,7 +1331,7 @@ struct VaultCard: View {
     private func startAdding() {
         var blank = VaultModel.Draft()
         // A new number starts with the person the list is filtered to.
-        if case .person(let id) = model.personFilter { blank.personID = id }
+        if case .person(let id) = model.personFilter { blank.personID = id } else { blank.isHousehold = true }
         draft = blank
         editing = .new
     }
@@ -1342,6 +1378,7 @@ struct VaultCard: View {
     /// Read Documents, over the folders chosen here or in Settings ▸ Vault. `again` opens every
     /// file, not only the new and changed ones.
     private func readDocuments(again: Bool = false) {
+        guard model.reading == nil else { return }
         let folders = VaultReadFolders.folders()
         readFolders = folders
         guard !folders.isEmpty else {

@@ -97,16 +97,45 @@ enum VaultPasteboard {
     @MainActor
     static func copyConcealed(_ value: String) {
         let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        // The marker before the string: a manager watching `changeCount` reads the types as soon
-        // as it sees a change.
+        // This Mac only: Universal Clipboard would hand the number to every nearby device signed
+        // in to the same account.
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        // The markers before the string: a manager watching `changeCount` reads the types as soon
+        // as it sees a change. Concealed and transient are the two that clipboard-history apps
+        // honour (nspasteboard.org).
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
+        pasteboard.setData(Data(), forType: .init("org.nspasteboard.TransientType"))
         pasteboard.setString(value, forType: .string)
         let stamp = pasteboard.changeCount
+        pendingClear = stamp
+        watchForQuit()
         Task { @MainActor in
             try? await Task.sleep(for: clearAfter)
-            guard pasteboard.changeCount == stamp else { return }
-            pasteboard.clearContents()
+            clear(ifStill: stamp)
+        }
+    }
+
+    /// The copy that has yet to be cleared, by the pasteboard's change count.
+    @MainActor private static var pendingClear: Int?
+    @MainActor private static var quitWatch: NSObjectProtocol?
+
+    @MainActor private static func clear(ifStill stamp: Int) {
+        guard pendingClear == stamp else { return }
+        pendingClear = nil
+        let pasteboard = NSPasteboard.general
+        guard pasteboard.changeCount == stamp else { return }
+        pasteboard.clearContents()
+    }
+
+    /// Quitting inside the minute would leave the number on the clipboard for good: it is cleared
+    /// on the way out, unless something else was copied since.
+    @MainActor private static func watchForQuit() {
+        guard quitWatch == nil else { return }
+        quitWatch = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                if let stamp = pendingClear { clear(ifStill: stamp) }
+            }
         }
     }
 }

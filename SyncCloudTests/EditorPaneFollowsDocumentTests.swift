@@ -420,7 +420,7 @@ import FileExplorer
 @Suite struct EditorPaneFollowsDocumentWiringTests {
     /// The door itself: the debt carries the document it was recorded against, and is tried now.
     @Test func oweRecordsTheDocumentAndTriesAtOnce() throws {
-        let body = try memberBody("func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = []) {", inFile: "ContentView+Editor.swift")
+        let body = try memberBody("func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [], masksInLog: Bool = false) {", inFile: "ContentView+Editor.swift")
         let record = try #require(body.range(of: "editorPaneSelectionOwed = PaneSelectionDebt("),
                                   "the open-document debt is no longer what is recorded")
         let debt = try call("PaneSelectionDebt(", in: body)
@@ -510,9 +510,10 @@ import FileExplorer
                 "the app's write goes through the click's setter — a Compare-with pick would resolve on it")
         #expect(body.contains("paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken, selection: Set(companions).union([path]))"),
                 "the selected rows are not revealed — or the reveal speaks for another selection than the one written")
-        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(path) in the left pane\""),
+        // A document revealed from the Vault is named masked (`PaneSelectionDebt.masksInLog`).
+        #expect(body.contains("Logger.shared.info(\"[pane-follow] Selected \\(owed.masksInLog ? VaultMask.folder(path) : path) in the left pane\""),
                 "a selection on the user's behalf is not logged at info")
-        #expect(body.contains("Logger.shared.info(\"[pane-follow] Not selecting \\(owed.path) in the left pane: \\(reason.sentence)\")"),
+        #expect(body.contains("Logger.shared.info(\"[pane-follow] Not selecting \\(owed.logged) in the left pane: \\(reason.sentence)\")"),
                 "a dropped debt is not logged at info, with its reason")
         let current = try memberBody("var paneTreeIsCurrent: Bool {", inFile: "ContentView+Editor.swift")
         #expect(current.contains("Self.treeIsCurrent(readAt: syncManager.paneTreeFolder(isLeft: true), paneFolder: currentLeftPath)"),

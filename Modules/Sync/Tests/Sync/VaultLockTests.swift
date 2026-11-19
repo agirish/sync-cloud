@@ -448,10 +448,28 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         #expect(model.lock.settings.ask == .everyNumber)
     }
 
+    @Test func aLockTurnedOffFromTerminalStaysOn() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        // `defaults write … vaultRequiresAuthentication -bool NO`, with no proof and no seal.
+        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
+        let model = rig.model()
+
+        await model.opened()
+
+        #expect(model.lock.settings.requiresAuthentication)
+        #expect(rig.auth.reasons == ["unlock your Vault"])
+        // A seal copied from another Mac, or made with another key, is no seal either.
+        rig.defaults.set(String(repeating: "0", count: 64), forKey: VaultLockSwitch.sealKey)
+        #expect(VaultLockSettings(defaults: rig.defaults, store: rig.store).requiresAuthentication)
+    }
+
     @Test func withTheLockOffNothingAsksAndNumbersStayAcrossClosing() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
-        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
         try rig.seed([Self.mortgage])
+        // As Settings turns it off, after a proof: the setting, sealed with the Vault's key.
+        VaultLockSwitch.sealOff(in: rig.defaults, store: rig.store)
+        rig.defaults.set(false, forKey: VaultLockSettings.requiresAuthenticationKey)
         let model = rig.model()
 
         await model.opened()

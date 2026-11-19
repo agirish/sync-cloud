@@ -105,8 +105,11 @@ import Foundation
     /// next preview whatever opened it.
     @Test func testTheOriginIsClearedWhenThePanelIsDismissed() throws {
         let content = try macAppFile("ContentView.swift")
-        #expect(content.contains(".onChange(of: quickLookURL) { _, url in if url == nil { quickLookFollowsPane = false } }"),
-                "dismissing the panel leaves the origin flag set")
+        #expect(content.contains("if url == nil { quickLookFollowsPane = false; quickLookFromVault = false }"),
+                "dismissing the panel leaves an origin flag set")
+        // A document the Vault previewed closes with the Vault.
+        #expect(content.contains("if !open, quickLookFromVault { quickLookURL = nil }"),
+                "a Vault document stays in Quick Look after the Vault closes")
         #expect(content.contains(".onChange(of: paneQuickLookTarget)"),
                 "nothing observes the pane selection — the panel cannot follow anything")
         #expect(content.contains("CurrentSelection.previewFollow("),

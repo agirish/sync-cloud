@@ -1219,7 +1219,7 @@ extension ContentView {
             sourceRoot: (settings.rootPath(for: leftProviderId) as NSString).expandingTildeInPath,
             drawsColumns: viewMode(in: .browse, isLeft: true) == .columns,
             showBrowse: { selectedWorkspace = .browse },
-            owe: { owePaneSelection($0, with: companions, replacing: replaces) },
+            owe: { owePaneSelection($0, with: companions, replacing: replaces, masksInLog: door == .vault) },
             log: { Logger.shared.info($0) })
     }
 
@@ -2060,6 +2060,12 @@ extension ContentView {
         let workspace: Workspace
         var companions: [String] = []
         var replaces: Set<String> = []
+        /// A document behind a Vault number: the log names it masked, as its file and folder
+        /// names can hold the number itself (``VaultMask``).
+        var masksInLog = false
+
+        /// `path` as the log may show it.
+        var logged: String { masksInLog ? VaultMask.folder(path) : path }
 
         /// Every row the payment selects.
         var rows: Set<String> { Set(companions).union([path]) }
@@ -2155,13 +2161,13 @@ extension ContentView {
     /// The workspace recorded is the one on screen NOW, so a door that switches workspace must
     /// switch first (Reveal in Browse, every hand-off into Edit). `companions` and `replaces` are
     /// a PDF batch's (``PaneSelectionDebt``); every other door passes neither.
-    func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = []) {
+    func owePaneSelection(_ path: String, with companions: [String] = [], replacing replaces: Set<String> = [], masksInLog: Bool = false) {
         editorPaneSelectionOwed = PaneSelectionDebt(path: path, document: editorOpenPath,
                                                     workspace: selectedWorkspace,
-                                                    companions: companions, replaces: replaces)
+                                                    companions: companions, replaces: replaces, masksInLog: masksInLog)
         settleOwedPaneSelection()
-        if editorPaneSelectionOwed != nil {
-            Logger.shared.debug("[pane-follow] \(path) is owed a selection; waiting for the left pane to list it")
+        if let owed = editorPaneSelectionOwed {
+            Logger.shared.debug("[pane-follow] \(owed.logged) is owed a selection; waiting for the left pane to list it")
         }
     }
 
@@ -2198,13 +2204,13 @@ extension ContentView {
             return
         case .drop(let reason):
             editorPaneSelectionOwed = nil
-            Logger.shared.info("[pane-follow] Not selecting \(owed.path) in the left pane: \(reason.sentence)")
+            Logger.shared.info("[pane-follow] Not selecting \(owed.logged) in the left pane: \(reason.sentence)")
         case .select(let path, let companions):
             editorPaneSelectionOwed = nil
             PaneLogic.payOwedSelection(path, with: companions, state: syncManager,
                                        markPaid: { editorPaneSelectionPaid = $0 },
                                        markRightCleared: { editorPaneRightClearPaid = true })
-            Logger.shared.info("[pane-follow] Selected \(path) in the left pane"
+            Logger.shared.info("[pane-follow] Selected \(owed.masksInLog ? VaultMask.folder(path) : path) in the left pane"
                                + (companions.isEmpty ? "" : ", with \(companions.count) more beside it"))
             paneRowRevealToken &+= 1
             paneRowReveal = PaneRowReveal(path: path, token: paneRowRevealToken,
@@ -2234,7 +2240,7 @@ extension ContentView {
     func retirePaneSelectionDebts(after paths: Set<String>) {
         if let owed = editorPaneSelectionOwed, !Self.debtSurvives(owed, selection: paths) {
             editorPaneSelectionOwed = nil
-            Logger.shared.info("[pane-follow] Not selecting \(owed.path) in the left pane: "
+            Logger.shared.info("[pane-follow] Not selecting \(owed.logged) in the left pane: "
                                + DropReason.userSelection.sentence)
         }
         if let reveal = paneRowReveal, !Self.revealSurvives(reveal, selection: paths) {

@@ -319,16 +319,19 @@ enum EditorRevealInBrowse {
                          sourceRoot: String, drawsColumns: Bool,
                          links: PathBoundary.LinkedFolders = PathBoundary.discoveredLinkedFolders,
                          log: (String) -> Void) {
-        let folder = (path as NSString).deletingLastPathComponent
+        // A document behind a Vault number is named in the log masked: its file and folder
+        // names can hold the very number (``VaultMask``).
+        let shown = door == .vault ? VaultMask.folder(path) : path
+        let folder = (shown as NSString).deletingLastPathComponent
         guard let target = browseTarget(for: path, sourceRoot: sourceRoot, links: links) else {
-            log("Reveal in Browse from \(door.name): \(path) is outside the left source — Browse stays where it is")
+            log("Reveal in Browse from \(door.name): \(shown) is outside the left source — Browse stays where it is")
             return
         }
         guard syncManager.paneLocation(isLeft: true, drawsColumns: drawsColumns) != target else {
-            log("Reveal in Browse from \(door.name): \(path) — Browse already shows its folder")
+            log("Reveal in Browse from \(door.name): \(shown) — Browse already shows its folder")
             return
         }
-        log("Reveal in Browse from \(door.name): \(path) — Browse moves to \(folder)")
+        log("Reveal in Browse from \(door.name): \(shown) — Browse moves to \(folder)")
         syncManager.navigatePane(isLeft: true, toCombinedPath: target, drawsColumns: drawsColumns)
     }
 }

@@ -319,17 +319,71 @@ public struct VaultStandingInput: Sendable {
     /// Nil for a number typed in by hand.
     public var facts: VaultReadFacts?
     public var pin: VaultPin?
-    /// Whose it is, when the user said so: grouped by that instead of by the name read.
+    /// Whose it is: the person its name matched in People, or what the user said.
     public var assignment: VaultAssignment?
+    /// The user said whose it is (Belongs To), so it is grouped by that alone, never joined to
+    /// another person's documents by the birth date or name it was read with.
+    public var isChosen: Bool
 
     public init(id: UUID, value: String, category: VaultCategory, facts: VaultReadFacts?, pin: VaultPin?,
-                assignment: VaultAssignment? = nil) {
+                assignment: VaultAssignment? = nil, isChosen: Bool = false) {
         self.id = id
         self.value = value
         self.category = category
         self.facts = facts
         self.pin = pin
         self.assignment = assignment
+        self.isChosen = isChosen
+    }
+
+    /// What tells whose it is: what the user chose alone; otherwise the person matched, the birth
+    /// date and the name read, any of which joins it to another document of the same person.
+    var personKeys: [String] {
+        if isChosen, let assignment { return [assignment.groupKey] }
+        guard let facts else { return assignment.map { [$0.groupKey] } ?? [] }
+        return [assignment?.groupKey, facts.born.map { "born:" + VaultReading.formDate($0) }, facts.nameKey]
+            .compactMap { $0 }
+    }
+}
+
+/// Which numbers belong to one person, joined by any key two of them share: a printout read
+/// with a birth date and a notice read with the same name are one person's. Never joined when
+/// that would put two birth dates, or two people the household knows apart, in one.
+struct VaultPeopleClusters {
+    private var parent: [Int]
+    private var borns: [Set<String>]
+    private var people: [Set<String>]
+
+    init(_ keys: [[String]]) {
+        parent = Array(keys.indices)
+        borns = keys.map { Set($0.filter { $0.hasPrefix("born:") }) }
+        people = keys.map { Set($0.filter { $0.hasPrefix("assigned:") || $0 == "household" }) }
+        var owner: [String: Int] = [:]
+        for (index, list) in keys.enumerated() {
+            for key in list {
+                if let other = owner[key] { join(index, other) } else { owner[key] = index }
+            }
+        }
+    }
+
+    mutating func root(_ i: Int) -> Int {
+        var i = i
+        while parent[i] != i {
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        }
+        return i
+    }
+
+    private mutating func join(_ a: Int, _ b: Int) {
+        let (ra, rb) = (root(a), root(b))
+        guard ra != rb else { return }
+        let bornsClash = !borns[ra].isEmpty && !borns[rb].isEmpty && borns[ra].isDisjoint(with: borns[rb])
+        let peopleClash = !people[ra].isEmpty && !people[rb].isEmpty && people[ra].isDisjoint(with: people[rb])
+        guard !bornsClash, !peopleClash else { return }
+        parent[rb] = ra
+        borns[ra].formUnion(borns[rb])
+        people[ra].formUnion(people[rb])
     }
 }
 
@@ -386,10 +440,13 @@ public enum VaultStandings {
             Ranking(first: facts.dated ?? facts.validUntil ?? .distantPast, second: facts.validUntil ?? .distantPast)
         }
 
+        let keys = read.map { $0.0.personKeys }
+        var clusters = VaultPeopleClusters(keys)
+        let person = read.indices.map { keys[$0].isEmpty ? nil : "person:\(clusters.root($0))" }
         let groups = Dictionary(grouping: read.indices) { index -> String in
             let (item, facts) = read[index]
             // Whose the user said it is wins over the name it was read with.
-            guard let person = item.assignment?.groupKey ?? facts.personKey else {
+            guard let person = person[index] else {
                 return "alone:" + VaultReading.normalized(item.value)
             }
             switch facts.category {
@@ -467,18 +524,20 @@ public enum VaultStandings {
         }
 
         // An ITIN is replaced by the same person's SSN: the IRS stops using it once one is issued.
-        // The same person by whose the user said it is, by birth date, or by name: a card prints
-        // no birth date, and an ITIN notice does.
-        func keys(_ item: VaultStandingInput, _ facts: VaultReadFacts) -> Set<String> {
-            Set([item.assignment?.groupKey, facts.personKey, facts.nameKey].compactMap { $0 })
+        // The same person as the groups above tell it (a card prints no birth date, and an ITIN
+        // notice does); never the household's, which is nobody's in particular.
+        func holder(_ index: Int) -> String? {
+            read[index].0.assignment == .household ? nil : person[index]
         }
-        let ssnHolders = read.reduce(into: Set<String>()) { held, pair in
-            let (item, facts) = pair
-            guard facts.category == .ssn, facts.form == "SSN", out[item.id]?.tab == .current else { return }
-            held.formUnion(keys(item, facts))
-        }
-        for (item, facts) in read where facts.category == .ssn && facts.form == "ITIN" && item.pin == nil
-            && out[item.id]?.tab == .current && !keys(item, facts).isDisjoint(with: ssnHolders) {
+        let ssnHolders = Set(read.indices.compactMap { index -> String? in
+            let (item, facts) = read[index]
+            guard facts.category == .ssn, facts.form == "SSN", out[item.id]?.tab == .current else { return nil }
+            return holder(index)
+        })
+        for index in read.indices {
+            let (item, facts) = read[index]
+            guard facts.category == .ssn, facts.form == "ITIN", item.pin == nil, out[item.id]?.tab == .current,
+                  let who = holder(index), ssnHolders.contains(who) else { continue }
             out[item.id] = VaultStanding(tab: .archive, reason: "Replaced by an SSN")
         }
         return out

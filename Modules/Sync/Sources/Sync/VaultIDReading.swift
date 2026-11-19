@@ -54,7 +54,7 @@ extension VaultReading {
         return calendarDate(year: parts.2, month: parts.0, day: parts.1)
     }
 
-    private static let datePattern = try! NSRegularExpression(pattern: #"(?<!\d)(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*((?:19|20)\d{2})(?!\d)"#)
+    private static let datePattern = try! NSRegularExpression(pattern: #"(?<![0-9])([0-9]{1,2})\s*[/.-]\s*([0-9]{1,2})\s*[/.-]\s*((?:19|20)[0-9]{2})(?![0-9])"#)
 
     private static func dateParts(_ text: String) -> (Int, Int, Int)? {
         let ns = text as NSString
@@ -64,26 +64,39 @@ extension VaultReading {
         return (a, b, y)
     }
 
-    /// The date printed after `label` on its line, or alone on the next line: "DOB : 05-06-1990",
-    /// "ISS" then "06/05/2021".
+    /// The date printed after `label` on its line, or on the next line: "DOB : 05-06-1990",
+    /// "ISS" then "06/05/2021". Laid out in columns ("Date of Issue   Date of Expiry" over
+    /// "01-02-2010   31-01-2030"), the date in the label's own column.
     static func labelledDate(_ labels: [String], in lines: [String], dayFirst: Bool) -> Date? {
         let pattern = try! NSRegularExpression(
             pattern: #"(?<![A-Za-z])(?:"# + labels.joined(separator: "|") + #")(?![A-Za-z])"#, options: [.caseInsensitive])
+        func date(_ text: String) -> Date? { dayFirst ? self.dayFirst(text) : monthFirst(text) }
         for (index, line) in lines.enumerated() {
             let ns = line as NSString
             guard let m = pattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
-            let after = ns.substring(from: m.range.location + m.range.length)
-            let candidates = [after] + (index + 1 < lines.count ? [lines[index + 1]] : [])
-            for text in candidates {
-                // The date has to start the text after the label: "Date of Issue : 01-02-2010
-                // Date of Expiry …" gives the first, not a later one.
-                let trimmed = text.drop { " \t:.-".contains($0) }
-                guard trimmed.first?.isNumber == true else { continue }
-                if let date = dayFirst ? self.dayFirst(String(trimmed)) : monthFirst(String(trimmed)) { return date }
+            // The date has to start the text after the label: "Date of Issue : 01-02-2010 Date
+            // of Expiry …" gives the first, not a later one.
+            let after = ns.substring(from: m.range.location + m.range.length).drop { " \t:.-".contains($0) }
+            if after.first?.isNumber == true, let found = date(String(after)) { return found }
+            guard index + 1 < lines.count else { continue }
+            let below = lines[index + 1]
+            let column = ns.substring(to: m.range.location)
+                .components(separatedBy: CharacterSet.letters.inverted)
+                .filter { dateLabelWords.contains($0.lowercased()) }.count
+            let dates = datePattern.matches(in: below, range: NSRange(location: 0, length: (below as NSString).length))
+                .map { (below as NSString).substring(with: $0.range) }
+            if dates.count > 1 {
+                if column < dates.count, let found = date(dates[column]) { return found }
+                continue
             }
+            let trimmed = below.drop { " \t:.-".contains($0) }
+            if trimmed.first?.isNumber == true, let found = date(String(trimmed)) { return found }
         }
         return nil
     }
+
+    /// The words a date's label starts with, for counting which column a label sits in.
+    private static let dateLabelWords: Set<String> = ["date", "dob", "iss", "exp", "valid", "issued", "expires", "expiry"]
 
     /// Words that are a card's printing, never part of a name.
     static let cardWords: Set<String> = [
@@ -120,27 +133,32 @@ extension VaultReading {
     /// The license's PDF417 barcode, which the app appends to a page's lines as decoded
     /// (``VaultDocumentReading``): its header ("ANSI 636014…DLDAQ…") and one element per line.
     static func licenseBarcodes(on page: [String], from path: String) -> [VaultFind] {
-        guard let header = page.firstIndex(where: { $0.range(of: #"ANSI ?\d{6}"#, options: .regularExpression) != nil }) else {
+        guard let header = page.firstIndex(where: { $0.range(of: #"ANSI ?[0-9]{6}"#, options: .regularExpression) != nil }) else {
             return []
         }
         var fields: [String: String] = [:]
+        var isIDCard = false
         for line in page[header...] {
             let text = line.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{1e}\u{1d}")))
             if fields["DAQ"] == nil, let range = text.range(of: "DAQ"),
                text.distance(from: text.startIndex, to: range.lowerBound) > 0 {
-                // The first element rides on the header line, after the subfile's "DL".
-                fields["DAQ"] = String(text[range.upperBound...])
+                // The first element rides on the header line, after the subfile's type: "DL" for
+                // a license, "ID" for a state ID card.
+                isIDCard = text[..<range.lowerBound].hasSuffix("ID")
+                fields["DAQ"] = Self.licenseNumber(String(text[range.upperBound...]))
                 continue
             }
             let id = String(text.prefix(3))
-            if aamvaElements.contains(id), fields[id] == nil { fields[id] = String(text.dropFirst(3)).trimmingCharacters(in: .whitespaces) }
+            guard aamvaElements.contains(id), fields[id] == nil else { continue }
+            let rest = String(text.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            fields[id] = id == "DAQ" ? Self.licenseNumber(rest) : rest
         }
         let value = normalized(fields["DAQ"] ?? "")
         guard value.count >= 4, value.filter(\.isNumber).count >= 4 else { return [] }
         let canadian = fields["DCG"]?.uppercased() == "CAN"
         func date(_ id: String) -> Date? {
-            guard let raw = fields[id], raw.count == 8, raw.allSatisfy(\.isNumber) else { return nil }
-            let digits = Array(raw).map { Int(String($0))! }
+            guard let raw = fields[id], raw.count == 8,
+                  case let digits = raw.compactMap({ $0.isASCII ? $0.wholeNumberValue : nil }), digits.count == 8 else { return nil }
             func number(_ r: Range<Int>) -> Int { r.reduce(0) { $0 * 10 + digits[$1] } }
             // MMDDCCYY in the US, CCYYMMDD in Canada.
             if canadian || number(0..<4) > 1900 { return calendarDate(year: number(0..<4), month: number(4..<6), day: number(6..<8)) }
@@ -162,8 +180,21 @@ extension VaultReading {
                                    born: date("DBB"), issuer: canadian ? "CAN" : "USA", dated: issued ?? fileDate(path),
                                    validUntil: until, details: details,
                                    sources: [VaultSource(path: path, role: "Driver’s license barcode", rank: IDRank.card)])
-        return [VaultFind(title: "Driver’s license" + (state.map { " · " + $0 } ?? ""), value: value,
-                          note: sentence(notes), facts: facts)]
+        return [VaultFind(title: (isIDCard ? "State ID" : "Driver’s license") + (state.map { " · " + $0 } ?? ""),
+                          value: value, note: sentence(notes), facts: facts)]
+    }
+
+    /// A license number as the barcode gives it, ending where the number does: at a space, or at
+    /// the next element when a payload arrived with its separators lost
+    /// ("D1234567DCSSMITHDAC…" is D1234567). AAMVA allows 25 characters at most.
+    static func licenseNumber(_ raw: String) -> String {
+        var number = String(raw.prefix { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(25))
+        for element in aamvaElements where element != "DAQ" {
+            if let range = number.range(of: element), number.distance(from: number.startIndex, to: range.lowerBound) >= 4 {
+                number = String(number[..<range.lowerBound])
+            }
+        }
+        return number
     }
 
     // MARK: US driver's licenses: the front
@@ -181,12 +212,21 @@ extension VaultReading {
         "wisconsin": "WI", "wyoming": "WY",
     ]
 
+    /// The state a license front names in its header, "California USA DRIVER LICENSE": whole
+    /// words, the longest name first, so "West Virginia" is not Virginia; never the address
+    /// below, where "123 Michigan Ave" is a street.
+    static func issuingState(_ page: [String]) -> String? {
+        let header = page.prefix(4).filter { !$0.contains(where: \.isNumber) }.joined(separator: " ").lowercased()
+        let words = " " + header.split(whereSeparator: { !$0.isLetter }).joined(separator: " ") + " "
+        return usStates.keys.sorted { $0.count > $1.count }.first { words.contains(" \($0) ") }.flatMap { usStates[$0] }
+    }
+
     /// "DL D1234567" or "DLN D1234567": one or two letters at most, then digits. The label is
     /// required, so a card's other numbers (the document discriminator, a barcode's digits) never are.
     private static let usLicensePattern = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])DLN?\s*[:#]?\s*([A-Z]{0,2}\d{5,14})(?![A-Za-z0-9])"#)
-    private static let givenLine = try! NSRegularExpression(pattern: #"^\s*(?:\d\s*)?FN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
-    private static let familyLine = try! NSRegularExpression(pattern: #"^\s*(?:\d\s*)?LN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
+        pattern: #"(?<![A-Za-z0-9])DLN?\s*[:#]?\s*([A-Z]{0,2}[0-9]{5,14})(?![A-Za-z0-9])(?! ?[0-9])"#)
+    private static let givenLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?FN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
+    private static let familyLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?LN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
 
     static func usLicenseFronts(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
@@ -204,8 +244,7 @@ extension VaultReading {
             return nil
         }
         let holder = [first(givenLine), first(familyLine)].compactMap { $0 }.joined(separator: " ")
-        let lower = page.joined(separator: " ").lowercased()
-        let state = usStates.first { lower.contains($0.key) }?.value
+        let state = issuingState(page)
         let until = labelledDate(["EXP"], in: page, dayFirst: false)
         let issued = labelledDate(["ISS"], in: page, dayFirst: false)
         let born = labelledDate(["DOB"], in: page, dayFirst: false)
@@ -247,7 +286,7 @@ extension VaultReading {
 
     /// "KA05 20090001234": state, office, year of issue, a seven-digit serial.
     private static let indianLicensePattern = try! NSRegularExpression(
-        pattern: #"(?<![A-Z0-9])([A-Z]{2})[- ]?(\d{2})[- ]?((?:19|20)\d{2})[- ]?(\d{7})(?!\d)"#)
+        pattern: #"(?<![A-Z0-9])([A-Z]{2})[- ]?([0-9]{2})[- ]?((?:19|20)[0-9]{2})[- ]?([0-9]{7})(?![0-9])"#)
     private static let printedName = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z])Name\s*:\s*([A-Za-z][A-Za-z .]*[A-Za-z])"#)
 
@@ -258,14 +297,10 @@ extension VaultReading {
         let text = page.joined(separator: "\n")
         let ns = text as NSString
         var holder: String?
-        for line in page where !["father", "husband", "mother", "s/o", "d/o", "c/o", "s/w/d"].contains(where: line.lowercased().contains) {
-            let lns = line as NSString
-            if let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: lns.length)) {
-                let name = lns.substring(with: m.range(at: 1))
-                if !name.lowercased().split(separator: " ").contains(where: { cardWords.contains(String($0)) }) {
-                    holder = titleCased(name)
-                    break
-                }
+        for line in page where !relativeLabels.contains(where: line.lowercased().contains) {
+            if let name = labelledName(line) {
+                holder = name
+                break
             }
         }
         let issued = labelledDate(["Date of Issue", "DL Issue Date", "D\\.O\\.I\\."], in: page, dayFirst: true)
@@ -294,9 +329,24 @@ extension VaultReading {
         }
     }
 
+    /// A line naming a relative, whose name is never the holder's: "Father's Name", "S/O", "W/O".
+    static let relativeLabels = ["father", "husband", "mother", "guardian", "spouse", "s/o", "d/o", "c/o", "w/o", "s/w/d"]
+
+    /// The name after "Name :" on a line, up to the next label: "Name : RAVI KUMAR Blood Group :
+    /// O+" is Ravi Kumar. Nil when what follows is a label, or not two words.
+    static func labelledName(_ line: String) -> String? {
+        let ns = line as NSString
+        guard let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        let stops: Set<String> = cardWords.union(["blood", "group", "gender", "sex", "age", "dob", "relation"])
+        let words = ns.substring(with: m.range(at: 1)).split(separator: " ").map(String.init)
+        let name = words.prefix { !stops.contains($0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))) }
+        guard name.filter({ $0.count >= 2 }).count >= 2 else { return nil }
+        return titleCased(name.joined(separator: " "))
+    }
+
     /// The end of "NT Validity : 01-02-2010 to 31-01-2030".
     private static func ntValidity(in text: String) -> Date? {
-        guard let range = text.range(of: #"validity\s*:?\s*[\d/.-]+\s*to\s*[\d/.-]+"#, options: [.regularExpression, .caseInsensitive]) else {
+        guard let range = text.range(of: #"validity\s*:?\s*[0-9/.-]+\s*to\s*[0-9/.-]+"#, options: [.regularExpression, .caseInsensitive]) else {
             return nil
         }
         let found = String(text[range])
@@ -309,8 +359,17 @@ extension VaultReading {
     /// What only a Social Security card, or its stub, prints.
     private static let cardCues = ["establishedfor", "socialsecuritycard", "validforworkonly", "workonlywith",
                                    "dhsauthorization", "notvalidforemployment"]
-    private static let ssnLine = try! NSRegularExpression(pattern: #"^\s*(\d{3})[- ](\d{2})[- ](\d{4})\s*$"#)
-    private static let itinInText = try! NSRegularExpression(pattern: #"(?<!\d)(9\d{2})-(\d{2})-(\d{4})(?!\d)"#)
+    private static let ssnLine = try! NSRegularExpression(pattern: #"^\s*([0-9]{3})[- ]([0-9]{2})[- ]([0-9]{4})\s*$"#)
+    private static let itinInText = try! NSRegularExpression(pattern: #"(?<![0-9])(9[0-9]{2})-([0-9]{2})-([0-9]{4})(?![0-9])"#)
+
+    /// A card or its stub, and not a form that prints the card's words: the application for one
+    /// (SSA's SS-5) or the I-9's list of documents ("valid for work only with DHS authorization").
+    static func isSocialSecurityCard(_ squeezed: String) -> Bool {
+        guard cardCues.contains(where: squeezed.contains) else { return false }
+        let forms = ["applicationforasocialsecuritycard", "formss-5", "ss-5", "employmenteligibilityverification",
+                     "formi-9", "listsofacceptabledocuments"]
+        return !forms.contains(where: squeezed.contains)
+    }
 
     /// A Social Security number SSA could have assigned: never area 000, 666 or 900 and up, group
     /// 00 or serial 0000.
@@ -331,20 +390,23 @@ extension VaultReading {
     /// - the back of a US license whose barcode did not decode.
     public static func wantsSharperRead(_ page: [String]) -> Bool {
         let squeezed = squeezed(page)
-        if cardCues.contains(where: squeezed.contains) {
+        if isSocialSecurityCard(squeezed) {
             return socialSecurityNumbers(on: page, from: "").isEmpty
         }
         let licenseBack = squeezed.contains("licensetodrive") || squeezed.contains("issuedasalicense")
             || (squeezed.contains("endorsements") && squeezed.contains("restrictions"))
-        return licenseBack && !page.contains { $0.range(of: #"ANSI ?\d{6}"#, options: .regularExpression) != nil }
+        return licenseBack && !page.contains { $0.range(of: #"ANSI ?[0-9]{6}"#, options: .regularExpression) != nil }
     }
 
     static func socialSecurityNumbers(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
-        let isCard = cardCues.contains(where: squeezed.contains)
+        let isCard = isSocialSecurityCard(squeezed)
         let isITINNotice = squeezed.contains("individualtaxpayeridentificationnumber")
         guard isCard || isITINNotice else { return [] }
-        let holder = mailedTo(page) ?? cardName(page)
+        // Two cards scanned on one page: which name goes with which number is not printed in a
+        // way to trust, so neither is given one.
+        let numbersOnPage = page.filter { ssnLine.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
+        let holder = Set(numbersOnPage.map(normalized)).count > 1 ? nil : mailedTo(page) ?? cardName(page)
         var out: [VaultFind] = []
         var seen = Set<String>()
         if isCard {
@@ -392,7 +454,7 @@ extension VaultReading {
 
     /// The name a card's stub or a notice is mailed to: the line above the street address.
     static func mailedTo(_ page: [String]) -> String? {
-        for index in page.indices.dropFirst() where page[index].range(of: #"^\s*\d{1,6}\s+[A-Za-z]"#, options: .regularExpression) != nil {
+        for index in page.indices.dropFirst() where page[index].range(of: #"^\s*[0-9]{1,6}\s+[A-Za-z]"#, options: .regularExpression) != nil {
             if let name = nameOnly(page[index - 1]), page[index - 1] == page[index - 1].uppercased() { return name }
         }
         return nil
@@ -426,7 +488,7 @@ extension VaultReading {
     }
 
     private static let spelledDatePattern = try! NSRegularExpression(
-        pattern: #"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+((?:19|20)\d{2})\b"#)
+        pattern: #"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+([0-9]{1,2}),\s+((?:19|20)[0-9]{2})\b"#)
 
     /// "November 12, 2019" anywhere in the text.
     static func spelledDates(in text: String) -> [Date] {
@@ -443,16 +505,19 @@ extension VaultReading {
     /// Five letters, four digits, a letter. The fourth letter says whose (P for a person), and a
     /// person's fifth is their surname's first letter.
     private static let panPattern = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])([A-Z]{3}[PCHFATBLJG][A-Z]\d{4}[A-Z])(?![A-Za-z0-9])"#)
+        pattern: #"(?<![A-Za-z0-9])([A-Z]{3}[PCHFATBLJG][A-Z][0-9]{4}[A-Z])(?![A-Za-z0-9])"#)
 
     static func panNumbers(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
         guard squeezed.contains("permanentaccountnumber") || squeezed.contains("incometaxdepartment")
                 || squeezed.contains("e-pan") || squeezed.contains("panverification") else { return [] }
-        // An e-PAN prints neither the department nor "card", only that it is one.
+        // An e-PAN prints neither the department nor "card", only that it is one. The department's
+        // name alone is on every tax notice too: the older card also prints "GOVT. OF INDIA" and
+        // the holder's father, which a notice does not.
         let card = squeezed.contains("permanentaccountnumbercard") || squeezed.contains("e-pan")
             || squeezed.contains("epan") || squeezed.contains("cardnotvalidunless")
-            || squeezed.contains("panverificationrecord") || squeezed.contains("incometaxdepartment")
+            || squeezed.contains("panverificationrecord")
+            || (squeezed.contains("incometaxdepartment") && squeezed.contains("govt") && squeezed.contains("father"))
         let request = squeezed.contains("requestfornewpan") || squeezed.contains("acknowledgement")
             || squeezed.contains("invoice")
         let role = request ? "PAN request" : squeezed.contains("panverificationrecord") ? "PAN, DigiLocker"
@@ -462,7 +527,7 @@ extension VaultReading {
         let own = rank == IDRank.card
         let born = !own ? nil : labelledDate(["DOB", "Date of Birth"], in: page, dayFirst: true)
             ?? page.lazy.compactMap { line -> Date? in
-                line.trimmingCharacters(in: .whitespaces).range(of: #"^\d{2}/\d{2}/\d{4}$"#, options: .regularExpression) != nil
+                line.trimmingCharacters(in: .whitespaces).range(of: #"^[0-9]{2}/[0-9]{2}/[0-9]{4}$"#, options: .regularExpression) != nil
                     ? dayFirst(line) : nil
             }.first
         var out: [VaultFind] = []
@@ -471,7 +536,9 @@ extension VaultReading {
             let ns = line as NSString
             for m in panPattern.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
                 let value = ns.substring(with: m.range(at: 1))
-                guard seen.insert(value).inserted else { continue }
+                // Off a card, only a person's PAN: a tax notice also prints the employer's, a
+                // company's (its fourth letter C), which is nobody's in the household.
+                guard own || value.dropFirst(3).first == "P", seen.insert(value).inserted else { continue }
                 let holder = own && value.dropFirst(3).first == "P" ? panHolder(page, initial: Array(value)[4]) : nil
                 let facts = VaultReadFacts(category: .pan, holder: holder, born: born, issuer: "IND",
                                            dated: fileDate(path), sources: [VaultSource(path: path, role: role, rank: rank)])
@@ -484,7 +551,10 @@ extension VaultReading {
     /// The first name on the page whose surname starts with the PAN's fifth letter: the card holder,
     /// before the father's name printed below it.
     private static func panHolder(_ page: [String], initial: Character) -> String? {
-        for line in page {
+        for (index, line) in page.enumerated() {
+            // The line under "Father's Name" is the father's, who shares the surname's letter.
+            if index > 0, relativeLabels.contains(where: page[index - 1].lowercased().contains) { continue }
+            if relativeLabels.contains(where: line.lowercased().contains) { continue }
             var text = line
             if let range = text.range(of: #"^\s*Name\s+"#, options: [.regularExpression, .caseInsensitive]) {
                 text.removeSubrange(range)
@@ -499,7 +569,7 @@ extension VaultReading {
     // MARK: Aadhaar
 
     private static let aadhaarPattern = try! NSRegularExpression(
-        pattern: #"(?<![0-9])(?<![0-9][ -])([2-9]\d{3})[ -]?(\d{4})[ -]?(\d{4})(?![ -]?\d)"#)
+        pattern: #"(?<![0-9])(?<![0-9][ -])([2-9][0-9]{3})[ -]?([0-9]{4})[ -]?([0-9]{4})(?![ -]?[0-9])"#)
 
     /// Verhoeff's check, which every Aadhaar number's last digit satisfies.
     static func passesVerhoeff(_ digits: String) -> Bool {
@@ -514,10 +584,12 @@ extension VaultReading {
             [8, 9, 1, 6, 0, 4, 3, 5, 2, 7], [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
             [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
         ]
-        guard !digits.isEmpty, digits.allSatisfy(\.isNumber) else { return false }
+        // ASCII digits only: another script's digit is a number to Swift but has no place here.
+        let values = digits.compactMap { $0.isASCII ? $0.wholeNumberValue : nil }
+        guard !digits.isEmpty, values.count == digits.count else { return false }
         var c = 0
-        for (i, ch) in digits.reversed().enumerated() {
-            c = d[c][p[i % 8][Int(String(ch))!]]
+        for (i, value) in values.reversed().enumerated() {
+            c = d[c][p[i % 8][value]]
         }
         return c == 0
     }
@@ -530,10 +602,17 @@ extension VaultReading {
         let receipt = squeezed.contains("paymentreceipt") || squeezed.contains("acknowledgement") || squeezed.contains("invoice")
         let role = receipt ? "Aadhaar receipt" : uidai ? "Aadhaar letter" : squeezed.contains("digilocker") ? "Aadhaar, DigiLocker" : "Names it"
         let rank = receipt ? IDRank.quoted : (uidai || squeezed.contains("digilocker")) ? IDRank.card : IDRank.quoted
-        // On a page only mentioning Aadhaar, the number has to be beside its name.
-        let labelled = try! NSRegularExpression(pattern: #"aadha+r"#, options: [.caseInsensitive])
+        // On a page only mentioning Aadhaar, the number has to be beside its label: on the label's
+        // line, or alone under a line that is only the label. "Aadhaar seeding: Linked" over a
+        // twelve-digit account number is neither; nor is any line about an account.
         func nearLabel(_ index: Int) -> Bool {
-            page[max(0, index - 1)...index].contains { labelled.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
+            let line = page[index].lowercased()
+            guard !["a/c", "account", "acct", "ifsc"].contains(where: line.contains) else { return false }
+            if line.range(of: #"aadha+r"#, options: .regularExpression) != nil { return true }
+            guard index > 0 else { return false }
+            let above = page[index - 1].lowercased().trimmingCharacters(in: .whitespaces)
+            return above.range(of: #"^[^a-z0-9]*aadha+r\s*(no\.?|number|#|uid)?\s*:?$"#, options: .regularExpression) != nil
+                && line.filter { !$0.isNumber && !$0.isWhitespace && $0 != "-" }.isEmpty
         }
         // Only the letter itself says whose it is and when it was issued. A form that quotes the
         // number has its own "Issue Date" and its own names: a police clearance form's is not
@@ -568,19 +647,21 @@ extension VaultReading {
 
     // MARK: Voter IDs
 
-    private static let epicPattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9])([A-Z]{3}\d{7})(?![A-Za-z0-9])"#)
+    private static let epicPattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9])([A-Z]{3}[0-9]{7})(?![A-Za-z0-9])"#)
 
     static func voterIDs(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
-        let epic = page.contains { $0.range(of: #"\bEPIC\b"#, options: [.regularExpression, .caseInsensitive]) != nil }
-        guard squeezed.contains("electioncommission") || epic else { return [] }
+        // "EPIC No", in capitals, beside its label: the word "epic" alone is in plain English, on
+        // a game store's receipt and in a hospital's records.
+        let epic = page.contains { $0.range(of: #"\bEPIC\s*(No|Number|NO)\b"#, options: .regularExpression) != nil }
         let slip = squeezed.contains("voterinformation")
+        guard squeezed.contains("electioncommission") || squeezed.contains("electorsphotoidentitycard") || epic
+              || (slip && squeezed.contains("pollingstation")) else { return [] }
         let role = slip ? "Voter information slip" : "Voter ID"
         var holder: String?
-        for line in page {
+        for line in page where !relativeLabels.contains(where: line.lowercased().contains) {
             let ns = line as NSString
-            if let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)),
-               !line.lowercased().contains("father") {
+            if let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) {
                 holder = nameOnly(ns.substring(with: m.range(at: 1)))
                 if holder != nil { break }
             }
