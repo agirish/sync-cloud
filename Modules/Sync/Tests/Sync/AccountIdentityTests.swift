@@ -279,6 +279,32 @@ import Foundation
         #expect(range("Account summary\nClosing Date 01/27/2026").0 == nil, "a single date has no start")
     }
 
+    /// A Unicode minus reads as the hyphen it stands for: one number, whichever the PDF printed.
+    @Test func aUnicodeMinusReadsAsAHyphen() {
+        let hyphen = DocumentFacts.ownNumbers(in: "Account Number: 711840407-01").map(\.digits)
+        let minus = DocumentFacts.ownNumbers(in: "Account Number: 711840407\u{2212}01").map(\.digits)
+        #expect(!hyphen.isEmpty && minus == hyphen, "\(minus) vs \(hyphen)")
+    }
+
+    /// A folder named like an account beside a real one counts before it holds statements: the
+    /// folder he made when the new card arrived. Not on its own, and not a form folder.
+    @Test func aNewAccountFolderBesideAnAccountCounts() {
+        let bank = "Credit Accounts/Bank of America"
+        func tree(_ extra: [FileNode]) -> [FileNode] {
+            [dir("Credit Accounts", [dir(bank, [
+                dir(bank + "/Credit 6397", [dir(bank + "/Credit 6397/2025",
+                    (1...6).map { file(bank + String(format: "/Credit 6397/2025/%02d. ", $0) + ["Jan","Feb","Mar","Apr","May","Jun"][$0 - 1] + " 2025.pdf") })]),
+            ] + extra)])]
+        }
+        let index = AccountIndex.build(tree: tree([dir(bank + "/Credit 4321 (Shweta)", [])]))
+        #expect(index.accounts.contains { $0.root == bank + "/Credit 4321 (Shweta)" && $0.identities.contains("4321") },
+                "\(index.accounts.map(\.root))")
+        let alone = AccountIndex.build(tree: [dir("Misc", [dir("Misc/Credit 4321", [])])])
+        #expect(alone.accounts.isEmpty, "no account beside it, so nothing says accounts live here")
+        let form = AccountIndex.build(tree: tree([dir(bank + "/Form 1099", [])]))
+        #expect(!form.accounts.contains { $0.root.hasSuffix("Form 1099") })
+    }
+
     // MARK: Tier 3: accounts named without digits
 
     @Test func anAccountNamedWithoutDigitsIsLearnedFromItsStatements() throws {

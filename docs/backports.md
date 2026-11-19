@@ -15944,3 +15944,16 @@ placed those, without the pass; `v3.x` and `v2.x` have no router. It is new hous
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The router, no tax pass | RECORDED — not owed |
 | `v3.x` / `v2.x` | No router | CLOSED — does not apply |
+
+## A new account folder counts before its first statement, and a Unicode minus reads as a hyphen — main only
+
+2026-11-18, for v7.2. An account folder counted only once it held a regular run of dated
+statements, so the folder he made for a new card (`Credit 4321 (Shweta)`) was invisible and its
+first statement got a second, new folder proposed. Now a folder named like an account beside a
+real one counts at once. And a number printed with a Unicode minus (`711840407−01`) splits as the
+hyphen does, so one account reads one way. Both are in the account phase, which no maintenance line
+carries (measured in the account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

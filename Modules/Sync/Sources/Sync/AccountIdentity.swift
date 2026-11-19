@@ -94,6 +94,11 @@ public struct DocumentFacts: Sendable, Equatable {
         options: [.caseInsensitive])
 
     static func ownNumbers(in page: String) -> [OwnNumber] {
+        // A Unicode minus or other dash (`711840407−01`) reads as the hyphen it stands for, so a
+        // number splits the same way however the bank's PDF printed it. One UTF-16 unit each, so
+        // offsets are unchanged.
+        let page = page.replacingOccurrences(of: "[\u{2010}-\u{2015}\u{2212}\u{FE58}\u{FE63}\u{FF0D}]", with: "-",
+                                             options: .regularExpression)
         let ns = page as NSString
         var out: [OwnNumber] = []
         var seen = Set<String>()
@@ -431,6 +436,17 @@ public struct AccountIndex: Sendable {
 
     /// A digit run naming an account in a folder's own name: three or more digits, not a year, not
     /// a `NN.` month prefix, not a form number (`Form 1099-B`).
+    /// A folder named like an account (`Credit 4321`, `Credit 4321 (Shweta)`) beside one that
+    /// already is one, before it holds statements of its own: the card he made a folder for when
+    /// it arrived. Its own name says what it is, and a sibling account says where accounts live.
+    static func isNewAccountFolder(_ node: FileNode, siblings: [FileNode]) -> Bool {
+        guard node.name.range(of: #"^[A-Za-z][A-Za-z0-9&'. ]* \d{3,6}(?: \([^()]+\))?$"#, options: .regularExpression) != nil,
+              !node.name.hasPrefix("Form ") else { return false }
+        return siblings.contains { s in
+            s.id != node.id && !accountDigits(inFolderNamed: s.name).isEmpty && StatementFamily.hasRegularFamily(below: s)
+        }
+    }
+
     static func accountDigits(inFolderNamed name: String) -> [String] {
         if name.range(of: #"^\d{1,2}\. "#, options: .regularExpression) != nil { return [] }
         let lower = name.lowercased()
@@ -469,24 +485,25 @@ public struct AccountIndex: Sendable {
                              isArchived: (String) -> Bool = { _ in false },
                              isInbox: (String) -> Bool = { FolderProfile.isInboxPath($0) }) -> AccountIndex {
         var named: [(path: String, digits: [String])] = []
-        func visit(_ node: FileNode, _ rel: String) {
+        func visit(_ node: FileNode, _ rel: String, siblings: [FileNode]) {
             guard node.isDirectory else { return }
             if !rel.isEmpty, !isInbox(rel) {
                 let digits = accountDigits(inFolderNamed: node.name)
                 // The highest such folder is the account; below it are its years. Unless a folder
                 // below carries account digits of its own (`401k/Fidelity 4138`): then this one is
                 // a category, and the accounts are below it.
-                if !digits.isEmpty, StatementFamily.hasRegularFamily(below: node),
+                if !digits.isEmpty, StatementFamily.hasRegularFamily(below: node) || isNewAccountFolder(node, siblings: siblings),
                    !Self.hasNamedAccountBelow(node) {
                     named.append((rel, digits))
                     return
                 }
             }
-            for child in node.children ?? [] where child.isDirectory {
-                visit(child, rel.isEmpty ? child.name : rel + "/" + child.name)
+            let children = (node.children ?? []).filter(\.isDirectory)
+            for child in children {
+                visit(child, rel.isEmpty ? child.name : rel + "/" + child.name, siblings: children)
             }
         }
-        for node in tree { visit(node, node.name) }
+        for node in tree { visit(node, node.name, siblings: tree.filter(\.isDirectory)) }
         // How many folder names each word appears in.
         var df: [String: Int] = [:]
         func count(_ nodes: [FileNode]) {
