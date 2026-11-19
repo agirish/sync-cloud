@@ -15916,3 +15916,16 @@ it spans 45 days or more (a start on or after the 20th counts from the next mont
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## Year-end summaries and trade confirmations are named by his rules — main only
+
+2026-11-18, for v7.2. A year-end summary (`2016 Year End Summary`, `YEAR-END INVESTMENT REPORT`, or
+a statement whose period is the whole year) is now `0. Summary YYYY` in that year's folder, out of
+the statements' count; a trade confirmation goes to the account's `Trade Confirms/<year>` as
+`DD Mon YYYY`, by its trade date, where the account keeps that folder (`StatementForms`). Before,
+a summary was named and numbered as one more December statement. It is in the account phase, which
+no maintenance line carries (measured in the account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

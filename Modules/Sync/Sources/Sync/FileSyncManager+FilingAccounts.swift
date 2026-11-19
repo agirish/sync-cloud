@@ -44,9 +44,8 @@ extension FileSyncManager {
             switch match {
             case .high(let account, let number), .medium(let account, let number, _):
                 guard let node = nodes[account.root] else { return s }
-                let place = AccountPlacement.place(in: node, period: period, taxForm: f.kind == .taxForm,
-                                                   fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy),
-                                                   periodStart: monthFromName ? nil : f.periodStart)
+                let place = Self.placement(in: node, facts: f, period: period, monthFromName: monthFromName,
+                                           fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy))
                 // High only when the folder inside the account is sure too.
                 let confidence: FilingConfidence
                 if case .high = match, !place.yearUnknown, !monthFromName { confidence = .high } else { confidence = .medium }
@@ -117,6 +116,28 @@ extension FileSyncManager {
         }
         _ = isArchived
         return (out, facts)
+    }
+
+    /// Where a paper goes inside its account. A year-end summary is `0. Summary YYYY` in that
+    /// year's folder, and a trade confirmation `Trade Confirms/<year>/DD Mon YYYY` where the account
+    /// keeps that folder (``StatementForms``); anything else as the month's statement.
+    nonisolated static func placement(in node: FileNode, facts f: DocumentFacts, period: DocumentFacts.Period?,
+                                      monthFromName: Bool, fileName: String, bank: FileNode?) -> AccountPlacement.Placement {
+        if f.kind != .taxForm, !monthFromName, let form = StatementForms.form(of: f) {
+            switch form {
+            case .yearEndSummary(let year):
+                let p = AccountPlacement.place(in: node, period: .init(year: year, month: 12, day: 31), taxForm: false,
+                                               fileName: fileName, bank: bank)
+                guard !p.yearUnknown else { return p }
+                let ext = (p.name.map { ($0 as NSString).pathExtension } ?? (fileName as NSString).pathExtension)
+                return AccountPlacement.Placement(folder: p.folder, newSegments: p.newSegments,
+                                                  name: StatementForms.summaryName(year: year, ext: ext))
+            case .tradeConfirm(let date):
+                if let p = StatementForms.confirmPlacement(date, in: node, fileName: fileName) { return p }
+            }
+        }
+        return AccountPlacement.place(in: node, period: period, taxForm: f.kind == .taxForm, fileName: fileName,
+                                      bank: bank, periodStart: monthFromName ? nil : f.periodStart)
     }
 
     /// Names copied from an account's statements, made unique per folder: two statements with one
