@@ -15,7 +15,8 @@ extension FileSyncManager {
         isArchived: @escaping (String) -> Bool = { _ in false },
         preferences: [FilingPreference] = [],
         rejected: [String: Set<String>] = [:],
-        registry: PersonRegistry? = nil
+        registry: PersonRegistry? = nil,
+        balanceLinks: [String: BalanceChain.Link] = [:]
     ) -> (suggestions: [FilingSuggestion], facts: [String: DocumentFacts]) {
         var facts: [String: DocumentFacts] = [:]
         let nodes = accountNodes(index, in: taxonomy)
@@ -99,6 +100,10 @@ extension FileSyncManager {
                 dest.alsoCopiesTo = copies
                 return s.replacingCandidates(inserting(dest, into: s.candidates))
             case .ambiguous(let accounts):
+                // The one whose last statement closed at the balance this one opens at.
+                if let chained = chainedHome(s, facts: f, period: period, monthFromName: monthFromName, match: match,
+                                             index: index, nodes: nodes, taxonomy: taxonomy, root: root, hint: hint,
+                                             links: balanceLinks) { return chained }
                 // Which of them can't be told from the page: each is offered, none leads a surer home.
                 let offers = accounts.prefix(3).map { account in
                     FilingDestination(path: root + "/" + account.root, base: .medium, evidence: .measuredContent,
@@ -109,6 +114,9 @@ extension FileSyncManager {
                 for o in offers { candidates = appending(o, to: candidates) }
                 return s.replacingCandidates(candidates)
             case .none:
+                if let chained = chainedHome(s, facts: f, period: period, monthFromName: monthFromName, match: match,
+                                             index: index, nodes: nodes, taxonomy: taxonomy, root: root, hint: hint,
+                                             links: balanceLinks) { return chained }
                 return proposingAccount(for: s, facts: f, period: period, hint: hint, index: index,
                                         taxonomy: taxonomy, root: root, sharedStatementFolders: sharedStatementFolders,
                                         isArchived: isArchived, registry: registry)
@@ -116,6 +124,40 @@ extension FileSyncManager {
         }
         _ = isArchived
         return (out, facts)
+    }
+
+    /// A statement no account's number places, in the one account at its bank whose newest
+    /// statement closed at the balance it opens at (``BalanceChain``). High when that statement is
+    /// the month before, page 1 dates this one and prints no other number; Medium otherwise.
+    nonisolated static func chainedHome(_ s: FilingSuggestion, facts f: DocumentFacts, period: DocumentFacts.Period?,
+                                        monthFromName: Bool, match: AccountIndex.Match, index: AccountIndex,
+                                        nodes: [String: FileNode], taxonomy: [FileNode], root: String, hint: String,
+                                        links: [String: BalanceChain.Link]) -> FilingSuggestion? {
+        guard !links.isEmpty else { return nil }
+        let among = BalanceChain.candidates(for: f, match: match, index: index, hint: hint)
+        guard let (account, link, adjacent) = BalanceChain.account(for: f, among: among, links: links),
+              let node = nodes[account.root] else { return nil }
+        let place = placement(in: node, facts: f, period: period, monthFromName: monthFromName,
+                              fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy))
+        let own = account.identities.first.map { String($0.suffix(4)) } ?? ""
+        let printed = f.matchingNumbers.first?.ending
+        let ending = printed ?? own
+        let sure = adjacent && !monthFromName && !place.yearUnknown && printed == nil
+        let number = DocumentFacts.OwnNumber(digits: ending, masked: false)
+        let dest = destination(for: account, number: number, place: place, kind: f.kind,
+                               confidence: sure ? .high : .medium, root: root, match: .high(account, number: number),
+                               monthFromName: monthFromName)
+        let month = AccountPlacement.Template.monthNames[link.period.month - 1] + " \(link.period.year)"
+        var reason = "Opens at the balance " + (own.isEmpty ? "this account’s" : "••\(own)’s")
+            + " \(month) statement closed at"
+        if let printed, printed != own { reason += " · page 1 prints ••\(printed), a number no folder has" }
+        if case .ambiguous = match { reason += " · its number ends like another account’s" }
+        if monthFromName { reason += " · month from the file name" }
+        var chained = FilingDestination(path: dest.path, confidence: dest.confidence, reasons: [reason],
+                                        newSegments: dest.newSegments, fromContent: true, evidenceToken: dest.evidenceToken,
+                                        proposedName: dest.proposedName, account: dest.account, nameOrigin: dest.nameOrigin)
+        chained.alsoCopiesTo = dest.alsoCopiesTo
+        return s.replacingCandidates(inserting(chained, into: s.candidates))
     }
 
     /// Where a paper goes inside its account. A year-end summary is `0. Summary YYYY` in that
@@ -518,7 +560,7 @@ extension FileSyncManager {
                                                     preferences: filingPreferences,
                                                     rejected: [suggestion.filePath: rejectedFolders(fileName: suggestion.fileName, filePath: suggestion.filePath,
                                                                                                     in: filingRejections(under: URL(fileURLWithPath: root)))],
-                                                    registry: filingPersonRegistry)
+                                                    registry: filingPersonRegistry, balanceLinks: filingBalanceLinks)
         if let f = facts[suggestion.filePath] { filingDocumentFacts[suggestion.filePath] = f }
         return placed.first ?? suggestion
     }

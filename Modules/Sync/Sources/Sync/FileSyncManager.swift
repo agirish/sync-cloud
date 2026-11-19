@@ -1072,6 +1072,8 @@ public class FileSyncManager: ObservableObject {
     var filingAccountTaxonomy: [FileNode] = []
     /// The last scan's folders where a bank's statements are kept together (see `proposingAccount`).
     var filingSharedStatementFolders: Set<String> = []
+    /// The last scan's balance chain (``BalanceChain``), for a re-ask of one of its cards.
+    var filingBalanceLinks: [String: BalanceChain.Link] = [:]
     /// The last scan's folders the survey marks as archives, for re-asks.
     var filingArchivedFolders: Set<String> = []
     /// Page 1 facts of the last scan's loose files, by path: what a redirect teaches from.

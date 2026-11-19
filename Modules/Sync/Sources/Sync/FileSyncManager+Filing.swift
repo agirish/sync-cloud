@@ -634,6 +634,7 @@ extension FileSyncManager {
         // that account sits under, goes to that account at High, placed and named like its newest
         // statements. Only a rule the user wrote leads it.
         var readFacts: [String: DocumentFacts] = [:]
+        var balanceLinksFound: [String: BalanceChain.Link] = [:]
         if !accountIndex.isEmpty, !routerSnippets.isEmpty {
             let snippets = routerSnippets
             let walked = taxonomy
@@ -644,11 +645,16 @@ extension FileSyncManager {
             let preferences = filingPreferences
             let refused = rejectedByFile
             let registry = filingPersonRegistry
+            // The closing balance of each account a statement printing no number could continue.
+            let links = await balanceLinks(for: snippets, index: accountIndex, taxonomy: walked, root: root,
+                                           scannedFolder: scannedFolder)
+            if Task.isCancelled { return }
+            balanceLinksFound = links
             let (placed, facts) = await Task.detached(priority: .userInitiated) {
                 Self.applyingAccounts(input, index: accountIndex, snippets: snippets, taxonomy: walked,
                                       root: root, scannedFolder: scannedFolder, sharedStatementFolders: shared,
                                       isArchived: isArchived, preferences: preferences, rejected: refused,
-                                      registry: registry)
+                                      registry: registry, balanceLinks: links)
             }.value
             if Task.isCancelled { return }
             suggestions = placed
@@ -923,6 +929,7 @@ extension FileSyncManager {
         filingAccountTaxonomy = taxonomy
         filingArchivedFolders = archivedFolders
         filingSharedStatementFolders = sharedFolders
+        filingBalanceLinks = balanceLinksFound
         // The pages this scan read, kept for the rule offered after a filing move: same publish,
         // replaced rather than merged so a sample never outlives the list it describes. Truncated
         // to what the scorer was measured on, not what the extractor returned (`filingPageSamples`).

@@ -16045,3 +16045,19 @@ carry.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## A statement printing no account's number goes where its balance continues — main only
+
+2026-11-18, for v7.2. Apple Card prints no account number, Chase prints some on an image, and a
+reissued card prints a number no folder has. The account phase now reads a statement's opening and
+closing balances (`BalanceChain`) and, when no account's number places it, files it in the one
+account at its bank whose newest statement closed at the balance it opens at: High when that was
+the month before and the page prints no other number, Medium otherwise; two matches place nothing.
+A page printing both balances also counts as a statement (Apple Card names no period or closing
+date). Replayed on his 1,173 filed bank and card statements, 117 of the 184 that match no number
+went to their own account and none to another. All of it is in the account phase, which no
+maintenance line carries.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

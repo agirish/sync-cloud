@@ -230,6 +230,10 @@ public struct DocumentFacts: Sendable, Equatable {
         if namesItselfATaxForm(String(lower.prefix(300))) { return .taxForm }
         let statement = matches(statementWordsRE, lower) || matches(rangeRE, lower) || matches(monthDayRangeRE, lower)
         if statement { return .statement }
+        // A page printing what it opened and closed at (Apple Card names neither a period nor a
+        // closing date: `Dec 1 — Dec 31, 2025`, `Previous Total Balance`, `Total Balance`).
+        let balances = BalanceChain.balances(in: lower)
+        if !balances.opening.isEmpty, !balances.closing.isEmpty { return .statement }
         if namesItselfATaxForm(String(lower.prefix(800))) { return .taxForm }
         return .other
     }
