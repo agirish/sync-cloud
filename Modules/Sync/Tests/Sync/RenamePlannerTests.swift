@@ -237,6 +237,14 @@ private func renamePlan(_ names: [String], naming: String?, year: String?, incom
         #expect(RenamePlanner.isStagingArea("Home/New (TODO)/2021", entry: nil))
     }
 
+    @Test("Copies in a Deleted folder keep the names they had")
+    func neverRenamesInsideADeletedFolder() {
+        let files = ["1. Jan 2021.pdf", "2. Feb 2021.pdf", "ATTBill_1897_Mar2021.pdf"]
+        #expect(plan(files, year: "2021", relativePath: "Home/Deleted/Utilities/AT&T/2021").steps.isEmpty)
+        // Control: the same files where they lived are renamed.
+        #expect(plan(files, year: "2021", relativePath: "Home/Utilities/AT&T/2021").steps.count == 3)
+    }
+
     @Test("An unsurveyed folder needs three conforming files before it is recruited")
     func inferenceNeedsThree() {
         #expect(RenamePlanner.slotGranularity(

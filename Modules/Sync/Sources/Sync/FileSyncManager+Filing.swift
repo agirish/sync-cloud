@@ -368,6 +368,10 @@ extension FileSyncManager {
                                                        ?? folder.lastPathComponent)
         let excludesScannedSubtree = (recursive || scannedIsInbox) && !scanHoldsFileInto
         if excludesScannedSubtree { taxonomy = Self.pruning(folder.path, from: taxonomy) }
+        // Nor is a `Deleted` folder, or anything under it: its copies mirror the paths they left,
+        // so its folders would compete with the real homes. Dropped here, before every lane below
+        // (router, accounts, live twins, Claude's list) reads the walk.
+        taxonomy = Self.pruningDeletedFolders(from: taxonomy)
 
         // The user's rules steer the suggestions. Automations are the one rule system.
         ensureAutomationRulesLoaded()

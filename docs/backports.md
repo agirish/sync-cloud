@@ -15817,3 +15817,26 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s planner=%s rule=%s\n' $l \
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The rename pass with the old numbering | RECORDED — not owed |
 | `v3.x` / `v2.x` | No rename pass | CLOSED — does not apply |
+
+## A `Deleted` folder is never a home, never learned and never listed as a copy — main only, recorded, not owed
+
+2026-11-18, for v7.2. He keeps proven duplicates in `Deleted` folders that mirror the paths they
+left (`Home/Deleted/Purchase/Loan/…`, his rule of 2026-11-16). On `main`, To File's scan drops any
+folder named `Deleted` from its homes before any lane reads the walk, the profile refuses it as a
+destination, a survey never learns it (`FilingSurvey.flatten`), the rename pass leaves its copies'
+names alone, and Duplicates skips it (`DuplicateFinderOptions.defaultIgnoredNames`).
+`v6.x`, `v5.x` and `v4.x` carry the router, the survey and Duplicates without the rule; `v3.x` and
+`v2.x` carry Duplicates only. It is new house behaviour, not a fix to what they shipped.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s router=%s survey=%s dupfinder=%s\n' $l \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sources/Sync/FilingRouter.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sources/Sync/FilingSurvey.swift')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'Sources/Sync/DuplicateFinder.swift')"; done
+# measured 2026-11-18, against origin: router=1 survey=1 dupfinder=1 on v6.x v5.x v4.x; router=0 survey=0 dupfinder=1 on v3.x v2.x
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | Router, survey and Duplicates without the rule | RECORDED — not owed |
+| `v3.x` / `v2.x` | Duplicates without the rule | RECORDED — not owed |

@@ -276,9 +276,11 @@ public enum RenamePlanner {
     /// Asked through ``FolderProfile/isInboxPath(_:)`` too, not just the entry's role, because a
     /// tree grows new inboxes faster than the profile's flags; shared, not re-implemented, so the
     /// callers can't drift apart.
+    ///
+    /// A `Deleted` folder is left alone too: its copies keep the names they had where they lived.
     static func isStagingArea(_ relativePath: String, entry: FolderProfileEntry?) -> Bool {
         if entry?.role == .inbox { return true }
-        return FolderProfile.isInboxPath(relativePath)
+        return FolderProfile.refusesNewFiles(relativePath)
     }
 
     // MARK: Does this folder number its files at all?

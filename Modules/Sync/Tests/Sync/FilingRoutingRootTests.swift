@@ -51,6 +51,23 @@ import Foundation
         #expect(m.filingLastProviderRoot == t.documents.path)
     }
 
+    /// A `Deleted` folder mirrors the paths its copies left, so its folders name the same things as
+    /// the real homes. The scan drops it before any lane reads the walk.
+    @Test func aDeletedFolderIsNeverAHome() async throws {
+        let t = try makeTree("FilingRootDeleted")
+        defer { try? FileManager.default.removeItem(at: t.root) }
+        try writeBytes(t.documents.appendingPathComponent("Deleted/Vehicles/Tesla/Insurance/Policy 2024.pdf"), bytes: 64)
+        try writeBytes(t.documents.appendingPathComponent("Deleted/Tesla Insurance/Policy 2023.pdf"), bytes: 64)
+        let m = manager(surveying: t)
+        m.setFilingScansSubfolders(false, for: t.inbox.path)
+        await m.findFilingSuggestions(folder: t.inbox, providerRoot: t.documents)
+        let card = try #require(m.filingSuggestions.first { $0.fileName == "Tesla Insurance Policy 2026.pdf" })
+        let paths = card.candidates.map(\.path)
+        #expect(paths.contains { $0.hasPrefix(t.documents.path + "/Vehicles/Tesla") }, "\(paths)")
+        #expect(!paths.contains { $0.contains("/Deleted") }, "\(paths)")
+        #expect(!m.filingLastTaxonomyFolders.contains { $0.contains("Deleted") })
+    }
+
     @Test func onlyHomesInsideFileIntoJoinTheUnseenBatch() async throws {
         let t = try makeTree("FilingRootBatch")
         defer { try? FileManager.default.removeItem(at: t.root) }

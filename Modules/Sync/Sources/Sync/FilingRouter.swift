@@ -121,8 +121,8 @@ public enum FilingRouter {
     public static func makeIndex(destinations: [String], profile: FolderProfile?,
                                  memory: FilingMemory?, registry: PersonRegistry? = nil,
                                  satelliteHomes: [String: Set<String>] = [:]) -> Index {
-        // One rule, asked the same way everywhere; see ``FolderProfile/isInboxPath(_:)``.
-        let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
+        // One rule, asked the same way everywhere; see ``FolderProfile/refusesNewFiles(_:)``.
+        let allowed = destinations.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.refusesNewFiles($0) }
         var byAnchor: [String: [(String, Double)]] = [:]
         var byIdHash: [String: [(String, Double)]] = [:]
         var docs: [String: Int] = [:]

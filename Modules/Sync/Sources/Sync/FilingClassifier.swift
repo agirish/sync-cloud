@@ -94,7 +94,7 @@ public struct FilingContext: Sendable {
     /// place the user puts things that have no home. Asked the same way the router asks it (the
     /// profile if there is one, else the name rule), so the two can't disagree.
     public var destinations: [String] {
-        taxonomyFolders.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.isInboxPath($0) }
+        taxonomyFolders.filter { profile?.acceptsNewFiles($0) ?? !FolderProfile.refusesNewFiles($0) }
     }
 }
 

@@ -315,6 +315,19 @@ extension FileSyncManager {
     }
 
     /// `nodes` without the folder at `path` and everything below it.
+    /// `nodes` without any `Deleted` folder (``FolderProfile/isDeletedFolderName(_:)``), at any
+    /// depth, subtree and all.
+    nonisolated static func pruningDeletedFolders(from nodes: [FileNode]) -> [FileNode] {
+        nodes.compactMap { node -> FileNode? in
+            guard node.isDirectory else { return node }
+            if FolderProfile.isDeletedFolderName(node.name) { return nil }
+            guard let children = node.children else { return node }
+            var copy = node
+            copy.children = pruningDeletedFolders(from: children)
+            return copy
+        }
+    }
+
     nonisolated static func pruning(_ path: String, from nodes: [FileNode]) -> [FileNode] {
         nodes.compactMap { node -> FileNode? in
             if node.id == path { return nil }

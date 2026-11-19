@@ -418,6 +418,28 @@ import Testing
         #expect(profiled.taxonomyFolders.count == 3)     // the full list is still there to read
     }
 
+    /// A `Deleted` folder holds proven copies the user removed (`Home/Deleted/<original path>`),
+    /// so it is never a home, with or without a profile, and an entry that says nothing doesn't
+    /// let it in. It is not an inbox either: its files aren't waiting to be filed.
+    @Test func deletedFoldersAreNeverDestinations() {
+        #expect(FolderProfile.isDeletedPath("Home/Deleted/Purchase/Loan"))
+        #expect(FolderProfile.isDeletedPath("Health/deleted"))
+        #expect(!FolderProfile.isDeletedPath("Mail/Deleted Items"), "the whole name, not a word in it")
+        #expect(!FolderProfile.isDeletedPath("Home/Undeleted"))
+        #expect(!FolderProfile.isInboxPath("Home/Deleted/Purchase"), "not an inbox: nothing waits there")
+
+        let taxonomy = ["Home/Purchase/Loan", "Home/Deleted/Purchase/Loan", "Home/Deleted"]
+        #expect(FilingContext(taxonomyFolders: taxonomy).destinations == ["Home/Purchase/Loan"])
+        let entry = FolderProfileEntry(path: "Home/Deleted/Purchase/Loan", role: nil, naming: nil,
+                                       anchors: [], acceptsNewFiles: nil, fileCount: 3,
+                                       subfolderCount: 0, axes: [:])
+        let profile = FolderProfile(profileId: "t", root: "~", folders: [entry.path: entry], personTokens: [])
+        #expect(!profile.acceptsNewFiles("Home/Deleted/Purchase/Loan"))
+        #expect(profile.acceptsNewFiles("Home/Purchase/Loan"))
+        let index = FilingRouter.makeIndex(destinations: taxonomy, profile: nil, memory: nil)
+        #expect(index.destinations == ["Home/Purchase/Loan"])
+    }
+
     // MARK: - Peer filenames
 
     private static func ranking(_ pairs: [(String, Double)]) -> FilingRouter.Ranking {

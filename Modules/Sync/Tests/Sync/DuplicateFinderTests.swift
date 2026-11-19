@@ -936,6 +936,28 @@ import Testing
         #expect(groups.allSatisfy { !$0.copies.contains { $0.path.contains("node_modules") } })
     }
 
+    /// A `Deleted` folder holds proven copies the user set aside on purpose. They are never listed
+    /// again, so Duplicates can't offer to trash what was kept there; the rest still groups.
+    @Test func aDeletedFolderIsNeverListed() {
+        let tree = [
+            dir("/root/Home", [dir("/root/Home/Purchase", [file("/root/Home/Purchase/deed.pdf"),
+                                                           file("/root/Home/Purchase/a.txt")]),
+                               dir("/root/Home/Deleted", [file("/root/Home/Deleted/deed.pdf"),
+                                                          file("/root/Home/Deleted/b.txt")]),
+                               dir("/root/Home/Other", [file("/root/Home/Other/deed.pdf"),
+                                                        file("/root/Home/Other/c.txt")])]),
+        ]
+        let hashes = [
+            "/root/Home/Purchase/deed.pdf": "D", "/root/Home/Deleted/deed.pdf": "D",
+            "/root/Home/Other/deed.pdf": "D",
+            "/root/Home/Purchase/a.txt": "A", "/root/Home/Deleted/b.txt": "B", "/root/Home/Other/c.txt": "C",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups.first?.copies.map(\.path).sorted()
+                == ["/root/Home/Other/deed.pdf", "/root/Home/Purchase/deed.pdf"])
+    }
+
     /// A repository and a ZIP of its working tree hold the same files; only the repository holds
     /// `.git`. The archive penalty makes the repository the copy a folder group would trash.
     ///

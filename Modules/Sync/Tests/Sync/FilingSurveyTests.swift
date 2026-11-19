@@ -64,6 +64,23 @@ import Testing
         #expect(!tree.wasNotWalked("Home/Deeper/x.pdf"))
     }
 
+    /// A `Deleted` folder is left out of the walk a survey learns from, documents and all, and not
+    /// as unexplored: its copies must drop from the corpus, not be kept as never looked at.
+    @Test func flattenLeavesDeletedFoldersOut() {
+        let tree = FilingSurvey.flatten([
+            Self.folder("Home", modified: 111, [
+                Self.folder("Purchase", modified: 222, [Self.file("deed.pdf")]),
+                Self.folder("Deleted", modified: 333, [
+                    Self.folder("Purchase", modified: 444, [Self.file("deed.pdf")]),
+                ]),
+            ]),
+        ])
+        #expect(tree.folders == ["Home": 111, "Home/Purchase": 222])
+        #expect(Array(tree.documents.keys) == ["Home/Purchase/deed.pdf"])
+        #expect(tree.unexplored.isEmpty)
+        #expect(!tree.wasNotWalked("Home/Deleted/Purchase/deed.pdf"))
+    }
+
     // MARK: - What is stale
 
     @Test func aFolderIsStaleWhenItsMtimeMovedOrItIsUnknown() {

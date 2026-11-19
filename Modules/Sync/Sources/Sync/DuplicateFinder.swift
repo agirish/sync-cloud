@@ -391,7 +391,10 @@ public struct DuplicateFinderOptions: Sendable {
     /// destruction, where a false skip lets ⌘Z trash the only copy of an edit, so it skips only OS
     /// noise. Change each set on its own merits.
     public static let defaultIgnoredNames: Set<String> = [
-        ".DS_Store", ".git", ".build", "node_modules", ".Trashes", "Thumbs.db", ".localized"
+        ".DS_Store", ".git", ".build", "node_modules", ".Trashes", "Thumbs.db", ".localized",
+        // Proven copies already set aside (``FolderProfile/isDeletedPath(_:)``): listing them
+        // again would offer to trash what the user chose to keep there.
+        "Deleted"
     ]
 
     /// UserDefaults keys the Settings UI binds to (shared so the app builds the same options).

@@ -100,7 +100,27 @@ public struct FolderProfile: Sendable, Equatable {
             if e.acceptsNewFiles == false { return false }
             if e.role == .inbox { return false }
         }
-        return !FolderProfile.isInboxPath(relativePath)
+        return !FolderProfile.refusesNewFiles(relativePath)
+    }
+
+    /// The name rule for "never a destination", for when there is no profile entry to ask: an
+    /// inbox (``isInboxPath(_:)``) or a `Deleted` folder (``isDeletedPath(_:)``).
+    public static func refusesNewFiles(_ relativePath: String) -> Bool {
+        isInboxPath(relativePath) || isDeletedPath(relativePath)
+    }
+
+    /// Whether a folder's own name marks it as a `Deleted` folder: the place proven duplicates are
+    /// kept on their way out, mirroring the paths they left (`Home/Deleted/Purchase/Loan/…`). The
+    /// whole name, any case; `Deleted Items` is not one.
+    public static func isDeletedFolderName(_ name: String) -> Bool {
+        name.compare("deleted", options: .caseInsensitive) == .orderedSame
+    }
+
+    /// Whether any component of a path is a `Deleted` folder. What sits there is what the user
+    /// already removed, so it is never a home, never learned from, and never offered as a copy.
+    /// Not an inbox: its files are not waiting to be filed, and filing them would undo the removal.
+    public static func isDeletedPath(_ relativePath: String) -> Bool {
+        relativePath.split(separator: "/").contains { isDeletedFolderName(String($0)) }
     }
 
     /// Whether any component of a path names an inbox, on the name alone. The one implementation,

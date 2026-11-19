@@ -82,6 +82,10 @@ public enum FilingSurvey {
             guard !node.name.hasPrefix(".") else { return }
             let rel = prefix.isEmpty ? node.name : prefix + "/" + node.name
             if node.isDirectory {
+                // A `Deleted` folder holds what the user removed: learning it would make its copies
+                // homes for what they were removed in favour of. Left out like a gone folder, so its
+                // documents drop from the corpus rather than being kept as never looked at.
+                if FolderProfile.isDeletedFolderName(node.name) { return }
                 // A folder whose children weren't walked must not be recorded as up to date: its
                 // mtime would vouch for contents nobody looked at. Remembered, not just skipped, so
                 // "nobody looked" stays distinct from "these documents are gone".
