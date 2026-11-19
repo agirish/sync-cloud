@@ -31,6 +31,14 @@ enum TaxLane {
         }
         // A notice that a form is ready is not the form.
         if has(#"\b(?:is|are)\s+(?:now\s+)?(?:available|ready|online)\b"#) { return nil }
+        let taxAuthority = #"(?:\birs\b|internal revenue|franchise tax|\bftb\b|department of the treasury|direct pay|taxrfd)"#
+        // A transcript prints the return it reports on (`Form 1040 Tax Return Transcript`): it is a
+        // record, not the return, so it is read first.
+        if has(#"\btranscript\b"#), has(taxAuthority + #"|tax period"#) { return Kind(label: "Transcript", folder: "Tax Records") }
+        if has(#"\brefund\b|taxrfd"#), has(taxAuthority) { return Kind(label: "Refund", folder: "Refund") }
+        if has(#"\bdirect pay\b|\beftps\b|\bweb pay\b|\bpayment confirmation\b|\bestimated tax payment\b"#), has(taxAuthority) {
+            return Kind(label: "Payment", folder: "Payments")
+        }
         if has(#"\bform\s*1040\b|\bu\.?s\.? individual income tax return\b"#) { return Kind(label: "1040", folder: "Tax Returns") }
         if has(#"\bform\s*1099-r\b|\b1099-r\b"#) { return Kind(label: "1099-R", folder: "Form 1099-R") }
         if has(#"\bform\s*w-?2\b|\bwage and tax statement\b"#) { return Kind(label: "W-2", folder: "Form W-2") }
@@ -56,12 +64,23 @@ enum TaxLane {
         if let y = DocumentFacts.taxYear(in: lower) { return y }
         let head = String(lower.prefix(1500))
         let ns = head as NSString
-        for p in [#"(\d{4})\s*form\s*(?:1040|1095|w-?2)"#, #"form\s*(?:1040|1095-[abc]|w-?2)[^0-9]{0,40}(\d{4})"#,
+        for p in [#"tax period(?: ending)?[:\s]+(?:[a-z]+\.? \d{1,2},? |\d{1,2}[-/]\d{1,2}[-/])(\d{4})"#,
+                  #"(\d{4})\s*form\s*(?:1040|1095|w-?2)"#, #"form\s*(?:1040|1095-[abc]|w-?2)[^0-9]{0,40}(\d{4})"#,
                   #"(?:for )?calendar year\s*(\d{4})"#, #"tax period[:\s]+[a-z]*\.?\s*\d{0,2},?\s*(\d{4})"#] {
             if let m = compiled.regex(p).firstMatch(in: head, range: NSRange(location: 0, length: ns.length)),
                let y = Int(ns.substring(with: m.range(at: 1))), (1990...2100).contains(y) { return y }
         }
         return nil
+    }
+
+    /// A refund or payment that prints no tax year: one dated January to April settles the year
+    /// before (his rule); a later date says nothing about which year it is for.
+    static func springYear(of lower: String, for kind: Kind) -> Int? {
+        guard kind.folder == "Refund" || kind.folder == "Payments" else { return nil }
+        let ns = lower as NSString
+        guard let m = compiled.regex(DocumentFacts.dateRE).firstMatch(in: lower, range: NSRange(location: 0, length: ns.length)),
+              let d = DocumentFacts.parseDate(ns.substring(with: m.range)), d.month <= 4 else { return nil }
+        return d.year - 1
     }
 
     /// The tree's tax folder: the `Income Tax` folder holding year folders, outside any archive.
@@ -109,12 +128,15 @@ enum TaxLane {
         return suggestions.map { s in
             guard let page = pages[s.filePath], !(s.best?.remembered ?? false) else { return s }
             let lower = page.lowercased()
-            guard let kind = kind(of: lower), let year = taxYear(of: lower),
+            guard let kind = kind(of: lower),
+                  let year = taxYear(of: lower) ?? springYear(of: lower, for: kind),
                   let inside = layout(for: kind, in: taxNode) else { return s }
             // An information return must read as a form, not a statement that mentions one
             // (`… your Form 1099 information`); a return, a 1095 and a 1098-T name themselves.
             if ["Form 1099", "Form 1099-R", "Form W-2", "Form 5498"].contains(kind.folder),
                DocumentFacts(page: page).kind != .taxForm { return s }
+            // A bank statement listing a refund deposit is the bank's statement.
+            if ["Refund", "Payments"].contains(kind.folder), DocumentFacts(page: page).kind == .statement { return s }
             let yearName = String(year)
             let rel = taxPath + "/" + yearName + "/" + inside
             let path = root + "/" + rel

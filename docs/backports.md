@@ -15970,3 +15970,28 @@ in the account-folders section above).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A card's spending report is `0. Spend YYYY` — main only
+
+2026-11-18, for v7.2. Amex's `Your Spending Report for: 2019` and Citi's `Spend Summary` were read
+as statements, or, for Citi's, which also says "Annual Account Summary", as the year-end summary.
+They are now `0. Spend YYYY` in that year's folder, outside the count (`StatementForms`). It is in
+the account phase, which no maintenance line carries (measured in the account-folders section
+above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## IRS transcripts, refunds and payments file by the tax year they belong to — main only, recorded, not owed
+
+2026-11-18, for v7.2. The tax pass (`TaxLane`) read an IRS transcript as the return it names, since
+page 1 says `Form 1040`. Now a transcript goes to `Tax Records` by its Tax Period, and a refund or
+payment to `Tax Returns/Refund` or `Payments` of the tax year it prints, else, dated January to
+April, the year before (his rule). A bank statement listing a refund stays the bank's. `v6.x`,
+`v5.x` and `v4.x` carry the router without the tax pass; `v3.x` and `v2.x` have no router.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The router, no tax pass | RECORDED — not owed |
+| `v3.x` / `v2.x` | No router | CLOSED — does not apply |

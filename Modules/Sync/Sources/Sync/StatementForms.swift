@@ -11,6 +11,9 @@ enum StatementForms {
 
     enum Form: Equatable {
         case yearEndSummary(year: Int)
+        /// A card's spending report for a year (`Your Spending Report for: 2019`, Citi's `Spend
+        /// Summary`): `0. Spend YYYY`, beside the summary and outside the count too.
+        case spendReport(year: Int)
         case tradeConfirm(date: DocumentFacts.Period)
     }
 
@@ -19,11 +22,23 @@ enum StatementForms {
     private static let summaryWordsRE = #"\byear[\s-]*end\s+(?:summary|investment report)|\bannual (?:account )?summary\b"#
     private static let confirmRE = #"\b(?:trade|transaction) confirmation\b|\bconfirmation of (?:your )?(?:purchase|sale|trade)"#
 
-    /// What page 1 says this paper is, when it is one of the two.
+    private static let spendRE = #"\bspend(?:ing)? (?:summary|report)\b"#
+    private static let spendYearRE = #"\bspend(?:ing)? report for:?\s*(\d{4})"#
+
+    /// What page 1 says this paper is, when it is one of these.
     static func form(of f: DocumentFacts) -> Form? {
         let header = f.header
         let ns = header as NSString
         let all = NSRange(location: 0, length: ns.length)
+        // Before the summary: Citi's spend report calls itself an annual account summary too.
+        if compiled.regex(spendRE).firstMatch(in: header, range: all) != nil {
+            if let m = compiled.regex(spendYearRE).firstMatch(in: header, range: all),
+               let y = Int(ns.substring(with: m.range(at: 1))), (1990...2100).contains(y) { return .spendReport(year: y) }
+            // Its newest dated charge says which year it is.
+            let years = compiled.regex(DocumentFacts.dateRE).matches(in: header, range: all)
+                .compactMap { DocumentFacts.parseDate(ns.substring(with: $0.range))?.year }
+            if let y = years.max() { return .spendReport(year: y) }
+        }
         if let m = compiled.regex(summaryRE).firstMatch(in: header, range: all),
            let y = Int(ns.substring(with: m.range(at: 1))), (1990...2100).contains(y) {
             return .yearEndSummary(year: y)
@@ -62,6 +77,11 @@ enum StatementForms {
     /// `0. Summary 2025.pdf`
     static func summaryName(year: Int, ext: String) -> String {
         "0. Summary \(year)" + (ext.isEmpty ? "" : "." + ext)
+    }
+
+    /// `0. Spend 2024.pdf`
+    static func spendName(year: Int, ext: String) -> String {
+        "0. Spend \(year)" + (ext.isEmpty ? "" : "." + ext)
     }
 
     /// `04 May 2023.pdf`

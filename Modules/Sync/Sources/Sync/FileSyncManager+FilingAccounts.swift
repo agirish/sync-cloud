@@ -125,13 +125,14 @@ extension FileSyncManager {
                                       monthFromName: Bool, fileName: String, bank: FileNode?) -> AccountPlacement.Placement {
         if f.kind != .taxForm, !monthFromName, let form = StatementForms.form(of: f) {
             switch form {
-            case .yearEndSummary(let year):
+            case .yearEndSummary(let year), .spendReport(let year):
                 let p = AccountPlacement.place(in: node, period: .init(year: year, month: 12, day: 31), taxForm: false,
                                                fileName: fileName, bank: bank)
                 guard !p.yearUnknown else { return p }
                 let ext = (p.name.map { ($0 as NSString).pathExtension } ?? (fileName as NSString).pathExtension)
-                return AccountPlacement.Placement(folder: p.folder, newSegments: p.newSegments,
-                                                  name: StatementForms.summaryName(year: year, ext: ext))
+                let name = if case .spendReport = form { StatementForms.spendName(year: year, ext: ext) }
+                           else { StatementForms.summaryName(year: year, ext: ext) }
+                return AccountPlacement.Placement(folder: p.folder, newSegments: p.newSegments, name: name)
             case .tradeConfirm(let date):
                 if let p = StatementForms.confirmPlacement(date, in: node, fileName: fileName) { return p }
             }

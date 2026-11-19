@@ -39,7 +39,8 @@ import Testing
                 dir(it + "/2024/Income", [dir(it + "/2024/Income/Form 1099", [file(it + "/2024/Income/Form 1099/a.pdf")]),
                                           dir(it + "/2024/Income/Form W-2")]),
                 dir(it + "/2024/Deductions", [dir(it + "/2024/Deductions/Form 1098-T")]),
-                dir(it + "/2024/Tax Returns"),
+                dir(it + "/2024/Tax Returns", [dir(it + "/2024/Tax Returns/Refund"), dir(it + "/2024/Tax Returns/Payments")]),
+                dir(it + "/2024/Tax Records"),
             ]),
             dir(it + "/2025", [dir(it + "/2025/Income")]),
         ]),
@@ -83,6 +84,29 @@ import Testing
         let best = try #require(TaxLane.placing([s], pages: [s.filePath: page], taxonomy: Self.taxonomy, root: Self.root).first?.best)
         #expect(best.path == Self.root + "/" + Self.it + "/2025/Tax Returns")
         #expect(best.alsoCopiesTo.isEmpty)
+    }
+
+    /// A transcript is a record, not the return it names; refunds and payments go to the year they
+    /// settle: the one printed, else the year before a spring date.
+    @Test func transcriptsRefundsAndPaymentsGoByTheirTaxYear() throws {
+        func best(_ page: String) -> String? {
+            let s = Self.card("x.pdf", leadingInto: "Finance/US/Investments/Schwab/Brokerage 0202")
+            return TaxLane.placing([s], pages: [s.filePath: page], taxonomy: Self.taxonomy, root: Self.root).first?.best?.path
+                .replacingOccurrences(of: Self.root + "/" + Self.it + "/", with: "")
+        }
+        #expect(best("Form 1040 Tax Return Transcript Request Date: 01-18-2026 Report for Tax Period Ending: 12-31-2024")
+                == "2024/Tax Records")
+        #expect(best("Get Refund Status Your Personal Tax Data IRS Individual Taxpayer Tax Period Ending: December 31, 2024 Your Refund Amount")
+                == "2024/Tax Returns/Refund")
+        #expect(best("Account Activity Posting date Mar 3, 2025 FRANCHISE TAX BD DES:CASTTAXRFD Deposit")
+                == "2024/Tax Returns/Refund", "a spring refund settles the year before")
+        #expect(best("Direct Pay Confirmation Thank you for using Direct Pay! Payment date April 14, 2025")
+                == "2024/Tax Returns/Payments")
+        #expect(best("Direct Pay Confirmation Thank you for using Direct Pay! Payment date September 14, 2025")
+                == Self.root + "/Finance/US/Investments/Schwab/Brokerage 0202",
+                "a later date names no tax year, so it is left")
+        #expect(best("Bank of America statement Account summary for March 1-31, 2025 FRANCHISE TAX BD TAXRFD deposit")
+                == Self.root + "/Finance/US/Investments/Schwab/Brokerage 0202", "a bank statement is the bank's")
     }
 
     /// Left alone: a statement mentioning a 1099, a form with no year, and a tree with no

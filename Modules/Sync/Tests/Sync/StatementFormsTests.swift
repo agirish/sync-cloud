@@ -20,6 +20,10 @@ import Testing
         #expect(form("BROKERAGE NO. Z26 TRANSACTION CONFIRMATION TYPE TRADE DATE SETTLEMENT DATE TRANS NO. 1 04-28-23 05-04-23")
                 == .tradeConfirm(date: P(year: 2023, month: 4, day: 28)), "the trade date, under its column heading")
         #expect(form("Account summary for February 26, 2026 to March 27, 2026") == nil)
+        #expect(form("PRIMARY CARD MEMBER Your Spending Report for: 2019 All Card Members' Total Spending") == .spendReport(year: 2019))
+        #expect(form("Spend Summary Time Period Annual Account Summary Date Cardmember Dec 29, 2024 Dec 24, 2024 Nov 30, 2024")
+                == .spendReport(year: 2024), "Citi's spend report, though it says annual account summary")
+        #expect(StatementForms.spendName(year: 2024, ext: "pdf") == "0. Spend 2024.pdf")
     }
 
     @Test func theNamesAreHis() {
