@@ -289,14 +289,27 @@ import Testing
             VaultReadFacts(category: .driversLicense, holder: holder, validUntil: until,
                            sources: [VaultSource(path: "/d/x.pdf", role: "Driver’s license", rank: rank)])
         }
+        // Two cards: the newer speaks, whichever was read first.
         let renewed = facts(until: Self.day(2030, 5, 16), rank: 40, holder: "Anna")
-        let replaced = facts(until: Self.day(2025, 5, 16), rank: 45, holder: "Anna Eriksson")
+        let replaced = facts(until: Self.day(2025, 5, 16), rank: 40, holder: "Anna Eriksson")
         #expect(VaultModel.supersedes(renewed, replaced))
         #expect(!VaultModel.supersedes(replaced, renewed))
-        // One date, or none: the more trusted document.
-        let sameDay = facts(until: Self.day(2030, 5, 16), rank: 45, holder: nil)
-        #expect(VaultModel.supersedes(sameDay, renewed))
-        #expect(!VaultModel.supersedes(renewed, sameDay))
+        // A form quoting the number never speaks over the card, however new it is.
+        let form = facts(until: Self.day(2031, 3, 17), rank: 10, holder: nil)
+        #expect(!VaultModel.supersedes(form, replaced))
+        #expect(VaultModel.supersedes(replaced, form))
+    }
+
+    @Test func aFormQuotingAnAadhaarNumberLendsItNoDateOrName() throws {
+        let number = Self.aadhaar("23456789012")
+        let form = ["Police Clearance Certificate Form", "Name of applicant", "Anna Eriksson", "DOB: 01/01/1990",
+                    "Issue Date: 17/03/2020", "Aadhaar number", Self.spaced(number)]
+        let find = try #require(Self.read(form).first)
+        #expect(find.value == number)
+        #expect(find.facts.primary?.role == "Names it")
+        #expect(find.holder == nil)
+        #expect(find.facts.born == nil)
+        #expect(find.facts.details.isEmpty)
     }
 
     @Test func theFullerOfTwoNamesForOneNumberIsKept() {

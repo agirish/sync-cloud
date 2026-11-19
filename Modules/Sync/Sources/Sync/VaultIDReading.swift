@@ -458,7 +458,9 @@ extension VaultReading {
         let role = request ? "PAN request" : squeezed.contains("panverificationrecord") ? "PAN, DigiLocker"
             : card ? "PAN card" : "Names it"
         let rank = request ? IDRank.quoted : card ? IDRank.card : IDRank.quoted
-        let born = labelledDate(["DOB", "Date of Birth"], in: page, dayFirst: true)
+        // Only the card says whose it is: a form quoting a PAN has its own dates and names.
+        let own = rank == IDRank.card
+        let born = !own ? nil : labelledDate(["DOB", "Date of Birth"], in: page, dayFirst: true)
             ?? page.lazy.compactMap { line -> Date? in
                 line.trimmingCharacters(in: .whitespaces).range(of: #"^\d{2}/\d{2}/\d{4}$"#, options: .regularExpression) != nil
                     ? dayFirst(line) : nil
@@ -470,7 +472,7 @@ extension VaultReading {
             for m in panPattern.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
                 let value = ns.substring(with: m.range(at: 1))
                 guard seen.insert(value).inserted else { continue }
-                let holder = value.dropFirst(3).first == "P" ? panHolder(page, initial: Array(value)[4]) : nil
+                let holder = own && value.dropFirst(3).first == "P" ? panHolder(page, initial: Array(value)[4]) : nil
                 let facts = VaultReadFacts(category: .pan, holder: holder, born: born, issuer: "IND",
                                            dated: fileDate(path), sources: [VaultSource(path: path, role: role, rank: rank)])
                 out.append(VaultFind(title: "PAN", value: value, note: holder ?? "", facts: facts))
@@ -533,13 +535,17 @@ extension VaultReading {
         func nearLabel(_ index: Int) -> Bool {
             page[max(0, index - 1)...index].contains { labelled.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
         }
-        let born = labelledDate(["DOB"], in: page, dayFirst: true)
-        let issued = labelledDate(["Issue Date"], in: page, dayFirst: true)
+        // Only the letter itself says whose it is and when it was issued. A form that quotes the
+        // number has its own "Issue Date" and its own names: a police clearance form's is not
+        // the Aadhaar's.
+        let own = rank == IDRank.card
+        let born = own ? labelledDate(["DOB"], in: page, dayFirst: true) : nil
+        let issued = own ? labelledDate(["Issue Date"], in: page, dayFirst: true) : nil
         var holder: String?
-        if let dob = page.firstIndex(where: { $0.contains("DOB") || $0.lowercased().contains("year of birth") }), dob > 0 {
+        if own, let dob = page.firstIndex(where: { $0.contains("DOB") || $0.lowercased().contains("year of birth") }), dob > 0 {
             holder = nameOnly(page[dob - 1])
         }
-        if holder == nil, let to = page.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("to") && $0.count <= 4 }) {
+        if own, holder == nil, let to = page.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("to") && $0.count <= 4 }) {
             holder = page[(to + 1)...].prefix(3).lazy.compactMap(nameOnly).first
         }
         var out: [VaultFind] = []

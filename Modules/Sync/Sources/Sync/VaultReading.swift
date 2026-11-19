@@ -85,7 +85,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 8
+    public static let version = 9
 
     /// Every number on a document, once each, and the numbers it only names.
     public static func read(pages: [[String]], from path: String) -> (finds: [VaultFind], mentions: [VaultMention]) {

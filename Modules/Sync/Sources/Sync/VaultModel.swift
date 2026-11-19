@@ -388,9 +388,11 @@ public final class VaultModel: ObservableObject {
 
     /// The main view's kinds with nothing in them yet, for the line under the cards.
     public var emptyCategories: [VaultCategory] {
+        // While Read Documents runs, a card with nothing yet may be about to fill: the folders
+        // are read in path order, so a Legal folder's licenses come last.
+        guard reading == nil else { return [] }
         let used = Set(rows.map(\.category))
-        return [.passport, .usVisa, .i94, .uscisCase, .driversLicense, .health, .utilities, .loans]
-            .filter { !used.contains($0) }
+        return VaultCategory.mainView.filter { $0 != .other && !used.contains($0) }
     }
 
     /// How many rows each tab has, as the person filter leaves them.
@@ -793,33 +795,40 @@ public final class VaultModel: ObservableObject {
         if again { readIndex = [:] }
         reading = ReadingProgress(done: 0, total: 0)
         defer { reading = nil }
+        let began = Date()
         let files = await reader.files()
         reading = ReadingProgress(done: 0, total: files.count)
-        var added = 0
-        var opened = 0
+        // Counts only, here and below. A file's name can hold the very number it carries.
+        Logger.shared.info("Vault: reading \(files.count) document(s)" + (again || readIndex.isEmpty ? ", every one" : ", new and changed ones"))
+        var tally = VaultReadTally()
+        tally.documents = files.count
+        func stopped(at index: Int) {
+            Logger.shared.info("Vault: read stopped at \(index) of \(files.count) document(s), \(tally.opened) opened; "
+                               + "the Vault closed or locked, and what was read is kept")
+        }
         for (index, file) in files.enumerated() {
             // The panel closed or the Mac locked. What was read so far was sealed as it went.
-            if Task.isCancelled || contents != .loaded { return }
+            if Task.isCancelled || contents != .loaded { return stopped(at: index) }
             let stamp = reader.stamp(of: file)
             if let stamp, readIndex[file.path] == stamp {
                 reading = ReadingProgress(done: index + 1, total: files.count)
                 continue
             }
             let pages = await reader.pages(in: file)
-            guard contents == .loaded else { return }
-            opened += 1
+            guard contents == .loaded else { return stopped(at: index) }
             // A changed file is read afresh: what it said before is let go first. A number it
             // still carries keeps its row and any choice made about it.
             let before = Dictionary(finds.filter { $0.facts.sources.contains { $0.path == file.path } }
                 .map { (VaultReading.normalized($0.value), ($0.id, $0.pin, $0.assignment)) }, uniquingKeysWith: { a, _ in a })
             forgetSource(file.path)
             let read = VaultReading.read(pages: pages, from: file.path)
+            tally.record(pages, read)
             for var find in read.finds {
                 if let (id, pin, assignment) = before[VaultReading.normalized(find.value)] {
                     find = VaultFind(id: id, title: find.title, value: find.value, note: find.note,
                                      facts: find.facts, pin: pin, assignment: assignment)
                 }
-                if take(find), before[VaultReading.normalized(find.value)] == nil { added += 1 }
+                if take(find), before[VaultReading.normalized(find.value)] == nil { tally.added += 1 }
             }
             for mention in read.mentions {
                 mentions[VaultReading.normalized(mention.value), default: []].append(mention.source)
@@ -828,7 +837,10 @@ public final class VaultModel: ObservableObject {
             readingChanged = true
             reading = ReadingProgress(done: index + 1, total: files.count)
             // Sealed every so often, so a read stopped halfway keeps what it had.
-            if opened % 25 == 0 { saveReading() }
+            if tally.opened % 25 == 0 { saveReading() }
+            if tally.opened % 250 == 0 {
+                Logger.shared.debug("Vault: \(index + 1) of \(files.count) document(s) looked at, \(tally.opened) opened")
+            }
         }
         // A file gone from the folders is forgotten, so one put back is read again; a number
         // whose every document is gone is let go, rather than pointing at nothing.
@@ -840,9 +852,8 @@ public final class VaultModel: ObservableObject {
         }
         readingChanged = true
         saveReading()
-        lastReading = ReadingSummary(documents: files.count, opened: opened, newNumbers: added)
-        // Counts only. A file's name can hold the very number it carries.
-        Logger.shared.info("Vault: \(files.count) document(s), \(opened) opened; \(added) new number(s) to confirm")
+        lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added)
+        Logger.shared.info(tally.summary(seconds: Date().timeIntervalSince(began)))
         if selection.flatMap(row) == nil { selection = visibleIDs.first }
     }
 
@@ -850,14 +861,17 @@ public final class VaultModel: ObservableObject {
     /// from another file, that file joins its documents, and the details of the better document
     /// win: an approval over its receipt notice, a passport's own page over anything naming it.
     /// When the number is already saved, the file joins it as a document. True when it was new.
-    /// Whether `incoming`'s document, carrying a number already read, should speak for it: a
-    /// newer document over an older one, so a license renewed under the same number shows the
-    /// new card's dates, not the barcode of the card it replaced; between documents of one date,
-    /// or undated, the one more trusted.
+    /// Whether `incoming`'s document, carrying a number already read, should speak for it: the
+    /// more trusted kind of document first, so a form that only quotes an Aadhaar number never
+    /// lends it the form's own issue date; between documents trusted alike, the newer, so a
+    /// license renewed under the same number shows the new card's dates, not those of the card
+    /// it replaced.
     nonisolated static func supersedes(_ incoming: VaultReadFacts, _ held: VaultReadFacts) -> Bool {
+        let (ra, rb) = (incoming.primary?.rank ?? 0, held.primary?.rank ?? 0)
+        if ra != rb { return ra > rb }
         let (a, b) = (incoming.validUntil ?? incoming.dated, held.validUntil ?? held.dated)
-        if let a, let b, a != b { return a > b }
-        return (incoming.primary?.rank ?? 0) > (held.primary?.rank ?? 0)
+        if let a, let b { return a > b }
+        return false
     }
 
     /// The name to keep of two read for one number: the one present, and of two that start

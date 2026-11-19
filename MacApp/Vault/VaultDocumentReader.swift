@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import PDFKit
+import Events
 import Sync
 import Vision
 
@@ -32,14 +33,19 @@ struct VaultFolderReader: VaultDocumentReading {
 
     private static func walk(_ folders: [String]) -> [URL] {
         var found: [URL] = []
+        var tooLarge = 0
         for folder in folders {
             guard let walk = FileManager.default.enumerator(
                 at: URL(fileURLWithPath: folder, isDirectory: true), includingPropertiesForKeys: [.fileSizeKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
             for case let url as URL in walk where extensions.contains(url.pathExtension.lowercased()) {
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                if size <= largestFile { found.append(url) }
+                if size <= largestFile { found.append(url) } else { tooLarge += 1 }
             }
+        }
+        // Counts only, here and below: a file's name can hold the very number it carries.
+        if tooLarge > 0 {
+            Logger.shared.info("Vault: \(tooLarge) file(s) over \(largestFile / 1024 / 1024) MB passed over")
         }
         return found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
@@ -57,7 +63,14 @@ struct VaultFolderReader: VaultDocumentReading {
             return [recognise(image)]
         }
         // A locked PDF is passed over: its password is not the Vault's to ask for.
-        guard let document = PDFDocument(url: file), !document.isLocked else { return [] }
+        guard let document = PDFDocument(url: file) else {
+            Logger.shared.debug("Vault: a PDF could not be opened")
+            return []
+        }
+        guard !document.isLocked else {
+            Logger.shared.debug("Vault: a locked PDF was passed over")
+            return []
+        }
         var pages: [[String]] = []
         for index in 0..<min(document.pageCount, pagesPerDocument) {
             guard let page = document.page(at: index) else { continue }
@@ -67,7 +80,10 @@ struct VaultFolderReader: VaultDocumentReading {
                 // A scanner's text layer carries the words, never a barcode: a license back is
                 // rendered once for its barcode alone.
                 if VaultReading.wantsSharperRead(lines), let image = render(page, longSide: 4000) {
-                    lines += decodeBarcodes(image)
+                    let decoded = decodeBarcodes(image)
+                    lines += decoded
+                    Logger.shared.debug("Vault: a license back was rendered for its barcode; "
+                                        + (decoded.isEmpty ? "none decoded" : "decoded"))
                 }
                 pages.append(lines)
             } else if let image = render(page) {
@@ -77,6 +93,8 @@ struct VaultFolderReader: VaultDocumentReading {
                 // such a page, with nothing read from it, is read again.
                 if VaultReading.wantsSharperRead(lines), let sharper = render(page, longSide: 4000) {
                     lines = recognise(sharper)
+                    Logger.shared.debug("Vault: a page was read again at 4000 px; "
+                                        + (VaultReading.wantsSharperRead(lines) ? "still nothing read" : "now read"))
                 }
                 pages.append(lines)
             }
