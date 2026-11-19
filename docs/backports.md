@@ -15853,3 +15853,18 @@ no maintenance line carries (measured in the account-folders section above).
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A policy paper files in the year its term starts, named for the term — main only, recorded, not owed
+
+2026-11-18, for v7.2. His rule of 2026-11-16: `Home/Insurance/<year>` is the year the policy term
+starts, and papers are named `<Insurer> <Document> - <Mon YYYY-Mon YYYY>`. On `main`, a last pass
+(`PolicyTerms`) moves a card leading into a folder whose papers are named by term to its term's
+year, reading the term from page 1 or, for a renewal letter printing only its date, stepping the
+folder's own terms forward (then Medium). The GEICO-Homesite renewal of Nov 2025 went to
+`2025` at High. `v6.x`, `v5.x` and `v4.x` carry the router that found that folder, without the pass;
+`v3.x` and `v2.x` have no router. It is new house behaviour.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The router, no term pass | RECORDED — not owed |
+| `v3.x` / `v2.x` | No router | CLOSED — does not apply |

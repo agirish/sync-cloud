@@ -212,4 +212,40 @@ import Foundation
         #expect(best.confidence == .medium)
         #expect(best.reasons.contains { $0.contains("month from the file name") }, "\(best.reasons)")
     }
+    /// A policy paper's home is moved to its term's year after every lane has spoken
+    /// (``PolicyTerms``), whichever lane found the policy's folder.
+    @Test func aPolicyRenewalLandsInItsTermsYear() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingPolicyTerm")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let insurance = root.appendingPathComponent("Docs/Home/Insurance")
+        for name in ["2025/Acme-Homesafe Policy - Jan 2025-Jan 2026.pdf",
+                     "2025/Acme-Homesafe Evidence of Insurance - Jan 2025-Jan 2026.pdf",
+                     "2024/Acme-Homesafe Policy - Jan 2024-Jan 2025.pdf"] {
+            try writeBytes(insurance.appendingPathComponent(name), Data(repeating: 0x41, count: 64))
+        }
+        // An account elsewhere, so the scan reads page 1 as it does on a real tree.
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        for m in 1...6 {
+            try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
+        }
+        let inbox = root.appendingPathComponent("Inbox")
+        let letter = inbox.appendingPathComponent("Home Insurance Renewal.pdf")
+        try writeBytes(letter, Data(repeating: 0x41, count: 64))
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.3"))
+        let page = """
+        Acme Insurance Agency Underwritten by: HOMESAFE INSURANCE COMPANY
+        Renewal For Policy Number 12345678 November 11, 2025
+        Thank you for renewing your condominium policy. Please review your declarations page.
+        """
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { $0 == letter.path ? page : nil }
+        m.filingTokensFromText = { _ in [] }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Docs"))
+
+        let card = try #require(m.filingSuggestions.first { $0.filePath == letter.path })
+        let best = try #require(card.best)
+        #expect(best.path == insurance.path + "/2026", "\(card.candidates.map(\.path))")
+        #expect(best.proposedName == "Acme-Homesafe Renewal - Jan 2026-Jan 2027.pdf")
+    }
 }

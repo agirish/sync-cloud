@@ -872,6 +872,11 @@ extension FileSyncManager {
                                    profile: namingProfile)
         }.value
         if Task.isCancelled { return }
+        // A policy paper leading into a folder that files by policy term goes to the year its term
+        // starts, named for the term: after the naming pass, whose name it replaces, and before the
+        // already-filed checks, which look where it now goes. See ``PolicyTerms``.
+        suggestions = PolicyTerms.placing(suggestions, pages: routerSnippets, taxonomy: taxonomy,
+                                          root: providerRoot.path)
         // Which of these the tree already holds: after the naming pass, since "already filed in X"
         // is about the document, not the name it would land under, and before the publish so the
         // queue never shows a duplicate as ordinary for a frame.

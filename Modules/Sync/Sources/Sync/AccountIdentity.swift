@@ -205,7 +205,7 @@ public struct DocumentFacts: Sendable, Equatable {
     private static let monthRE = #"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"#
     /// `03/31/2026`, `31/03/2026`, `2026-03-31`, `March 31, 2026`, `March 1-31, 2026`,
     /// `31 March 2026`, `31-Mar-2026`.
-    private static let dateRE = #"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}[ -]"# + monthRE + #"[a-z]*\.?[ -]\d{4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
+    static let dateRE = #"(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}[ -]"# + monthRE + #"[a-z]*\.?[ -]\d{4}|"# + monthRE + #"[a-z]*\.? \d{1,2}(?:\s*-\s*\d{1,2})?,? \d{4})"#
     private static let taxRE = try! NSRegularExpression(pattern: #"form\s*(1099|1098|5498|w-2)|tax year \d{4}"#)
     private static let statementWordsRE = try! NSRegularExpression(pattern:
         #"statement period|billing period|statement date|closing date|opening/closing|statement closing|account summary|summary of your account"#)
