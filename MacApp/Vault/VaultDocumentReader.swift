@@ -63,34 +63,70 @@ struct VaultFolderReader: VaultDocumentReading {
             guard let page = document.page(at: index) else { continue }
             let layer = page.string ?? ""
             if layer.filter({ !$0.isWhitespace }).count > 40 {
-                pages.append(layer.components(separatedBy: .newlines))
+                var lines = layer.components(separatedBy: .newlines)
+                // A scanner's text layer carries the words, never a barcode: a license back is
+                // rendered once for its barcode alone.
+                if VaultReading.wantsSharperRead(lines), let image = render(page, longSide: 4000) {
+                    lines += decodeBarcodes(image)
+                }
+                pages.append(lines)
             } else if let image = render(page) {
-                pages.append(recognise(image))
+                var lines = recognise(image)
+                // A Social Security card's small type runs a digit in at this size, and a license
+                // back's barcode can fail to decode; both read true at about 4000 pixels. Only
+                // such a page, with nothing read from it, is read again.
+                if VaultReading.wantsSharperRead(lines), let sharper = render(page, longSide: 4000) {
+                    lines = recognise(sharper)
+                }
+                pages.append(lines)
             }
         }
         return pages
     }
 
     /// The page at about 2400 pixels on its long side: the zone's small type needs that much.
-    private static func render(_ page: PDFPage) -> CGImage? {
+    private static func render(_ page: PDFPage, longSide: CGFloat = 2400) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
-        let scale = max(2, min(4, 2400 / max(bounds.width, bounds.height, 1)))
+        let scale = max(2, min(6, longSide / max(bounds.width, bounds.height, 1)))
         let image = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
                                    for: .mediaBox)
         return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
     /// Accurate recognition without language correction, which "corrects" a zone's fillers and
-    /// a receipt number's letters into words.
+    /// a receipt number's letters into words. A US license's PDF417 barcode is decoded in the
+    /// same pass and its text added after the page's lines, one element to a line, for
+    /// ``VaultReading`` to read: it states the number, name and dates outright.
     private static func recognise(_ image: CGImage) -> [String] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
+        let text = VNRecognizeTextRequest()
+        text.recognitionLevel = .accurate
+        text.usesLanguageCorrection = false
+        let barcodes = VNDetectBarcodesRequest()
+        barcodes.symbologies = [.pdf417]
         do {
-            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+            try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
         } catch {
             return []
         }
-        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        return lines + payloadLines(barcodes.results ?? [])
+    }
+
+    /// A page's PDF417 barcodes and nothing else.
+    private static func decodeBarcodes(_ image: CGImage) -> [String] {
+        let barcodes = VNDetectBarcodesRequest()
+        barcodes.symbologies = [.pdf417]
+        do {
+            try VNImageRequestHandler(cgImage: image, options: [:]).perform([barcodes])
+        } catch {
+            return []
+        }
+        return payloadLines(barcodes.results ?? [])
+    }
+
+    /// A barcode's text, one element to a line.
+    private static func payloadLines(_ results: [VNBarcodeObservation]) -> [String] {
+        results.compactMap(\.payloadStringValue)
+            .flatMap { $0.components(separatedBy: CharacterSet(charactersIn: "\n\r\u{1e}")) }
     }
 }

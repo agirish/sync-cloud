@@ -850,22 +850,41 @@ public final class VaultModel: ObservableObject {
     /// from another file, that file joins its documents, and the details of the better document
     /// win: an approval over its receipt notice, a passport's own page over anything naming it.
     /// When the number is already saved, the file joins it as a document. True when it was new.
+    /// Whether `incoming`'s document, carrying a number already read, should speak for it: a
+    /// newer document over an older one, so a license renewed under the same number shows the
+    /// new card's dates, not the barcode of the card it replaced; between documents of one date,
+    /// or undated, the one more trusted.
+    nonisolated static func supersedes(_ incoming: VaultReadFacts, _ held: VaultReadFacts) -> Bool {
+        let (a, b) = (incoming.validUntil ?? incoming.dated, held.validUntil ?? held.dated)
+        if let a, let b, a != b { return a > b }
+        return (incoming.primary?.rank ?? 0) > (held.primary?.rank ?? 0)
+    }
+
+    /// The name to keep of two read for one number: the one present, and of two that start
+    /// alike, the longer, so "Abhishek" read off a license front gives way to "Abhishek Girish"
+    /// from its barcode.
+    nonisolated static func fuller(_ kept: String?, _ other: String?) -> String? {
+        guard let kept else { return other }
+        guard let other else { return kept }
+        let (k, o) = (kept.split(separator: " "), other.split(separator: " "))
+        return o.count > k.count && o.first?.lowercased() == k.first?.lowercased() ? other : kept
+    }
+
     private func take(_ find: VaultFind) -> Bool {
         let value = VaultReading.normalized(find.value)
         if let index = finds.firstIndex(where: { VaultReading.normalized($0.value) == value }) {
             var held = finds[index]
-            let incoming = find.facts.primary?.rank ?? 0
-            let current = held.facts.primary?.rank ?? 0
-            var merged = incoming > current ? find.facts : held.facts
+            let newer = Self.supersedes(find.facts, held.facts)
+            var merged = newer ? find.facts : held.facts
             for source in held.facts.sources + find.facts.sources { merged.add(source) }
             // What any copy says is kept when the better one is silent: a receipt notice names
             // the person, the approval says how long the case is good for.
-            merged.holder = merged.holder ?? held.facts.holder ?? find.facts.holder
+            merged.holder = Self.fuller(merged.holder, newer ? held.facts.holder : find.facts.holder)
             merged.born = merged.born ?? held.facts.born ?? find.facts.born
             merged.form = merged.form ?? held.facts.form ?? find.facts.form
             merged.validUntil = [held.facts.validUntil, find.facts.validUntil].compactMap { $0 }.max()
             merged.pending = merged.pending && held.facts.pending && find.facts.pending
-            if incoming > current {
+            if newer {
                 held.title = find.title
                 held.note = find.note
             }

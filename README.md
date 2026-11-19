@@ -172,11 +172,16 @@ for: a passport number, a member ID, a loan number.
   out in groups of four. A copy clears from the clipboard after a minute.
 - **Locks itself** when it closes, after two idle minutes, and when the Mac sleeps. **Settings ▸
   Vault** changes when it asks, or turns the lock off after one more Touch ID.
-- **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Health &
-  Medical, Utilities & Phone, Loans & Mortgage, or one list. Each detail beside a number (an
-  expiry, a validity's start and end) has its own Copy; dates copy as MM/DD/YYYY.
+- **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Social
+  Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
+  Mortgage, or one list. Each detail beside a number (an expiry, a validity's start and end) has its
+  own Copy; dates copy as MM/DD/YYYY.
 - **Read Documents** looks in folders you choose for passports (from the photo page, checked
-  against its own check digits), US visas, I-94 records and USCIS receipt numbers. **Current**
+  against its own check digits), US visas, I-94 records and USCIS receipt numbers, and for the
+  cards a household files under Legal: US driver's licenses (from the barcode on the back),
+  Indian ones, Social Security cards and ITIN notices, PAN, Aadhaar (checked against its check
+  digit) and voter IDs. A number is kept only where its kind can be checked; a misread is
+  skipped, never guessed at. **Current**
   shows one of each kind per person; **Archive** keeps the expired, replaced and archived ones. Each
   number lists every document that names it, with Quick Look and Reveal in Browse. After the first
   read only new and changed files are opened.

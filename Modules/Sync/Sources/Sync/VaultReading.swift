@@ -85,7 +85,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 7
+    public static let version = 8
 
     /// Every number on a document, once each, and the numbers it only names.
     public static func read(pages: [[String]], from path: String) -> (finds: [VaultFind], mentions: [VaultMention]) {
@@ -114,6 +114,14 @@ public enum VaultReading {
         }
         for find in receiptNumbers(in: text, from: path) { keep(find) }
         for find in admissionNumbers(in: text, from: path) { keep(find) }
+        // A license's barcode before its printed front, wherever each is in the file: it states
+        // what the front's print can only suggest.
+        let identity = pages.flatMap { identityNumbers(on: $0, from: path) }.enumerated().sorted { a, b in
+            let (ba, bb) = (a.element.facts.primary?.role.hasSuffix("barcode") == true,
+                            b.element.facts.primary?.role.hasSuffix("barcode") == true)
+            return ba != bb ? ba : a.offset < b.offset
+        }
+        for (_, find) in identity { keep(find) }
         var mentions = visaPassports.filter { !seen.contains(normalized($0.value)) }
         let named = Set(mentions.map { normalized($0.value) })
         mentions += passportMentions(in: text, from: path).filter {

@@ -16116,3 +16116,18 @@ and tells people apart by date of birth. It builds on the Vault, which no mainte
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## The Vault reads identity cards — main only, recorded, not owed
+
+2026-11-19, for v7.2. Read Documents reads the cards filed under Legal (`VaultIDReading`): a US
+driver's license from its PDF417 barcode, decoded with Vision beside the page's text, and from its
+front; an Indian license; a Social Security card and an IRS ITIN notice; a PAN; an Aadhaar number,
+kept only when its Verhoeff check digit agrees; and a voter ID. Each is a new card
+(`VaultCategory.ssn`, `.pan`, `.aadhaar`, `.voterID`). A Social Security card read with no clean
+number, or a license back with no barcode, is read again from a sharper render. Of two documents
+carrying one number, the newer now supplies its details (`VaultModel.supersedes`). It builds on the
+Vault, which no maintenance line has.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

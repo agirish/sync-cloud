@@ -54,7 +54,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Folders to Read",
-                caption: "Read Documents in the Vault looks in these folders for passports, US visas, I-94 records and USCIS receipt numbers. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
+                caption: "Read Documents in the Vault looks in these folders for passports, US visas, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
             ) {
                 SettingsRow("Folders") {
                     // One column, right-aligned: each folder's Remove lines up under the last, and

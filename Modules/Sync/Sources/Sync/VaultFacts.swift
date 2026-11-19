@@ -4,7 +4,7 @@ import Foundation
 /// from a document is one of the first four; a number typed in takes whichever the editor chose.
 /// Anything read that is none of these goes to Other Finds, never the main view.
 public enum VaultCategory: String, Codable, CaseIterable, Sendable {
-    case passport, usVisa, i94, uscisCase, driversLicense, health, utilities, loans, other
+    case passport, usVisa, i94, uscisCase, driversLicense, ssn, pan, aadhaar, voterID, health, utilities, loans, other
 
     public var title: String {
         switch self {
@@ -13,6 +13,10 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
         case .i94: return "I-94 Records"
         case .uscisCase: return "USCIS Cases"
         case .driversLicense: return "Driver’s Licenses"
+        case .ssn: return "Social Security & ITIN"
+        case .pan: return "PAN Cards"
+        case .aadhaar: return "Aadhaar"
+        case .voterID: return "Voter IDs"
         case .health: return "Health & Medical"
         case .utilities: return "Utilities & Phone"
         case .loans: return "Loans & Mortgage"
@@ -28,6 +32,10 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
         case .i94: return "I-94 admission number"
         case .uscisCase: return "USCIS receipt number"
         case .driversLicense: return "Driver’s license"
+        case .ssn: return "Social Security number or ITIN"
+        case .pan: return "PAN (India)"
+        case .aadhaar: return "Aadhaar number"
+        case .voterID: return "Voter ID (EPIC)"
         case .health: return "Health or medical number"
         case .utilities: return "Utility or phone account"
         case .loans: return "Loan or mortgage number"
@@ -42,6 +50,10 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
         case .i94: return "airplane.arrival"
         case .uscisCase: return "doc.text"
         case .driversLicense: return "car"
+        case .ssn: return "person.text.rectangle"
+        case .pan: return "indianrupeesign.circle"
+        case .aadhaar: return "person.crop.rectangle"
+        case .voterID: return "checkmark.seal"
         case .health: return "heart"
         case .utilities: return "bolt"
         case .loans: return "house"
@@ -53,7 +65,7 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
     /// still group by kind.
     public var kind: VaultEntry.Kind {
         switch self {
-        case .passport, .usVisa, .i94, .uscisCase, .driversLicense: return .identity
+        case .passport, .usVisa, .i94, .uscisCase, .driversLicense, .ssn, .pan, .aadhaar, .voterID: return .identity
         case .health: return .health
         case .utilities: return .phone
         case .loans: return .home
@@ -72,6 +84,10 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
             if name.contains("i-94") || name.contains("i94") { return .i94 }
             if name.contains("receipt") || name.contains("uscis") { return .uscisCase }
             if name.contains("licen") { return .driversLicense }
+            if name.contains("social security") || name.contains("ssn") || name.contains("itin") { return .ssn }
+            if name.contains("aadha") { return .aadhaar }
+            if name.contains("voter") || name.contains("epic") { return .voterID }
+            if name.range(of: #"\bpan\b"#, options: .regularExpression) != nil || name.contains("permanent account") { return .pan }
             return .other
         case .health: return .health
         case .phone: return .utilities
@@ -151,6 +167,12 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
         case .usVisa: homes = ["visa", "visas"]
         case .i94: homes = ["form i-94", "i-94", "i94", "form i94"]
         case .uscisCase: homes = ["approval", "approvals", "approval notice", "receipt", "receipts", "notices"]
+        case .driversLicense: homes = ["driver license", "driver licenses", "drivers license", "driver’s license",
+                                       "driving license", "dl", "license", "licenses"]
+        case .ssn: homes = ["ssn", "social security", "itin"]
+        case .pan: homes = ["pan", "pan card"]
+        case .aadhaar: homes = ["aadhaar", "aadhar"]
+        case .voterID: homes = ["voter id", "voter ids", "voter", "epic"]
         default: homes = []
         }
         let copies = ["supporting documents", "supporting docs", "petition", "petitions", "application",
@@ -224,10 +246,15 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     /// read, and then the number stands alone rather than being grouped by its folder.
     public var personKey: String? {
         if let born { return "born:" + VaultReading.formDate(born) }
+        return nameKey
+    }
+
+    /// Whose it is by name alone: first given name and last word, as middle names come and go
+    /// between documents.
+    public var nameKey: String? {
         guard let holder else { return nil }
         let words = holder.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
         guard let first = words.first else { return nil }
-        // First given name and last word: middle names come and go between documents.
         return "name:" + first + " " + (words.count > 1 ? words.last! : "")
     }
 
@@ -368,6 +395,10 @@ public enum VaultStandings {
             switch facts.category {
             case .passport: return "passport|\(person)|\(facts.issuer ?? "")"
             case .uscisCase: return "case|\(person)|\(facts.form ?? VaultReading.normalized(item.value))"
+            // A US license and an Indian one are both kept; a new state's replaces the old.
+            case .driversLicense: return "license|\(person)|\(facts.issuer ?? "")"
+            // An SSN and an ITIN are weighed apart; an ITIN gives way to an SSN below.
+            case .ssn: return "ssn|\(person)|\(facts.form ?? "")"
             default: return "\(facts.category.rawValue)|\(person)"
             }
         }
@@ -411,7 +442,7 @@ public enum VaultStandings {
                 } else if !anyOutside {
                     standing.reason = "In an Archive folder"
                 } else {
-                    standing.reason = (ranOut ? (facts.category == .passport || facts.category == .usVisa ? "Expired " : "Ran out ")
+                    standing.reason = (ranOut ? ([.passport, .usVisa, .driversLicense].contains(facts.category) ? "Expired " : "Ran out ")
                         + VaultReading.monthYear(facts.validUntil) + " · replaced" : "Replaced by a newer one")
                 }
                 if let pin = item.pin {
@@ -434,14 +465,30 @@ public enum VaultStandings {
             out[item.id] = VaultStanding(tab: .current, expired: VaultReading.hasRunOut(facts.validUntil, now: now),
                                          inUse: true)
         }
+
+        // An ITIN is replaced by the same person's SSN: the IRS stops using it once one is issued.
+        // The same person by whose the user said it is, by birth date, or by name: a card prints
+        // no birth date, and an ITIN notice does.
+        func keys(_ item: VaultStandingInput, _ facts: VaultReadFacts) -> Set<String> {
+            Set([item.assignment?.groupKey, facts.personKey, facts.nameKey].compactMap { $0 })
+        }
+        let ssnHolders = read.reduce(into: Set<String>()) { held, pair in
+            let (item, facts) = pair
+            guard facts.category == .ssn, facts.form == "SSN", out[item.id]?.tab == .current else { return }
+            held.formUnion(keys(item, facts))
+        }
+        for (item, facts) in read where facts.category == .ssn && facts.form == "ITIN" && item.pin == nil
+            && out[item.id]?.tab == .current && !keys(item, facts).isDisjoint(with: ssnHolders) {
+            out[item.id] = VaultStanding(tab: .archive, reason: "Replaced by an SSN")
+        }
         return out
     }
 }
 
 extension VaultCategory {
     /// The kinds the main view shows. Everything else read goes to Other Finds.
-    public static let mainView: [VaultCategory] = [.passport, .usVisa, .i94, .uscisCase, .driversLicense,
-                                                   .health, .utilities, .loans, .other]
+    public static let mainView: [VaultCategory] = [.passport, .usVisa, .i94, .uscisCase, .driversLicense, .ssn,
+                                                   .pan, .aadhaar, .voterID, .health, .utilities, .loans, .other]
     /// What the editor offers for a number typed in.
     public static let typedIn: [VaultCategory] = mainView
 }
