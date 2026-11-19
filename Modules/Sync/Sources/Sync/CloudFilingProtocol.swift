@@ -18,13 +18,24 @@ public enum CloudFilingProtocol {
     /// these are assembled outside this file. A cached answer to the old question would silently
     /// keep the change from taking effect. Wording that can't change a verdict needs no bump; when
     /// unsure, bump: the cost is one scan's worth of re-asking.
-    public static let promptVersion = 9
+    public static let promptVersion = 10
 
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"
 
     static let maxSnippetChars = 800
+
+    /// The part of a file's page 1 that is sent: its first ``maxSnippetChars`` characters on one
+    /// line, each long number cut to its ending (``ExcerptNumberMask``). **The only way page text
+    /// gets into a request**, so no caller can send an account number whole.
+    ///
+    /// The numbers are cut before the length is, on a window twice as long, so a number lying
+    /// across the cut leaves as its ending or a piece of that: four of its digits at most.
+    static func excerpt(of snippet: String) -> String {
+        let window = String(snippet.prefix(maxSnippetChars * 2))
+        return String(ExcerptNumberMask.masked(window).prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " ")
+    }
 
     /// How a request is shaped for the API: the version and headers, whether the model picks its
     /// tool, how much it may think, and whether the reply streams (TE335, E1).
@@ -186,9 +197,10 @@ public enum CloudFilingProtocol {
             userText += "\n"
             // Every excerpt the caller supplies is sent. The cost worth controlling is reading the
             // file, which the caller decides; filtering here again would throw away text the scan
-            // already has and send the model a bare filename.
+            // already has and send the model a bare filename. What is sent of it has its account
+            // numbers cut to their endings (`excerpt(of:)`).
             if let snippet = f.contentSnippet, !snippet.isEmpty {
-                userText += "    excerpt: \(String(snippet.prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " "))\n"
+                userText += "    excerpt: \(excerpt(of: snippet))\n"
             }
             if !f.excludedRelativePaths.isEmpty {
                 userText += "    avoid: \(f.excludedRelativePaths.joined(separator: ", "))\n"

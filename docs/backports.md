@@ -16012,3 +16012,19 @@ and `v2.x` have no router.
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The router and memory, no health pass | RECORDED — not owed |
 | `v3.x` / `v2.x` | No router | CLOSED — does not apply |
+
+## Refine's page excerpt carries account numbers as endings — main only, recorded, not owed
+
+2026-11-18, for v7.2. Refine with Claude and Try Another Folder send the first 800 characters of a
+file's first page to Anthropic (`CloudFilingProtocol.requestBody`), and a full account number
+printed there went with them. `main` now cuts each long number to `••` and its last four digits
+before the request is built (`ExcerptNumberMask`, `CloudFilingProtocol.excerpt(of:)`): a number the
+page labels as an account's, any run of seven or more digits, and a card or taxpayer number in
+groups; dates, amounts, years and form names go as printed. Every maintenance line builds the same
+excerpt unmasked (`snippet.prefix(maxSnippetChars)`, one hit each). The labelled-number half reads
+`DocumentFacts.ownNumbers`, which no maintenance line has; the long-run and grouped halves stand
+alone and would port as they are.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The unmasked excerpt | RECORDED — not owed |
