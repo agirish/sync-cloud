@@ -5390,6 +5390,15 @@ local full run at `6f93e0a37` failed with 48 issues. 46 were `ParkThreadBudget` 
   restart, it took 1.3 ms, and the next full run, live-profile suites included, passed: 4,537
   tests in 365.9 s, at load 25–70, with no give-ups.
 
+**The same give-ups with no slow flush, 2026-11-19.** A local full Sync run at `befa0e2a9`, a
+commit that adds a pure type and parks nothing, failed with 76 issues in 408 s. 74 were give-ups
+(`… 76 more are queued`). The same worktree's FileExplorer shards and full app run held the other
+two slots, and `uptime` read 39 and 61 for one and five minutes. `build-slot`'s flush probe had
+not warned, so a flush took under 50 ms, and the agent held 82 MB after 8 days. The same tree run
+alone ten minutes later passed: 4,868 tests in 174 s. So a slow agent is not the only way to this
+symptom; three of one worktree's whole-suite runs side by side got there too. Not measured: a
+flush time during the red run, or a `sample` of the test process.
+
 **Before blaming a commit.**
 1. **Did the host restart?** Look for `Restarting after unexpected exit` and a test count far
    under the green one. One test's time limit then decides the whole run.
@@ -5615,6 +5624,11 @@ it at `audioEnded`; its claim is about the tap, not about how fast the transcrib
 - `AskClaudeVoiceEngineTests.aSecondTapSendsWhatWasSaidSoFar`: 2026-11-13, ~22:50, full app run.
   Two other sessions report it red twice more in loaded full app runs on 2026-11-13/14, green
   narrow (relayed, not checked).
+- `aSecondTapSendsWhatWasSaidSoFar`: 2026-11-19, 08:44, full app run at `befa0e2a9` beside the
+  same worktree's full Sync run and FileExplorer shards (`uptime` 39 and 61). "nothing on the strip
+  as it was said". The host log, read before the sweep, had ten `Ask Claude: listening` lines and
+  six `the question ended in silence`, and neither `couldn’t listen` nor `the transcriber stopped`:
+  the second shape, as described above. The full app run alone at 08:51 passed.
 
 ### 61. A small walk budget spent by whichever sibling folder's task listed first — FIXED
 
