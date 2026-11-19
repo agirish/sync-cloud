@@ -21,7 +21,8 @@ struct SyncCloudCommand: AsyncParsableCommand {
             Scan.self,
             SyncFiles.self,
             Providers.self,
-            Restructure.self
+            Restructure.self,
+            Missing.self
         ],
         defaultSubcommand: Scan.self
     )

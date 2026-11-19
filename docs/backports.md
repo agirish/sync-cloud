@@ -16089,3 +16089,17 @@ Folders to Read (`vaultReadFolders`, `VaultReadFolders`) with Vision at its accu
 machine-readable zone whose check digits agree (`PassportMRZ`), USCIS receipt numbers, and
 labelled I-94 numbers. Finds stay in memory until confirmed, and are let go when the Vault locks.
 It builds on the Vault, which no maintenance line has, so there is nothing to carry.
+
+## `synccloud missing` and the missing-statement finder — main only, recorded, not owed
+
+2026-11-19, for v7.2. A new command, `synccloud missing [folder] [--json]`, over a new pure type in
+Sync, `MissingStatements`: it reads the file names under a folder and lists the statements each
+account folder lacks (a hole in a steady account, the months after its newest statement, a month
+holding only the CSV), with silences, statements waiting in an inbox folder and gaps beside unnamed
+PDFs listed apart and not counted. It opens no file and writes nothing. No maintenance line has
+the command or the type; it is a feature to build, not a
+fix to carry.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `missing` command | RECORDED — not owed (new feature) |

@@ -1021,6 +1021,35 @@ reached this Mac (expected: a conflicted copy, which then waits for you).
 
 ---
 
+## 24. Missing statements (TE348) — the finder is built; the lens is not
+
+**What:** list the statements each account folder lacks, from file and folder names alone. His
+statements are named `N. Mon YYYY` in account and year folders, so the months that never arrived
+can be read without opening a file.
+
+**Built:** the finder (`MissingStatements`, in Sync) and `synccloud missing [folder] [--json]`. An
+account is a folder with four or more named statements. Its rhythm near a break is the usual pause
+among up to twelve statements on each side; a hole in a steady, evenly spaced account is counted
+up to twelve statements, a longer one is a silence with an estimate, and the newest finished month
+is never counted. A card's gap counts only as one or two statements in an unbroken run. After the
+newest statement of an account with no rhythm every month counts, until its next statement arrives
+(decisions PC, PD, PF). A CSV without its PDF is missing; a gap beside unnamed PDFs is listed and
+never counted; a named statement in an inbox folder is waiting.
+
+**Next, in order:**
+1. The lens: a seventh Organize lens, Missing, with its own names-only walk and scan pass, one row
+   per account, Hide Account, Stop Tracking, Not Expected and Count as Missing. Those choices are
+   already read by the finder (`MissingStatements.Choices`) from a `missing` section of the
+   survey's `restructure.json`; nothing writes that section yet.
+2. Payslips and other twice-a-month schedules, and a year check.
+3. “Fills a Gap” on To File cards, and Ask Claude reading the list.
+
+**Not measured:** how often a counted month is truly missing. Every test removes a statement and
+checks the rule notices; none compares against what a bank lists. Folders that are not accounts
+(a car's service record, visit records) can pass as one when they hold four named files.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work

@@ -52,7 +52,7 @@ import SyncCloudCLICore
     /// prints a struct dump, exits 1 instead of 64, and never flushes the log.
     @Test func everyCommandExitsThroughTheLogFlushAndErrorLadder() throws {
         let source = try Self.commandsSource()
-        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run"] {
+        for call in ["runScan", "runSync", "runProviders", "RestructureReporting.run", "MissingReporting.run"] {
             let body = try #require(Self.runBody(before: call, in: source),
                                     "cannot find the run body that calls \(call)")
             #expect(body.contains("flushingLogToDisk"),

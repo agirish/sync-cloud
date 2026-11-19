@@ -115,6 +115,24 @@ synccloud restructure --json                   # full report, stable format
 synccloud restructure --profiles-dir <dir>     # read another profiles directory
 ```
 
+## Missing statements (report-only)
+
+List the statements each account folder lacks. It reads file and folder names and nothing else: no
+file is opened, and nothing is fetched, moved or written. An account is a folder holding at least
+four statements named like `3. Mar 2026.pdf`, directly or under year folders.
+
+```bash
+synccloud missing                      # the surveyed folder
+synccloud missing ~/Documents          # any folder
+synccloud missing ~/Documents --json   # every account, gap and month, stable format
+```
+
+A gap is counted when the account is steady around it and it is twelve statements or fewer; a
+longer one, and any stretch in an account with no steady rhythm, is a silence and is not counted.
+The newest finished month is only expected next. A month whose named statement sits in an inbox
+folder (`TODO`, `Inbox`, `Unfiled`) is waiting, and a gap beside PDFs that do not follow the naming
+is listed and not counted. `Archive` and `Deleted` folders are never checked.
+
 ## Command reference
 
 ```bash
@@ -123,6 +141,7 @@ synccloud scan --help
 synccloud sync --help
 synccloud providers --help
 synccloud restructure --help
+synccloud missing --help
 ```
 
 Exit codes: `0` success — every planned file was copied — `64` usage error, `1` partial sync:

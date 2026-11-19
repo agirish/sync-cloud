@@ -237,6 +237,7 @@ swift run synccloud scan -L iCloud/Documents -R OneDrive/Documents
 swift run synccloud scan -L ~/A -R ~/B --json                   # machine-readable
 swift run synccloud sync -L ~/A -R ~/B --direction to-right --strategy keep-both --yes
 swift run synccloud restructure                                 # read-only tree report
+swift run synccloud missing ~/Documents                         # statements each account lacks
 ```
 
 Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-both`, `--verify`,

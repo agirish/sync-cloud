@@ -247,3 +247,35 @@ struct Restructure: AsyncParsableCommand {
         }
     }
 }
+
+// MARK: - missing
+
+/// Read-only: it lists the names under one folder and prints. No migration preflight: the folder
+/// is the surveyed one, read from `folder-profile.json`, or the one named here, never a provider's
+/// stored location.
+struct Missing: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "missing",
+        abstract: "List the statements each account folder lacks, read from file names."
+    )
+
+    @Argument(help: "The folder to check. Defaults to the surveyed folder.", completion: .directory)
+    var folder: String?
+
+    @Flag(name: .long, help: "Emit the full report as JSON (stable format; every account, gap and month).")
+    var json: Bool = false
+
+    @Option(name: .long, help: "Profiles directory to read instead of the app's own - for fixtures and other machines' surveys.",
+            completion: .directory)
+    var profilesDir: String?
+
+    func run() async throws {
+        try await flushingLogToDisk {
+            adoptAppLogLevel(verb: "missing")
+            func url(_ path: String?) -> URL? {
+                path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            }
+            try MissingReporting.run(folder: url(folder), profilesDirectory: url(profilesDir), json: json) { print($0) }
+        }
+    }
+}
