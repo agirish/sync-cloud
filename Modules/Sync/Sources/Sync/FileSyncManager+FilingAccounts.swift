@@ -37,6 +37,10 @@ extension FileSyncManager {
             let hint = sourceHint(forFile: s.filePath, scannedFolder: scannedFolder)
             // A tax form's year is the one it prints; a file name's date is when it was fetched.
             let period = f.period ?? (f.kind == .taxForm ? nil : StatementFamily.period(ofName: s.fileName, folder: hint))
+            // A file name's date is usually when it was fetched, which runs a month or so past the
+            // period it holds (`eStmt_2025-03-27` for a February statement). It can place a file,
+            // never surely: Medium, saying where the month came from.
+            let monthFromName = f.period == nil && period != nil
             switch match {
             case .high(let account, let number), .medium(let account, let number, _):
                 guard let node = nodes[account.root] else { return s }
@@ -44,9 +48,10 @@ extension FileSyncManager {
                                                    fileName: s.fileName, bank: bankNode(of: account.root, in: taxonomy))
                 // High only when the folder inside the account is sure too.
                 let confidence: FilingConfidence
-                if case .high = match, !place.yearUnknown { confidence = .high } else { confidence = .medium }
+                if case .high = match, !place.yearUnknown, !monthFromName { confidence = .high } else { confidence = .medium }
                 let dest = destination(for: account, number: number, place: place, kind: f.kind,
-                                       confidence: confidence, root: root, match: match)
+                                       confidence: confidence, root: root, match: match,
+                                       monthFromName: monthFromName)
                 // A tax form printing its account's own number, from the bank the page names, leads:
                 // its account is certain, whatever a word match says (Medium, as tax forms are).
                 if case .medium(_, _, .notAStatement) = match, f.kind == .taxForm {
@@ -70,9 +75,10 @@ extension FileSyncManager {
                                                                            bank: bankNode(of: account.root, in: taxonomy))))
                 }
                 guard let (account, number, place) = placed.first else { return s }
-                let sure = placed.allSatisfy { !$0.2.yearUnknown }
+                let sure = placed.allSatisfy { !$0.2.yearUnknown } && !monthFromName
                 var dest = destination(for: account, number: number, place: place, kind: f.kind,
-                                       confidence: sure ? .high : .medium, root: root, match: .high(account, number: number))
+                                       confidence: sure ? .high : .medium, root: root, match: .high(account, number: number),
+                                       monthFromName: monthFromName)
                 let copies = placed.dropFirst().map { a, n, p -> FilingCopy in
                     let accountPath = root + "/" + a.root
                     var fa = FilingAccount(root: accountPath, ending: n.ending, institution: a.institution,
@@ -416,7 +422,7 @@ extension FileSyncManager {
     nonisolated static func destination(for account: AccountIndex.Account, number: DocumentFacts.OwnNumber,
                                         place: AccountPlacement.Placement, kind: DocumentFacts.Kind,
                                         confidence: FilingConfidence, root: String,
-                                        match: AccountIndex.Match) -> FilingDestination {
+                                        match: AccountIndex.Match, monthFromName: Bool = false) -> FilingDestination {
         let accountPath = root + "/" + account.root
         let path = place.folder.isEmpty ? accountPath : accountPath + "/" + place.folder
         let bank = account.institutionName.isEmpty
@@ -432,6 +438,7 @@ extension FileSyncManager {
         if case .medium(_, _, let why) = match {
             reason += why == .institutionSilent ? " · the page doesn’t name the bank" : " · not a statement, so check it"
         }
+        if monthFromName { reason += " · month from the file name" }
         var filing = FilingAccount(root: accountPath, ending: number.ending, institution: account.institution,
                                    archived: account.archived, kind: kind)
         filing.institutionName = account.institutionName

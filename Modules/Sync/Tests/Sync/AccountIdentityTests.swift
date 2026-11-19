@@ -244,6 +244,23 @@ import Foundation
         #expect(StatementFamily.period(ofName: "Statement 2025-11.pdf", folder: "") == .init(year: 2025, month: 11))
     }
 
+    /// `ending` is a label only as a word: inside `pending` it dated a statement by a pending
+    /// charge's day. The range the page prints is the period.
+    @Test func endingInsidePendingIsNotAPeriodLabel() {
+        let page = "Account summary\nfor February 26, 2026 to March 27, 2026\nPending 04/02/2026 $12.00"
+        #expect(DocumentFacts(page: page).period == .init(year: 2026, month: 3, day: 27))
+        // Control: the word itself still labels a date.
+        #expect(DocumentFacts(page: "Account summary\nPeriod ending 03/27/2026").period?.month == 3)
+    }
+
+    /// A year-to-date range is the year's, even labelled a period and printed first.
+    @Test func aYearToDateRangeIsNeverTheStatementPeriod() {
+        let page = "Account summary\nYear-to-date period 01/01/2026 - 04/02/2026\nClosing Date 03/28/2026"
+        #expect(DocumentFacts(page: page).period == .init(year: 2026, month: 3, day: 28))
+        let ytd = "Account summary\nYTD period 01/01/2026 - 04/02/2026\nClosing Date 03/28/2026"
+        #expect(DocumentFacts(page: ytd).period?.month == 3)
+    }
+
     // MARK: Tier 3: accounts named without digits
 
     @Test func anAccountNamedWithoutDigitsIsLearnedFromItsStatements() throws {

@@ -15840,3 +15840,16 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s router=%s survey=%s dupfinder
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | Router, survey and Duplicates without the rule | RECORDED — not owed |
 | `v3.x` / `v2.x` | Duplicates without the rule | RECORDED — not owed |
+
+## A month taken from a file name is never High — main only
+
+2026-11-18, for v7.2. When page 1 prints no period, the account phase dates a statement by its file
+name, which is usually when it was fetched (`eStmt_2025-03-27` for a February statement). That
+placement is now Medium and says "month from the file name". The period reader no longer takes
+`ending` inside `pending` or `spending` as a label, nor a year-to-date range as the period. All of
+it is in the account phase (`FileSyncManager+FilingAccounts.swift`, `AccountIdentity.swift`), which
+no maintenance line carries (measured in the account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

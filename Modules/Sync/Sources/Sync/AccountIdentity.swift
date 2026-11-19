@@ -253,14 +253,16 @@ public struct DocumentFacts: Sendable, Equatable {
     }
 
     /// Dates the page labels as something other than the period, matched as words ("vest" is not
-    /// in "investment"). An insurer's policy term runs a year ahead of the bill it is printed on.
+    /// in "investment"). An insurer's policy term runs a year ahead of the bill it is printed on. A
+    /// year-to-date range is the year's, never the statement's, whatever it is printed beside.
     private static let nonPeriodLabel = try! NSRegularExpression(pattern:
-        #"\b(?:due|payments?|(?:policy|coverage)\s+(?:term|period)|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|(?:beginning|opening)(?:\s+\w+)?\s+(?:balance|value))\b"#, options: [.caseInsensitive])
+        #"\b(?:due|payments?|year[\s-]+to[\s-]+date|ytd|(?:policy|coverage)\s+(?:term|period)|maturity|vest(?:ed|ing)?|dtd|dated|expir\w*|born|since|previous|prior|(?:beginning|opening)(?:\s+\w+)?\s+(?:balance|value))\b"#, options: [.caseInsensitive])
     private static let periodLabel = try! NSRegularExpression(pattern:
         #"\b(?:statement|billing|period|cycle)\b"#, options: [.caseInsensitive])
     /// A date the page names as its statement's (`Closing Date`, `Statement Date`, `Period Ending`).
+    /// Whole words: a bare `ending` inside `pending` or `spending` labels nothing.
     private static let labelledDateRE = try! NSRegularExpression(pattern:
-        #"(?:closing date|statement date|statement closing date|period ending|period end|ending)[\s:|]*("# + dateRE + ")")
+        #"\b(?:closing date|statement date|statement closing date|period ending|period end|ending)[\s:|]*("# + dateRE + ")")
     /// A date after a weaker word (`through October 31, 2026`, `as of 01/31/2026`): tried after
     /// every range, since a balance's date is printed "as of" too.
     private static let weakDateRE = try! NSRegularExpression(pattern:

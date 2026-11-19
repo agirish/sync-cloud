@@ -180,4 +180,36 @@ import Foundation
         #expect(!asked.contains(statement.path), "the model isn't asked where a statement goes")
         #expect(asked.contains(letter.path), "a page with no account is still the model's to place")
     }
+
+    /// A page with no period leaves the month to the file name, which is when the statement was
+    /// fetched, not the period it holds. It still places the file, at Medium, and says so.
+    @Test func aMonthFromTheFileNameIsNeverHigh() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAccountNameMonth")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        for m in 1...6 {
+            try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
+        }
+        let inbox = root.appendingPathComponent("Inbox")
+        let statement = inbox.appendingPathComponent("eStmt_2026-03-27.pdf")
+        try writeBytes(statement, Data(repeating: 0x41, count: 64))
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.2"))
+        let page = """
+        Bank of America Advantage Banking
+        Account summary
+        Account number: 2370 2420 5696
+        """
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { $0 == statement.path ? page : nil }
+        m.filingTokensFromText = { _ in [] }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Docs"))
+
+        let card = try #require(m.filingSuggestions.first { $0.filePath == statement.path })
+        let best = try #require(card.best)
+        #expect(best.path == account.path + "/2026", "the name's month still places it: \(best.path)")
+        #expect(best.account?.ending == "5696")
+        #expect(best.confidence == .medium)
+        #expect(best.reasons.contains { $0.contains("month from the file name") }, "\(best.reasons)")
+    }
 }
