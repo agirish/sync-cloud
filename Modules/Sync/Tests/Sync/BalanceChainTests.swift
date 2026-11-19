@@ -52,6 +52,15 @@ import Testing
         #expect(b.opening.isEmpty && b.closing == [1000], "\(b)")
     }
 
+    /// Bank of America runs a spaced dot leader from the label to the amount, longer than any date.
+    @Test func aLongDotLeaderBeforeTheAmount() {
+        let b = read("""
+        Previous Balance . . . . . . . . . . . . . . . . . . . . . . . . . . . $1,204.18
+        New Balance Total. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 980.00
+        """)
+        #expect(b.opening == [120418] && b.closing == [98000], "\(b)")
+    }
+
     private func node(_ name: String, isDirectory: Bool, children: [FileNode]? = nil) -> FileNode {
         FileNode(id: "/D/" + name, name: name, isDirectory: isDirectory, children: children)
     }
@@ -111,6 +120,39 @@ import Testing
     @Test func aClosedAccountIsNeverContinued() {
         let closed = AccountIndex.Account(root: "Apple/Archive/Credit 1111", identities: ["1111"], institution: "apple", archived: true)
         #expect(BalanceChain.account(for: april, among: [closed], links: [closed.root: link(3, 123456)]) == nil)
+    }
+}
+
+/// Which bank's accounts a statement printing no account's number is compared with.
+@Suite struct BalanceChainCandidateTests {
+    private let card = AccountIndex.Account(root: "Banana Republic/Credit 3857", identities: ["3857"],
+                                            institution: "banana republic", archived: false)
+    private let chase = AccountIndex.Account(root: "Chase/Credit 1768", identities: ["1768"], institution: "chase", archived: false)
+    private var index: AccountIndex {
+        AccountIndex(accounts: [card, chase], institutionTokens: ["banana republic": ["banana republic"], "chase": ["chase"]])
+    }
+    /// A page whose first 1,000 characters (its header) name no bank, then `tail`.
+    private func page(_ tail: String) -> DocumentFacts {
+        DocumentFacts(page: "Account Summary\nPrevious Balance $412.30\nNew Balance $88.00\n"
+                      + String(repeating: "Interest charge calculation. ", count: 40) + "\n" + tail)
+    }
+
+    @Test func theBankNamedBelowTheHeader() {
+        let f = page("Questions? Visit us at Banana Republic Rewards.")
+        #expect(f.header.contains("banana") == false, "the test needs the name past the header")
+        #expect(BalanceChain.candidates(for: f, match: .none, index: index, hint: "").map(\.root) == [card.root])
+    }
+
+    @Test func aPageNamingTwoBanksAlikeNamesNone() {
+        #expect(BalanceChain.candidates(for: page("Banana Republic. Payment from Chase."), match: .none,
+                                        index: index, hint: "").isEmpty)
+    }
+
+    @Test func theHeaderStillWinsOverTheRestOfThePage() {
+        let f = DocumentFacts(page: "Chase Freedom\nPrevious Balance $412.30\n"
+                              + String(repeating: "Interest charge calculation. ", count: 40)
+                              + "\nBanana Republic Banana Republic")
+        #expect(BalanceChain.candidates(for: f, match: .none, index: index, hint: "").map(\.root) == [chase.root])
     }
 }
 

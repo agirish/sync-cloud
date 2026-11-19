@@ -9,7 +9,8 @@ import Foundation
 /// Measured on his filed bank and card statements before it was written: on 457 pairs of
 /// consecutive months where both balances read, the opening matched the month before's closing on
 /// 450. Replayed with each statement arriving after the one filed before it, 184 of 1,173 matched
-/// no account's number, and the chain placed 117 of those in their own account and none in another.
+/// no account's number, and the chain placed 117 of those in their own account and none in another;
+/// 138 once the bank could be named anywhere on page 1 and a dot leader run any length.
 /// One small subscription billed to several cards can leave them at the same balance, always beside
 /// the true account in that replay: so only the bank's own accounts are compared, and two matches
 /// place nothing.
@@ -41,9 +42,10 @@ enum BalanceChain {
     private static let openingBefore = try! NSRegularExpression(pattern:
         #"\b(?:previous|prior|beginning|opening|starting)\s+(?:monthly\s+|statement\s+)?$"#, options: [.caseInsensitive])
     /// The amount after a label on its line: past a date (`as of 01/27/26:`, `on March 1, 2025`) to a
-    /// dollar sign, or straight after the label's own punctuation and dot leaders.
+    /// dollar sign, or straight after the label's own punctuation and dot leaders of any length, with
+    /// or without a dollar sign (Bank of America's `Previous Balance . . . . . . . . $1,234.56`).
     private static let amountAfter = try! NSRegularExpression(pattern:
-        #"^(?:[^\n$]{0,40}?\$\s*-?\s*|[\s:.…_]*-?\s*)(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b"#)
+        #"^(?:[^\n$]{0,40}?\$\s*-?\s*|[\s:.…_]*\$?\s*-?\s*)(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b"#)
     /// A line that is only an amount: the value of a label that ended the line before.
     private static let amountLine = try! NSRegularExpression(pattern:
         #"^\s*\(?-?\s*\$?\s*-?\s*(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\)?(?:\s*cr)?\s*$"#, options: [.caseInsensitive])
@@ -117,14 +119,17 @@ enum BalanceChain {
     }
 
     /// The accounts a loose statement could chain to: the ones its number ends like, else every
-    /// account at the bank its header (or the folder it came from) names.
+    /// account at the bank its header names, else the folder it came from, else the rest of page 1
+    /// (Discover prints only the cardholder above its summary; Banana Republic's issuer appears
+    /// lower down). A page naming two banks equally names none.
     static func candidates(for f: DocumentFacts, match: AccountIndex.Match, index: AccountIndex,
                            hint: String) -> [AccountIndex.Account] {
         switch match {
         case .ambiguous(let accounts):
             return accounts
         case .none:
-            guard let bank = index.headerInstitution(f) ?? index.institution(namedIn: hint.lowercased()) else { return [] }
+            guard let bank = index.headerInstitution(f) ?? index.institution(namedIn: hint.lowercased())
+                ?? index.institution(namedIn: f.text) else { return [] }
             return index.accounts.filter { $0.institution == bank }
         default:
             return []

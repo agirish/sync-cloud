@@ -16058,6 +16058,9 @@ date). Replayed on his 1,173 filed bank and card statements, 117 of the 184 that
 went to their own account and none to another. All of it is in the account phase, which no
 maintenance line carries.
 
+2026-11-19: the bank may be named anywhere on page 1, not only in its header, and an amount may
+follow a dot leader of any length. The same replay then placed 138, none in another account.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
