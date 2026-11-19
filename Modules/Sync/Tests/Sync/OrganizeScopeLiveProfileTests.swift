@@ -117,41 +117,62 @@ struct OrganizeScopeLiveProfileTests {
                 "no string-prefix sibling pairs in the live tree — this test proved nothing")
     }
 
-    // MARK: Restructure against the real detector
+    // MARK: Restructure against the real detectors
+
+    /// Every finding Restructure can list from the profile alone: the whole detector set, as
+    /// `FileSyncManager` runs it, not the shape detector by itself. His tree can go quiet for any
+    /// one kind and be right to (shape did on 2026-11-15, when every Income Tax year took one
+    /// layout); the predicate is the subject here, and it answers about every kind.
+    static let findings: [StructureFinding] =
+        LiveProfile.profile.map { StructureDetectors.run(in: $0).findings } ?? []
+
+    private static func absolute(_ relative: String) -> String {
+        relative == "." ? root : (root as NSString).appendingPathComponent(relative)
+    }
 
     @Test func restructureFindingsResolveAgainstRealScopes() throws {
         let profile = try #require(LiveProfile.profile)
-        let findings = StructureDivergence.findings(in: profile)
+        let findings = Self.findings
         let root = Self.root
 
-        // The detector finds a small number of families on this corpus; if it returns none, the
-        // rest of this test is vacuous and must say so rather than pass.
+        // If the detectors return nothing, the rest of this test is vacuous and must say so
+        // rather than pass.
         try #require(!findings.isEmpty,
                      "the live profile produced no structure findings — nothing to scope")
 
+        var insideChecks = 0
+        var ancestorChecks = 0
         for finding in findings {
-            let familyPath = finding.family == "."
-                ? root : (root as NSString).appendingPathComponent(finding.family)
-
-            // Scoped to the family: inside.
-            if let own = OrganizeScope(path: familyPath, providerRoot: root) {
+            // Scoped to the folder the finding is about: inside. So is the family above it, the
+            // same folder for shape and the parent for the narrower kinds.
+            for path in Set([finding.subject, finding.family]) {
+                guard let scope = OrganizeScope(path: Self.absolute(path), providerRoot: root)
+                else { continue }
                 #expect(OrganizeScopeFilter.relation(of: finding, profileRoot: profile.root,
-                                                     scope: own) == .inside)
+                                                     scope: scope) == .inside,
+                        "\(finding.kind) finding \(finding.subject) under scope \(path)")
+                insideChecks += 1
             }
 
-            // Scoped to a child of the family: the finding is about the folder above, so it is
+            // Scoped to a child of that folder: the finding is about the folder above, so it is
             // surfaced, never dropped. This keeps Restructure honest at a leaf, and the live
             // profile is where real leaves live.
             let child = profile.folders.keys.first {
-                $0 != finding.family && $0.hasPrefix(finding.family + "/")
+                $0 != finding.subject && $0.hasPrefix(finding.subject + "/")
             }
             if let child, let childScope = OrganizeScope(
-                path: (root as NSString).appendingPathComponent(child), providerRoot: root) {
+                path: Self.absolute(child), providerRoot: root) {
                 #expect(OrganizeScopeFilter.relation(of: finding, profileRoot: profile.root,
                                                      scope: childScope) == .aboutAncestor,
-                        "finding \(finding.family) under child scope \(child)")
+                        "\(finding.kind) finding \(finding.subject) under child scope \(child)")
+                ancestorChecks += 1
             }
         }
+        // Asserted, not assumed: every scope above can fail to resolve, and a loop that skipped
+        // each time passes just as green. Not every finding has a child folder (a backlog year
+        // holds files and no folders), so the second count is over the findings that do.
+        #expect(insideChecks > 0, "no finding resolved to a scope of its own")
+        #expect(ancestorChecks > 0, "no finding has a child folder — the ancestor answer went unasked")
     }
 
     @Test func aScopeInAnUnrelatedAreaHidesTheFindingsOfAnother() throws {
@@ -159,14 +180,14 @@ struct OrganizeScopeLiveProfileTests {
         // Without it, the assertions above would pass against a predicate that answered
         // `.inside`/`.aboutAncestor` for everything.
         let profile = try #require(LiveProfile.profile)
-        let findings = StructureDivergence.findings(in: profile)
+        let findings = Self.findings
         try #require(findings.count >= 1)
         let root = Self.root
 
         // A top-level area that owns no finding.
-        let familyRoots = Set(findings.map { $0.family.split(separator: "/").first.map(String.init) ?? "." })
+        let findingRoots = Set(findings.map { $0.subject.split(separator: "/").first.map(String.init) ?? "." })
         let unrelated = profile.folders.keys
-            .filter { $0 != "." && !$0.contains("/") && !familyRoots.contains($0) }
+            .filter { $0 != "." && !$0.contains("/") && !findingRoots.contains($0) }
             .sorted()
             .first
         let area = try #require(unrelated, "every top-level area owns a finding — cannot discriminate")
@@ -176,8 +197,8 @@ struct OrganizeScopeLiveProfileTests {
         let visible = findings.filter {
             OrganizeScopeFilter.relation(of: $0, profileRoot: profile.root, scope: scope) != .outside
         }
-        // Everything still visible under an unrelated scope must be an ancestor finding (a family
-        // at or above the root), never an `inside` one.
+        // Everything still visible under an unrelated scope must be an ancestor finding (one
+        // about the root), never an `inside` one.
         #expect(visible.allSatisfy {
             OrganizeScopeFilter.relation(of: $0, profileRoot: profile.root, scope: scope) == .aboutAncestor
         })
