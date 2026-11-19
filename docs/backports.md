@@ -16061,3 +16061,19 @@ maintenance line carries.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |
+
+## A name match is not High into a folder its year contradicts — main only, recorded, not owed
+
+2026-11-18, for v7.2. The keyword engine gave High to a folder sharing two of a file's words
+whatever year its path named, so `Experian - Shweta - Jul 2023.pdf` led High into
+`Credit Reports/2021/Experian`, and High is what File All moves without a look at each. On `main` a
+folder under a year (`2021`) or a span of years (`2019-2020`, `2024-2026`) that none of the name's
+years falls in is offered at Medium (`FilingEngine.taxonomyCandidates`,
+`FolderProfile.contradicts(yearsInName:)`); a name with no year, and a folder under none, are
+untouched. Every maintenance line has the High rule without the check (`let base:
+FilingConfidence = !categoryNameHits.isEmpty ? .high : .medium`, one hit each), and the check would
+port as it is. It changes which cards read as sure, so it is not carried.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | The High rule, no year check | RECORDED — not owed |

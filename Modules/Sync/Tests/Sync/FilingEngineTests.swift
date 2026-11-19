@@ -85,6 +85,44 @@ import Testing
         #expect(!suggestion.candidates.contains { $0.path.hasSuffix("/2024") })
     }
 
+    // MARK: A year in the name that the folder contradicts is not a sure home
+
+    /// Shared words can outvote the year: `Experian … Jul 2023` led High into
+    /// `Credit Reports/2021/Experian`. The folder stays on offer at Medium, out of the blind batch.
+    /// The controls keep the rule narrow: the same year, no year in the name, a year inside a
+    /// span folder and a folder under no year are all still High.
+    @Test(arguments: [
+        ("Credit Reports/2021/Experian", "Experian Credit Report - Jul 2023.pdf", FilingConfidence.medium),
+        ("Credit Reports/2021/Experian", "Experian Credit Report - Jul 2021.pdf", .high),
+        ("Credit Reports/2021/Experian", "Experian Credit Report.pdf", .high),
+        ("Credit Reports/Experian", "Experian Credit Report - Jul 2023.pdf", .high),
+        // A span covers the years between its ends, and a name with two years needs only one in it.
+        ("Credit Reports/2024-2026/Experian", "Experian Credit Report - Jul 2025.pdf", .high),
+        ("Credit Reports/2024-2026/Experian", "Experian Credit Report - Jul 2023.pdf", .medium),
+        ("Credit Reports/2021/Experian", "Experian Credit Report - Dec 2020 to Jan 2021.pdf", .high),
+        // The year may sit on the folder itself or anywhere above it.
+        ("Credit Reports/Experian 2021", "Experian Credit Report - Jul 2023.pdf", .medium),
+        ("2021/Credit Reports/Experian", "Experian Credit Report - Jul 2023.pdf", .medium),
+    ])
+    func aYearTheFolderContradictsIsNotASureHome(folder: String, name: String,
+                                                 expected: FilingConfidence) throws {
+        var path = "/root"
+        var nodes: [String] = []
+        for part in folder.split(separator: "/") { path += "/" + part; nodes.append(path) }
+        // The leaf, wrapped in each folder above it.
+        let taxonomy = [nodes.reversed().dropFirst().reduce(dir(nodes[nodes.count - 1], [])) { child, parent in
+            dir(parent, [child])
+        }]
+        let loose = [file("/root/Downloads/" + name, modified: y2024)]
+
+        let suggestion = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                           providerRoot: "/root").first)
+        let home = try #require(suggestion.candidates.first { $0.path == "/root/" + folder },
+                                "the folder must still be offered")
+        #expect(home.confidence == expected)
+        if expected == .medium { #expect(!suggestion.isBatchEligible) }
+    }
+
     // MARK: Universal rules
 
     @Test func photoIsFiledByYearUnderExistingPhotos() throws {

@@ -18,13 +18,14 @@ public enum FilingScorecard {
 
     /// The filing change records are stamped with. Bump it, and add a ``revisions`` entry, in the
     /// commit of any change to how filing chooses a folder, so Details can show before and after.
-    public static let revision = 2
+    public static let revision = 3
 
     /// Each filing change since counting began, oldest first. The first entry's label is never
     /// shown: the oldest row in range reads "Before".
     public static let revisions: [Revision] = [
         Revision(number: 1, date: day(2026, 11, 11), name: "counting starts"),
         Revision(number: 2, date: day(2026, 11, 15), name: "garbled pages read by OCR"),
+        Revision(number: 3, date: day(2026, 11, 18), name: "sure only when the year agrees"),
     ]
 
     public struct Revision: Sendable, Equatable {

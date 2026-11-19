@@ -120,7 +120,9 @@ struct FilingCardReplayTests {
                 return FileNode(id: root + "/" + rel, name: (rel as NSString).lastPathComponent,
                                 isDirectory: true, children: kids)
             }
-            let taxonomy = tops.sorted().map(node)
+            // Without his `Deleted` folders, as the scan drops them before any lane reads the walk:
+            // the profile lists them, and the keyword engine would offer a home the app never can.
+            let taxonomy = FileSyncManager.pruningDeletedFolders(from: tops.sorted().map(node))
 
             var loose: [FileNode] = []
             var gold: [String: String] = [:]

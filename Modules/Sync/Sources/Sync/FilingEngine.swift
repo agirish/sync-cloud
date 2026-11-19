@@ -539,7 +539,8 @@ public enum FilingEngine {
         var profiles: [FolderProfile] = []
         var existingPaths: Set<String> = [providerRoot]
         for node in taxonomy {
-            collectProfiles(node, ancestorTokens: [], into: &profiles, paths: &existingPaths, options: options)
+            collectProfiles(node, ancestorTokens: [], ancestorYearSpans: [], into: &profiles,
+                            paths: &existingPaths, options: options)
         }
         return LearnedTaxonomy(profiles: profiles, existingPaths: existingPaths)
     }
@@ -648,10 +649,20 @@ public enum FilingEngine {
         /// For each content token, how many files directly inside carry it: the count behind "N
         /// similar files already in the target".
         let contentTokenFileCounts: [String: Int]
+        /// The years the folder's path names, one span per component that names any: `2021` is
+        /// 2021…2021, `2019-2020` is 2019…2020. Empty for a folder filed under no year.
+        let yearSpans: [ClosedRange<Int>]
+
+        /// Whether a file whose name carries `years` contradicts this folder: the name says when,
+        /// the path says when, and none of the name's years falls in any of the path's.
+        func contradicts(yearsInName years: [Int]) -> Bool {
+            guard !years.isEmpty, !yearSpans.isEmpty else { return false }
+            return !years.contains { year in yearSpans.contains { $0.contains(year) } }
+        }
     }
 
     private static func collectProfiles(
-        _ node: FileNode, ancestorTokens: Set<String>,
+        _ node: FileNode, ancestorTokens: Set<String>, ancestorYearSpans: [ClosedRange<Int>],
         into profiles: inout [FolderProfile], paths: inout Set<String>, options: FilingOptions
     ) {
         // A package (`Budget 2025.numbers`) is a document, so neither it nor anything inside is a
@@ -659,7 +670,10 @@ public enum FilingEngine {
         guard node.isDirectory, !node.isPackage, !options.ignoredNames.contains(node.name) else { return }
         paths.insert(node.id)
 
-        let combinedNameTokens = ancestorTokens.union(nameTokens(node.name))
+        let ownTokens = nameTokens(node.name)
+        let combinedNameTokens = ancestorTokens.union(ownTokens)
+        let ownYears = ownTokens.compactMap { isYear($0) ? Int($0) : nil }
+        let yearSpans = ancestorYearSpans + (ownYears.min().map { [$0...(ownYears.max() ?? $0)] } ?? [])
         var contentTokens = Set<String>()
         var contentTokenFileCounts: [String: Int] = [:]
         for child in node.children ?? [] where !child.isDirectory {
@@ -670,10 +684,11 @@ public enum FilingEngine {
         profiles.append(FolderProfile(
             path: node.id, name: node.name, depth: node.id.split(separator: "/").count,
             nameTokens: combinedNameTokens, contentTokens: contentTokens,
-            contentTokenFileCounts: contentTokenFileCounts))
+            contentTokenFileCounts: contentTokenFileCounts, yearSpans: yearSpans))
 
         for child in node.children ?? [] where child.isDirectory {
-            collectProfiles(child, ancestorTokens: combinedNameTokens, into: &profiles, paths: &paths, options: options)
+            collectProfiles(child, ancestorTokens: combinedNameTokens, ancestorYearSpans: yearSpans,
+                            into: &profiles, paths: &paths, options: options)
         }
     }
 
@@ -686,6 +701,7 @@ public enum FilingEngine {
                                            words: [Set<String>] = [],
                                            keptPeriodWords: Set<String> = []) -> [FilingDestination] {
         guard !tokens.isEmpty else { return [] }
+        let yearsInName = nameTokens.compactMap { isYear($0) ? Int($0) : nil }
         var out: [FilingDestination] = []
         for p in profiles {
             let nameHits = tokens.intersection(p.nameTokens)
@@ -714,7 +730,12 @@ public enum FilingEngine {
             // the file's own words: "FedEx" tokenizes to `fed` and `ex`, still one word.
             let wordsHit = words.filter { !$0.isDisjoint(with: categoryHits) }.count
                 + categoryHits.subtracting(words.reduce(into: Set<String>()) { $0.formUnion($1) }).count
-            let base: FilingConfidence = !categoryNameHits.isEmpty && wordsHit >= 2 ? .high : .medium
+            // **A name that says 2023 is not surely a 2021 folder's.** Shared words can outvote the
+            // year (`Experian - Shweta - Jul 2023.pdf` led High into `Credit Reports/2021/Experian`),
+            // and High is what File All moves without a look at each. A folder under a year the name
+            // contradicts stays on offer, at Medium.
+            let sure = !categoryNameHits.isEmpty && wordsHit >= 2 && !p.contradicts(yearsInName: yearsInName)
+            let base: FilingConfidence = sure ? .high : .medium
             if fromContent {
                 // Show the single strongest evidence word (preferring a sibling-content hit, which
                 // has a neighbour count) and how many files in the target share it.
