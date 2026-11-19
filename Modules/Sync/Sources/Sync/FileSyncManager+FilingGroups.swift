@@ -220,7 +220,8 @@ extension FileSyncManager {
         for s in matched.sorted(by: { $0.filePath < $1.filePath }) {
             if let d = digests[s.filePath], firstLoose[d] == nil { firstLoose[d] = s.filePath }
         }
-        return suggestions.map { s in
+        var twins: [String: [String]] = [:]
+        let marked = suggestions.map { s -> FilingSuggestion in
             guard let best = s.best, let account = best.account, let d = digests[s.filePath] else { return s }
             var out = s
             let holding = (filedByAccount[account.root] ?? []).filter { digests[$0] == d }
@@ -228,9 +229,19 @@ extension FileSyncManager {
                 let folders = Array(Set(holding.map { (($0 as NSString).deletingLastPathComponent) })).sorted()
                     .compactMap { Self.relativePath($0, under: s.providerRoot ?? "") ?? $0 }
                 out = out.alreadyFiled(at: folders)
+                twins[s.filePath] = holding
             } else if let first = firstLoose[d], first != s.filePath {
                 out.duplicateOf = first
+                twins[s.filePath] = [first]
             }
+            return out
+        }
+        // Matched by page text: removable only where the bytes agree too.
+        let proven = await provenByBytes(twins)
+        return marked.map { s in
+            guard proven.contains(s.filePath) else { return s }
+            var out = s
+            out.removalProven = true
             return out
         }
     }

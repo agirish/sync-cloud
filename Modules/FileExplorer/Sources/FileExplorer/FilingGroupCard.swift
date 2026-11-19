@@ -196,14 +196,16 @@ struct FilingGroupCard: View {
         withDesignAnimation(.easeInOut(duration: 0.15), reduceMotion: reduceMotion) { expanded = !isExpanded }
     }
 
-    /// Nothing left to move: what is in the folders already, and the copies to the Trash.
+    /// Nothing left to move: what is in the folders already, and the proven copies to the Trash.
     private var nothingToFileRow: some View {
         HStack(spacing: 9) {
-            let copies = group.alreadyFiled + group.copies
-            Button("Move \(copies.count) to Trash") { onTrashCopies(copies) }
-                .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
-                .lockedDuringRun()
-                .help(FilingGroupText.trashHelp(group))
+            let copies = FilingGroupText.removable(group)
+            if !copies.isEmpty {
+                Button("Move \(copies.count) to Trash") { onTrashCopies(copies) }
+                    .buttonStyle(.borderedProminent).accentedProminent().controlSize(.small)
+                    .lockedDuringRun()
+                    .help(FilingGroupText.trashHelp(group))
+            }
             showFilesButton
             Spacer(minLength: 8)
             // The same look as every card: to see the copies before they go.
@@ -221,8 +223,8 @@ struct FilingGroupCard: View {
                 .scaledFont(.system(size: 11))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
-            let copies = group.alreadyFiled + group.copies
-            if !group.toFile.isEmpty {
+            let copies = FilingGroupText.removable(group)
+            if !group.toFile.isEmpty, !copies.isEmpty {
             Button("Move \(copies.count) to Trash") { onTrashCopies(copies) }
                 .buttonStyle(.hoverAffordance(.inline))
                 .scaledFont(.system(size: 11))
@@ -322,18 +324,24 @@ enum FilingGroupText {
         (g.destination.createsAccountFolder ? "Create and File " : "File ") + "\(g.toFile.count)"
     }
 
+    /// What Trash may take: the copies proven the same file as their twin, byte for byte. One
+    /// matched by its page text alone may be the signed or filled-in copy, so it stays.
+    static func removable(_ g: FilingCardGroup) -> [FilingSuggestion] {
+        (g.alreadyFiled + g.copies).filter(\.removalProven)
+    }
+
     /// Where the copies' twins are, so Trash is never a blind click.
     static func trashHelp(_ g: FilingCardGroup) -> String {
-        let folders = Set(g.alreadyFiled.flatMap(\.alreadyFiledAt))
+        let folders = Set(removable(g).flatMap(\.alreadyFiledAt))
         let whereFiled = folders.isEmpty ? "" : " Already filed in " + folders.sorted().joined(separator: ", ") + "."
-        return "Moves the copies to the Trash; ⌘Z puts them back." + whereFiled
+        return "Moves the copies that are the same file, byte for byte, to the Trash; ⌘Z puts them back." + whereFiled
     }
 
     static func leftBehind(_ g: FilingCardGroup) -> String {
         if g.toFile.isEmpty {
             let n = g.members.count
-            return n == 1 ? "It is already in your folders, or a copy of a file that is."
-                          : "All \(n) are already in your folders, or copies of files that are."
+            return (n == 1 ? "It is already in your folders, or a copy of a file that is."
+                           : "All \(n) are already in your folders, or copies of files that are.") + textOnly(g)
         }
         var parts: [String] = []
         let filed = g.alreadyFiled.count
@@ -341,5 +349,14 @@ enum FilingGroupText {
         let copies = g.copies.count
         if copies > 0 { parts.append("\(copies) \(copies == 1 ? "is a copy" : "are copies") of another file here") }
         return parts.joined(separator: "; ") + ". Filing the other \(g.toFile.count) leaves \(filed + copies == 1 ? "it" : "them") where \(filed + copies == 1 ? "it is" : "they are")."
+            + textOnly(g)
+    }
+
+    /// The caveat for matches on page text alone, which Trash doesn't offer: "" when there are none.
+    static func textOnly(_ g: FilingCardGroup) -> String {
+        let n = g.alreadyFiled.count + g.copies.count - removable(g).count
+        guard n > 0 else { return "" }
+        return n == 1 ? " One matches by its text only, not as the same file, so compare before removing it."
+                      : " \(n) match by their text only, not as the same files, so compare before removing them."
     }
 }

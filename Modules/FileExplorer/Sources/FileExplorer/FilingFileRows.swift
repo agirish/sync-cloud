@@ -101,7 +101,7 @@ enum FilingFileText {
     /// it), or, in quiet italics, why it doesn't move. nil with no confident home: the row ends at
     /// the file, and the section heading already says it needs a folder chosen.
     static func landing(_ s: FilingSuggestion) -> (text: String, moves: Bool)? {
-        if s.isAlreadyFiled { return ("already filed", false) }
+        if s.isAlreadyFiled { return (s.removalProven ? "already filed" : "looks already filed", false) }
         if s.duplicateOf != nil { return ("a copy of another file here", false) }
         guard let best = s.best, s.hasConfidentHome else { return nil }
         return (best.proposedName ?? s.fileName, true)

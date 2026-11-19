@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import Testing
 @testable import Sync
@@ -159,6 +160,54 @@ import Testing
         ContentHashIndexStore.waitForPendingWrites()
         #expect(await scan()?.isAlreadyFiled == true,
                 "the textless store's newer marker was not read: the filed copy kept a digest of text it no longer has")
+    }
+
+    /// A PDF the index knows by its text is proven only by a filed twin with its bytes: a copy
+    /// matching on text alone may be the signed one, and only a proven copy may be removed.
+    @Test func aPDFMatchedByTextIsProvenOnlyByBytes() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "AlreadyFiledProof")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let indexDir = root.appendingPathComponent("index")
+        try FileManager.default.createDirectory(at: indexDir, withIntermediateDirectories: true)
+        let filed = root.appendingPathComponent("Work/Pay/Payslip Jun 2026.pdf")
+        try FileManager.default.createDirectory(at: filed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let consumer = try #require(CGDataConsumer(url: filed as CFURL))
+        let ctx = try #require(CGContext(consumer: consumer, mediaBox: &box, nil))
+        ctx.beginPDFPage(nil)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(
+            string: "EMPLOYER PAY STATEMENT Pay period June 1, 2026 - June 15, 2026 Net pay 1,234.56",
+            attributes: [.font: CTFontCreateWithName("Helvetica" as CFString, 12, nil)]))
+        ctx.textPosition = CGPoint(x: 40, y: 700)
+        CTLineDraw(line, ctx)
+        ctx.endPDFPage()
+        ctx.closePDF()
+        let inbox = root.appendingPathComponent("Downloads")
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        let same = inbox.appendingPathComponent("same.pdf"), signed = inbox.appendingPathComponent("signed.pdf")
+        try FileManager.default.copyItem(at: filed, to: same)
+        var bytes = try Data(contentsOf: filed)
+        bytes.append(Data("\n% signed\n".utf8))
+        try bytes.write(to: signed)
+        let digests = await FileSyncManager.fingerprintDocuments([filed.path], fileManager: FileManager.default,
+                                                                 cache: nil, extract: PDFTextExtractor.fingerprintReading)
+        let hex = try #require(digests[filed.path], "the fixture could not fingerprint its own PDF")
+        ContentHashIndexStore.saveInBackground(
+            [ContentHashRecord(path: filed.path, mtime: 0, size: 1, hex: hex, storedAt: Date())],
+            to: indexDir.appendingPathComponent("content-fingerprint-index.json"))
+        ContentHashIndexStore.waitForPendingWrites()
+
+        func card(_ url: URL) -> FilingSuggestion {
+            FilingSuggestion(filePath: url.path, fileName: url.lastPathComponent, size: 1, modificationDate: nil,
+                             candidates: [FilingDestination(path: filed.deletingLastPathComponent().path,
+                                                            confidence: .high, reasons: ["r"], newSegments: [])],
+                             providerRoot: root.path)
+        }
+        let m = FileSyncManager()
+        m.contentIndexDirectory = indexDir
+        let marked = await m.markingAlreadyFiled([card(same), card(signed)], providerRoot: root.path)
+        #expect(marked.map(\.isAlreadyFiled) == [true, true], "both read as the filed payslip")
+        #expect(marked.map(\.removalProven) == [true, false], "only the byte copy is proven")
     }
 
     /// The other direction, so the test above cannot pass by marking everything: bytes the index

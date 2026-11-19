@@ -317,6 +317,11 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     /// Another loose file this one is an identical copy of (same page text), when the inbox holds
     /// both: one document, filed once (decision 11).
     public internal(set) var duplicateOf: String?
+    /// Whether the twin behind ``alreadyFiledAt`` or ``duplicateOf`` is proven the same file: its
+    /// bytes are identical. A match on page text alone is not proof. A signed and an unsigned
+    /// copy, or a form filled two ways, share their text, so only a proven copy is offered for
+    /// removal; the rest are said to look already filed and are left for him to compare.
+    public internal(set) var removalProven = false
 
     public var best: FilingDestination? { candidates.first }
     /// Whether this document is already somewhere in the tree.
@@ -373,6 +378,14 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         self.sourceIdentity = sourceIdentity
     }
 
+    /// A copy of this suggestion carrying the folders that already hold the same document;
+    /// `proven` when one of them holds it byte for byte (``removalProven``).
+    public func alreadyFiled(at folders: [String], proven: Bool) -> FilingSuggestion {
+        var s = alreadyFiled(at: folders)
+        s.removalProven = proven
+        return s
+    }
+
     /// A copy of this suggestion carrying the folders that already hold the same document.
     public func alreadyFiled(at folders: [String]) -> FilingSuggestion {
         var s = FilingSuggestion(filePath: filePath, fileName: fileName, size: size,
@@ -382,6 +395,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
         s.duplicateOf = duplicateOf
+        s.removalProven = removalProven
         return s
     }
 
@@ -394,6 +408,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
         s.duplicateOf = duplicateOf
+        s.removalProven = removalProven
         return s
     }
 
@@ -412,6 +427,7 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         s.firstOffer = firstOffer
         s.preferredRoot = preferredRoot
         s.duplicateOf = duplicateOf
+        s.removalProven = removalProven
         return s
     }
 

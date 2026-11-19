@@ -15868,3 +15868,25 @@ folder's own terms forward (then Medium). The GEICO-Homesite renewal of Nov 2025
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The router, no term pass | RECORDED — not owed |
 | `v3.x` / `v2.x` | No router | CLOSED — does not apply |
+
+## Only a byte-for-byte copy is offered for the Trash as already filed — main only, recorded, not owed
+
+2026-11-18, for v7.2. His rule of 2026-11-16: a copy is proven only by identical bytes (or every
+page pixel-identical), never by matching text, since a signed and an unsigned copy share it. On
+`main`, To File's already-filed checks (`markingAlreadyFiled`, `markingFiledInAccounts`) now hash a
+text-matched PDF against its filed twins (`removalProven`), the group card's Move to Trash takes
+only proven copies, and a text-only match reads "looks already filed" and asks for a comparison.
+`v6.x`, `v5.x` and `v4.x` mark already-filed cards by text the same way, but have no group card
+and offer no Trash for them; only the wording overclaims there.
+
+```sh
+for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s alreadyFiled=%s groupCard=%s\n' $l \
+  "$(git grep -l 'func markingAlreadyFiled' origin/$l -- Modules | wc -l | tr -d ' ')" \
+  "$(git ls-tree -r --name-only origin/$l | grep -c 'FileExplorer/FilingGroupCard.swift')"; done
+# measured 2026-11-18, against origin: alreadyFiled=1 groupCard=0 on v6.x v5.x v4.x; 0 0 on v3.x v2.x
+```
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | Text-matched "already filed", no Trash offered | RECORDED — not owed |
+| `v3.x` / `v2.x` | No already-filed check | CLOSED — does not apply |

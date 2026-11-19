@@ -87,6 +87,23 @@ import SwiftUI
         #expect(FilingGroupText.why(g) == "Jan and Oct 2026 · account number on page 1 of both")
     }
 
+    /// Trash takes only copies proven byte for byte; one matched by its text alone stays, and the
+    /// card says to compare it.
+    @Test func trashTakesOnlyProvenCopies() {
+        let account = Self.docs + "/Credit 22002"
+        let proven = statement("01. Jan 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 22002"], proven: true)
+        let lookalike = statement("02. Feb 2026.pdf", to: account, account: account).alreadyFiled(at: ["Credit 22002"], proven: false)
+        let items = FilingCardGrouping.items([statement("03. Mar 2026.pdf", to: account, account: account), proven, lookalike])
+        guard case .group(let g) = items.first else { Issue.record("expected a group"); return }
+        #expect(FilingGroupText.removable(g).map(\.fileName) == ["01. Jan 2026.pdf"])
+        #expect(FilingGroupText.leftBehind(g).hasSuffix("One matches by its text only, not as the same file, so compare before removing it."))
+        #expect(FilingFileText.landing(lookalike)?.text == "looks already filed")
+        #expect(FilingFileText.landing(proven)?.text == "already filed")
+        let onlyLookalike = FilingCardGrouping.items([statement("03. Mar 2026.pdf", to: account, account: account), lookalike])
+        guard case .group(let h) = onlyLookalike.first else { Issue.record("expected a group"); return }
+        #expect(FilingGroupText.removable(h).isEmpty, "nothing to offer the Trash")
+    }
+
     /// Claude's group has no account to name, so its reason titles it and the "why" says whose
     /// suggestion it is, not that a page number backs it.
     @Test func claudesGroupIsTitledByItsReason() {

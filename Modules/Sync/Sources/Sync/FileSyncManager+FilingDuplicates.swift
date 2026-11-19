@@ -57,8 +57,10 @@ extension FileSyncManager {
         await ContentHashCache.sharedTextless.save()
         guard !identities.isEmpty else { return suggestions }
 
+        // Where each match's twins are, for the proof below.
+        var twinsByFile: [String: [String]] = [:]
         var marked = 0
-        let out = suggestions.map { s -> FilingSuggestion in
+        var out = suggestions.map { s -> FilingSuggestion in
             guard let id = identities[s.filePath] else { return s }
             // The file's own folder is excluded: a loose file in `TODO` is not a copy of itself, and
             // it is in the index once a duplicate scan has run over the inbox.
@@ -72,13 +74,39 @@ extension FileSyncManager {
                 .filter { folder in sourceRelative.map { !FileSyncManager.isAtOrUnder(folder, $0) } ?? true }
             guard !elsewhere.isEmpty else { return s }
             marked += 1
+            let prefix = providerRoot.hasSuffix("/") ? providerRoot : providerRoot + "/"
+            twinsByFile[s.filePath] = identityIndex.paths(holding: id, existsOnDisk: existsOnDisk).filter { p in
+                elsewhere.contains(String(((p as NSString).deletingLastPathComponent + "/").dropFirst(prefix.count).dropLast()))
+            }
             return s.alreadyFiled(at: elsewhere)
         }
+        let proven = await provenByBytes(twinsByFile)
+        out = out.map { s in s.isAlreadyFiled && proven.contains(s.filePath) ? s.alreadyFiled(at: s.alreadyFiledAt, proven: true) : s }
         if marked > 0 {
             Logger.shared.info("Filing: \(marked) of \(suggestions.count) loose file(s) are already "
                                + "filed elsewhere in the tree")
         }
         return out
+    }
+
+    /// The loose files of `twins` (file → its twins' paths) whose bytes equal one twin's: the only
+    /// proof a copy may be removed on. A text match is not proof (a signed and an unsigned copy
+    /// share their text), so a PDF matched by its text fingerprint is hashed here, with its twins.
+    /// Within the unasked pass's size limit, as everything this scan reads unasked.
+    func provenByBytes(_ twins: [String: [String]]) async -> Set<String> {
+        let pairs = twins.filter { !$0.value.isEmpty }
+        guard !pairs.isEmpty else { return [] }
+        let fm = fileManager
+        let all = Array(Set(pairs.keys).union(pairs.values.joined()))
+        let paths = await Task.detached(priority: .utility) {
+            all.filter { Self.isWithinUnaskedLimit($0, fileManager: fm) }
+        }.value
+        let hashes = await Self.hashFiles(paths, fileManager: fm, cache: .shared)
+        await ContentHashCache.shared.save()
+        return Set(pairs.compactMap { file, others in
+            guard let h = hashes[file] else { return nil }
+            return others.contains { hashes[$0] == h } ? file : nil
+        })
     }
 
     /// The identity index behind ``markingAlreadyFiled(_:providerRoot:)``, rebuilt only when an

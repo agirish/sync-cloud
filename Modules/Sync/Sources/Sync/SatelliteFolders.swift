@@ -108,6 +108,11 @@ public struct DocumentIdentityIndex: Sendable {
 
     /// Whether any path in an index built without the existence check is still on disk: its
     /// ``isEmpty`` as an index built with the check would answer it. Stops at the first one found.
+    /// The files behind `identity` that are still on disk.
+    public func paths(holding identity: String, existsOnDisk: (String) -> Bool) -> [String] {
+        (pathsByIdentity[identity] ?? []).filter(existsOnDisk)
+    }
+
     public func holdsAnyPath(existsOnDisk: (String) -> Bool) -> Bool {
         pathsByIdentity.values.contains { $0.contains(where: existsOnDisk) }
     }

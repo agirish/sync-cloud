@@ -224,4 +224,48 @@ import CoreText
         #expect(byName[root.path + "/In/Brokerage/01. Jan 2026.pdf"]?.isAlreadyFiled == true)
         #expect(byName[root.path + "/In/02. Feb 2026.pdf"]?.isAlreadyFiled == false, "a different month is not")
     }
+    /// Only a copy with the same bytes is proven, and only a proven one may be removed: one that
+    /// matches on its text alone may be the signed or filled-in copy. The same holds for two loose
+    /// copies of one statement.
+    @Test func onlyACopyWithTheSameBytesIsProven() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingGroupProof")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = root.appendingPathComponent("Docs/Fidelity/Statements")
+        let text = "Fidelity INVESTMENT REPORT March 1, 2026 - March 31, 2026 Account Number: Z26-141750 balance 1,234.56"
+        let filed = account.appendingPathComponent("2026/Statement03312026.pdf")
+        try writePDF(text, to: filed)
+        let inbox = root.appendingPathComponent("In")
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: filed, to: inbox.appendingPathComponent("same.pdf"))
+        // The same page, different bytes: what a signature or a filled field leaves.
+        var signed = try Data(contentsOf: filed)
+        signed.append(Data("\n% signed\n".utf8))
+        try signed.write(to: inbox.appendingPathComponent("signed.pdf"))
+        // Two loose copies of another month, one a byte copy of the other, one re-stamped.
+        let april = text.replacingOccurrences(of: "March", with: "April")
+        try writePDF(april, to: inbox.appendingPathComponent("a1.pdf"))
+        try FileManager.default.copyItem(at: inbox.appendingPathComponent("a1.pdf"), to: inbox.appendingPathComponent("a2.pdf"))
+        var stamped = try Data(contentsOf: inbox.appendingPathComponent("a1.pdf"))
+        stamped.append(Data("\n% stamped\n".utf8))
+        try stamped.write(to: inbox.appendingPathComponent("a3.pdf"))
+        func card(_ name: String) -> FilingSuggestion {
+            let dest = FilingDestination(path: account.path + "/2026", confidence: .high, reasons: ["r"], newSegments: [],
+                                         fromContent: true,
+                                         account: FilingAccount(root: account.path, ending: "1750", institution: "fidelity",
+                                                                archived: false, kind: .statement))
+            return FilingSuggestion(filePath: inbox.path + "/" + name, fileName: name, size: 10,
+                                    modificationDate: nil, candidates: [dest], providerRoot: root.path + "/Docs")
+        }
+        let m = FileSyncManager(defaults: ScratchDefaults("FilingCardGroupTests.4"))
+        let marked = await m.markingFiledInAccounts(["same.pdf", "signed.pdf", "a1.pdf", "a2.pdf", "a3.pdf"].map(card))
+        let byName = Dictionary(uniqueKeysWithValues: marked.map { ($0.fileName, $0) })
+        #expect(byName["same.pdf"]?.isAlreadyFiled == true && byName["same.pdf"]?.removalProven == true)
+        #expect(byName["signed.pdf"]?.isAlreadyFiled == true, "the text still says it is filed")
+        #expect(byName["signed.pdf"]?.removalProven == false, "but not that it is the same file")
+        #expect(byName["a1.pdf"]?.duplicateOf == nil)
+        #expect(byName["a2.pdf"]?.duplicateOf == inbox.path + "/a1.pdf" && byName["a2.pdf"]?.removalProven == true)
+        #expect(byName["a3.pdf"]?.duplicateOf == inbox.path + "/a1.pdf" && byName["a3.pdf"]?.removalProven == false)
+        // A rebuilt card keeps what was proven.
+        #expect(byName["same.pdf"]?.replacingCandidates([]).removalProven == true)
+    }
 }

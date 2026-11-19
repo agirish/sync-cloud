@@ -249,7 +249,8 @@ import SwiftUI
              "A file with this name is already there", "SemanticColor.warning"),
             ("AutomationRuleEditor.swift", "FileExplorer",
              "These words are too generic to match on", "SemanticColor.warning"),
-            ("FilingSuggestionCard.swift", "FileExplorer", "Text(\"already filed in\")", "SemanticColor.warning"),
+            ("FilingSuggestionCard.swift", "FileExplorer",
+             "Text(suggestion.removalProven ? \"already filed in\" : \"looks already filed in\")", "SemanticColor.warning"),
             ("SettingsView.swift", "Settings", "Text(preventedLine)", "SemanticColor.success"),
         ]
         for site in sites {

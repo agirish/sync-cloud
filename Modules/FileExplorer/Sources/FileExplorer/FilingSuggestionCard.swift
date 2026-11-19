@@ -212,7 +212,7 @@ struct FilingSuggestionCard: View {
             Image(systemName: "doc.on.doc")
                 .scaledFont(.system(size: 10, weight: .semibold))
                 .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
-            Text("already filed in")
+            Text(suggestion.removalProven ? "already filed in" : "looks already filed in")
                 .scaledFont(.system(size: 11))
                 .foregroundStyle(ChromeInk.bodyText(colorScheme, SemanticColor.warning))
                 .fixedSize()
@@ -237,6 +237,10 @@ struct FilingSuggestionCard: View {
     /// VoiceOver have room to say which two.
     private var accessibleAlreadyFiled: String {
         let names = suggestion.alreadyFiledAt.map { $0.split(separator: "/").joined(separator: " › ") }
+        guard suggestion.removalProven else {
+            return "A document with the same text is filed in \(names.joined(separator: ", ")). "
+                + "It may still differ, signed or filled in, so compare the two before removing either."
+        }
         return "This document is already filed in \(names.joined(separator: ", ")). "
             + "Filing it here would make a second copy."
     }
