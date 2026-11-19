@@ -20,9 +20,9 @@ struct VaultFakeDocuments: VaultDocumentReading {
     }
 
     func files() async -> [URL] { pages.keys.sorted().map { URL(fileURLWithPath: $0) } }
-    func lines(in file: URL) async -> [String] {
+    func pages(in file: URL) async -> [[String]] {
         opened.add(file.path)
-        return pages[file.path] ?? []
+        return [pages[file.path] ?? []]
     }
     func stamp(of file: URL) -> String? { stamps[file.path] }
 }
@@ -52,7 +52,7 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(model.entries.isEmpty)
         #expect(!rig.store.hasFile, "a find was written before it was confirmed")
         #expect(rig.auth.reasons.isEmpty, "reading asked for a proof")
-        #expect(model.selection == model.visibleFinds.first?.id)
+        #expect(model.selection == model.visibleRows.first?.id)
 
         // A second read offers nothing new.
         await model.readDocuments(with: Self.documents)
@@ -243,27 +243,149 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let find = try #require(model.finds.first)
         #expect(model.finds.count == 1)
         #expect(find.validUntil == VaultReadingTests.day(2019, 8, 25))
-        #expect(find.isOlder, "a case that ran out in 2019 is not current")
+        #expect(find.facts.sources.count == 2, "both notices are documents of the one case")
+        #expect(model.rows.first?.standing.tab == .archive, "a case that ran out in 2019 is not current")
     }
 
-    @Test func olderNumbersAreHeldBackUntilAskedForAndKeepTheirMarkWhenAdded() async throws {
+    @Test func archiveIsItsOwnTabAndKeepsWhatIsAddedFromIt() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let documents = VaultFakeDocuments(pages: [
             "/I-94/Anna/Form I-94 - Anna - Apr 2026.pdf": ["I-94 Number 123456789A1"],
             "/I-94/Anna/Archive/Form I-94 - Anna - Jul 2024.pdf": ["I-94 Number 223456789A1"],
         ])
+        VaultReadFolders.add("/I-94", in: rig.defaults)
         let model = rig.model()
         await model.readDocuments(with: documents)
-        #expect(model.visibleFinds.map(\.value) == ["123456789A1"])
-        #expect(model.olderFindCount == 1)
-        model.showsOlderFinds = true
-        #expect(model.visibleFinds.map(\.value) == ["123456789A1", "223456789A1"])
+        #expect(model.visibleRows.map(\.value) == ["123456789A1"])
+        #expect(model.count(in: .archive) == 1)
+        model.tab = .archive
+        #expect(model.visibleRows.map(\.value) == ["223456789A1"])
+        // A search looks in every tab.
+        model.tab = .current
+        model.query = "I-94"
+        #expect(model.visibleRows.count == 2)
+        model.query = ""
 
-        let older = try #require(model.finds.first { $0.isOlder })
+        let older = try #require(model.finds.first { $0.value == "223456789A1" })
         let id = try #require(model.confirm(older.id, as: VaultModel.Draft(older)))
         let saved = try #require(try rig.store.load().first { $0.id == id })
-        #expect(saved.isOlder)
-        #expect(saved.dated == VaultReadingTests.day(2024, 7, 1))
+        #expect(saved.category == .i94)
+        #expect(saved.facts?.primary?.path == "/I-94/Anna/Archive/Form I-94 - Anna - Jul 2024.pdf")
+        #expect(model.rows.first { $0.id == id }?.standing.tab == .archive, "saved, it is still the older one")
+    }
+
+    @Test func aSavedPassportAndANewerReadOneAreWeighedTogether() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let old = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "240825")
+        let new = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
+        let model = rig.model()
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/P/Anna/2014.pdf": old]))
+        let first = try #require(model.finds.first)
+        let savedID = try #require(model.confirm(first.id, as: VaultModel.Draft(first)))
+        #expect(model.rows.first { $0.id == savedID }?.standing.tab == .current, "alone, the expired one is current")
+
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/P/Anna/2014.pdf": old, "/P/Anna/2022.pdf": new]))
+        let rows = model.rows
+        #expect(rows.first { $0.id == savedID }?.standing.tab == .archive, "the newer passport read makes the saved one older")
+        #expect(rows.first { $0.value == "A0000002" }?.standing.tab == .current)
+    }
+
+    @Test func aPassportGathersTheDocumentsThatNameIt() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let passport = VaultReadingTests.zone("P", number: "L8988901", born: "740812", expires: "320516")
+        let i94 = ["Most Recent I-94", "Admission I-94 Record Number: 123456789A1", "Document Number: L8988901"]
+        let model = rig.model()
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/a/i94.pdf": i94, "/a/passport.pdf": passport]))
+        let row = try #require(model.rows.first { $0.category == .passport })
+        #expect(row.documents.map(\.path) == ["/a/passport.pdf", "/a/i94.pdf"], "its own page first, then what names it")
+        #expect(row.documents.first?.role == "Passport photo page")
+    }
+
+    @Test func aNumberWithNoNameReadBorrowsItFromTheSameBirthDate() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let named = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
+        let unnamed = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "220516")
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna")]
+        // The old passport's name line was not read: only its number line is on the page.
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/p/new.pdf": named, "/p/old.pdf": [unnamed[1]]]))
+        let old = try #require(model.rows.first { $0.value == "A0000001" })
+        #expect(old.whose == "Anna")
+        #expect(old.personID == "anna")
+        #expect(old.standing.tab == .archive)
+    }
+
+    @Test func aNumberCanBeGivenToSomeoneElseOrTheHouseholdAndTheChoiceStays() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        // Two passports read with Anna's birth date: the older one is really a mistagged scan.
+        let new = VaultReadingTests.zone("P", number: "A0000002", born: "740812", expires: "320516")
+        let old = VaultReadingTests.zone("P", number: "A0000001", born: "740812", expires: "240516")
+        let documents = VaultFakeDocuments(pages: ["/p/new.pdf": new, "/p/old.pdf": old])
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
+        await model.readDocuments(with: documents)
+        let oldRow = try #require(model.rows.first { $0.value == "A0000001" })
+        #expect(oldRow.standing.tab == .archive)
+        #expect(oldRow.whose == "Anna")
+
+        // Moved to the household: no longer weighed against Anna's, so it is current there.
+        model.assign(oldRow.id, to: .household)
+        var moved = try #require(model.rows.first { $0.value == "A0000001" })
+        #expect(moved.whose == "Household")
+        #expect(moved.isHousehold)
+        #expect(moved.standing.tab == .current)
+        model.personFilter = .household
+        #expect(model.visibleRows.map(\.value) == ["A0000001"])
+        model.personFilter = .everyone
+
+        // Kept across a read of everything, and onto the saved entry.
+        await model.readDocuments(with: documents, again: true)
+        moved = try #require(model.rows.first { $0.value == "A0000001" })
+        #expect(moved.assignment == .household)
+        let find = try #require(model.finds.first { $0.value == "A0000001" })
+        let id = try #require(model.confirm(find.id, as: VaultModel.Draft(find, people: model.people)))
+        #expect(model.rows.first { $0.id == id }?.isHousehold == true)
+
+        // Given to Erik instead.
+        model.assign(id, to: .person("erik"))
+        #expect(model.rows.first { $0.id == id }?.whose == "Erik")
+        // And back to whoever the document names.
+        model.assign(id, to: nil)
+        #expect(model.rows.first { $0.id == id }?.whose == "Anna")
+    }
+
+    @Test func aFoldedCardIsPassedOverByTheArrowsAndRemembered() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        await model.readDocuments(with: Self.documents)
+        // A passport and an I-94 are current; the sample receipt, with no validity, is in Archive.
+        #expect(model.cards.map(\.category) == [.passport, .i94])
+        model.selection = model.cards[0].rows[0].id
+        // Folding the card the chosen row is in moves the choice to a row on screen.
+        model.toggleFold(.passport)
+        #expect(model.selectedRow?.category == .i94)
+        model.moveSelection(by: -1)
+        #expect(model.selectedRow?.category == .i94, "the folded passport card's row is skipped")
+
+        // ⌥-click on an open card folds every card; Collapse All then reads Expand All.
+        model.toggleFold(.i94, all: true)
+        #expect(model.allFolded)
+        model.toggleFoldAll()
+        #expect(model.folded.isEmpty)
+
+        // Kept for the next open.
+        model.toggleFold(.uscisCase)
+        #expect(rig.model().folded == [.uscisCase])
+    }
+
+    @Test func aChoiceToMarkOlderOutlivesTheNextRead() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        await model.readDocuments(with: Self.documents)
+        let find = try #require(model.finds.first { $0.category == .i94 })
+        model.pin(find.id, .older)
+        await model.readDocuments(with: Self.documents, again: true)
+        #expect(model.rows.first { $0.value == find.value }?.standing.tab == .archive)
     }
 
     @Test func theHolderSuggestsWhoseItIsOnlyWhenOnePersonAnswers() {
@@ -281,8 +403,8 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let model = rig.model()
         await model.readDocuments(with: Self.documents)
         model.query = "passport"
-        #expect(model.visibleFinds.map(\.title) == ["Passport"])
+        #expect(model.visibleRows.map(\.title) == ["Passport"])
         model.query = "02C3"
-        #expect(model.visibleFinds.isEmpty)
+        #expect(model.visibleRows.isEmpty)
     }
 }

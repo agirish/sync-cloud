@@ -6,8 +6,9 @@ import Foundation
 public protocol VaultDocumentReading: Sendable {
     /// The files in the chosen folders that could hold a number.
     func files() async -> [URL]
-    /// One file's pages as recognised lines; empty when it cannot be read.
-    func lines(in file: URL) async -> [String]
+    /// One file's pages, each as its recognised lines; empty when it cannot be read. Pages are kept
+    /// apart so a name line on one page is never paired with a number on another.
+    func pages(in file: URL) async -> [[String]]
     /// What says a file has changed since it was read: its size and modification date. Nil reads
     /// it every time.
     func stamp(of file: URL) -> String?
@@ -52,39 +53,61 @@ public final class VaultModel: ObservableObject {
         public var value: String
         public var personID: String?
         public var note: String
-        public var kind: VaultEntry.Kind
-        /// An older number kept for reference, such as a past passport's.
-        public var isOlder: Bool
-        /// The document's own date, carried from a find; not edited.
-        public var dated: Date?
+        /// The card it goes on. The editor's Kind picker.
+        public var category: VaultCategory
+        /// What was read with it, carried from a find so its details and documents stay; not edited.
+        public var facts: VaultReadFacts?
+        public var pin: VaultPin?
+        /// Household chosen for it. With no person and this off, a read number goes by the name
+        /// on its document.
+        public var isHousehold = false
+
+        public var kind: VaultEntry.Kind { category.kind }
+
+        /// What Belongs To says: the person, the household, or nil to go by the document.
+        public var assignment: VaultAssignment? {
+            if isHousehold { return .household }
+            return personID.map { .person($0) }
+        }
 
         public init(title: String = "", value: String = "", personID: String? = nil,
-                    note: String = "", kind: VaultEntry.Kind = .other, isOlder: Bool = false,
-                    dated: Date? = nil) {
+                    note: String = "", category: VaultCategory = .other, facts: VaultReadFacts? = nil,
+                    pin: VaultPin? = nil) {
             self.title = title
             self.value = value
             self.personID = personID
             self.note = note
-            self.kind = kind
-            self.isOlder = isOlder
-            self.dated = dated
+            self.category = category
+            self.facts = facts
+            self.pin = pin
+        }
+
+        /// The earlier shape, by kind.
+        public init(title: String, value: String, personID: String? = nil, note: String = "",
+                    kind: VaultEntry.Kind) {
+            self.init(title: title, value: value, personID: personID, note: note,
+                      category: VaultCategory.from(kind: kind))
         }
 
         public init(_ entry: VaultEntry) {
             self.init(title: entry.title, value: entry.value, personID: entry.personID,
-                      note: entry.note, kind: entry.kind, isOlder: entry.isOlder, dated: entry.dated)
+                      note: entry.note, category: entry.category, facts: entry.facts, pin: entry.pin)
+            isHousehold = entry.assignment == .household
         }
 
         /// A read number, for the editor to confirm. Whose it is is suggested from the name the
         /// document is made out to, when exactly one person in the household answers to it.
         public init(_ find: VaultFind, people: [Person] = []) {
-            var personID: String?
-            if let holder = find.holder, !people.isEmpty {
-                let named = PersonRegistry(people: people).detect(in: holder)
-                if named.count == 1 { personID = named.first }
+            // The person chosen for it, if any; else the one its name answers to.
+            let personID: String?
+            switch find.assignment {
+            case .person(let id)?: personID = id
+            case .household?: personID = nil
+            case nil: personID = VaultModel.person(named: find.holder, among: people)
             }
             self.init(title: find.title, value: find.value, personID: personID,
-                      note: find.note, kind: find.kind, isOlder: find.isOlder, dated: find.dated)
+                      note: find.note, category: find.category, facts: find.facts, pin: find.pin)
+            isHousehold = find.assignment == .household
         }
 
         /// A name and a number are the least an entry can be.
@@ -161,6 +184,7 @@ public final class VaultModel: ObservableObject {
         self.copyToPasteboard = copyToPasteboard
         lock = VaultLock(settings: VaultLockSettings(defaults: defaults))
         now = clock()
+        loadFolded()
     }
 
     // MARK: What the list shows
@@ -197,45 +221,270 @@ public final class VaultModel: ObservableObject {
 
     public var selectedEntry: VaultEntry? { entries.first { $0.id == selection } }
 
-    /// To Confirm, as the search leaves it. Shown whoever the list is filtered to: a find belongs
-    /// to nobody until it is confirmed.
-    ///
-    /// The current numbers, then, when ``showsOlderFinds`` is on or a search is typed, the older
-    /// ones. Each part by kind (passports, I-94s, receipt numbers), then newest first.
-    public var visibleFinds: [VaultFind] {
-        let matching = searchedFinds.sorted(by: Self.findOrder)
-        let current = matching.filter { !$0.isOlder }
-        let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard showsOlderFinds || searching else { return current }
-        return current + matching.filter(\.isOlder)
-    }
-
-    /// Whether the older numbers are on the list now: asked for, or a search is typed.
-    public var olderFindsShown: Bool {
-        showsOlderFinds || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private static let titleOrder = ["Passport", "I-94 admission number", "USCIS receipt number"]
-
-    private static func findOrder(_ a: VaultFind, _ b: VaultFind) -> Bool {
-        let (ta, tb) = (titleOrder.firstIndex(of: a.title) ?? 99, titleOrder.firstIndex(of: b.title) ?? 99)
-        if ta != tb { return ta < tb }
-        return (a.dated ?? .distantPast) > (b.dated ?? .distantPast)
-    }
-
-    /// How many older numbers the search leaves, shown or not: the count beside "Older".
-    public var olderFindCount: Int { searchedFinds.filter(\.isOlder).count }
-
-    private var searchedFinds: [VaultFind] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return finds }
-        return finds.filter { $0.title.lowercased().contains(needle) || $0.note.lowercased().contains(needle) }
-    }
-
     public var selectedFind: VaultFind? { finds.first { $0.id == selection } }
 
-    /// Every row in list order: To Confirm first, then the entries.
-    private var visibleIDs: [UUID] { visibleFinds.map(\.id) + visibleEntries.map(\.id) }
+    // MARK: Rows, tabs and cards
+
+    /// The household's people, from Settings ▸ Organize: who a read number belongs to, and the
+    /// person filter's names. Set by the panel.
+    public var people: [Person] = [] { didSet { keepSelectionVisible() } }
+
+    /// Current, Archive or Other Finds.
+    @Published public var tab: VaultStanding.Tab = .current { didSet { keepSelectionVisible() } }
+
+    /// One number on the panel: saved, or read and waiting to be confirmed.
+    public struct Row: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        public var title: String
+        public var value: String
+        public var note: String
+        public var category: VaultCategory
+        /// Nil for a number typed in by hand.
+        public var facts: VaultReadFacts?
+        public var standing: VaultStanding
+        /// In the Vault, rather than read and waiting.
+        public var isSaved: Bool
+        /// Whose it is: the person chosen, or the person a read name matches.
+        public var personID: String?
+        /// The name to show for whose it is.
+        public var whose: String
+        public var pin: VaultPin?
+        /// Whose the user said it is, if they did. Nil goes by what was read.
+        public var assignment: VaultAssignment?
+        /// The household's own: put there, or typed in for nobody in particular.
+        public var isHousehold: Bool
+
+        /// Every document carrying the number, the one it was read from first.
+        public var documents: [VaultSource] { facts?.orderedSources ?? [] }
+        public var isTypedIn: Bool { facts == nil }
+    }
+
+    /// The person in the household a printed name answers to, when exactly one does.
+    public nonisolated static func person(named holder: String?, among people: [Person]) -> String? {
+        guard let holder, !people.isEmpty else { return nil }
+        let named = PersonRegistry(people: people).detect(in: holder)
+        return named.count == 1 ? named.first : nil
+    }
+
+    /// Every number, saved and waiting, each with where it stands. Worked out afresh each time,
+    /// so a saved passport and a newer one read today are weighed together.
+    public var rows: [Row] {
+        let folders = VaultReadFolders.folders(in: defaults)
+        func withMentions(_ facts: VaultReadFacts?, _ value: String) -> VaultReadFacts? {
+            guard var facts else { return nil }
+            for source in mentions[VaultReading.normalized(value)] ?? [] { facts.add(source) }
+            return facts
+        }
+        /// One number before its standing is known.
+        struct Item {
+            var id: UUID, title: String, value: String, note: String, category: VaultCategory
+            var facts: VaultReadFacts?, isSaved: Bool, pin: VaultPin?
+            /// The user's choice, if any.
+            var chosen: VaultAssignment?
+            /// The person it belongs to: the choice, else the person its name matches.
+            var personID: String?
+        }
+        var all: [Item] = entries.map { entry in
+            // A saved number's person was chosen in the editor; with none, it goes by its name.
+            let chosen = entry.assignment
+            var personID: String?
+            if case .person(let id)? = chosen { personID = id }
+            if chosen == nil { personID = Self.person(named: entry.facts?.holder, among: people) }
+            return Item(id: entry.id, title: entry.title, value: entry.value, note: entry.note, category: entry.category,
+                        facts: withMentions(entry.facts, entry.value), isSaved: true, pin: entry.pin,
+                        chosen: chosen, personID: personID)
+        }
+        all += finds.map { find in
+            var personID: String?
+            switch find.assignment {
+            case .person(let id)?: personID = id
+            case .household?: personID = nil
+            case nil: personID = Self.person(named: find.holder, among: people)
+            }
+            return Item(id: find.id, title: find.title, value: find.value, note: find.note, category: find.category,
+                        facts: withMentions(find.facts, find.value), isSaved: false, pin: find.pin,
+                        chosen: find.assignment, personID: personID)
+        }
+        // A number whose name line was missed, but whose date of birth was read, is the same
+        // person's as another number read with both: it borrows that one's name and person.
+        var known: [String: (id: String?, holder: String)] = [:]
+        for item in all {
+            guard let facts = item.facts, let key = facts.personKey, let holder = facts.holder else { continue }
+            if known[key]?.id == nil { known[key] = (item.personID, holder) }
+        }
+        for index in all.indices where all[index].chosen == nil && all[index].personID == nil
+            && all[index].facts?.holder == nil {
+            if let key = all[index].facts?.personKey, let match = known[key] {
+                all[index].personID = match.id
+                all[index].facts?.holder = match.holder
+            }
+        }
+        // Grouped by whose it is as best known: the choice, else the matched person, else the
+        // name or birth date read. A saved passport and a new read of the same person's meet.
+        let standings = VaultStandings.compute(all.map { item in
+            let grouping: VaultAssignment? = item.chosen ?? item.personID.map { .person($0) }
+            return VaultStandingInput(id: item.id, value: item.value, category: item.category, facts: item.facts,
+                                      pin: item.pin, assignment: grouping)
+        }, now: now, readFolders: folders)
+        return all.map { item in
+            let isHousehold = item.chosen == .household || (item.facts == nil && item.personID == nil)
+            let personName = item.personID.flatMap { id in people.first { $0.id == id }?.displayName }
+            let whose = isHousehold ? "Household"
+                : personName ?? item.facts?.holder?.split(separator: " ").first.map(String.init) ?? "Unknown"
+            return Row(id: item.id, title: item.title, value: item.value, note: item.note, category: item.category,
+                       facts: item.facts, standing: standings[item.id] ?? VaultStanding(tab: .current),
+                       isSaved: item.isSaved, personID: item.personID, whose: whose, pin: item.pin,
+                       assignment: item.chosen, isHousehold: isHousehold)
+        }
+    }
+
+    /// Belongs To: whose a number is, a person or the household; nil goes by what was read again.
+    /// Later reads keep the choice.
+    public func assign(_ id: UUID, to assignment: VaultAssignment?) {
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            var changed = entries
+            changed[index].assignment = assignment
+            _ = write(changed)
+        } else if let index = finds.firstIndex(where: { $0.id == id }) {
+            finds[index].assignment = assignment
+            readingChanged = true
+            saveReading()
+        }
+        keepSelectionVisible()
+    }
+
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// The rows the tab, the person filter and the search leave. A search looks in every tab:
+    /// a number asked about on a call may be an older one.
+    public var visibleRows: [Row] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return rows.filter { row in
+            if needle.isEmpty, row.standing.tab != tab { return false }
+            switch personFilter {
+            case .everyone: break
+            case .household: if !row.isHousehold { return false }
+            case .person(let id): if row.personID != id { return false }
+            }
+            guard !needle.isEmpty else { return true }
+            // Names, notes and kinds. Never the number: a search that matched on digits would
+            // confirm a guess at a locked number one keystroke at a time.
+            return row.title.lowercased().contains(needle) || row.note.lowercased().contains(needle)
+                || row.category.title.lowercased().contains(needle) || row.whose.lowercased().contains(needle)
+        }
+        .sorted(by: Self.rowOrder)
+    }
+
+    /// Cards in the main view's order, each with its rows; a kind with nothing is left out.
+    public var cards: [(category: VaultCategory, rows: [Row])] {
+        let visible = visibleRows
+        let order = tab == .other && !searching
+            ? Set(visible.map(\.category)).sorted { $0.rawValue < $1.rawValue } : VaultCategory.mainView
+        return order.compactMap { category in
+            let rows = visible.filter { $0.category == category }
+            return rows.isEmpty ? nil : (category, rows)
+        }
+    }
+
+    /// The main view's kinds with nothing in them yet, for the line under the cards.
+    public var emptyCategories: [VaultCategory] {
+        let used = Set(rows.map(\.category))
+        return [.passport, .usVisa, .i94, .uscisCase, .driversLicense, .health, .utilities, .loans]
+            .filter { !used.contains($0) }
+    }
+
+    /// How many rows each tab has, as the person filter leaves them.
+    public func count(in tab: VaultStanding.Tab) -> Int {
+        rows.filter { row in
+            guard row.standing.tab == tab else { return false }
+            switch personFilter {
+            case .everyone: return true
+            case .household: return row.isHousehold
+            case .person(let id): return row.personID == id
+            }
+        }.count
+    }
+
+    /// By card, then whose, then current before in-use before expired, then newest.
+    private static func rowOrder(_ a: Row, _ b: Row) -> Bool {
+        let order = VaultCategory.mainView
+        let (ca, cb) = (order.firstIndex(of: a.category) ?? 99, order.firstIndex(of: b.category) ?? 99)
+        if ca != cb { return ca < cb }
+        if a.whose != b.whose { return a.whose.localizedStandardCompare(b.whose) == .orderedAscending }
+        func weight(_ s: VaultStanding) -> Int { s.inUse ? 1 : s.expired ? 2 : 0 }
+        if weight(a.standing) != weight(b.standing) { return weight(a.standing) < weight(b.standing) }
+        let (da, db) = (a.facts?.dated ?? .distantPast, b.facts?.dated ?? .distantPast)
+        if da != db { return da > db }
+        return a.title.localizedStandardCompare(b.title) == .orderedAscending
+    }
+
+    public var selectedRow: Row? { rows.first { $0.id == selection } }
+
+    /// Every row in the order it is drawn: what the arrow keys walk.
+    /// A folded card's rows are passed over: they are not on screen.
+    private var visibleIDs: [UUID] {
+        cards.filter { showsList || !folded.contains($0.category) }.flatMap { $0.rows.map(\.id) }
+    }
+
+    // MARK: Folded cards
+
+    static let foldedKey = "vaultFoldedCards"
+
+    /// The cards folded to their header, kept between opens. In the list, nothing is folded.
+    @Published public private(set) var folded: Set<VaultCategory> = []
+    /// Set by the panel: the list shows every row whatever is folded.
+    public var showsList = false { didSet { keepSelectionVisible() } }
+
+    private func loadFolded() {
+        folded = Set((defaults.stringArray(forKey: Self.foldedKey) ?? []).compactMap(VaultCategory.init(rawValue:)))
+    }
+
+    /// Folds or opens one card; with `all`, every card, as ⌥-click does.
+    public func toggleFold(_ category: VaultCategory, all: Bool = false) {
+        let fold = !folded.contains(category)
+        if all {
+            folded = fold ? Set(VaultCategory.mainView) : []
+        } else if fold {
+            folded.insert(category)
+        } else {
+            folded.remove(category)
+        }
+        saveFolded()
+    }
+
+    /// Whether every card on screen is folded: Collapse All then reads Expand All.
+    public var allFolded: Bool {
+        let shown = cards.map(\.category)
+        return !shown.isEmpty && shown.allSatisfy(folded.contains)
+    }
+
+    /// Collapse All, or Expand All once everything on screen is folded.
+    public func toggleFoldAll() {
+        folded = allFolded ? [] : Set(VaultCategory.mainView)
+        saveFolded()
+    }
+
+    private func saveFolded() {
+        defaults.set(folded.map(\.rawValue).sorted(), forKey: Self.foldedKey)
+        keepSelectionVisible()
+    }
+
+    /// Make Current or Mark as Older: a choice later reads keep. Nil lets the rules decide again.
+    public func pin(_ id: UUID, _ pin: VaultPin?) {
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            var changed = entries
+            changed[index].pin = pin
+            _ = write(changed)
+        } else if let index = finds.firstIndex(where: { $0.id == id }) {
+            finds[index].pin = pin
+            readingChanged = true
+            saveReading()
+        }
+        keepSelectionVisible()
+    }
+
+    /// Documents that name a number without being its source, by the number.
+    private var mentions: [String: [VaultSource]] = [:]
 
     public func count(for filter: PersonFilter) -> Int {
         switch filter {
@@ -340,6 +589,7 @@ public final class VaultModel: ObservableObject {
         entries = []
         finds = []
         readIndex = [:]
+        mentions = [:]
         contents = .notLoaded
         selection = nil
     }
@@ -351,11 +601,12 @@ public final class VaultModel: ObservableObject {
             entries = try store.load()
             contents = .loaded
             if let state = store.loadReading() {
-                finds = state.finds
                 // Another build's rules, or a Forget since: read every file again next time.
-                let current = state.version == VaultReading.version
-                    && state.generation == VaultSetAside.generation(in: defaults)
-                readIndex = current ? state.read : [:]
+                // What another build read is let go with it: its finds were made by older rules.
+                let sameRules = state.version == VaultReading.version
+                finds = sameRules ? state.finds : []
+                mentions = sameRules ? state.mentions : [:]
+                readIndex = sameRules && state.generation == VaultSetAside.generation(in: defaults) ? state.read : [:]
             }
             keepSelectionVisible()
         } catch let error as VaultError {
@@ -423,6 +674,20 @@ public final class VaultModel: ObservableObject {
         return true
     }
 
+    /// Copies a number that is a detail of `id`'s, such as the passport a visa is in: the same
+    /// proof as the row's own number, and the same concealed, cleared clipboard.
+    @discardableResult
+    public func copy(_ detailNumber: String, for id: UUID) async -> Bool {
+        guard let row = row(id) else { return false }
+        if lock.needsProof(for: id, at: clock()) {
+            guard await prove("copy a detail of \(row.title)", for: id) else { return false }
+        }
+        guard lock.canShow(id, at: clock()) else { return false }
+        copyToPasteboard(detailNumber)
+        used()
+        return true
+    }
+
     /// An entry or a find, by id: what Show and Copy act on.
     private func row(_ id: UUID) -> (title: String, value: String)? {
         if let entry = entries.first(where: { $0.id == id }) { return (entry.title, entry.value) }
@@ -441,12 +706,16 @@ public final class VaultModel: ObservableObject {
         if contents == .notLoaded { load() }
         guard contents == .loaded else { return nil }
         let stamp = clock()
-        let entry = VaultEntry(title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+        var facts = draft.facts
+        facts?.category = draft.category
+        var entry = VaultEntry(title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
                                value: draft.value.trimmingCharacters(in: .whitespacesAndNewlines),
                                personID: draft.personID,
                                note: draft.note.trimmingCharacters(in: .whitespacesAndNewlines),
-                               kind: draft.kind, sourcePath: sourcePath, addedAt: stamp,
-                               dated: draft.dated, isOlder: draft.isOlder)
+                               sourcePath: sourcePath, addedAt: stamp,
+                               category: draft.category, facts: facts)
+        entry.pin = draft.pin
+        entry.assignment = draft.assignment
         guard write(entries + [entry]) else { return nil }
         selection = entry.id
         return entry.id
@@ -463,10 +732,10 @@ public final class VaultModel: ObservableObject {
         var changed = entries
         changed[index].title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         changed[index].value = draft.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        changed[index].personID = draft.personID
+        changed[index].assignment = draft.assignment
         changed[index].note = draft.note.trimmingCharacters(in: .whitespacesAndNewlines)
-        changed[index].kind = draft.kind
-        changed[index].isOlder = draft.isOlder
+        changed[index].category = draft.category
+        changed[index].pin = draft.pin
         changed[index].updatedAt = clock()
         used()
         return write(changed)
@@ -536,23 +805,39 @@ public final class VaultModel: ObservableObject {
                 reading = ReadingProgress(done: index + 1, total: files.count)
                 continue
             }
-            let lines = await reader.lines(in: file)
+            let pages = await reader.pages(in: file)
             guard contents == .loaded else { return }
             opened += 1
-            for find in VaultReading.finds(in: lines, from: file.path) where take(find) { added += 1 }
+            // A changed file is read afresh: what it said before is let go first. A number it
+            // still carries keeps its row and any choice made about it.
+            let before = Dictionary(finds.filter { $0.facts.sources.contains { $0.path == file.path } }
+                .map { (VaultReading.normalized($0.value), ($0.id, $0.pin, $0.assignment)) }, uniquingKeysWith: { a, _ in a })
+            forgetSource(file.path)
+            let read = VaultReading.read(pages: pages, from: file.path)
+            for var find in read.finds {
+                if let (id, pin, assignment) = before[VaultReading.normalized(find.value)] {
+                    find = VaultFind(id: id, title: find.title, value: find.value, note: find.note,
+                                     facts: find.facts, pin: pin, assignment: assignment)
+                }
+                if take(find), before[VaultReading.normalized(find.value)] == nil { added += 1 }
+            }
+            for mention in read.mentions {
+                mentions[VaultReading.normalized(mention.value), default: []].append(mention.source)
+            }
             if let stamp { readIndex[file.path] = stamp }
             readingChanged = true
             reading = ReadingProgress(done: index + 1, total: files.count)
             // Sealed every so often, so a read stopped halfway keeps what it had.
-            if opened % 25 == 0 {
-                finds = VaultReading.markingOlder(finds, now: clock())
-                saveReading()
-            }
+            if opened % 25 == 0 { saveReading() }
         }
-        // A file gone from the folders is forgotten, so one put back is read again.
+        // A file gone from the folders is forgotten, so one put back is read again; a number
+        // whose every document is gone is let go, rather than pointing at nothing.
         let present = Set(files.map(\.path))
         readIndex = readIndex.filter { present.contains($0.key) }
-        finds = VaultReading.markingOlder(finds, now: clock())
+        for path in Set(finds.flatMap { $0.facts.sources.map(\.path) } + mentions.values.flatMap { $0.map(\.path) })
+        where !present.contains(path) {
+            forgetSource(path)
+        }
         readingChanged = true
         saveReading()
         lastReading = ReadingSummary(documents: files.count, opened: opened, newNumbers: added)
@@ -562,34 +847,52 @@ public final class VaultModel: ObservableObject {
     }
 
     /// Adds a find to To Confirm when its number is new. When the number is already waiting, read
-    /// from another file, the copy outside an Archive folder or with the later date is kept as its
-    /// source. True when it was new.
+    /// from another file, that file joins its documents, and the details of the better document
+    /// win: an approval over its receipt notice, a passport's own page over anything naming it.
+    /// When the number is already saved, the file joins it as a document. True when it was new.
     private func take(_ find: VaultFind) -> Bool {
         let value = VaultReading.normalized(find.value)
         if let index = finds.firstIndex(where: { VaultReading.normalized($0.value) == value }) {
-            let held = finds[index]
-            let better = held.isArchived != find.isArchived ? !find.isArchived
-                : (find.dated ?? .distantPast) > (held.dated ?? .distantPast)
-            // What any copy says about when the number runs out, and which form it is for, is kept
-            // whichever copy stays the source: a receipt notice and its approval say different
-            // things about one case.
-            let validUntil = [held.validUntil, find.validUntil].compactMap { $0 }.max()
-            if better {
-                // Same row, newer source; whether it is older is worked out again after the read.
-                finds[index] = VaultFind(id: held.id, title: find.title, value: find.value, kind: find.kind,
-                                         note: find.note.isEmpty ? held.note : find.note,
-                                         holder: find.holder ?? held.holder,
-                                         sourcePath: find.sourcePath, dated: find.dated ?? held.dated,
-                                         validUntil: validUntil)
-            } else {
-                finds[index].validUntil = validUntil
-                if finds[index].note.isEmpty { finds[index].note = find.note }
+            var held = finds[index]
+            let incoming = find.facts.primary?.rank ?? 0
+            let current = held.facts.primary?.rank ?? 0
+            var merged = incoming > current ? find.facts : held.facts
+            for source in held.facts.sources + find.facts.sources { merged.add(source) }
+            // What any copy says is kept when the better one is silent: a receipt notice names
+            // the person, the approval says how long the case is good for.
+            merged.holder = merged.holder ?? held.facts.holder ?? find.facts.holder
+            merged.born = merged.born ?? held.facts.born ?? find.facts.born
+            merged.form = merged.form ?? held.facts.form ?? find.facts.form
+            merged.validUntil = [held.facts.validUntil, find.facts.validUntil].compactMap { $0 }.max()
+            merged.pending = merged.pending && held.facts.pending && find.facts.pending
+            if incoming > current {
+                held.title = find.title
+                held.note = find.note
             }
+            held.facts = merged
+            finds[index] = held
+            return false
+        }
+        if entries.contains(where: { VaultReading.normalized($0.value) == value }) {
+            for source in find.facts.sources { mentions[value, default: []].append(source) }
             return false
         }
         guard isNew(find) else { return false }
         finds.append(find)
         return true
+    }
+
+    /// Lets go of what `path` said: as a source of a waiting number (the number goes when it was
+    /// its only document) and as a document naming one.
+    private func forgetSource(_ path: String) {
+        for index in finds.indices.reversed() {
+            finds[index].facts.sources.removeAll { $0.path == path }
+            if finds[index].facts.sources.isEmpty { finds.remove(at: index) }
+        }
+        for key in Array(mentions.keys) {
+            mentions[key]?.removeAll { $0.path == path }
+            if mentions[key]?.isEmpty == true { mentions[key] = nil }
+        }
     }
 
     /// Something in To Confirm or the record of read files changed since it was last sealed.
@@ -600,7 +903,7 @@ public final class VaultModel: ObservableObject {
     private func saveReading() {
         guard readingChanged, let store else { return }
         let state = VaultReadingState(generation: VaultSetAside.generation(in: defaults),
-                                      finds: finds, read: readIndex)
+                                      finds: finds, read: readIndex, mentions: mentions)
         do {
             try store.saveReading(state)
             readingChanged = false
@@ -612,8 +915,11 @@ public final class VaultModel: ObservableObject {
     /// Adds a find as an entry, as the editor left it, and takes it out of To Confirm.
     @discardableResult
     public func confirm(_ findID: UUID, as draft: Draft) -> UUID? {
-        guard let find = finds.first(where: { $0.id == findID }),
-              let id = add(draft, sourcePath: find.sourcePath) else { return nil }
+        guard let find = finds.first(where: { $0.id == findID }) else { return nil }
+        var draft = draft
+        // What was read stays with the number, whatever the editor changed about its name.
+        if draft.facts == nil { draft.facts = find.facts }
+        guard let id = add(draft, sourcePath: find.sourcePath) else { return nil }
         finds.removeAll { $0.id == findID }
         readingChanged = true
         saveReading()

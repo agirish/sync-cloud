@@ -44,29 +44,31 @@ struct VaultFolderReader: VaultDocumentReading {
         return found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
-    func lines(in file: URL) async -> [String] {
+    func pages(in file: URL) async -> [[String]] {
         await Task.detached(priority: .userInitiated) { Self.read(file) }.value
     }
 
-    private static func read(_ file: URL) -> [String] {
+    /// Each page's lines kept apart, so a name line on one page is never paired with a number on
+    /// another.
+    private static func read(_ file: URL) -> [[String]] {
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
-            return recognise(image)
+            return [recognise(image)]
         }
         // A locked PDF is passed over: its password is not the Vault's to ask for.
         guard let document = PDFDocument(url: file), !document.isLocked else { return [] }
-        var lines: [String] = []
+        var pages: [[String]] = []
         for index in 0..<min(document.pageCount, pagesPerDocument) {
             guard let page = document.page(at: index) else { continue }
             let layer = page.string ?? ""
             if layer.filter({ !$0.isWhitespace }).count > 40 {
-                lines += layer.components(separatedBy: .newlines)
+                pages.append(layer.components(separatedBy: .newlines))
             } else if let image = render(page) {
-                lines += recognise(image)
+                pages.append(recognise(image))
             }
         }
-        return lines
+        return pages
     }
 
     /// The page at about 2400 pixels on its long side: the zone's small type needs that much.

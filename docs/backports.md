@@ -16103,3 +16103,16 @@ fix to carry.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No `missing` command | RECORDED — not owed (new feature) |
+
+## The Vault by document: cards, Current and Archive — main only, recorded, not owed
+
+2026-11-19, for v7.2. The Vault shows numbers as cards by kind (`VaultCategory`), one current per
+person and kind with the rest in an Archive tab (`VaultStandings`, worked out over saved and read
+numbers together), each with its details (`VaultDetail`, dates copied as MM/DD/YYYY) and every
+document that names it (`VaultSource`). Reading keeps pages apart and reads every machine-readable
+zone on a page (`MachineZone`), files a US visa by its Control Number as a document of its passport,
+and tells people apart by date of birth. It builds on the Vault, which no maintenance line has.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

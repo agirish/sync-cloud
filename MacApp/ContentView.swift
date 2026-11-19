@@ -2527,6 +2527,17 @@ struct ContentView: View {
             onOpenSettings: {
                 showVault = false
                 openSettings(on: SettingsPlace(.vault))
+            },
+            // Over the Vault, which stays open behind it.
+            onQuickLook: { path in quickLookURL = URL(fileURLWithPath: path) },
+            // Browse is where a document opens: the Vault steps aside for it.
+            onReveal: { path in
+                showVault = false
+                revealInBrowse(path, from: .vault)
+            },
+            // The same People list Organize files by: the Vault adds to it, never a list of its own.
+            onAddPerson: { name, fullName in
+                syncManager.filingPeopleStore?.add(displayName: name, fullNames: [fullName])
             }
         )
     }

@@ -243,6 +243,8 @@ enum EditorRevealInBrowse {
         case saveAsPDFBanner
         /// A message's row in Activity — the files a result named.
         case activity
+        /// A document behind a number in the Vault.
+        case vault
 
         var name: String {
             switch self {
@@ -251,6 +253,7 @@ enum EditorRevealInBrowse {
             case .pdfToolBanner: return "the PDF tools' banner"
             case .saveAsPDFBanner: return "the Save as PDF banner"
             case .activity: return "an Activity message"
+            case .vault: return "the Vault"
             }
         }
     }

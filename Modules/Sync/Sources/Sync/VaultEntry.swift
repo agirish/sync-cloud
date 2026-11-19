@@ -51,30 +51,75 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     public var updatedAt: Date
     /// The document's own date, when it was read: a passport's expiry, an I-94's date of entry.
     public var dated: Date?
-    /// Stored only when set, so a Vault file from before it opens unchanged.
+    /// Marked older by a build before pins (``pin``). Stored only when set.
     private var older: Bool?
+    /// The card it shows on, chosen in the editor. Nil for an entry from before categories, which
+    /// goes by its kind (``VaultCategory/from(kind:)``) or by what was read.
+    private var chosenCategory: VaultCategory?
+    /// What the documents said, when it was read rather than typed: kept so it is weighed against
+    /// later reads (a newer passport makes this one older) and its details stay copyable.
+    public var facts: VaultReadFacts?
+    /// Current or older, as the user chose.
+    private var pinned: VaultPin?
+    /// Set when the user put it in the household: a number read with someone's name on it, which
+    /// ``personID`` nil alone would leave to that name.
+    private var household: Bool?
 
-    /// Kept for reference: an older passport or I-94 a form may still ask for. Listed after the
-    /// current numbers of its kind, and marked.
-    public var isOlder: Bool {
-        get { older ?? false }
-        set { older = newValue ? true : nil }
+    /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
+    /// the document was read with.
+    public var assignment: VaultAssignment? {
+        get {
+            if household == true { return .household }
+            return personID.map { .person($0) }
+        }
+        set {
+            switch newValue {
+            case .person(let id)?: personID = id; household = nil
+            case .household?: personID = nil; household = true
+            case nil: personID = nil; household = nil
+            }
+        }
+    }
+
+    public var category: VaultCategory {
+        get { facts?.category ?? chosenCategory ?? VaultCategory.from(kind: kind, title: title) }
+        set {
+            chosenCategory = newValue
+            facts?.category = newValue
+            kind = newValue.kind
+        }
+    }
+
+    public var pin: VaultPin? {
+        get { pinned ?? (older == true ? .older : nil) }
+        set { pinned = newValue; older = nil }
+    }
+
+    /// Kept for reference: an older passport or I-94 a form may still ask for.
+    public var isOlder: Bool { pin == .older }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
+        case chosenCategory = "category", facts, pinned = "pin", household
     }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
                 note: String = "", kind: Kind = .other, sourcePath: String? = nil,
-                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil, isOlder: Bool = false) {
+                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil, isOlder: Bool = false,
+                category: VaultCategory? = nil, facts: VaultReadFacts? = nil) {
         self.id = id
         self.title = title
         self.value = value
         self.personID = personID
         self.note = note
-        self.kind = kind
-        self.sourcePath = sourcePath
+        self.kind = category?.kind ?? facts?.category.kind ?? kind
+        self.sourcePath = sourcePath ?? facts?.primary?.path
         self.addedAt = addedAt
         self.updatedAt = updatedAt ?? addedAt
-        self.dated = dated
-        self.older = isOlder ? true : nil
+        self.dated = dated ?? facts?.dated
+        self.chosenCategory = category
+        self.facts = facts
+        self.pinned = isOlder ? .older : nil
     }
 }
 
@@ -111,19 +156,67 @@ public enum VaultMask {
     /// is on it ("Passport A38291647.pdf"), so a file's name can hold the very number the Vault
     /// is hiding. A run of five or more letters and digits, four or more of them digits, counts as
     /// a number; a year or a page number does not.
+    ///
+    /// A number is often written with spaces or dashes ("WAC 26 901 23456"), so letters and digits
+    /// joined by single separators are judged as one run: five or more of them, four or more
+    /// digits. A date ("2024-03-01", "01.04.2024") is not a number.
     public static func fileName(_ path: String) -> String {
-        let name = (path as NSString).lastPathComponent
-        var out = ""
-        var run = ""
-        func flush() {
-            out += run.count >= 5 && run.filter(\.isNumber).count >= 4 ? masked(run) : run
-            run = ""
+        name((path as NSString).lastPathComponent)
+    }
+
+    /// A folder path, each folder's name masked as a file's is: people name a folder after what
+    /// is in it, too ("Passport A38291647/").
+    public static func folder(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: false).map { name(String($0)) }.joined(separator: "/")
+    }
+
+    private static let joinedRun = try! NSRegularExpression(pattern: #"[A-Za-z0-9]+(?:[ ._-][A-Za-z0-9]+)*"#)
+    private static let dateLike = try! NSRegularExpression(
+        pattern: #"^(?:(?:19|20)\d{2}[._-]\d{1,2}(?:[._-]\d{1,2})?|\d{1,2}[._-]\d{1,2}[._-](?:19|20)?\d{2}|(?:19|20)\d{2}[ ._-]+(?:19|20)\d{2})$"#)
+
+    private static func name(_ text: String) -> String {
+        let ns = text as NSString
+        var out = text
+        // Right to left, so earlier ranges stay put as later ones are replaced.
+        for match in joinedRun.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let whole = ns.substring(with: match.range)
+            // Judge each stretch of the run that holds digits: words around a number stay.
+            let words = whole.split(omittingEmptySubsequences: false, whereSeparator: { " ._-".contains($0) })
+            var masked = whole
+            var start: Int?
+            func judge(_ from: Int, _ to: Int) {
+                let stretch = words[from...to].joined(separator: " ")
+                let alnum = stretch.filter { $0.isLetter || $0.isNumber }
+                let digits = alnum.filter(\.isNumber).count
+                let piece = Self.piece(of: whole, words: words, from: from, to: to)
+                let isDate = dateLike.firstMatch(in: piece, range: NSRange(location: 0, length: (piece as NSString).length)) != nil
+                guard alnum.count >= 5, digits >= 4, !isDate else { return }
+                masked = masked.replacingOccurrences(of: piece, with: Self.masked(piece))
+            }
+            // Digit groups, and a short capital prefix such as "WAC", join into one stretch; a word
+            // mixing letters and digits ("V9416925", "797A") is judged on its own.
+            for (index, word) in words.enumerated() {
+                let digitsOnly = !word.isEmpty && word.allSatisfy(\.isNumber)
+                let prefix = word.count <= 3 && !word.isEmpty && word.allSatisfy { $0.isUppercase }
+                let mixed = word.contains(where: \.isNumber) && word.contains(where: \.isLetter)
+                if digitsOnly || prefix {
+                    start = start ?? index
+                } else {
+                    if let s = start { judge(s, index - 1); start = nil }
+                    if mixed { judge(index, index) }
+                }
+            }
+            if let s = start { judge(s, words.count - 1) }
+            out = (out as NSString).replacingCharacters(in: match.range, with: masked)
         }
-        for character in name {
-            if character.isLetter || character.isNumber { run.append(character) } else { flush(); out.append(character) }
-        }
-        flush()
         return out
+    }
+
+    /// The text of `words[from...to]` as it stands in `whole`, separators included.
+    private static func piece(of whole: String, words: [Substring], from: Int, to: Int) -> String {
+        let start = words[from].startIndex
+        let end = words[to].endIndex
+        return String(whole[start..<end])
     }
 
     /// The letters and digits in groups of `size`, for reading a number out loud: Large Type
