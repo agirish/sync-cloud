@@ -15890,3 +15890,16 @@ for l in v6.x v5.x v4.x v3.x v2.x; do printf '%-5s alreadyFiled=%s groupCard=%s\
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | Text-matched "already filed", no Trash offered | RECORDED — not owed |
 | `v3.x` / `v2.x` | No already-filed check | CLOSED — does not apply |
+
+## A new account for Shweta is named `<Type> <last4> (Shweta)` — main only
+
+2026-11-18, for v7.2. His accounts that aren't his own carry their holder after the number
+(`Credit 8436 (Shweta)`). A new account folder took that suffix only when the inbox folder's name
+had it. Now the account phase learns the holder names from the tree's own account folders and
+adds one when page 1 names that person and not him (a joint account stays his), using the people
+roster's `me`. It is in the account phase, which no maintenance line carries (measured in the
+account-folders section above).
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No account phase | CLOSED — does not apply |

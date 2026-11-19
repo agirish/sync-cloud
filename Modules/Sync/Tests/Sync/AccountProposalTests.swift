@@ -31,6 +31,52 @@ import Foundation
         #expect(p.namedLike?.hasSuffix("Checking 5696") == true, "a live account, never the archived one: \(p.namedLike ?? "nil")")
     }
 
+    private static let people = PersonRegistry(people: [
+        Person(id: "me", displayName: "Abhishek", relationship: "me", fullNames: ["Abhishek Girish"]),
+        Person(id: "wife", displayName: "Shweta", relationship: "wife", fullNames: ["Shweta Dani"]),
+    ])
+    private var treeWithHerCard: [FileNode] {
+        let chase = "Credit Accounts/Chase"
+        return tree + [dir("Credit Accounts", [dir(chase, [dir(chase + "/Credit 8436 (Shweta)", years(chase + "/Credit 8436 (Shweta)"))])])]
+    }
+
+    /// The holder suffix is learned from the tree's own account names, and applied only when
+    /// page 1 names that person and not the user: a joint account is his.
+    @Test func theHolderIsNamedOnlyWhenThePageNamesHerAlone() {
+        #expect(AccountProposal.holderNames(in: treeWithHerCard) == ["Shweta"])
+        #expect(AccountProposal.holderNames(in: tree).isEmpty)
+        let hers = "Chase Freedom statement SHWETA DANI Account summary"
+        #expect(AccountProposal.holderSuffix(page: hers, tree: treeWithHerCard, registry: Self.people) == "Shweta")
+        #expect(AccountProposal.holderSuffix(page: hers + " ABHISHEK GIRISH", tree: treeWithHerCard, registry: Self.people) == nil,
+                "a joint account takes no suffix")
+        #expect(AccountProposal.holderSuffix(page: hers, tree: tree, registry: Self.people) == nil,
+                "no account carries a holder's name, so neither does a new one")
+        let noMe = PersonRegistry(people: [Person(id: "wife", displayName: "Shweta", fullNames: ["Shweta Dani"])])
+        #expect(AccountProposal.holderSuffix(page: hers, tree: treeWithHerCard, registry: noMe) == nil,
+                "without knowing who the user is, the rule can't be applied")
+    }
+
+    /// The new account folder carries the suffix, from an inbox folder that names only the type
+    /// and number.
+    @Test func herNewCardIsNamedForHer() throws {
+        let index = AccountIndex.build(tree: treeWithHerCard)
+        let page = "Chase Freedom Unlimited\nAccount summary\nfor February 26, 2026 to March 27, 2026\n"
+            + "Account number: XXXX XXXX XXXX 4321\nSHWETA DANI"
+        let s = FilingSuggestion(filePath: "/In/Credit 4321/statement.pdf", fileName: "statement.pdf", size: 1,
+                                 modificationDate: nil, candidates: [], providerRoot: "/D")
+        let out = FileSyncManager.proposingAccount(for: s, facts: DocumentFacts(page: page),
+                                                   period: .init(year: 2026, month: 3), hint: "Credit 4321",
+                                                   index: index, taxonomy: treeWithHerCard, root: "/D", registry: Self.people)
+        let best = try #require(out.best, "no proposal")
+        #expect(best.path.hasPrefix("/D/Credit Accounts/Chase/Credit 4321 (Shweta)"), "\(best.path)")
+        #expect(best.reasons.first?.contains("page 1 names only Shweta") == true)
+        // Control: his own card from the same folder takes no suffix.
+        let his = FileSyncManager.proposingAccount(for: s, facts: DocumentFacts(page: page.replacingOccurrences(of: "SHWETA DANI", with: "ABHISHEK GIRISH")),
+                                                   period: .init(year: 2026, month: 3), hint: "Credit 4321",
+                                                   index: index, taxonomy: treeWithHerCard, root: "/D", registry: Self.people)
+        #expect(his.best?.path.hasPrefix("/D/Credit Accounts/Chase/Credit 4321/") == true, "\(his.best?.path ?? "nil")")
+    }
+
     @Test func aTypeNoAccountHasGoesUnderTheBanksBusiestFolder() throws {
         let index = AccountIndex.build(tree: tree)
         let p = try #require(AccountProposal.propose(institution: "chase", type: "Auto Lease", ending: "2388",

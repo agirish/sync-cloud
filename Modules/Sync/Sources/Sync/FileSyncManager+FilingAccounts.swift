@@ -215,9 +215,15 @@ extension FileSyncManager {
                                     taxonomy: taxonomy, root: root, isArchived: isArchived, registry: registry)
                 : s
         }
+        // The folder's own spelling, when it is this account's; with the holder after the number
+        // when page 1 names only someone whose accounts carry their name (`Credit 8436 (Shweta)`).
+        let ownName = hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil }
+        let holder = ownName?.contains("(") == true ? nil
+            : AccountProposal.holderSuffix(page: f.text, tree: taxonomy, registry: registry)
+        let accountName = holder.map { h in (ownName ?? [type, ending].compactMap { $0 }.joined(separator: " ")) + " (\(h))" }
+            ?? ownName
         guard let p = AccountProposal.propose(institution: institution, type: type, ending: ending,
-                                              // The folder's own spelling, when it is this account's.
-                                              name: hinted.flatMap { h in ending == nil || h.digits == ending ? h.name : nil },
+                                              name: accountName,
                                               index: index, tree: taxonomy, period: period, fileName: s.fileName,
                                               isArchived: isArchived) else { return s }
         // The bank keeps statements of this category together in one folder (`Citi/Statements`): no
@@ -243,6 +249,7 @@ extension FileSyncManager {
         if let e = ending.map({ "••" + $0 }) { reason = "No folder holds \(bank) \(e)" }
         if let like = p.namedLike { reason += " · named like \((like as NSString).lastPathComponent)" }
         if f.matchingNumbers.isEmpty, hinted != nil { reason += " · the number is from the folder it came from" }
+        if let holder { reason += " · page 1 names only \(holder)" }
         var account = FilingAccount(root: root + "/" + p.accountRoot, ending: ending ?? "", institution: institution,
                                     archived: false, kind: .statement)
         account.institutionName = bank

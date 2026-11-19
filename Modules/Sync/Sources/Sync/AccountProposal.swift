@@ -97,6 +97,37 @@ public enum AccountProposal {
                         newSegments: missing(full, in: tree), ending: ending ?? "", namedLike: model?.root)
     }
 
+    /// The names the tree's account folders carry after their number, as the holder of an account
+    /// that isn't the user's own (`Credit 8436 (Shweta)`).
+    static func holderNames(in tree: [FileNode]) -> Set<String> {
+        var out: Set<String> = []
+        func visit(_ nodes: [FileNode], depth: Int) {
+            guard depth < 7 else { return }
+            for n in nodes where n.isDirectory {
+                let ns = n.name as NSString
+                if let m = holderRE.firstMatch(in: n.name, range: NSRange(location: 0, length: ns.length)) {
+                    out.insert(ns.substring(with: m.range(at: 1)))
+                }
+                visit(n.children ?? [], depth: depth + 1)
+            }
+        }
+        visit(tree, depth: 0)
+        return out
+    }
+    private static let holderRE = try! NSRegularExpression(pattern: #"^\D*\d[\d-]* \(([^()\d]+)\)$"#)
+
+    /// The holder a new account folder is named for: one of ``holderNames(in:)`` whom page 1
+    /// names, when it doesn't name the user too (a joint account is his). Nil when the registry
+    /// doesn't say who the user is, so the rule can't be applied.
+    static func holderSuffix(page: String, tree: [FileNode], registry: PersonRegistry?) -> String? {
+        guard let registry,
+              let me = registry.people.first(where: { $0.relationship?.lowercased() == "me" })?.id else { return nil }
+        let named = registry.detect(in: page)
+        guard !named.isEmpty, !named.contains(me) else { return nil }
+        let holders = holderNames(in: tree).filter { name in registry.person(forAxisValue: name).map(named.contains) == true }
+        return holders.count == 1 ? holders.first : nil
+    }
+
     /// Folders, outside any archive, whose own name is the institution's (case-insensitive).
     static func folders(namedFor institution: String, in tree: [FileNode],
                         isArchived: (String) -> Bool = { _ in false }) -> [String] {
