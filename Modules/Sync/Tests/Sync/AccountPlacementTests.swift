@@ -291,6 +291,39 @@ import Foundation
         #expect(best.newSegments == ["2025", "Income", "Form W-2"])
     }
 
+    /// A medical paper goes to the person its record number names, as the survey learned it
+    /// (``HealthLane``), after every other lane.
+    @Test func aVisitSummaryGoesToItsPatient() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingHealthLane")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let med = root.appendingPathComponent("Docs/Health/Medical")
+        try writeBytes(med.appendingPathComponent("Aditi/Visits/2025/1. Jan 5 2025 - Pediatrics - After Visit Summary.pdf"), Data(repeating: 0x41, count: 64))
+        try writeBytes(med.appendingPathComponent("Divit/Visits/2025/1. Feb 2 2025 - Pediatrics - After Visit Summary.pdf"), Data(repeating: 0x41, count: 64))
+        try writeBytes(med.appendingPathComponent("Insurance/EOBs/2025/Kaiser EOB - Jan 2 2025.pdf"), Data(repeating: 0x41, count: 64))
+        let account = root.appendingPathComponent("Docs/Bank Accounts/Bank of America/Checking 5696")
+        for m in 1...6 {
+            try writeBytes(account.appendingPathComponent(String(format: "2025/eStmt_2025-%02d-28.pdf", m)), Data(repeating: 0x41, count: 64))
+        }
+        let inbox = root.appendingPathComponent("Inbox")
+        let avs = inbox.appendingPathComponent("AVS.pdf")
+        try writeBytes(avs, Data(repeating: 0x41, count: 64))
+        let m = FileSyncManager(defaults: ScratchDefaults("AccountPlacementTests.6"))
+        let salt = "0123456789abcdef"
+        m.filingMemory = FilingMemory(profileId: "t", salt: salt, folders: [
+            "Health/Medical/Aditi/Visits/2025": FilingMemoryEntry(docs: 1, anchors: [],
+                idHashes: [FilingMemoryToken(token: FilingMemory.hash("11223344", salt: salt), weight: 1)], folderModified: nil),
+        ])
+        let page = "AFTER VISIT SUMMARY Divit Abhishek MRN: 11223344 Date of birth: 1/9/2019\n04/02/2025 Pediatrics"
+        m.filingContentExtractor = { _ in [] }
+        m.filingSnippetExtractor = { $0 == avs.path ? page : nil }
+        m.filingTokensFromText = { _ in [] }
+        m.filingClassifier = { _, _, _ in [:] }
+        await m.findFilingSuggestions(folder: inbox, providerRoot: root.appendingPathComponent("Docs"))
+        let best = try #require(m.filingSuggestions.first { $0.filePath == avs.path }?.best)
+        #expect(best.path == med.path + "/Aditi/Visits/2025", "\(best.path)")
+        #expect(best.proposedName == "2. Apr 2 2025 - After Visit Summary.pdf")
+    }
+
     /// A quarterly statement's card names the months it covers, from the range page 1 prints.
     @Test func aQuarterlyCardIsNamedForItsMonths() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingAccountQuarter")

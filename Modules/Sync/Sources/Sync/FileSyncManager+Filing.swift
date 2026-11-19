@@ -881,6 +881,10 @@ extension FileSyncManager {
         // folder as a copy. See ``TaxLane``.
         suggestions = TaxLane.placing(suggestions, pages: routerSnippets, taxonomy: taxonomy,
                                       root: providerRoot.path)
+        // A medical paper goes to the person its record number names, and billing to Insurance,
+        // whoever it names. See ``HealthLane``.
+        suggestions = HealthLane.placing(suggestions, pages: routerSnippets, taxonomy: taxonomy,
+                                         root: providerRoot.path, memory: filingMemory)
         // Which of these the tree already holds: after the naming pass, since "already filed in X"
         // is about the document, not the name it would land under, and before the publish so the
         // queue never shows a duplicate as ordinary for a frame.

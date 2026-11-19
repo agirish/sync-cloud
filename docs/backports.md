@@ -15995,3 +15995,20 @@ April, the year before (his rule). A bank statement listing a refund stays the b
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` | The router, no tax pass | RECORDED — not owed |
 | `v3.x` / `v2.x` | No router | CLOSED — does not apply |
+
+## Medical papers file by patient record number and kind — main only, recorded, not owed
+
+2026-11-18, for v7.2. His Health tree is person-first (`Health/Medical/<Person>/{Visits/<year>,
+Test Results, Immunizations}`) with the family's billing under `Health/Medical/Insurance`. On
+`main`, a last pass in To File's scan (`HealthLane`) sends a visit summary, result or immunization
+record to the person whose medical record number the filing memory saw in that person's folders
+(names mislead on medical pages), and an EOB, bill or claim to `Insurance/<kind>/<year>` whoever it
+names; visits are named `N. Mon D YYYY - <kind>` after the year's last, bills and EOBs
+`<Issuer> <Doc> - <Mon D YYYY>` by their own date. On his 542 Health PDFs it placed 145, 141 in the
+folder he chose. `v6.x`, `v5.x` and `v4.x` carry the router and memory without the pass; `v3.x`
+and `v2.x` have no router.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` | The router and memory, no health pass | RECORDED — not owed |
+| `v3.x` / `v2.x` | No router | CLOSED — does not apply |
