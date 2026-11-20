@@ -285,6 +285,7 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
 
     @Test func idleTimeLocksAndTheCountdownIsPublished() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
+        rig.defaults.set(VaultLockSettings.Relock.afterTwoMinutes.rawValue, forKey: VaultLockSettings.relockKey)
         try rig.seed([Self.mortgage])
         let model = rig.model()
         await model.opened()

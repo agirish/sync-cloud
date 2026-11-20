@@ -173,8 +173,8 @@ for: a passport number, a member ID, a loan number.
 - **Built for a phone call**: type to search, Return to copy, and **Large Type** to read an ID
   out, grouped as its card prints it, with its details under it. A copy clears from the clipboard
   after a minute.
-- **Locks itself** when it closes, after two idle minutes, and when the Mac sleeps. **Settings ▸
-  Vault** changes when it asks, or turns the lock off after one more Touch ID.
+- **Locks itself** when it closes, after a minute with nothing done in it, and when the Mac
+  sleeps. **Settings ▸ Vault** changes when it asks, or turns the lock off after one more Touch ID.
 - **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Social
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
@@ -189,10 +189,14 @@ for: a passport number, a member ID, a loan number.
   cards a household files under Legal: US driver's licenses (from the barcode on the back),
   Indian ones, Social Security cards and ITIN notices, PAN, Aadhaar (checked against its check
   digit) and voter IDs. An ID is kept only where its kind can be checked; a misread is
-  skipped, never guessed at. **Current**
+  skipped, never guessed at. Under Health, Home, Vehicles and School it reads account numbers
+  (member IDs, utility and phone accounts, loans, policies, VINs checked by their check digit,
+  student IDs), opening one paper per account per year, newest first, until two years agree;
+  elsewhere only files named as IDs are opened, so a read opens about a tenth of a Documents
+  folder. **Current**
   shows one of each kind per person; **Archive** keeps the expired, replaced and archived ones. Each
   ID lists every document that names it, with Quick Look and Reveal in Browse. After the first
-  read only new and changed files are opened.
+  read only new and changed files are opened, and a read goes on when the Vault is closed.
 - **Remove** an ID with ⌘⌫, a right-click or the ⋯ menu; the Vault asks first.
 
 ### 🧭 Guided setup

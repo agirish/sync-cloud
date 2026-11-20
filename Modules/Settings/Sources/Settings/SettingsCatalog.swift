@@ -532,9 +532,9 @@ public enum SettingsCatalog {
           default: .string(VaultLockSettings.Ask.whenOpened.rawValue), tier: .notInChat,
           dependsOn: ["vault.requiresAuthentication"]),
         e("vault.relock", .vault, "Lock again", indexed: true,
-          storage: app(VaultLockSettings.relockKey, "VaultLockSettings.relockKey", ".afterTwoMinutes"),
+          storage: app(VaultLockSettings.relockKey, "VaultLockSettings.relockKey", ".afterOneMinute"),
           control: .menu(VaultLockSettings.Relock.allCases.map { SettingChoice(.string($0.rawValue), $0.label) }),
-          default: .string(VaultLockSettings.Relock.afterTwoMinutes.rawValue), tier: .notInChat,
+          default: .string(VaultLockSettings.Relock.afterOneMinute.rawValue), tier: .notInChat,
           dependsOn: ["vault.requiresAuthentication"]),
         // Never in chat, and a count only: a folder's name can say what kind of papers are in it.
         e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],

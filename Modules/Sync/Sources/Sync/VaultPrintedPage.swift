@@ -133,7 +133,7 @@ struct PrintedPage {
         return best.map { kept[$0.start]..<line.index(after: kept[$0.end - 1]) }
     }
 
-    private static let separators: Set<Character> = [" ", "\t", ":", ".", "-", "*", "#"]
+    static let separators: Set<Character> = [" ", "\t", ":", ".", "-", "*", "#"]
 
     /// A date's label, abbreviated or not, for finding a layout's columns and rows: "Date of
     /// Issue", "Issue Date", "D.O.I.", "DOB", "ISS", "EXP", "Valid upto".
@@ -224,7 +224,13 @@ struct PrintedPage {
     /// The value after one of `labels`, on its line or within `below` lines under it, where `value`
     /// matches at its very start: "Passport No. A12345678", "Passport No." over "A12345678". The
     /// pattern's first group is the value, or its whole match when it has none.
-    func value(_ labels: [String], _ value: NSRegularExpression, below: Int = 1) -> String? {
+    ///
+    /// `keeping` vets each candidate, and the search goes on past one it turns down: "write your
+    /// account number on your check" is a label with no number, and the real one comes later.
+    /// `skipping` is what may stand between the label and its value; a reader that must see a
+    /// mask's asterisks ("****1234") leaves `*` out.
+    func value(_ labels: [String], _ value: NSRegularExpression, below: Int = 1,
+               skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 }) -> String? {
         func leading<S: StringProtocol>(_ text: S) -> String? {
             let s = String(text)
             let ns = s as NSString
@@ -235,9 +241,9 @@ struct PrintedPage {
         }
         for (index, line) in lines.enumerated() {
             guard let hit = Self.labelHit(labels, in: line) else { continue }
-            if let found = leading(line[hit.upperBound...].drop(while: Self.separators.contains)) { return found }
+            if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) { return found }
             for next in (index + 1)..<min(lines.count, index + 1 + below) {
-                if let found = leading(lines[next].drop(while: Self.separators.contains)) { return found }
+                if let found = leading(lines[next].drop(while: skipping.contains)).flatMap(keeping) { return found }
             }
         }
         return nil
@@ -250,8 +256,12 @@ struct PrintedPage {
 
     /// The first of `labels`, in the order given, that has a value: for a field one kind of
     /// document labels several ways, the most telling label first.
-    func value(preferring labels: [String], _ value: NSRegularExpression) -> String? {
-        labels.lazy.compactMap { self.value([$0], value) }.first
+    func value(preferring labels: [String], _ value: NSRegularExpression, skipping: Set<Character> = separators,
+               keeping: (String) -> String? = { $0 }) -> String? {
+        for label in labels {
+            if let found = self.value([label], value, skipping: skipping, keeping: keeping) { return found }
+        }
+        return nil
     }
 
     // MARK: Issue dates

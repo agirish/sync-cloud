@@ -64,6 +64,9 @@ struct VaultHost: ViewModifier {
             .onReceive(DistributedNotificationCenter.default().publisher(for: .init("com.apple.screenIsLocked"))) { _ in
                 lockForTheMac()
             }
+            // The window closed. A read the Vault left running would outlive these watches, and
+            // with them the lock for the Mac sleeping: it stops, keeping what it sealed so far.
+            .onDisappear { model.systemLocked() }
     }
 
     private func lockForTheMac() {

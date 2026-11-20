@@ -17,19 +17,26 @@ public struct VaultLockSettings: Equatable, Sendable {
         }
     }
 
-    /// When an unlocked Vault locks itself. Only read under ``Ask/whenOpened``.
+    /// When an unlocked Vault locks itself. Only read under ``Ask/whenOpened``. Idle means no use
+    /// at all: any click, key, scroll or pointer movement in the panel starts the count again.
     public enum Relock: String, Sendable, CaseIterable {
         case whenClosed
+        /// One idle minute, and when the Vault closes. The default.
+        case afterOneMinute
         /// Two idle minutes, and when the Vault closes.
         case afterTwoMinutes
+        /// Five idle minutes, and when the Vault closes.
+        case afterFiveMinutes
         /// Ten idle minutes, across closing and reopening.
         case afterTenMinutes
 
         public var label: String {
             switch self {
             case .whenClosed: return "When Vault closes"
-            case .afterTwoMinutes: return "After 2 minutes, or when Vault closes"
-            case .afterTenMinutes: return "After 10 minutes, even if closed"
+            case .afterOneMinute: return "After 1 minute idle, or when Vault closes"
+            case .afterTwoMinutes: return "After 2 minutes idle, or when Vault closes"
+            case .afterFiveMinutes: return "After 5 minutes idle, or when Vault closes"
+            case .afterTenMinutes: return "After 10 minutes idle, even if closed"
             }
         }
 
@@ -37,7 +44,9 @@ public struct VaultLockSettings: Equatable, Sendable {
         var idleLimit: TimeInterval? {
             switch self {
             case .whenClosed: return nil
+            case .afterOneMinute: return 60
             case .afterTwoMinutes: return 120
+            case .afterFiveMinutes: return 300
             case .afterTenMinutes: return 600
             }
         }
@@ -50,7 +59,7 @@ public struct VaultLockSettings: Equatable, Sendable {
     public var relock: Relock
 
     public init(requiresAuthentication: Bool = true, ask: Ask = .whenOpened,
-                relock: Relock = .afterTwoMinutes) {
+                relock: Relock = .afterOneMinute) {
         self.requiresAuthentication = requiresAuthentication
         self.ask = ask
         self.relock = relock
@@ -68,7 +77,7 @@ public struct VaultLockSettings: Equatable, Sendable {
         self.init(
             requiresAuthentication: defaults.object(forKey: Self.requiresAuthenticationKey) as? Bool ?? true,
             ask: defaults.string(forKey: Self.askKey).flatMap(Ask.init(rawValue:)) ?? .whenOpened,
-            relock: defaults.string(forKey: Self.relockKey).flatMap(Relock.init(rawValue:)) ?? .afterTwoMinutes)
+            relock: defaults.string(forKey: Self.relockKey).flatMap(Relock.init(rawValue:)) ?? .afterOneMinute)
     }
 }
 

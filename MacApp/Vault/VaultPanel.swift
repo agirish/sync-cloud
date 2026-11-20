@@ -150,9 +150,6 @@ struct VaultCard: View {
         /// A number read from a document, being checked before it is added.
         case confirming(UUID)
     }
-
-    /// Read Documents, so closing the panel stops it.
-    @State private var readTask: Task<Void, Never>?
     /// Read Documents was asked for with no folder chosen yet.
     @State private var askingForFolders = false
     /// The folders Read Documents looks in, read again as the panel appears and after a change.
@@ -162,6 +159,7 @@ struct VaultCard: View {
     @State private var draft = VaultModel.Draft()
     /// The entry Large Type is showing.
     @State private var largeType: UUID?
+    @State private var activity = VaultActivityWatch()
     /// Its lit line: nil for the ID, else the index of one of its details.
     @State private var largeTypeLine: Int?
     /// Where, Whose or Kinds, opened to choose again.
@@ -277,10 +275,18 @@ struct VaultCard: View {
                 .presentedNativeControlAccent()
         }
         .onChange(of: largeType) { _, now in if now == nil { focusSearch() } }
+        // A read in progress goes on: the model runs it, and lets the numbers go when it ends.
         .onDisappear {
-            readTask?.cancel()
+            activity.stop()
             model.closed()
         }
+        // Using the Vault keeps it open: the pointer moving over it, and any click, key or scroll
+        // while it is up. It locks only after its idle time with none of these.
+        .onContinuousHover { phase in
+            if case .active = phase { model.panelActivity() }
+        }
+        .onAppear { activity.start { model.panelActivity() } }
+        .background(VaultWindowReader(watch: activity))
         // ⌘⌫ removes the chosen row, after asking. Not while the search has text, where it
         // deletes to the start of the line as usual, nor while the editor is open.
         .background {
@@ -469,25 +475,31 @@ struct VaultCard: View {
         }
     }
 
-    /// Above the cards, and staying put as they scroll: the search that narrows them, and Collapse
-    /// All, in words (Expand All once every card is folded).
+    /// What the list is showing: where, whose and which kinds, beside the tabs they narrow.
+    private var showingChoices: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Text("Showing")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                // Where is offered once the numbers span two countries, or while one is chosen.
+                if model.spansCountries || model.geoFilter != .all { wherePart }
+                whosePart
+                kindsPart
+            }
+            .padding(.vertical, 2)
+        }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// Above the cards, and staying put as they scroll: the search that narrows them, Collapse
+    /// All in words (Expand All once every card is folded), and Cards or List. Collapse All, shown
+    /// only with the cards, sits to the switch's left, so the switch stays put as it comes and goes.
     private var searchRow: some View {
         HStack(spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    Text("Showing")
-                        .scaledFont(.subheadline)
-                        .foregroundStyle(.secondary)
-                    // Where is offered once the numbers span two countries, or while one is chosen.
-                    if model.spansCountries || model.geoFilter != .all { wherePart }
-                    whosePart
-                    kindsPart
-                }
-                .padding(.vertical, 2)
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             searchField
-                .frame(minWidth: 140, maxWidth: 220)
+                .frame(minWidth: 160, maxWidth: 320)
+            Spacer(minLength: 8)
             if !showsList, !model.cards.isEmpty {
                 Button {
                     withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() }
@@ -499,6 +511,9 @@ struct VaultCard: View {
                 .controlSize(.small)
                 .help(model.allFolded ? "Open every card" : "Fold every card to its header. ⌥-click a card’s header does the same.")
             }
+            VaultViewSwitch(showsList: $showsList, hue: glassHue)
+                .fixedSize()
+                .onChange(of: showsList) { _, list in model.showsList = list }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -748,9 +763,10 @@ struct VaultCard: View {
         }
     }
 
-    /// Current, Archive and Other Finds; whose; and Cards or List.
+    /// Current, Archive and Other Finds, and beside them what they are showing: where, whose and
+    /// which kinds.
     private var controlRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Picker("Show", selection: $model.tab) {
                 Text("Current \(model.count(in: .current))").tag(VaultStanding.Tab.current)
                 Text("Archive \(model.count(in: .archive))").tag(VaultStanding.Tab.archive)
@@ -763,17 +779,7 @@ struct VaultCard: View {
             .labelsHidden()
             .fixedSize()
             .help("Current: the ID in use for each person and kind. Archive: older ones, kept for reference. A search looks in every tab.")
-            Spacer(minLength: 8)
-            Picker("View", selection: $showsList) {
-                Image(systemName: "square.grid.2x2").tag(false).help("Cards")
-                Image(systemName: "list.bullet").tag(true).help("List")
-            }
-            .pickerStyle(.segmented)
-            .accentedSegments(glassHue)
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityLabel("Cards or list")
-            .onChange(of: showsList) { _, list in model.showsList = list }
+            showingChoices
         }
         .controlSize(.small)
         .padding(.horizontal, 12)
@@ -1209,6 +1215,8 @@ struct VaultCard: View {
             which = row.facts?.form != nil ? row.title
                 : row.facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
         case .uscisCase: which = row.facts?.form ?? (whose == nil ? "USCIS case" : nil)
+        // An account read from a paper by who issued it and what the number is: "EBMUD · Account number".
+        case .health, .utilities, .loans, .other: which = row.facts == nil ? nil : row.title
         default: which = nil
         }
         let parts = [whose, which].compactMap { $0 }
@@ -1731,9 +1739,10 @@ struct VaultCard: View {
         case .pan: return "PAN"
         case .aadhaar: return "Aadhaar number"
         case .voterID: return "EPIC number"
-        case .health: return "Member ID"
-        case .utilities, .loans: return "Account number"
-        case .other: return "Number"
+        // A read account's number as its paper calls it: "Member ID", "Policy number", "Student ID".
+        case .health: return form ?? "Member ID"
+        case .utilities, .loans: return form ?? "Account number"
+        case .other: return form ?? "Number"
         }
     }
 
@@ -1829,7 +1838,8 @@ struct VaultCard: View {
             askingForFolders = true
             return
         }
-        readTask = Task { await model.readDocuments(with: VaultFolderReader(folders: folders), again: again) }
+        // The model runs it, so it carries on when the panel closes.
+        model.startReading(with: VaultFolderReader(folders: folders), again: again)
     }
 
     /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.
@@ -1977,6 +1987,62 @@ struct VaultCard: View {
             try? await Task.sleep(for: .seconds(2))
             if copiedDetail == key { copiedDetail = nil }
         }
+    }
+}
+
+// MARK: - Activity
+
+/// Use of the app while the Vault is up, which covers the window: any click, key or scroll counts
+/// as using the Vault, so it locks only once it has been left alone. The pointer moving over the
+/// panel is the panel's own `onContinuousHover`.
+@MainActor final class VaultActivityWatch {
+    private var monitor: Any?
+    /// The window the panel is in, set by ``VaultWindowReader``. Only events there, or in a sheet
+    /// or child window of it, count: work in another window leaves this one's Vault idle, and
+    /// every window has a Vault of its own.
+    weak var window: NSWindow?
+
+    func start(_ onActivity: @escaping @MainActor () -> Void) {
+        stop()
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .leftMouseDragged]
+        ) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let window = self?.window, let target = event.window,
+                      target === window || target.sheetParent === window || target.parent === window else { return }
+                onActivity()
+            }
+            return event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+/// Tells a ``VaultActivityWatch`` which window the panel is in.
+struct VaultWindowReader: NSViewRepresentable {
+    let watch: VaultActivityWatch
+
+    final class Probe: NSView {
+        weak var watch: VaultActivityWatch?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            watch?.window = window
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.watch = watch
+        return probe
+    }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        probe.watch = watch
+        watch.window = probe.window
     }
 }
 

@@ -24,10 +24,14 @@ struct VaultFolderReader: VaultDocumentReading {
     /// photo library export, and would hold up the read for nothing.
     static let largestFile = 60 * 1024 * 1024
 
-    /// Every file in the folders, however many: only new and changed ones are opened after the
-    /// first read (``VaultModel/readDocuments(with:again:)``), so a large folder costs its time
-    /// once, and a read stopped partway carries on from where it stopped.
+    /// Every file in the folders, however many. Of those, only what ``VaultReadPlan`` picks is
+    /// opened (identity papers whole, one paper per account per year, IDs by name elsewhere), and
+    /// after the first read only new and changed ones (``VaultModel/readDocuments(with:again:)``),
+    /// so a large folder costs its time once, and a read stopped partway carries on from where it
+    /// stopped.
     func files() async -> [URL] { await walk().files }
+
+    var followsReadPlan: Bool { true }
 
     func walk() async -> (files: [URL], unreachable: [String]) {
         await Task.detached(priority: .userInitiated) { [folders] in Self.walk(folders) }.value

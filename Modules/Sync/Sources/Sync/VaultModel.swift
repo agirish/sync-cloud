@@ -15,10 +15,22 @@ public protocol VaultDocumentReading: Sendable {
     /// The files, and the folders under the chosen ones that could not be opened: what was read
     /// in those is kept, not taken for deleted.
     func walk() async -> (files: [URL], unreachable: [String])
+    /// When a file was last changed: which year it is for, when neither a year folder nor its
+    /// name says, and which of a year's files is newest.
+    func modified(of file: URL) -> Date?
+    /// Whether only the files ``VaultReadPlan`` picks are opened. The app's reader does; a
+    /// stand-in in a test reads every file it is handed unless it says otherwise.
+    var followsReadPlan: Bool { get }
 }
 
 extension VaultDocumentReading {
     public func walk() async -> (files: [URL], unreachable: [String]) { (await files(), []) }
+
+    public var followsReadPlan: Bool { false }
+
+    public func modified(of file: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+    }
 
     public func stamp(of file: URL) -> String? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
@@ -285,6 +297,23 @@ public final class VaultModel: ObservableObject {
         return named.count == 1 ? named.first : nil
     }
 
+    /// The person whose folder a document is filed in: the deepest folder below the read folder
+    /// that names one of the household's people and no one else (`Health/Medical/Shweta`, never
+    /// `Visitor Insurance/2021 - Girish, Muktha and Anuraag`). Never a folder above the read
+    /// folder: the home folder is named for whoever's Mac it is.
+    public nonisolated static func person(inPath path: String, under readFolders: [String], among people: [Person]) -> String? {
+        guard !people.isEmpty,
+              let root = readFolders.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count }) else { return nil }
+        let registry = PersonRegistry(people: people)
+        let below = String(path.dropFirst(root.count + 1))
+        for folder in (below as NSString).deletingLastPathComponent.split(separator: "/").reversed() {
+            let named = registry.detect(in: String(folder))
+            if named.count == 1 { return named.first }
+            if named.count > 1 { return nil }
+        }
+        return nil
+    }
+
     /// Every number, saved and waiting, each with where it stands. Worked out afresh each time,
     /// so a saved passport and a newer one read today are weighed together.
     public var rows: [Row] {
@@ -313,6 +342,11 @@ public final class VaultModel: ObservableObject {
     /// its idle limit passes, though no tick runs then.
     private var panelUp = false
     private var releaseWhenIdle: Task<Void, Never>?
+    private var lastPanelActivity = Date.distantPast
+    /// Read Documents, owned here so it outlives the panel.
+    private(set) var readingTask: Task<Void, Never>?
+    /// The Vault locked while a read was going on: its numbers go once the read ends.
+    private var releaseAfterReading = false
     private var spansCache: (key: RowsKey, spans: Bool)?
 
     private static func dayStamp(_ date: Date) -> Int {
@@ -393,6 +427,14 @@ public final class VaultModel: ObservableObject {
                 all[index].facts?.holder = match.holder
             }
         }
+        // A paper that prints no name is whoever's folder it is filed in: `Health/Medical/Shweta`.
+        for index in all.indices where all[index].chosen == nil && all[index].personID == nil
+            && all[index].facts?.holder == nil {
+            if let path = all[index].facts?.primary?.path,
+               let id = Self.person(inPath: path, under: folders, among: people) {
+                all[index].personID = id
+            }
+        }
         // Grouped by whose it is as best known: the choice, else the matched person, else the
         // name or birth date read. A saved passport and a new read of the same person's meet.
         let standings = VaultStandings.compute(all.map { item in
@@ -401,7 +443,11 @@ public final class VaultModel: ObservableObject {
                                       pin: item.pin, assignment: grouping, isChosen: item.chosen != nil)
         }, now: now, readFolders: folders)
         return all.map { item in
+            // Nobody's in particular: typed in for no one, or a utility or a loan read with no
+            // person, which is the household's.
             let isHousehold = item.chosen == .household || (item.facts == nil && item.personID == nil)
+                || (item.chosen == nil && item.personID == nil && item.facts?.holder == nil
+                    && [.utilities, .loans].contains(item.category))
             let personName = item.personID.flatMap { id in people.first { $0.id == id }?.displayName }
             let whose = isHousehold ? "Household"
                 : personName ?? (item.personID != nil ? "Someone no longer in People" : nil)
@@ -720,6 +766,9 @@ public final class VaultModel: ObservableObject {
         now = clock()
         panelUp = true
         releaseWhenIdle?.cancel()
+        // Opened again before a read that outlived the last close ended: the panel holds the
+        // numbers now, under its lock, so the read's end has nothing to let go.
+        releaseAfterReading = false
         let settings = VaultLockSettings(defaults: defaults, store: store)
         if settings != lock.settings {
             lockEpoch &+= 1
@@ -769,6 +818,11 @@ public final class VaultModel: ObservableObject {
         lockEpoch &+= 1
         lock.lock()
         now = clock()
+        // Whoever comes to the Mac next is a stranger until they prove otherwise: a read in
+        // progress stops too, keeping what it sealed so far.
+        readingTask?.cancel()
+        readingTask = nil
+        releaseAfterReading = false
         release()
     }
 
@@ -788,12 +842,39 @@ public final class VaultModel: ObservableObject {
         lock.keepShown(at: clock())
     }
 
+    /// Any use of the panel at all: a click, a key, a scroll, the pointer moving over it. An open
+    /// Vault then locks only after the idle time its setting allows, never mid-use. Taken at most
+    /// once a second, so a moving pointer does not redraw the panel. Unlike ``noteActivity()``, it
+    /// never keeps a number shown under "every number": that number's thirty seconds are its own.
+    public func panelActivity() {
+        let time = clock()
+        guard time.timeIntervalSince(lastPanelActivity) >= 1 else { return }
+        lastPanelActivity = time
+        used()
+    }
+
     /// Chooses `id` and shows it: its tab, and back to all for whichever filter would hide it.
     public func reveal(_ id: UUID) { showEvenIfFiltered(id) }
 
+    /// Lets the numbers go once the Vault is locked, or, while Read Documents is still reading,
+    /// once it finishes: a read carries on with the panel closed, and needs what it has read so far
+    /// to seal it. Nothing is shown meanwhile; the lock has already locked.
     private func releaseIfLocked() {
         guard lock.settings.requiresAuthentication, !lock.isOpen(at: now) else { return }
+        guard reading == nil else {
+            releaseAfterReading = true
+            return
+        }
         release()
+    }
+
+    /// Read Documents, run by the model so it goes on when the panel closes. One at a time.
+    public func startReading(with reader: VaultDocumentReading, again: Bool = false) {
+        guard reading == nil, readingTask == nil else { return }
+        readingTask = Task { [weak self] in
+            await self?.readDocuments(with: reader, again: again)
+            self?.readingTask = nil
+        }
     }
 
     /// Lets every number go from memory. To Confirm is sealed first, so the next unlock brings it
@@ -1061,7 +1142,8 @@ public final class VaultModel: ObservableObject {
     /// of a large folder is quick, and a read that was stopped carries on where it stopped.
     /// `again` opens every file, as after a change to what the Vault reads.
     public func readDocuments(with reader: VaultDocumentReading, again: Bool = false) async {
-        guard reading == nil else { return }
+        // Stopped before it began (the Mac locked first): nothing is loaded for it.
+        guard reading == nil, !Task.isCancelled else { return }
         load()
         guard contents == .loaded else { return }
         // Settings ▸ Vault ▸ Forget while the Vault stayed loaded: the record of read files
@@ -1070,34 +1152,90 @@ public final class VaultModel: ObservableObject {
         if again || generation != readGeneration { readIndex = [:] }
         readGeneration = generation
         reading = ReadingProgress(done: 0, total: 0)
-        defer { reading = nil }
+        defer {
+            reading = nil
+            // The Vault closed while this read went on, and kept the numbers for it: let them go
+            // now, as closing would have, however the read ended.
+            if releaseAfterReading {
+                releaseAfterReading = false
+                now = clock()
+                lock.expire(at: now)
+                releaseIfLocked()
+            }
+        }
         let began = Date()
         let (files, unreachable) = await reader.walk()
-        reading = ReadingProgress(done: 0, total: files.count)
+        // The Mac locked during the walk, letting the numbers go: nothing to read into.
+        guard !Task.isCancelled, contents == .loaded else {
+            Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
+            return
+        }
+        let roots = VaultReadFolders.folders(in: defaults)
+        // Which files to open, by their paths alone (``VaultReadPlan``): a small share of what is
+        // on disk. The rest are still present: what was read from them before stays.
+        let steps = reader.followsReadPlan
+            ? VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
+            : files.map { VaultReadPlan.Step(file: $0, account: nil) }
+        reading = ReadingProgress(done: 0, total: steps.count)
         // Counts only, here and below. A file's name can hold the very number it carries.
-        Logger.shared.info("Vault: reading \(files.count) document(s)" + (again || readIndex.isEmpty ? ", every one" : ", new and changed ones"))
+        Logger.shared.info("Vault: \(files.count) document(s) in the read folders, \(steps.count) to look at"
+                           + (again || readIndex.isEmpty ? ", every one" : ", new and changed ones"))
         var tally = VaultReadTally()
         tally.documents = files.count
         func stopped(at index: Int) {
-            Logger.shared.info("Vault: read stopped at \(index) of \(files.count) document(s), \(tally.opened) opened; "
+            Logger.shared.info("Vault: read stopped at \(index) of \(steps.count) document(s), \(tally.opened) opened; "
                                + "the Vault closed or locked, and what was read is kept")
         }
-        for (index, file) in files.enumerated() {
+        // An account is read newest year first, and no further once two of its years agree on
+        // its numbers: the older years would only say the same again.
+        var lastNumbers: [String: Set<String>] = [:]
+        var emptyYears: [String: Int] = [:]
+        var bareSeen: [String: [String: String]] = [:]
+        var settled = Set<String>()
+        func accountNumbers(in path: String) -> Set<String> {
+            let found = finds.filter { find in
+                VaultReading.accountCategories.contains(find.category) && find.facts.sources.contains { $0.path == path }
+            }.map { VaultReading.normalized($0.value) }
+            let saved = copies.filter { $0.value[path].map { VaultReading.accountCategories.contains($0.category) } ?? false }.keys
+            return Set(found).union(saved)
+        }
+        // Two years that agree settle an account, and so do its three newest giving nothing:
+        // papers of that kind carry no number the readers know. Three, not two: a phone bill that
+        // stopped labelling its number in 2025 still did in 2024.
+        func settle(_ step: VaultReadPlan.Step) {
+            guard let account = step.account else { return }
+            let numbers = accountNumbers(in: step.file.path)
+            if numbers.isEmpty {
+                if lastNumbers[account] == nil, emptyYears[account, default: 0] + 1 >= 3 { settled.insert(account) }
+                emptyYears[account, default: 0] += 1
+                return
+            }
+            if lastNumbers[account] == numbers { settled.insert(account) }
+            lastNumbers[account] = numbers
+        }
+        for (index, step) in steps.enumerated() {
+            let file = step.file
             // The panel closed or the Mac locked, letting the numbers go. What was
             // read so far was sealed as it went.
             if Task.isCancelled || contents != .loaded { return stopped(at: index) }
+            if let account = step.account, settled.contains(account) {
+                reading = ReadingProgress(done: index + 1, total: steps.count)
+                continue
+            }
             let stamp = reader.stamp(of: file)
             if let stamp, readIndex[file.path] == stamp {
-                reading = ReadingProgress(done: index + 1, total: files.count)
+                settle(step)
+                reading = ReadingProgress(done: index + 1, total: steps.count)
                 continue
             }
             let pages = await reader.pages(in: file)
-            guard contents == .loaded else { return stopped(at: index) }
+            // Locked meanwhile, even if opened again since: this read was stopped.
+            guard !Task.isCancelled, contents == .loaded else { return stopped(at: index) }
             // Nothing came back: locked, damaged, or not there for a moment. What it gave before,
             // and the choices made about it, stay; it is not marked read, so the next read tries again.
             guard !pages.isEmpty else {
                 tally.record(pages, ([], []))
-                reading = ReadingProgress(done: index + 1, total: files.count)
+                reading = ReadingProgress(done: index + 1, total: steps.count)
                 continue
             }
             // A changed file is read afresh: what it said before is let go first. A number it
@@ -1107,7 +1245,7 @@ public final class VaultModel: ObservableObject {
                 .map { (VaultReading.normalized($0.value), VaultChoice(id: $0.id, pin: $0.pin, assignment: $0.assignment, geo: $0.geo)) },
                 uniquingKeysWith: { a, _ in a })
             forgetSource(file.path)
-            let read = VaultReading.read(pages: pages, from: file.path)
+            let read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
             tally.record(pages, read)
             for var find in read.finds {
                 let key = VaultReading.normalized(find.value)
@@ -1124,13 +1262,31 @@ public final class VaultModel: ObservableObject {
             for mention in read.mentions {
                 mentions[VaultReading.normalized(mention.value), default: []].append(mention.source)
             }
+            // An account whose papers print its number with no label (a phone bill's header): a
+            // number standing alone that a second year of the same account prints too.
+            if let account = step.account, lastNumbers[account] == nil, accountNumbers(in: file.path).isEmpty {
+                let printed = PrintedPage(pages.flatMap { $0 })
+                let bare = VaultReading.bareAccountNumbers(on: printed, from: file.path, under: roots)
+                // Exactly one number both years print: two (a customer service line the readers
+                // took for a number, say) leave the account unread rather than guessed at.
+                let repeated = bare.filter { bareSeen[account]?[$0] != nil }
+                if repeated.count == 1, let value = repeated.first, let earlier = bareSeen[account]?[value] {
+                    var find = VaultReading.bareAccountFind(value, on: printed, from: file.path, under: roots, people: people)
+                    find.facts.add(VaultSource(path: earlier, role: "Account paper", rank: VaultReading.IDRank.letter))
+                    if take(find) { tally.added += 1 }
+                    settled.insert(account)
+                } else {
+                    for value in bare where bareSeen[account]?[value] == nil { bareSeen[account, default: [:]][value] = file.path }
+                }
+            }
             if let stamp { readIndex[file.path] = stamp }
+            settle(step)
             readingChanged = true
-            reading = ReadingProgress(done: index + 1, total: files.count)
+            reading = ReadingProgress(done: index + 1, total: steps.count)
             // Sealed every so often, so a read stopped halfway keeps what it had.
             if tally.opened % 25 == 0 { saveReading() }
             if tally.opened % 250 == 0 {
-                Logger.shared.debug("Vault: \(index + 1) of \(files.count) document(s) looked at, \(tally.opened) opened")
+                Logger.shared.debug("Vault: \(index + 1) of \(steps.count) document(s) looked at, \(tally.opened) opened")
             }
         }
         // A file gone from the folders is forgotten, so one put back is read again; a number
@@ -1253,7 +1409,9 @@ public final class VaultModel: ObservableObject {
     /// Seals To Confirm and the record of read files. A refusal is logged and otherwise let go:
     /// the next read rebuilds whatever was lost.
     private func saveReading() {
-        guard readingChanged, let store else { return }
+        // Never once the numbers are let go: what is in memory then is nothing, and sealing it
+        // would write that over what was read.
+        guard readingChanged, contents == .loaded, let store else { return }
         let state = VaultReadingState(generation: readGeneration, finds: finds, read: readIndex,
                                       mentions: mentions, copies: copies, choices: choices,
                                       needsReadAgain: needsReadAgain)

@@ -11,7 +11,7 @@ import Sync
 struct VaultSettingsTab: View {
     @AppStorage(VaultLockSettings.requiresAuthenticationKey) private var requiresAuthentication: Bool = true
     @AppStorage(VaultLockSettings.askKey) private var ask: VaultLockSettings.Ask = .whenOpened
-    @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterTwoMinutes
+    @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterOneMinute
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
     /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
@@ -54,7 +54,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Folders to Read",
-                caption: "Read Documents in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
+                caption: "Read Documents in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
             ) {
                 SettingsRow("Folders") {
                     // One column, right-aligned: each folder's Remove lines up under the last, and

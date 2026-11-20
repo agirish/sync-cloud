@@ -91,10 +91,13 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 11
+    public static let version = 12
 
     /// Every number on a document, once each, and the numbers it only names.
-    public static func read(pages: [[String]], from path: String) -> (finds: [VaultFind], mentions: [VaultMention]) {
+    /// `roots` are the read folders and `people` the household's, for account numbers: which area
+    /// a paper is in, and which of its folders names who issued it (``accountNumbers(on:from:under:people:)``).
+    public static func read(pages: [[String]], from path: String, under roots: [String] = [],
+                            people: [Person] = []) -> (finds: [VaultFind], mentions: [VaultMention]) {
         var out: [VaultFind] = []
         var seen = Set<String>()
         func keep(_ find: VaultFind) {
@@ -129,9 +132,11 @@ public enum VaultReading {
         // Page by page: one PDF can hold two notices, each for its own person, form and dates.
         for page in pages {
             let pageText = page.joined(separator: "\n")
+            let printed = PrintedPage(page)
             for find in receiptNumbers(in: pageText, from: path) { keep(find) }
             for find in admissionNumbers(in: pageText, from: path) { keep(find) }
-            for find in travelPermits(on: PrintedPage(page), from: path) { keep(find) }
+            for find in travelPermits(on: printed, from: path) { keep(find) }
+            for find in accountNumbers(on: printed, from: path, under: roots, people: people) { keep(find) }
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
