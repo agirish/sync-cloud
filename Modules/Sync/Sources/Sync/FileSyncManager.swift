@@ -572,6 +572,15 @@ public class FileSyncManager: ObservableObject {
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
 
+    // MARK: Missing statements
+    @Published public internal(set) var missingLifecycle = ScanLifecycle()
+    /// What each account folder lacks, from the last names-only walk and the choices handed to it.
+    @Published public internal(set) var missingReport: MissingStatements.Report?
+    /// The last walk's file paths, relative to its root, kept so a change of choices recomputes
+    /// the report without walking again.
+    var missingWalk: (paths: [String], notChecked: [String])?
+    var missingTask: Task<Void, Never>?
+
     // MARK: Name Normalizer — bulk-fix cloud-hostile names (see FileSyncManager+NameNormalize.swift)
 
     /// The Name Normalizer scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.

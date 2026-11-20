@@ -8,7 +8,7 @@ import Foundation
 @Suite struct OrganizeRailCountsTests {
 
     static let counts = LensWorkspaceView.RailCounts(
-        toFile: 24, duplicates: 722, names: 3, renames: 126, restructure: 2, rules: 8)
+        toFile: 24, duplicates: 722, names: 3, renames: 126, restructure: 2, missing: 31, rules: 8)
 
     @Test func everyLensReadsItsOwnNumber() {
 // Every value distinct, so a copy-pasted pair cannot hide.
@@ -18,15 +18,16 @@ import Foundation
 // Renames' badge counts its folder rows plus the risky names; distinct addends prove the sum.
         #expect(c[.renames] == 126 + 3)
         #expect(c[.restructure] == 2)
+        #expect(c[.missing] == 31)
         #expect(c[.rules] == 8)
-        // And the six are genuinely distinct, so the assertions above discriminate.
+        // And the seven are genuinely distinct, so the assertions above discriminate.
         #expect(Set(OrganizeLens.allCases.map { c[$0] }).count == OrganizeLens.allCases.count)
     }
 
     @Test func badgeAnswersForTheItemsThatWouldDrawOne() {
 // `OrganizeRailMetrics` sizes the rail from these, by value, since a badge is as wide as its
-// digits. Four: `.rules` and `.storage` never carry one.
-        #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 4)
+// digits. Five: `.rules` and `.storage` never carry one.
+        #expect(OrganizeLens.allCases.count { Self.counts.badge($0) != nil } == 5)
         // And each one carries its own list's size rather than some shared truthy marker.
         for lens in OrganizeLens.allCases where lens.carriesBadge {
             #expect(Self.counts.badge(lens) == Self.counts[lens])

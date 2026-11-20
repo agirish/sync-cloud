@@ -3042,6 +3042,15 @@ struct ContentView: View {
         // restore here too would be a second path to one behaviour.
         case .storage:
             break
+        // Missing reads names, which takes under a second, so showing it is reason enough to read
+        // them again once the answer on screen is a minute old. This fires on every column click;
+        // the age test keeps that from being a walk per click. Like the arms above it refreshes
+        // only what has run here before: the first walk of a source is asked for, never assumed.
+        case .missing:
+            guard syncManager.missingLifecycle.hasCompleted, !syncManager.isFindingMissingStatements,
+                  let read = syncManager.missingLifecycle.completedAt,
+                  Date().timeIntervalSince(read) > 60 else { return }
+            findMissingStatementsAction()
         // Restructure reads the profile rather than the disk, and rules are configuration —
         // neither goes stale because a folder changed.
         case .restructure, .rules:
@@ -3335,6 +3344,16 @@ struct ContentView: View {
     func show(_ lens: OrganizeLens) {
         selectedWorkspace = .filing
         selectedOrganizeLens = lens
+    }
+
+    /// Starts Missing's names-only walk of the source the lenses describe, under the choices kept
+    /// for it. Not the scope: the choices are keyed by paths below the source's root, and the lens
+    /// narrows to the scope itself.
+    func findMissingStatementsAction() {
+        let root = lensProviderAnchorExpanded
+        guard !root.isEmpty else { return }
+        let url = URL(fileURLWithPath: root)
+        syncManager.startFindingMissingStatements(root: url, choices: syncManager.missingChoices(for: url))
     }
 
     func buildStorageLensAction() {
@@ -4818,6 +4837,7 @@ struct ContentView: View {
                 // A To File card's files, so ← and → in the panel step through them.
                 onQuickLookIn: { toggleQuickLook($1, among: $0) },
                 onBuildStorage: buildStorageLensAction,
+                onFindMissing: findMissingStatementsAction,
                 documentSurveyCard: documentSurveyCardState,
                 onStartDocumentSurvey: startDocumentSurveyAction,
                 onStartDocumentSurveyOver: startDocumentSurveyOverAction,

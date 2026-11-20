@@ -79,6 +79,7 @@ enum OrganizeRailMetrics {
         case .duplicates:  base = 14
         case .renames:     base = 17
         case .restructure: base = 14
+        case .missing:     base = 15
         case .rules:       base = 14
         case .storage:     base = 13
         }

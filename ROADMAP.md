@@ -1021,28 +1021,36 @@ reached this Mac (expected: a conflicted copy, which then waits for you).
 
 ---
 
-## 24. Missing statements (TE348) — the finder is built; the lens is not
+## 24. Missing statements (TE348) — the finder and the lens are built
 
 **What:** list the statements each account folder lacks, from file and folder names alone. His
 statements are named `N. Mon YYYY` in account and year folders, so the months that never arrived
 can be read without opening a file.
 
-**Built:** the finder (`MissingStatements`, in Sync) and `synccloud missing [folder] [--json]`. An
-account is a folder with four or more named statements. Its rhythm near a break is the usual pause
-among up to twelve statements on each side; a hole in a steady, evenly spaced account is counted
-up to twelve statements, a longer one is a silence with an estimate, and the newest finished month
-is never counted. A card's gap counts only as one or two statements in an unbroken run. After the
-newest statement of an account with no rhythm every month counts, until its next statement arrives
-(decisions PC, PD, PF). A CSV without its PDF is missing; a gap beside unnamed PDFs is listed and
-never counted; a named statement in an inbox folder is waiting.
+**Built:**
+- The finder (`MissingStatements`, in Sync) and `synccloud missing [folder] [--json]`. An account
+  is a folder with four or more named statements. Its rhythm near a break is the usual pause among
+  up to twelve statements on each side; a hole in a steady, evenly spaced account is counted up to
+  twelve statements, a longer one is a silence with an estimate, and the newest finished month is
+  never counted. A card's gap counts only as one or two statements in an unbroken run. After the
+  newest statement of an account with no rhythm every month counts, until its next statement
+  arrives (decisions PC, PD, PF). A CSV without its PDF is missing; a gap beside unnamed PDFs is
+  listed and never counted; a named statement in an inbox folder is waiting.
+- Organize ▸ Missing, the seventh lens, with a names-only walk and scan pass of its own
+  (`FileSyncManager+Missing`, `OrganizePass.missing`). One row per account, recent gaps first, a
+  cell a month for three years, and a detail column with every gap. Hide Account, Stop Tracking,
+  Start Tracking, Not Expected and Count as Missing change what is counted, never a file; each is
+  one ⌘Z, and all are kept in a `missing` section of the survey's `restructure.json`, which a
+  landing re-keys. Copy List puts the list on the clipboard.
 
 **Next, in order:**
-1. The lens: a seventh Organize lens, Missing, with its own names-only walk and scan pass, one row
-   per account, Hide Account, Stop Tracking, Not Expected and Count as Missing. Those choices are
-   already read by the finder (`MissingStatements.Choices`) from a `missing` section of the
-   survey's `restructure.json`; nothing writes that section yet.
-2. Payslips and other twice-a-month schedules, and a year check.
-3. “Fills a Gap” on To File cards, and Ask Claude reading the list.
+1. Payslips and other twice-a-month schedules, and a year check.
+2. “Fills a Gap” on To File cards, and Ask Claude reading the list.
+
+**Left out of the lens, on purpose or for now:** arrow keys, Return and ⌘C on its rows (no lens
+has them); Stop Tracking on several accounts at once; a Settings row that clears the choices; a
+row in Activity (the walk takes under a second). On a source with no survey of its own the lens
+lists and counts, and the choices are not offered.
 
 **Not measured:** how often a counted month is truly missing. Every test removes a statement and
 checks the rule notices; none compares against what a bank lists. Folders that are not accounts

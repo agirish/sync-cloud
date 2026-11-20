@@ -485,6 +485,9 @@ enum PalettePlace: CaseIterable {
         case .lens(.renames): return ["organize", "renames", "rename", "numbering", "backlog",
                                       "folders", "names", "risky", "illegal", "characters"]
         case .lens(.restructure): return ["organize", "restructure", "structure", "shape", "habits"]
+        // "statement" and "gap" are what someone types who wants to know what a bank still owes.
+        case .lens(.missing): return ["organize", "missing", "statements", "statement", "gap", "gaps",
+                                      "months", "accounts"]
         case .lens(.rules): return ["organize", "rules", "automations", "automatic", "learned"]
         // `space`, `disk` and `size` are what someone reaches for who wants to know where their
         // storage went.

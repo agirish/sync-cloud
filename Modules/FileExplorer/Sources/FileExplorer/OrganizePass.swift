@@ -21,6 +21,10 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// survey already learned, so it can be reporting while every other lens has never run.
     case folderMemory
 
+    /// The names-only walk behind Missing. A pass of its own, not the file pass: that one reads
+    /// file contents and prunes the inbox from the tree it keeps, and Missing needs neither.
+    case missing
+
     var id: String { rawValue }
 
     /// The lenses this pass answers, in rail order.
@@ -34,6 +38,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         case .file: return [.toFile, .renames]
         case .duplicates: return [.duplicates]
         case .folderMemory: return [.restructure]
+        case .missing: return [.missing]
         }
     }
 
@@ -55,7 +60,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
     /// exists because the switch is total; the file pass's one control stays on row 2.
     var rescanTitle: String {
         switch self {
-        case .file, .duplicates: return "Rescan"
+        case .file, .duplicates, .missing: return "Rescan"
         // Restructure runs no walk, so "rescan" would name something that doesn't happen. The
         // Rescan menu uses the same word for the same action, so the two read as one feature.
         // Not "Update folder memory": that is house vocabulary, and narrower than what it restores.
@@ -87,6 +92,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         case .file: return "The file pass hasn’t run here"
         case .duplicates: return "The duplicate pass hasn’t run here"
         case .folderMemory: return "The documents here haven’t been read"
+        case .missing: return "Missing statements haven’t been checked here"
         }
     }
 
@@ -101,6 +107,8 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
             return "Finds identical content sitting under different names or folders."
         case .folderMemory:
             return "Restructure reads what your folders already contain, and nothing has been read yet."
+        case .missing:
+            return "Lists the statements each account folder lacks, from the names of the ones it has."
         }
     }
 
@@ -112,6 +120,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         case .file: return "Free, and on-device."
         case .duplicates: return "Free — and the slow one: every file in scope is hashed."
         case .folderMemory: return "Reads only the folders that changed since the last survey."
+        case .missing: return "Free, and quick: it reads names and opens no file."
         }
     }
 
@@ -123,6 +132,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "Find Duplicates"
         // The same words the document survey's offer card uses, so the two are one feature.
         case .folderMemory: return "Read My Documents"
+        case .missing: return "Check for Missing Statements"
         }
     }
 
@@ -138,6 +148,7 @@ enum OrganizePass: String, CaseIterable, Identifiable, Sendable {
         case .file: return "doc.text.magnifyingglass"
         case .duplicates: return OrganizeLens.duplicates.symbol
         case .folderMemory: return "brain"
+        case .missing: return OrganizeLens.missing.symbol
         }
     }
 }

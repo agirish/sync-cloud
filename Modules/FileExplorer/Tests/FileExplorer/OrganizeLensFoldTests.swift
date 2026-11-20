@@ -17,8 +17,8 @@ import Testing
     /// Every case is a place you can go. Order matters as much as membership: the rail a user sees
     /// must stay exactly as it was.
     @Test func theRailDrawsEveryLens() {
-        #expect(OrganizeLens.railItems == [.toFile, .duplicates, .renames, .restructure, .rules,
-                                           .storage])
+        #expect(OrganizeLens.railItems == [.toFile, .duplicates, .renames, .restructure, .missing,
+                                           .rules, .storage])
         #expect(OrganizeLens.railItems.count == OrganizeLens.allCases.count,
                 "a lens exists that the rail does not draw — the state this retirement ended")
     }

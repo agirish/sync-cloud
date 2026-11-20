@@ -702,15 +702,21 @@ import Design
                                  "row 1 drew no leading cluster at \(size.scale)× — the rail is not on screen at all")
         // The risky names ride the Renames badge (Names is folded into Renames), so the model is
         // fed what the rail draws.
+        // Missing has not been walked here, so it draws the not-scanned dot, and the model is
+        // charged for it as the rail is.
         let model = OrganizeRailMetrics.leadingWidth(
             scale: size.scale,
-            state: Self.states([.toFile: 24, .duplicates: 410, .renames: 17]))
+            state: Self.states([.toFile: 24, .duplicates: 410, .renames: 17],
+                               unscanned: [.missing]))
 
 // Over, never under: a model that under-states the leading side lets the row overrun.
         #expect(model >= drawn,
                 "at \(size.scale)× the rail draws \(drawn)pt but the model budgets \(model)pt — it is \(drawn - model)pt short, so the row will overrun before it sheds")
 // And not wildly over, or the rail sheds its labels on headers that would have seated them.
-        #expect(model - drawn < 12,
+// Two points an item: the glyph table scales linearly, a little over at large text, once per item,
+// so the allowance follows the number of items instead of being retuned when one is added
+// (12 for six; the seventh measured 13.5 at 125%).
+        #expect(model - drawn < 2 * CGFloat(OrganizeLens.railItems.count),
                 "at \(size.scale)× the model budgets \(model)pt for a leading side that draws \(drawn)pt — \(model - drawn)pt of slack sheds the labels early")
     }
 

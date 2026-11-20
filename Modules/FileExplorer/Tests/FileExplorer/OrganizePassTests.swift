@@ -47,6 +47,7 @@ import SwiftUI
         #expect(OrganizePass.file.lenses == [.toFile, .renames])
         #expect(OrganizePass.duplicates.lenses == [.duplicates])
         #expect(OrganizePass.folderMemory.lenses == [.restructure])
+        #expect(OrganizePass.missing.lenses == [.missing])
     }
 
     // MARK: The words on the offer
@@ -230,7 +231,7 @@ import SwiftUI
         let subject = overview(OrganizeLens.allCases.filter(\.carriesBadge).map {
             section($0, .notScanned)
         })
-        #expect(subject.pendingPasses == [.file, .duplicates, .folderMemory])
+        #expect(subject.pendingPasses == [.file, .duplicates, .folderMemory, .missing])
     }
 
     /// A clean lens is not an offer: collapsing `clean` and `notScanned` would put "hasn't run
@@ -351,9 +352,9 @@ import SwiftUI
         let ledger = OrganizeOverview.Ledger.derived(from: [],
                                                      runnablePasses: Set(OrganizePass.allCases),
                                                      reclaimable: nil, scopeFolders: nil)
-// Four: `countedLenses` keeps only badge-carriers, so Rules and Storage stay out with no ledger
+// Five: `countedLenses` keeps only badge-carriers, so Rules and Storage stay out with no ledger
 // code of their own.
-        #expect(ledger.checksTotal == 4)
+        #expect(ledger.checksTotal == 5)
 // Derived from the badge rule, not from arithmetic on `railItems.count`.
         #expect(ledger.checksTotal == OrganizeLens.railItems.filter(\.carriesBadge).count)
         #expect(OrganizeLens.railItems.filter { !$0.carriesBadge } == [.rules, .storage],
@@ -424,6 +425,8 @@ import SwiftUI
 // exact, or a collision comes back unnoticed.
         let quoted: Set<Set<String>> = [
             ["pass.duplicates", "lens.duplicates"],
+            // And the second: Missing's pass answers one lens, so its card quotes that rail item too.
+            ["pass.missing", "lens.missing"],
         ]
         for (glyph, owners) in byGlyph where owners.count > 1 {
             #expect(quoted.contains(Set(owners)),

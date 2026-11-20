@@ -234,7 +234,8 @@ import Testing
         #expect(LargeWalkPreflight.Pass.storageLens.title == "Storage")
         #expect(LargeWalkPreflight.Pass.duplicates.title == "Find Duplicates")
         #expect(LargeWalkPreflight.Pass.filing.title == "Filing")
-        #expect(LargeWalkPreflight.Pass.allCases.count == 3,
+        #expect(LargeWalkPreflight.Pass.missingStatements.title == "Missing Statements")
+        #expect(LargeWalkPreflight.Pass.allCases.count == 4,
                 "a pass was added or removed — check that every whole-tree walk still asks before it runs")
     }
 
@@ -245,6 +246,8 @@ import Testing
         #expect(LargeWalkPreflight.Pass.duplicates.readsFileContents)
         #expect(LargeWalkPreflight.Pass.filing.readsFileContents)
         #expect(!LargeWalkPreflight.Pass.storageLens.readsFileContents)
+        // Missing reads names only: it must never get the sentence about reading contents.
+        #expect(!LargeWalkPreflight.Pass.missingStatements.readsFileContents)
     }
 
     // MARK: - The probe's own question

@@ -20,9 +20,10 @@ import Testing
         #expect(byName["Organize"] == LensIntros.organize(scanTargetName: "TODO"))
         #expect(byName["Renames"] == LensIntros.renames(providerName: "iCloud"))
         #expect(byName["Restructure"] == LensIntros.restructure(providerName: "iCloud"))
+        #expect(byName["Missing"] == LensIntros.missing(providerName: "iCloud"))
         #expect(byName["Rules"] == LensIntros.rules(providerName: "iCloud"))
         #expect(byName["Storage"] == LensIntros.storage(providerName: "iCloud"))
-        #expect(all.count == 6, "A lens gained an intro without being named here")
+        #expect(all.count == 7, "A lens gained an intro without being named here")
     }
 
     @Test func everyLensStatesASafetyContract() {

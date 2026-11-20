@@ -46,6 +46,10 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     case renames = "Renames"
     /// Where the tree disagrees with its own habits.
     case restructure = "Restructure"
+    /// The statements an account folder lacks, read from file names: the months that never
+    /// arrived. It lists and counts, and what it counts is work you can start (fetch a
+    /// statement), so it carries a badge. It never moves, renames or fetches a file itself.
+    case missing = "Missing"
     /// The rules that file things without asking. Configuration, not a finding, which is why
     /// ``carriesBadge`` says no for this one.
     case rules = "Rules"
@@ -84,6 +88,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "Duplicates"
         case .renames: return "Renames"
         case .restructure: return "Restructure"
+        case .missing: return "Missing"
         case .rules: return "Rules"
         case .storage: return "Storage"
         }
@@ -97,6 +102,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
         case .duplicates: return "doc.on.doc"
         case .renames: return "folder.badge.gearshape"
         case .restructure: return "square.stack.3d.up"
+        case .missing: return "calendar.badge.exclamationmark"
         case .rules: return "wand.and.stars"
         case .storage: return "chart.pie"
         }
@@ -114,7 +120,7 @@ public enum OrganizeLens: String, CaseIterable, Identifiable, Sendable {
     public var carriesBadge: Bool {
         switch self {
         case .rules, .storage: return false
-        case .toFile, .duplicates, .renames, .restructure: return true
+        case .toFile, .duplicates, .renames, .restructure, .missing: return true
         }
     }
 
@@ -170,7 +176,8 @@ extension OrganizeLens {
     public var goesStaleDuringFilingScan: Bool {
         switch self {
         case .toFile, .renames: return true
-        case .duplicates, .restructure, .rules, .storage: return false
+        // Missing has a walk of its own, so the filing scan never holds its answer.
+        case .duplicates, .restructure, .missing, .rules, .storage: return false
         }
     }
 }
@@ -192,6 +199,8 @@ extension OrganizeLens {
         switch self {
         case .toFile, .renames, .restructure: return .filing
         case .duplicates: return .duplicates
+        // Its own apparatus: parked on `.filing` it would draw To File's list under its name.
+        case .missing: return .missing
         case .rules: return .automations
         case .storage: return .storage
         }
@@ -224,6 +233,9 @@ extension OrganizeLens {
                                 + "numbering has to shift or be respelled."
         case .restructure: what = "Where the tree disagrees with its own habits — recurring folders "
                                 + "that were shaped differently in different years."
+        case .missing:     what = "Statements your account folders lack, read from their names — "
+                                + "the months that never arrived. It lists them and never "
+                                + "moves or fetches a file."
         case .rules:       what = "The rules that file things without asking. Configuration, so "
                                 + "this one never carries a count."
         case .storage:     what = "Where the space goes — the largest files, the ones nothing has "

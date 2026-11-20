@@ -436,6 +436,7 @@ import Testing
             .duplicates: "tidy-duplicates",
             .renames: "fix-names",
             .restructure: "restructure-shapes",
+            .missing: "missing-statements",
             .rules: "automation-rules",
             // The assertion below requires a lens's topic to live in the Organize section, so a
             // lens moved into Organize whose article stayed put fails here.

@@ -11,6 +11,7 @@ public struct LargeWalkPreflight: Sendable, Equatable {
         case storageLens
         case duplicates
         case filing
+        case missingStatements
 
         /// A name for the prompt, in the workspace's own words: nothing in the UI says "storage lens".
         public var title: String {
@@ -18,6 +19,7 @@ public struct LargeWalkPreflight: Sendable, Equatable {
             case .storageLens: return "Storage"
             case .duplicates: return "Find Duplicates"
             case .filing: return "Filing"
+            case .missingStatements: return "Missing Statements"
             }
         }
 
@@ -27,7 +29,8 @@ public struct LargeWalkPreflight: Sendable, Equatable {
         public var readsFileContents: Bool {
             switch self {
             case .duplicates, .filing: return true
-            case .storageLens: return false
+            // Missing reads names and opens nothing.
+            case .storageLens, .missingStatements: return false
             }
         }
     }

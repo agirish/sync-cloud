@@ -16166,3 +16166,18 @@ not be read keeps what was read from it. It builds on the Vault, which no mainte
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Organize ▸ Missing, the seventh lens — main only, recorded, not owed
+
+2026-11-20, for v7.2. A new Organize lens over the finder above: `OrganizeLens.missing`, a scan
+pass of its own (`OrganizePass.missing`, `LargeWalkPreflight.Pass.missingStatements`), the walk
+and the undoable choices on the manager (`FileSyncManager+Missing`), the choices as a `missing`
+section of `restructure.json` (`RestructureStore.missing`, re-keyed with the rest by a landing),
+and the view (`MissingLensView`, `MissingLensModel`). Help gains a topic and says seven sections.
+`v6.x` and `v5.x` keep a `missing` section across their own saves of that ledger, since their
+store carries the keys it does not model (`carriedKeys`). No line has the finder, so there is
+nothing to carry.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Missing lens | RECORDED — not owed (new feature) |

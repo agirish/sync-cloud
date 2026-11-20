@@ -597,6 +597,7 @@ extension FileSyncManager {
         // finding. Storage is read-only, but its report would still name the old root and vouch for
         // it with a "Scanned 2h ago" marker.
         clearStorageLens()
+        clearMissingStatements()
     }
 
     public func clearDuplicates() {

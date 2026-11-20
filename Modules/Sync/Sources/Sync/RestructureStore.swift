@@ -51,6 +51,12 @@ public final class RestructureStore: ObservableObject {
     /// rail badge; written by Never suggest this again on any card.
     @Published public private(set) var suppressed: Set<RestructureKey> = []
 
+    /// What the user decided in the Missing lens: hidden and stopped accounts, months marked not
+    /// expected, silences put on the count. Kept here, not in a file of its own, because this
+    /// ledger is already carried across a survey refresh and re-keyed when a folder moves, and the
+    /// choices are keyed by the same root-relative paths.
+    @Published public private(set) var missing = MissingStatements.Choices()
+
     /// Chosen options for Ask findings, so the detector that asked never asks twice.
     @Published public private(set) var answers: [RestructureKey: String] = [:]
 
@@ -267,6 +273,21 @@ public final class RestructureStore: ObservableObject {
         suppressed.subtract(present)
         Logger.shared.info("Restructure: unsuppressed \(present.count) finding(s)")
         save()
+    }
+
+    // MARK: - Missing statements
+
+    /// Changes what the Missing lens remembers, in one write. `what` is the sentence the log keeps,
+    /// since these decide what is counted from now on. Returns whether anything changed.
+    @discardableResult
+    public func updateMissing(_ what: String, _ change: (inout MissingStatements.Choices) -> Void) -> Bool {
+        var next = missing
+        change(&next)
+        guard next != missing else { return false }
+        missing = next
+        Logger.shared.info("Missing: \(what)")
+        save()
+        return true
     }
 
     // MARK: - Answers
@@ -539,7 +560,9 @@ public final class RestructureStore: ObservableObject {
         var newAnswers = answers
         var newDrafts = drafts
         var newNudges = nudgesAcknowledged
+        var newMissing = missing
         for rename in renames {
+            newMissing = newMissing.rekeyed(from: rename.from, to: rename.to)
             newSuppressed = Set(newSuppressed.map { $0.rekeyed(rename) })
             newAnswers = Self.rekeyedMap(newAnswers, through: rename)
             // A backlog subject is a folder path, so a landing that renames it moves this key too,
@@ -551,9 +574,10 @@ public final class RestructureStore: ObservableObject {
             newDrafts = Self.rekeyedMap(newDrafts, through: rename)
         }
         guard newSuppressed != suppressed || newAnswers != answers || newDrafts != drafts
-                || newNudges != nudgesAcknowledged else {
+                || newNudges != nudgesAcknowledged || newMissing != missing else {
             return
         }
+        missing = newMissing
         suppressed = newSuppressed
         answers = newAnswers
         drafts = newDrafts
@@ -620,6 +644,7 @@ public final class RestructureStore: ObservableObject {
         let applied: [AppliedRecord]?
         let nudgesAcknowledged: [NudgeRecord]?
         let trend: [TrendPoint]?
+        let missing: MissingStatements.Choices?
     }
 
     private struct FileOut: Encodable {
@@ -630,13 +655,16 @@ public final class RestructureStore: ObservableObject {
         let applied: [AppliedRecord]
         let nudgesAcknowledged: [NudgeRecord]
         let trend: [TrendPoint]
+        /// Absent while the user has decided nothing, so a ledger that never met the Missing lens
+        /// keeps the bytes it had.
+        let missing: MissingStatements.Choices?
 
         /// Everything this type writes. Anything else in the file belongs to a section this build
         /// doesn't model and is carried across a save (see `carriedKeys`). Spelled out rather than
         /// derived, for ``PeopleStore``'s stated reason.
         static let modelledKeys: Set<String> = ["schemaVersion", "suppressed", "answers",
                                                 "drafts", "applied", "nudgesAcknowledged",
-                                                "trend"]
+                                                "trend", "missing"]
     }
 
     /// The schema this build writes. A file with a newer number is unreadable for writing: it may
@@ -681,6 +709,7 @@ public final class RestructureStore: ObservableObject {
             (RestructureKey(kind: $0.kind, path: $0.path), $0.year)
         }, uniquingKeysWith: { _, new in new })
         trend = decoded.trend ?? []
+        missing = decoded.missing ?? MissingStatements.Choices()
         carriedKeys = object.filter { !FileOut.modelledKeys.contains($0.key) }
     }
 
@@ -754,7 +783,8 @@ public final class RestructureStore: ObservableObject {
                     .map { NudgeRecord(kind: $0.key.kind, path: $0.key.path, year: $0.value) }
                     .sorted { ($0.kind.rawValue, $0.path) < ($1.kind.rawValue, $1.path) },
                 // Stored order, which is stamp order: the line is drawn in it.
-                trend: trend)
+                trend: trend,
+                missing: missing.isEmpty ? nil : missing)
             var data = try encoder.encode(out)
             if !carriedKeys.isEmpty,
                var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {

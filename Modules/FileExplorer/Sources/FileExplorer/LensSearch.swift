@@ -44,6 +44,8 @@ enum LensSearch {
         case .duplicates: return "kind:pdf, >5mb…"
         case .filing: return "kind:pdf, confidence:high, to:Invoices…"
         case .automations: return "Search rules — is:enabled, kind:pdf"
+        // Free text only: an account row has no kind, size or confidence to bind a token to.
+        case .missing: return "Search accounts and months…"
         case .storage: return "kind:pdf, >100mb…"
         }
     }
@@ -54,6 +56,7 @@ enum LensSearch {
         case .duplicates: return "Search duplicate groups by name, kind, or size"
         case .filing: return "Search loose files by name, destination, or confidence"
         case .automations: return "Search rules by name, condition, or destination"
+        case .missing: return "Search accounts by folder, or by a missing month or year"
         case .storage: return "Search files by name, path, kind, or size"
         }
     }

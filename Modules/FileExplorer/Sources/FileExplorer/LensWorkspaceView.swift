@@ -14,6 +14,8 @@ public enum WorkspaceLensKind: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     case filing = "Filing"
     case automations = "Automations"
+    /// The Missing lens: account rows, with a view and a free-text search of their own.
+    case missing = "Missing"
     /// The read-only Storage lens (treemap + largest / stale / reclaim lists). Sits last, after the
     /// action lenses.
     case storage = "Storage"
@@ -274,6 +276,9 @@ public struct LensWorkspaceView: View {
         let hasProfile: Bool
         let filingScanFolder: String?
         let duplicateScanRoot: String?
+        /// Missing's whole answer: its count is a sum over the report's accounts in scope.
+        let missingReport: MissingStatements.Report?
+        let missingRoot: String?
     }
 
     /// Everything ``scopeFolderCount`` reads.
@@ -421,6 +426,9 @@ public struct LensWorkspaceView: View {
     /// Builds (or rebuilds) the read-only storage picture for the focused folder. The host derives
     /// the root.
     private let onBuildStorage: () -> Void
+    /// Starts Missing's names-only walk. Optional at the host boundary, like folder memory: a host
+    /// passing none gets a card that explains the state, not a button that does nothing.
+    private let onFindMissing: (() -> Void)?
     /// The document survey's verbs. Optional for `onUpdateFolderMemory`'s reason: a host that
     /// cannot run a survey (the CLI-driven and preview hosts) gets a card that states the position
     /// rather than a button that does nothing.
@@ -498,6 +506,7 @@ public struct LensWorkspaceView: View {
         onQuickLook: ((URL) -> Void)? = nil,
         onQuickLookIn: (([URL], URL) -> Void)? = nil,
         onBuildStorage: @escaping () -> Void = {},
+        onFindMissing: (() -> Void)? = nil,
         documentSurveyCard: DocumentSurveyCardState? = nil,
         onStartDocumentSurvey: (() -> Void)? = nil,
         onStartDocumentSurveyOver: (() -> Void)? = nil,
@@ -558,6 +567,7 @@ public struct LensWorkspaceView: View {
         self.onQuickLook = onQuickLook
         self.onQuickLookIn = onQuickLookIn
         self.onBuildStorage = onBuildStorage
+        self.onFindMissing = onFindMissing
         self.documentSurveyCard = documentSurveyCard
         self.onStartDocumentSurvey = onStartDocumentSurvey
         self.onStartDocumentSurveyOver = onStartDocumentSurveyOver
@@ -755,6 +765,8 @@ public struct LensWorkspaceView: View {
             return items(FilingSearch.chips(query), label: \.label, word: \.raw)
         case .automations:
             return items(AutomationSearch.chips(query), label: \.label, word: \.raw)
+        case .missing:
+            return []      // free text only: an account row has nothing a token could bind to
         case .storage:
             return items(StorageSearch.chips(query), label: \.label, word: \.raw)
         }
@@ -839,6 +851,8 @@ public struct LensWorkspaceView: View {
             // because Rules are configuration (`OrganizeLens.isScoped` is false), so a scope test
             // would be an inert call that reads like a live rule.
             rows.rules = syncManager.automationRules.filter { q.matches($0) }
+        case .missing:
+            break   // MissingLensView filters its own accounts from the query
         case .storage:
             break   // StorageLensView filters its own three lists from `storageQuery`
         }
@@ -1044,7 +1058,9 @@ public struct LensWorkspaceView: View {
             // Storage's test is `hasStorageReport`, the same one ``storageCounts`` asks before it
             // will report "N of M".
             showsSearch: !overviewIsOnScreen
-                && !(effectiveLens == .storage && !hasStorageReport),
+                && !(effectiveLens == .storage && !hasStorageReport)
+                // Missing's field filters its accounts, and before a walk it has none.
+                && !(effectiveLens == .missing && syncManager.missingReport == nil),
             chips: searchChips,
             onRemoveChip: removeSearchChip,
             accent: glassHue.accentColor,
@@ -1252,7 +1268,7 @@ public struct LensWorkspaceView: View {
                 // The overview has no apply-all: up here it would have to mean one of six things.
                 // Each section's own button is one click away. Storage has none either: no verb of
                 // its touches a file, and its one action, Rescan, is on row 2.
-                case .none, .duplicates, .restructure, .rules, .storage:
+                case .none, .duplicates, .restructure, .missing, .rules, .storage:
                     EmptyView()
                 }
                 }
@@ -1262,6 +1278,9 @@ public struct LensWorkspaceView: View {
                 newRuleButton
                 previewAllButton
             }
+        // Missing's controls (Rescan, Copy List) sit in its own card, beside what they act on.
+        case .missing:
+            EmptyView()
         case .storage:
             if hasStorageReport, !syncManager.isBuildingStorageLens {
                 reanalyzeStorageButton
@@ -1296,6 +1315,9 @@ public struct LensWorkspaceView: View {
             if !syncManager.automationRules.isEmpty {
                 automationsSummary(rows.rules)
             }
+        // Its one-line answer is the first thing in its own card.
+        case .missing:
+            EmptyView()
         case .storage:
             if let report = syncManager.storageLensReport { storageSummary(report) }
         }
@@ -1342,7 +1364,7 @@ public struct LensWorkspaceView: View {
                 renameBacklogSummary(rows.renames)
             // Duplicates, rules and storage reach `lensSummary` through their own apparatus arms,
             // so they never arrive here; restructure has no readout of its own.
-            case .duplicates, .restructure, .rules, .storage:
+            case .duplicates, .restructure, .missing, .rules, .storage:
                 EmptyView()
             }
         }
@@ -1525,7 +1547,7 @@ public struct LensWorkspaceView: View {
     /// thousands, and both the width arithmetic and every rail item need the answer. Resolve once
     /// and hand the same value to both, as for rows.
     struct RailCounts: Equatable {
-        var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, rules = 0
+        var toFile = 0, duplicates = 0, names = 0, renames = 0, restructure = 0, missing = 0, rules = 0
         /// Whether the names half of the file pass has run: the risky-name detector, which that
         /// walk runs only when a name ruleset is supplied. A flag of its own, not a member of
         /// ``scanned``, because Names has no lens case, and `.renames` may claim to be clean only
@@ -1543,6 +1565,8 @@ public struct LensWorkspaceView: View {
             // The to-fix rows share this list, and a badge encodes list size.
             case .renames: return renames + names
             case .restructure: return restructure
+            // Statements on the count, not accounts: the badge is the number the lens's header leads with.
+            case .missing: return missing
             case .rules: return rules
             // Neither counts work: `badge(count:)` discards this anyway, since `carriesBadge` is
             // false. Zero rather than a fatal, so the subscript stays total.
@@ -1629,7 +1653,9 @@ public struct LensWorkspaceView: View {
             hasScannedNames: syncManager.hasScannedNames,
             hasProfile: syncManager.filingFolderProfile != nil,
             filingScanFolder: syncManager.filingScanFolder,
-            duplicateScanRoot: syncManager.duplicateScanRoot)
+            duplicateScanRoot: syncManager.duplicateScanRoot,
+            missingReport: syncManager.missingReport,
+            missingRoot: syncManager.missingRoot?.path)
         return railMemo.value(for: key) { RailCounts(
             toFile: syncManager.filingSuggestions.count {
                 OrganizeScopeFilter.matches($0, scope: appliedScope(for: .toFile)) },
@@ -1647,6 +1673,9 @@ public struct LensWorkspaceView: View {
                     && OrganizeScopeFilter.relation(of: $0, profileRoot: profileRoot,
                                                     scope: appliedScope(for: .restructure)) == .inside
             },
+            missing: syncManager.missingReport.map {
+                MissingLensModel(report: $0, inScope: missingInScope(appliedScope(for: .missing))).counted
+            } ?? 0,
             // No scope test, because `appliedScope(for: .rules)` is always nil; a call here would
             // read like a live narrowing that can never fire.
             rules: syncManager.automationRules.count,
@@ -1668,6 +1697,8 @@ public struct LensWorkspaceView: View {
                     ran.insert(.duplicates)
                 }
                 if syncManager.filingFolderProfile != nil { ran.insert(.restructure) }
+                // Its walk is of the whole source, so it covers any subject inside it.
+                if syncManager.missingReport != nil { ran.insert(.missing) }
                 return ran
             }())
         }
@@ -1735,6 +1766,8 @@ public struct LensWorkspaceView: View {
                 ofMLabel(rows.renames.count + rows.risky.count, counts[.renames])
             case .filing: ofMLabel(rows.filing.count, counts.toFile)
             case .automations: ofMLabel(rows.rules.count, counts.rules)
+            // No N of M: the filter chips in its card each carry their own count.
+            case .missing: EmptyView()
             case .storage:
                 // Absent before a report (see ``storageCounts``): there is no honest N or M until
                 // the analysis has run.
@@ -1773,10 +1806,12 @@ public struct LensWorkspaceView: View {
                 return !syncManager.renamePlans.isEmpty || !syncManager.riskyNames.isEmpty
             // `.storage` is unreachable here: its `searchLens` is `.storage`, so it leaves the
             // outer switch one arm down. Written out because the arm must exist.
-            case .none, .duplicates, .restructure, .rules, .storage: return false
+            case .none, .duplicates, .restructure, .missing, .rules, .storage: return false
             }
         case .automations:
             return !syncManager.automationRules.isEmpty
+        case .missing:
+            return false
         case .storage:
             return hasStorageReport && !syncManager.isBuildingStorageLens
         }
@@ -1861,10 +1896,32 @@ public struct LensWorkspaceView: View {
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
                     section: $storageSection
                 )
+            } else if organizeLens == .missing {
+                // A view of its own, like Storage: its rows are accounts, not files.
+                MissingLensView(
+                    syncManager: syncManager,
+                    providerName: providerName,
+                    query: query,
+                    inScope: missingInScope(scope),
+                    onFind: { onFindMissing?() },
+                    onReveal: { path in
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    },
+                    onShowIn: { lens, folder in
+                        setScope(folder)
+                        railLens = lens
+                    }
+                )
             } else {
                 contentCard(rows: rows, counts: counts, scopeFolders: scopeFolders)
             }
         }
+    }
+
+    /// Whether an account path, relative to the folder Missing walked, is inside `scope`.
+    private func missingInScope(_ scope: OrganizeScope?) -> (String) -> Bool {
+        guard let scope, let root = syncManager.missingRoot?.path else { return { _ in true } }
+        return { scope.contains((root as NSString).appendingPathComponent($0)) }
     }
 
     // MARK: Row-exit motion (H4)
@@ -2857,6 +2914,7 @@ public struct LensWorkspaceView: View {
                     filingContent(filing: rows.filing, counts: counts)
                 }
             case .automations: automationsContent(rules: rows.rules, counts: counts)
+            case .missing: EmptyView()   // rendered by `body` as MissingLensView, never through here
             case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
             }
         }
@@ -3503,6 +3561,7 @@ public struct LensWorkspaceView: View {
         // Optional at the host boundary, which is why `runnablePasses` exists rather than a card
         // whose button does nothing.
         case .folderMemory: onUpdateFolderMemory?()
+        case .missing: onFindMissing?()
         }
     }
 
@@ -3516,6 +3575,7 @@ public struct LensWorkspaceView: View {
     private var runnablePasses: Set<OrganizePass> {
         var passes: Set<OrganizePass> = [.file, .duplicates]
         if onUpdateFolderMemory != nil { passes.insert(.folderMemory) }
+        if onFindMissing != nil { passes.insert(.missing) }
         return passes
     }
 
@@ -3776,6 +3836,24 @@ public struct LensWorkspaceView: View {
                     // count must go quiet while the survey runs, as the menu item for the same
                     // action does.
                     isScanning: syncManager.filingSurveyLifecycle.isRunning)
+            case .missing:
+                // The same model the lens draws from, so the card's number is the badge's and the
+                // lens header's. The examples are the newest gaps, the ones worth fetching first.
+                let missing = syncManager.missingReport.map {
+                    MissingLensModel(report: $0, inScope: missingInScope(scope))
+                }
+                let n = missing?.counted ?? 0
+                let newest = (missing?.groups.flatMap(\.accounts) ?? []).filter { $0.counted > 0 }
+                return OrganizeOverviewSection(
+                    lens: item,
+                    blurb: "Statements your account folders lack, read from their names.",
+                    state: missing == nil ? .notScanned
+                        : n == 0 ? .clean
+                        : .findings(count: n, headline: "\(n) statement\(n == 1 ? "" : "s")",
+                                    examples: newest.prefix(OrganizeOverview.exampleLimit).map {
+                                        "\(MissingLensModel.title($0)) — \(MissingLensModel.subtitle($0, in: .recent))"
+                                    }),
+                    isScanning: syncManager.isFindingMissingStatements)
             // Configuration, not a result: nothing to report and no scan to run, so no section,
             // no pass card and no footer line.
             case .rules:

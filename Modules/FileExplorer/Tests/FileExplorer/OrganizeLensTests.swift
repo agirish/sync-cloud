@@ -41,6 +41,8 @@ import Testing
         #expect(OrganizeLens.renames.goesStaleDuringFilingScan)
         #expect(!OrganizeLens.duplicates.goesStaleDuringFilingScan)
         #expect(!OrganizeLens.restructure.goesStaleDuringFilingScan)
+        // Missing answers from its own walk of names.
+        #expect(!OrganizeLens.missing.goesStaleDuringFilingScan)
         #expect(!OrganizeLens.rules.goesStaleDuringFilingScan)
 // Storage's report comes from its own analyzer pass, so a filing scan does not make it stale.
         #expect(!OrganizeLens.storage.goesStaleDuringFilingScan)
@@ -55,6 +57,8 @@ import Testing
         #expect(OrganizeLens.renames.searchLens == .filing)
         #expect(OrganizeLens.restructure.searchLens == .filing)
         #expect(OrganizeLens.duplicates.searchLens == .duplicates)
+        // Its own, or it would draw To File's list and header under its name.
+        #expect(OrganizeLens.missing.searchLens == .missing)
         #expect(OrganizeLens.rules.searchLens == .automations)
         // Storage keeps its own search grammar and "N of M" readout under this name.
         #expect(OrganizeLens.storage.searchLens == .storage)

@@ -148,6 +148,7 @@ import SwiftUI
             case .file: m.isSuggestingFiles = true
             case .duplicates: m.isFindingDuplicates = true
             case .folderMemory: m.filingSurveyLifecycle.isRunning = true
+            case .missing: m.missingLifecycle.isRunning = true
             }
             let expected = Set(pass.lenses)
             #expect(scanning(m) == expected,
@@ -326,8 +327,8 @@ import SwiftUI
         let after = OrganizeOverview.Ledger.derived(
             from: subject(m).overviewModel.sections,
             runnablePasses: Set(OrganizePass.allCases), reclaimable: nil, scopeFolders: nil)
-        #expect(before.checksTotal == 4)
-        #expect(after.checksTotal == 4)
+        #expect(before.checksTotal == 5)
+        #expect(after.checksTotal == 5)
         #expect(before.checksRun == after.checksRun,
                 "analyzing storage moved the checks-run count — the report is being counted as a check that reported")
     }

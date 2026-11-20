@@ -51,7 +51,8 @@ import Testing
                 suggestions: suggestions, duplicates: [], risky: [], renames: [], structure: [],
                 rules: rules, profileRoot: root, scopes: scopes,
                 hasSuggestedFiling: false, hasFoundDuplicates: false, hasScannedNames: false,
-                hasProfile: false, filingScanFolder: nil, duplicateScanRoot: nil)
+                hasProfile: false, filingScanFolder: nil, duplicateScanRoot: nil,
+                missingReport: nil, missingRoot: nil)
         }
         #expect(key() == key())
         #expect(key(rules: 1) != key())

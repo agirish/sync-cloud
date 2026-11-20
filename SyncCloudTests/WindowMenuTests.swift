@@ -140,10 +140,12 @@ import AppKit
 @MainActor
 @Suite struct OrganizeMenuTests {
 
-    @Test func organizeIsItsOwnMenuOpeningWithTheFiveSections() throws {
+    @Test func organizeIsItsOwnMenuOpeningWithItsSections() throws {
         let organize = menuTitles(try appMenu("Organize"))
-        #expect(organize.prefix(5) == ["To File", "Duplicates", "Renames", "Restructure", "Rules"],
-                "the Organize menu opens with \(organize.prefix(5))")
+        // All seven, in the rail's order: a section the rail draws and the menu omits is one the
+        // keyboard cannot reach.
+        #expect(organize.prefix(7) == ["To File", "Duplicates", "Renames", "Restructure", "Missing", "Rules", "Storage"],
+                "the Organize menu opens with \(organize.prefix(7))")
     }
 
     /// The order is the argument: the folder verbs with File with Claude after them, then the two

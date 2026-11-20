@@ -106,7 +106,7 @@ you ask.
   you to choose, unless you set it to use iCloud's version.
 
 ### 🗂️ Organize
-One provider, six lenses:
+One provider, seven lenses:
 - **To File** — suggests which existing folder each loose file belongs in, and files it there.
 - **Duplicates** — identical copies, overlapping folders, drifted versions (`Report (1)`,
   `Report-final`), and PDFs with the same text. Picks a sensible keeper and never trashes the last
@@ -116,6 +116,8 @@ One provider, six lenses:
 - **Restructure** — finds where a tree disagrees with its own habits (`Form W-2` beside `Form W2`,
   `IRS Docs - 2023` beside `2023`) and turns it into a plan you review step by step. The undo is
   written to disk before anything moves, so it survives a quit.
+- **Missing** — the statements each account folder lacks, read from the names of the ones it has
+  (`3. Mar 2026.pdf`). It lists the months that never arrived and never moves or fetches a file.
 - **Rules** — on-device rules ("when a file matches …, file it into `Taxes/{year}`") with a dry
   run. SyncCloud can learn one from a file you filed by hand.
 - **Storage** — a treemap and ranked lists of the largest, oldest and most reclaimable files.

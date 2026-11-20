@@ -89,6 +89,19 @@ enum LensIntros {
         )
     }
 
+    /// Named for the provider, like Renames: it checks every account folder below the root.
+    ///
+    /// The safety line says what the lens never does. It also says the tracking is only a count:
+    /// "every month counts until you stop it" must not read as something that acts.
+    static func missing(providerName: String?) -> LensIntro {
+        LensIntro(
+            icon: "calendar.badge.exclamationmark",
+            title: "Find the statements \(providerName ?? "this provider") is missing",
+            message: "Reads the names of the statements in each account folder and lists the months that never arrived, the newest first.",
+            safety: "It reads names only and opens no file. Nothing is moved, renamed, or fetched."
+        )
+    }
+
     /// Named for the provider: a rule steers every scan of the tree, not one folder's. Rules has no
     /// scan of its own (the trigger writes the first rule), so its safety line says what a rule can
     /// do once it exists, which is what someone decides on this screen.
@@ -109,6 +122,7 @@ enum LensIntros {
          ("Organize", organize(scanTargetName: "TODO")),
          ("Renames", renames(providerName: "iCloud")),
          ("Restructure", restructure(providerName: "iCloud")),
+         ("Missing", missing(providerName: "iCloud")),
          ("Rules", rules(providerName: "iCloud")),
          ("Storage", storage(providerName: "iCloud"))]
     }

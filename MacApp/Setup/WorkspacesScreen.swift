@@ -128,6 +128,8 @@ struct WorkspacesScreen: View {
                 return "Folders whose siblings disagree about their shape."
             }
             return example
+        case .missing:
+            return "Statements your account folders lack."
         case .rules:
             return "Automate the moves you repeat."
         case .storage:

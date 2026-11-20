@@ -167,6 +167,10 @@ public enum MissingStatements {
         public let gaps: [Gap]
         /// Years lacking the `0. Summary YYYY` the two years before them have.
         public let missingSummaries: [Int]
+        /// Every month some statement covers, for drawing the account's history.
+        public let filed: Set<Month>
+        /// Years that hold a summary and no statement: left out of the timeline, not gaps.
+        public let summaryOnlyYears: [Int]
 
         public var counted: Int { gaps.reduce(0) { $0 + $1.statements } }
         public func counted(_ age: Gap.Age) -> Int { gaps.filter { $0.age == age }.reduce(0) { $0 + $1.statements } }
@@ -557,6 +561,7 @@ public enum MissingStatements {
 
             var list: [Gap] = []
             var covered: Set<Int> = []
+            var summaryOnly: Set<Int> = []
             for (suffix, statements) in series {
                 for (end, start) in statements { covered.formUnion(start...end) }
                 var neutral: Set<Int> = []
@@ -564,6 +569,7 @@ public enum MissingStatements {
                     statements.contains { $0.value <= year * 12 + m && year * 12 + m <= $0.key }
                 }) {
                     neutral.formUnion((year * 12)..<(year * 12 + 12))
+                    summaryOnly.insert(year)
                 }
                 let seriesNewest = statements.keys.max() ?? newest
                 let expectsMore = !quiet && tracking == .tracked && firstChecked - seriesNewest <= quietAfter
@@ -635,9 +641,67 @@ public enum MissingStatements {
             accounts.append(Account(path: path, isCard: card, tracking: tracking, isHidden: choices.hidden.contains(path),
                                     statements: series.values.reduce(0) { $0 + $1.count },
                                     first: Month(index: first), newest: Month(index: newest), gaps: list,
-                                    missingSummaries: missingSummaries))
+                                    missingSummaries: missingSummaries,
+                                    filed: Set(covered.map(Month.init(index:))),
+                                    summaryOnlyYears: summaryOnly.filter { year in !(0..<12).contains { covered.contains(year * 12 + $0) } }.sorted()))
         }
         accounts.sort { $0.path < $1.path }
         return Report(asOf: Month(index: nowIndex), accounts: accounts, notChecked: notChecked.sorted())
+    }
+}
+
+// MARK: - Changing the choices
+
+public extension MissingStatements.Choices {
+    /// Nothing decided, and never checked.
+    var isEmpty: Bool { self == MissingStatements.Choices() }
+
+    /// These choices after a folder moved from `from` to `to`: every account at or below it
+    /// keeps what was decided about it. A sibling that only shares a name prefix is untouched.
+    func rekeyed(from: String, to: String) -> MissingStatements.Choices {
+        func moved(_ path: String) -> String {
+            if path == from { return to }
+            return path.hasPrefix(from + "/") ? to + path.dropFirst(from.count) : path
+        }
+        func moved<Value>(_ map: [String: Value]) -> [String: Value] {
+            // The account that moved wins over a stale entry already at its new path.
+            var out: [String: Value] = [:]
+            for (path, value) in map {
+                let next = moved(path)
+                if out[next] == nil || next != path { out[next] = value }
+            }
+            return out
+        }
+        return MissingStatements.Choices(hidden: Set(hidden.map(moved)), stopped: moved(stopped), started: moved(started),
+                       notExpected: moved(notExpected), counted: moved(counted), firstChecked: firstChecked)
+    }
+
+    /// Stops expecting statements after `account.newest`, or expects them again. A quiet
+    /// account is started from `month`; a stopped one simply resumes.
+    mutating func setTracking(_ on: Bool, for account: MissingStatements.Account, from month: MissingStatements.Month) {
+        if on {
+            stopped[account.path] = nil
+            if account.tracking == .quiet { started[account.path] = month }
+        } else if started[account.path] != nil {
+            // A quiet account the user started by hand goes back to quiet: there is no newer
+            // statement to stop at.
+            started[account.path] = nil
+        } else if account.tracking != .quiet {
+            stopped[account.path] = account.newest
+        }
+    }
+
+    /// Takes a gap's months off the count, or puts them back.
+    mutating func setExpected(_ expected: Bool, months: [MissingStatements.Month], in path: String) {
+        var set = notExpected[path] ?? []
+        if expected { set.subtract(months) } else { set.formUnion(months) }
+        notExpected[path] = set.isEmpty ? nil : set
+    }
+
+    /// Puts a silence's months on the count, or takes them off.
+    mutating func setCounted(_ on: Bool, months: [MissingStatements.Month], in path: String) {
+        var set = counted[path] ?? []
+        if on { set.formUnion(months) } else { set.subtract(months) }
+        counted[path] = set.isEmpty ? nil : set
     }
 }
