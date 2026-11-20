@@ -16149,3 +16149,20 @@ maintenance line has.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## The Vault finds, previews and reads out: filters, Large Type, visas of every kind — main only, recorded, not owed
+
+2026-11-19, for v7.2. The Vault filters by country, person and kind (`VaultFilters.swift`), shows
+the chosen number's document beside it with Space for Quick Look (`VaultDocumentPreview`), and
+draws an ID big with its details for reading out (`VaultLargeType`, grouped as its document prints
+it, `VaultMask.printed`). Readers share one toolkit for printed dates and labelled fields
+(`PrintedPage`), read a passport's issue date from its photo page, and file OCI cards, e-OCIs and
+visas granted online (India's e-Visa, and the labels other countries' pages use) with US visas
+(`VaultTravelReading.swift`). Fixes from two more adversarial reviews: a Touch ID answer given
+after the panel closed or locked opens nothing (`VaultModel.lockEpoch`), twins are never merged
+into one person, a renewal never takes the replaced card's expiry, and a page or folder that could
+not be read keeps what was read from it. It builds on the Vault, which no maintenance line has.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

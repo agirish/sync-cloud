@@ -23,10 +23,10 @@ struct VaultSettingsTab: View {
         SettingsPage {
             SettingsSection(
                 "Lock",
-                caption: "Turning the lock off takes Touch ID or your password. The numbers stay sealed on this Mac either way, and are never sent to Claude."
+                caption: "Turning the lock off takes Touch ID or your password. The IDs stay sealed on this Mac either way, and are never sent to Claude."
             ) {
                 Toggle("Require Touch ID or your Mac password", isOn: requirement)
-                    .help("Asks who is at the Mac before the Vault shows or copies a number in full. Off, anyone at this Mac while it is unlocked can read them.")
+                    .help("Asks who is at the Mac before the Vault shows or copies an ID in full. Off, anyone at this Mac while it is unlocked can read them.")
                     .disabled(isAsking)
                 SettingsRow("When to ask") {
                     Picker("When to ask", selection: $ask.loggingSettingsChange("vault.ask")) {
@@ -36,7 +36,7 @@ struct VaultSettingsTab: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .help("Once as the Vault opens, or again for each number you show or copy.")
+                    .help("Once as the Vault opens, or again for each ID you show or copy.")
                 }
                 .disabled(!requiresAuthentication)
                 SettingsRow("Lock again") {
@@ -54,7 +54,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Folders to Read",
-                caption: "Read Documents in the Vault looks in these folders for passports, US visas, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
+                caption: "Read Documents in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
             ) {
                 SettingsRow("Folders") {
                     // One column, right-aligned: each folder's Remove lines up under the last, and
@@ -89,7 +89,7 @@ struct VaultSettingsTab: View {
                             panel.canChooseDirectories = true
                             panel.canChooseFiles = false
                             panel.allowsMultipleSelection = true
-                            panel.prompt = "Read for Numbers"
+                            panel.prompt = "Read for IDs"
                             if panel.runModal() == .OK {
                                 for url in panel.urls { VaultReadFolders.add(url.path) }
                                 SettingsWindowLog.log("vault.readFolders", "added")
@@ -104,15 +104,15 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Set Aside",
-                caption: "Numbers you marked Not a Real Number, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
+                caption: "IDs you marked Not a Real ID, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
             ) {
-                SettingsRow("Numbers set aside") {
+                SettingsRow("IDs set aside") {
                     HStack(spacing: 8) {
-                        Text(setAsideCount == 1 ? "1 number" : "\(setAsideCount) numbers")
+                        Text(setAsideCount == 1 ? "1 ID" : "\(setAsideCount) IDs")
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         // No question first: forgetting only lets the next read offer them again,
-                        // and Not a Real Number sets each one aside once more.
+                        // and Not a Real ID sets each one aside once more.
                         Button("Forget") {
                             VaultSetAside.forget()
                             SettingsWindowLog.log("vault.setAside", "forgotten")
@@ -122,7 +122,7 @@ struct VaultSettingsTab: View {
                         .frame(minWidth: 70, alignment: .trailing)
                         .disabled(setAsideCount == 0)
                     }
-                    .help("Forget, and the next Read Documents opens every file and offers these numbers again.")
+                    .help("Forget, and the next Read Documents opens every file and offers these IDs again.")
                 }
             }
         }
@@ -150,7 +150,7 @@ struct VaultSettingsTab: View {
         let old = requiresAuthentication
         // Sealed first, so the Vault never reads an unsealed "off" and turns the lock back on.
         if on {
-            VaultLockSwitch.unseal(in: .standard)
+            VaultLockSwitch.unseal(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
         } else {
             VaultLockSwitch.sealOff(in: .standard, store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) })
         }

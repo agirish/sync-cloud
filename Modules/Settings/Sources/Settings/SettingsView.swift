@@ -854,7 +854,7 @@ enum SettingsSearchIndex {
         .init(at: .vault, title: "Folders to read",
               keywords: ["vault", "read documents", "scan", "passport", "receipt number", "i-94",
                          "folders", "what to read"]),
-        .init(at: .vault, title: "Numbers set aside",
+        .init(at: .vault, title: "IDs set aside",
               keywords: ["vault", "not this", "set aside", "forget", "offered again", "read documents"]),
         // Advanced
         .init(at: .advanced, title: "Run Setup Again",

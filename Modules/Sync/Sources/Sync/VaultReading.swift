@@ -20,9 +20,12 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
     public var pin: VaultPin?
     /// Whose it is, as the user chose. Later reads keep it.
     public var assignment: VaultAssignment?
+    /// Where it is used, as the user chose. Later reads keep it.
+    public var geo: VaultGeo?
 
     public init(id: UUID = UUID(), title: String, value: String, note: String = "",
-                facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil) {
+                facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil,
+                geo: VaultGeo? = nil) {
         self.id = id
         self.title = title
         self.value = value
@@ -30,6 +33,7 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
         self.facts = facts
         self.pin = pin
         self.assignment = assignment
+        self.geo = geo
     }
 
     /// The shape the earlier reader built, for tests and simple callers: a category worked out
@@ -87,30 +91,38 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 10
+    public static let version = 11
 
     /// Every number on a document, once each, and the numbers it only names.
     public static func read(pages: [[String]], from path: String) -> (finds: [VaultFind], mentions: [VaultMention]) {
         var out: [VaultFind] = []
         var seen = Set<String>()
         func keep(_ find: VaultFind) {
-            if seen.insert(normalized(find.value)).inserted { out.append(find) }
+            let key = normalized(find.value)
+            if seen.insert(key).inserted {
+                out.append(find)
+            } else if let index = out.firstIndex(where: { normalized($0.value) == key }),
+                      let both = VaultCopies.merged([out[index], find]) {
+                // The same number on two pages of one file (a receipt notice, then its approval):
+                // the better page speaks, and what it is silent on comes from the other.
+                out[index] = VaultFind(id: out[index].id, title: both.title, value: out[index].value,
+                                       note: both.note, facts: both.facts)
+            }
         }
-        let text = pages.map { $0.joined(separator: "\n") }.joined(separator: "\n")
+        let file = PrintedPage(pages.flatMap { $0 })
+        let text = file.text
         var visaPassports: [VaultMention] = []
         for (index, page) in pages.enumerated() {
-            let pageText = page.joined(separator: "\n")
-            for zone in MachineZone.zones(in: page) {
-                let pageLabel = pages.count > 1 ? index + 1 : nil
-                switch zone.kind {
-                case .passport:
-                    keep(zone.passportFind(from: path, page: pageLabel))
-                case .visa:
-                    // A US visa's zone carries the passport's number, not the visa's own: the visa
-                    // is a document of that passport, and is itself known by its Control Number.
+            let zones = MachineZone.zones(in: page)
+            for (zone, printed) in zip(zones, MachineZone.sections(of: page, for: zones)) {
+                // A visa foil's zone carries the passport's number, not the visa's own: the visa is
+                // a document of that passport, and is itself known by its Control Number.
+                if zone.document(in: file, section: printed) == .visaFoil {
                     visaPassports.append(VaultMention(value: zone.number, category: .passport,
                                                       source: VaultSource(path: path, role: "US visa", rank: Rank.mention)))
-                    if let visa = zone.visaFind(from: path, page: pageLabel, text: pageText) { keep(visa) }
+                }
+                if let find = zone.find(from: path, page: pages.count > 1 ? index + 1 : nil, printed: printed, file: file) {
+                    keep(find)
                 }
             }
         }
@@ -119,6 +131,7 @@ public enum VaultReading {
             let pageText = page.joined(separator: "\n")
             for find in receiptNumbers(in: pageText, from: path) { keep(find) }
             for find in admissionNumbers(in: pageText, from: path) { keep(find) }
+            for find in travelPermits(on: PrintedPage(page), from: path) { keep(find) }
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.
@@ -249,7 +262,8 @@ public enum VaultReading {
         // A center's letters set apart from the digits ("LIN 4155551234") are as likely a surname
         // and a phone number: taken only on a page about a case. Run together, they are a receipt.
         let lower = text.lowercased()
-        let aboutACase = ["receipt", "uscis", "case", "notice", "i-797", "immigration"].contains(where: lower.contains)
+        let aboutACase = noticeKind(text) != nil
+            || ["receipt number", "receipt #", "uscis", "i-797", "immigration services", "case status"].contains(where: lower.contains)
         return receiptPattern.matches(in: text, range: whole).compactMap { match in
             let center = ns.substring(with: match.range(at: 1)).uppercased()
             let joined = match.range(at: 2).location == match.range(at: 1).location + match.range(at: 1).length
@@ -558,16 +572,72 @@ public struct MachineZone: Equatable, Sendable {
     public var born: Date
     /// Whether the name line above the number was read.
     public var nameRead: Bool
+    /// The index of the number line on its page, so the fields printed with this document are
+    /// told from another's on the same page.
+    public var line: Int = 0
+    /// Whether ``issuer`` was read from the name line. When that was garbled the issuer is only
+    /// the holder's nationality, which says nothing about who issued the document.
+    public var issuerRead = false
 
     /// The holder as printed, in reading order: "Anna Maria Eriksson".
     public var holder: String {
         [givenNames, surname].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
-    func passportFind(from path: String, page: Int?) -> VaultFind {
+    /// What a zone's document is. Its first letter says passport or visa; a visa's zone is also
+    /// how India prints an OCI card, whose number is the card's own where a visa's is the passport's.
+    enum Document { case passport, visaFoil, ociCard }
+
+    /// A visa zone is an OCI card's in a file that says OCI, unless its own part of the page is a
+    /// US visa's: it prints a Control Number, or its name line says the US issued it. Not "issued
+    /// by India" alone: a card's name line read as "VI…" for "V<…" (one of the household's cards)
+    /// shifts the issuing state out of place, and with none read the issuer is only the holder's
+    /// nationality, often the US.
+    func document(in file: PrintedPage, section: PrintedPage) -> Document {
+        switch kind {
+        case .passport: return .passport
+        case .visa:
+            let usVisa = section.says("control number") || (issuerRead && issuer == "USA")
+            return !usVisa && file.saysAny(["overseas citizen of india", "oci card holder"]) ? .ociCard : .visaFoil
+        }
+    }
+
+    /// Each zone's own part of `page`: the lines after the zone before it, through to its own
+    /// number line, as a photo page or a foil prints its fields above its zone. The last zone also
+    /// takes what follows it. One zone alone takes the whole page.
+    ///
+    /// Not when the zones were read one after another, as Vision reads two documents scanned side
+    /// by side: every field first, then both zones. A part holding nothing but its own zone (its
+    /// name and number lines) says whose fields are whose no better than the page, so then each
+    /// zone takes the whole page.
+    static func sections(of page: [String], for zones: [MachineZone]) -> [PrintedPage] {
+        let whole = zones.map { _ in PrintedPage(page) }
+        guard zones.count > 1 else { return whole }
+        let ordered = zones.map(\.line)
+        let parts = zones.map { zone -> ArraySlice<String> in
+            let start = ordered.filter { $0 < zone.line }.max().map { $0 + 1 } ?? 0
+            let end = zone.line == ordered.max() ? page.count - 1 : zone.line
+            return page[start...max(start, end)]
+        }
+        guard parts.allSatisfy({ $0.count > 2 }) else { return whole }
+        return parts.map { PrintedPage(Array($0)) }
+    }
+
+    /// The find for this zone's document: `printed` is the zone's page, `file` the whole file
+    /// (an OCI card's back, with its issue date, is a page of its own).
+    func find(from path: String, page: Int?, printed: PrintedPage, file: PrintedPage) -> VaultFind? {
+        switch document(in: file, section: printed) {
+        case .passport: return passportFind(from: path, page: page, printed: printed)
+        case .visaFoil: return visaFind(from: path, page: page, printed: printed)
+        case .ociCard: return ociFind(from: path, page: page, printed: file)
+        }
+    }
+
+    func passportFind(from path: String, page: Int?, printed: PrintedPage = PrintedPage([])) -> VaultFind {
         let where_ = page.map { " · page \($0)" } ?? ""
         var details = [VaultDetail("Issuing country", .text(issuer))]
         if nationality != issuer && !nationality.isEmpty { details.append(VaultDetail("Nationality", .text(nationality))) }
+        if let issued = printed.issueDate(born: born, expires: expires) { details.append(VaultDetail("Issued", .date(issued))) }
         details.append(VaultDetail("Valid until", .date(expires)))
         let facts = VaultReadFacts(category: .passport, holder: holder.isEmpty ? nil : holder, born: born,
                                    issuer: issuer, dated: expires, validUntil: expires, details: details,
@@ -579,11 +649,8 @@ public struct MachineZone: Equatable, Sendable {
 
     /// A visa, known by the Control Number printed on its foil; nil when that was not read. Its
     /// zone's number is the passport it is in, kept as ``VaultReadFacts/inPassport``.
-    func visaFind(from path: String, page: Int?, text: String) -> VaultFind? {
-        let ns = text as NSString
-        let whole = NSRange(location: 0, length: ns.length)
-        guard let read = Self.controlNumberPattern.firstMatch(in: text, range: whole)
-            .map({ VaultReading.normalized(ns.substring(with: $0.range(at: 1))) }),
+    func visaFind(from path: String, page: Int?, printed: PrintedPage) -> VaultFind? {
+        guard let read = printed.value(["control number", "control no"], Self.controlNumber).map(VaultReading.normalized),
               read.filter(\.isNumber).count >= 8 else { return nil }
         // The digits Vision read as look-alike letters (2O24… for 2024…), put back; the letters a
         // Control Number may end with are kept.
@@ -591,9 +658,9 @@ public struct MachineZone: Equatable, Sendable {
         let control = String(digitsRun.map { $0 == "O" ? "0" : $0 == "I" || $0 == "L" ? "1" : $0 })
             + read.dropFirst(digitsRun.count)
         let where_ = page.map { " · page \($0)" } ?? ""
-        let visaClass = Self.visaClassPattern.firstMatch(in: text, range: whole)
-            .map { ns.substring(with: $0.range(at: 1)).uppercased() }
-        let issued = Self.foilDate(Self.issueDatePattern, in: text)
+        // The type letter may be read on its own line between the label and the class.
+        let visaClass = printed.value(["visa type / class", "visa type", "class"], Self.visaClass, below: 2)?.uppercased()
+        let issued = printed.issueDate(born: born, expires: expires)
         var details: [VaultDetail] = []
         if let visaClass { details.append(VaultDetail("Visa class", .text(visaClass))) }
         if let issued { details.append(VaultDetail("Issued", .date(issued))) }
@@ -609,23 +676,39 @@ public struct MachineZone: Equatable, Sendable {
         return VaultFind(title: title, value: control, note: VaultReading.sentence(note), facts: facts)
     }
 
-    private static let controlNumberPattern = try! NSRegularExpression(
-        pattern: #"control\s*(?:number|no\.?)\s*:?\s*\n?\s*([0-9OIL]{8,14}[A-Z0-9]{0,4})\b"#, options: [.caseInsensitive])
-
-    private static let visaClassPattern = try! NSRegularExpression(
-        pattern: #"(?:visa\s*type\s*/?\s*class|class)\s*:?\s*\n?\s*([A-Z]-?[0-9][A-Z0-9]?)\b"#, options: [.caseInsensitive])
-    private static let issueDatePattern = try! NSRegularExpression(
-        pattern: #"issue\s*date\s*:?\s*\n?\s*([0-9]{2})\s*([A-Z]{3})\s*([0-9]{4})"#, options: [.caseInsensitive])
-
-    /// "02OCT2024", as a visa foil prints its dates.
-    private static func foilDate(_ pattern: NSRegularExpression, in text: String) -> Date? {
-        let ns = text as NSString
-        guard let match = pattern.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
-              let day = Int(ns.substring(with: match.range(at: 1))),
-              let month = VaultReading.monthNumber(ns.substring(with: match.range(at: 2))),
-              let year = Int(ns.substring(with: match.range(at: 3))) else { return nil }
-        return VaultReading.calendarDate(year: year, month: month, day: day)
+    /// An OCI card, known by its own number. It is for life, so it has no Valid until: the date
+    /// in its zone's expiry field is not one (a card printed "LIFELONG" carried a 2019 date
+    /// there). India prints dates day first. The passport it was issued against is a detail,
+    /// never the visa's ``VaultReadFacts/inPassport``, so it does not keep an expired passport
+    /// in use.
+    func ociFind(from path: String, page: Int?, printed: PrintedPage) -> VaultFind {
+        let where_ = page.map { " · page \($0)" } ?? ""
+        let issued = printed.issueDate(born: born, expires: nil, order: .dayFirst)
+        let passport = printed.value(["passport no", "passport number"], VaultReading.passportNumber)
+            .map(VaultReading.normalized)
+            .flatMap { $0 == VaultReading.normalized(number) ? nil : $0 }
+        var details: [VaultDetail] = []
+        if !nationality.isEmpty { details.append(VaultDetail("Nationality", .text(nationality))) }
+        if let issued { details.append(VaultDetail("Issued", .date(issued))) }
+        details.append(VaultDetail("Valid", .text("Lifelong")))
+        if let passport { details.append(VaultDetail("Passport", .number(passport))) }
+        let facts = VaultReadFacts(category: .usVisa, holder: holder.isEmpty ? nil : holder, born: born, issuer: "IND",
+                                   form: "OCI", dated: issued, details: details,
+                                   sources: [VaultSource(path: path, role: "OCI card" + where_, rank: VaultReading.Rank.visaFoil)])
+        let note = [holder, "OCI for life"].filter { !$0.isEmpty }
+        return VaultFind(title: "OCI card", value: number, note: VaultReading.sentence(note), facts: facts)
     }
+
+    /// A Control Number: eight to fourteen digits (Vision may read 0 and 1 as O, I or L), up to
+    /// four letters or digits after. It ends at anything but a letter or digit: a scan can leave
+    /// a mark straight after it ("…0001ź"), where a word boundary would not end it.
+    private static let controlNumber = try! NSRegularExpression(
+        pattern: #"[0-9OIL]{8,14}[A-Z0-9]{0,4}(?![A-Za-z0-9])"#, options: [.caseInsensitive])
+    /// A visa's class: "H-1B", "B1/B2", "F1", after the foil's one-letter visa type when it is read
+    /// on the same line ("R H1B").
+    private static let visaClass = try! NSRegularExpression(
+        pattern: #"(?:[A-Z][ \t]+)?([A-Z]-?[0-9][A-Z0-9]?(?:/[A-Z]-?[0-9][A-Z0-9]?)?)(?![A-Za-z0-9])"#,
+        options: [.caseInsensitive])
 
     /// Every zone on one page whose check digits agree, each with the name line directly above
     /// its number line. Several passports scanned onto one page are several zones.
@@ -647,9 +730,14 @@ public struct MachineZone: Equatable, Sendable {
             case nil: kind = nil
             default: continue   // An identity card or residence permit: not a kind the Vault reads.
             }
-            guard let zone = readSecondLine(line, nameLine: above, kind: kind),
-                  !out.contains(where: { $0.number == zone.number }) else { continue }
-            out.append(zone)
+            guard let zone = readSecondLine(line, nameLine: above, kind: kind)
+                    ?? (kind == .visa ? readWithPrintedNumber(line, nameLine: above, page: lines.map { $0.uppercased() }) : nil),
+                  // The same zone read twice is one; a passport and the visa in it, scanned onto one
+                  // page, share a number and are two.
+                  !out.contains(where: { $0.number == zone.number && $0.kind == zone.kind }) else { continue }
+            var placed = zone
+            placed.line = index
+            out.append(placed)
         }
         return out
     }
@@ -787,6 +875,34 @@ public struct MachineZone: Equatable, Sendable {
         return pairs.count == 1 ? pairs[0] : nil
     }
 
+    private static let printedNumberPattern = try! NSRegularExpression(pattern: #"(?<![A-Z0-9])([A-Z]{0,2}[0-9]{6,8})(?![A-Z0-9])"#)
+
+    /// A visa's number line whose passport number failed its check, read again with the number
+    /// the foil prints as "Passport Number": a second reading of the same characters. Kept only
+    /// when that number passes the line's own check digit, differs from the line's reading in two
+    /// characters at most, and is the only one that does; the birth and expiry checks still apply.
+    private static func readWithPrintedNumber(_ line: String, nameLine: String?, page: [String]) -> MachineZone? {
+        let chars = Array(line)
+        guard chars.count >= 28 else { return nil }
+        let read = Array(chars[0..<9])
+        var printed = Set<String>()
+        for text in page where !text.contains("<") {
+            let ns = text as NSString
+            for m in printedNumberPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+                printed.insert(ns.substring(with: m.range(at: 1)))
+            }
+        }
+        var readings: [MachineZone] = []
+        for number in printed {
+            let field = Array(number.padding(toLength: 9, withPad: "<", startingAt: 0))
+            let differences = zip(field, read).filter { $0 != $1 }.count
+            guard differences > 0, differences <= 2 else { continue }
+            if let zone = readWholeSecondLine(String(field + chars[9...]), nameLine: nameLine, kind: .visa),
+               !readings.contains(zone) { readings.append(zone) }
+        }
+        return readings.count == 1 ? readings[0] : nil
+    }
+
     private static func readWholeSecondLine(_ line: String, nameLine: String?, kind: Kind?) -> MachineZone? {
         let digitFields = [9...9, 13...19, 21...27, 42...43]
         var fixed = Array(line)
@@ -819,10 +935,13 @@ public struct MachineZone: Equatable, Sendable {
             let (surname, given) = names(from: nameLine)
             let nationality = String(field(10, 13)).replacingOccurrences(of: "<", with: "")
             let issuingState = nameLine.map { String($0.dropFirst(2).prefix(3)).replacingOccurrences(of: "<", with: "") }
-            return MachineZone(kind: resolved, number: number,
-                               issuer: (issuingState?.count == 3 ? issuingState : nil) ?? nationality,
-                               nationality: nationality, surname: surname, givenNames: given,
-                               expires: expires, born: born, nameRead: nameLine != nil)
+            let issuerRead = issuingState?.count == 3
+            var zone = MachineZone(kind: resolved, number: number,
+                                   issuer: (issuerRead ? issuingState : nil) ?? nationality,
+                                   nationality: nationality, surname: surname, givenNames: given,
+                                   expires: expires, born: born, nameRead: nameLine != nil)
+            zone.issuerRead = issuerRead
+            return zone
         }
         return nil
     }
@@ -934,10 +1053,13 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// Choices made about waiting numbers under an older build's rules, by number: carried onto
     /// what the next read finds, since that read starts again from nothing.
     public var choices: [String: VaultChoice]
+    /// What an older build read was let go, and no read since has finished: the panel asks for one.
+    public var needsReadAgain: Bool
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
-                copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:]) {
+                copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
+                needsReadAgain: Bool = false) {
         self.version = version
         self.generation = generation
         self.finds = finds
@@ -945,9 +1067,12 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         self.mentions = mentions
         self.copies = copies
         self.choices = choices
+        self.needsReadAgain = needsReadAgain
     }
 
-    private enum CodingKeys: String, CodingKey { case version, generation, finds, read, mentions, copies, choices }
+    private enum CodingKeys: String, CodingKey {
+        case version, generation, finds, read, mentions, copies, choices, needsReadAgain
+    }
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
     /// finds' choices can still be carried over.
@@ -960,6 +1085,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         mentions = try c.decodeIfPresent([String: [VaultSource]].self, forKey: .mentions) ?? [:]
         copies = try c.decodeIfPresent([String: [String: VaultFind]].self, forKey: .copies) ?? [:]
         choices = try c.decodeIfPresent([String: VaultChoice].self, forKey: .choices) ?? [:]
+        needsReadAgain = try c.decodeIfPresent(Bool.self, forKey: .needsReadAgain) ?? false
     }
 }
 
@@ -968,11 +1094,13 @@ public struct VaultChoice: Codable, Equatable, Sendable {
     public var id: UUID
     public var pin: VaultPin?
     public var assignment: VaultAssignment?
+    public var geo: VaultGeo?
 
-    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?) {
+    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil) {
         self.id = id
         self.pin = pin
         self.assignment = assignment
+        self.geo = geo
     }
 }
 

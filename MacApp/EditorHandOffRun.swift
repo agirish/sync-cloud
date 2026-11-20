@@ -332,6 +332,7 @@ enum EditorRevealInBrowse {
             return
         }
         log("Reveal in Browse from \(door.name): \(shown) — Browse moves to \(folder)")
-        syncManager.navigatePane(isLeft: true, toCombinedPath: target, drawsColumns: drawsColumns)
+        syncManager.navigatePane(isLeft: true, toCombinedPath: target, drawsColumns: drawsColumns,
+                                 masksInLog: door == .vault)
     }
 }

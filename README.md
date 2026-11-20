@@ -162,30 +162,36 @@ one monthly limit ($25 by default).
 </p>
 
 ### 🔐 Vault
-A locked panel over the window (**⌘U**, or the lock in the toolbar) for the numbers you get asked
+A locked panel over the window (**⌘U**, or the lock in the toolbar) for the IDs you get asked
 for: a passport number, a member ID, a loan number.
 - **Sealed on this Mac**: one encrypted file, its key in your login keychain. Nothing in it is sent
   to Claude or written to the log.
-- **Touch ID or your Mac password** to show or copy a number in full. The list itself only ever
+- **Touch ID or your Mac password** to show or copy an ID in full. The list itself only ever
   shows a name and the last four characters.
-- **Built for a phone call**: type to search, Return to copy, and **Large Type** to read a number
-  out in groups of four. A copy clears from the clipboard after a minute.
+- **Built for a phone call**: type to search, Return to copy, and **Large Type** to read an ID
+  out, grouped as its card prints it, with its details under it. A copy clears from the clipboard
+  after a minute.
 - **Locks itself** when it closes, after two idle minutes, and when the Mac sleeps. **Settings ▸
   Vault** changes when it asks, or turns the lock off after one more Touch ID.
 - **Cards by kind**: Passports, US Visas, I-94 Records, USCIS Cases, Driver's Licenses, Social
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
-  Mortgage, or one list. Each detail beside a number (an expiry, a validity's start and end) has its
+  Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **Showing: where, whose, which kinds**: choose the United States or India (a passport shows in both;
+  every other ID's country comes from its document), a person, and a group of kinds such as
+  Travel & Immigration or Legal & IDs, which you can rename and rearrange. Once chosen, each shrinks
+  to one token, and the Vault opens as you left it.
 - **Read Documents** looks in folders you choose for passports (from the photo page, checked
-  against its own check digits), US visas, I-94 records and USCIS receipt numbers, and for the
+  against its own check digits, with its issue date), visas (US visa foils, OCI cards and e-OCIs,
+  and visas granted online such as India's e-Visa), I-94 records and USCIS receipt numbers, and for the
   cards a household files under Legal: US driver's licenses (from the barcode on the back),
   Indian ones, Social Security cards and ITIN notices, PAN, Aadhaar (checked against its check
-  digit) and voter IDs. A number is kept only where its kind can be checked; a misread is
+  digit) and voter IDs. An ID is kept only where its kind can be checked; a misread is
   skipped, never guessed at. **Current**
   shows one of each kind per person; **Archive** keeps the expired, replaced and archived ones. Each
-  number lists every document that names it, with Quick Look and Reveal in Browse. After the first
+  ID lists every document that names it, with Quick Look and Reveal in Browse. After the first
   read only new and changed files are opened.
-- **Remove** a number with ⌘⌫, a right-click or the ⋯ menu; the Vault asks first.
+- **Remove** an ID with ⌘⌫, a right-click or the ⋯ menu; the Vault asks first.
 
 ### 🧭 Guided setup
 A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask

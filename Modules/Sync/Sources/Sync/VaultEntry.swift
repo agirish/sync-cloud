@@ -64,6 +64,8 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// Set when the user put it in the household: a number read with someone's name on it, which
     /// ``personID`` nil alone would leave to that name.
     private var household: Bool?
+    /// Where it is used, as the user chose (Used In). Nil goes by the document, or Anywhere.
+    public var geo: VaultGeo?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -100,7 +102,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household
+        case chosenCategory = "category", facts, pinned = "pin", household, geo
     }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
@@ -172,8 +174,11 @@ public enum VaultMask {
 
     /// Letters and digits joined by up to three separators: "123 - 45 - 6789", "(123) 45 6789",
     /// "2345,6789,0123" are each one number written out.
-    private static let joinedRun = try! NSRegularExpression(pattern: #"[A-Za-z0-9]+(?:[ ._,+()-]{1,3}[A-Za-z0-9]+)*"#)
-    private static let separators: Set<Character> = [" ", ".", "_", "-", ",", "+", "(", ")"]
+    /// Letters and digits, any script's, joined by up to six of anything else but a folder's
+    /// slash: "123 - 45 - 6789", "123–45–6789" with an en dash, "1234    5678    9012", groups
+    /// joined by a non-breaking space, an ampersand or an apostrophe are each one number.
+    private static let joinedRun = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+(?:[^\p{L}\p{N}/]{1,6}[\p{L}\p{N}]+)*"#)
+    private static func isSeparator(_ c: Character) -> Bool { !(c.isLetter || c.isNumber) }
     private static let dateLike = try! NSRegularExpression(
         pattern: #"^(?:(?:19|20)\d{2}[._-]\d{1,2}(?:[._-]\d{1,2})?|\d{1,2}[._-]\d{1,2}[._-](?:19|20)?\d{2}|(?:19|20)\d{2}[ ._-]+(?:19|20)\d{2})$"#)
 
@@ -184,7 +189,7 @@ public enum VaultMask {
         for match in joinedRun.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
             let whole = ns.substring(with: match.range)
             // Judge each stretch of the run that holds digits: words around a number stay.
-            let words = whole.split(omittingEmptySubsequences: false, whereSeparator: { separators.contains($0) })
+            let words = whole.split(omittingEmptySubsequences: false, whereSeparator: isSeparator)
             var masked = whole
             var start: Int?
             func judge(_ from: Int, _ to: Int) {
@@ -204,16 +209,21 @@ public enum VaultMask {
             for (index, word) in words.enumerated() {
                 if word.isEmpty { continue }
                 let digitsOnly = word.allSatisfy(\.isNumber)
-                let prefix = word.count <= 3 && word.allSatisfy { $0.isUppercase }
+                // A short run of capitals beside digits is part of the number: "WAC", a PAN's
+                // "ABCDE" and its last letter.
+                let prefix = word.count <= 5 && word.allSatisfy { $0.isUppercase }
                 let mixed = word.contains(where: \.isNumber) && word.contains(where: \.isLetter)
-                if digitsOnly || prefix {
+                let stretchDigits = start.map { s in words[s...last].reduce(0) { $0 + $1.filter(\.isNumber).count } } ?? 0
+                if digitsOnly || prefix || (mixed && stretchDigits >= 4) {
+                    // A word mixing letters and digits after a stretch that is already a number
+                    // ("A1234 B5678") is more of it.
                     start = start ?? index
                     last = index
                 } else {
                     if let s = start { judge(s, last); start = nil }
-                    // A word mixing letters and digits starts a stretch of its own: the digit
-                    // groups after it are the rest of it ("D123 4567 8901"), and a stretch before
-                    // it is judged apart ("I-797A" stays).
+                    // Otherwise a word mixing letters and digits starts a stretch of its own: the
+                    // digit groups after it are the rest of it ("D123 4567 8901"), and a stretch
+                    // before it is judged apart ("I-797A" stays).
                     if mixed { start = index; last = index }
                 }
             }
@@ -237,6 +247,31 @@ public enum VaultMask {
         guard size > 0 else { return [String(significant)] }
         return stride(from: 0, to: significant.count, by: size).map {
             String(significant[$0..<min($0 + size, significant.count)])
+        }
+    }
+
+    /// `value` in the groups its document prints, for Large Type, so it can be checked against
+    /// the card: as written where the value has its own spaces or dashes (`(408) 555-0142`,
+    /// `KA05 20090001234`), a written run of more than six cut in fours; else the kind's own
+    /// pattern where it has one and the length fits (a Social Security number 3-2-4, a PAN 5-4-1);
+    /// else fours.
+    public static func printed(_ value: String, as category: VaultCategory?) -> [String] {
+        let written = value.split { !($0.isLetter || $0.isNumber) }.map(String.init)
+        if written.count > 1 {
+            return written.flatMap { $0.count > 6 ? groups($0) : [$0] }
+        }
+        let pattern: [Int]
+        switch category {
+        case .ssn?: pattern = [3, 2, 4]
+        case .pan?: pattern = [5, 4, 1]
+        default: return groups(value)
+        }
+        let significant = Array(value.filter { $0.isLetter || $0.isNumber })
+        guard significant.count == pattern.reduce(0, +) else { return groups(value) }
+        var start = 0
+        return pattern.map { size in
+            defer { start += size }
+            return String(significant[start..<start + size])
         }
     }
 }

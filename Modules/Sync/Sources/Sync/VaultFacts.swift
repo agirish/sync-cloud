@@ -1,15 +1,17 @@
 import Foundation
 
 /// The kinds of number the Vault's main view shows, each as a card, in this order. A number read
-/// from a document is one of the first four; a number typed in takes whichever the editor chose.
-/// Anything read that is none of these goes to Other Finds, never the main view.
+/// from a document takes the kind its reader says; a number typed in takes whichever the editor
+/// chose. Every kind is on the main view (``mainView``); the Other Finds tab is for a kind left
+/// off it, and is not drawn while it holds nothing.
 public enum VaultCategory: String, Codable, CaseIterable, Sendable {
     case passport, usVisa, i94, uscisCase, driversLicense, ssn, pan, aadhaar, voterID, health, utilities, loans, other
 
     public var title: String {
         switch self {
         case .passport: return "Passports"
-        case .usVisa: return "US Visas"
+        // Raw value kept from when it held US visas alone; OCI cards and Indian e-Visas join them.
+        case .usVisa: return "Visas"
         case .i94: return "I-94 Records"
         case .uscisCase: return "USCIS Cases"
         case .driversLicense: return "Driver’s Licenses"
@@ -28,7 +30,7 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
     public var singular: String {
         switch self {
         case .passport: return "Passport"
-        case .usVisa: return "US visa"
+        case .usVisa: return "Visa"
         case .i94: return "I-94 admission number"
         case .uscisCase: return "USCIS receipt number"
         case .driversLicense: return "Driver’s license"
@@ -36,10 +38,10 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
         case .pan: return "PAN (India)"
         case .aadhaar: return "Aadhaar number"
         case .voterID: return "Voter ID (EPIC)"
-        case .health: return "Health or medical number"
+        case .health: return "Health or medical ID"
         case .utilities: return "Utility or phone account"
-        case .loans: return "Loan or mortgage number"
-        case .other: return "Other number"
+        case .loans: return "Loan or mortgage account"
+        case .other: return "Other ID"
         }
     }
 
@@ -348,16 +350,56 @@ public struct VaultStandingInput: Sendable {
 
 /// Which numbers belong to one person, joined by any key two of them share: a printout read
 /// with a birth date and a notice read with the same name are one person's. Never joined when
-/// that would put two birth dates, or two people the household knows apart, in one.
+/// that would put two birth dates, two people the household knows apart, or two first names in
+/// one: twins share a birth date and nothing else.
 struct VaultPeopleClusters {
     private var parent: [Int]
     private var borns: [Set<String>]
     private var people: [Set<String>]
+    private var firstNames: [Set<String>]
+
+    /// Placeholders a document prints where a name is unknown ("FNU", first name unknown).
+    static let noName: Set<String> = ["fnu", "lnu", "unk"]
+
+    /// Whether two first names read off documents can be one person's: the same; an initial
+    /// and the name it starts ("G" and "Girish"); or one letter misread in a name of four or more
+    /// ("Abhlshek" and "Abhishek"). Twins' names differ by more than that.
+    static func sameFirstName(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        if a.count == 1 || b.count == 1 { return a.first == b.first }
+        guard a.count >= 4, b.count >= 4, abs(a.count - b.count) <= 1 else { return false }
+        return editDistance(Array(a), Array(b)) <= 1
+    }
+
+    /// Whether `names` hold two that cannot be one person's.
+    static func differ(_ names: Set<String>) -> Bool {
+        let list = Array(names)
+        for i in list.indices { for j in list.indices where j > i && !sameFirstName(list[i], list[j]) { return true } }
+        return false
+    }
+
+    private static func editDistance(_ a: [Character], _ b: [Character]) -> Int {
+        var previous = Array(0...b.count)
+        for i in 1...a.count {
+            var current = [i] + Array(repeating: 0, count: b.count)
+            for j in 1...b.count {
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            previous = current
+        }
+        return previous[b.count]
+    }
 
     init(_ keys: [[String]]) {
         parent = Array(keys.indices)
         borns = keys.map { Set($0.filter { $0.hasPrefix("born:") }) }
         people = keys.map { Set($0.filter { $0.hasPrefix("assigned:") || $0 == "household" }) }
+        firstNames = keys.map { list in
+            Set(list.filter { $0.hasPrefix("name:") }.compactMap { key -> String? in
+                let first = key.dropFirst(5).split(separator: " ").first.map(String.init)
+                return first.flatMap { Self.noName.contains($0) ? nil : $0 }
+            })
+        }
         var owner: [String: Int] = [:]
         for (index, list) in keys.enumerated() {
             for key in list {
@@ -380,10 +422,13 @@ struct VaultPeopleClusters {
         guard ra != rb else { return }
         let bornsClash = !borns[ra].isEmpty && !borns[rb].isEmpty && borns[ra].isDisjoint(with: borns[rb])
         let peopleClash = !people[ra].isEmpty && !people[rb].isEmpty && people[ra].isDisjoint(with: people[rb])
-        guard !bornsClash, !peopleClash else { return }
+        let namesClash = !firstNames[ra].isEmpty && !firstNames[rb].isEmpty
+            && !firstNames[ra].contains { a in firstNames[rb].contains { b in Self.sameFirstName(a, b) } }
+        guard !bornsClash, !peopleClash, !namesClash else { return }
         parent[rb] = ra
         borns[ra].formUnion(borns[rb])
         people[ra].formUnion(people[rb])
+        firstNames[ra].formUnion(firstNames[rb])
     }
 }
 
@@ -440,7 +485,30 @@ public enum VaultStandings {
             Ranking(first: facts.dated ?? facts.validUntil ?? .distantPast, second: facts.validUntil ?? .distantPast)
         }
 
-        let keys = read.map { $0.0.personKeys }
+        // A name two birth dates share, or a birth date two first names share (twins), says
+        // nothing on its own: a number read with only that one is nobody's in particular.
+        var namesBorn: [String: Set<String>] = [:]
+        var bornsNamed: [String: Set<String>] = [:]
+        for (item, facts) in read where !item.isChosen {
+            guard let name = facts.nameKey, let born = facts.born else { continue }
+            namesBorn[name, default: []].insert(VaultReading.formDate(born))
+            if let first = facts.holder?.lowercased().split(whereSeparator: { !$0.isLetter }).first.map(String.init),
+               !VaultPeopleClusters.noName.contains(first) {
+                bornsNamed["born:" + VaultReading.formDate(born), default: []].insert(first)
+            }
+        }
+        let keys = read.map { pair -> [String] in
+            let (item, facts) = pair
+            guard !item.isChosen else { return item.personKeys }
+            if facts.born == nil, let name = facts.nameKey, (namesBorn[name]?.count ?? 0) > 1 {
+                return item.personKeys.filter { $0 != name }
+            }
+            if facts.nameKey == nil, let born = facts.born.map({ "born:" + VaultReading.formDate($0) }),
+               VaultPeopleClusters.differ(bornsNamed[born] ?? []) {
+                return item.personKeys.filter { $0 != born }
+            }
+            return item.personKeys
+        }
         var clusters = VaultPeopleClusters(keys)
         let person = read.indices.map { keys[$0].isEmpty ? nil : "person:\(clusters.root($0))" }
         let groups = Dictionary(grouping: read.indices) { index -> String in
@@ -456,6 +524,14 @@ public enum VaultStandings {
             case .driversLicense: return "license|\(person)|\(facts.issuer ?? "")"
             // An SSN and an ITIN are weighed apart; an ITIN gives way to an SSN below.
             case .ssn: return "ssn|\(person)|\(facts.form ?? "")"
+            // A US visa, an Indian e-Visa and an OCI card are each weighed only against their kind,
+            // and a US visa only against its class: a B1/B2 still good beside a newer H-1B is
+            // still a visa its holder can use.
+            case .usVisa:
+                // As letters and digits, so "H-1B" on one foil and "H1B" on the next are one class.
+                let visaClass = facts.details.first { $0.label == "Visa class" }
+                    .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
+                return "visa|\(person)|\(facts.issuer ?? "")|\(facts.form ?? "")|\(visaClass)"
             default: return "\(facts.category.rawValue)|\(person)"
             }
         }
@@ -550,4 +626,110 @@ extension VaultCategory {
                                                    .pan, .aadhaar, .voterID, .health, .utilities, .loans, .other]
     /// What the editor offers for a number typed in.
     public static let typedIn: [VaultCategory] = mainView
+}
+
+/// One number read from several documents: which document speaks for it, and how the rest
+/// fill in what it is silent on. Pure, so a reader can merge two pages of one file the way the
+/// Vault merges two files.
+public enum VaultCopies {
+    /// Whether `incoming`'s document, carrying a number already read, should speak for it: the
+    /// more trusted kind of document first, so a form that only quotes an Aadhaar number never
+    /// lends it the form's own issue date; between documents trusted alike, the newer, so a
+    /// license renewed under the same number shows the new card's dates, not those of the card
+    /// it replaced; and a dated one over an undated one.
+    ///
+    /// Between documents trusted alike, one filed outside an Archive folder over one inside: the
+    /// household files a replaced card there, so a renewal whose own expiry was not read still
+    /// speaks over the card it replaced, whose expiry runs past the renewal's issue. (Both filed
+    /// alike, the old card's later expiry wins, and the row shows it until the renewal's expiry
+    /// is read.) Then newer by expiry, else the document's own date: an I-94 printout's
+    /// admit-until, an approval's validity. Not the document's date first: a copy's date can be
+    /// only its file name's, and a scan with a later name but fewer fields would speak for the
+    /// number (tried on 2026-11-19: five I-94s lost their admit-until). Between two readings of
+    /// one card (its front and its barcode), the one that says more. One key, compared in order,
+    /// so sorting by this is consistent.
+    static func supersedes(_ incoming: VaultReadFacts, _ held: VaultReadFacts) -> Bool {
+        let (ra, rb) = (incoming.primary?.rank ?? 0, held.primary?.rank ?? 0)
+        if ra != rb { return ra > rb }
+        let (aa, ab) = (incoming.primary.map { VaultReading.isArchivePath($0.path) } ?? false,
+                        held.primary.map { VaultReading.isArchivePath($0.path) } ?? false)
+        if aa != ab { return !aa }
+        switch (incoming.validUntil ?? incoming.dated, held.validUntil ?? held.dated) {
+        case let (a?, b?) where a != b: return a > b
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return incoming.details.count > held.details.count
+        }
+    }
+
+    /// Whether two readings of one number are of the same document, not a renewal under the same
+    /// number or another kind of paper that quotes it: the same expiry, or, with none, the same date.
+    static func sameDocument(_ a: VaultReadFacts, _ b: VaultReadFacts) -> Bool {
+        if let until = a.validUntil { return until == b.validUntil }
+        return b.validUntil == nil && a.dated != nil && a.dated == b.dated
+    }
+
+    /// One number as every document that carries it says, rebuilt from those documents alone:
+    /// the best document speaks (``supersedes(_:_:)``), every one is listed, and what the best is
+    /// silent on comes from the next that says it. A receipt notice names the person, its
+    /// approval says how long the case is good for.
+    ///
+    /// Rebuilt rather than merged into, so a file that is changed or gone takes what it said
+    /// with it: a misread expiry does not outlive the scan it came from.
+    static func merged(_ copies: [VaultFind]) -> VaultFind? {
+        let ordered = copies.sorted { a, b in
+            if supersedes(a.facts, b.facts) { return true }
+            if supersedes(b.facts, a.facts) { return false }
+            return a.sourcePath < b.sourcePath
+        }
+        guard var best = ordered.first else { return nil }
+        // What the best document itself said, before anything is borrowed into it.
+        let speaker = best.facts
+        for copy in ordered.dropFirst() {
+            for source in copy.facts.sources { best.facts.add(source) }
+            best.facts.holder = fuller(best.facts.holder, copy.facts.holder)
+            best.facts.born = best.facts.born ?? copy.facts.born
+            best.facts.form = best.facts.form ?? copy.facts.form
+            // Whether this copy is a document no older than the one speaking: an I-94's extension
+            // notice is, beside its printout; the card a renewal replaced is not. By its own date;
+            // with none read, a document of another, lesser kind (a tear-off beside its printout)
+            // by whether it runs past the speaker's date. Another undated scan of the same kind
+            // of card says nothing about which card it is, and lends nothing.
+            let lesserKind = (copy.facts.primary?.rank ?? 0) < (speaker.primary?.rank ?? 0)
+            let newer: Bool? = speaker.dated.flatMap { own in
+                if let date = copy.facts.dated { return date >= own }
+                return lesserKind ? copy.facts.validUntil.map { $0 > own } : nil
+            }
+            // An expiry the best is silent on, from a document no older than it: an older one under
+            // the same number is the card it replaced, whose expiry is not the renewal's. A copy
+            // that cannot be placed lends only to a speaker with no date of its own either.
+            if best.facts.validUntil == nil, let until = copy.facts.validUntil, newer ?? (speaker.dated == nil) {
+                best.facts.validUntil = until
+            }
+            best.facts.pending = best.facts.pending && copy.facts.pending
+            // A detail only another reading of the same card has (the barcode's issue date, the
+            // front's state), or a newer document (the extension's admit-until), placed after the
+            // detail it follows there. Never one from an older document.
+            guard sameDocument(speaker, copy.facts) || newer == true else { continue }
+            for (index, detail) in copy.facts.details.enumerated()
+            where !best.facts.details.contains(where: { $0.label == detail.label }) {
+                let before = copy.facts.details[..<index].reversed().first { prior in
+                    best.facts.details.contains { $0.label == prior.label }
+                }
+                let at = before.flatMap { prior in best.facts.details.firstIndex { $0.label == prior.label } }.map { $0 + 1 } ?? 0
+                best.facts.details.insert(detail, at: at)
+            }
+        }
+        return best
+    }
+
+    /// The name to keep of two read for one number: the one present, and of two that start
+    /// alike, the longer, so "Abhishek" read off a license front gives way to "Abhishek Girish"
+    /// from its barcode.
+    static func fuller(_ kept: String?, _ other: String?) -> String? {
+        guard let kept else { return other }
+        guard let other else { return kept }
+        let (k, o) = (kept.split(separator: " "), other.split(separator: " "))
+        return o.count > k.count && o.first?.lowercased() == k.first?.lowercased() ? other : kept
+    }
 }

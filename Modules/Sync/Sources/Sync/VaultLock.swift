@@ -147,6 +147,14 @@ public struct VaultLock: Equatable, Sendable {
         lastActivity = now
     }
 
+    /// The number shown under "every number" is being worked on: typed in the editor, or read
+    /// out line by line in Large Type. Its thirty seconds start again, so it is not taken away
+    /// mid-edit. Nothing once those seconds have run out; it never shows a number again.
+    public mutating func keepShown(at now: Date) {
+        guard let shown, now < shown.until else { return }
+        self.shown = (shown.id, max(shown.until, now.addingTimeInterval(Self.showFor)))
+    }
+
     /// The panel closed.
     public mutating func closed() {
         shown = nil
@@ -202,24 +210,27 @@ public enum VaultLockSwitch {
 
     /// Where the seal on "the lock is off" is kept.
     public static let sealKey = "vaultLockOffSeal"
-    private static let sealPhrase = "vault lock off"
 
-    /// Seals the lock as off, once the owner proved it: a keyed fingerprint only this Mac's Vault
-    /// key makes. The setting itself is a plain preference, which `defaults write` can change
-    /// without any proof; unsealed, an "off" is read as on (``VaultLockSettings/init(defaults:store:)``).
+    /// Seals the lock as off, once the owner proved it: a keyed fingerprint of a fresh random
+    /// secret kept in the Keychain, which only this Mac's Vault key makes. The setting itself is a
+    /// plain preference, which `defaults write` can change without any proof; unsealed, an "off"
+    /// is read as on (``VaultLockSettings/init(defaults:store:)``). Fresh each time, and its
+    /// secret deleted when the lock goes back on, so a seal copied from an old backup of the
+    /// preferences matches nothing.
     public static func sealOff(in defaults: UserDefaults, store: VaultStore?) {
-        guard let seal = store?.fingerprint(sealPhrase, makingKey: true) else { return }
+        guard let seal = store?.makeLockOffSeal() else { return }
         defaults.set(seal, forKey: sealKey)
     }
 
-    /// The lock is on again: no seal is left to reuse.
-    public static func unseal(in defaults: UserDefaults) {
+    /// The lock is on again: the seal and its secret both go, so neither can be used again.
+    public static func unseal(in defaults: UserDefaults, store: VaultStore? = nil) {
         defaults.removeObject(forKey: sealKey)
+        store?.forgetLockOffSeal()
     }
 
-    /// Whether "off" was set by Settings after a proof on this Mac.
+    /// Whether "off" was set by Settings after a proof on this Mac, since the lock was last on.
     static func isSealedOff(in defaults: UserDefaults, store: VaultStore?) -> Bool {
-        guard let seal = defaults.string(forKey: sealKey), let expected = store?.fingerprint(sealPhrase) else { return false }
+        guard let seal = defaults.string(forKey: sealKey), let expected = store?.lockOffSeal() else { return false }
         return seal == expected
     }
 }

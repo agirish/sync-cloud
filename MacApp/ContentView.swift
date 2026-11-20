@@ -2537,8 +2537,12 @@ struct ContentView: View {
                 showVault = false
                 openSettings(on: SettingsPlace(.vault))
             },
-            // Over the Vault, which stays open behind it.
+            // Over the Vault, which stays open behind it. The Vault's own preview: one document,
+            // not a list left by an earlier preview to step through with ← and →, and not one
+            // that follows Browse's selection.
             onQuickLook: { path in
+                quickLookItems = []
+                quickLookFollowsPane = false
                 quickLookURL = URL(fileURLWithPath: path)
                 quickLookFromVault = true
             },
@@ -2549,8 +2553,12 @@ struct ContentView: View {
             },
             // The same People list Organize files by: the Vault adds to it, never a list of its own.
             onAddPerson: { name, fullName in
-                syncManager.filingPeopleStore?.add(displayName: name, fullNames: [fullName])
-            }
+                syncManager.filingPeopleStore?.add(displayName: name, fullNames: [fullName], fromVault: true)
+            },
+            // What Quick Look shows for the Vault, if anything: so Space toggles it, it follows the
+            // chosen number, and it closes when that number may no longer be shown.
+            quickLookPath: quickLookFromVault ? quickLookURL?.path : nil,
+            onCloseQuickLook: { if quickLookFromVault { quickLookURL = nil } }
         )
     }
 

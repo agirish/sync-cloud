@@ -253,10 +253,11 @@ public final class PeopleStore: ObservableObject {
     }
 
     /// Adds a person, giving them an id derived from their display name and unique within the
-    /// roster. Returns the person as stored, or nil when the name is blank.
+    /// roster. Returns the person as stored, or nil when the name is blank. `fromVault` logs the
+    /// addition without the name: the Vault never writes a holder's name to the log.
     @discardableResult
     public func add(displayName: String, relationship: String? = nil,
-                    fullNames: [String] = [], aliases: [String] = []) -> Person? {
+                    fullNames: [String] = [], aliases: [String] = [], fromVault: Bool = false) -> Person? {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         let person = Person(id: uniqueId(from: name), displayName: name,
@@ -265,7 +266,8 @@ public final class PeopleStore: ObservableObject {
                             aliases: Self.cleanedList(aliases))
         people.append(person)
         sortAndSave()
-        Logger.shared.info("People: added '\(person.displayName)' (\(person.id))")
+        Logger.shared.info(fromVault ? "People: added a person named on a Vault document"
+                                     : "People: added '\(person.displayName)' (\(person.id))")
         return person
     }
 

@@ -124,11 +124,14 @@ extension FileSyncManager {
     /// Routes a click on that joined path to whichever half owns it. A crumb inside the scope is a
     /// browse move, cheap and with no rescan; a crumb above the scope is the only way out, so it
     /// re-roots.
-    @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String, drawsColumns: Bool) {
+    /// `masksInLog` names the folders masked in the log (``VaultMask``): a move for a document
+    /// behind a Vault number, whose folder can be named after the number.
+    @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String, drawsColumns: Bool,
+                                        masksInLog: Bool = false) {
         let focus = isLeft ? leftRelativePath : rightRelativePath
         let side = isLeft ? "left" : "right"
         // Every branch logs, so a crumb click that goes nowhere still leaves a line.
-        let target = combined.isEmpty ? "root" : combined
+        let target = combined.isEmpty ? "root" : masksInLog ? VaultMask.folder(combined) : combined
         // Tree has no stack, so a browse move would write state it never draws and the click would
         // do nothing. Every target is a re-root there, which also makes it reachable by Back.
         if !drawsColumns {
@@ -147,11 +150,11 @@ extension FileSyncManager {
             Logger.shared.debug("[crumb] \(side) pane returns to its scope \(target)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath())
         } else if combined.hasPrefix(focus + "/") {
-            Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(focus)")
+            Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(masksInLog ? VaultMask.folder(focus) : focus)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: String(combined.dropFirst(focus.count + 1))))
         } else {
             // Above the comparison scope: a real re-root, history and all.
-            Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(focus)")
+            Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(masksInLog ? VaultMask.folder(focus) : focus)")
             focusOn(relativePath: combined, isLeft: isLeft)
         }
     }

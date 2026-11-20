@@ -4,22 +4,38 @@ import Security
 import Testing
 @testable import Sync
 
-/// An in-memory ``KeychainStore`` with the one item slot the Vault uses. Tests never touch the
-/// real login keychain.
+/// An in-memory ``KeychainStore`` with the Vault key's item slot, and a slot for each other item
+/// the Vault keeps (the lock-off seal's secret). Tests never touch the real login keychain.
 final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
     var itemData: Data?
     var forcedCopyStatus: OSStatus?
     var forcedAddStatus: OSStatus?
+    /// The Vault key's adds.
     private(set) var adds = 0
     private(set) var lastAdded: [String: Any]?
+    /// Items of other services, by service.
+    private(set) var others: [String: Data] = [:]
+
+    private static func otherService(_ query: [String: Any]) -> String? {
+        let service = query[kSecAttrService as String] as? String
+        return service == "com.synccloud.vault-key" ? nil : service
+    }
 
     func delete(_ query: [String: Any]) -> OSStatus {
+        if let service = Self.otherService(query) {
+            return others.removeValue(forKey: service) != nil ? errSecSuccess : errSecItemNotFound
+        }
         let had = itemData != nil
         itemData = nil
         return had ? errSecSuccess : errSecItemNotFound
     }
 
     func add(_ attributes: [String: Any]) -> OSStatus {
+        if let service = Self.otherService(attributes) {
+            if others[service] != nil { return errSecDuplicateItem }
+            others[service] = attributes[kSecValueData as String] as? Data
+            return errSecSuccess
+        }
         adds += 1
         if let forcedAddStatus { return forcedAddStatus }
         if itemData != nil { return errSecDuplicateItem }
@@ -30,6 +46,10 @@ final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
 
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
         if let forcedCopyStatus { return (forcedCopyStatus, nil) }
+        if let service = Self.otherService(query) {
+            guard let data = others[service] else { return (errSecItemNotFound, nil) }
+            return (errSecSuccess, data as AnyObject)
+        }
         guard let itemData else { return (errSecItemNotFound, nil) }
         return (errSecSuccess, itemData as AnyObject)
     }
@@ -187,6 +207,21 @@ struct VaultScratch {
         #expect(VaultMask.groups("XEH482917365") == ["XEH4", "8291", "7365"])
         #expect(VaultMask.groups("(408) 555-0142") == ["4085", "5501", "42"])
         #expect(VaultMask.groups("") == [])
+    }
+
+    @Test func largeTypeGroupsAnIDAsItsDocumentPrintsIt() {
+        // Its own pattern, where the kind has one and the length fits.
+        #expect(VaultMask.printed("ABCPE1234F", as: .pan) == ["ABCPE", "1234", "F"])
+        #expect(VaultMask.printed("123456789", as: .ssn) == ["123", "45", "6789"])
+        #expect(VaultMask.printed("12345678", as: .ssn) == ["1234", "5678"], "a misread length falls back to fours")
+        // As written, a long run cut in fours.
+        #expect(VaultMask.printed("123-45-6789", as: .ssn) == ["123", "45", "6789"])
+        #expect(VaultMask.printed("(408) 555-0142", as: .utilities) == ["408", "555", "0142"])
+        #expect(VaultMask.printed("KA05 20090001234", as: .driversLicense) == ["KA05", "2009", "0001", "234"])
+        // Else fours.
+        #expect(VaultMask.printed("D1234567", as: .driversLicense) == ["D123", "4567"])
+        #expect(VaultMask.printed("234567890123", as: .aadhaar) == ["2345", "6789", "0123"])
+        #expect(VaultMask.printed("", as: nil) == [])
     }
 
     @Test func anEntryNeverPrintsItsNumber() {

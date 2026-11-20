@@ -182,6 +182,10 @@ enum AppCopyScan {
     static let spellingExemptions: [Exemption] = [
         .init(file: "Modules/Settings/Sources/Settings/SettingsView.swift", contains: #""colour""#,
               reason: "a Settings search synonym: someone typing “colour” still finds Accent color"),
+        .init(file: "Modules/Sync/Sources/Sync/VaultTravelReading.swift", contains: "authoris",
+              reason: "labels a UK or Australian visa page prints, matched on the page and never shown"),
+        .init(file: "Modules/Sync/Sources/Sync/VaultTravelReading.swift", contains: "cancelled",
+              reason: "a status a UK or Australian visa page prints, matched on the page and never shown"),
     ]
 
     // MARK: Title Case in menus

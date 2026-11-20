@@ -27,17 +27,24 @@ struct VaultFolderReader: VaultDocumentReading {
     /// Every file in the folders, however many: only new and changed ones are opened after the
     /// first read (``VaultModel/readDocuments(with:again:)``), so a large folder costs its time
     /// once, and a read stopped partway carries on from where it stopped.
-    func files() async -> [URL] {
+    func files() async -> [URL] { await walk().files }
+
+    func walk() async -> (files: [URL], unreachable: [String]) {
         await Task.detached(priority: .userInitiated) { [folders] in Self.walk(folders) }.value
     }
 
-    private static func walk(_ folders: [String]) -> [URL] {
+    /// Collects the folders the walk could not open, from the enumerator's error handler.
+    private final class Unreachable: @unchecked Sendable { var paths: [String] = [] }
+
+    private static func walk(_ folders: [String]) -> (files: [URL], unreachable: [String]) {
         var found: [URL] = []
         var tooLarge = 0
+        let unreachable = Unreachable()
         for folder in folders {
             guard let walk = FileManager.default.enumerator(
                 at: URL(fileURLWithPath: folder, isDirectory: true), includingPropertiesForKeys: [.fileSizeKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
+                options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                errorHandler: { url, _ in unreachable.paths.append(url.path); return true }) else { continue }
             for case let url as URL in walk where extensions.contains(url.pathExtension.lowercased()) {
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 if size <= largestFile { found.append(url) } else { tooLarge += 1 }
@@ -47,7 +54,10 @@ struct VaultFolderReader: VaultDocumentReading {
         if tooLarge > 0 {
             Logger.shared.info("Vault: \(tooLarge) file(s) over \(largestFile / 1024 / 1024) MB passed over")
         }
-        return found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        if !unreachable.paths.isEmpty {
+            Logger.shared.info("Vault: \(unreachable.paths.count) folder(s) could not be opened; what was read in them is kept")
+        }
+        return (found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }, unreachable.paths)
     }
 
     func pages(in file: URL) async -> [[String]] {
@@ -55,12 +65,16 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     /// Each page's lines kept apart, so a name line on one page is never paired with a number on
-    /// another.
+    /// another. A page that could not be rendered or recognised is left out, never read as a
+    /// blank page; a file with no page read at all comes back empty, so it is not marked read and
+    /// the next read tries it again, and what it gave before stays. One broken page does not keep
+    /// a file's other pages from being read, on this read or any later one.
     private static func read(_ file: URL) -> [[String]] {
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
-            return [recognise(image)]
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+                  let lines = recognise(image) else { return [] }
+            return [lines]
         }
         // A locked PDF is passed over: its password is not the Vault's to ask for.
         guard let document = PDFDocument(url: file) else {
@@ -72,6 +86,13 @@ struct VaultFolderReader: VaultDocumentReading {
             return []
         }
         var pages: [[String]] = []
+        var unreadable = 0
+        defer {
+            if unreadable > 0 {
+                Logger.shared.debug("Vault: \(unreadable) page(s) could not be recognised"
+                                    + (pages.isEmpty ? "; the file is tried again next time" : "; the rest were read"))
+            }
+        }
         for index in 0..<min(document.pageCount, pagesPerDocument) {
             guard let page = document.page(at: index) else { continue }
             let layer = page.string ?? ""
@@ -86,13 +107,17 @@ struct VaultFolderReader: VaultDocumentReading {
                                         + (decoded.isEmpty ? "none decoded" : "decoded"))
                 }
                 pages.append(lines)
-            } else if let image = render(page) {
-                var lines = recognise(image)
+            } else {
+                guard let image = render(page), var lines = recognise(image) else {
+                    unreadable += 1
+                    continue
+                }
                 // A Social Security card's small type runs a digit in at this size, and a license
                 // back's barcode can fail to decode; both read true at about 4000 pixels. Only
                 // such a page, with nothing read from it, is read again.
-                if VaultReading.wantsSharperRead(lines), let sharper = render(page, longSide: 4000) {
-                    lines = recognise(sharper)
+                if VaultReading.wantsSharperRead(lines), let sharper = render(page, longSide: 4000),
+                   let again = recognise(sharper) {
+                    lines = again
                     Logger.shared.debug("Vault: a page was read again at 4000 px; "
                                         + (VaultReading.wantsSharperRead(lines) ? "still nothing read" : "now read"))
                 }
@@ -115,7 +140,8 @@ struct VaultFolderReader: VaultDocumentReading {
     /// a receipt number's letters into words. A US license's PDF417 barcode is decoded in the
     /// same pass and its text added after the page's lines, one element to a line, for
     /// ``VaultReading`` to read: it states the number, name and dates outright.
-    private static func recognise(_ image: CGImage) -> [String] {
+    /// Nil when Vision failed, which is not the same as a page with no text.
+    private static func recognise(_ image: CGImage) -> [String]? {
         let text = VNRecognizeTextRequest()
         text.recognitionLevel = .accurate
         text.usesLanguageCorrection = false
@@ -124,7 +150,7 @@ struct VaultFolderReader: VaultDocumentReading {
         do {
             try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
         } catch {
-            return []
+            return nil
         }
         let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         return lines + payloadLines(barcodes.results ?? [])

@@ -22,7 +22,13 @@ public struct VaultDeviceOwnerProof: VaultAuthenticating {
         context.touchIDAuthenticationAllowableReuseDuration = 0
         var cannot: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &cannot) else {
-            return .unavailable("This Mac has no login password or Touch ID to ask for. Set one in System Settings, or turn the Vault’s lock off in Settings.")
+            // Only "no password is set" means this Mac cannot ask, which lets the lock be turned
+            // off without a proof. Anything else (a lockout, a busy prompt) is a failure to ask
+            // again, never a way around the proof.
+            if cannot?.code == LAError.passcodeNotSet.rawValue {
+                return .unavailable("This Mac has no login password or Touch ID to ask for. Set one in System Settings, or turn the Vault’s lock off in Settings.")
+            }
+            return .failed("macOS couldn’t ask who you are right now (\(cannot?.localizedDescription ?? "no reason given")). Try again in a moment.")
         }
         do {
             let allowed = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)

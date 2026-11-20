@@ -53,6 +53,9 @@ struct VaultOverlay: View {
     /// Adds a person to People (Settings ▸ Organize), the list filing uses too: their name to show,
     /// and the full name a document prints. Nil when People isn't available.
     let onAddPerson: (_ displayName: String, _ fullName: String) -> Person?
+    /// The document Quick Look shows for the Vault, nil while it shows none.
+    let quickLookPath: String?
+    let onCloseQuickLook: () -> Void
 
     @AppStorage(VaultCardSize.widthDefaultsKey) private var storedWidth: Double = 0
     @AppStorage(VaultCardSize.heightDefaultsKey) private var storedHeight: Double = 0
@@ -73,7 +76,8 @@ struct VaultOverlay: View {
 
                 VaultCard(model: model, people: people, glassHue: glassHue,
                           onClose: onClose, onOpenSettings: onOpenSettings,
-                          onQuickLook: onQuickLook, onReveal: onReveal, onAddPerson: onAddPerson)
+                          onQuickLook: onQuickLook, onReveal: onReveal, onAddPerson: onAddPerson,
+                          quickLookPath: quickLookPath, onCloseQuickLook: onCloseQuickLook)
                     .frame(width: size.width, height: size.height)
                     // The card's own controls take the window's hue, not the Mac's accent.
                     .nativeControlAccent(glassHue)
@@ -122,6 +126,8 @@ struct VaultCard: View {
     let onQuickLook: (String) -> Void
     let onReveal: (String) -> Void
     let onAddPerson: (_ displayName: String, _ fullName: String) -> Person?
+    let quickLookPath: String?
+    let onCloseQuickLook: () -> Void
 
     /// The name a number being added was read with, when it matches nobody in People: the
     /// question whether to add them first.
@@ -156,6 +162,11 @@ struct VaultCard: View {
     @State private var draft = VaultModel.Draft()
     /// The entry Large Type is showing.
     @State private var largeType: UUID?
+    /// Its lit line: nil for the ID, else the index of one of its details.
+    @State private var largeTypeLine: Int?
+    /// Where, Whose or Kinds, opened to choose again.
+    @State private var choosing: Choosing?
+    @State private var customizingGroups = false
     /// The entry whose Copy just ran, for the button's two seconds of "Copied".
     @State private var copied: UUID?
     /// What Remove… or ⌘⌫ is asking about, until the dialog is answered.
@@ -186,9 +197,12 @@ struct VaultCard: View {
         }
         .overlay {
             if let row = model.rows.first(where: { $0.id == largeType }), model.lock.canShow(row.id, at: model.now) {
-                VaultLargeType(title: row.title, value: row.value, owner: row.whose, accent: glassHue.accentColor) {
-                    largeType = nil
-                }
+                VaultLargeType(heading: "\(row.isHousehold ? "Household" : (row.facts?.holder ?? row.whose)) · \(row.title)",
+                               idLabel: Self.idLabel(row), value: row.value, category: row.category,
+                               lines: Self.largeTypeLines(row), lit: largeTypeLine, accent: glassHue.accentColor,
+                               onLight: { largeTypeLine = $0 },
+                               onStep: { stepLargeType(by: $0) },
+                               onClose: { largeType = nil })
             }
         }
         .task {
@@ -209,10 +223,28 @@ struct VaultCard: View {
         }
         // People changed in Settings, or a person was added here: whose each number is follows.
         .onChange(of: people) { _, now in model.people = now }
+        // Back to SyncCloud with the Vault up and locked: Touch ID is asked for at once, as when
+        // it opened. Only on coming back, never the moment it relocks, so no prompt waits at a
+        // Mac left alone; a cancelled prompt waits for the next return.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            let settings = model.lock.settings
+            // The same rule as opening: only a Vault with something saved asks at once.
+            guard model.contents == .loaded, settings.requiresAuthentication, settings.ask == .whenOpened,
+                  !model.isOpen, !model.isAsking, !model.entries.isEmpty else { return }
+            Task { await model.unlock() }
+        }
         // Access ran out (Lock Now, the idle limit, a number's thirty seconds): nothing that draws
         // a number in full stays up. The editor draws it in its field; Large Type draws it big.
+        // Large Type also goes when its number does (removed, set aside), or its state would hold
+        // the keys with nothing on screen.
         .onChange(of: model.now) { _, now in
-            if let id = largeType, !model.lock.canShow(id, at: now) { largeType = nil }
+            if let id = largeType, !model.lock.canShow(id, at: now) || !model.rows.contains(where: { $0.id == id }) {
+                largeType = nil
+            }
+            // Quick Look shows the chosen number's scan, which prints it in full.
+            if quickLookPath != nil, model.selectedRow.map({ !model.lock.canShow($0.id, at: now) }) ?? true {
+                onCloseQuickLook()
+            }
             switch editing {
             case .existing(let id)?, .confirming(let id)?:
                 if !model.lock.canShow(id, at: now) { editing = nil }
@@ -221,8 +253,30 @@ struct VaultCard: View {
         }
         // Back to the search once the editor or Large Type closes, so the arrows, Return and
         // Space work again without a click.
-        .onChange(of: editing) { _, now in if now == nil { searchFocused = true } }
-        .onChange(of: largeType) { _, now in if now == nil { searchFocused = true } }
+        .onChange(of: editing) { _, now in if now == nil { focusSearch() } }
+        // Typing in the editor is use: neither the idle limit nor, under "every number", the
+        // number's thirty seconds close it, and its edits, mid-note.
+        .onChange(of: draft) { _, _ in if editing != nil { model.noteActivity() } }
+        // Choosing a row, or starting a search, puts an open choice away. With Quick Look open,
+        // it moves to the newly chosen number's document, or closes when that one is hidden.
+        .onChange(of: model.selection) { _, _ in
+            choosing = nil
+            followQuickLook()
+            // A click on a row leaves no field focused: the keys come back to the search. Not
+            // forced while it has them, which would select what is typed there.
+            if editing == nil, largeType == nil, !searchFocused { focusSearch() }
+        }
+        // Quick Look's panel takes key while it is up and hands it back to whatever AppKit picks
+        // when it closes; the Vault takes it back, so Space opens the chosen document again.
+        .onChange(of: quickLookPath) { _, now in
+            if now == nil, editing == nil, largeType == nil { focusSearch(again: true) }
+        }
+        .onChange(of: model.query) { _, _ in choosing = nil }
+        .sheet(isPresented: $customizingGroups) {
+            VaultGroupsSheet(groups: model.groups, onDone: { model.setGroups($0) })
+                .presentedNativeControlAccent()
+        }
+        .onChange(of: largeType) { _, now in if now == nil { focusSearch() } }
         .onDisappear {
             readTask?.cancel()
             model.closed()
@@ -230,12 +284,35 @@ struct VaultCard: View {
         // ⌘⌫ removes the chosen row, after asking. Not while the search has text, where it
         // deletes to the start of the line as usual, nor while the editor is open.
         .background {
-            Button("Remove the Chosen Number") { askToRemoveChosen() }
+            Button("Remove the Chosen ID") { askToRemoveChosen() }
                 .keyboardShortcut(.delete, modifiers: .command)
-                .disabled(!model.query.isEmpty || editing != nil || model.isAsking)
+                .disabled(!model.query.isEmpty || editing != nil || largeType != nil || model.isAsking)
                 .opacity(0)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
+            // esc: the cancel action, ahead of the field, so it unwinds the panel a layer at a time.
+            Button("Close") { escape(clearingSearch: true) }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        // Space and the arrows, when the search field is not the one holding focus (it handles
+        // them itself). Key presses, not bare key equivalents, which would take the key from
+        // every field in the window; never in the editor, whose fields want them.
+        // Return copies the chosen ID here too, as it does from the search, so a click elsewhere
+        // in the panel does not leave it doing nothing.
+        .onKeyPress(keys: [.space, .upArrow, .downArrow, .return]) { press in
+            guard editing == nil else { return .ignored }
+            switch press.key {
+            case .space: return spaceKey()
+            case .upArrow: arrow(-1); return .handled
+            case .downArrow: arrow(1); return .handled
+            default:
+                guard largeType == nil, let id = model.selection else { return .ignored }
+                copy(id)
+                return .handled
+            }
         }
         .confirmationDialog(removalTitle, isPresented: Binding(get: { removing != nil },
                                                                set: { if !$0 { removing = nil } }),
@@ -244,16 +321,16 @@ struct VaultCard: View {
             case .entry(let entry):
                 Button("Remove", role: .destructive) { remove(entry.id) }
             case .find(let find):
-                Button("Not a Real Number", role: .destructive) { model.setAside(find.id) }
+                Button("Not a Real ID", role: .destructive) { model.setAside(find.id) }
             }
         } message: { removal in
             switch removal {
             case .entry(let entry):
                 Text(entry.sourcePath == nil
-                     ? "The number is removed for good."
-                     : "The number is removed for good, and Read Documents won’t offer it again. The document it came from isn’t touched.")
+                     ? "The ID is removed for good."
+                     : "The ID is removed for good, and Read Documents won’t offer it again. The document it came from isn’t touched.")
             case .find:
-                Text("A misread: it comes off the Vault and isn’t offered again. Settings ▸ Vault can forget the numbers set aside.")
+                Text("A misread: it comes off the Vault and isn’t offered again. Settings ▸ Vault can forget the IDs set aside.")
             }
         }
         .alert("Add \(askingToAddPerson ?? "") to People?",
@@ -288,26 +365,26 @@ struct VaultCard: View {
             statePill
             Spacer(minLength: 12)
             lockButton
+            // Every button here says what it does in words beside its symbol.
             Button {
                 startAdding()
             } label: {
-                Image(systemName: "plus")
+                Label("Add", systemImage: "plus")
             }
-            .help("Add a number")
-            .accessibilityLabel("Add a number")
+            .help("Add an ID")
             .disabled(model.contents != .loaded)
             readMenu
             Button(action: onOpenSettings) {
-                Image(systemName: "gearshape")
+                Label("Settings", systemImage: "gearshape")
             }
             .help("Vault settings")
-            .accessibilityLabel("Vault settings")
-            CloseButton(action: escape)
-                .keyboardShortcut(.cancelAction)
+            // ✕ closes, a layer at a time; esc, below, also clears a typed search first.
+            CloseButton(action: { escape(clearingSearch: false) })
                 .shortcutKeycap("esc")
                 .help(ShortcutHint.tooltip("Close Vault", "esc"))
                 .accessibilityLabel("Close Vault")
         }
+        .labelStyle(.titleAndIcon)
         .controlSize(.small)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -340,15 +417,14 @@ struct VaultCard: View {
             Button("Add Folder…") { addFolders() }
             Button("Folder Settings…", action: onOpenSettings)
         } label: {
-            Image(systemName: "doc.text.viewfinder")
+            Label("Read Documents", systemImage: "doc.text.viewfinder")
         } primaryAction: {
             readDocuments()
         }
         .menuIndicator(.visible)
         .fixedSize()
-        .help(model.reading == nil ? "Read Documents: find numbers in the folders you chose. The arrow lists the folders."
+        .help(model.reading == nil ? "Read Documents: find IDs in the folders you chose. The arrow lists the folders."
                                    : "Reading your documents…")
-        .accessibilityLabel("Read Documents")
         .disabled(model.contents != .loaded || model.reading != nil)
     }
 
@@ -358,7 +434,7 @@ struct VaultCard: View {
         if !settings.requiresAuthentication {
             Pill(.mini, tint: SemanticColor.warning, systemImage: "lock.open", text: "Lock is off")
         } else if settings.ask == .everyNumber {
-            Pill(.mini, tint: .secondary, systemImage: "lock", text: "Asks for every number")
+            Pill(.mini, tint: .secondary, systemImage: "lock", text: "Asks for every ID")
         } else if model.isOpen {
             Pill(.mini, tint: SemanticColor.success, systemImage: "lock.open", text: unlockedText)
         } else {
@@ -376,7 +452,11 @@ struct VaultCard: View {
         let settings = model.lock.settings
         if settings.requiresAuthentication, settings.ask == .whenOpened, model.contents == .loaded {
             if model.isOpen {
-                Button("Lock Now") { model.lockNow() }
+                Button {
+                    model.lockNow()
+                } label: {
+                    Label("Lock Now", systemImage: "lock")
+                }
             } else if !model.entries.isEmpty {
                 Button {
                     Task { await model.unlock() }
@@ -393,9 +473,21 @@ struct VaultCard: View {
     /// All, in words (Expand All once every card is folded).
     private var searchRow: some View {
         HStack(spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Text("Showing")
+                        .scaledFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                    // Where is offered once the numbers span two countries, or while one is chosen.
+                    if model.spansCountries || model.geoFilter != .all { wherePart }
+                    whosePart
+                    kindsPart
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             searchField
-                .frame(maxWidth: 300)
-            Spacer(minLength: 8)
+                .frame(minWidth: 140, maxWidth: 220)
             if !showsList, !model.cards.isEmpty {
                 Button {
                     withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() }
@@ -413,6 +505,189 @@ struct VaultCard: View {
         .padding(.bottom, 2)
     }
 
+    // MARK: Showing: where, whose, which kinds
+
+    /// Which choice is open for picking again; nil while each shows only what was chosen.
+    private enum Choosing { case geo, person, kind }
+
+    private var wherePart: some View {
+        Group {
+            if choosing == .geo {
+                choiceGroup("Where") {
+                    ForEach(VaultGeoFilter.allCases, id: \.self) { option in
+                        optionChip(option == .all ? "All" : option.title, code: option.geo?.code,
+                                   count: model.count(geo: option), isSelected: model.geoFilter == option) {
+                            model.geoFilter = option
+                        }
+                    }
+                }
+            } else {
+                choiceToken(model.geoFilter.title, code: model.geoFilter.geo?.code, isDefault: model.geoFilter == .all,
+                            clearLabel: "Every Country", open: .geo) { model.geoFilter = .all }
+            }
+        }
+    }
+
+    private var whosePart: some View {
+        Group {
+            if choosing == .person {
+                choiceGroup("Whose") {
+                    optionChip("Everyone", count: model.count(person: .everyone), isSelected: model.personFilter == .everyone) {
+                        model.personFilter = .everyone
+                    }
+                    ForEach(people.filter { person in model.rows.contains { $0.personID == person.id } }) { person in
+                        optionChip(person.displayName, count: model.count(person: .person(person.id)),
+                                   isSelected: model.personFilter == .person(person.id)) {
+                            model.personFilter = .person(person.id)
+                        }
+                    }
+                    if model.rows.contains(where: \.isHousehold) {
+                        optionChip("Household", count: model.count(person: .household), isSelected: model.personFilter == .household) {
+                            model.personFilter = .household
+                        }
+                    }
+                }
+            } else {
+                choiceToken(personLabel, code: nil, isDefault: model.personFilter == .everyone,
+                            clearLabel: "Everyone", open: .person) { model.personFilter = .everyone }
+            }
+        }
+    }
+
+    private var kindsPart: some View {
+        Group {
+            if choosing == .kind {
+                choiceGroup("Kinds") {
+                    optionChip("All Kinds", count: model.count(kind: .some(nil)), isSelected: model.kindFilter == nil) {
+                        model.kindFilter = nil
+                    }
+                    ForEach(model.groups.order, id: \.self) { id in
+                        optionChip(model.groups.name(id), count: model.count(kind: .some(id)), isSelected: model.kindFilter == id) {
+                            model.kindFilter = id
+                        }
+                    }
+                    Button("Customize Groups…") {
+                        choosing = nil
+                        customizingGroups = true
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
+            } else {
+                choiceToken(model.kindFilter.map { model.groups.name($0) } ?? "All Kinds", code: nil,
+                            isDefault: model.kindFilter == nil, clearLabel: "All Kinds", open: .kind) { model.kindFilter = nil }
+            }
+        }
+    }
+
+    private var personLabel: String {
+        switch model.personFilter {
+        case .everyone: return "Everyone"
+        case .household: return "Household"
+        case .person(let id): return people.first { $0.id == id }?.displayName ?? "Someone no longer in People"
+        }
+    }
+
+    /// A choice made: what it is, a chevron to choose again, and, away from its default, an ×
+    /// back to it.
+    private func choiceToken(_ label: String, code: String?, isDefault: Bool, clearLabel: String,
+                             open: Choosing, clear: @escaping () -> Void) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                withDesignAnimation(.snappy(duration: 0.15), reduceMotion: reduceMotion) { choosing = open }
+            } label: {
+                HStack(spacing: 5) {
+                    if let code { countryCode(code).accessibilityHidden(true) }
+                    Text(label)
+                        .scaledFont(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .scaledFont(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.leading, 10)
+                .padding(.trailing, isDefault ? 10 : 4)
+                .padding(.vertical, 3)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Choose again")
+            .accessibilityLabel("\(Self.choiceName(open)): \(label)")
+            .accessibilityHint("Choose again")
+            if !isDefault {
+                Button(action: clear) {
+                    Image(systemName: "xmark")
+                        .scaledFont(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 2)
+                        .padding(.trailing, 9)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(clearLabel)
+                .accessibilityLabel("Show \(clearLabel)")
+            }
+        }
+        .background(Capsule().fill(isDefault ? Color.clear : glassHue.accentColor.opacity(0.16)))
+        .overlay(Capsule().strokeBorder(isDefault ? AnyShapeStyle(.quaternary) : AnyShapeStyle(Color.clear)))
+    }
+
+    /// A choice being made: its name, then each option; picking one closes it back to a token.
+    private func choiceGroup<Content: View>(_ title: String, @ViewBuilder _ options: () -> Content) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .scaledFont(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            options()
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(.quaternary.opacity(0.5)))
+    }
+
+    private func optionChip(_ title: String, code: String? = nil, count: Int, isSelected: Bool,
+                            pick: @escaping () -> Void) -> some View {
+        Button {
+            pick()
+            withDesignAnimation(.snappy(duration: 0.15), reduceMotion: reduceMotion) { choosing = nil }
+        } label: {
+            HStack(spacing: 4) {
+                if let code { countryCode(code).accessibilityHidden(true) }
+                Text(title)
+                    .scaledFont(.subheadline.weight(isSelected ? .semibold : .medium))
+                Text(count.formatted())
+                    .scaledFont(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(isSelected ? glassHue.accentColor.opacity(0.16) : Color.clear))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private static func choiceName(_ choice: Choosing) -> String {
+        switch choice {
+        case .geo: return "Where"
+        case .person: return "Whose"
+        case .kind: return "Kinds"
+        }
+    }
+
+    /// "US" or "IN", small, beside a country's name or a row's.
+    private func countryCode(_ code: String) -> some View {
+        Text(code)
+            .scaledFont(.caption2.weight(.bold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 3).fill(.quaternary))
+            .accessibilityLabel(code == "US" ? "United States" : code == "IN" ? "India" : code)
+    }
+
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -423,16 +698,9 @@ struct VaultCard: View {
                 .focused($searchFocused)
                 // The arrows walk the list from the field, so a search never has to be left to
                 // act on its result; Return copies the chosen row.
-                .onKeyPress(.downArrow) { model.moveSelection(by: 1); return .handled }
-                .onKeyPress(.upArrow) { model.moveSelection(by: -1); return .handled }
-                // Space looks at the chosen number's document, while nothing is typed; once a
-                // search is under way it is a space.
-                .onKeyPress(.space) {
-                    guard model.query.trimmingCharacters(in: .whitespaces).isEmpty, editing == nil,
-                          let row = model.selectedRow else { return .ignored }
-                    if let path = row.documents.first?.path { quickLook(path, for: row) }
-                    return .handled
-                }
+                .onKeyPress(.downArrow) { arrow(1); return .handled }
+                .onKeyPress(.upArrow) { arrow(-1); return .handled }
+                .onKeyPress(.space) { spaceKey() }
                 .onSubmit { if let id = model.selection, editing == nil { copy(id) } }
         }
         .padding(.horizontal, 8)
@@ -454,9 +722,9 @@ struct VaultCard: View {
         case .notLoaded, .loaded:
             if model.entries.isEmpty, model.finds.isEmpty, editing == nil {
                 EmptyStateView(icon: "lock.doc", title: "Nothing in the Vault yet",
-                               message: "Keep the numbers you get asked for here: a passport number, a member ID, a loan number. Each is sealed on this Mac and shown only to you.",
+                               message: "Keep the IDs and account numbers you get asked for here: a passport number, a member ID, a loan number. Each is sealed on this Mac and shown only to you.",
                                caption: model.lastReading.map { "Read \(Self.documents($0.documents)); nothing new to confirm." },
-                               primary: .init("Add a Number", systemImage: "plus") { startAdding() },
+                               primary: .init("Add an ID", systemImage: "plus") { startAdding() },
                                secondary: .init("Read Documents", systemImage: "doc.text.viewfinder") { readDocuments() })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -494,18 +762,8 @@ struct VaultCard: View {
             .accentedSegments(glassHue)
             .labelsHidden()
             .fixedSize()
-            .help("Current: the number in use for each person and kind. Archive: older ones, kept for reference. A search looks in every tab.")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    filterChip("Everyone", .everyone)
-                    ForEach(people.filter { person in model.rows.contains { $0.personID == person.id } }) { person in
-                        filterChip(person.displayName, .person(person.id))
-                    }
-                    if model.rows.contains(where: \.isHousehold) {
-                        filterChip("Household", .household)
-                    }
-                }
-            }
+            .help("Current: the ID in use for each person and kind. Archive: older ones, kept for reference. A search looks in every tab.")
+            Spacer(minLength: 8)
             Picker("View", selection: $showsList) {
                 Image(systemName: "square.grid.2x2").tag(false).help("Cards")
                 Image(systemName: "list.bullet").tag(true).help("List")
@@ -522,32 +780,27 @@ struct VaultCard: View {
         .padding(.vertical, 7)
     }
 
-    private func filterChip(_ title: String, _ filter: VaultModel.PersonFilter) -> some View {
-        let isSelected = model.personFilter == filter
-        return Button {
-            model.personFilter = filter
-        } label: {
-            Text(title)
-                .scaledFont(.subheadline.weight(isSelected ? .semibold : .medium))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(isSelected ? glassHue.accentColor.opacity(0.16) : Color.clear))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
     /// The cards, two across where they fit, and a line naming the kinds with nothing yet.
     private var cardsView: some View {
         ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    readAgainBanner
                     tabBanner
                     if model.cards.isEmpty {
-                        EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
-                            .padding(.top, 24)
-                            .frame(maxWidth: .infinity)
+                        if hiddenByChoices {
+                            EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
+                                           message: "IDs on this tab belong to another country, person or kind.",
+                                           primary: .init("Show Everything", systemImage: "arrow.uturn.backward") {
+                                               model.resetFilters()
+                                           }, layout: .compact)
+                                .padding(.top, 24)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
+                                .padding(.top, 24)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 270), spacing: 12, alignment: .top)],
                               alignment: .leading, spacing: 12) {
@@ -555,8 +808,20 @@ struct VaultCard: View {
                             categoryCard(card.category, card.rows)
                         }
                     }
+                    // Kinds that only the other country has, which no card here can point to.
+                    if let elsewhere = model.elsewhereKinds {
+                        Button {
+                            model.geoFilter = elsewhere.filter
+                        } label: {
+                            Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
+                                .scaledFont(.subheadline.weight(.medium))
+                                .foregroundStyle(glassHue.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show \(elsewhere.filter.title)")
+                    }
                     if model.tab == .current, model.query.isEmpty, model.personFilter == .everyone,
-                       !model.emptyCategories.isEmpty {
+                       model.geoFilter == .all, model.kindFilter == nil, !model.emptyCategories.isEmpty {
                         Text("Nothing yet for \(ListFormatter.localizedString(byJoining: model.emptyCategories.map(\.title))). Add one with +, and choose its kind.")
                             .scaledFont(.subheadline)
                             .foregroundStyle(.secondary)
@@ -613,6 +878,21 @@ struct VaultCard: View {
             .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
             if !isFolded {
                 ForEach(rows) { row in rowView(row).id(row.id) }
+                if let elsewhere = model.elsewhere(category) {
+                    Button {
+                        model.geoFilter = elsewhere.filter
+                    } label: {
+                        Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
+                            .scaledFont(.caption.weight(.medium))
+                            .foregroundStyle(glassHue.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show \(elsewhere.filter.title)")
+                }
             }
         }
         .padding(.horizontal, 4)
@@ -664,7 +944,7 @@ struct VaultCard: View {
         if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
             EmptyView()
         } else if model.tab == .archive {
-            Text("Older numbers: run out, replaced by a newer one, or filed in an Archive folder. Kept for reference; add one only if a form may ask for it.")
+            Text("Older IDs: run out, replaced by a newer one, or filed in an Archive folder. Kept for reference; add one only if a form may ask for it.")
                 .scaledFont(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         } else if model.tab == .other {
             Text("Kinds the Vault can read but doesn’t show on the main view yet.")
@@ -672,10 +952,40 @@ struct VaultCard: View {
         }
     }
 
-    private var emptyTitle: String { model.query.isEmpty ? "Nothing here" : "No numbers match" }
+    /// After a build that reads documents differently: what was read before was let go, so the
+    /// tabs hold only what was saved until the folders are read again.
+    @ViewBuilder
+    private var readAgainBanner: some View {
+        if model.needsReadAgain, model.reading == nil {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.clockwise.circle")
+                    .foregroundStyle(glassHue.accentColor)
+                Text("This version reads documents better. Read them again to fill Current and Archive; your choices are kept.")
+                    .scaledFont(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    readDocuments(again: true)
+                } label: {
+                    Label("Read Again", systemImage: "doc.text.viewfinder")
+                }
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+                .controlSize(.small)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.1)))
+        }
+    }
+
+    /// Whether this tab has numbers the three choices hide.
+    private var hiddenByChoices: Bool {
+        model.query.isEmpty && model.count(in: model.tab) == 0 && model.rows.contains { $0.standing.tab == model.tab }
+    }
+
+    private var emptyTitle: String { model.query.isEmpty ? "Nothing here" : "No IDs match" }
     private var emptyMessage: String {
-        model.query.isEmpty ? "Numbers that belong here appear after Read Documents, or when you add one."
-            : "Search looks at names, notes and kinds in every tab, never at the numbers themselves."
+        model.query.isEmpty ? "IDs that belong here appear after Read Documents, or when you add one."
+            : "Search looks at names, notes and kinds in every tab, never at the IDs themselves."
     }
 
     /// One number: whose, what it is, its ending, and badges for what needs noticing.
@@ -691,9 +1001,12 @@ struct VaultCard: View {
                     .frame(width: 26, height: 26)
                     .background(Circle().fill(.quaternary))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(rowTitle(row))
-                        .scaledFont(.body.weight(.semibold))
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(rowTitle(row))
+                            .scaledFont(.body.weight(.semibold))
+                            .lineLimit(1)
+                        if model.geoFilter == .all, model.spansCountries, let code = row.geo.code { countryCode(code) }
+                    }
                     Text(rowSubtitle(row))
                         .scaledFont(.subheadline)
                         .foregroundStyle(.secondary)
@@ -736,7 +1049,11 @@ struct VaultCard: View {
     private func rowMenu(_ row: VaultModel.Row) -> some View {
         Button("Copy") { copy(row.id) }
         if let path = row.documents.first?.path {
-            Button("Quick Look") { quickLook(path, for: row) }
+            // Chosen first: the preview follows, and closes with, the chosen row.
+            Button("Quick Look") {
+                model.selection = row.id
+                quickLook(path, for: row)
+            }
             Button("Reveal in Browse") { reveal(path, for: row) }
         }
         Divider()
@@ -754,7 +1071,7 @@ struct VaultCard: View {
                 Button("Remove…", role: .destructive) { removing = .entry(entry) }
             }
         } else if let find = model.finds.first(where: { $0.id == row.id }) {
-            Button("Not a Real Number…", role: .destructive) { removing = .find(find) }
+            Button("Not a Real ID…", role: .destructive) { removing = .find(find) }
         }
     }
 
@@ -800,6 +1117,39 @@ struct VaultCard: View {
                 Text(row.isHousehold ? "Household" : row.whose)
             }
         }
+    }
+
+    /// Used In: where the number is used, and how that is known. A choice wins over the document,
+    /// and later reads keep it.
+    private func usedIn(_ row: VaultModel.Row) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Used in")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Menu {
+                    ForEach(VaultGeo.allCases, id: \.self) { geo in
+                        Button {
+                            model.setGeo(row.id, to: geo)
+                        } label: {
+                            if row.geo == geo { Label(geo.title, systemImage: "checkmark") } else { Text(geo.title) }
+                        }
+                    }
+                    if row.chosenGeo != nil {
+                        Divider()
+                        Button(row.isTypedIn ? "Anywhere Again" : "As the Document Says") { model.setGeo(row.id, to: nil) }
+                    }
+                } label: {
+                    Text(row.geo.title)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                Text(row.geoReason)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .help("Where this ID is used. Anywhere shows in every country; a passport is anywhere.")
     }
 
     /// Adds the person a document names to People: shown by their first name, matched by the full
@@ -854,7 +1204,10 @@ struct VaultCard: View {
         let which: String?
         switch row.category {
         case .passport: which = row.facts?.issuer
-        case .usVisa: which = row.facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "Visa"
+        case .usVisa:
+            // An OCI card or an e-Visa by what it is ("OCI card", "India e-Visa"); a US visa by its class.
+            which = row.facts?.form != nil ? row.title
+                : row.facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
         case .uscisCase: which = row.facts?.form ?? (whose == nil ? "USCIS case" : nil)
         default: which = nil
         }
@@ -893,7 +1246,7 @@ struct VaultCard: View {
         } else if let row = model.selectedRow {
             detail(row)
         } else {
-            EmptyStateView(icon: "number", title: "No number chosen", layout: .compact)
+            EmptyStateView(icon: "number", title: "No ID chosen", layout: .compact)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -902,6 +1255,15 @@ struct VaultCard: View {
         let shown = model.lock.canShow(row.id, at: model.now)
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                // The document the number was read from, at a glance. A typed-in number has none.
+                if let path = row.documents.first?.path {
+                    VaultDocumentPreview(path: path, shown: shown) {
+                        if shown { toggleQuickLook() } else { Task { await model.show(row.id) } }
+                    }
+                    // A fresh preview for each number, so nothing of one number's scan is drawn
+                    // under another's name.
+                    .id(row.id)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: ""))
                         .scaledFont(.title3.weight(.semibold))
@@ -920,7 +1282,8 @@ struct VaultCard: View {
                         .truncationMode(.middle)
                         .frame(maxWidth: 240, alignment: .leading)
                 }
-                .help("Whose this number is. A choice here wins over the name on the document, and later reads keep it.")
+                .help("Whose this ID is. A choice here wins over the name on the document, and later reads keep it.")
+                usedIn(row)
                 if row.standing.inUse {
                     callout("Still in use: a visa that is still good is in this passport, so carry it with the new one.",
                             tint: SemanticColor.info)
@@ -932,8 +1295,8 @@ struct VaultCard: View {
                 actionBar(row)
                 if let facts = row.facts, !facts.details.isEmpty {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
-                        ForEach(Array(facts.details.enumerated()), id: \.offset) { _, detail in
-                            detailRow(detail, of: row, shown: shown)
+                        ForEach(Array(facts.details.enumerated()), id: \.offset) { index, detail in
+                            detailRow(detail, at: index, of: row, shown: shown)
                         }
                     }
                 } else if row.isTypedIn {
@@ -985,7 +1348,7 @@ struct VaultCard: View {
                 // Not selectable: ⌘C on selected text would put the number on the clipboard
                 // plainly, never concealed nor cleared. Copy and Large Type are the ways out.
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(shown ? "The number" : "The number, hidden")
+                .accessibilityLabel(shown ? "The ID" : "The ID, hidden")
                 .accessibilityValue(Self.spokenNumber(row.value, shown: shown))
             Spacer(minLength: 4)
             // Large Type beside the number, for reading it out on a call; behind Touch ID while
@@ -995,7 +1358,7 @@ struct VaultCard: View {
             } label: {
                 Image(systemName: "textformat.size")
             }
-            .help("Large Type: the number big, in groups of four, for reading it out")
+            .help("Large Type: the ID big, grouped as its document prints it, with its details, for reading it out")
             .accessibilityLabel("Large Type")
             if shown {
                 Button {
@@ -1003,14 +1366,14 @@ struct VaultCard: View {
                 } label: {
                     Label(copied == row.id ? "Copied" : "Copy", systemImage: copied == row.id ? "checkmark" : "doc.on.doc")
                 }
-                .help("Copies the number. It clears from the clipboard after a minute.")
+                .help("Copies the ID. It clears from the clipboard after a minute.")
             } else {
                 Button {
                     Task { await model.show(row.id) }
                 } label: {
                     Label("Show", systemImage: "touchid")
                 }
-                .help("Shows the number after Touch ID or your password.")
+                .help("Shows the ID after Touch ID or your password.")
             }
         }
         .disabled(model.isAsking)
@@ -1043,7 +1406,7 @@ struct VaultCard: View {
                 if row.isSaved, let entry = model.entries.first(where: { $0.id == row.id }) {
                     Button("Remove from Vault…", role: .destructive) { removing = .entry(entry) }
                 } else if let find = model.finds.first(where: { $0.id == row.id }) {
-                    Button("Not a Real Number…", role: .destructive) { removing = .find(find) }
+                    Button("Not a Real ID…", role: .destructive) { removing = .find(find) }
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -1058,12 +1421,25 @@ struct VaultCard: View {
 
     /// A detail with its own Copy. A date copies as MM/DD/YYYY; a detail that is a number copies
     /// as the number does, after Touch ID, cleared from the clipboard after a minute.
-    private func detailRow(_ detail: VaultDetail, of row: VaultModel.Row, shown: Bool) -> some View {
+    private func detailRow(_ detail: VaultDetail, at index: Int, of row: VaultModel.Row, shown: Bool) -> some View {
         GridRow {
             Text(detail.label)
                 .foregroundStyle(.secondary)
             Text(detail.drawn(shown: shown))
                 .fixedSize(horizontal: false, vertical: true)
+            // Large Type with this detail lit, the ID above it; drawn quietly, so the details are
+            // not a column of icons.
+            Button {
+                showLargeType(row.id, line: index)
+            } label: {
+                Image(systemName: "textformat.size")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .controlSize(.small)
+            .disabled(model.isAsking)
+            .help("Large Type: \(detail.label) big, with the ID above it")
+            .accessibilityLabel("Large Type for \(detail.label)")
             Button(copiedDetail == "\(row.id)\(detail.label)" ? "Copied" : "Copy") {
                 copyDetail(detail, of: row)
             }
@@ -1088,7 +1464,7 @@ struct VaultCard: View {
     /// any number in them cut to its ending.
     private func documentsList(_ row: VaultModel.Row, shown: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Documents with this number")
+            Text("Documents with this ID")
                 .scaledFont(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             let documents = Array(row.documents.enumerated())
@@ -1098,7 +1474,7 @@ struct VaultCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Pill(.mini, tint: index == 0 ? SemanticColor.success : .secondary,
                              text: index == 0 ? "Read from" : source.role)
-                            .help(index == 0 ? source.role : "Names this number")
+                            .help(index == 0 ? source.role : "Names this ID")
                         Button {
                             quickLook(source.path, for: row)
                         } label: {
@@ -1151,8 +1527,7 @@ struct VaultCard: View {
         }
         if row.standing.tab == .current, !older.isEmpty {
             Button("\(older.count) Older in Archive") {
-                model.tab = .archive
-                model.selection = older.first?.id
+                if let id = older.first?.id { model.reveal(id) }
             }
             .buttonStyle(.link)
             .scaledFont(.callout)
@@ -1179,8 +1554,8 @@ struct VaultCard: View {
                 field("What it is") {
                     TextField("What it is", text: $draft.title, prompt: Text("Mortgage loan number"))
                 }
-                field("Number") {
-                    TextField("Number", text: $draft.value)
+                field("ID or Account Number") {
+                    TextField("ID or Account Number", text: $draft.value)
                         .fontDesign(.monospaced)
                         .autocorrectionDisabled()
                 }
@@ -1231,7 +1606,7 @@ struct VaultCard: View {
     private var removalTitle: String {
         switch removing {
         case .entry(let entry): return "Remove “\(entry.title)” from the Vault?"
-        case .find(let find): return "Is “\(find.title)” not a real number?"
+        case .find(let find): return "Is “\(find.title)” not a real ID?"
         case nil: return ""
         }
     }
@@ -1243,9 +1618,9 @@ struct VaultCard: View {
 
     private var editorTitle: String {
         switch editing {
-        case .new: return "New Number"
-        case .confirming: return "Add a Read Number"
-        default: return "Edit Number"
+        case .new: return "New ID"
+        case .confirming: return "Add a Read ID"
+        default: return "Edit ID"
         }
     }
 
@@ -1315,7 +1690,7 @@ struct VaultCard: View {
         count == 1 ? "1 document" : "\(count.formatted()) documents"
     }
 
-    /// The footer after a read: "Read 3 new or changed of 812 documents: 1 new number to confirm."
+    /// The footer after a read: "Read 3 new or changed of 812 documents: 1 new ID to confirm."
     static func summary(_ last: VaultModel.ReadingSummary) -> String {
         if last.opened == last.documents {
             return "Read \(documents(last.documents)): \(newNumbers(last.newNumbers))."
@@ -1329,12 +1704,38 @@ struct VaultCard: View {
     static func newNumbers(_ count: Int) -> String {
         switch count {
         case 0: return "nothing new"
-        case 1: return "1 new number to confirm"
-        default: return "\(count.formatted()) new numbers to confirm"
+        case 1: return "1 new ID to confirm"
+        default: return "\(count.formatted()) new IDs to confirm"
         }
     }
 
     // MARK: Acts
+
+    /// What the ID in Large Type is called, as its document calls it; the heading above already
+    /// says what the document is, so this never repeats it ("Passport" over "Passport").
+    static func idLabel(_ row: VaultModel.Row) -> String {
+        let form = row.facts?.form
+        switch row.category {
+        case .passport: return "Passport number"
+        case .usVisa:
+            switch form {
+            case "OCI"?: return "OCI number"
+            case "e-Visa"?: return "Application number"
+            case nil where row.facts == nil: return "Visa number"
+            default: return "Control Number"
+            }
+        case .i94: return "Admission number"
+        case .uscisCase: return "Receipt number"
+        case .driversLicense: return row.title.hasPrefix("State ID") ? "ID number" : "License number"
+        case .ssn: return form == "ITIN" ? "ITIN" : "Social Security number"
+        case .pan: return "PAN"
+        case .aadhaar: return "Aadhaar number"
+        case .voterID: return "EPIC number"
+        case .health: return "Member ID"
+        case .utilities, .loans: return "Account number"
+        case .other: return "Number"
+        }
+    }
 
     /// What VoiceOver says of the number: each character apart while shown, so it is spelled out
     /// rather than read as one large number; its last four while hidden.
@@ -1354,12 +1755,18 @@ struct VaultCard: View {
         return parts.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
-    /// esc and the ✕ undo one thing at a time: Large Type, then the editor, then the panel.
-    private func escape() {
-        if largeType != nil {
+    /// esc and the ✕ undo one thing at a time: an open choice, Large Type, the editor, then the
+    /// panel. esc (`clearingSearch`) also clears a typed search before closing; the ✕ says
+    /// Close Vault, and does.
+    private func escape(clearingSearch: Bool) {
+        if choosing != nil {
+            choosing = nil
+        } else if largeType != nil {
             largeType = nil
         } else if editing != nil {
             editing = nil
+        } else if clearingSearch, !model.query.isEmpty {
+            model.query = ""
         } else {
             onClose()
         }
@@ -1431,7 +1838,7 @@ struct VaultCard: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "Read for Numbers"
+        panel.prompt = "Read for IDs"
         panel.message = "Choose the folders that hold your passport scans, I-94s and USCIS notices."
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { VaultReadFolders.add(url.path) }
@@ -1465,8 +1872,62 @@ struct VaultCard: View {
         }
     }
 
-    private func showLargeType(_ id: UUID) {
-        Task { if await model.show(id) { largeType = id } }
+    /// Large Type for the ID, with `line` lit: nil for the ID itself, else a detail's index.
+    private func showLargeType(_ id: UUID, line: Int? = nil) {
+        Task {
+            guard await model.show(id) else { return }
+            largeTypeLine = line
+            largeType = id
+        }
+    }
+
+    /// The details Large Type draws under the ID, in full: it only opens once the ID may be shown.
+    static func largeTypeLines(_ row: VaultModel.Row) -> [VaultLargeType.Line] {
+        (row.facts?.details ?? []).map {
+            VaultLargeType.Line(label: $0.label, value: $0.drawn(shown: true), isNumber: $0.isNumber)
+        }
+    }
+
+    /// Space opens Quick Look on the document in the right pane and closes it again, as in Finder.
+    /// Not while a search is typed, where it is a space, nor during a proof. Over Large Type it
+    /// does nothing, rather than type a space into the search hidden under it.
+    private func spaceKey() -> KeyPress.Result {
+        if largeType != nil { return .handled }
+        guard model.query.trimmingCharacters(in: .whitespaces).isEmpty, editing == nil,
+              !model.isAsking, model.selectedRow?.documents.first != nil else { return .ignored }
+        toggleQuickLook()
+        return .handled
+    }
+
+    /// Puts the keyboard back in the search, with the caret after what is typed there: a field
+    /// that takes focus selects its text, and the next key would replace the query. With `again`,
+    /// cleared first and set on the next turn: focus that already reads true is not re-applied,
+    /// though AppKit may have moved key elsewhere (Quick Look's panel hands it back as it likes).
+    private func focusSearch(again: Bool = false) {
+        if again { searchFocused = false }
+        DispatchQueue.main.async {
+            searchFocused = true
+            DispatchQueue.main.async {
+                guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor else { return }
+                editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+            }
+        }
+    }
+
+    /// The arrows: the next row, or in Large Type the next line.
+    private func arrow(_ step: Int) {
+        if largeType != nil { stepLargeType(by: step) } else { model.moveSelection(by: step) }
+    }
+
+    /// Lights the line `step` away in Large Type, round from the last detail to the ID.
+    private func stepLargeType(by step: Int) {
+        guard let row = model.rows.first(where: { $0.id == largeType }) else { return }
+        let count = Self.largeTypeLines(row).count + 1
+        let position = (largeTypeLine.map { $0 + 1 } ?? 0) + step
+        let next = ((position % count) + count) % count
+        largeTypeLine = next == 0 ? nil : next - 1
+        // Reading an ID out line by line is use: the idle limit does not close it mid-call.
+        model.noteActivity()
     }
 
     /// A document shows the number in full, so while it is hidden, opening one takes the same
@@ -1476,6 +1937,21 @@ struct VaultCard: View {
             guard await model.show(row.id) else { return }
             act()
         }
+    }
+
+    /// Space, and a click on the shown preview: Quick Look on the chosen number's document, or
+    /// closed if it already shows it.
+    private func toggleQuickLook() {
+        guard let row = model.selectedRow, let path = row.documents.first?.path else { return }
+        if quickLookPath == path { onCloseQuickLook() } else { quickLook(path, for: row) }
+    }
+
+    /// Keeps an open Quick Look on the chosen number: its document if it may be shown, else none.
+    private func followQuickLook() {
+        guard let open = quickLookPath else { return }
+        guard let row = model.selectedRow, let path = row.documents.first?.path,
+              model.lock.canShow(row.id, at: model.now) else { return onCloseQuickLook() }
+        if path != open { onQuickLook(path) }
     }
 
     private func quickLook(_ path: String, for row: VaultModel.Row) {
@@ -1506,49 +1982,225 @@ struct VaultCard: View {
 
 // MARK: - Large Type
 
-/// A number drawn big, in fours, for reading out on a call. Letters take the accent so an O and a
-/// zero, an I and a one, are told apart at a glance. A click anywhere puts it away.
+/// An ID drawn big for reading out on a call, with its details under it: whichever Large Type
+/// was asked for, the ID is always there, and the line asked for is lit. The ID is grouped as its
+/// document prints it, and letters take the accent so an O and a zero, an I and a one, are told
+/// apart at a glance. A click on a line lights it; ↑ and ↓ light the next; a click outside the
+/// card, or esc, puts it away.
 struct VaultLargeType: View {
-    let title: String
+    /// A detail, as the pane draws it in full.
+    struct Line {
+        let label: String
+        let value: String
+        /// A number in its own right (the passport a visa is in): grouped and colored as the ID is.
+        let isNumber: Bool
+    }
+
+    /// Whose it is and what: "Anna Eriksson · Driver’s license".
+    let heading: String
+    /// What the ID is called on its document: "Passport number", "License number", "PAN".
+    let idLabel: String
     let value: String
-    let owner: String
+    let category: VaultCategory
+    let lines: [Line]
+    /// The lit line: nil for the ID, else the index of a detail.
+    let lit: Int?
     let accent: Color
+    let onLight: (Int?) -> Void
+    /// ↑ (-1) or ↓ (1): light the line that many away.
+    let onStep: (Int) -> Void
     let onClose: () -> Void
+
+    /// Large Type holds the keyboard while it is up, so ↑, ↓ and esc work however it was opened:
+    /// a click on AA, or on one of its lines, leaves no field focused to hear them.
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(.black.opacity(0.35))
-            VStack(spacing: 14) {
-                digits
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.35)
-                Text("\(title) · \(owner) · letters are in color")
-                    .scaledFont(.callout)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onClose)
+                .accessibilityLabel("Close Large Type")
+                .accessibilityAddTraits(.isButton)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(heading)
+                    .scaledFont(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
+                line(nil, label: idLabel, spoken: VaultCard.spokenNumber(value, shown: true)) {
+                    Self.grouped(VaultMask.printed(value, as: category), accent: accent)
+                        .font(.system(size: 54, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.35)
+                }
+                if !lines.isEmpty {
+                    Divider()
+                    // In a small window the details scroll under the ID rather than run off the card.
+                    ViewThatFits(in: .vertical) {
+                        details
+                        // ↑ and ↓ bring the lit line into view.
+                        ScrollViewReader { proxy in
+                            ScrollView { details }
+                                .onChange(of: lit) { _, now in
+                                    guard let now else { return }
+                                    withDesignAnimation(.easeOut(duration: 0.15), reduceMotion: reduceMotion) {
+                                        proxy.scrollTo(now)
+                                    }
+                                }
+                        }
+                    }
+                }
+                Divider()
+                HStack {
+                    Text("Letters are in color. Hidden again when the Vault locks.")
+                    Spacer(minLength: 12)
+                    Text(lines.isEmpty ? "esc to close" : "↑ ↓ for another line, esc to close")
+                }
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 30)
-            .padding(.vertical, 24)
+            .padding(.horizontal, 26)
+            .padding(.vertical, 20)
+            .frame(maxWidth: 720)
             .background(RoundedRectangle(cornerRadius: Radius.card).fill(.regularMaterial))
             .padding(24)
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onClose)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) in large type")
-        .accessibilityAddTraits(.isButton)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onAppear { focused = true }
+        .onKeyPress(keys: [.upArrow, .downArrow, .escape, .space]) { press in
+            switch press.key {
+            case .upArrow: onStep(-1)
+            case .downArrow: onStep(1)
+            case .escape: onClose()
+            default: break   // Space: nothing, rather than reach the search under the card.
+            }
+            return .handled
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(heading), in large type")
     }
 
-    /// One `Text`, so it scales down as a whole when the number is long.
-    private var digits: Text {
+    /// The details under the ID, one line each.
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, detail in
+                line(index, label: detail.label,
+                     spoken: detail.isNumber ? VaultCard.spokenNumber(detail.value, shown: true) : detail.value) {
+                    (detail.isNumber ? Self.grouped(VaultMask.printed(detail.value, as: nil), accent: accent)
+                                     : Text(detail.value))
+                        .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.5)
+                }
+                .id(index)
+            }
+        }
+    }
+
+    /// How wide the labels' column is: "Social Security number" on one line or two.
+    private static let labelColumn: CGFloat = 170
+
+    /// One line, lit when it is the one asked for: its label in the left column, its value beside
+    /// it on the same baseline, so the ID and its details start at one edge.
+    private func line(_ index: Int?, label: String, spoken: String,
+                      @ViewBuilder value: () -> some View) -> some View {
+        let isLit = lit == index
+        return Button {
+            onLight(index)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text(label)
+                    .scaledFont(.callout.weight(.semibold))
+                    // The lit line's colour is its wash; its words stay ink, never accent on accent.
+                    .foregroundStyle(isLit ? .primary : .secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: Self.labelColumn, alignment: .leading)
+                value()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(isLit ? accent.opacity(0.14) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, -10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(spoken)
+        .accessibilityAddTraits(isLit ? .isSelected : [])
+    }
+
+    /// One `Text`, so it scales down as a whole when the ID is long. Groups one space apart: in a
+    /// monospaced face a space is a whole character wide, which reads as a gap; two read as a break.
+    static func grouped(_ groups: [String], accent: Color) -> Text {
         var text = Text("")
-        for (index, group) in VaultMask.groups(value).enumerated() {
-            if index > 0 { text = Text("\(text)  ") }
+        for (index, group) in groups.enumerated() {
+            if index > 0 { text = Text("\(text) ") }
             for character in group {
                 let glyph = Text(String(character)).foregroundStyle(character.isLetter ? accent : Color.primary)
                 text = Text("\(text)\(glyph)")
             }
         }
-        return text.font(.system(size: 54, weight: .semibold, design: .monospaced))
+        return text
+    }
+}
+
+// MARK: - Customize Groups
+
+/// The Kinds choice's groups: rename one, or move a kind to another. Starts from the app's.
+struct VaultGroupsSheet: View {
+    @State var groups: VaultGroups
+    let onDone: (VaultGroups) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Customize Groups")
+                .scaledFont(.title3.weight(.semibold))
+            Text("The Vault starts with these. Rename a group, or move a kind to another one; the Kinds choice follows.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Form {
+                Section("Groups") {
+                    ForEach(groups.order, id: \.self) { id in
+                        TextField("Name", text: Binding(get: { groups.name(id) },
+                                                        set: { groups.names[id] = $0 }))
+                            .accessibilityLabel("Name of the group \(groups.name(id))")
+                    }
+                }
+                Section("Kinds") {
+                    ForEach(VaultCategory.mainView, id: \.self) { category in
+                        Picker(category.title, selection: Binding(get: { groups.group(of: category) ?? "" },
+                                                                  set: { groups.groupOf[category] = $0 })) {
+                            ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                        }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Button("Use the App’s Groups") { groups = .default }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Done") {
+                    // An emptied name goes back to the app's, rather than leaving a blank choice.
+                    for id in groups.order where groups.names[id]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true {
+                        groups.names[id] = VaultGroups.default.names[id]
+                    }
+                    onDone(groups)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460, height: 560)
     }
 }

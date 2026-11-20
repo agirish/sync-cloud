@@ -79,10 +79,12 @@ import AppKit
         }
     }
 
-    /// The rule itself, and that the publication reads the same one, not a second copy.
+    /// The rule itself, and that the publication reads the same one, not a second copy. The Vault
+    /// is in it: with the panel over Browse, Space must not preview Browse's selection, nor ↩
+    /// rename its row.
     @Test func theSuspensionRuleIsOneExpression() throws {
         let commands = try macAppFile("ShortcutCommands.swift")
-        #expect(commands.contains("var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }"),
+        #expect(commands.contains("var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette || showVault }"),
                 "the suspension rule moved or changed shape — the two key handlers name it by hand")
         #expect(commands.contains("suspended: paneChordsSuspended"),
                 "the menu publication no longer reads the same rule the key handlers do — two copies is how they come to disagree")

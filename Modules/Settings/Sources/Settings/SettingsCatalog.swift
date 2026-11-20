@@ -540,7 +540,7 @@ public enum SettingsCatalog {
         e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],
           storage: .owner("VaultReadFolders"), control: .list, tier: .notInChat, privacy: .countOnly),
         // Fingerprints only, never numbers; still not Claude's to clear.
-        e("vault.setAside", .vault, "Numbers set aside", indexed: true, others: ["Forget"],
+        e("vault.setAside", .vault, "IDs set aside", indexed: true, others: ["Forget"],
           control: .button("Forget"), tier: .notInChat),
 
         // MARK: Advanced

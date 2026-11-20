@@ -217,10 +217,16 @@ import Testing
         let model = rig.model()
         await model.opened()
         #expect(model.finds.isEmpty)
-        #expect(model.notice?.contains("Read Documents") == true)
+        #expect(model.needsReadAgain, "the panel does not say to read again")
+        // Closed and opened again without reading: it still says so.
+        model.closed()
+        let reopened = rig.model()
+        await reopened.opened()
+        #expect(reopened.needsReadAgain)
 
-        await model.readDocuments(with: documents)
-        let find = try #require(model.finds.first)
+        await reopened.readDocuments(with: documents)
+        #expect(!reopened.needsReadAgain)
+        let find = try #require(reopened.finds.first)
         #expect(find.assignment == .household)
         #expect(find.pin == .older)
     }

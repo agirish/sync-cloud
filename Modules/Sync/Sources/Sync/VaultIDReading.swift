@@ -64,40 +64,6 @@ extension VaultReading {
         return (a, b, y)
     }
 
-    /// The date printed after `label` on its line, or on the next line: "DOB : 05-06-1990",
-    /// "ISS" then "06/05/2021". Laid out in columns ("Date of Issue   Date of Expiry" over
-    /// "01-02-2010   31-01-2030"), the date in the label's own column.
-    static func labelledDate(_ labels: [String], in lines: [String], dayFirst: Bool) -> Date? {
-        let pattern = try! NSRegularExpression(
-            pattern: #"(?<![A-Za-z])(?:"# + labels.joined(separator: "|") + #")(?![A-Za-z])"#, options: [.caseInsensitive])
-        func date(_ text: String) -> Date? { dayFirst ? self.dayFirst(text) : monthFirst(text) }
-        for (index, line) in lines.enumerated() {
-            let ns = line as NSString
-            guard let m = pattern.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
-            // The date has to start the text after the label: "Date of Issue : 01-02-2010 Date
-            // of Expiry …" gives the first, not a later one.
-            let after = ns.substring(from: m.range.location + m.range.length).drop { " \t:.-".contains($0) }
-            if after.first?.isNumber == true, let found = date(String(after)) { return found }
-            guard index + 1 < lines.count else { continue }
-            let below = lines[index + 1]
-            let column = ns.substring(to: m.range.location)
-                .components(separatedBy: CharacterSet.letters.inverted)
-                .filter { dateLabelWords.contains($0.lowercased()) }.count
-            let dates = datePattern.matches(in: below, range: NSRange(location: 0, length: (below as NSString).length))
-                .map { (below as NSString).substring(with: $0.range) }
-            if dates.count > 1 {
-                if column < dates.count, let found = date(dates[column]) { return found }
-                continue
-            }
-            let trimmed = below.drop { " \t:.-".contains($0) }
-            if trimmed.first?.isNumber == true, let found = date(String(trimmed)) { return found }
-        }
-        return nil
-    }
-
-    /// The words a date's label starts with, for counting which column a label sits in.
-    private static let dateLabelWords: Set<String> = ["date", "dob", "iss", "exp", "valid", "issued", "expires", "expiry"]
-
     /// Words that are a card's printing, never part of a name.
     static let cardWords: Set<String> = [
         "income", "tax", "department", "govt", "government", "india", "permanent", "account", "number",
@@ -224,7 +190,7 @@ extension VaultReading {
     /// "DL D1234567" or "DLN D1234567": one or two letters at most, then digits. The label is
     /// required, so a card's other numbers (the document discriminator, a barcode's digits) never are.
     private static let usLicensePattern = try! NSRegularExpression(
-        pattern: #"(?<![A-Za-z0-9])DLN?\s*[:#]?\s*([A-Z]{0,2}[0-9]{5,14})(?![A-Za-z0-9])(?! ?[0-9])"#)
+        pattern: #"(?<![A-Za-z0-9])DLN?\s*[:#]?\s*([A-Z]{0,2}[0-9]{5,14})(?![A-Za-z0-9])(?! ?[0-9]{3})"#)
     private static let givenLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?FN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
     private static let familyLine = try! NSRegularExpression(pattern: #"^\s*(?:[0-9]\s*)?LN\s+([A-Z][A-Z\x27 -]*[A-Z])\s*$"#)
 
@@ -245,9 +211,10 @@ extension VaultReading {
         }
         let holder = [first(givenLine), first(familyLine)].compactMap { $0 }.joined(separator: " ")
         let state = issuingState(page)
-        let until = labelledDate(["EXP"], in: page, dayFirst: false)
-        let issued = labelledDate(["ISS"], in: page, dayFirst: false)
-        let born = labelledDate(["DOB"], in: page, dayFirst: false)
+        let printed = PrintedPage(page)
+        let until = printed.date(["EXP"], order: .monthFirst)
+        let issued = printed.date(["ISS"], order: .monthFirst)
+        let born = printed.date(["DOB"], order: .monthFirst)
         let application = squeezed.contains("application") || squeezed.contains("appointment")
         var out: [VaultFind] = []
         var seen = Set<String>()
@@ -303,10 +270,12 @@ extension VaultReading {
                 break
             }
         }
-        let issued = labelledDate(["Date of Issue", "DL Issue Date", "D\\.O\\.I\\."], in: page, dayFirst: true)
-        let until = labelledDate(["Date of Expiry", "Valid upto", "Valid up to"], in: page, dayFirst: true)
+        let printed = PrintedPage(page)
+        // "D.O.I" and "D.O.B" with or without the last dot.
+        let issued = printed.date(["Date of Issue", "DL Issue Date", "D.O.I.", "D.O.I"], order: .dayFirst)
+        let until = printed.date(["Date of Expiry", "Valid upto", "Valid up to"], order: .dayFirst)
             ?? ntValidity(in: text)
-        let born = labelledDate(["DOB", "D\\.O\\.B\\.?", "Date of Birth"], in: page, dayFirst: true)
+        let born = printed.date(["DOB", "D.O.B.", "D.O.B", "Date of Birth"], order: .dayFirst)
         let quoted = squeezed.contains("acknowledgement") || squeezed.contains("applicationno")
             || squeezed.contains("applicationnumber")
         let role = quoted ? "Application" : squeezed.contains("digilocker") ? "Driver’s license, DigiLocker" : "Driver’s license"
@@ -517,7 +486,9 @@ extension VaultReading {
         let card = squeezed.contains("permanentaccountnumbercard") || squeezed.contains("e-pan")
             || squeezed.contains("epan") || squeezed.contains("cardnotvalidunless")
             || squeezed.contains("panverificationrecord")
-            || (squeezed.contains("incometaxdepartment") && squeezed.contains("govt") && squeezed.contains("father"))
+            || (squeezed.contains("incometaxdepartment") && squeezed.contains("govt")
+                && squeezed.contains("permanentaccountnumber")
+                && !["intimation", "section", "assessment", "refund", "demand", "notice"].contains(where: squeezed.contains))
         let request = squeezed.contains("requestfornewpan") || squeezed.contains("acknowledgement")
             || squeezed.contains("invoice")
         let role = request ? "PAN request" : squeezed.contains("panverificationrecord") ? "PAN, DigiLocker"
@@ -525,7 +496,8 @@ extension VaultReading {
         let rank = request ? IDRank.quoted : card ? IDRank.card : IDRank.quoted
         // Only the card says whose it is: a form quoting a PAN has its own dates and names.
         let own = rank == IDRank.card
-        let born = !own ? nil : labelledDate(["DOB", "Date of Birth"], in: page, dayFirst: true)
+        let printed = PrintedPage(page)
+        let born = !own ? nil : printed.date(["DOB", "Date of Birth"], order: .dayFirst)
             ?? page.lazy.compactMap { line -> Date? in
                 line.trimmingCharacters(in: .whitespaces).range(of: #"^[0-9]{2}/[0-9]{2}/[0-9]{4}$"#, options: .regularExpression) != nil
                     ? dayFirst(line) : nil
@@ -618,8 +590,9 @@ extension VaultReading {
         // number has its own "Issue Date" and its own names: a police clearance form's is not
         // the Aadhaar's.
         let own = rank == IDRank.card
-        let born = own ? labelledDate(["DOB"], in: page, dayFirst: true) : nil
-        let issued = own ? labelledDate(["Issue Date"], in: page, dayFirst: true) : nil
+        let printed = PrintedPage(page)
+        let born = own ? printed.date(["DOB"], order: .dayFirst) : nil
+        let issued = own ? printed.date(["Issue Date"], order: .dayFirst) : nil
         var holder: String?
         if own, let dob = page.firstIndex(where: { $0.contains("DOB") || $0.lowercased().contains("year of birth") }), dob > 0 {
             holder = nameOnly(page[dob - 1])
@@ -669,7 +642,8 @@ extension VaultReading {
         if holder == nil, let gender = page.firstIndex(where: { $0.lowercased().contains("gender") }) {
             holder = page[(gender + 1)...].prefix(2).lazy.compactMap(nameOnly).first
         }
-        let born = labelledDate(["Date of Birth / Age:", "Date of Birth"], in: page, dayFirst: true)
+        let printed = PrintedPage(page)
+        let born = printed.date(["Date of Birth / Age:", "Date of Birth"], order: .dayFirst)
         var out: [VaultFind] = []
         var seen = Set<String>()
         for line in page {

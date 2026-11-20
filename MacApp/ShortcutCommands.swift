@@ -1293,8 +1293,10 @@ struct ShortcutValuePublisher: ViewModifier {
     /// live; Edit ▸ Undo waits too, for the file operations' stack only, through `RunUndoGate`.
     var writesLocked: Bool = false
 
-    /// True while a surface that owns the keyboard is up: the destination picker or the ⌘K palette
-    /// (`paneChordsSuspended`). The picker is a full-window overlay that blocks the mouse from
+    /// True while a surface that owns the keyboard is up: the destination picker, the ⌘K palette or
+    /// the Vault (`paneChordsSuspended`). Under the Vault, ⌘F, ⌘S, ⌘W and the rest act on nothing
+    /// it shows, so they wait; ⌘U, published apart (`VaultHost`), still closes it. The picker is a
+    /// full-window overlay that blocks the mouse from
     /// every control these chords mirror (a file operation is waiting on its answer), but focused
     /// values come from the content still mounted underneath, so without this the keyboard tunnels
     /// past it: ⌘R republishes both trees mid-pick, ⇧⌘. flips the filters the pick is browsing, ⌘⌫
@@ -1473,14 +1475,17 @@ extension ContentView {
         )
     }
 
-    /// Whether a surface that owns the keyboard is up: the destination picker, or the ⌘K palette.
+    /// Whether a surface that owns the keyboard is up: the destination picker, the ⌘K palette, or
+    /// the Vault.
     ///
     /// Named because the pane key handlers read it too: ↩ (Rename) and Space (Quick Look) are
     /// `.onKeyPress` handlers, outside the publication `suspended:` silences, and focus scoping
     /// doesn't save them. The picker is a SwiftUI overlay that doesn't take key from the
     /// `NSViewRepresentable` tables underneath (`CommandPalettePanel.swift`), so ↩ would rename a
-    /// row while the user confirms where to copy files.
-    var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette }
+    /// row while the user confirms where to copy files. The Vault is the same kind of overlay:
+    /// once Quick Look's panel closed, key went back to the Browse list under it, and Space
+    /// previewed Browse's selection instead of the Vault's document.
+    var paneChordsSuspended: Bool { pendingDestination != nil || showCommandPalette || showVault }
 
     var shortcutRescan: (() -> Void)? {
         isScanning ? nil : forceRefreshAction
@@ -2435,8 +2440,9 @@ struct NewTabCommand: View {
 /// ⌘W. It replaces File ▸ Close, so with nothing published (an auxiliary `Window` scene such as
 /// Keyboard Shortcuts or Activity is key) it closes the key window.
 ///
-/// Suspended (a destination pick or the ⌘K palette is up) it does nothing, since closing the
-/// main window would drop the pick, and it says so twice:
+/// Suspended (a destination pick, the ⌘K palette or the Vault is up) it does nothing, since
+/// closing the main window would drop the pick, or a tab hidden under the Vault, and it says so
+/// twice:
 /// - The item disables on `.suspended`, never on `nil`, so an auxiliary window's ⌘W stays live
 ///   (`theCloseItemIsDisabledWhileSuspendedAndOnlyThen`).
 /// - ``run`` logs the refusal at `.info`. Menu validation follows SwiftUI's update cycle, not
