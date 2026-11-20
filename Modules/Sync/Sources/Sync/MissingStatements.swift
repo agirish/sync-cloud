@@ -802,6 +802,43 @@ public enum MissingStatements {
     }
 }
 
+// MARK: - A file that would fill a gap
+
+public extension MissingStatements.Report {
+
+    /// The account and months a file would fill, were it filed as `name` into `folder` (relative
+    /// to the walked root): the folder is an account's own or one of its year folders, the name
+    /// reads as a statement, and a month it covers is one the account lacks.
+    ///
+    /// nil for the newest finished month, which is only expected next: a statement arriving on
+    /// time fills nothing. nil for a hidden account, whose gaps the user has said do not matter.
+    func gapFilled(byFileNamed name: String, in folder: String) -> (account: MissingStatements.Account, months: [MissingStatements.Month])? {
+        let covered: [Int]
+        var day: Int?
+        switch MissingStatements.read(name) {
+        case .statement(let start, let end, _)?: covered = Array(start...end)
+        case .dayDated(let month, let d)?: covered = [month]; day = d
+        case .summary?, nil: return nil
+        }
+        let components = folder.split(separator: "/").map(String.init)
+        let parent = components.dropLast().joined(separator: "/")
+        let inYear = components.last.map(MissingStatements.isYearFolder) ?? false
+        guard let account = accounts.first(where: { !$0.isHidden && ($0.path == folder || (inYear && $0.path == parent)) }) else {
+            return nil
+        }
+        var filled: Set<Int> = []
+        for gap in account.gaps where gap.kind != .expectedNext {
+            // A silence lacks every month between its ends; the others lack the months due.
+            let lacking = gap.kind == .silence ? Array(gap.first.index...gap.last.index) : gap.months.map(\.index)
+            // One payslip of two: only the absent day's document fills it.
+            if let day, !gap.days.isEmpty, !gap.days.contains(day) { continue }
+            filled.formUnion(lacking.filter(covered.contains))
+        }
+        guard !filled.isEmpty else { return nil }
+        return (account, filled.sorted().map(MissingStatements.Month.init(index:)))
+    }
+}
+
 // MARK: - Changing the choices
 
 public extension MissingStatements.Choices {

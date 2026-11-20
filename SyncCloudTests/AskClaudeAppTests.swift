@@ -3955,6 +3955,75 @@ private final class OffersADownload: AskClaudeToolRunning {
         #expect(nowhere.isError && nowhere.result.contains("propose_changes"))
     }
 
+    /// Decision PB, through the tool: the counts go at once, and the accounts, being folder names,
+    /// wait on a card unless names are shared here. A folder hidden from Claude is never counted.
+    @Test func theMissingToolSendsCountsAndHoldsTheAccounts() async throws {
+        let dir = self.dir
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 19))!
+        func monthly(_ account: String, except: Set<String>) -> [String] {
+            (2024...2026).flatMap { year in
+                (1...(year == 2026 ? 10 : 12)).compactMap { month -> String? in
+                    let label = MissingStatements.Month(year: year, month: month)
+                    return except.contains(label.iso) ? nil : "\(account)/\(year)/\(month). \(label.label).pdf"
+                }
+            }
+        }
+        let report = MissingStatements.find(paths: monthly("Home/Utilities/Power", except: ["2025-03"])
+                                                + monthly("Health/Insurance", except: ["2025-07", "2025-08"]),
+                                            now: now, calendar: calendar)
+        let call = AskClaudeToolCall(id: "t", name: "missing_statements", input: .object([:]))
+        var handles = AskClaudeHandles()
+
+        // Before Missing has checked this source there is nothing to say, and it says how to check.
+        let none = await runner().run(call, handles: &handles)
+        #expect(none.result.contains("hasn’t checked this source yet") && none.found == nil && !none.isError)
+
+        // Held: how many, and the card; no account's name reaches Claude.
+        let held = await runner(configure: { ctx in
+            ctx.missingReport = { (report, dir + "/Documents") }
+        }).run(call, handles: &handles)
+        #expect(held.result.hasPrefix("3 statements are missing from 2 accounts"), "\(held.result)")
+        #expect(held.result.contains("Their names weren’t sent to you") && !held.result.contains("Power") && !held.result.contains("Insurance"))
+        let found = try #require(held.found)
+        #expect(found.source == .missing && found.noun == "account" && found.count == 2)
+        #expect(found.names == ["Health/Insurance", "Home/Utilities/Power"])
+        #expect(found.paths == [dir + "/Documents/Health/Insurance", dir + "/Documents/Home/Utilities/Power"])
+        #expect(found.folderPath == dir + "/Documents")
+        #expect(found.rows.contains("Home/Utilities/Power: Mar 2025 (1)") && found.rows.contains("Health/Insurance: Jul–Aug 2025 (2)"))
+        #expect(AskClaudeHeldAnswer.foundTitle(found) == "Missing lists 2 accounts lacking statements in Documents, on this Mac:")
+        #expect(held.step == "Read Missing · 2 accounts" && handles.count == 0)
+
+        // Names shared for this chat: the lines go with the counts, and nothing waits.
+        let shared = await runner(configure: { ctx in
+            ctx.missingReport = { (report, dir + "/Documents") }
+            ctx.sharesNames = true
+        }).run(call, handles: &handles)
+        #expect(shared.found == nil && shared.result.contains("Home/Utilities/Power: Mar 2025 (1)"))
+
+        // A folder hidden from Claude is neither named nor counted, held or not.
+        let hidden = await runner(configure: { ctx in
+            ctx.missingReport = { (report, dir + "/Documents") }
+            ctx.sharesNames = true
+            ctx.hidden = [dir + "/Documents/Health"]
+        }).run(call, handles: &handles)
+        #expect(hidden.result.hasPrefix("1 statement is missing from 1 account") && !hidden.result.contains("Insurance"), "\(hidden.result)")
+        // The whole source hidden: left alone.
+        let all = await runner(configure: { ctx in
+            ctx.missingReport = { (report, dir + "/Documents") }
+            ctx.hidden = [dir + "/Documents"]
+        }).run(call, handles: &handles)
+        #expect(all.isError && all.result.contains("Hidden from Claude"))
+
+        // One year.
+        let year = await runner(configure: { ctx in
+            ctx.missingReport = { (report, dir + "/Documents") }
+            ctx.sharesNames = true
+        }).run(AskClaudeToolCall(id: "t", name: "missing_statements", input: .object(["year": .integer(2024)])), handles: &handles)
+        #expect(year.result.hasPrefix("Nothing from 2024 is counted as missing.") && year.step == "Read Missing · 2024 · 0 accounts", "\(year.result) | \(year.step)")
+    }
+
     /// Decision NJ, through the tool: counts, with a hidden folder's filings left out.
     @Test func theScorecardToolLeavesHiddenFilingsOut() async {
         let dir = self.dir

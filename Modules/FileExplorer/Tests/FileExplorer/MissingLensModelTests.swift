@@ -206,6 +206,26 @@ import Sync
         #expect(model.years.map { "\($0.year) \($0.counted)" } == ["2026 2", "2025 1"])
     }
 
+    // MARK: To File
+
+    @Test func aToFileCardSaysWhichGapItsFileCloses() {
+        let report = MissingStatements.find(paths: Self.paths, now: Self.now, calendar: Self.utc)
+        func sentence(_ home: String, _ name: String, root: String = "/R/Documents") -> String? {
+            MissingLensModel.gapSentence(report: report, root: root, home: home, name: name)
+        }
+        #expect(sentence("/R/Documents/Home/Utilities/Power/2025", "3. Mar 2025.pdf") == "Utilities · Power lacks Mar 2025.")
+        // The statement waiting in the inbox is the one that closes its month.
+        #expect(sentence("/R/Documents/Home/Utilities/Power/2026", "09. Sep 2026.pdf") == "Utilities · Power lacks Sep 2026.")
+        // A range closes the months of it that are lacking.
+        #expect(sentence("/R/Documents/Home/Utilities/Phone/2026", "1. Jan-Mar 2026.pdf") == "Utilities · Phone lacks Feb–Mar 2026.")
+        // A month the account has, a name that is no statement, and a folder outside the walked
+        // tree close nothing.
+        #expect(sentence("/R/Documents/Home/Utilities/Power/2025", "4. Apr 2025.pdf") == nil)
+        #expect(sentence("/R/Documents/Home/Utilities/Power/2025", "eStatement.pdf") == nil)
+        #expect(sentence("/Elsewhere/Home/Utilities/Power/2025", "3. Mar 2025.pdf") == nil)
+        #expect(sentence("/R/Documents/Home/Utilities/Power/2025", "3. Mar 2025.pdf", root: "/R/Documents/") == "Utilities · Power lacks Mar 2025.")
+    }
+
     // MARK: The strip
 
     @Test func theStripDrawsThreeYearsOfMonths() throws {

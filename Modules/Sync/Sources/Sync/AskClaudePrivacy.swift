@@ -240,6 +240,8 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
 
     public enum Source: String, Codable, Sendable {
         case names, listing
+        /// The accounts Organize ▸ Missing lists: folder names, held like any other lookup.
+        case missing
     }
 
     public init(words: String, folderLabel: String, names: [String], count: Int, rows: String, paths: [String],
@@ -260,7 +262,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
     }
 
     /// "file" or "item": a lookup that found a folder calls them items, as a listing does.
-    public var noun: String { source == .listing || allFiles == false ? "item" : "file" }
+    public var noun: String { source == .missing ? "account" : source == .listing || allFiles == false ? "item" : "file" }
 
     /// What they are, after their count, for the share and the thread: “whose text mentions
     /// “x””, “matching “x” under Travel”, “in Medical”.
@@ -269,6 +271,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
         case nil: "whose text mentions “\(words)”"
         case .names: "matching “\(words)” under \(folderLabel)"
         case .listing: "in \(folderLabel)"
+        case .missing: "Missing lists as lacking statements under \(folderLabel)"
         }
     }
 
@@ -278,6 +281,7 @@ public struct AskClaudeFoundNames: Codable, Equatable, Sendable {
         case nil: "mentioning “\(words)”"
         case .names: "named “\(words)”"
         case .listing: "in \(folderLabel)"
+        case .missing: "listed in Missing"
         }
     }
 

@@ -1452,6 +1452,10 @@ extension ContentView {
             },
             canRefineFiling: syncManager.filingHelpCanRefine,
             filingScorecard: { FilingScorecardStore.shared.records },
+            missingReport: {
+                guard let report = syncManager.missingReport, let root = syncManager.missingRoot else { return nil }
+                return (report, root.path)
+            },
             organizeInto: { folder in
                 guard let source = AskClaudeBrowseTools.closestSource(containing: folder, in: askClaudeSources) else { return nil }
                 return filingDestinationRoot(forAnchor: providerAnchorExpanded(forProviderId: source.id))

@@ -546,6 +546,101 @@ import Testing
         #expect(whole.restricted(toYear: 2023).counted == 1)
     }
 
+    // MARK: A file that would fill a gap
+
+    @Test func aFileBoundForAnAccountFillsTheMonthItLacks() throws {
+        let paths = Self.monthly(Self.power, Self.m(2024, 1), Self.m(2026, 9), except: [Self.m(2025, 3), Self.m(2026, 8)])
+            + ["TODO/Finance/Power/2026/08. Aug 2026.pdf"]
+        let report = Self.report(paths)
+        func fills(_ name: String, _ folder: String) -> String? {
+            report.gapFilled(byFileNamed: name, in: folder).map { "\($0.account.path): " + $0.months.map(\.iso).joined(separator: ",") }
+        }
+        // Into the year folder or the account folder, under any spelling the naming reads.
+        #expect(fills("3. Mar 2025.pdf", Self.power + "/2025") == "Home/Utilities/Power: 2025-03")
+        #expect(fills("03. March 2025.PDF", Self.power) == "Home/Utilities/Power: 2025-03")
+        // A range fills the months of it that are lacking.
+        #expect(fills("1. Jan-Mar 2025.pdf", Self.power + "/2025") == "Home/Utilities/Power: 2025-03")
+        // The statement waiting in the inbox is the one that fills its own month.
+        #expect(fills("08. Aug 2026.pdf", Self.power + "/2026") == "Home/Utilities/Power: 2026-08")
+        // A month the account has, a name that is not a statement, and another folder fill nothing.
+        #expect(fills("4. Apr 2025.pdf", Self.power + "/2025") == nil)
+        #expect(fills("Statement_2025-03.pdf", Self.power + "/2025") == nil)
+        #expect(fills("3. Mar 2025.pdf", "Home/Utilities/Water/2025") == nil)
+        #expect(fills("3. Mar 2025.pdf", Self.power + "/Receipts") == nil)
+        // October is only expected next: a statement arriving on time fills no gap.
+        #expect(fills("10. Oct 2026.pdf", Self.power + "/2026") == nil)
+        // A hidden account's gaps are not worth a mark.
+        let hidden = Self.report(paths, choices: .init(hidden: [Self.power]))
+        #expect(hidden.gapFilled(byFileNamed: "3. Mar 2025.pdf", in: Self.power + "/2025") == nil)
+    }
+
+    @Test func onlyTheAbsentPayslipFillsAHalfMonth() {
+        let report = Self.report(Self.payslips(Self.m(2024, 1), Self.m(2026, 10), except: [(Self.m(2025, 6), 30), (Self.m(2026, 3), 15), (Self.m(2026, 3), 31)]))
+        func fills(_ name: String) -> [String]? {
+            report.gapFilled(byFileNamed: name, in: Self.pay + "/2025")?.months.map(\.iso)
+                ?? report.gapFilled(byFileNamed: name, in: Self.pay + "/2026")?.months.map(\.iso)
+        }
+        #expect(fills("12. Jun 30 2025.pdf") == ["2025-06"])
+        // The 15th is already here: a second copy of it fills nothing.
+        #expect(fills("11. Jun 15 2025.pdf") == nil)
+        // A month with neither takes either.
+        #expect(fills("5. Mar 15 2026.pdf") == ["2026-03"])
+        #expect(fills("6. Mar 31 2026.pdf") == ["2026-03"])
+    }
+
+    // MARK: What Ask Claude is told
+
+    @Test func claudeGetsCountsAndAccountLinesButNothingHidden() {
+        let phone = "Home/Utilities/Phone"
+        let paths = Self.monthly(Self.power, Self.m(2024, 1), Self.m(2026, 10), except: [Self.m(2025, 3)])
+            + Self.monthly(phone, Self.m(2023, 1), Self.m(2026, 1), except: [Self.m(2024, 6)])
+            + Self.monthly(Self.card, Self.m(2023, 1), Self.m(2026, 10), except: Set((1...12).map { Self.m(2025, $0) }))
+            + Self.monthly("Finance/Bank/Checking 0001", Self.m(2024, 1), Self.m(2026, 10))
+        let report = Self.report(paths)
+        let all = MissingStatements.forClaude(report, root: "/R/Documents", isHidden: { _ in false })
+        #expect(all.counts == "10 statements are missing from 2 accounts: 9 from the last two years, 0 in months since the last statement of an account with no steady rhythm (often unused months, not lost statements), 1 older. "
+                + "1 more account has a silence or a gap beside unnamed files: listed, not counted. "
+                + "Read from file names on their Mac, as of Nov 2026; no file was opened. The newest finished month is never counted. "
+                + "Accounts they hid in Organize ▸ Missing, and folders hidden from you, are left out.")
+        #expect(all.rows == """
+            Home/Utilities/Phone: Jun 2024 (1); Feb–Sep 2026 (8)
+            Home/Utilities/Power: Mar 2025 (1)
+            Finance/Credit Accounts/Bank/Credit 1234: not counted: Jan–Dec 2025 (about 12)
+            """)
+        #expect(all.accounts == 3)
+        #expect(all.paths == ["/R/Documents/Home/Utilities/Phone", "/R/Documents/Home/Utilities/Power",
+                              "/R/Documents/Finance/Credit Accounts/Bank/Credit 1234"])
+        // The counts carry no folder name and neither part carries the root.
+        #expect(!all.counts.contains("Phone") && !all.counts.contains("/R") && !all.rows.contains("/R/"))
+
+        // A folder hidden from Claude is dropped before anything is counted: no total says it exists.
+        let hidden = MissingStatements.forClaude(report, root: "/R/Documents", isHidden: { $0.hasPrefix("/R/Documents/Home/Utilities/Phone") })
+        #expect(hidden.counts.hasPrefix("1 statement is missing from 1 account: 1 from the last two years"))
+        #expect(!hidden.rows.contains("Phone") && hidden.accounts == 2)
+        // So is an account hidden in the lens.
+        let lens = MissingStatements.forClaude(Self.report(paths, choices: .init(hidden: [Self.power])), root: "/R/Documents", isHidden: { _ in false })
+        #expect(lens.counts.hasPrefix("9 statements are missing from 1 account") && !lens.rows.contains("Power"))
+        // One year.
+        let y2025 = MissingStatements.forClaude(report, root: "/R/Documents", year: 2025, isHidden: { _ in false })
+        #expect(y2025.counts.hasPrefix("1 statement from 2025 is missing, in 1 account. 1 more account has a silence"))
+        // The card's silence lies wholly inside 2025, so its estimate stands.
+        #expect(y2025.rows == "Home/Utilities/Power: Mar 2025 (1)\nFinance/Credit Accounts/Bank/Credit 1234: not counted: Jan–Dec 2025 (about 12)")
+        #expect(MissingStatements.forClaude(report, root: "/R/Documents", year: 2019, isHidden: { _ in false }).rows.isEmpty)
+    }
+
+    @Test func aLongListIsCutAndSaysSo() {
+        var paths: [String] = []
+        for i in 0..<(MissingStatements.claudeAccountLimit + 2) {
+            paths += Self.monthly("Finance/Bank/Account \(1000 + i)", Self.m(2024, 1), Self.m(2026, 10), except: [Self.m(2025, 3)])
+        }
+        let answer = MissingStatements.forClaude(Self.report(paths), root: "/R", isHidden: { _ in false })
+        #expect(answer.accounts == 62)
+        #expect(answer.paths.count == 60)
+        #expect(answer.rows.split(separator: "\n").count == 61)
+        #expect(answer.rows.hasSuffix("2 more accounts not listed here."))
+        #expect(answer.counts.hasPrefix("62 statements are missing from 62 accounts"))
+    }
+
     // MARK: Remove one statement, anywhere
 
     /// The second review's tests as properties: take one statement out of a steady account, at

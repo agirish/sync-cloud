@@ -1021,7 +1021,7 @@ reached this Mac (expected: a conflicted copy, which then waits for you).
 
 ---
 
-## 24. Missing statements (TE348) — the finder and the lens are built
+## 24. Missing statements (TE348) — built
 
 **What:** list the statements each account folder lacks, from file and folder names alone. His
 statements are named `N. Mon YYYY` in account and year folders, so the months that never arrived
@@ -1050,7 +1050,12 @@ can be read without opening a file.
 - The year check: a year menu in the lens, and `synccloud missing --year 2025`, cut the report to
   what one year lacks (`MissingStatements.Report.restricted(toYear:)`).
 
-**Next:** “Fills a Gap” on To File cards, and Ask Claude reading the list.
+- “Fills a Gap” on To File cards and group rows, for a file whose landing name and folder close a
+  month Missing lists (`MissingStatements.Report.gapFilled(byFileNamed:in:)`). Only once Missing
+  has checked the source: the mark is read off a report, never guessed.
+- Ask Claude's `missing_statements` tool (`MissingStatements.forClaude`): counts at once, account
+  lines only where a lookup of that folder would go, otherwise held on a found-names card
+  (`AskClaudeFoundNames.Source.missing`). Folders hidden from Claude are dropped before counting.
 
 **Left out of the lens, on purpose or for now:** arrow keys, Return and ⌘C on its rows (no lens
 has them); Stop Tracking on several accounts at once; a Settings row that clears the choices; a

@@ -276,6 +276,7 @@ public enum AskClaudeToolCatalog {
         case proposeChanges = "propose_changes"
         case offerRule = "offer_rule"
         case filingScorecard = "filing_scorecard"
+        case missingStatements = "missing_statements"
         case view = "view"
         case reveal = "reveal"
         case showInApp = "show_in_app"
@@ -409,6 +410,10 @@ public enum AskClaudeToolCatalog {
         tool(.filingScorecard,
              "How often they kept the folder filing offered them first, from the filings they applied: kept, one folder deeper or changed, by confidence, by what picked the folder, and by top-level area. Counts only, read on their Mac and free. Use it when they ask how well filing works for them, or why to trust a suggestion.",
              properties: ["range": string("30 (the default), 90, or all: the days counted.")],
+             required: []),
+        tool(.missingStatements,
+             "The statements their account folders lack, from Organize ▸ Missing: which months of which bank, card, utility or payslip folder never arrived, worked out from the names of the statements that are there. Read on their Mac and free; no file is opened. You get the counts at once. The accounts are their folder names, so unless they are sharing names with you those wait on a card for them to share. Use it when they ask what statements are missing, what to download from a bank, or whether a year is complete.",
+             properties: ["year": integer("Only what this one year is missing, such as 2025. Leave out for the whole history.")],
              required: []),
         tool(.view,
              "Change how the Browse pane shows things: sort order, hidden files, list or columns.",

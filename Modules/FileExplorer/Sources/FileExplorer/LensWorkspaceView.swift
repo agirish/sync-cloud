@@ -4697,6 +4697,8 @@ public struct LensWorkspaceView: View {
                     }
                 }
             })
+        let report = syncManager.missingReport
+        let missingRoot = syncManager.missingRoot?.path
         return FilingFileRowsHooks(
             facts: { syncManager.filingDocumentFacts[$0.filePath] },
             perform: { action, s in runner.perform(action, on: s, members: members) },
@@ -4712,6 +4714,11 @@ public struct LensWorkspaceView: View {
                     return s.best.map { !$0.isNew && FileManager.default.fileExists(atPath: $0.path) } ?? false
                 case .open, .reveal, .openFolder, .copyPath, .setAside: return true
                 }
+            },
+            fillsGap: { s in
+                guard let report, let missingRoot, let home = typed[s.id] ?? s.best else { return nil }
+                return MissingLensModel.gapSentence(report: report, root: missingRoot, home: home.path,
+                                                    name: home.proposedName ?? s.fileName)
             })
     }
 

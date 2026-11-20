@@ -56,6 +56,26 @@ import Testing
         #expect(orange.height / scale > 150, "the orange marks span \(orange.height / scale)pt: fewer rows painted than the fixture has")
     }
 
+    /// The To File card's mark is laid out, not only passed along: the card grows by a line when
+    /// its file closes a gap, and stays as it was when the hook has nothing to say.
+    @Test func aToFileCardGrowsALineWhenItsFileFillsAGap() {
+        func height(_ sentence: String?) -> CGFloat {
+            let suggestion = FilingSuggestion(
+                filePath: "/root/TODO/09. Sep 2026.pdf", fileName: "09. Sep 2026.pdf", size: 4096, modificationDate: nil,
+                candidates: [FilingDestination(path: "/root/Home/Utilities/Power/2026", confidence: .high,
+                                               reasons: ["Statement, filed by year"], newSegments: [])],
+                providerRoot: "/root")
+            var hooks = FilingFileRowsHooks()
+            hooks.fillsGap = { _ in sentence }
+            let card = FilingSuggestionCard(suggestion: suggestion, densityMetrics: ListDensity.comfortable.metrics,
+                                            onFileHere: { _ in }, onChooseFolder: {}, onNotHere: {}, rowHooks: hooks)
+            return NSHostingView(rootView: card.frame(width: 560)).fittingSize.height
+        }
+        let plain = height(nil), marked = height("Utilities · Power lacks Sep 2026.")
+        #expect(plain > 0)
+        #expect(marked >= plain + 12, "the card is \(marked)pt with the mark and \(plain)pt without: the mark was not laid out")
+    }
+
     @Test("Before a walk the card offers one, and draws no list", .machinePinned(.pixelSampling))
     func theIntroPaintsWithoutAReport() throws {
         let host = Self.host(FileSyncManager())

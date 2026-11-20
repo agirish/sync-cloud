@@ -136,6 +136,10 @@ struct FilingFileRowsHooks {
     var isEnabled: (FilingFileAction, FilingSuggestion) -> Bool = { _, _ in true }
     /// Opens a folder in Finder: a group card's Open Folder with no row selected.
     var openFolder: (String) -> Void = { NSWorkspace.shared.open(URL(fileURLWithPath: $0, isDirectory: true)) }
+    /// The gap this file would close in Organize ▸ Missing, as a sentence ("Power lacks Sep
+    /// 2026."), or nil. Empty until Missing has been checked here: the mark is a fact about a
+    /// report, never a guess made without one.
+    var fillsGap: (FilingSuggestion) -> String? = { _ in nil }
 }
 
 /// A card's files as rows that share their columns: page-1 thumbnail, the file and one line read
@@ -203,6 +207,8 @@ struct FilingFileRows: View {
         let lines = FilingFileText.lines(s, facts: hooks.facts(s), inGroup: inGroup)
         let landing = FilingFileText.landing(s)
         let renumbering = FilingFileText.renumbering(s)
+        // A single file's card says so on the card itself; a group's row says it here.
+        let gap = inGroup ? hooks.fillsGap(s) : nil
         let ownFrom = inGroup ? FilingRouteText.rowFrom(s, members: members) : nil
         return HStack(alignment: .center, spacing: Self.gap) {
             thumbnail(s)
@@ -214,14 +220,14 @@ struct FilingFileRows: View {
                     .scaledFont(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.tail)
-                if narrow, let landing { landingText(landing, prefix: "→ ", note: renumbering) }
+                if narrow, let landing { landingText(landing, prefix: "→ ", note: renumbering, gap: gap) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !narrow, let landing {
                 Text("→").scaledFont(.system(size: 12)).foregroundStyle(.tertiary)
                     .frame(width: Self.arrow)
                     .accessibilityHidden(true)
-                landingText(landing, prefix: "", note: renumbering)
+                landingText(landing, prefix: "", note: renumbering, gap: gap)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if inGroup { acts(s).frame(width: Self.acts, alignment: .trailing).opacity(showsActs ? 1 : 0) }
@@ -238,7 +244,7 @@ struct FilingFileRows: View {
         .contextMenu { menuItems(s) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(lines.primary + (landing.map { ", " + ($0.moves ? "files as " : "") + $0.text } ?? "")
-                            + (renumbering.map { ", " + $0 } ?? ""))
+                            + (renumbering.map { ", " + $0 } ?? "") + (gap.map { ", fills a gap: " + $0 } ?? ""))
         .accessibilityAddTraits(selected == s.id ? .isSelected : [])
         // The combined row hides its buttons from VoiceOver, so each is a named action instead.
         .accessibilityActions {
@@ -250,7 +256,8 @@ struct FilingFileRows: View {
         }
     }
 
-    private func landingText(_ landing: (text: String, moves: Bool), prefix: String, note: String?) -> some View {
+    private func landingText(_ landing: (text: String, moves: Bool), prefix: String, note: String?,
+                             gap: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(prefix + landing.text)
                 .scaledFont(.system(size: 11.5, design: landing.moves ? .monospaced : .default))
@@ -260,6 +267,14 @@ struct FilingFileRows: View {
             // The neighbours File Here renames too, said before it does.
             if let note {
                 Text(note).scaledFont(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+            }
+            // What Missing would stop counting once this is filed.
+            if let gap {
+                Label("Fills a gap", systemImage: "calendar.badge.checkmark")
+                    .scaledFont(.system(size: 11))
+                    .foregroundStyle(accent)
+                    .lineLimit(1)
+                    .help(gap)
             }
         }
     }

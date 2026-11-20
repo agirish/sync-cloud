@@ -152,6 +152,9 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         var canRefineFiling = false
         /// The filing scorecard's records (TE341), for filing_scorecard.
         var filingScorecard: () -> [FilingScorecard.Record] = { [] }
+        /// Organize ▸ Missing's report and the folder it was walked from, for missing_statements;
+        /// nil before Missing has checked this source.
+        var missingReport: () -> (report: MissingStatements.Report, root: String)? = { nil }
         /// Where Organize's To File files a folder's files: its source's File Into folder, for
         /// Refine on a selection card, which may run only where it is the card's survey (TE342).
         var organizeInto: (_ folder: String) -> String? = { _ in nil }
@@ -714,6 +717,7 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
         case .proposeChanges: return proposeChanges(call, ctx, handles)
         case .offerRule: return await offerRule(call, ctx, handles)
         case .filingScorecard: return filingScorecard(call, ctx)
+        case .missingStatements: return missingStatements(call, ctx)
         case .pdf: return await pdf(call, ctx, handles)
         case .eject: return await eject(call, ctx)
         case .notes: return notes(call, ctx)
@@ -1776,6 +1780,33 @@ final class AskClaudeBrowseTools: AskClaudeToolRunning {
             card.offer = FilingScorecard.Offer(list, root: answer.root)
             return card
         }
+    }
+
+    // MARK: Missing statements (TE348, decision PB)
+
+    /// Organize ▸ Missing's report. The counts go at once; the accounts are folder names, so they
+    /// go only where a lookup of that folder would, and otherwise wait on a card.
+    private func missingStatements(_ call: AskClaudeToolCall, _ ctx: Context) -> AskClaudeToolOutcome {
+        guard let missing = ctx.missingReport() else {
+            return AskClaudeToolOutcome(result: "Organize ▸ Missing hasn’t checked this source yet, so there is no list. They can open Organize ▸ Missing and choose Check for Missing Statements; it reads file names only and takes a second.",
+                                        step: "Missing hasn’t checked here yet")
+        }
+        if ctx.isHidden(missing.root) { return hiddenFolder() }
+        let year = call.int("year") ?? call.string("year").flatMap { Int($0) }
+        let answer = MissingStatements.forClaude(missing.report, root: missing.root, year: year, isHidden: ctx.isHidden)
+        let label = (missing.root as NSString).lastPathComponent
+        let step = "Read Missing" + (year.map { " · \($0)" } ?? "") + " · \(AskClaudeScreenCard.count(answer.accounts, "account"))"
+        guard !answer.paths.isEmpty else { return AskClaudeToolOutcome(result: answer.counts, step: step) }
+        let header = "rows: account folder, then what it lacks; a number in brackets is statements counted"
+        guard ctx.lookupGoes((absolute: missing.root, relative: "", label: label)) else {
+            // Which accounts they hold is said by their folder names, so those wait on a card.
+            let found = AskClaudeFoundNames(words: "", folderLabel: label,
+                                            names: answer.paths.map { Self.relative($0, root: missing.root) },
+                                            count: answer.accounts, rows: header + "\n" + answer.rows, paths: answer.paths,
+                                            source: .missing, folderPath: missing.root)
+            return AskClaudeToolOutcome(result: Self.heldNames(answer.counts), step: step, found: found)
+        }
+        return AskClaudeToolOutcome(result: answer.counts + "\n" + header + "\n" + answer.rows, step: step)
     }
 
     // MARK: Filing scorecard (decision NJ)

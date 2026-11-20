@@ -101,6 +101,7 @@ struct FilingSuggestionCard: View {
                     if isNotDownloaded { notDownloadedRow }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
+                    if let gap = rowHooks.fillsGap(suggestion) { fillsGapRow(gap) }
                     if let note = tryAnotherNote { tryAnotherNoteRow(note) }
                     if let best, FilingRouteText.offersCreateAs(best) { newFolderNameField(best) }
                 }
@@ -247,6 +248,20 @@ struct FilingSuggestionCard: View {
 
     private var rememberedBadge: some View {
         Pill(.mini, tint: hueAccent, systemImage: "memories", text: "Remembered")
+    }
+
+    /// This file is a statement Organize ▸ Missing lists as absent: said on the card, because it
+    /// is the one in the queue worth filing first.
+    private func fillsGapRow(_ sentence: String) -> some View {
+        HStack(spacing: 6) {
+            Pill(.mini, tint: hueAccent, systemImage: "calendar.badge.checkmark", text: "Fills a Gap")
+            Text(sentence)
+                .scaledFont(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.tail)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Fills a gap. \(sentence)")
     }
 
     private var aiBadge: some View {

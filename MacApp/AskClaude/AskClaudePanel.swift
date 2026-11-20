@@ -2373,6 +2373,7 @@ enum AskClaudeHeldAnswer {
                 ? "SyncCloud found \(files) named “\(found.words)” in \(found.folderLabel), among the folders it has opened:"
                 : "Spotlight found \(files) named “\(found.words)” in \(found.folderLabel), on this Mac:"
         case .listing: return "\(found.folderLabel) holds \(files), on this Mac:"
+        case .missing: return "Missing lists \(files) lacking statements in \(found.folderLabel), on this Mac:"
         }
     }
 

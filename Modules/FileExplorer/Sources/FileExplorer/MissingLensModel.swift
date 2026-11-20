@@ -379,6 +379,21 @@ struct MissingLensModel {
         }
     }
 
+    // MARK: To File
+
+    /// What a file bound for `home` (an absolute folder) under `name` would close, as the To File
+    /// card's sentence: `Utilities · Power lacks Sep 2026.` nil when it fills nothing, or when the
+    /// folder is outside the tree Missing walked.
+    static func gapSentence(report: MissingStatements.Report, root: String, home: String, name: String) -> String? {
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        guard home.hasPrefix(prefix) else { return nil }
+        guard let fill = report.gapFilled(byFileNamed: name, in: String(home.dropFirst(prefix.count))),
+              let first = fill.months.first, let last = fill.months.last else { return nil }
+        let months = first == last ? first.label
+            : (first.year == last.year ? "\(first.shortName)–\(last.label)" : "\(first.label) – \(last.label)")
+        return "\(title(fill.account)) lacks \(months)."
+    }
+
     // MARK: Copy List
 
     /// One account's line: what is counted, then what is waiting, then what is listed and not

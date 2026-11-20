@@ -788,6 +788,7 @@ enum HelpBook {
                     ]),
                     .paragraph("You decide what counts. Hide Account takes an account out of every list and the count, and the Hidden filter brings it back. Not Expected takes one gap off the count. Stop Tracking stops expecting statements after an account’s newest one, until the next arrives. Each can be undone with ⌘Z, and all of them are kept with the folder’s survey."),
                     .paragraph("To close a year’s books, pick the year in the menu beside the filters. The list, the counts and Copy List then show only what that year is missing, and the summary says how many hidden accounts it left out."),
+                    .paragraph("Once Missing has checked a folder, To File marks a statement that would close one of its gaps with Fills a Gap, so you can tell which loose file is the one you were waiting for. And you can ask Claude what is missing: the counts go to Claude at once, and the accounts, which are your folder names, wait on a card for you to share, as other lookups do."),
                     .paragraph("Copy List puts the whole list on the clipboard as text, one account a line, newest first. Hidden accounts and gaps marked Not Expected are left out."),
                     .tip("Missing reads names only, so it is quick: it checks every account in a second or so, and reads them again when you come back to it. From a terminal, synccloud missing prints the same list.",),
                 ],
