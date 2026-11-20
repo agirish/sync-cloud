@@ -1068,6 +1068,41 @@ checks the rule notices; none compares against what a bank lists. Folders that a
 
 ---
 
+## 25. The Vault — next: quick, safe, complete, smart
+
+**What:** the Vault (⌘U) reads IDs and account numbers out of filed documents and shows them behind
+Touch ID. A review of the whole feature on 2026-11-20 (at `3f953608b`) found it strong at reading and
+careful with the clipboard and the log, and short of its goal, the quickest way to answer a form or a
+support call, in four ways: it opens only as an overlay inside this window; an entry is one number,
+so there is no home for an address, a card, a bank account or a date of birth; the key is not tied to
+Touch ID and nothing is backed up; and it never speaks first (no expiry warnings, no recents).
+
+**The mockups, bugs and calls are on one page**, cited by ID and not restated here:
+<https://claude.ai/code/artifact/60d12ecd-c5f3-4945-a098-2f0a9fc8c2a4>. Code-level work (data model,
+logging, tests, reader bugs, security internals) is [`docs/vault-tech-debt.md`](docs/vault-tech-debt.md),
+`VT…` IDs.
+
+| Phase | Items |
+|---|---|
+| 1 · Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF4 locked means locked · VF5 calmer panel · bugs VB2, VB4–VB7 |
+| 2 · Safe | VF6 backup and restore · VF7 key tied to Touch ID · VF8 Activity · VF9 hidden from screen sharing |
+| 3 · Complete | VF10 records with fields · VF11 new kinds (bank, card, address, vehicle, insurance, traveler) · VF12 person sheet · VF13 copy formats · VF14 own kinds and fields |
+| 4 · Smart | VF15 Needs attention · VF16 review queue · VF17 Form Mode · VF18 attach and drop · VF19 emergency sheet · VF20 reads more |
+
+**Order that matters:** phase 2 before VF11's cards and bank accounts (call VQ3); `VT20`, `VT21` and
+`VT30` (rolling backups, a golden sealed file, tolerant decoding) before any change to the sealed
+format; `VT1` before VF10. The Vault has never been in a release, so its format can still change
+with one migration of one file.
+
+**In flight elsewhere (2026-11-20):** branch `vault-countdown` adds the household's own kinds, a
+countdown only in the lock's last ten seconds, and a blur under the Touch ID prompt. VF14 builds on it.
+
+**Open calls:** VQ1 Quick Vault's shortcut · VQ2 what a locked Vault shows · VQ3 whether it holds card
+numbers · VQ4 whether check-digit reads skip confirming · VQ5 password fallback for the tied key ·
+VQ6 where backups go.
+
+---
+
 ## Interface — visual polish and information design
 
 Everything below changes how something **already shipped** reads. Not capability, but planned work
@@ -1271,6 +1306,7 @@ the question hundreds of keeper picks actually raise.
 | 18 | PDF content fingerprint | Medium | High |
 | 20 | Restructure — is the shape itself right | High | **High** |
 | 22 | People — what remains is person buckets and the classifier brief (search, tags and rules shipped) | Medium, staged | **High** |
+| 25 | The Vault — Quick Vault, backup and a tied key, records with fields, Needs attention | High, four phases | **High** |
 
 ### Interface
 
