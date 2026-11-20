@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// What the review of the whole Vault on 2026-11-19 found about what reaches the screen and the
-/// log: file names whose number came through the mask, and types that printed what they hold.
-@Suite struct VaultReviewPrivacyTests {
+/// Where a number is never printed: logs, file names, descriptions of a type.
+@Suite struct VaultPrivacyTests {
     @Test func aNumberWrittenWithOtherSeparatorsIsMaskedInAFileName() {
         // Only the last four stay, as everywhere a number is drawn hidden.
         let expected = [

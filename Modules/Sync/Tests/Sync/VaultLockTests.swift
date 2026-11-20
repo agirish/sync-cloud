@@ -332,13 +332,13 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         await model.opened()
 
         model.query = "ppo"
-        #expect(model.visibleEntries.map(\.title) == ["Health plan member ID"])
+        #expect(model.visibleRows.map(\.title) == ["Health plan member ID"])
         model.query = "  LOAN "
-        #expect(model.visibleEntries.map(\.title) == ["Mortgage loan number"])
+        #expect(model.visibleRows.map(\.title) == ["Mortgage loan number"])
         model.query = "health"
-        #expect(model.visibleEntries.map(\.title) == ["Health plan member ID"])
+        #expect(model.visibleRows.map(\.title) == ["Health plan member ID"])
         model.query = "7365"
-        #expect(model.visibleEntries.isEmpty, "a search on digits would confirm a guess at a number")
+        #expect(model.visibleRows.isEmpty, "a search on digits would confirm a guess at a number")
         #expect(model.selection == nil)
     }
 
@@ -348,14 +348,14 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         let model = rig.model()
         await model.opened()
 
-        #expect(model.count(for: .everyone) == 3)
-        #expect(model.count(for: .household) == 1)
-        #expect(model.count(for: .person("shweta")) == 1)
+        #expect(model.count(person: .everyone) == 3)
+        #expect(model.count(person: .household) == 1)
+        #expect(model.count(person: .person("shweta")) == 1)
         model.personFilter = .person("shweta")
-        #expect(model.visibleEntries == [Self.memberID])
+        #expect(model.visibleRows.map(\.id) == [Self.memberID.id])
         #expect(model.selection == Self.memberID.id)
         model.personFilter = .household
-        #expect(model.visibleEntries == [Self.mortgage])
+        #expect(model.visibleRows.map(\.id) == [Self.mortgage.id])
     }
 
     @Test func theListIsOrderedByKindThenNameAndArrowsStopAtItsEnds() async throws {
@@ -364,7 +364,7 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         let model = rig.model()
         await model.opened()
 
-        #expect(model.visibleEntries.map(\.title) == ["Passport", "Health plan member ID", "Mortgage loan number"])
+        #expect(model.visibleRows.map(\.title) == ["Passport", "Health plan member ID", "Mortgage loan number"])
         model.moveSelection(by: -1)
         #expect(model.selection == Self.passport.id)
         model.moveSelection(by: 1); model.moveSelection(by: 1); model.moveSelection(by: 1)

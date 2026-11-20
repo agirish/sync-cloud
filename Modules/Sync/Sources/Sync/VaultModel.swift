@@ -214,36 +214,6 @@ public final class VaultModel: ObservableObject {
 
     // MARK: What the list shows
 
-    /// The entries the search and the person filter leave, in list order: by kind, then by name.
-    public var visibleEntries: [VaultEntry] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return entries.filter { entry in
-            switch personFilter {
-            case .everyone: break
-            case .household: if entry.personID != nil { return false }
-            case .person(let id): if entry.personID != id { return false }
-            }
-            guard !needle.isEmpty else { return true }
-            // The name, the note and the kind. Never the number: a search that matched on digits
-            // would confirm a guess at a locked number one keystroke at a time.
-            return entry.title.lowercased().contains(needle) || entry.note.lowercased().contains(needle)
-                || entry.kind.title.lowercased().contains(needle)
-        }
-        .sorted(by: Self.listOrder)
-    }
-
-    private static func listOrder(_ a: VaultEntry, _ b: VaultEntry) -> Bool {
-        let kinds = VaultEntry.Kind.allCases
-        let (ka, kb) = (kinds.firstIndex(of: a.kind) ?? 0, kinds.firstIndex(of: b.kind) ?? 0)
-        if ka != kb { return ka < kb }
-        // Current numbers first; the older ones kept for reference after them, newest first.
-        if a.isOlder != b.isOlder { return !a.isOlder }
-        if a.isOlder, a.dated != b.dated { return (a.dated ?? .distantPast) > (b.dated ?? .distantPast) }
-        let byTitle = a.title.localizedStandardCompare(b.title)
-        if byTitle != .orderedSame { return byTitle == .orderedAscending }
-        return a.addedAt < b.addedAt
-    }
-
     public var selectedEntry: VaultEntry? { entries.first { $0.id == selection } }
 
     public var selectedFind: VaultFind? { finds.first { $0.id == selection } }
@@ -709,14 +679,6 @@ public final class VaultModel: ObservableObject {
 
     /// Documents that name a number without being its source, by the number.
     private var mentions: [String: [VaultSource]] = [:] { didSet { rowsRevision &+= 1 } }
-
-    public func count(for filter: PersonFilter) -> Int {
-        switch filter {
-        case .everyone: return entries.count
-        case .household: return entries.filter { $0.personID == nil }.count
-        case .person(let id): return entries.filter { $0.personID == id }.count
-        }
-    }
 
     /// The number as it may be drawn now: in full, or with only its ending.
     public func drawn(_ entry: VaultEntry) -> String {

@@ -136,3 +136,51 @@ import Testing
         #expect(Self.values(model) == ["ABCPE1234F"])
     }
 }
+
+/// The filters as the model applies them to what is added and chosen.
+@MainActor
+@Suite struct VaultFilterModelTests {
+    typealias Rig = VaultModelTests.Rig
+    typealias InterruptingProof = VaultFixtures.InterruptingProof
+
+    @Test func aNumberAddedUnderAFilterThatHidesItIsShown() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        model.kindFilter = "health"
+        let id = try #require(model.add(VaultModel.Draft(title: "Loan", value: "4410552233", category: .loans)))
+        #expect(model.visibleRows.contains { $0.id == id })
+        #expect(model.kindFilter == nil)
+    }
+
+    @Test func emptyingTheChosenGroupGoesBackToAllKinds() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        model.kindFilter = "health"
+        var groups = model.groups
+        groups.groupOf[.health] = "home"
+        model.setGroups(groups)
+        #expect(model.kindFilter == nil)
+    }
+
+    @Test func kindsOnlyTheOtherCountryHasAreCountedForTheLineUnderTheCards() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        await model.readDocuments(with: VaultFakeDocuments(pages: ["/r/us.pdf": VaultFixtures.licensePage,
+                                                                    "/r/pan.pdf": VaultIDReadingTests.panCard]))
+        model.geoFilter = .us
+        let elsewhere = try #require(model.elsewhereKinds)
+        #expect(elsewhere.filter == .india && elsewhere.count == 1)
+    }
+
+    @Test func aNumberAddedForSomeoneTheFilterHidesIsShown() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        await model.opened()
+        model.personFilter = .person("anna")
+        let id = try #require(model.add(VaultModel.Draft(title: "Loan", value: "1234567890", personID: "bob",
+                                                         category: .loans)))
+        #expect(model.personFilter == .everyone)
+        #expect(model.visibleRows.contains { $0.id == id })
+        #expect(model.selection == id)
+    }
+}

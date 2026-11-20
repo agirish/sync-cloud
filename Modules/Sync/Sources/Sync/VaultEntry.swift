@@ -97,9 +97,6 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         set { pinned = newValue; older = nil }
     }
 
-    /// Kept for reference: an older passport or I-94 a form may still ask for.
-    public var isOlder: Bool { pin == .older }
-
     private enum CodingKeys: String, CodingKey {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
         case chosenCategory = "category", facts, pinned = "pin", household, geo
@@ -107,7 +104,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
                 note: String = "", kind: Kind = .other, sourcePath: String? = nil,
-                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil, isOlder: Bool = false,
+                addedAt: Date, updatedAt: Date? = nil, dated: Date? = nil,
                 category: VaultCategory? = nil, facts: VaultReadFacts? = nil) {
         self.id = id
         self.title = title
@@ -121,7 +118,6 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         self.dated = dated ?? facts?.dated
         self.chosenCategory = category
         self.facts = facts
-        self.pinned = isOlder ? .older : nil
     }
 }
 
