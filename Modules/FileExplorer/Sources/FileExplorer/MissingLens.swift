@@ -37,6 +37,8 @@ struct MissingLensView: View {
     let onShowIn: (OrganizeLens, String) -> Void
 
     @State private var filter: MissingFilter = .missing
+    /// The year check: nil for the whole history.
+    @State private var year: Int?
     /// The selected account's path, relative to the walked root.
     @State private var selection: String?
 
@@ -46,7 +48,7 @@ struct MissingLensView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let report = syncManager.missingReport {
-                reportBody(MissingLensModel(report: report, filter: filter, query: query, inScope: inScope))
+                reportBody(MissingLensModel(report: report, filter: filter, query: query, year: year, inScope: inScope))
             } else if syncManager.isFindingMissingStatements {
                 readingState
             } else {
@@ -158,6 +160,7 @@ struct MissingLensView: View {
                     filterChip(item, count: model.count(for: item))
                 }
                 Spacer(minLength: 0)
+                yearPicker(model)
             }
             if let note = model.notCheckedNote {
                 Label(note, systemImage: "exclamationmark.triangle")
@@ -168,6 +171,26 @@ struct MissingLensView: View {
         }
         .padding(.horizontal, density.cardListPadding + 4)
         .padding(.vertical, 10)
+    }
+
+    /// The year check: narrow the lens to what one year lacks, for closing its books.
+    private func yearPicker(_ model: MissingLensModel) -> some View {
+        Picker("Year", selection: $year) {
+            Text("All Years").tag(Int?.none)
+            ForEach(model.years, id: \.year) { choice in
+                Text("\(String(choice.year)) · \(choice.counted)").tag(Int?.some(choice.year))
+            }
+            // A year picked and since emptied stays in the list, so the picker can show it.
+            if let year, !model.years.contains(where: { $0.year == year }) {
+                Text(String(year)).tag(Int?.some(year))
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+        .controlSize(.small)
+        .help("Show only what one year is missing.")
+        .accessibilityLabel("Year")
     }
 
     private func filterChip(_ item: MissingFilter, count: Int) -> some View {
@@ -290,6 +313,7 @@ struct MissingLensView: View {
             legendItem(.filed, "filed")
             legendItem(.missing, "missing, counted")
             legendItem(.uncounted, "silence, not counted")
+            legendItem(.partial, "one of two")
             legendItem(.waiting, "waiting in To File")
             legendItem(.expectedNext, "expected next")
             legendItem(.noneExpected, "none expected")
@@ -644,6 +668,12 @@ struct MissingMonthStrip: View {
             case .uncounted: shape.strokeBorder(SemanticColor.warning.opacity(0.75), lineWidth: 1.5)
             case .waiting: shape.strokeBorder(accent, lineWidth: 2)
             case .expectedNext: shape.strokeBorder(accent.opacity(0.8), lineWidth: 1)
+            case .partial:
+                VStack(spacing: 0) {
+                    Color.secondary.opacity(0.5)
+                    SemanticColor.warning
+                }
+                .clipShape(shape)
             case .noneExpected: Capsule().fill(Color.secondary.opacity(0.28)).frame(height: 3)
             case .blank: Color.clear
             }

@@ -90,9 +90,19 @@ struct MissingLensModel {
     /// One month on an account's strip.
     enum Cell: Equatable {
         case filed, missing, uncounted, waiting, expectedNext, noneExpected, blank
+        /// Some of the month's dated documents are here and some are not: one payslip of two.
+        case partial
     }
 
+    /// The report the lens draws from: the whole one, or its cut to ``year``.
     let report: MissingStatements.Report
+    /// The one year the lens is narrowed to, for closing a year's books; nil for the whole history.
+    let year: Int?
+    /// The years with something counted, newest first, each with its count: the year check's
+    /// choices. Taken before the cut, so the list does not shrink to the year picked.
+    let years: [(year: Int, counted: Int)]
+    /// Accounts hidden by the user that a year check therefore leaves out.
+    let hiddenCount: Int
     /// The accounts in scope and matching the search, hidden ones included.
     let accounts: [Account]
     let filter: MissingFilter
@@ -101,10 +111,18 @@ struct MissingLensModel {
     ///   - inScope: whether an account's path, relative to the walked root, is inside Organize's
     ///     scope.
     ///   - query: free text matched against the account's path and the months of its gaps.
-    init(report: MissingStatements.Report, filter: MissingFilter = .missing, query: String = "",
-         inScope: (String) -> Bool = { _ in true }) {
+    init(report whole: MissingStatements.Report, filter: MissingFilter = .missing, query: String = "",
+         year: Int? = nil, inScope: (String) -> Bool = { _ in true }) {
+        let report = year.map(whole.restricted(toYear:)) ?? whole
         self.report = report
+        self.year = year
         self.filter = filter
+        var byYear: [Int: Int] = [:]
+        for account in whole.accounts where !account.isHidden && inScope(account.path) {
+            for gap in account.gaps { for month in gap.countedMonths { byYear[month.year, default: 0] += gap.perMonth } }
+        }
+        self.years = byYear.sorted { $0.key > $1.key }.map { (year: $0.key, counted: $0.value) }
+        self.hiddenCount = whole.accounts.filter { $0.isHidden && inScope($0.path) }.count
         let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         self.accounts = report.accounts.filter { account in
             guard inScope(account.path) else { return false }
@@ -123,6 +141,12 @@ struct MissingLensModel {
 
     /// The lens's one-line answer.
     var summary: String {
+        if let year {
+            // A year check is read at tax time, so it says what it left out.
+            let left = hiddenCount == 0 ? "" : " \(Self.count(hiddenCount, "hidden account")) \(hiddenCount == 1 ? "is" : "are") left out."
+            guard counted > 0 else { return "Nothing from \(year) is missing." + left }
+            return "\(Self.count(counted, "statement")) from \(year) \(counted == 1 ? "is" : "are") missing, in \(Self.count(countedAccounts, "account"))." + left
+        }
         guard !accounts.isEmpty else { return "No folder here holds statements named like 3. Mar 2026." }
         guard counted > 0 else { return "Nothing is missing. \(Self.count(visible.count, "account")) checked." }
         return "\(Self.count(counted, "statement")) missing from \(Self.count(countedAccounts, "account")): "
@@ -211,6 +235,10 @@ struct MissingLensModel {
     /// `Aug, Oct, Dec 2025` for an account not billed every month.
     static func months(_ gap: Gap) -> String {
         let months = gap.months
+        // A dated document reads as its name would: `Jun 30 2023`.
+        if !gap.days.isEmpty, months.count == 1 {
+            return "\(months[0].shortName) \(gap.days.map(String.init).joined(separator: ", ")) \(months[0].year)"
+        }
         let contiguous = zip(months, months.dropFirst()).allSatisfy { $1.index - $0.index == 1 }
         if gap.kind != .silence, months.count == 1 { return months[0].label }
         if gap.kind != .silence, !contiguous, let first = months.first, let last = months.last {
@@ -226,6 +254,7 @@ struct MissingLensModel {
     /// A gap's months with what marks it out: its series, and that only the CSV is here.
     static func text(_ gap: Gap) -> String {
         months(gap) + (gap.series.isEmpty ? "" : " \(gap.series)") + (gap.kind == .csvOnly ? " (CSV only)" : "")
+            + (gap.perMonth == 1 ? "" : gap.perMonth == 2 ? " (both)" : " (all \(gap.perMonth))")
     }
 
     /// What a gap's line says on its right.
@@ -312,11 +341,14 @@ struct MissingLensModel {
             }
         }
         let filed = Set(account.filed.map(\.index))
+        let partly = Set(account.partlyFiled.map(\.index))
         let summaryOnly = Set(account.summaryOnlyYears)
         return stripYears.flatMap { year in
             (0..<12).map { m -> Cell in
                 let month = year * 12 + m
                 if filed.contains(month) || summaryOnly.contains(year) { return .filed }
+                // Before the gap's own mark: the month is half here whether or not it is counted.
+                if partly.contains(month), month < report.asOf.index - 1 { return .partial }
                 if let mark = marks[month] { return mark }
                 if month < account.first.index || month >= report.asOf.index { return .blank }
                 return .noneExpected
@@ -372,7 +404,7 @@ struct MissingLensModel {
     /// The whole list as plain text, in the order the default filter shows it. Hidden accounts and
     /// gaps marked Not Expected are left out.
     func copyText(rootName: String) -> String {
-        var lines = ["Missing statements, \(rootName), \(report.asOf.label)", summary]
+        var lines = ["Missing statements, \(rootName), \(report.asOf.label)" + (year.map { ", for \($0) only" } ?? ""), summary]
         for group in groups(for: .missing) {
             lines.append("")
             lines.append(group.section.title + ":")

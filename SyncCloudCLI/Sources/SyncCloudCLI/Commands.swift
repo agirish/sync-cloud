@@ -265,6 +265,9 @@ struct Missing: AsyncParsableCommand {
     @Flag(name: .long, help: "Emit the full report as JSON (stable format; every account, gap and month).")
     var json: Bool = false
 
+    @Option(name: .long, help: "Only what is missing from one year, such as 2025.")
+    var year: Int?
+
     @Option(name: .long, help: "Profiles directory to read instead of the app's own - for fixtures and other machines' surveys.",
             completion: .directory)
     var profilesDir: String?
@@ -275,7 +278,7 @@ struct Missing: AsyncParsableCommand {
             func url(_ path: String?) -> URL? {
                 path.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
             }
-            try MissingReporting.run(folder: url(folder), profilesDirectory: url(profilesDir), json: json) { print($0) }
+            try MissingReporting.run(folder: url(folder), profilesDirectory: url(profilesDir), json: json, year: year) { print($0) }
         }
     }
 }

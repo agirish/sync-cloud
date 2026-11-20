@@ -125,6 +125,7 @@ four statements named like `3. Mar 2026.pdf`, directly or under year folders.
 synccloud missing                      # the surveyed folder
 synccloud missing ~/Documents          # any folder
 synccloud missing ~/Documents --json   # every account, gap and month, stable format
+synccloud missing --year 2025          # only what 2025 is missing
 ```
 
 A gap is counted when the account is steady around it and it is twelve statements or fewer; a
@@ -132,6 +133,10 @@ longer one, and any stretch in an account with no steady rhythm, is a silence an
 The newest finished month is only expected next. A month whose named statement sits in an inbox
 folder (`TODO`, `Inbox`, `Unfiled`) is waiting, and a gap beside PDFs that do not follow the naming
 is listed and not counted. `Archive` and `Deleted` folders are never checked.
+
+A folder of documents dated to the day (`21. Nov 15 2025.pdf`, payslips) is checked as a schedule
+when nine months in ten hold one and four in five hold the same number: a month short of that
+number lacks the difference, and a month with one of two says which day is absent.
 
 ## Command reference
 

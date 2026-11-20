@@ -89,7 +89,8 @@ import Testing
         #expect(period("Jan -Mar 2021") == .statement(start: 2021 * 12, end: 2021 * 12 + 2, suffix: ""))
         #expect(period("jun 2014 NRE") == .statement(start: 2014 * 12 + 5, end: 2014 * 12 + 5, suffix: "NRE"))
         #expect(period("Apr 2022 (NRO)") == .statement(start: 2022 * 12 + 3, end: 2022 * 12 + 3, suffix: "(NRO)"))
-        #expect(period("Jan 15 2026") == .dayDated)
+        #expect(period("Jan 15 2026") == .dayDated(month: 2026 * 12, day: 15))
+        #expect(period("Feb 28 2019 (Labs)") == .dayDated(month: 2019 * 12 + 1, day: 28))
         #expect(period("Summary 2022") == nil)
         #expect(period("Feb 2024-Nov 2023") == nil)
     }
@@ -98,7 +99,7 @@ import Testing
         #expect(MissingStatements.read("07. July 2016.pdf") == .statement(start: 2016 * 12 + 6, end: 2016 * 12 + 6, suffix: ""))
         #expect(MissingStatements.read("0. Summary 2022.pdf") == .summary(year: 2022))
         #expect(MissingStatements.read("0. Spend 2019.pdf") == .summary(year: 2019))
-        #expect(MissingStatements.read("05. Jan 15 2026.pdf") == .dayDated)
+        #expect(MissingStatements.read("05. Jan 15 2026.pdf") == .dayDated(month: 2026 * 12, day: 15))
         #expect(MissingStatements.read("Statement_2026-07.pdf") == nil)
         #expect(MissingStatements.read("3. Receipt.pdf") == nil)
     }
@@ -430,6 +431,119 @@ import Testing
         #expect(throws: (any Error).self) {
             _ = try JSONDecoder().decode(MissingStatements.Choices.self, from: Data(#"{"firstChecked":"Nov 2026"}"#.utf8))
         }
+    }
+
+    // MARK: Documents dated to the day
+
+    static let pay = "Work/Employer/Salary Statements"
+
+    /// A payslip on the 15th and on the last day of every month from `from` to `to`, but for
+    /// `except` (a month and a day).
+    static func payslips(_ from: Month, _ to: Month, except: [(Month, Int)] = [], in account: String = pay) -> [String] {
+        var out: [String] = []
+        for month in (from.index...to.index).map(Month.init(index:)) {
+            let last = utc.range(of: .day, in: .month, for: utc.date(from: DateComponents(year: month.year, month: month.month, day: 1))!)!.count
+            for day in [15, last] where !except.contains(where: { $0.0 == month && $0.1 == day }) {
+                out.append("\(account)/\(month.year)/\(out.count + 1). \(month.shortName) \(day) \(month.year).pdf")
+            }
+        }
+        return out
+    }
+
+    @Test func aFolderOfPayslipsIsASchedule() throws {
+        let a = try Self.account(Self.payslips(Self.m(2024, 1), Self.m(2026, 10)), Self.pay)
+        #expect(Self.lines(a).isEmpty)
+        #expect(a.perMonth == 2)
+        #expect(a.statements == 68)
+        #expect(a.filed.count == 34)
+        #expect(a.partlyFiled.isEmpty)
+    }
+
+    @Test func aMonthShortOfItsTwoLacksTheOtherOne() throws {
+        let paths = Self.payslips(Self.m(2023, 1), Self.m(2026, 10),
+                                  except: [(Self.m(2023, 6), 30), (Self.m(2025, 2), 15), (Self.m(2025, 9), 15), (Self.m(2025, 9), 30)])
+        let a = try Self.account(paths, Self.pay)
+        #expect(Self.lines(a) == [
+            "missing 2023-06..2023-06 [2023-06] x1",
+            "missing 2025-02..2025-02 [2025-02] x1",
+            "missing 2025-09..2025-09 [2025-09] x2",
+        ])
+        // Which one is absent, read from the habit: the last day, then the 15th, then both.
+        #expect(a.gaps.map(\.days) == [[30], [15], []])
+        #expect(a.gaps.map(\.perMonth) == [1, 1, 2])
+        #expect(a.gaps.map(\.age) == [.older, .recent, .recent])
+        #expect(a.partlyFiled == [Self.m(2023, 6), Self.m(2025, 2)])
+        #expect(a.counted == 4)
+    }
+
+    @Test func aScheduleIsBehindUpToTheMonthBeforeTheNewestFinishedOne() throws {
+        // The last payslip is 15 Aug 2026: the 31st, both of September, and October's are absent.
+        let paths = Self.payslips(Self.m(2024, 1), Self.m(2026, 8), except: [(Self.m(2026, 8), 31)])
+        let a = try Self.account(paths, Self.pay)
+        #expect(Self.lines(a) == [
+            "missing 2026-08..2026-08 [2026-08] x1",
+            "behind 2026-09..2026-09 [2026-09] x2",
+            "expectedNext 2026-10..2026-10 [2026-10] x0",
+        ])
+        #expect(try Self.gap(a, 0).days == [31])
+        // Not Expected takes a whole month off, both of its documents.
+        let off = try Self.account(paths, Self.pay, choices: .init(notExpected: [Self.pay: [Self.m(2026, 9)]]))
+        #expect(off.counted == 1)
+        // A stopped schedule owes nothing after its newest document.
+        let stopped = try Self.account(paths, Self.pay, choices: .init(stopped: [Self.pay: Self.m(2026, 8)]))
+        #expect(Self.lines(stopped) == ["missing 2026-08..2026-08 [2026-08] x1"])
+    }
+
+    @Test func anUnnamedFileBesideAScheduleGapKeepsItOffTheCount() throws {
+        let paths = Self.payslips(Self.m(2024, 1), Self.m(2026, 10), except: [(Self.m(2026, 7), 15)])
+        #expect(try Self.account(paths, Self.pay).counted == 1)
+        let beside = try Self.account(paths + ["\(Self.pay)/2026/Payslip_2026-07-15.pdf"], Self.pay)
+        #expect(Self.lines(beside) == ["missing 2026-07..2026-07 [2026-07] x0"])
+        #expect(try Self.gap(beside, 0).unnamedFiles == 1)
+    }
+
+    @Test func datedDocumentsThatKeepNoScheduleAreNotChecked() {
+        // Visit records: a document in under half the months.
+        let visits = [Self.m(2023, 1), Self.m(2023, 2), Self.m(2023, 7), Self.m(2024, 3), Self.m(2024, 4), Self.m(2024, 11),
+                      Self.m(2025, 1), Self.m(2025, 6), Self.m(2025, 7), Self.m(2026, 2), Self.m(2026, 5), Self.m(2026, 9)]
+            .enumerated().map { "Health/Visits/\($1.year)/\($0 + 1). \($1.shortName) 12 \($1.year).pdf" }
+        #expect(visits.count == 12)
+        #expect(Self.report(visits).accounts.isEmpty)
+        // And too few to say: five months of payslips.
+        #expect(Self.report(Self.payslips(Self.m(2026, 6), Self.m(2026, 10))).accounts.isEmpty)
+        // The control: the same folder name with a payslip every month is an account.
+        #expect(Self.report(Self.payslips(Self.m(2026, 1), Self.m(2026, 10), in: "Health/Visits")).accounts.map(\.path) == ["Health/Visits"])
+    }
+
+    @Test func aQuietScheduleOwesNothingAfterItsLastDocument() throws {
+        let a = try Self.account(Self.payslips(Self.m(2022, 1), Self.m(2024, 12), except: [(Self.m(2023, 3), 31)]), Self.pay)
+        #expect(a.tracking == .quiet)
+        #expect(Self.lines(a) == ["missing 2023-03..2023-03 [2023-03] x1"])
+    }
+
+    // MARK: One year
+
+    @Test func aReportCutToOneYearKeepsOnlyThatYearsMonths() throws {
+        let year = Set((1...12).map { Self.m(2025, $0) })
+        // Power lacks Nov 2024 to Feb 2025; the card is silent all of 2025 and a month either side.
+        let paths = Self.monthly(Self.power, Self.m(2022, 1), Self.m(2026, 10), except: [Self.m(2024, 11), Self.m(2024, 12), Self.m(2025, 1), Self.m(2025, 2)])
+            + Self.monthly(Self.card, Self.m(2022, 1), Self.m(2026, 10), except: year.union([Self.m(2024, 12), Self.m(2026, 1)]))
+            + Self.monthly("Home/Utilities/Phone", Self.m(2022, 1), Self.m(2026, 10), except: [Self.m(2023, 5)])
+        let whole = Self.report(paths)
+        #expect(whole.counted == 5)
+        let cut = whole.restricted(toYear: 2025)
+        // Phone lacks nothing in 2025, so it is gone; Power keeps two of its four.
+        #expect(cut.accounts.map(\.path) == [Self.card, Self.power])
+        let power = try #require(cut.accounts.last)
+        #expect(Self.lines(power) == ["missing 2025-01..2025-02 [2025-01,2025-02] x2"])
+        #expect(cut.counted == 2)
+        // A silence is cut to the year's edges, and its estimate goes: it was for the whole gap.
+        let card = try #require(cut.accounts.first)
+        #expect(Self.lines(card) == ["silence 2025-01..2025-12 [12 months] x0"])
+        #expect(Self.lines(try #require(whole.accounts.first { $0.path == Self.card })) == ["silence 2024-12..2026-01 [14 months] x0 ~14"])
+        // A year nothing is missing from is an empty report, not the whole one.
+        #expect(whole.restricted(toYear: 2019).accounts.isEmpty)
+        #expect(whole.restricted(toYear: 2023).counted == 1)
     }
 
     // MARK: Remove one statement, anywhere

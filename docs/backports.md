@@ -16178,6 +16178,10 @@ and the view (`MissingLensView`, `MissingLensModel`). Help gains a topic and say
 store carries the keys it does not model (`carriedKeys`). No line has the finder, so there is
 nothing to carry.
 
+2026-11-20: the finder also checks folders of day-dated documents kept to a schedule (payslips),
+and the lens and `synccloud missing --year` cut the report to one year. Both sit on the lens and
+the command above, which no line has.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Missing lens | RECORDED — not owed (new feature) |

@@ -1043,9 +1043,14 @@ can be read without opening a file.
   one ⌘Z, and all are kept in a `missing` section of the survey's `restructure.json`, which a
   landing re-keys. Copy List puts the list on the clipboard.
 
-**Next, in order:**
-1. Payslips and other twice-a-month schedules, and a year check.
-2. “Fills a Gap” on To File cards, and Ask Claude reading the list.
+- Schedules of documents dated to the day (payslips on the 15th and the last day): a folder with
+  twelve or more is a schedule when nine months in ten hold one and four in five hold the same
+  number; a month short of it lacks the difference, and says which day when it is one of two.
+  Visit records and other events keep no schedule and are not checked.
+- The year check: a year menu in the lens, and `synccloud missing --year 2025`, cut the report to
+  what one year lacks (`MissingStatements.Report.restricted(toYear:)`).
+
+**Next:** “Fills a Gap” on To File cards, and Ask Claude reading the list.
 
 **Left out of the lens, on purpose or for now:** arrow keys, Return and ⌘C on its rows (no lens
 has them); Stop Tracking on several accounts at once; a Settings row that clears the choices; a

@@ -32,6 +32,11 @@ public enum MissingReporting {
             public var waitingFile: String?
             /// Due months marked Not Expected in the app.
             public var notExpected: [String]?
+            /// How many documents each month of the gap stands for, when more than one: 2 where
+            /// both of a month's payslips are absent.
+            public var perMonth: Int?
+            /// For a month holding some of its dated documents: the days absent.
+            public var days: [Int]?
         }
 
         public struct Account: Codable, Equatable, Sendable {
@@ -49,11 +54,15 @@ public enum MissingReporting {
             public let gaps: [Gap]
             /// Years lacking the `0. Summary YYYY` the two years before them have.
             public let missingSummaries: [Int]
+            /// Dated documents a month normally holds, when more than one (payslips: 2).
+            public var perMonth: Int?
         }
 
         public let schemaVersion: Int
         public let root: String
         public let asOf: String
+        /// The one year the report was cut to with `--year`; absent for the whole history.
+        public var year: Int?
         public let counted: Int
         public let countedAccounts: Int
         public let recent: Int
@@ -124,7 +133,7 @@ public enum MissingReporting {
 
     /// Walks `folder`, or the surveyed folder when none is named, and reports on it. The user's
     /// choices apply only to the surveyed folder: they are keyed by paths inside it.
-    public static func report(folder: URL?, profilesDirectory: URL? = nil, now: Date = Date(),
+    public static func report(folder: URL?, profilesDirectory: URL? = nil, year: Int? = nil, now: Date = Date(),
                               calendar: Calendar = .current, fileManager: FileManager = .default) throws -> Output {
         let surveyed = surveyedRoot(profilesDirectory: profilesDirectory)
         guard let root = folder ?? surveyed?.root else { throw Failure.noFolder }
@@ -139,15 +148,17 @@ public enum MissingReporting {
         let tree = walk(root, fileManager: fileManager)
         let found = MissingStatements.find(paths: tree.files, notChecked: tree.notChecked, now: now,
                                            calendar: calendar, choices: choices)
-        return output(for: found, root: root.path)
+        var output = output(for: year.map(found.restricted(toYear:)) ?? found, root: root.path)
+        output.year = year
+        return output
     }
 
     /// The `missing` command's body: the report, rendered as JSON or text, handed to `write`.
-    public static func run(folder: URL?, profilesDirectory: URL?, json: Bool, now: Date = Date(),
+    public static func run(folder: URL?, profilesDirectory: URL?, json: Bool, year: Int? = nil, now: Date = Date(),
                            calendar: Calendar = .current, write: (String) -> Void) throws {
         let output: Output
         do {
-            output = try report(folder: folder, profilesDirectory: profilesDirectory, now: now, calendar: calendar)
+            output = try report(folder: folder, profilesDirectory: profilesDirectory, year: year, now: now, calendar: calendar)
         } catch let failure as Failure {
             throw CLIValidationError(message: failure.errorDescription ?? "\(failure)")
         }
@@ -169,9 +180,12 @@ public enum MissingReporting {
                                                  series: gap.series.isEmpty ? nil : gap.series,
                                                  unnamedFiles: gap.unnamedFiles > 0 ? gap.unnamedFiles : nil,
                                                  waitingFile: gap.waitingFile,
-                                                 notExpected: gap.notExpected.isEmpty ? nil : gap.notExpected.map(\.iso))
+                                                 notExpected: gap.notExpected.isEmpty ? nil : gap.notExpected.map(\.iso),
+                                                 perMonth: gap.perMonth > 1 ? gap.perMonth : nil,
+                                                 days: gap.days.isEmpty ? nil : gap.days)
                                   },
-                                  missingSummaries: account.missingSummaries)
+                                  missingSummaries: account.missingSummaries,
+                                  perMonth: account.perMonth > 1 ? account.perMonth : nil)
                },
                notChecked: report.notChecked)
     }
@@ -189,6 +203,10 @@ public enum MissingReporting {
     /// `Dec 2019 - May 2020`, and `Aug, Oct, Dec 2025` for an account not billed every month.
     static func monthsText(_ gap: Output.Gap) -> String {
         let months = gap.months.compactMap(MissingStatements.Month.init(iso:))
+        // A dated document: the day sits between the month and the year, as its name would.
+        if let days = gap.days, let month = months.first, months.count == 1, !days.isEmpty {
+            return "\(month.shortName) \(days.map(String.init).joined(separator: ", ")) \(month.year)"
+        }
         let exact = gap.kind != "silence"
         let contiguous = zip(months, months.dropFirst()).allSatisfy { $1.index - $0.index == 1 }
         if exact, months.count == 1 { return months[0].label }
@@ -207,6 +225,7 @@ public enum MissingReporting {
         var counted: [String] = [], other: [String] = []
         for gap in account.gaps {
             let text = monthsText(gap) + (gap.series.map { " \($0)" } ?? "") + (gap.kind == "csvOnly" ? " (CSV only)" : "")
+                + (gap.perMonth.map { $0 == 2 ? " (both)" : " (all \($0))" } ?? "")
             switch gap.kind {
             case "expectedNext": continue
             case "waiting": counted.append("\(text) (waiting in \(gap.waitingFile ?? "an inbox folder"))")
@@ -232,9 +251,11 @@ public enum MissingReporting {
     /// The default rendering: one line per account, the ones worth fetching first.
     public static func renderText(_ output: Output) -> String {
         let asOf = MissingStatements.Month(iso: output.asOf)?.label ?? output.asOf
-        var lines = ["Missing statements in \(output.root), \(asOf)"]
+        var lines = ["Missing statements in \(output.root), \(asOf)" + (output.year.map { ", for \($0) only" } ?? "")]
         let shown = output.accounts.filter { !$0.hidden }
-        if shown.isEmpty {
+        if shown.isEmpty, let year = output.year {
+            lines.append("Nothing from \(year) is missing.")
+        } else if shown.isEmpty {
             lines.append("No folder here holds statements named like \"3. Mar 2026.pdf\".")
         } else if output.counted == 0 {
             lines.append("Nothing is missing. \(count(shown.count, "account")) checked.")

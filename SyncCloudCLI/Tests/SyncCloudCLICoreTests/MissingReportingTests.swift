@@ -161,6 +161,48 @@ import Foundation
         #expect(MissingReporting.renderText(try report(complete)).hasSuffix("Nothing is missing. 1 account checked."))
     }
 
+    /// Payslips on the 15th and the last day: a month short of two names the one absent, and a
+    /// month with neither says both.
+    @Test func aScheduleOfDatedDocumentsIsReportedByDay() throws {
+        let tree = try Scratch()
+        var n = 0
+        for year in 2024...2026 {
+            for month in 1...(year == 2026 ? 10 : 12) {
+                let last = Self.utc.range(of: .day, in: .month, for: Self.utc.date(from: DateComponents(year: year, month: month, day: 1))!)!.count
+                for day in [15, last] where !["2024-6-30", "2025-9-15", "2025-9-30"].contains("\(year)-\(month)-\(day)") {
+                    n += 1
+                    try tree.touch("Work/Pay/\(year)/\(n). \(Self.months[month - 1]) \(day) \(year).pdf")
+                }
+            }
+        }
+        let output = try report(tree)
+        let pay = try #require(output.accounts.first)
+        #expect(pay.perMonth == 2)
+        #expect(pay.gaps.map(\.days) == [[30], nil])
+        #expect(pay.gaps.map(\.perMonth) == [nil, 2])
+        #expect(output.counted == 3)
+        #expect(MissingReporting.renderText(output).contains("  Work/Pay: Sep 2025 (both) (2); Jun 30 2024 (1)")
+                || MissingReporting.renderText(output).contains("  Work/Pay: Jun 30 2024 (1); Sep 2025 (both) (2)"))
+    }
+
+    /// `--year` cuts the report to one year: its accounts, its months, its count.
+    @Test func aYearCutsTheReportToThatYear() throws {
+        let tree = try makeTree()
+        let empty = try Scratch()
+        let cut = try MissingReporting.report(folder: tree.url, profilesDirectory: empty.url, year: 2025, now: Self.now, calendar: Self.utc)
+        #expect(cut.year == 2025)
+        #expect(cut.counted == 1)
+        #expect(cut.accounts.map(\.path) == ["Finance/Credit Accounts/Bank/Credit 1234", "Home/Utilities/Power"])
+        let text = MissingReporting.renderText(cut)
+        #expect(text.hasPrefix("Missing statements in \(tree.url.path), Nov 2026, for 2025 only\n1 statement missing from 1 account"))
+        #expect(!text.contains("Phone"))
+        #expect(try MissingReporting.renderJSON(cut).contains("\"year\" : 2025"))
+        // The whole history carries no year key at all.
+        #expect(!(try MissingReporting.renderJSON(try report(tree))).contains("\"year\""))
+        let none = try MissingReporting.report(folder: tree.url, profilesDirectory: empty.url, year: 2019, now: Self.now, calendar: Self.utc)
+        #expect(MissingReporting.renderText(none).hasSuffix("Nothing from 2019 is missing."))
+    }
+
     @Test func monthsReadAsAPersonWouldWriteThem() {
         func gap(_ kind: String, _ months: [String]) -> MissingReporting.Output.Gap {
             .init(kind: kind, first: months.first ?? "", last: months.last ?? "", months: months, statements: 0)
@@ -171,6 +213,9 @@ import Foundation
         #expect(MissingReporting.monthsText(gap("missing", ["2025-08", "2025-10", "2025-12"])) == "Aug, Oct, Dec 2025")
         #expect(MissingReporting.monthsText(gap("missing", ["2025-12", "2026-02"])) == "Dec 2025, Feb 2026")
         #expect(MissingReporting.monthsText(gap("silence", ["2022-02", "2024-12"])) == "Feb 2022 - Dec 2024")
+        var dated = gap("missing", ["2023-06"])
+        dated.days = [30]
+        #expect(MissingReporting.monthsText(dated) == "Jun 30 2023")
     }
 
     /// The JSON format is a public surface: the statement fetch parses it, so this test is the

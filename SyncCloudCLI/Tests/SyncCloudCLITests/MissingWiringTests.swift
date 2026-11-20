@@ -21,6 +21,11 @@ import ArgumentParser
         #expect(full.folder == "/tmp/Documents")
         #expect(full.json)
         #expect(full.profilesDir == "/tmp/x")
+        #expect(full.year == nil)
+        let year = try #require(try SyncCloudCommand.parseAsRoot(["missing", "--year", "2025"]) as? Missing)
+        #expect(year.year == 2025)
+        // A year is a number; a word is a usage error, not a report for no year.
+        #expect(throws: (any Error).self) { _ = try SyncCloudCommand.parseAsRoot(["missing", "--year", "last"]) }
     }
 
     /// It lists and prints. A flag that fetched or moved anything would be a different tool.

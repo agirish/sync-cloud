@@ -44,11 +44,11 @@ import Sync
             + monthly(old, m(2020, 1), m(2023, 6), except: [m(2022, 2)])
     }
 
-    static func model(_ filter: MissingFilter = .missing, query: String = "",
+    static func model(_ filter: MissingFilter = .missing, query: String = "", year: Int? = nil,
                       choices: MissingStatements.Choices = .init(),
                       inScope: @escaping (String) -> Bool = { _ in true }) -> MissingLensModel {
         MissingLensModel(report: MissingStatements.find(paths: paths, now: now, calendar: utc, choices: choices),
-                         filter: filter, query: query, inScope: inScope)
+                         filter: filter, query: query, year: year, inScope: inScope)
     }
 
     static func rows(_ model: MissingLensModel) -> [String] {
@@ -163,6 +163,49 @@ import Sync
             """)
     }
 
+    // MARK: The year check
+
+    @Test func aYearNarrowsTheLensToWhatThatYearLacks() {
+        let whole = Self.model()
+        // The choices are the years with something counted, newest first, and do not shrink.
+        #expect(whole.years.map { "\($0.year) \($0.counted)" } == ["2026 16", "2025 1", "2024 1", "2022 1"])
+        let y2026 = Self.model(year: 2026)
+        #expect(y2026.years.map(\.year) == [2026, 2025, 2024, 2022])
+        #expect(y2026.counted == 16)
+        #expect(Self.rows(y2026) == ["recent: Utilities · Phone", "sinceNewest: Bank · Credit 9999"])
+        #expect(y2026.summary == "16 statements from 2026 are missing, in 2 accounts.")
+        // The silent card year is listed under its own year and no other.
+        #expect(Self.rows(Self.model(year: 2025)) == ["recent: Utilities · Power", "cardSilences: Bank · Credit 1234"])
+        #expect(Self.model(year: 2025).summary == "1 statement from 2025 is missing, in 1 account.")
+        #expect(Self.model(year: 2019).summary == "Nothing from 2019 is missing.")
+        // Read at tax time, so it says what it left out.
+        let hidden = Self.model(year: 2026, choices: .init(hidden: [Self.phone]))
+        #expect(hidden.summary == "8 statements from 2026 are missing, in 1 account. 1 hidden account is left out.")
+        #expect(hidden.copyText(rootName: "Documents").hasPrefix("Missing statements, Documents, Nov 2026, for 2026 only\n8 statements from 2026"))
+    }
+
+    // MARK: Dated documents
+
+    @Test func aPayslipGapReadsAsItsNameWouldAndDrawsHalfACell() throws {
+        var paths: [String] = []
+        for index in Self.m(2024, 1).index...Self.m(2026, 10).index {
+            let month = Month(index: index)
+            let last = Self.utc.range(of: .day, in: .month, for: Self.utc.date(from: DateComponents(year: month.year, month: month.month, day: 1))!)!.count
+            for day in [15, last] where !(month == Self.m(2025, 6) && day == 30) && month != Self.m(2026, 3) {
+                paths.append("Work/Pay/\(month.year)/\(paths.count + 1). \(month.shortName) \(day) \(month.year).pdf")
+            }
+        }
+        let model = MissingLensModel(report: MissingStatements.find(paths: paths, now: Self.now, calendar: Self.utc))
+        let pay = try #require(model.accounts.first)
+        #expect(pay.gaps.map { "\(MissingLensModel.text($0)) | \(MissingLensModel.status($0))" } == ["Jun 30 2025 | 1", "Mar 2026 (both) | 2"])
+        #expect(MissingLensModel.line(pay) == "Work/Pay: Jun 30 2025 (1); Mar 2026 (both) (2)")
+        let cells = model.cells(for: pay)
+        #expect(cells[12 + 5] == .partial)
+        #expect(cells[24 + 2] == .missing)
+        #expect(cells[12 + 4] == .filed)
+        #expect(model.years.map { "\($0.year) \($0.counted)" } == ["2026 2", "2025 1"])
+    }
+
     // MARK: The strip
 
     @Test func theStripDrawsThreeYearsOfMonths() throws {
@@ -178,6 +221,7 @@ import Sync
                 case .expectedNext: return "n"
                 case .noneExpected: return "-"
                 case .blank: return " "
+                case .partial: return "h"
                 }
             }.joined()
         }

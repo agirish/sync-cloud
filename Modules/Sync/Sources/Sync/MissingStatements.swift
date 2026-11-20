@@ -141,8 +141,34 @@ public enum MissingStatements {
         public let notExpected: [Month]
         /// nil when nothing in the gap is counted.
         public let age: Age?
+        /// The months of this gap that are on the count.
+        public var countedMonths: [Month] = []
+        /// How many documents each month of this gap stands for: 1, or 2 where both of a month's
+        /// two payslips are absent.
+        public var perMonth = 1
+        /// For a month with some of its dated documents: the days absent (`[30]`). Empty otherwise.
+        public var days: [Int] = []
 
         public var isCounted: Bool { statements > 0 }
+
+        /// This gap as far as it falls in `year`, or nil when none of it does. An estimate is
+        /// kept only for a gap that lies wholly inside the year.
+        public func restricted(toYear year: Int) -> Gap? {
+            let kept = months.filter { $0.year == year }
+            guard !kept.isEmpty, let lo = kept.first, let hi = kept.last else { return nil }
+            guard kept.count < months.count else { return self }
+            let counted = countedMonths.filter { $0.year == year }
+            let jan = Month(year: year, month: 1), dec = Month(year: year, month: 12)
+            var gap = Gap(kind: kind, first: kind == .silence ? max(first, jan) : min(lo, max(first, jan)),
+                          last: kind == .silence ? min(last, dec) : max(hi, min(last, dec)), months: kept,
+                          statements: counted.count * perMonth, estimate: nil, series: series,
+                          unnamedFiles: unnamedFiles, waitingFile: waitingFile,
+                          notExpected: notExpected.filter { $0.year == year }, age: counted.isEmpty ? nil : age)
+            gap.countedMonths = counted
+            gap.perMonth = perMonth
+            gap.days = days
+            return gap
+        }
     }
 
     public struct Account: Sendable, Equatable {
@@ -171,6 +197,24 @@ public enum MissingStatements {
         public let filed: Set<Month>
         /// Years that hold a summary and no statement: left out of the timeline, not gaps.
         public let summaryOnlyYears: [Int]
+        /// How many dated documents a month normally holds: 1 for monthly statements, 2 for
+        /// payslips on the 15th and the last day.
+        public var perMonth = 1
+        /// Months holding some of their documents and not all.
+        public var partlyFiled: Set<Month> = []
+
+        /// This account with only what it lacks in `year`, or nil when it lacks nothing then.
+        public func restricted(toYear year: Int) -> Account? {
+            let kept = gaps.compactMap { $0.restricted(toYear: year) }
+            let summaries = missingSummaries.filter { $0 == year }
+            guard !kept.isEmpty || !summaries.isEmpty else { return nil }
+            var account = Account(path: path, isCard: isCard, tracking: tracking, isHidden: isHidden, statements: statements,
+                                  first: first, newest: newest, gaps: kept, missingSummaries: summaries, filed: filed,
+                                  summaryOnlyYears: summaryOnlyYears)
+            account.perMonth = perMonth
+            account.partlyFiled = partlyFiled
+            return account
+        }
 
         public var counted: Int { gaps.reduce(0) { $0 + $1.statements } }
         public func counted(_ age: Gap.Age) -> Int { gaps.filter { $0.age == age }.reduce(0) { $0 + $1.statements } }
@@ -189,6 +233,12 @@ public enum MissingStatements {
         public var counted: Int { visible.reduce(0) { $0 + $1.counted } }
         public var countedAccounts: Int { visible.filter { $0.counted > 0 }.count }
         public func counted(_ age: Gap.Age) -> Int { visible.reduce(0) { $0 + $1.counted(age) } }
+
+        /// The same report for one year: only the accounts lacking something in it, with each gap
+        /// cut to the months that fall in it.
+        public func restricted(toYear year: Int) -> Report {
+            Report(asOf: asOf, accounts: accounts.compactMap { $0.restricted(toYear: year) }, notChecked: notChecked)
+        }
     }
 
     // MARK: - Settings
@@ -211,6 +261,8 @@ public enum MissingStatements {
     static let fewestStatements = 4
     /// Unnamed PDFs in the account folder itself cast doubt on its gaps from this many.
     static let fewestLooseFilesToDoubt = 3
+    /// A folder of day-dated documents is a schedule from this many.
+    static let fewestDatedDocuments = 12
 
     // MARK: - Reading a name
 
@@ -218,8 +270,8 @@ public enum MissingStatements {
         /// The months a statement covers, and whatever its name carries after the date.
         case statement(start: Int, end: Int, suffix: String)
         case summary(year: Int)
-        /// `05. Jan 15 2026`: a dated document, not a month's statement.
-        case dayDated
+        /// `05. Jan 15 2026`: a document dated to the day, such as a payslip.
+        case dayDated(month: Int, day: Int)
     }
 
     /// What a file name says it is, or nil when it does not follow the naming.
@@ -265,8 +317,8 @@ public enum MissingStatements {
             if s > e { s -= 12 }
             return .statement(start: s, end: e, suffix: suffix(after: 2))
         }
-        if tokens.count > 2, tokens[1].text.count <= 2, let d = Int(tokens[1].text), (1...31).contains(d), year(2) != nil {
-            return .dayDated
+        if tokens.count > 2, tokens[1].text.count <= 2, let d = Int(tokens[1].text), (1...31).contains(d), let y = year(2) {
+            return .dayDated(month: y * 12 + first - 1, day: d)
         }
         guard let y = year(1) else { return nil }
         let s = y * 12 + first - 1
@@ -431,6 +483,8 @@ public enum MissingStatements {
         /// Unnamed PDFs, by the year folder holding them.
         var unnamedByYear: [String: Int] = [:]
         var unnamedHere = 0
+        /// Day-dated documents: each month's days.
+        var days: [Int: Set<Int>] = [:]
     }
 
     private static let yearFolder = try! NSRegularExpression(pattern: #"^(19|20)\d{2}(-(19|20)\d{2})?$"#)
@@ -499,8 +553,8 @@ public enum MissingStatements {
                 }
             case .summary(let year)?:
                 folders[key, default: Folder()].summaries.insert(year)
-            case .dayDated?:
-                break
+            case .dayDated(let month, let day)?:
+                folders[key, default: Folder()].days[month, default: []].insert(day)
             case nil:
                 guard (name as NSString).pathExtension.lowercased() == "pdf" else { continue }
                 if inYear, let year = components.last {
@@ -509,6 +563,96 @@ public enum MissingStatements {
                     folders[key, default: Folder()].unnamedHere += 1
                 }
             }
+        }
+
+        /// A folder of day-dated documents kept to a schedule (payslips on the 15th and the last
+        /// day), or nil when it holds too few or keeps no schedule, as visit records do.
+        ///
+        /// A schedule is a habit, not a rule read from the names: nine months in ten have a
+        /// document, and four months in five hold the same number. A month short of that number
+        /// lacks the difference.
+        func schedule(_ path: String, _ folder: Folder) -> Account? {
+            let days = folder.days
+            let files = days.values.reduce(0) { $0 + $1.count }
+            guard files >= fewestDatedDocuments, let first = days.keys.min(), let newest = days.keys.max() else { return nil }
+            let tally = Dictionary(grouping: days.values.map(\.count), by: { $0 }).mapValues(\.count)
+            guard let usual = tally.max(by: { ($0.value, $0.key) < ($1.value, $1.key) })?.key,
+                  Double(days.count) >= 0.9 * Double(newest - first + 1),
+                  Double(tally[usual] ?? 0) >= 0.8 * Double(days.count) else { return nil }
+
+            let quiet = firstChecked - newest > quietAfter
+            let tracking: Account.Tracking = quiet ? (choices.started[path] != nil ? .tracked : .quiet)
+                : (choices.stopped[path]?.index == newest ? .stopped : .tracked)
+            let dismissed = choices.notExpected[path] ?? []
+            let doubtHere = folder.unnamedHere >= fewestLooseFilesToDoubt ? folder.unnamedHere : 0
+            // The days this account's documents usually carry, early and late in the month.
+            func habit(_ early: Bool) -> Int? {
+                let seen = days.values.flatMap { $0 }.filter { ($0 <= 20) == early }
+                return Dictionary(grouping: seen, by: { $0 }).max { ($0.value.count, $0.key) < ($1.value.count, $1.key) }?.key
+            }
+            func lastDay(of month: Int) -> Int {
+                let date = calendar.date(from: DateComponents(year: month / 12, month: month % 12 + 1, day: 1)) ?? now
+                return calendar.range(of: .day, in: .month, for: date)?.count ?? 30
+            }
+            func make(_ kind: Gap.Kind, _ months: [Int], each: Int, days absent: [Int] = []) -> Gap {
+                let lo = months[0], hi = months[months.count - 1]
+                let doubt = (lo / 12...hi / 12).reduce(doubtHere) { $0 + (folder.unnamedByYear[String($1)] ?? 0) }
+                let off = months.filter { dismissed.contains(Month(index: $0)) }
+                let counted = doubt > 0 ? [] : months.filter { !off.contains($0) }
+                var gap = Gap(kind: kind, first: Month(index: lo), last: Month(index: hi), months: months.map(Month.init(index:)),
+                              statements: counted.count * each, estimate: nil, series: "", unnamedFiles: doubt, waitingFile: nil,
+                              notExpected: off.map(Month.init(index:)),
+                              age: counted.isEmpty ? nil : (hi >= nowIndex - recentWindow ? .recent : .older))
+                gap.countedMonths = counted.map(Month.init(index:))
+                gap.perMonth = each
+                gap.days = absent
+                return gap
+            }
+
+            // Up to the month before the newest finished one; that one is only expected next.
+            let expectsMore = tracking == .tracked
+            let from = quiet ? (choices.started[path]?.index ?? newest + 1) : newest + 1
+            var list: [Gap] = []
+            var run: [Int] = []            // consecutive months with nothing at all
+            func flush() {
+                guard let lo = run.first else { return }
+                list.append(make(lo > newest ? .behind : .missing, run, each: usual))
+                run = []
+            }
+            let end = expectsMore ? max(newest + 1, nowIndex - 1) : newest + 1
+            for month in first..<end {
+                let have = days[month]?.count ?? 0
+                if month > newest && month < from { continue }
+                if have == 0 {
+                    if let previous = run.last, previous != month - 1 || (previous <= newest) != (month <= newest) { flush() }
+                    run.append(month)
+                    continue
+                }
+                flush()
+                guard have < usual else { continue }
+                // One of two: say which, from the habit. Any other shortfall is only a number.
+                var absent: [Int] = []
+                if usual == 2, let present = days[month]?.first {
+                    if present > 20 { absent = [habit(true) ?? 15] }
+                    else { absent = [(habit(false) ?? 31) >= 28 ? lastDay(of: month) : (habit(false) ?? lastDay(of: month))] }
+                }
+                list.append(make(.missing, [month], each: usual - have, days: absent))
+            }
+            flush()
+            if expectsMore, nowIndex - 1 >= from, (days[nowIndex - 1]?.count ?? 0) < usual, nowIndex - 1 > first {
+                list.append(Gap(kind: .expectedNext, first: Month(index: nowIndex - 1), last: Month(index: nowIndex - 1),
+                                months: [Month(index: nowIndex - 1)], statements: 0, estimate: nil, series: "",
+                                unnamedFiles: 0, waitingFile: nil, notExpected: [], age: nil))
+            }
+
+            var account = Account(path: path, isCard: false, tracking: tracking, isHidden: choices.hidden.contains(path),
+                                  statements: files, first: Month(index: first), newest: Month(index: newest), gaps: list,
+                                  missingSummaries: [],
+                                  filed: Set(days.filter { $0.value.count >= usual }.keys.map(Month.init(index:))),
+                                  summaryOnlyYears: [])
+            account.perMonth = usual
+            account.partlyFiled = Set(days.filter { $0.value.count < usual }.keys.map(Month.init(index:)))
+            return account
         }
 
         var accounts: [Account] = []
@@ -525,7 +669,11 @@ public enum MissingStatements {
                 pdf[key, default: []].formUnion(folder.pdf[suffix] ?? [])
             }
             series = series.filter { $0.value.count >= fewestStatements }
-            guard !series.isEmpty else { continue }
+            guard !series.isEmpty else {
+                // No run of monthly statements: it may still keep documents dated to the day.
+                if let account = schedule(path, folder) { accounts.append(account) }
+                continue
+            }
 
             let card = isCard(path)
             let newest = series.values.compactMap { $0.keys.max() }.max() ?? nowIndex
@@ -554,9 +702,11 @@ public enum MissingStatements {
                 let doubt = unnamed(first, last)
                 let off = due.filter { dismissed.contains(Month(index: $0)) }
                 let count = doubt > 0 ? 0 : due.count - off.count
-                return Gap(kind: kind, first: Month(index: first), last: Month(index: last), months: due.map(Month.init(index:)),
-                           statements: count, estimate: nil, series: suffix, unnamedFiles: doubt, waitingFile: nil,
-                           notExpected: off.map(Month.init(index:)), age: count > 0 ? age(kind, last) : nil)
+                var gap = Gap(kind: kind, first: Month(index: first), last: Month(index: last), months: due.map(Month.init(index:)),
+                              statements: count, estimate: nil, series: suffix, unnamedFiles: doubt, waitingFile: nil,
+                              notExpected: off.map(Month.init(index:)), age: count > 0 ? age(kind, last) : nil)
+                if doubt == 0 { gap.countedMonths = due.filter { !off.contains($0) }.map(Month.init(index:)) }
+                return gap
             }
 
             var list: [Gap] = []
@@ -583,10 +733,12 @@ public enum MissingStatements {
                         let months = (found.first...found.last).filter { !neutral.contains($0) }
                         let doubt = unnamed(found.first, found.last)
                         let count = doubt > 0 ? 0 : months.filter { chosen.contains(Month(index: $0)) }.count
-                        list.append(Gap(kind: .silence, first: Month(index: found.first), last: Month(index: found.last),
-                                        months: months.map(Month.init(index:)), statements: count, estimate: found.estimate,
-                                        series: suffix, unnamedFiles: doubt, waitingFile: nil, notExpected: [],
-                                        age: count > 0 ? age(.silence, found.last) : nil))
+                        var silence = Gap(kind: .silence, first: Month(index: found.first), last: Month(index: found.last),
+                                          months: months.map(Month.init(index:)), statements: count, estimate: found.estimate,
+                                          series: suffix, unnamedFiles: doubt, waitingFile: nil, notExpected: [],
+                                          age: count > 0 ? age(.silence, found.last) : nil)
+                        if doubt == 0 { silence.countedMonths = months.map(Month.init(index:)).filter(chosen.contains) }
+                        list.append(silence)
                     case .hole, .behind, .open:
                         var due = found.due
                         var anyWaiting = false
