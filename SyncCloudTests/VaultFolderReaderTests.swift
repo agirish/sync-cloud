@@ -81,6 +81,112 @@ import Testing
         #expect(!VaultFolderReader.drawsScan(try Self.page(at: dir.path("letterhead.pdf"))))
     }
 
+    // MARK: Scans as files store them
+
+    /// A PDF written out object by object, for the shapes CoreGraphics never writes itself.
+    /// `objects[0]` is object 3, the page; the catalog and the page tree are objects 1 and 2, and
+    /// `tree` adds entries to the page tree's dictionary.
+    static func writeRawPDF(tree: String = "", objects: [String], to path: String) throws {
+        let all = ["<< /Type /Catalog /Pages 2 0 R >>",
+                   "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] \(tree) >>"] + objects
+        var pdf = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        for (i, object) in all.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(i + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 \(all.count + 1)\n0000000000 65535 f \n"
+            + offsets.map { String(format: "%010d 00000 n \n", $0) }.joined()
+            + "trailer\n<< /Size \(all.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        try Data(pdf.utf8).write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    static func image(_ width: Int, _ height: Int) -> String {
+        "<< /Type /XObject /Subtype /Image /Width \(width) /Height \(height) /ColorSpace /DeviceGray "
+            + "/BitsPerComponent 8 /Length 1 >>\nstream\nx\nendstream"
+    }
+
+    static func form(resources: String) -> String {
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources \(resources) /Length 0 >>\nstream\n\nendstream"
+    }
+
+    static let emptyPage = "<< /Length 0 >>\nstream\n\nendstream"
+
+    @Test func aScanIsFoundHoweverTheFileStoresIt() throws {
+        let dir = FixtureDir()
+        func search(_ name: String, tree: String = "", _ objects: [String]) throws -> (found: Bool, opened: Int) {
+            try Self.writeRawPDF(tree: tree, objects: objects, to: dir.path(name))
+            return VaultFolderReader.scanSearch(try Self.page(at: dir.path(name)))
+        }
+        // Resources the page inherits from the page tree.
+        #expect(try search("inherited.pdf", tree: "/Resources << /XObject << /Im1 5 0 R >> >>",
+                           ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>", Self.emptyPage, Self.image(1700, 1100)]).found)
+        // Inside a form inside a form, as a signing service leaves the page it wrapped.
+        #expect(try search("nested.pdf", [
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Fm1 5 0 R >> >> >>", Self.emptyPage,
+            Self.form(resources: "<< /XObject << /Fm2 6 0 R >> >>"), Self.form(resources: "<< /XObject << /Im1 7 0 R >> >>"),
+            Self.image(1700, 1100)]).found)
+        // Cut into tiles, none of them large: three make a card's worth, two do not.
+        func tiles(_ count: Int) -> [String] {
+            let names = (0..<count).map { "/T\($0) \(5 + $0) 0 R" }.joined(separator: " ")
+            return ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << \(names) >> >> >>", Self.emptyPage]
+                + (0..<count).map { _ in Self.image(256, 256) }
+        }
+        #expect(try search("three-tiles.pdf", tiles(3)).found)
+        #expect(try !search("two-tiles.pdf", tiles(2)).found)
+        // One small picture under two names is one picture.
+        #expect(try !search("twice.pdf", [
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /A 5 0 R /B 5 0 R >> >> >>",
+            Self.emptyPage, Self.image(300, 300)]).found)
+    }
+
+    /// Sixty forms that all name the page's own resources as theirs: walked again from each one,
+    /// that is millions of visits (1.5 s measured, and minutes at two hundred). Each dictionary
+    /// is opened once.
+    @Test func formsThatShareThePagesResourcesAreOpenedOnce() throws {
+        let dir = FixtureDir()
+        let forms = 60
+        let names = (0..<forms).map { "/F\($0) \(7 + $0) 0 R" }.joined(separator: " ")
+        try Self.writeRawPDF(objects: [
+            "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources 5 0 R >>", Self.emptyPage,
+            "<< /XObject << /Logo 6 0 R \(names) >> >>", Self.image(240, 80),
+        ] + (0..<forms).map { _ in Self.form(resources: "5 0 R") }, to: dir.path("shared.pdf"))
+        let search = VaultFolderReader.scanSearch(try Self.page(at: dir.path("shared.pdf")))
+        #expect(!search.found, "a letterhead's logo, however many forms draw it")
+        #expect(search.opened == 1)
+    }
+
+    // MARK: When Vision refuses
+
+    /// Vision's Neural Engine refuses every text request for minutes at a time (twice in half an
+    /// hour on 2026-11-20, 161 scans unread in one of them); the CPU still reads.
+    @Test func aPageTheNeuralEngineRefusesIsReadOnTheCPU() throws {
+        struct Refused: Error {}
+        let image = try Self.scan(of: ["A"], width: 64, height: 64)
+        var asked: [VaultFolderReader.Processor] = []
+        let lines = VaultFolderReader.recognised(image) { _, processor in
+            asked.append(processor)
+            if processor == .any { throw Refused() }
+            return ["read on the CPU"]
+        }
+        #expect(lines == ["read on the CPU"])
+        #expect(asked == [.any, .cpu])
+        // Refused on both: not read, which is not a page with no text.
+        #expect(VaultFolderReader.recognised(image) { _, _ in throw Refused() } == nil)
+        // A healthy read is made once, and a page with no words is an empty reading.
+        asked = []
+        #expect(VaultFolderReader.recognised(image) { _, processor in asked.append(processor); return [] } == [])
+        #expect(asked == [.any])
+    }
+
+    /// The CPU's own reading, which the fallback above hands back: it must be a real one.
+    /// Pinned: Vision's `.accurate` recognizer fails on GitHub's hosted VMs.
+    @Test(.machinePinned(.textRecognition)) func theCPUReadsAPageByItself() throws {
+        let lines = try VaultFolderReader.read(Self.scan(of: Self.passport), on: .cpu)
+        #expect(VaultReading.finds(in: lines, from: "/Passport/scan.jpg").map(\.value) == ["L898902C3"])
+    }
+
     /// A scanned passport page a signing service stamped: the stamp is the page's whole text
     /// layer, and is more than the forty letters that used to mean "this page has its text".
     /// Pinned: Vision's `.accurate` recognizer fails on GitHub's hosted VMs.

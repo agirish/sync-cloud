@@ -63,12 +63,23 @@ import Testing
         let finds = VaultFixtures.read(certificate)
         #expect(finds.map(\.value) == ["ABCPE1234F"], "the deductor's is a company's, nobody's in the household")
         #expect(finds.first?.facts.primary?.rank == VaultReading.IDRank.quoted)
-        #expect(VaultFixtures.read(["Schedule E PAN ABCPE1234F"]).isEmpty, "a lone letter before the word is no e-PAN")
-        // An e-PAN, however it writes the word, is still the card.
-        for word in ["e-PAN Card", "ePAN", "e - PAN"] {
-            let card = try #require(VaultFixtures.read([word, "ABCPE1234F", "Name", "ANNA ERIKSSON"]).first, "\(word)")
-            #expect(card.facts.primary?.rank == VaultReading.IDRank.card, "\(word)")
-            #expect(card.holder == "Anna Eriksson")
+        // Nor is a capital E that ends another word, or a schedule's letter.
+        for line in ["Schedule E PAN ABCPE1234F", "PART E-PAN DETAILS ABCPE1234F", "Employee-PAN ABCPE1234F"] {
+            let named = VaultFixtures.read(["INCOME TAX DEPARTMENT", line])
+            #expect(named.first?.facts.primary?.rank == VaultReading.IDRank.quoted, "\(line.prefix(12))")
+        }
+    }
+
+    @Test func anEPANIsACardHoweverAScanSpacesTheWord() throws {
+        // The hyphen read as a gap, the words run together, a letter set apart, the word split
+        // over two lines: each was a card before the word had to stand alone, and still is.
+        let spellings = [["e-PAN Card"], ["e - PAN"], ["ePAN"], ["e PAN Card"], ["e-PANCard"], ["Instant e-PAN"],
+                         ["e-P AN"], ["e -  PAN"], ["e-", "PAN Card"], ["E-PAN CARD"]]
+        for spelling in spellings {
+            let page = ["INCOME TAX DEPARTMENT"] + spelling + ["ABCPE1234F", "Name", "ANNA ERIKSSON"]
+            let card = try #require(VaultFixtures.read(page).first, "\(spelling)")
+            #expect(card.facts.primary?.rank == VaultReading.IDRank.card, "\(spelling)")
+            #expect(card.holder == "Anna Eriksson", "\(spelling)")
         }
     }
 
@@ -77,10 +88,27 @@ import Testing
         let member = VaultIDReadingTests.spaced(VaultIDReadingTests.aadhaar("23456789012"))
         #expect(VaultFixtures.read(["Open Enrollment Notice", "Plan year 2026", "Member " + member]).isEmpty)
         #expect(VaultFixtures.read(["Enrollment No: 778812", "Member " + member]).isEmpty, "a plan's own enrollment number")
-        // The letter's enrolment number, as UIDAI prints it, still says whose page it is.
-        let letter = try #require(VaultFixtures.read(["Enrolment No.: 1234/12345/12345", "To", "Anna Eriksson", member]).first)
-        #expect(letter.facts.primary?.rank == VaultReading.IDRank.card)
-        #expect(letter.holder == "Anna Eriksson")
+        // A school's, printed as a year and a serial, is not UIDAI's three groups.
+        #expect(VaultFixtures.read(["Enrollment Number: 2024/00123", "Roll " + member]).isEmpty)
+        #expect(VaultFixtures.read(["Enrollment Number", "2024/00123 Session 2024-25", "Roll " + member]).isEmpty)
+        // "uidai" is also the middle of other words.
+        #expect(VaultFixtures.read(["Liquid Aid dish soap", "Order " + member]).isEmpty)
+    }
+
+    @Test func anAadhaarLettersEnrolmentNumberSaysWhosePageItIs() throws {
+        // With the authority's name cropped off, the enrolment number alone marks the letter,
+        // however a scan reads its slashes, breaks its label or sets Hindi between the two.
+        let member = VaultIDReadingTests.spaced(VaultIDReadingTests.aadhaar("23456789012"))
+        let labels = ["Enrolment No.: 1234/12345/12345", "Enrollment Number: 1234/12345/12345",
+                      "Enrolment No.: 1234112345112345", "Enrolment No.: 1234I12345I12345", "Enrolment No.: 1234|12345|12345",
+                      "Enrolment No.; 12 34/1 2345/12345", "Enrolm ent No.: 1234/12345/12345",
+                      "Enrolment No / नामांकन क्रम : 1234/12345/12345"]
+        for label in labels {
+            let letter = try #require(VaultFixtures.read([label, "To", "Anna Eriksson", member]).first, "\(label.count)")
+            #expect(letter.facts.primary?.rank == VaultReading.IDRank.card, "\(label.count)")
+            #expect(letter.holder == "Anna Eriksson")
+        }
+        #expect(VaultFixtures.read(["help@uidai.gov.in", member]).first?.facts.primary?.rank == VaultReading.IDRank.card)
     }
 
     @Test func anAccountNumberUnderAnAadhaarLineIsNotAnAadhaar() {
@@ -97,23 +125,42 @@ import Testing
 
     @Test func aFormThatAsksAboutTheCardIsNotACard() {
         // Each prints "social security card" and the number alone on a line of its own.
-        let w4 = ["Form W-4", "Employee\u{27}s Withholding Certificate", "(b) Social security number", "123-45-6789",
-                  "Does your name match the name on your social security card? If not, contact SSA."]
-        let i765 = ["Application For Employment Authorization", "USCIS Form I-765", "U.S. Social Security Number (SSN)",
-                    "123-45-6789", "Do you want the SSA to issue you a Social Security card?"]
-        let unnamed = ["Department of the Treasury", "OMB No. 1545-0074", "123-45-6789",
-                       "the name shown on your social security card"]
-        for form in [w4, i765, unnamed] {
-            #expect(VaultFixtures.read(form).isEmpty, "\(form[0])")
+        let pages = [
+            ["Form W-4", "Employee\u{27}s Withholding Certificate", "(b) Social security number", "123-45-6789",
+             "Does your name match the name on your social security card? If not, contact SSA."],
+            ["Application For Employment Authorization", "USCIS Form I-765", "U.S. Social Security Number (SSN)",
+             "123-45-6789", "Do you want the SSA to issue you a Social Security card?"],
+            ["Department of the Treasury", "OMB No. 1545-0074", "123-45-6789", "the name shown on your social security card"],
+            // Forms no list of form numbers will ever be complete for.
+            ["Form N-400 Edition 04/01/24 Page 2 of 14", "Do you want the SSA to issue you a Social Security card?", "123-45-6789"],
+            ["Form Approved OMB # 1845-0001", "exactly as it appears on your Social Security card", "123-45-6789"],
+            ["Form W\u{2013}4", "the name on your social security card", "123-45-6789"],
+            ["New hire checklist", "Bring your Social Security card on your first day", "123-45-6789"],
+            // A sentence that wraps so its last words stand alone.
+            ["Do you want the SSA to issue you a", "Social Security card?", "123-45-6789"],
+        ]
+        for page in pages {
+            #expect(VaultFixtures.read(page).isEmpty, "\(page[0])")
             // Nor is it rendered again at 4000 pixels in the hope of a number.
-            #expect(!VaultReading.wantsSharperRead(form.map { $0 == "123-45-6789" ? "1234-56-789" : $0 }), "\(form[0])")
+            #expect(!VaultReading.wantsSharperRead(page.map { $0 == "123-45-6789" ? "1234-56-789" : $0 }), "\(page[0])")
         }
-        // The stub's words alone, with nothing of the card's own print read, are still a card's,
-        // and so is a card scanned with its back, which prints the card's own form number.
-        let stub = ["Your Social Security Card", "ANNA MARIA ERIKSSON", "12 OAK STREET", "123-45-6789",
-                    "ADULTS: Sign this card in ink immediately."]
-        #expect(VaultFixtures.read(stub).map(\.value) == ["123456789"])
-        #expect(VaultFixtures.read(stub + ["Form SSA-3000 (01-2011)"]).map(\.value) == ["123456789"])
+    }
+
+    @Test func theSheetACardIsMailedOnIsStillACard() {
+        // With nothing of the card's own print read: the sheet's heading, or what it tells the
+        // holder to do with the card.
+        let heading = ["Your Social Security Card", "ANNA MARIA ERIKSSON", "12 OAK STREET", "123-45-6789"]
+        let care = ["SOCIAL SECURITY ADMINISTRATION", "123-45-6789", "ADULTS: Sign this card in ink immediately.",
+                    "Keep your Social Security card in a safe place."]
+        let back = ["123-45-6789", "This card belongs to the Social Security Administration and you must return it",
+                    "Do not laminate. Contact us about your Social Security card."]
+        for page in [heading, care, back] {
+            #expect(VaultFixtures.read(page).map(\.value) == ["123456789"], "\(page[0].prefix(12))")
+        }
+        // Scanned with its back, which prints the card's own form number; or with a stray "Form"
+        // on the line above the number.
+        #expect(VaultFixtures.read(heading + ["Form SSA-3000 (01-2011)"]).map(\.value) == ["123456789"])
+        #expect(VaultFixtures.read(["Your Social Security Card", "Form", "123-45-6789"]).map(\.value) == ["123456789"])
     }
 
     @Test func aVisaControlNumberHasNoLetterForADigit() throws {

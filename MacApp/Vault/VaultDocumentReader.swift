@@ -121,55 +121,71 @@ struct VaultFolderReader: VaultDocumentReading {
         return pages
     }
 
-    /// A picture this many pixels on its long side could be a scan of the page: a card scanned at
-    /// 150 dpi is about 500, and a letterhead's logo is mostly smaller.
-    static let scanLongSide = 400
+    /// Pictures of this many pixels in all could be a scan of the page, or of a card on it: a
+    /// card scanned at 150 dpi is about 500 by 320, and a letterhead's logo is mostly far smaller.
+    /// Counted together, because some scanners store a page as strips or tiles.
+    static let scanPixels = 150_000
 
-    /// Whether the page draws a picture that could be a scan of it: one of its image objects, or
-    /// one inside a form it draws, is at least ``scanLongSide`` pixels on its long side. Where the
-    /// picture sits on the page is not looked at; a wrong yes costs one recognition.
-    static func drawsScan(_ page: PDFPage) -> Bool {
-        guard var node = page.pageRef?.dictionary else { return false }
+    /// Whether the page draws pictures that could be a scan of it: its image objects, and those
+    /// inside the forms it draws, come to ``scanPixels`` or more. Where a picture sits on the
+    /// page, or whether it is drawn at all, is not looked at; a wrong yes costs one recognition.
+    static func drawsScan(_ page: PDFPage) -> Bool { scanSearch(page).found }
+
+    /// ``drawsScan(_:)``, and how many resource dictionaries it opened to find out: each one
+    /// once, however many forms share it, or a file whose forms all point back at the page's own
+    /// resources would be walked again from every one of them.
+    static func scanSearch(_ page: PDFPage) -> (found: Bool, opened: Int) {
+        guard var node = page.pageRef?.dictionary else { return (false, 0) }
         // A page's resources are its own, or its parent's.
         for _ in 0..<16 {
             var resources: CGPDFDictionaryRef?
             if CGPDFDictionaryGetDictionary(node, "Resources", &resources), let resources {
-                return holdsScan(resources, depth: 0)
+                let search = ScanSearch()
+                search.look(in: resources, depth: 0)
+                return (search.pixels >= scanPixels, search.opened.count)
             }
             var parent: CGPDFDictionaryRef?
-            guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { return false }
+            guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { return (false, 0) }
             node = parent
         }
-        return false
+        return (false, 0)
     }
 
-    private static func holdsScan(_ resources: CGPDFDictionaryRef, depth: Int) -> Bool {
-        var objects: CGPDFDictionaryRef?
-        guard CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else { return false }
-        var found = false
-        CGPDFDictionaryApplyBlock(objects, { _, object, _ in
-            var stream: CGPDFStreamRef?
-            var subtype: UnsafePointer<CChar>?
-            guard CGPDFObjectGetValue(object, .stream, &stream), let stream,
-                  let dictionary = CGPDFStreamGetDictionary(stream),
-                  CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype else { return true }
-            switch String(cString: subtype) {
-            case "Image":
-                var width: CGPDFInteger = 0, height: CGPDFInteger = 0
-                CGPDFDictionaryGetInteger(dictionary, "Width", &width)
-                CGPDFDictionaryGetInteger(dictionary, "Height", &height)
-                found = max(width, height) >= scanLongSide
-            case "Form" where depth < 3:
-                var inner: CGPDFDictionaryRef?
-                if CGPDFDictionaryGetDictionary(dictionary, "Resources", &inner), let inner {
-                    found = holdsScan(inner, depth: depth + 1)
+    /// The pixels of every picture a page's resources hold, each picture and each dictionary
+    /// counted once. It stops as soon as there are enough.
+    private final class ScanSearch {
+        var pixels = 0
+        var opened = Set<CGPDFDictionaryRef>()
+        private var counted = Set<CGPDFStreamRef>()
+
+        func look(in resources: CGPDFDictionaryRef, depth: Int) {
+            guard depth < 8, pixels < scanPixels, opened.insert(resources).inserted else { return }
+            var objects: CGPDFDictionaryRef?
+            guard CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else { return }
+            CGPDFDictionaryApplyBlock(objects, { _, object, _ in
+                var stream: CGPDFStreamRef?
+                var subtype: UnsafePointer<CChar>?
+                guard CGPDFObjectGetValue(object, .stream, &stream), let stream,
+                      let dictionary = CGPDFStreamGetDictionary(stream),
+                      CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype else { return true }
+                switch String(cString: subtype) {
+                case "Image" where self.counted.insert(stream).inserted:
+                    var width: CGPDFInteger = 0, height: CGPDFInteger = 0
+                    CGPDFDictionaryGetInteger(dictionary, "Width", &width)
+                    CGPDFDictionaryGetInteger(dictionary, "Height", &height)
+                    // Bounded, so a file claiming absurd sizes cannot overflow the sum.
+                    self.pixels += min(max(width, 0), 100_000) * min(max(height, 0), 100_000)
+                case "Form":
+                    var inner: CGPDFDictionaryRef?
+                    if CGPDFDictionaryGetDictionary(dictionary, "Resources", &inner), let inner {
+                        self.look(in: inner, depth: depth + 1)
+                    }
+                default:
+                    break
                 }
-            default:
-                break
-            }
-            return !found
-        }, nil)
-        return found
+                return self.pixels < scanPixels
+            }, nil)
+        }
     }
 
     /// The page at about 2400 pixels on its long side: the zone's small type needs that much.
@@ -181,22 +197,50 @@ struct VaultFolderReader: VaultDocumentReading {
         return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
+    /// Which processor Vision may read on: its own choice, the Neural Engine when it has one, or
+    /// the CPU alone.
+    enum Processor: Sendable { case any, cpu }
+
+    /// The image's lines, any license barcode's text after them; nil when Vision failed, which
+    /// is not the same as a page with no text.
+    private static func recognise(_ image: CGImage) -> [String]? {
+        recognised(image) { try read($0, on: $1) }
+    }
+
+    /// `read` on Vision's choice of processor and, when that fails, again on the CPU. The Neural
+    /// Engine can refuse every text request for minutes or hours while the CPU still reads a
+    /// page in under a second (`PictureText` does the same for Save as PDF); without this a
+    /// Read Documents run inside such a spell reads no scan at all. `read` is handed in so a test
+    /// can be the refusal.
+    static func recognised(_ image: CGImage, read: (CGImage, Processor) throws -> [String]) -> [String]? {
+        if let lines = try? read(image, .any) { return lines }
+        guard let lines = try? read(image, .cpu) else {
+            Logger.shared.debug("Vault: text recognition failed, on the CPU too")
+            return nil
+        }
+        Logger.shared.debug("Vault: text recognition failed; the page was read on the CPU")
+        return lines
+    }
+
     /// Accurate recognition without language correction, which "corrects" a zone's fillers and
     /// a receipt number's letters into words. A US license's PDF417 barcode is decoded in the
     /// same pass and its text added after the page's lines, one element to a line, for
     /// ``VaultReading`` to read: it states the number, name and dates outright.
-    /// Nil when Vision failed, which is not the same as a page with no text.
-    private static func recognise(_ image: CGImage) -> [String]? {
+    static func read(_ image: CGImage, on processor: Processor) throws -> [String] {
         let text = VNRecognizeTextRequest()
         text.recognitionLevel = .accurate
         text.usesLanguageCorrection = false
         let barcodes = VNDetectBarcodesRequest()
         barcodes.symbologies = [.pdf417]
-        do {
-            try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
-        } catch {
-            return nil
+        if processor == .cpu {
+            for request in [text, barcodes] as [VNRequest] {
+                for (stage, devices) in try request.supportedComputeStageDevices {
+                    guard let cpu = devices.first(where: { if case .cpu = $0 { true } else { false } }) else { continue }
+                    request.setComputeDevice(cpu, for: stage)
+                }
+            }
         }
+        try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
         let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         return lines + payloadLines(barcodes.results ?? [])
     }

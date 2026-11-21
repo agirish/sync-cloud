@@ -219,14 +219,36 @@ import Testing
         // A word that holds a digit is the next thing on the line, not more of the number.
         #expect(Self.read(["Twin Creeks Elementary", "Student ID: 123456 5th Grade"],
                           at: "School/US/Liv/Twin Creeks/Report Card 2025.pdf").first?.value == "123456")
-        // A long run of digits is whole already: what follows a space is the loan's term.
-        #expect(Self.read(["Mortgage statement", "Loan Number: 0123456789 30 Year Fixed"],
-                          at: "Home/Mortgage/Statements/2025/Apr.pdf").first?.value == "0123456789")
+        // One or two digits before a word are a count of it: a loan's term, a policy's months.
+        let after = ["0123456789 30 Year Fixed": "0123456789", "0123-456789 30 Year Fixed": "0123-456789",
+                     "12345 30 Year Fixed": "12345", "4123-45-67-89 6 Month Policy": "4123-45-67-89",
+                     // A date either way round, an amount, a phone number.
+                     "12345-67-89 2022-01-01": "12345-67-89", "12345 1,234.56": "12345", "98765 510-555-0142": "98765"]
+        for (printed, number) in after {
+            #expect(Self.read(["Mortgage statement", "Loan Number: " + printed], at: "Home/Mortgage/Statements/2025/Apr.pdf")
+                .first?.value == number, "\(printed.count)")
+        }
         // A number printed in groups, by spaces or dashes, is still read to its last group.
         for whole in ["1234 5678 9012", "XZB-45-1234", "CA-123-4567-89", "8155 60 012 3456789"] {
             #expect(Self.read(["Account Number: " + whole + " Due 02/01/2025"], at: "Home/Utilities/Cable/2025/bill.pdf")
                 .first?.value == whole, "\(whole.count)")
         }
+    }
+
+    @Test func aNumberWithASpaceInItIsNotCutShort() {
+        // However long its first group: a scan puts a space into a long run, and a plan prints a
+        // member's suffix after one.
+        for whole in ["123456 789012", "1234567 8901234", "XZB123 456789", "123456789 01"] {
+            #expect(Self.read(["Account Number: " + whole], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value == whole,
+                    "\(whole.count)")
+        }
+        // A VIN is checked by its own check digit, so a space anywhere in it costs nothing.
+        for printed in ["1HGCM82633 A004352", "1HGCM 82633A 004352", "1HG CM82633A004352"] {
+            #expect(Self.read(["VIN: " + printed], at: "Vehicles/Honda/Accord/Registration/2025.pdf").first?.value
+                    == "1HGCM82633A004352", "\(printed.count)")
+        }
+        #expect(Self.read(["Vehicle Identification Number", "1HGCM82633 A004352"],
+                          at: "Vehicles/Honda/Accord/Registration/2025.pdf").first?.value == "1HGCM82633A004352")
     }
 }
 

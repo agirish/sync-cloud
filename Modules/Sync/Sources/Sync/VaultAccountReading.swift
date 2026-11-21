@@ -35,28 +35,34 @@ extension VaultReading {
                                                      "account id"]),
     ]
 
-    /// A number beside one of those labels: groups of letters and digits joined by a dash, every
-    /// group holding a digit but a short prefix a dash ties to the rest ("XZB-45-1234",
-    /// "CA-123-4567-89"), or groups of digits joined by a space when the number starts with a short
-    /// group, as one printed in groups does ("1234 5678 9012", "8155 60 012 3456789").
+    /// A number beside one of those labels: groups joined by a dash, every group holding a digit
+    /// but a short prefix a dash ties to the rest ("XZB-45-1234", "CA-123-4567-89"), and groups of
+    /// digits joined by a space ("1234 5678 9012", "8155 60 012 3456789", a scan's "123456 789012").
     ///
-    /// It stops before what the line prints next: the word of "12345 Due"; a word that holds a
-    /// digit ("123456 5th Grade"); whatever follows a long run, which is whole already
-    /// ("0123456789 30 Year Fixed"); a date ("12345678 01/02/1990", "12345-67-89 01-01-2022", a
-    /// card's columns read as one line). The words of "write your account number on your check" or
-    /// "is 987654" are no number at all.
+    /// It stops before what the line prints next, when that can be told from the number: the word
+    /// of "12345 Due"; a word that holds a digit ("123456 5th Grade"); one or two digits counting
+    /// the word after them ("0123456789 30 Year Fixed", "… 6 Month Policy"); a date either way
+    /// round ("12345678 01/02/1990", "12345-67-89 2022-01-01", a card's columns read as one line);
+    /// an amount ("12345 1,234.56"); a phone number ("98765 510-555-0142"). The words of "write
+    /// your account number on your check" or "is 987654" are no number at all.
+    ///
+    /// What cannot be told is left joined: a second run of three digits or more after a space
+    /// ("12345 987654321") may be the rest of the number or the next column.
     private static let accountValue: NSRegularExpression = {
         let group = #"(?=[A-Z]*[0-9])[A-Z0-9]+"#
         let first = "(?:\(group)|[A-Z]{1,4}(?=-[A-Z]*[0-9]))"
-        let dashed = "-\(group)(?![/.:][0-9])"
-        let notADate = #"(?![0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{2,4}(?![0-9]))"#
-        let spaced = " \(notADate)[0-9]+(?![A-Z0-9])(?![/.:][0-9])"
-        /// A first group of five characters at most: longer, and it is no number printed in groups.
-        let short = #"(?=[A-Z0-9]{1,5}(?![A-Z0-9]))"#
-        return try! NSRegularExpression(
-            pattern: "(?:\(short)\(first)(?:\(spaced)|\(dashed)){0,6}|\(first)(?:\(dashed)){0,6})(?![A-Za-z0-9])",
-            options: [.caseInsensitive])
+        let dashed = "-\(group)(?![/.:,][0-9])"
+        let notADate = #"(?![0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{2,4}(?![0-9]))(?![0-9]{4}[-/.][0-9]{1,2}[-/.][0-9]{1,2}(?![0-9]))"#
+        let notAPhone = #"(?!\(?[0-9]{3}\)?[-.][0-9]{3}[-.][0-9]{4}(?![0-9]))"#
+        let notACount = #"(?![0-9]{1,2} [A-Z])"#
+        let spaced = " \(notADate)\(notAPhone)\(notACount)[0-9]+(?![A-Z0-9])(?![/.:,][0-9])"
+        return try! NSRegularExpression(pattern: "\(first)(?:\(spaced)|\(dashed)){0,6}(?![A-Za-z0-9])",
+                                        options: [.caseInsensitive])
     }()
+    /// What stands beside a VIN's label, spaces and all: ``vin(_:)`` keeps its first seventeen
+    /// letters and digits only when their check digit agrees, so nothing here needs to be strict.
+    private static let vinValue = try! NSRegularExpression(pattern: #"[A-Z0-9]+(?:[ -][A-Z0-9]+){0,6}"#,
+                                                           options: [.caseInsensitive])
     /// What may stand between a label and its number: not `*`, so a mask's "****1234" is seen as
     /// masked and never read as "1234".
     private static let beforeNumber = PrintedPage.separators.subtracting(["*"])
@@ -79,7 +85,7 @@ extension VaultReading {
         var seen = Set<String>()
         for kind in accountKinds {
             let isVINKind = kind.name == "VIN"
-            let rows = page.values(preferring: kind.labels, accountValue, skipping: beforeNumber,
+            let rows = page.values(preferring: kind.labels, isVINKind ? vinValue : accountValue, skipping: beforeNumber,
                                    keeping: { isVINKind ? vin($0) : accountNumber($0) })
             guard !rows.isEmpty else { continue }
             // A family's card prints a row for each person, each with its own birth date: every
