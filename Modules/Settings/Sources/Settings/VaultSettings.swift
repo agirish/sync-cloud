@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import SwiftUI
 import Sync
 
@@ -16,6 +17,20 @@ struct VaultSettingsTab: View {
     @AppStorage(VaultSharingSettings.hidesFromCaptureKey) private var hidesFromCapture: Bool = true
     /// Whether Refresh runs by itself as the Vault opens (``VaultRefresh``).
     @AppStorage(VaultRefresh.automaticKey) private var refreshesByItself: Bool = true
+    @AppStorage(VaultBackup.weeklyKey) private var backsUpWeekly: Bool = true
+    /// The backup section's state, read when the page appears and after each act.
+    @State private var hasPassphrase = false
+    @State private var backupFolder = ""
+    @State private var lastBackup: Date?
+    /// What the last backup or restore came to, in words.
+    @State private var backupMessage: String?
+    @State private var backupFailed = false
+    @State private var isBackingUp = false
+    @State private var settingPassphrase = false
+    /// A backup file chosen to restore that the kept passphrase did not open: asked for here.
+    @State private var askingPassphraseFor: URL?
+    /// A backup opened and waiting for the choice of how to put it back.
+    @State private var restoreOffer: RestoreOffer?
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
     /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
@@ -72,6 +87,54 @@ struct VaultSettingsTab: View {
                 }
                 Toggle("Hide from screen sharing while an ID is shown", isOn: $hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"))
                     .help("Keeps SyncCloud’s window out of screen sharing, recordings and screenshots while the Vault shows an ID in full. Off, a shared screen shows it.")
+            }
+            SettingsSection(
+                "Backup",
+                caption: "A backup holds every saved ID, sealed under a passphrase you choose, so it opens on another Mac and for nobody without the passphrase. Keep the passphrase somewhere safe: without it a backup cannot be opened. Restoring never deletes: Replace sets the Vault that was here aside."
+            ) {
+                SettingsRow("Backup passphrase") {
+                    HStack(spacing: 8) {
+                        Text(hasPassphrase ? "Set" : "Not set").foregroundStyle(.secondary)
+                        Button(hasPassphrase ? "Change…" : "Set…") { settingPassphrase = true }
+                            .controlSize(.small)
+                    }
+                    .help("Kept in your keychain so a backup can be made without asking for it. Backups already made open with the passphrase they were made with.")
+                }
+                SettingsRow("Backup folder") {
+                    HStack(spacing: 8) {
+                        Text((backupFolder as NSString).abbreviatingWithTildeInPath)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Button("Choose…") { chooseBackupFolder() }
+                            .controlSize(.small)
+                    }
+                    .help("Where backups are written. A folder that syncs is fine: the file is sealed.")
+                }
+                Toggle("Back up every week", isOn: $backsUpWeekly.loggingSettingsChange("vault.backupWeekly"))
+                    .help("Makes a backup when the Vault is opened and the last one is a week old. It needs a passphrase set.")
+                    .disabled(!hasPassphrase)
+                SettingsRow("Last backup") {
+                    HStack(spacing: 8) {
+                        Text(lastBackup.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Never")
+                            .foregroundStyle(.secondary)
+                        Button("Back Up Now") { backUpNow() }
+                            .controlSize(.small)
+                            .disabled(!hasPassphrase || isBackingUp)
+                    }
+                    .help("Asks for Touch ID or your password, then writes a backup of every saved ID.")
+                }
+                SettingsRow("Restore from a backup") {
+                    Button("Choose…") { chooseBackupToRestore() }
+                        .controlSize(.small)
+                        .disabled(isBackingUp)
+                        .help("Opens a backup file. You choose whether to add what this Vault is missing or to replace it.")
+                }
+                if let backupMessage {
+                    Text(backupMessage)
+                        .font(.callout)
+                        .foregroundStyle(backupFailed ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             SettingsSection(
                 "Folders to Read",
@@ -152,6 +215,169 @@ struct VaultSettingsTab: View {
         .onAppear {
             readFolders = VaultReadFolders.folders()
             setAsideCount = VaultSetAside.fingerprints().count
+            refreshBackupState()
+        }
+        .sheet(isPresented: $settingPassphrase) {
+            VaultPassphraseSheet(title: hasPassphrase ? "Change the Backup Passphrase" : "Set a Backup Passphrase",
+                                 note: "At least \(VaultBackupFile.leastPassphraseLength) characters. It is the only way to open a backup on another Mac, so keep it somewhere safe.",
+                                 confirms: true, action: "Save") { passphrase in
+                guard let backup else { return "The Vault’s folder couldn’t be found." }
+                do {
+                    try backup.setPassphrase(passphrase)
+                    SettingsWindowLog.log("vault.backupPassphrase", "set")
+                    refreshBackupState()
+                    return nil
+                } catch {
+                    return "The Keychain wouldn’t keep the passphrase."
+                }
+            }
+            .presentedNativeControlAccent()
+        }
+        .sheet(item: $askingPassphraseFor) { url in
+            VaultPassphraseSheet(title: "Passphrase for This Backup",
+                                 note: "“\(url.lastPathComponent)” was sealed with another passphrase than the one kept here.",
+                                 confirms: false, action: "Open") { passphrase in
+                guard let backup else { return "The Vault’s folder couldn’t be found." }
+                switch backup.read(url, passphrase: passphrase) {
+                case .success(let contents):
+                    offerRestore(contents)
+                    return nil
+                case .failure(let error):
+                    return Self.message(for: error)
+                }
+            }
+            .presentedNativeControlAccent()
+        }
+        .confirmationDialog(restoreOffer?.title ?? "", isPresented: Binding(get: { restoreOffer != nil }, set: { if !$0 { restoreOffer = nil } }),
+                            presenting: restoreOffer) { offer in
+            if let missing = offer.missing, missing > 0 {
+                Button(missing == 1 ? "Add the 1 ID Missing Here" : "Add the \(missing) IDs Missing Here") { restore(offer.contents, .addMissing) }
+            }
+            Button("Replace the Vault with This Backup", role: .destructive) { restore(offer.contents, .replace) }
+            Button("Cancel", role: .cancel) {}
+        } message: { offer in
+            Text(offer.message)
+        }
+    }
+
+    // MARK: Backup
+
+    /// A backup opened and read, and what restoring it would do.
+    struct RestoreOffer {
+        let contents: VaultBackupContents
+        /// How many of its IDs this Vault lacks; nil when this Vault cannot be read.
+        let missing: Int?
+
+        var title: String {
+            let count = contents.entries.count
+            return "Restore \(count == 1 ? "1 ID" : "\(count) IDs") backed up \(contents.madeAt.formatted(date: .abbreviated, time: .omitted))?"
+        }
+
+        var message: String {
+            switch missing {
+            case nil: return "The Vault on this Mac can’t be opened, so the backup can only replace it. It is set aside first, never deleted."
+            case 0?: return "This Vault already holds every ID in the backup. Replacing sets the Vault that is here aside first; it is never deleted."
+            case let missing?: return "This Vault is missing \(missing) of them. Adding changes nothing it already holds. Replacing sets the Vault that is here aside first; it is never deleted."
+            }
+        }
+    }
+
+    private var backup: VaultBackup? { VaultStore.defaultURL().map { VaultBackup(store: VaultStore(fileURL: $0)) } }
+
+    private func refreshBackupState() {
+        guard let backup else { return }
+        hasPassphrase = backup.hasPassphrase
+        backupFolder = backup.folder.path
+        lastBackup = backup.lastBackup
+    }
+
+    private func chooseBackupFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Back Up Here"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        UserDefaults.standard.set(url.path, forKey: VaultBackup.folderKey)
+        SettingsWindowLog.log("vault.backupFolder", "chosen")
+        refreshBackupState()
+    }
+
+    private func backUpNow() {
+        guard let backup else { return }
+        isBackingUp = true
+        Task { @MainActor in
+            let result = await backup.backUpNow()
+            isBackingUp = false
+            switch result {
+            case .success(let url):
+                backupFailed = false
+                backupMessage = "Backed up to “\(url.lastPathComponent)”."
+                SettingsWindowLog.log("vault.backUpNow", "backed up")
+            case .failure(.notProved):
+                break
+            case .failure(let error):
+                backupFailed = true
+                backupMessage = Self.message(for: error)
+            }
+            refreshBackupState()
+        }
+    }
+
+    private func chooseBackupToRestore() {
+        guard let backup else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = backup.folder
+        panel.prompt = "Open Backup"
+        panel.message = "Choose a Vault backup (.\(VaultBackupFile.fileExtension))."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        switch backup.read(url) {
+        case .success(let contents):
+            offerRestore(contents)
+        case .failure(.wrongPassphrase), .failure(.noPassphrase):
+            askingPassphraseFor = url
+        case .failure(let error):
+            backupFailed = true
+            backupMessage = Self.message(for: error)
+        }
+    }
+
+    private func offerRestore(_ contents: VaultBackupContents) {
+        restoreOffer = RestoreOffer(contents: contents, missing: backup?.missing(from: contents))
+    }
+
+    private func restore(_ contents: VaultBackupContents, _ mode: VaultRestoreMode) {
+        guard let backup else { return }
+        isBackingUp = true
+        Task { @MainActor in
+            let result = await backup.restore(contents, mode: mode)
+            isBackingUp = false
+            switch result {
+            case .success(let count):
+                backupFailed = false
+                backupMessage = "Restored. The Vault now holds \(count == 1 ? "1 ID" : "\(count) IDs")."
+                SettingsWindowLog.log("vault.restore", mode == .replace ? "replaced" : "added")
+            case .failure(.notProved):
+                break
+            case .failure(let error):
+                backupFailed = true
+                backupMessage = Self.message(for: error)
+            }
+        }
+    }
+
+    /// What Settings says for each way a backup can fail.
+    static func message(for error: VaultBackupError) -> String {
+        switch error {
+        case .noPassphrase: return "Set a backup passphrase first."
+        case .passphraseTooShort: return "The passphrase needs at least \(VaultBackupFile.leastPassphraseLength) characters."
+        case .notABackup: return "That file isn’t a Vault backup this version of SyncCloud can read."
+        case .wrongPassphrase: return "That passphrase doesn’t open this backup."
+        case .vaultUnreadable: return "The Vault on this Mac couldn’t be read."
+        case .notWritten: return "The file couldn’t be written, so nothing was changed."
+        case .notProved: return "macOS couldn’t confirm it was you."
         }
     }
 
@@ -179,5 +405,66 @@ struct VaultSettingsTab: View {
         }
         requiresAuthentication = on
         SettingsWindowLog.log("vault.requiresAuthentication", from: .bool(old), to: .bool(on))
+    }
+}
+
+extension URL: @retroactive Identifiable {
+    public var id: String { absoluteString }
+}
+
+/// A passphrase asked for in a sheet: to set the backup passphrase (typed twice), or to open one
+/// backup made with another.
+struct VaultPassphraseSheet: View {
+    let title: String
+    let note: String
+    /// Typed twice, as a new passphrase is.
+    let confirms: Bool
+    let action: String
+    /// Does it; nil when it worked, else what to say.
+    let submit: (String) -> String?
+
+    @State private var passphrase = ""
+    @State private var again = ""
+    @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
+
+    private var isReady: Bool {
+        passphrase.count >= VaultBackupFile.leastPassphraseLength && (!confirms || passphrase == again)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.headline)
+            Text(note)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            SecureField("Passphrase", text: $passphrase)
+            if confirms {
+                SecureField("Passphrase again", text: $again)
+                if !again.isEmpty, again != passphrase {
+                    Text("The two don’t match yet.").font(.caption).foregroundStyle(.orange)
+                }
+            }
+            if let problem {
+                Text(problem).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(action) {
+                    problem = submit(passphrase)
+                    if problem == nil { dismiss() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .accentedProminent()
+                .disabled(!isReady)
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(20)
+        .frame(width: 400)
     }
 }

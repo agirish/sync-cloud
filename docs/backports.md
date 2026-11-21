@@ -16192,6 +16192,13 @@ behind the lock is sealed and let go. A cancelled proof used to leave every name
 on screen. Under "For every ID" the list still shows, and a kind whose ending is itself a secret
 (`VaultCategory.hidesEnding`) draws none until shown. No sealed format changes.
 
+2026-11-20: backups (`VaultBackup`, `VaultBackupFile`): the saved IDs sealed with AES-256-GCM
+under PBKDF2-HMAC-SHA256 of a passphrase (600,000 rounds, the rounds and salt authenticated), in a
+file of their own (`SCVBACK1`, `.scvault`), by hand or weekly; the passphrase is kept in the login
+Keychain. Restore adds what is missing or replaces, and replacing renames the Vault's files aside
+(`VaultStore.setAside`), as does Set It Aside and Start New for a Vault this Mac cannot open.
+The Vault's own sealed files do not change.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

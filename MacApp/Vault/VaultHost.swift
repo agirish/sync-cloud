@@ -107,6 +107,13 @@ enum VaultWindowPrivacy {
     }
 }
 
+extension VaultBackup {
+    /// The app's backups: of the sealed file in Application Support, with macOS's own proof.
+    @MainActor static func live() -> VaultBackup? {
+        VaultStore.defaultURL().map { VaultBackup(store: VaultStore(fileURL: $0)) }
+    }
+}
+
 /// Copying a number out of the Vault.
 enum VaultPasteboard {
     /// How long a copied number stays on the pasteboard: a minute unless Settings ▸ Vault says

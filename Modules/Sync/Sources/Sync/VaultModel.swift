@@ -270,6 +270,13 @@ public final class VaultModel: ObservableObject {
         self.copyToPasteboard = copyToPasteboard
         lock = VaultLock(settings: VaultLockSettings(defaults: defaults, store: store))
         now = clock()
+        // A restore from a backup wrote the Vault's file behind this model: what it holds is
+        // no longer the Vault, and must not be written back over it.
+        let path = store?.fileURL.path
+        restoreWatch = NotificationCenter.default.addObserver(forName: VaultBackup.didRestore, object: nil, queue: .main) { [weak self] note in
+            guard let path, note.userInfo?[VaultBackup.restoredPathKey] as? String == path else { return }
+            MainActor.assumeIsolated { self?.vaultWasRestored() }
+        }
         loadFolded()
         loadFilters()
     }
@@ -1134,6 +1141,49 @@ public final class VaultModel: ObservableObject {
         now = clock()
         // Locked, the panel holds nothing: the numbers go now, not when it closes.
         releaseIfSealedShut()
+    }
+
+    private var restoreWatch: NSObjectProtocol?
+
+    /// The Vault's file was replaced by a restore: lock, stop any read, and let go of what was
+    /// loaded without sealing it over what the restore wrote. The next unlock reads the new file.
+    private func vaultWasRestored() {
+        lockEpoch &+= 1
+        lock.lock()
+        now = clock()
+        readingTask?.cancel()
+        readingTask = nil
+        releaseAfterReading = false
+        readingChanged = false
+        hasSomethingSealed = true
+        release()
+    }
+
+    /// Set It Aside and Start New, offered when the sealed file cannot be opened on this Mac: the
+    /// file (and what was read) is renamed and kept, never deleted, and the panel starts over
+    /// with an empty Vault. Not for a Keychain that is only refusing for now: that Vault is fine.
+    @discardableResult
+    public func setAsideAndStartNew() -> Bool {
+        guard case .unreadable(let error) = contents, let store else { return false }
+        if case .keyUnreadable = error { return false }
+        guard store.setAside(at: clock()) else {
+            notice = Self.message(for: .notWritten)
+            return false
+        }
+        Logger.shared.info("Vault: a sealed file this Mac could not open was set aside; a new Vault starts")
+        notice = nil
+        hasSomethingSealed = false
+        contents = .notLoaded
+        load()
+        return contents == .loaded
+    }
+
+    /// The weekly backup, when one is owed (``VaultBackup/isDue``): made from the IDs already in
+    /// hand once the Vault is open, so it asks for nothing. A failure is logged and tried again
+    /// at the next open.
+    public func backUpIfDue(using backup: VaultBackup?) {
+        guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return }
+        _ = try? backup.write(entries)
     }
 
     /// Lets the numbers go when the lock that hides everything has closed with the panel up:

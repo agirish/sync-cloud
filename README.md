@@ -181,6 +181,9 @@ for: a passport number, a member ID, a loan number.
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **Backup and restore** (Settings ▸ Vault): a passphrase-sealed backup of every saved ID, by hand
+  or weekly, that opens on another Mac. Restoring adds what is missing or replaces the Vault, which
+  is set aside first and never deleted. A Vault this Mac can't open offers both ways on.
 - **People** (beside Cards and List) groups the same IDs by person: each section opens with the
   name as each document prints it and the date of birth (hidden until one of their IDs is shown),
   then their IDs with the kind on each row. Copy Summary gives endings only; Copy with Numbers

@@ -548,6 +548,18 @@ public enum SettingsCatalog {
         e("vault.hidesFromScreenSharing", .vault, "Hide from screen sharing while an ID is shown", indexed: true,
           storage: app(VaultSharingSettings.hidesFromCaptureKey, "VaultSharingSettings.hidesFromCaptureKey", "true"),
           control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
+        // The backup's passphrase, folder and acts: the user's own, and never Claude's to make or put back.
+        e("vault.backupPassphrase", .vault, "Backup passphrase", indexed: true, others: ["Set…", "Change…"],
+          control: .button("Set…"), tier: .notInChat),
+        e("vault.backupFolder", .vault, "Backup folder", indexed: true, others: ["Choose…"],
+          storage: .owner("VaultBackup"), control: .folder, tier: .notInChat, privacy: .countOnly),
+        e("vault.backupWeekly", .vault, "Back up every week", indexed: true,
+          storage: app(VaultBackup.weeklyKey, "VaultBackup.weeklyKey", "true"),
+          control: .toggle, default: .bool(true), tier: .notInChat),
+        e("vault.backUpNow", .vault, "Last backup", indexed: true, others: ["Back Up Now"],
+          control: .button("Back Up Now"), tier: .notInChat),
+        e("vault.restore", .vault, "Restore from a backup", indexed: true, others: ["Choose…"],
+          control: .button("Choose…"), tier: .notInChat),
         // Whether documents are opened without being asked for: the user's own call.
         e("vault.refreshesByItself", .vault, "Refresh by itself when the Vault opens", indexed: true,
           storage: app(VaultRefresh.automaticKey, "VaultRefresh.automaticKey", "true"),

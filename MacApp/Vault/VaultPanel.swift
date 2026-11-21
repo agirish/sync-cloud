@@ -164,6 +164,8 @@ struct VaultCard: View {
         /// A number read from a document, being checked before it is added.
         case confirming(UUID)
     }
+    /// Set It Aside and Start New was chosen for a Vault this Mac cannot open: asked about first.
+    @State private var settingAside = false
     /// An ID was typed in while the panel showed only its lock: the lock says so, since the
     /// list that would show it is not drawn.
     @State private var addedWhileLocked = false
@@ -237,6 +239,7 @@ struct VaultCard: View {
             await model.opened()
             searchFocused = true
             refreshByItself()
+            model.backUpIfDue(using: VaultBackup.live())
         }
         // The countdown, and a shown number's thirty seconds. A sleep loop on the view's own
         // task, so it stops when the panel closes.
@@ -252,6 +255,8 @@ struct VaultCard: View {
             if !sealed {
                 addedWhileLocked = false
                 refreshByItself()
+                // The weekly backup, once the IDs are in hand: it asks for nothing more.
+                model.backUpIfDue(using: VaultBackup.live())
             }
         }
         // People changed in Settings, or a person was added here: whose each number is follows.
@@ -813,11 +818,30 @@ struct VaultCard: View {
     private var content: some View {
         switch model.contents {
         case .unreadable(let error):
-            EmptyStateView(icon: "lock.trianglebadge.exclamationmark", tint: SemanticColor.warning,
-                           title: "This Vault can’t be opened here",
-                           message: VaultModel.message(for: error),
-                           caption: "The sealed file has been left as it is.")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if case .keyUnreadable = error {
+                // The Keychain is only refusing for now: nothing to replace, only to try again.
+                EmptyStateView(icon: "lock.trianglebadge.exclamationmark", tint: SemanticColor.warning,
+                               title: "This Vault can’t be opened here",
+                               message: VaultModel.message(for: error),
+                               caption: "The sealed file has been left as it is.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                // No proof opens it, so the panel offers the two ways on: a backup, or a new Vault
+                // with this one kept aside.
+                EmptyStateView(icon: "lock.trianglebadge.exclamationmark", tint: SemanticColor.warning,
+                               title: "This Vault can’t be opened here",
+                               message: VaultModel.message(for: error),
+                               caption: "The sealed file has been left as it is. A backup is restored in Settings ▸ Vault.",
+                               primary: .init("Restore from a Backup…", systemImage: "arrow.counterclockwise") { onOpenSettings() },
+                               secondary: .init("Set It Aside and Start New…", systemImage: "tray.and.arrow.down") { settingAside = true })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .confirmationDialog("Set this Vault aside and start a new one?", isPresented: $settingAside) {
+                        Button("Set It Aside") { model.setAsideAndStartNew() }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("The sealed file is renamed and kept beside the new one; nothing is deleted. Without its key it can’t be opened, here or anywhere, so a new Vault starts empty.")
+                    }
+            }
         case .notLoaded, .loaded:
             if model.isSealedShut {
                 // Locked means locked: nothing behind the lock is drawn, or was even read.
