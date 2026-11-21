@@ -1082,14 +1082,16 @@ Touch ID and nothing is backed up; and it never speaks first (no expiry warnings
 logging, tests, reader bugs, security internals) is [`docs/vault-tech-debt.md`](docs/vault-tech-debt.md),
 `VT…` IDs.
 
-| Phase | Items |
+| Group | Items |
 |---|---|
-| 1 · Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF4 locked means locked · VF5 calmer panel · VF21 card colors (a soft tint on each card's title bar, by group or kind) · VF22 Refresh (re-read only the documents IDs came from) and Discover More (look for new ones) · bugs VB2, VB4–VB7 |
-| 2 · Safe | VF6 backup and restore · VF7 key tied to Touch ID · VF8 Activity · VF9 hidden from screen sharing |
-| 3 · Complete | VF10 records with fields · VF11 new kinds (bank, card, address, vehicle, insurance, traveler) · VF12 person sheet · VF13 copy formats · VF14 own kinds and fields |
-| 4 · Smart | VF15 Needs attention · VF16 review queue · VF17 Form Mode · VF18 attach and drop · VF19 emergency sheet · VF20 reads more |
+| First · on today's Vault | VF21 card colors (a soft tint on each card's title bar and icon, by group with a choice per card) · VF22 Refresh (re-reads only the documents IDs came from, by itself after an update) and Discover More (looks for new ones) · VF12 People view (a third layout beside Cards and List, grouped by person) · VF4 locked means locked · VF6 backup and restore · VF7 key tied to Touch ID · VF8 Activity · VF9 hidden from screen sharing |
+| Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF5 calmer panel · bugs VB2, VB4–VB7 |
+| Complete | VF10 records with fields · VF11 new kinds (bank, card, address, vehicle, insurance, traveler) · VF13 copy formats · VF14 own kinds and fields |
+| Smart | VF15 Needs attention · VF16 review queue · VF17 Form Mode · VF18 attach and drop · VF19 emergency sheet · VF20 reads more |
 
-**Order that matters:** phase 2 before VF11's cards and bank accounts (call VQ3); `VT20`, `VT21` and
+**Order that matters:** the first group is drawn on the panel as it is on `main` and needs none of the
+redesigns; within it, VF6 before VF7 and VF21 before VF12. VF6 and VF7 before VF11's cards and bank
+accounts (call VQ3); `VT20`, `VT21` and
 `VT30` (rolling backups, a golden sealed file, tolerant decoding) before any change to the sealed
 format; `VT1` before VF10. The Vault has never been in a release, so its format can still change
 with one migration of one file.
@@ -1103,7 +1105,8 @@ photo read sideways) was tested and is not a defect. Still open of the bugs: VB1
 **Open calls:** VQ1 Quick Vault's shortcut · VQ2 what a locked Vault shows · VQ3 whether it holds card
 numbers · VQ4 whether check-digit reads skip confirming · VQ5 password fallback for the tied key ·
 VQ6 where backups go · VQ7 whether a card's color follows its group or is its own · VQ8 whether
-Refresh runs by itself for a changed source document.
+Refresh runs by itself (after an update, and for a changed source document) · VQ9 whether the People
+view shows dates of birth · VQ10 that a tied key moves to a new Mac only through a backup.
 
 ---
 
