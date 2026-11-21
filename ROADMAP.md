@@ -1094,8 +1094,11 @@ logging, tests, reader bugs, security internals) is [`docs/vault-tech-debt.md`](
 format; `VT1` before VF10. The Vault has never been in a release, so its format can still change
 with one migration of one file.
 
-**In flight elsewhere (2026-11-20):** branch `vault-countdown` adds the household's own kinds, a
-countdown only in the lock's last ten seconds, and a blur under the Touch ID prompt. VF14 builds on it.
+**Landed since the review (2026-11-20):** `924df1a59` lets an account move to another kind, among
+them kinds the household names, shows the countdown only in the lock's last ten seconds, and blurs
+the Vault under the Touch ID prompt; VF14 builds on it (own kinds have no fields of their own yet).
+`97e4f41ce` fixed reader bugs VB9 and VB11–VB13 (`VT40`–`VT43`, `VT45`). VB10 (`VT44`, a phone
+photo read sideways) was tested and is not a defect. Still open of the bugs: VB1–VB8 and VB14.
 
 **Open calls:** VQ1 Quick Vault's shortcut · VQ2 what a locked Vault shows · VQ3 whether it holds card
 numbers · VQ4 whether check-digit reads skip confirming · VQ5 password fallback for the tied key ·
