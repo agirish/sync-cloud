@@ -193,6 +193,8 @@ for: a passport number, a member ID, a loan number.
 - **Card colors**: each card's title takes a soft tint of its group's color, so a kind is found
   by its color. Right-click a card's title (or use Color beside Kind) to give one its own;
   Customize Groups sets a group's color or turns colors off.
+- **Name on the Document**, in Edit, corrects a name a scan misread, for one ID or for every ID
+  read with that name and later reads; what was read stays in sight.
 - **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
   an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
   always shows what it was read as, and As Read puts it back; passports, visas and other checked

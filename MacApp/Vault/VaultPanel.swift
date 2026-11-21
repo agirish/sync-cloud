@@ -1783,6 +1783,12 @@ struct VaultCard: View {
                         .scaledFont(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // A name corrected with Edit: what the document was read as stays in sight.
+                    if let read = row.readHolder {
+                        Text("Read as “\(read)”")
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 HStack(spacing: 6) {
                     Text("Belongs to")
@@ -2130,6 +2136,27 @@ struct VaultCard: View {
                         .fontDesign(.monospaced)
                         .autocorrectionDisabled()
                 }
+                if let read = draft.facts?.holder {
+                    field("Name on the Document") {
+                        TextField("Name on the Document", text: draftName, prompt: Text(read))
+                    }
+                    // Shown whenever a correction is in play: one made everywhere, or one typed now.
+                    if let id = editingID, draft.correctEverywhere || draftNameChanged(from: read) {
+                        let others = model.otherIDs(readAs: read, excluding: id)
+                        let label = "Every ID read as “\(read)”" + (others == 0 ? "" : others == 1 ? " (1 more)" : " (\(others) more)")
+                            + ", and later reads"
+                        // The editor hides its controls' labels, so the words sit beside the box.
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Toggle(label, isOn: $draft.correctEverywhere)
+                                .toggleStyle(.checkbox)
+                            Text(label)
+                                .scaledFont(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .onTapGesture { draft.correctEverywhere.toggle() }
+                                .accessibilityHidden(true)
+                        }
+                    }
+                }
                 field("Belongs to") {
                     Picker("Belongs to", selection: draftBelongsTo) {
                         ForEach(people) { person in
@@ -2138,7 +2165,7 @@ struct VaultCard: View {
                         Divider()
                         Text("Household").tag(Self.belongsTag(.household))
                         // A read number may also go by the name on its document.
-                        if let holder = draft.facts?.holder {
+                        if let holder = draftHolder {
                             Text("As the Document Says (\(holder))").tag(Self.belongsTag(nil))
                         }
                     }
@@ -2186,6 +2213,32 @@ struct VaultCard: View {
         case .find(let find): return "Is “\(find.title)” not a real ID?"
         case nil: return ""
         }
+    }
+
+    /// The ID the editor is open for: one saved, or one read and waiting.
+    private var editingID: UUID? {
+        switch editing {
+        case .existing(let id), .confirming(let id): return id
+        default: return nil
+        }
+    }
+
+    /// Edit's Name, as typed: it may be emptied to type afresh. Saved empty, or as read, it goes
+    /// by the document again (``VaultModel/prepared(_:)`` opens it with the correction in force).
+    private var draftName: Binding<String> {
+        Binding(get: { draft.holderName ?? draft.facts?.holder ?? "" }, set: { draft.holderName = $0 })
+    }
+
+    /// Whether Name holds something other than what was read: a change of case counts.
+    private func draftNameChanged(from read: String) -> Bool {
+        guard let typed = draft.holderName?.trimmingCharacters(in: .whitespacesAndNewlines), !typed.isEmpty else { return false }
+        return typed != read
+    }
+
+    /// The name the ID goes by once saved: Name as typed, else as read.
+    private var draftHolder: String? {
+        let typed = draft.holderName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return typed.flatMap { $0.isEmpty ? nil : $0 } ?? draft.facts?.holder
     }
 
     private var isConfirming: Bool {
@@ -2426,7 +2479,7 @@ struct VaultCard: View {
         Task {
             // The editor draws the number in full, so it opens only once that is allowed.
             guard await model.show(entry.id) else { return }
-            draft = VaultModel.Draft(entry)
+            draft = model.prepared(VaultModel.Draft(entry))
             editing = .existing(entry.id)
         }
     }
@@ -2444,10 +2497,14 @@ struct VaultCard: View {
         case .confirming(let id):
             // A name nobody in People answers to: ask whether to add them first, so the number
             // has a person, a filter chip, and Organize knows them too.
-            if draft.personID == nil, !draft.isHousehold, let holder = draft.facts?.holder,
-               VaultModel.person(named: holder, among: people) == nil {
-                askingToAddPerson = holder
-                return
+            // By the name as corrected, so a misread name is never offered to People.
+            if draft.personID == nil, !draft.isHousehold, let holder = draftHolder {
+                if let person = VaultModel.person(named: holder, among: people) {
+                    draft.personID = person
+                } else {
+                    askingToAddPerson = holder
+                    return
+                }
             }
             if model.confirm(id, as: draft) != nil { editing = nil }
         case nil:
@@ -2460,7 +2517,7 @@ struct VaultCard: View {
     private func startConfirming(_ find: VaultFind) {
         Task {
             guard await model.show(find.id) else { return }
-            draft = VaultModel.Draft(find, people: people)
+            draft = model.prepared(VaultModel.Draft(find, people: people))
             editing = .confirming(find.id)
         }
     }

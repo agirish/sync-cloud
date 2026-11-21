@@ -163,6 +163,12 @@ public enum VaultReading {
         read(pages: [lines], from: path).finds
     }
 
+    /// A name as two readings of it are compared: its words, letters only, lower case. "SHWETA
+    /// RAVINDRA DANT" and "Shweta Ravindra Dant" are one reading; "…Dani" is another.
+    public static func spellingKey(_ name: String) -> String {
+        name.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ")
+    }
+
     /// Letters and digits only, upper case: how two readings of one number are compared, and how
     /// a find is matched against what the Vault already holds.
     public static func normalized(_ value: String) -> String {
@@ -1078,13 +1084,16 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     public var needsDiscover: Bool?
     public var lastRefreshed: Date?
     public var lastDiscovered: Date?
+    /// Names the user corrected everywhere (Edit's Name, for every ID read so): the name as read,
+    /// by ``VaultReading/spellingKey(_:)``, and as it should be. Kept across a change of rules.
+    public var names: [String: String]
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
                 staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
-                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil) {
+                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:]) {
         self.staleSources = staleSources
         self.notFound = notFound
         self.needsDiscover = needsDiscover
@@ -1099,11 +1108,12 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         self.choices = choices
         self.needsReadAgain = needsReadAgain
         self.lessons = lessons
+        self.names = names
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
-        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered
+        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names
     }
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
@@ -1125,6 +1135,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         needsDiscover = try? c.decodeIfPresent(Bool.self, forKey: .needsDiscover)
         lastRefreshed = try? c.decodeIfPresent(Date.self, forKey: .lastRefreshed)
         lastDiscovered = try? c.decodeIfPresent(Date.self, forKey: .lastDiscovered)
+        names = (try? c.decodeIfPresent([String: String].self, forKey: .names)) ?? [:]
     }
 }
 

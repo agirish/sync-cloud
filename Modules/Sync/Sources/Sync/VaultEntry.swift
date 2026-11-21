@@ -69,6 +69,9 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// The card it goes on when moved from its own (Kind): another account kind or one the
     /// household made. Nil draws it on ``category``'s card, which stays what it was read or typed as.
     public var card: VaultCardID?
+    /// The name on its document as the user corrected it (Edit's Name), when the scan misread
+    /// it: "Shweta Ravindra Dani" for a card read as "…Dant". What was read stays in ``facts``.
+    public var holderName: String?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -102,7 +105,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName
     }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
