@@ -747,6 +747,23 @@ public final class VaultModel: ObservableObject {
         setColors(changed)
     }
 
+    /// A whole group's color, set from one of its cards: every card listed under the group that
+    /// has no color of its own follows it.
+    public func setColor(_ color: VaultCardColor, ofGroup group: VaultGroups.ID) {
+        var changed = colors
+        changed.groups[group] = color
+        setColors(changed)
+    }
+
+    /// What the Color choice for `card` shows: the card's own color and its group's, apart.
+    public func colorChoice(for card: VaultCardID) -> VaultColorChoice {
+        let group = kinds.group(of: card, in: groups)
+        let sharing = group.map { id in kinds.order.filter { $0 != card && kinds.group(of: $0, in: groups) == id } } ?? []
+        return VaultColorChoice(card: card, title: kinds.title(of: card), own: colors.own(card), group: group,
+                                groupName: group.map(groups.name), groupColor: group.map(colors.color(ofGroup:)),
+                                others: sharing.filter { colors.own($0) == nil }.map(kinds.title(of:)), isOn: colors.isOn)
+    }
+
     /// The tint a card is drawn in on this tab, or nil for the window's hue. Other Finds holds
     /// kinds the main view does not show yet, which have no group and so no color.
     public func tint(of card: VaultCardID) -> VaultTint? {

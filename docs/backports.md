@@ -16166,7 +16166,9 @@ not be read keeps what was read from it. It builds on the Vault, which no mainte
 2026-11-20: cards take a color (`VaultColors`, `VaultTint`): a soft wash on a card's title bar and
 its symbol in the color (`VaultCardHeader`), by group with a choice per card, set from a menu on the
 card's title, beside Kind, or in Customize Groups. Names of groups, kinds and colors in
-UserDefaults; nothing sealed changes.
+UserDefaults; nothing sealed changes. Later that day the title's menu lost its Color submenu, which
+shut whenever the Vault's rows changed under it: Color opens a popover with a row for the card and
+a row for its group (`VaultColorPopover`, `VaultColorChoice`).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

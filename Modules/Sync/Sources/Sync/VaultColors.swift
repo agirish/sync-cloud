@@ -115,3 +115,48 @@ public struct VaultColors: Equatable, Sendable {
         if cards.isEmpty { defaults.removeObject(forKey: Self.cardsKey) } else { defaults.set(cards, forKey: Self.cardsKey) }
     }
 }
+
+/// The Color choice for one card: two separate questions, the card's own color and its group's.
+///
+/// A card follows its group until it is given a color of its own; the group's color then still
+/// reaches the group's other cards. Showing the two apart is what says which one a pick changes.
+public struct VaultColorChoice: Equatable, Sendable {
+    public var card: VaultCardID
+    /// The card's name: "Passports".
+    public var title: String
+    /// The color chosen for this card alone; nil follows its group.
+    public var own: VaultCardColor?
+    /// The group the card is listed under; nil for a card with none, which has only its own color.
+    public var group: VaultGroups.ID?
+    public var groupName: String?
+    /// What the group is set to.
+    public var groupColor: VaultCardColor?
+    /// The group's other cards that follow it, by name: what a change to the group also recolors.
+    public var others: [String]
+    /// Card colors as a whole (Customize Groups).
+    public var isOn: Bool
+
+    public init(card: VaultCardID, title: String, own: VaultCardColor?, group: VaultGroups.ID?, groupName: String?,
+                groupColor: VaultCardColor?, others: [String], isOn: Bool) {
+        self.card = card
+        self.title = title
+        self.own = own
+        self.group = group
+        self.groupName = groupName
+        self.groupColor = groupColor
+        self.others = others
+        self.isOn = isOn
+    }
+
+    /// Under the group's colors, who a change reaches: this card when it follows the group, and
+    /// the group's other cards that do.
+    public var reach: String {
+        let names = (own == nil ? [title] : []) + others
+        let list = ListFormatter.localizedString(byJoining: names)
+        switch (own == nil, names.isEmpty) {
+        case (_, true): return "\(title) has its own color, and no other card is in this group."
+        case (true, _): return "Colors \(list)."
+        case (false, _): return "Colors \(list). \(title) has its own."
+        }
+    }
+}

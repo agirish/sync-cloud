@@ -126,6 +126,55 @@ import Testing
         #expect(VaultColors.load(from: rig.defaults).cards.isEmpty)
     }
 
+    // MARK: The Color choice: the card's own, and its group's
+
+    @Test func aGroupsColorSetFromOneCardReachesTheCardsThatFollowItAndIsKept() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        model.setColor(.tint(.plum), of: .builtIn(.i94))
+        model.setColor(.tint(.teal), ofGroup: "travel")
+        #expect(model.tint(of: .builtIn(.passport)) == .teal)
+        #expect(model.tint(of: .builtIn(.usVisa)) == .teal, "its neighbour in the group follows too")
+        #expect(model.tint(of: .builtIn(.i94)) == .plum, "a card with its own color keeps it")
+        #expect(model.tint(of: .builtIn(.ssn)) == .violet, "and another group is not touched")
+        #expect(model.colors.own(.builtIn(.passport)) == nil, "the card was given no color of its own by it")
+
+        let again = rig.model()
+        #expect(again.tint(of: .builtIn(.passport)) == .teal, "read back from the same preferences")
+        again.setColor(.plain, ofGroup: "travel")
+        #expect(again.tint(of: .builtIn(.passport)) == nil, "no color is a choice for a group")
+        #expect(again.tint(of: .builtIn(.i94)) == .plum)
+    }
+
+    @Test func theChoiceShowsTheCardsOwnColorAndItsGroupsApart() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        var choice = model.colorChoice(for: .builtIn(.passport))
+        #expect(choice.title == "Passports")
+        #expect(choice.own == nil, "it follows its group")
+        #expect(choice.group == "travel")
+        #expect(choice.groupName == "Travel & Immigration")
+        #expect(choice.groupColor == .tint(.blue))
+        #expect(choice.isOn)
+        let others = choice.others
+        #expect(others == ["Visas", "I-94 Records", "USCIS Cases"], "the group's other cards, in the cards' order: \(others)")
+        #expect(choice.reach == "Colors Passports, Visas, I-94 Records, and USCIS Cases.")
+
+        // With its own color the card is no longer among those the group's color reaches.
+        model.setColor(.tint(.clay), of: .builtIn(.passport))
+        choice = model.colorChoice(for: .builtIn(.passport))
+        #expect(choice.own == .tint(.clay))
+        #expect(choice.groupColor == .tint(.blue), "the group's is still its own question")
+        #expect(choice.reach == "Colors Visas, I-94 Records, and USCIS Cases. Passports has its own.")
+        // And a neighbour's choice no longer lists it.
+        #expect(model.colorChoice(for: .builtIn(.usVisa)).others == ["I-94 Records", "USCIS Cases"])
+
+        var colors = model.colors
+        colors.isOn = false
+        model.setColors(colors)
+        #expect(!model.colorChoice(for: .builtIn(.passport)).isOn)
+    }
+
     @Test func otherFindsCardsAreNotColored() throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()

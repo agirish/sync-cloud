@@ -169,6 +169,8 @@ struct VaultCard: View {
     /// An ID was typed in while the panel showed only its lock: the lock says so, since the
     /// list that would show it is not drawn.
     @State private var addedWhileLocked = false
+    /// The Color choice that is open, and where it hangs from.
+    @State private var coloring: VaultColorAnchor?
     /// Read Documents was asked for with no folder chosen yet.
     @State private var askingForFolders = false
     /// The folders Read Documents looks in, read again as the panel appears and after a change.
@@ -1030,18 +1032,15 @@ struct VaultCard: View {
                            : "Collapse. ⌥-click to collapse every card. Right-click for its color.")
             .accessibilityLabel("\(title), \(rows.count)")
             .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
-            // Nothing about color sits on the card itself: it is chosen here, beside Kind in the
-            // chosen ID's details, or in Customize Groups.
+            // Nothing about color sits on the card itself: it is chosen from here, or beside Kind
+            // in the chosen ID's details, or in Customize Groups.
             .contextMenu {
-                Button(isFolded ? "Expand" : "Collapse") {
-                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(card) }
-                }
-                Button(model.allFolded ? "Expand All Cards" : "Collapse All Cards") {
-                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() }
-                }
-                Divider()
-                Menu("Color") { colorMenu(for: card) }
+                VaultCardTitleMenu(isFolded: isFolded, allFolded: model.allFolded,
+                                   toggle: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(card) } },
+                                   toggleAll: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() } },
+                                   color: model.tab == .other ? nil : { coloring = .title(card) })
             }
+            .popover(isPresented: isColoring(.title(card)), arrowEdge: .bottom) { colorPopover(for: card, at: .title(card)).presentedNativeControlAccent() }
             if !isFolded {
                 // The rows keep the card's inset; the title bar above runs edge to edge.
                 Group {
@@ -1072,16 +1071,25 @@ struct VaultCard: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
     }
 
-    /// The Color choices for `card`: the menu on its title, and beside Kind in an ID's details.
-    private func colorMenu(for card: VaultCardID) -> some View {
-        let group = model.kinds.group(of: card, in: model.groups).map(model.groups.name) ?? "Its Group"
-        return VaultColorMenu(own: model.colors.own(card), groupName: group, isOn: model.colors.isOn,
-                              pick: { model.setColor($0, of: card) },
-                              turnOn: {
-                                  var colors = model.colors
-                                  colors.isOn = true
-                                  model.setColors(colors)
-                              })
+    /// The Color choice for `card`: from its title's menu, and beside Kind in an ID's details.
+    private func colorPopover(for card: VaultCardID, at anchor: VaultColorAnchor) -> some View {
+        let choice = model.colorChoice(for: card)
+        return VaultColorPopover(choice: choice, accent: glassHue.accentColor,
+                                 pickCard: { model.setColor($0, of: card) },
+                                 pickGroup: { color in if let group = choice.group { model.setColor(color, ofGroup: group) } },
+                                 turnOn: {
+                                     var colors = model.colors
+                                     colors.isOn = true
+                                     model.setColors(colors)
+                                 })
+            // Its title or its ID went (the Vault locked, another tab): it does not come back
+            // open when they do.
+            .onDisappear { if coloring == anchor { coloring = nil } }
+    }
+
+    /// Whether the Color choice is open at `anchor`; closing it from the popover clears it.
+    private func isColoring(_ anchor: VaultColorAnchor) -> Binding<Bool> {
+        Binding(get: { coloring == anchor }, set: { open in if !open, coloring == anchor { coloring = nil } })
     }
 
     /// A folded card's one line: "3 people · 1 expired · 2 to confirm".
@@ -1570,19 +1578,21 @@ struct VaultCard: View {
                     // The card's color, where the card is named. Not on Other Finds, whose kinds
                     // have no card on the main view.
                     if row.standing.tab != .other {
-                        Menu {
-                            colorMenu(for: row.card)
+                        Button {
+                            coloring = .detail(row.card)
                         } label: {
                             Label {
-                                Text("Color")
+                                Text("Color…")
                             } icon: {
                                 Image(nsImage: VaultTintPalette.swatch(model.tint(of: row.card)))
                             }
                             .labelStyle(.titleAndIcon)
                         }
-                        .menuStyle(.borderlessButton)
+                        .buttonStyle(.plain)
+                        .scaledFont(.callout)
                         .fixedSize()
-                        .help("The color of the \(model.kinds.title(of: row.card)) card")
+                        .popover(isPresented: isColoring(.detail(row.card)), arrowEdge: .bottom) { colorPopover(for: row.card, at: .detail(row.card)).presentedNativeControlAccent() }
+                        .help("The color of the \(model.kinds.title(of: row.card)) card, and of its group")
                     }
                 }
                 if let note = Self.kindNote(row) {

@@ -144,44 +144,150 @@ struct VaultCardHeader: View {
     }
 }
 
-// MARK: - Choosing a card's color
+// MARK: - A card title's menu
 
-/// The Color choices for one card: its group's color, one of its own, or none. Used in the menu
-/// on a card's title and beside Kind in the chosen ID's details; plain values, so it is hosted
-/// and read in a test without the panel.
-struct VaultColorMenu: View {
-    /// The color chosen for this card alone; nil follows its group.
-    let own: VaultCardColor?
-    let groupName: String
-    /// Card colors as a whole (Customize Groups).
-    let isOn: Bool
-    let pick: (VaultCardColor?) -> Void
-    let turnOn: () -> Void
+/// A card title's right-click menu: fold it, fold them all, and its color.
+///
+/// Flat on purpose. A submenu SwiftUI builds is shut whenever the Vault's rows change under the
+/// open menu, and Refresh changes them as the Vault opens: with the colors in a Color submenu, it
+/// closed before one could be picked (2026-11-20). Color opens ``VaultColorPopover`` instead.
+/// Plain values, so it is hosted and read in a test without the panel.
+struct VaultCardTitleMenu: View {
+    let isFolded: Bool
+    let allFolded: Bool
+    let toggle: () -> Void
+    let toggleAll: () -> Void
+    /// Nil where cards have no color (Other Finds).
+    let color: (() -> Void)?
 
     var body: some View {
-        if isOn {
-            Toggle("Same as \(groupName)", isOn: chosen(nil))
+        Button(isFolded ? "Expand" : "Collapse", action: toggle)
+        Button(allFolded ? "Expand All Cards" : "Collapse All Cards", action: toggleAll)
+        if let color {
             Divider()
-            ForEach(VaultTint.allCases, id: \.self) { tint in
-                Toggle(isOn: chosen(.tint(tint))) {
-                    Label {
-                        Text(tint.title)
-                    } icon: {
-                        Image(nsImage: VaultTintPalette.swatch(tint))
+            Button("Color…", action: color)
+        }
+    }
+}
+
+// MARK: - Choosing a color
+
+/// The Color choice for one card, opened from its title's menu and beside Kind in an ID's details.
+///
+/// Two rows of the same colors, each under what it colors: this card alone, and its whole group.
+/// A card follows its group until it is given a color of its own, so the first row opens on
+/// "Same as Group" and the second shows the color the card is drawn in. It stays open while
+/// colors are tried: each pick shows on the cards behind it at once.
+struct VaultColorPopover: View {
+    let choice: VaultColorChoice
+    /// The window's hue, for the chosen "Same as Group".
+    let accent: Color
+    let pickCard: (VaultCardColor?) -> Void
+    let pickGroup: (VaultCardColor) -> Void
+    let turnOn: () -> Void
+
+    static let width: CGFloat = 310
+    /// A swatch's diameter and the gap to the next: nine fit the width.
+    static let swatch: CGFloat = 20
+    static let gap: CGFloat = 10
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if choice.isOn {
+                VStack(alignment: .leading, spacing: 8) {
+                    heading("This Card", choice.title)
+                    if choice.group != nil { followsGroup }
+                    swatches(chosen: choice.own, of: "\(choice.title) card") { pickCard($0) }
+                }
+                if let name = choice.groupName, let color = choice.groupColor {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        heading("Its Group", name)
+                        swatches(chosen: color, of: "group \(name)", pick: pickGroup)
+                        Text(choice.reach)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            } else {
+                Text("Card colors are off.")
+                    .scaledFont(.callout)
+                Button("Turn On Card Colors", action: turnOn)
             }
-            Divider()
-            Toggle("No Color", isOn: chosen(.plain))
-        } else {
-            Text("Card Colors Are Off")
-            Button("Turn On Card Colors", action: turnOn)
+        }
+        .padding(14)
+        .frame(width: Self.width, alignment: .leading)
+    }
+
+    private func heading(_ what: String, _ name: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(what)
+                .scaledFont(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(name)
+                .scaledFont(.subheadline.weight(.semibold))
+                .lineLimit(1)
         }
     }
 
-    /// A tick on the current choice; choosing a line sets it, and choosing the ticked one keeps it.
-    private func chosen(_ color: VaultCardColor?) -> Binding<Bool> {
-        Binding(get: { own == color }, set: { _ in pick(color) })
+    /// The card's first choice: no color of its own. Chosen, no swatch in its row is ringed.
+    private var followsGroup: some View {
+        let chosen = choice.own == nil
+        return Button {
+            pickCard(nil)
+        } label: {
+            HStack(spacing: 5) {
+                if chosen {
+                    Image(systemName: "checkmark")
+                        .scaledFont(.caption2.weight(.bold))
+                }
+                Text("Same as Group")
+                    .scaledFont(.callout)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(chosen ? accent.opacity(0.16) : Color.primary.opacity(0.06)))
+            .overlay(Capsule().strokeBorder(chosen ? accent.opacity(0.7) : Color.clear))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("No color of its own: the card takes its group’s")
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+
+    private func swatches(chosen: VaultCardColor?, of what: String, pick: @escaping (VaultCardColor) -> Void) -> some View {
+        HStack(spacing: Self.gap) {
+            ForEach(VaultTint.allCases, id: \.self) { tint in
+                swatch(.tint(tint), chosen: chosen == .tint(tint), of: what, pick: pick)
+            }
+            swatch(.plain, chosen: chosen == .plain, of: what, pick: pick)
+        }
+    }
+
+    private func swatch(_ color: VaultCardColor, chosen: Bool, of what: String, pick: @escaping (VaultCardColor) -> Void) -> some View {
+        let name: String = { if case .tint(let tint) = color { return tint.title } else { return "No Color" } }()
+        return Button {
+            pick(color)
+        } label: {
+            ZStack {
+                if case .tint(let tint) = color {
+                    Circle().fill(tint.color)
+                } else {
+                    // No color: an empty ring with a stroke through it.
+                    Circle().strokeBorder(Color.secondary.opacity(0.7), lineWidth: 1)
+                    Rectangle().fill(Color.secondary.opacity(0.7)).frame(width: Self.swatch - 4, height: 1).rotationEffect(.degrees(-45))
+                }
+            }
+            .frame(width: Self.swatch, height: Self.swatch)
+            // The chosen one: a ring round it, in the text color so it reads over any shade.
+            .overlay(Circle().strokeBorder(Color.primary.opacity(chosen ? 0.85 : 0), lineWidth: 2).padding(-4))
+            .contentShape(Circle().inset(by: -4))
+        }
+        .buttonStyle(.plain)
+        .help(name)
+        .accessibilityLabel("\(name), color of the \(what)")
+        .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 }
 
@@ -216,4 +322,10 @@ struct VaultColorPicker: View {
         .fixedSize()
         .accessibilityLabel(accessibilityLabel)
     }
+}
+
+/// Where the Color choice hangs from: a card's title, or Color beside Kind in an ID's details.
+enum VaultColorAnchor: Equatable {
+    case title(VaultCardID)
+    case detail(VaultCardID)
 }
