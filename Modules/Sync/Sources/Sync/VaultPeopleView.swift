@@ -26,6 +26,11 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         public var name: String
         /// "passport", "driver’s license": lowercase, in the cards' order.
         public var on: [String]
+        /// What this spelling is to them: chosen, or the Vault's guess.
+        public var role: VaultNameRole = .alsoUsed
+        /// One or two letters from the legal name on a single kind of paper, and not kept as real:
+        /// worth a look. A guess shown, never acted on.
+        public var looksMisread = false
     }
 
     /// A date of birth, and the IDs whose documents give it: where it was found, so a wrong one
@@ -93,6 +98,7 @@ extension VaultModel {
                     names.append(.init(name: holder, on: [kind]))
                 }
             }
+            names = roled(names, for: id)
             // Each date with the IDs it was read from: a second date is one ID's reading, and the
             // ID is where it is put right.
             let dated = id == .household ? [] : papers.filter { $0.facts?.born != nil }
@@ -116,6 +122,30 @@ extension VaultModel {
         sections += unnamed.compactMap { section(.unnamed($0), $0) }
         if let household = section(.household, "Household") { sections.append(household) }
         return sections
+    }
+
+    /// `names` with their roles, legal name first, then the one they go by, then the rest by how
+    /// many papers print them. Roles are chosen for someone in People; a name nobody answers to
+    /// gets the Vault's guess alone.
+    func roled(_ names: [VaultPersonSection.PrintedName], for owner: VaultPersonSection.Owner) -> [VaultPersonSection.PrintedName] {
+        guard !names.isEmpty else { return names }
+        var names = names
+        let chosen: VaultNameRoles
+        if case .person(let id) = owner { chosen = nameRoles[id] ?? VaultNameRoles() } else { chosen = VaultNameRoles() }
+        let keys = names.map { VaultReading.spellingKey($0.name) }
+        let goesBy = chosen.goesBy.flatMap { keys.firstIndex(of: $0) }
+        let legal = chosen.legal.flatMap { keys.firstIndex(of: $0) }
+            ?? VaultNameGuess.legal(names, excluding: goesBy.map { keys[$0] })
+        for index in names.indices {
+            names[index].role = index == legal ? .legal : index == goesBy ? .goesBy : .alsoUsed
+            if let legal, names[index].role == .alsoUsed, !chosen.kept.contains(keys[index]) {
+                names[index].looksMisread = VaultNameGuess.looksMisread(names[index], legal: names[legal].name)
+            }
+        }
+        let rank: (VaultPersonSection.PrintedName) -> Int = { $0.role == .legal ? 0 : $0.role == .goesBy ? 1 : 2 }
+        return names.enumerated().sorted { a, b in
+            (rank(a.element), -a.element.on.count, a.offset) < (rank(b.element), -b.element.on.count, b.offset)
+        }.map(\.element)
     }
 
     /// `rows` under the groups their cards are listed in, in the groups' order and, within one, the
@@ -153,9 +183,11 @@ public enum VaultPersonText {
     /// panel asks for a proof first.
     public static func text(_ section: VaultPersonSection, numbers: Bool) -> String {
         var lines = [section.title]
-        for name in section.names {
-            lines.append("Name on \(ListFormatter.localizedString(byJoining: name.on)): \(name.name)")
-        }
+        // The name they go by leads, then the legal one forms ask for, then other real spellings.
+        if let goesBy = section.names.first(where: { $0.role == .goesBy }) { lines.append("Goes by: \(goesBy.name)") }
+        if let legal = section.names.first(where: { $0.role == .legal }) { lines.append("Legal name: \(legal.name)") }
+        let others = section.names.filter { $0.role == .alsoUsed && !$0.looksMisread }.map(\.name)
+        if !others.isEmpty { lines.append("Also printed as: \(others.joined(separator: "; "))") }
         if numbers {
             for date in section.born { lines.append("Date of birth: \(VaultReading.formDate(date))") }
         }

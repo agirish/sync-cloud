@@ -81,3 +81,46 @@ struct VaultMasonry: Layout {
 struct VaultMasonrySize: LayoutValueKey {
     static let defaultValue: CGFloat? = nil
 }
+
+/// Rows in two columns when each can be `minColumnWidth` wide, else one; never more than two, which
+/// would cut a row's title short. Laid out row by row, so reading order is walking order; each
+/// line is as tall as its taller cell.
+struct VaultTwoUp: Layout {
+    var minColumnWidth: CGFloat
+    var spacing: CGFloat
+    var rowSpacing: CGFloat
+
+    func columns(for width: CGFloat) -> Int { width >= 2 * minColumnWidth + spacing ? 2 : 1 }
+
+    private func lines(_ subviews: Subviews, width: CGFloat) -> (columns: Int, cell: CGFloat, heights: [CGFloat]) {
+        let columns = columns(for: width)
+        let cell = columns == 2 ? (width - spacing) / 2 : width
+        let heights = stride(from: 0, to: subviews.count, by: columns).map { start in
+            subviews[start..<min(start + columns, subviews.count)]
+                .map { $0.sizeThatFits(ProposedViewSize(width: cell, height: nil)).height }.max() ?? 0
+        }
+        return (columns, cell, heights)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 2 * minColumnWidth + spacing
+        let laid = lines(subviews, width: width)
+        let height = laid.heights.reduce(0, +) + rowSpacing * CGFloat(max(laid.heights.count - 1, 0))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let laid = lines(subviews, width: bounds.width)
+        var y = bounds.minY
+        for (line, height) in laid.heights.enumerated() {
+            for column in 0..<laid.columns {
+                let index = line * laid.columns + column
+                guard index < subviews.count else { break }
+                let x = bounds.minX + CGFloat(column) * (laid.cell + spacing)
+                subviews[index].place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                                      proposal: ProposedViewSize(width: laid.cell, height: height))
+            }
+            y += height + rowSpacing
+        }
+    }
+}

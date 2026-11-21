@@ -16174,7 +16174,9 @@ washed card and a quiet grey on plain ground, not a fill in the window's hue (`V
 names the ID and document each date was read from (`VaultPersonSection.Birth`), and names read
 with a line break or extra spaces are tidied before they are compared (`VaultPersonText.tidied`). Then People's facts became tiles, its rows
 grouped (`VaultPersonSection.KindGroup`), and every layout's rows lost "In Vault" and the file count
-and gained "Expires in N days" within six months.
+and gained "Expires in N days" within six months. Then each spelling of a person's name took a
+role (`VaultNameRole`, `VaultNameRoles` sealed in `VaultReadingState.nameRoles`, an optional field an
+older file opens without), a likely misreading is flagged, and rows stop at two columns (`VaultTwoUp`).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

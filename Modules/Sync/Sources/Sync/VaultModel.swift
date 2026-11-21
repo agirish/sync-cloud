@@ -1070,6 +1070,16 @@ public final class VaultModel: ObservableObject {
     /// ``VaultReading/spellingKey(_:)``, and as it should be. Sealed with what was read.
     private var names: [String: String] = [:] { didSet { rowsRevision &+= 1 } }
 
+    /// The roles chosen for each person's spellings (``VaultNameRoles``), by person.
+    var nameRoles: [String: VaultNameRoles] = [:] { didSet { rowsRevision &+= 1 } }
+
+    /// Corrects the name read as `key` to `name` on every ID read with it, or with nil, lets it
+    /// be as read again. The People view's Misread; Edit's Everywhere does the same.
+    func correctEverywhere(_ key: String, to name: String?) {
+        guard !key.isEmpty else { return }
+        names[key] = name
+    }
+
     /// The name a number's document should say: its own correction, else one made everywhere for
     /// that reading; nil to go by what was read.
     private func correctedName(_ read: String?, own: String?) -> String? {
@@ -1547,6 +1557,7 @@ public final class VaultModel: ObservableObject {
         changes = [:]
         rereads = [:]
         names = [:]
+        nameRoles = [:]
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
         contents = .notLoaded
@@ -1586,6 +1597,7 @@ public final class VaultModel: ObservableObject {
                 lastRefreshed = state.lastRefreshed
                 lastDiscovered = state.lastDiscovered
                 names = state.names
+                nameRoles = state.nameRoles ?? [:]
                 // Merged by an older build of the same rules: rebuilt, so each names the document
                 // it is read from and copies are weighed as they are now.
                 if sameRules { finds = finds.map { rebuilt($0, VaultReading.normalized($0.value)) } }
@@ -2255,11 +2267,11 @@ public final class VaultModel: ObservableObject {
     private var readGeneration = 0
 
     /// Something in To Confirm or the record of read files changed since it was last sealed.
-    private var readingChanged = false
+    var readingChanged = false
 
     /// Seals To Confirm and the record of read files. A refusal is logged and otherwise let go:
     /// the next read rebuilds whatever was lost.
-    private func saveReading() {
+    func saveReading() {
         // Never once the numbers are let go: what is in memory then is nothing, and sealing it
         // would write that over what was read.
         guard readingChanged, contents == .loaded, let store else { return }
@@ -2269,7 +2281,8 @@ public final class VaultModel: ObservableObject {
                                       staleSources: staleSources.isEmpty ? nil : staleSources.sorted(),
                                       notFound: missingDocuments.isEmpty ? nil : missingDocuments.sorted(),
                                       needsDiscover: needsDiscover ? true : nil,
-                                      lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names)
+                                      lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
+                                      nameRoles: nameRoles.isEmpty ? nil : nameRoles)
         do {
             try store.saveReading(state)
             readingChanged = false

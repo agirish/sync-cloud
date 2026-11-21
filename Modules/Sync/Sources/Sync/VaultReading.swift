@@ -1091,13 +1091,18 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// Names the user corrected everywhere (Edit's Name, for every ID read so): the name as read,
     /// by ``VaultReading/spellingKey(_:)``, and as it should be. Kept across a change of rules.
     public var names: [String: String]
+    /// The roles chosen for each person's spellings, by person: their legal name, the name they
+    /// go by, and spellings kept as real ones. Kept across a change of rules.
+    public var nameRoles: [String: VaultNameRoles]?
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
                 staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
-                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:]) {
+                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:],
+                nameRoles: [String: VaultNameRoles]? = nil) {
+        self.nameRoles = nameRoles
         self.staleSources = staleSources
         self.notFound = notFound
         self.needsDiscover = needsDiscover
@@ -1117,7 +1122,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
-        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names
+        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names, nameRoles
     }
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
@@ -1140,6 +1145,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         lastRefreshed = try? c.decodeIfPresent(Date.self, forKey: .lastRefreshed)
         lastDiscovered = try? c.decodeIfPresent(Date.self, forKey: .lastDiscovered)
         names = (try? c.decodeIfPresent([String: String].self, forKey: .names)) ?? [:]
+        nameRoles = try? c.decodeIfPresent([String: VaultNameRoles].self, forKey: .nameRoles)
     }
 }
 

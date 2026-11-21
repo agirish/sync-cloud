@@ -173,6 +173,18 @@ struct VaultCard: View {
     @State private var coloring: VaultColorAnchor?
     /// The date of birth whose source IDs are listed in a popover.
     @State private var birthSources: String?
+    /// People's name tiles whose other spellings were shown or folded by hand, by section.
+    @State private var namesUnfolded: [String: Bool] = [:]
+    /// The spelling whose choice of roles is open.
+    @State private var namePopover: String?
+    /// The misreading just corrected, with an Undo, until another is.
+    @State private var misreadNote: MisreadNote?
+    struct MisreadNote: Equatable {
+        let section: String
+        let name: String
+        let legal: String
+        let count: Int
+    }
     /// Read Documents was asked for with no folder chosen yet.
     @State private var askingForFolders = false
     /// The folders Read Documents looks in, read again as the panel appears and after a change.
@@ -1234,7 +1246,8 @@ struct VaultCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     groupHeading(group)
                     // Two columns once each can hold a row's title and number side by side.
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14, alignment: .top)], alignment: .leading, spacing: 2) {
+                    // Two columns at most: a third would cut each title short.
+                    VaultTwoUp(minColumnWidth: 300, spacing: 14, rowSpacing: 2) {
                         ForEach(group.rows) { row in rowView(row, underPerson: true).id(row.id) }
                     }
                 }
@@ -1297,33 +1310,182 @@ struct VaultCard: View {
         .accessibilityLabel(help)
     }
 
-    /// The name as their papers print it: the spelling most papers use, and under it any other.
+    /// Their names: the legal one and the one they go by, then other spellings, folded unless one
+    /// looks misread. In People, each spelling's role is chosen from its chip.
     private func nameTile(_ section: VaultPersonSection) -> some View {
-        factTile {
-            factLabel(section.names.count > 1 ? "Name · \(section.names.count) spellings" : "Name")
-            ForEach(Array(section.names.enumerated()), id: \.offset) { index, name in
+        let key = "names-\(section.title)"
+        let others = section.names.filter { $0.role == .alsoUsed }
+        let misread = others.filter(\.looksMisread).count
+        let unfolded = namesUnfolded[key] ?? (misread > 0)
+        let shown = section.names.filter { $0.role != .alsoUsed } + (unfolded ? others : [])
+        return factTile {
+            factLabel(section.names.count > 1 ? "Names" : "Name")
+            ForEach(Array(shown.enumerated()), id: \.element.name) { index, name in
                 if index > 0 { Divider() }
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(name.name)
-                            .scaledFont(index == 0 ? .body.weight(.semibold) : .callout.weight(.semibold))
-                            .lineLimit(1)
-                        Text(VaultPersonText.paperLine(name, only: section.names.count == 1))
-                            .scaledFont(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .help("Printed this way on \(ListFormatter.localizedString(byJoining: name.on)).")
-                    }
-                    Spacer(minLength: 4)
-                    let key = "name-\(section.title)-\(name.name)"
-                    copyIcon(key, help: "Copy “\(name.name)”") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(name.name, forType: .string)
-                        flashCopied(key)
-                    }
+                nameLine(section, name, first: index == 0)
+            }
+            if !others.isEmpty {
+                Divider()
+                Button {
+                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { namesUnfolded[key] = !unfolded }
+                } label: {
+                    Text(Self.foldLine(others: others.count, misread: misread, unfolded: unfolded))
+                        .scaledFont(.caption)
+                        .foregroundStyle(glassHue.accentColor)
                 }
+                .buttonStyle(.plain)
+            }
+            if let note = misreadNote, note.section == section.title {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
+                    Text("“\(note.name)” was a misreading: \(note.count == 1 ? "1 ID" : "\(note.count) IDs") now read \(note.legal).")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Undo") {
+                        model.undoMisread(note.name)
+                        misreadNote = nil
+                    }
+                    .buttonStyle(.link)
+                }
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// One spelling: the name, its role, where it is printed and a copy icon; one that looks
+    /// misread offers to correct it or keep it.
+    private func nameLine(_ section: VaultPersonSection, _ name: VaultPersonSection.PrintedName, first: Bool) -> some View {
+        let person: String? = { if case .person(let id) = section.id { return id } else { return nil } }()
+        let legal = section.names.first { $0.role == .legal }?.name
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(name.name)
+                        .scaledFont(first ? .body.weight(.semibold) : .callout.weight(.semibold))
+                        .lineLimit(1)
+                    if section.names.count > 1 { roleChip(section, name, person: person) }
+                }
+                Text(VaultPersonText.paperLine(name, only: section.names.count == 1))
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("Printed this way on \(ListFormatter.localizedString(byJoining: name.on)).")
+                if name.looksMisread, let person, let legal {
+                    HStack(spacing: 8) {
+                        Button("Correct to Legal Name") {
+                            let count = model.setRole(.misread, of: name.name, for: person)
+                            misreadNote = .init(section: section.title, name: name.name, legal: legal, count: count)
+                        }
+                        .help("Every ID read with “\(name.name)” shows \(legal) instead. What was read stays in its details.")
+                        Button("Not a Misreading") { model.setRole(.alsoUsed, of: name.name, for: person) }
+                            .buttonStyle(.link)
+                    }
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 4)
+            let copyKey = "name-\(section.title)-\(name.name)"
+            copyIcon(copyKey, help: "Copy “\(name.name)”") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(name.name, forType: .string)
+                flashCopied(copyKey)
+            }
+        }
+    }
+
+    /// The spelling's role as a chip; for someone in People it opens the choice of roles. A popover,
+    /// not a menu: a menu SwiftUI builds shuts when the Vault's rows change under it.
+    @ViewBuilder
+    private func roleChip(_ section: VaultPersonSection, _ name: VaultPersonSection.PrintedName, person: String?) -> some View {
+        let label = name.looksMisread ? "Looks misread" : name.role.title
+        let tint: Color = name.looksMisread ? SemanticColor.warning
+            : name.role == .legal ? glassHue.accentColor : name.role == .goesBy ? SemanticColor.success : .secondary
+        let chip = HStack(spacing: 3) {
+            Text(label)
+            if person != nil { Image(systemName: "chevron.down").imageScale(.small) }
+        }
+        .scaledFont(.caption2.weight(.semibold))
+        // The colour lives in the wash; the word is drawn in label ink, readable on any of them.
+        .foregroundStyle(PillVariant.labelInk(for: tint))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 1)
+        .background(Capsule().fill(tint.opacity(0.18)))
+        if let person {
+            let key = "\(section.title)|\(name.name)"
+            Button { namePopover = key } label: { chip }
+                .buttonStyle(.plain)
+                .help("What this spelling is to \(section.title)")
+                .accessibilityLabel("\(name.name): \(label). Change")
+                .popover(isPresented: Binding(get: { namePopover == key }, set: { if !$0, namePopover == key { namePopover = nil } }),
+                         arrowEdge: .bottom) {
+                    roleChoices(section, name, person: person)
+                        .presentedNativeControlAccent()
+                }
+        } else {
+            chip
+        }
+    }
+
+    /// The four roles a spelling can have, each with what it means.
+    private func roleChoices(_ section: VaultPersonSection, _ name: VaultPersonSection.PrintedName, person: String) -> some View {
+        let legal = section.names.first { $0.role == .legal }?.name
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(name.name)
+                .scaledFont(.callout.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 4)
+            ForEach(VaultNameRole.allCases, id: \.self) { role in
+                let isMisread = role == .misread
+                let disabled = isMisread && (legal == nil || name.role == .legal)
+                Button {
+                    namePopover = nil
+                    let count = model.setRole(role, of: name.name, for: person)
+                    if isMisread, let legal { misreadNote = .init(section: section.title, name: name.name, legal: legal, count: count) }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: name.role == role && !name.looksMisread ? "checkmark" : "circle")
+                            .opacity(name.role == role && !name.looksMisread ? 1 : 0)
+                            .frame(width: 12)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(isMisread ? "Misread…" : role.title)
+                                .scaledFont(.callout.weight(.medium))
+                            Text(Self.roleMeaning(role, legal: legal))
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(disabled)
+                .opacity(disabled ? 0.45 : 1)
+            }
+        }
+        .padding(8)
+        .frame(width: 300, alignment: .leading)
+    }
+
+    /// What a role means, as the choice of roles says it.
+    static func roleMeaning(_ role: VaultNameRole, legal: String?) -> String {
+        switch role {
+        case .legal: return "The name forms ask for “as on your passport”. One per person."
+        case .goesBy: return "The name they use day to day. It leads the summary Copy gives."
+        case .alsoUsed: return "A real spelling some papers print. Kept, under the rest."
+        case .misread: return "A scan got it wrong: every ID read with it shows \(legal ?? "the legal name") instead."
+        }
+    }
+
+    /// "3 other spellings · 1 looks misread ›", or "Hide other spellings".
+    static func foldLine(others: Int, misread: Int, unfolded: Bool) -> String {
+        if unfolded { return others == 1 ? "Hide the other spelling" : "Hide other spellings" }
+        let count = others == 1 ? "1 other spelling" : "\(others) other spellings"
+        let flag = misread == 0 ? "" : misread == 1 ? " · 1 looks misread" : " · \(misread) look misread"
+        return count + flag + " ›"
     }
 
     /// The date of birth: the one most of their IDs give, and under it any other with the ID it

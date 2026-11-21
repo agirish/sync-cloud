@@ -68,6 +68,52 @@ import Testing
         #expect(differingPixels(both, single) > 3000, "the second date, where it was read and the warning are drawn only while there are two")
     }
 
+    @Test func rowsGoTwoUpWhenEachColumnFitsAndNeverThreeUp() {
+        let two = VaultTwoUp(minColumnWidth: 300, spacing: 14, rowSpacing: 2)
+        #expect(two.columns(for: 613) == 1)
+        #expect(two.columns(for: 614) == 2)
+        #expect(two.columns(for: 2000) == 2, "a very wide panel still has two, so no title is cut to a stub")
+    }
+
+    @Test func otherSpellingsFoldUnderOneLineThatSaysWhatIsInIt() {
+        #expect(VaultCard.foldLine(others: 3, misread: 1, unfolded: false) == "3 other spellings · 1 looks misread ›")
+        #expect(VaultCard.foldLine(others: 1, misread: 0, unfolded: false) == "1 other spelling ›")
+        #expect(VaultCard.foldLine(others: 4, misread: 2, unfolded: false) == "4 other spellings · 2 look misread ›")
+        #expect(VaultCard.foldLine(others: 2, misread: 0, unfolded: true) == "Hide other spellings")
+        #expect(VaultCard.roleMeaning(.misread, legal: "Anna Maria Eriksson").contains("shows Anna Maria Eriksson instead"))
+    }
+
+    /// Anna's passport and a notice that misreads her surname by one letter, drawn in People.
+    static func spellings() async throws -> (model: VaultModel, defaults: UserDefaults, cleanUp: () -> Void) {
+        let rig = try await VaultPanelRenderTests.rig()
+        VaultReadFolders.add(root, in: rig.defaults)
+        rig.model.people = [Person(id: "anna", displayName: "Anna", fullNames: ["Anna Maria Eriksson"]),
+                            Person(id: "erik", displayName: "Erik")]
+        await rig.model.readDocuments(with: VaultRefreshPanelTests.Shelf([
+            passport: [nameLine, "L898902C36UTO7408122F1204159ZE184226B<<<<<10"],
+            root + "/Immigration/USCIS/Anna/notice.pdf": ["I-797A Approval Notice", "Receipt Number WAC2412345678",
+                                                         "Beneficiary ERICSSON, ANNA MARIA", "Received Date 01/05/2026"],
+        ]))
+        for row in rig.model.rows where row.facts?.holder != nil && row.personID != "anna" { rig.model.assign(row.id, to: .person("anna")) }
+        rig.defaults.set(VaultLayout.people.rawValue, forKey: "vaultLayout")
+        rig.model.layout = .people
+        return (rig.model, rig.defaults, rig.cleanUp)
+    }
+
+    @Test func aSpellingThatLooksMisreadIsFlaggedAndCorrectingItTakesItsLineAway() async throws {
+        let flagged = try await Self.spellings(); defer { flagged.cleanUp() }
+        let names = try #require(flagged.model.peopleSections.first { $0.id == .person("anna") }?.names)
+        #expect(names.map(\.name) == ["Anna Maria Eriksson", "Anna Maria Ericsson"], "\(names.map(\.name))")
+        #expect(names.last?.looksMisread == true)
+        let before = try VaultPanelRenderTests.render(flagged.model, defaults: flagged.defaults, name: "people-names-flagged")
+
+        let fixed = try await Self.spellings(); defer { fixed.cleanUp() }
+        #expect(fixed.model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna") == 1)
+        let after = try VaultPanelRenderTests.render(fixed.model, defaults: fixed.defaults, name: "people-names-fixed")
+        #expect(fixed.model.peopleSections.first { $0.id == .person("anna") }?.names.map(\.name) == ["Anna Maria Eriksson"])
+        #expect(differingPixels(before, after) > 3000, "the flagged line, its buttons and the roles' chips go")
+    }
+
     @Test func aDocumentRunningOutWithinHalfAYearSaysHowSoon() throws {
         // Midnight UTC, as the reader stores a document's dates; "now" is midday here.
         func day(_ y: Int, _ m: Int, _ d: Int) -> Date {

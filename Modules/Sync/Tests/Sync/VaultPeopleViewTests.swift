@@ -48,7 +48,7 @@ import Testing
         let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
         // The passport's zone gives the name and the birth date; the dental card's holder line is
         // the plan's wording, not a name a form asks for.
-        #expect(anna.names == [.init(name: "Anna Maria Eriksson", on: ["passport"])], "\(anna.names)")
+        #expect(anna.names == [.init(name: "Anna Maria Eriksson", on: ["passport"], role: .legal)], "\(anna.names)")
         #expect(anna.born == [VaultReadingTests.day(1974, 8, 12)])
         let erik = try #require(model.peopleSections.first { $0.id == .person("erik") })
         #expect(erik.names.isEmpty && erik.born.isEmpty, "a typed number says nothing about its person")
@@ -148,6 +148,112 @@ import Testing
         #expect(VaultPersonText.paperLine(.init(name: "Anna", on: ["passport", "visa"]), only: false) == "On passport and visa")
     }
 
+    // MARK: Names and their roles
+
+    static let notice = root + "/Immigration/USCIS/Anna/notice.pdf"
+    static let i94 = root + "/Immigration/I-94/Anna/i94.pdf"
+
+    /// Anna's passport; a USCIS notice that misreads her surname by one letter; and an I-94 that
+    /// prints her without her middle name. All three hers.
+    static func spellings(_ rig: Rig) async -> VaultModel {
+        VaultReadFolders.add(root, in: rig.defaults)
+        let model = rig.model()
+        model.people = people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            passport: VaultToConfirmTests.passportPage,
+            notice: ["I-797A Approval Notice", "Receipt Number WAC2412345678", "Beneficiary ERICSSON, ANNA MARIA", "Received Date 01/05/2026"],
+            i94: ["I-94 Number 123456789A1", "Last/Surname: ERIKSSON", "First (Given) Name: ANNA", "Admit Until Date: 12/24/2027"],
+        ]))
+        for row in model.rows where row.personID != "anna" && row.facts?.holder != nil { model.assign(row.id, to: .person("anna")) }
+        return model
+    }
+
+    static func anna(_ model: VaultModel) throws -> VaultPersonSection {
+        try #require(model.peopleSections.first { $0.id == .person("anna") })
+    }
+
+    @Test func thePassportsSpellingIsTheLegalNameAndAOneLetterSlipLooksMisread() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        let names = try Self.anna(model).names
+        #expect(names.first?.name == "Anna Maria Eriksson" && names.first?.role == .legal, "\(names)")
+        let slip = try #require(names.first { $0.name == "Anna Maria Ericsson" })
+        #expect(slip.role == .alsoUsed && slip.looksMisread, "one letter, one paper")
+        #expect(names.filter { $0.role == .goesBy }.isEmpty, "nothing is Goes by until chosen")
+        if let short = names.first(where: { $0.name == "Anna Eriksson" }) {
+            #expect(!short.looksMisread, "a dropped middle name is a real spelling, many letters away")
+        }
+    }
+
+    @Test func rolesChosenAreKeptSealedAcrossOpens() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        model.setRole(.goesBy, of: "Anna Maria Eriksson", for: "anna")
+        let after = try Self.anna(model).names
+        #expect(after.first { $0.role == .goesBy }?.name == "Anna Maria Eriksson")
+        #expect(after.first { $0.role == .legal }?.name != "Anna Maria Eriksson", "one spelling, one role")
+        model.setRole(.legal, of: "Anna Maria Eriksson", for: "anna")
+        model.setRole(.alsoUsed, of: "Anna Maria Ericsson", for: "anna")
+        #expect(try Self.anna(model).names.first { $0.name == "Anna Maria Ericsson" }?.looksMisread == false, "kept as real: no longer flagged")
+
+        let again = rig.model()
+        again.people = Self.people
+        await again.opened()
+        let names = try Self.anna(again).names
+        #expect(names.first?.name == "Anna Maria Eriksson" && names.first?.role == .legal)
+        #expect(names.first { $0.name == "Anna Maria Ericsson" }?.looksMisread == false, "read back from the sealed file")
+        #expect(!rig.defaults.dictionaryRepresentation().values.contains { "\($0)".contains("Ericsson") || "\($0)".contains("ericsson") },
+                "no name goes to preferences")
+    }
+
+    @Test func misreadCorrectsEveryIDReadWithItAndCanBeTakenBack() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        #expect(model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna") == 1, "the notice's ID")
+        let names = try Self.anna(model).names
+        #expect(!names.contains { $0.name == "Anna Maria Ericsson" }, "\(names)")
+        let legal = try #require(names.first { $0.role == .legal })
+        #expect(legal.on.contains("USCIS notice"), "the notice now prints the legal name")
+        let notice = try #require(model.rows.first { $0.facts?.primary?.path == Self.notice })
+        #expect(notice.holderAsRead == "Anna Maria Ericsson", "what was read is kept")
+
+        model.undoMisread("Anna Maria Ericsson")
+        #expect(try Self.anna(model).names.contains { $0.name == "Anna Maria Ericsson" })
+    }
+
+    @Test func theLegalNameIsNeverMarkedMisreadAndALockedVaultChangesNothing() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        #expect(model.setRole(.misread, of: "Anna Maria Eriksson", for: "anna") == 0)
+        #expect(try Self.anna(model).names.first?.name == "Anna Maria Eriksson")
+    }
+
+    @Test func theSummaryLeadsWithTheNameTheyGoByThenTheLegalOne() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        model.setRole(.alsoUsed, of: "Anna Maria Ericsson", for: "anna")
+        if let short = try Self.anna(model).names.first(where: { $0.name != "Anna Maria Eriksson" && $0.name != "Anna Maria Ericsson" }) {
+            model.setRole(.goesBy, of: short.name, for: "anna")
+        }
+        let text = VaultPersonText.text(try Self.anna(model), numbers: false)
+        let lines = text.split(separator: "\n").map(String.init)
+        #expect(Array(lines.prefix(4)) == ["Anna", "Goes by: Anna Eriksson", "Legal name: Anna Maria Eriksson",
+                                           "Also printed as: Anna Maria Ericsson"], "\(lines)")
+        #expect(lines.contains { $0.hasPrefix("Also printed as:") && $0.contains("Anna Maria Ericsson") })
+    }
+
+    @Test func aGuessPrefersThePassportAndOneLetterApartIsTheLimitOfASlip() {
+        typealias Name = VaultPersonSection.PrintedName
+        let names = [Name(name: "Anna Eriksson", on: ["visa", "I-94", "USCIS notice"]), Name(name: "Anna Maria Eriksson", on: ["passport"])]
+        #expect(VaultNameGuess.legal(names, excluding: nil) == 1, "the passport's, though fewer papers print it")
+        #expect(VaultNameGuess.legal(names, excluding: VaultReading.spellingKey("Anna Maria Eriksson")) == 0)
+        #expect(VaultNameGuess.looksMisread(Name(name: "Anna Maria Ericson", on: ["visa"]), legal: "Anna Maria Eriksson"), "two letters")
+        #expect(!VaultNameGuess.looksMisread(Name(name: "Ana Mariah Ericsson", on: ["visa"]), legal: "Anna Maria Eriksson"), "four letters")
+        #expect(!VaultNameGuess.looksMisread(Name(name: "Anna Maria Ericsson", on: ["visa", "I-94"]), legal: "Anna Maria Eriksson"), "two papers agree")
+        #expect(VaultNameGuess.distance(Array("dant"), Array("dani")) == 1)
+    }
+
     @Test func aNameReadWithALineBreakOrInAnotherCaseIsTheSameName() {
         #expect(VaultPersonText.tidied("\nanna  maria\tEriksson ") == "anna maria Eriksson")
         #expect(VaultPersonText.tidied("Anna Maria Eriksson") == "Anna Maria Eriksson")
@@ -207,7 +313,7 @@ import Testing
         let model = await Self.model(rig)
         let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
         let summary = VaultPersonText.text(anna, numbers: false)
-        #expect(summary.hasPrefix("Anna\nName on passport: Anna Maria Eriksson\nPassport: ends 02C3"), "\(summary)")
+        #expect(summary.hasPrefix("Anna\nLegal name: Anna Maria Eriksson\nPassport: ends 02C3"), "\(summary)")
         #expect(!summary.contains("L898902C3") && !summary.contains("XZB123456789"), "no ID in full")
         #expect(!summary.contains("08/12/1974"), "and no birth date")
         #expect(summary.contains("ends 6789"))

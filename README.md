@@ -187,7 +187,8 @@ for: a passport number, a member ID, a loan number.
   or weekly, that opens on another Mac. Restoring adds what is missing or replaces the Vault, which
   is set aside first and never deleted. A Vault this Mac can't open offers both ways on.
 - **People** (beside Cards and List) groups the same IDs by person: each section opens with the
-  name as each document prints it and the date of birth (hidden until one of their IDs is shown),
+  name as each document prints it, each spelling marked Legal name, Goes by, Also used or Misread
+  (one that looks misread offers Correct to Legal Name), and the date of birth (hidden until one of their IDs is shown),
   each with the ID and document it was read from, so a wrong date can be traced and moved, then their IDs
   under each group, two columns on a wide panel. The Copy menu gives a summary with endings, or every
   ID in full after Touch ID. Rows are marked only for Expired, Expires in N days or To confirm.
