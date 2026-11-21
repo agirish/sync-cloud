@@ -16163,6 +16163,11 @@ after the panel closed or locked opens nothing (`VaultModel.lockEpoch`), twins a
 into one person, a renewal never takes the replaced card's expiry, and a page or folder that could
 not be read keeps what was read from it. It builds on the Vault, which no maintenance line has.
 
+2026-11-20: cards take a color (`VaultColors`, `VaultTint`): a soft wash on a card's title bar and
+its symbol in the color (`VaultCardHeader`), by group with a choice per card, set from a menu on the
+card's title, beside Kind, or in Customize Groups. Names of groups, kinds and colors in
+UserDefaults; nothing sealed changes.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

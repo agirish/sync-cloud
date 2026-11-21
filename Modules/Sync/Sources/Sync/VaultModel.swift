@@ -166,6 +166,8 @@ public final class VaultModel: ObservableObject {
     }
     /// The Kinds choice's groups: the app's, as the user customized them.
     @Published public private(set) var groups = VaultGroups.default
+    /// Which card is drawn in which color (``VaultColors``), kept with the groups.
+    @Published public private(set) var colors = VaultColors()
     @Published public var selection: UUID?
 
     /// How far Read Documents has got.
@@ -635,6 +637,28 @@ public final class VaultModel: ObservableObject {
         keepSelectionVisible()
     }
 
+    /// Customize Groups, or a card's Color menu: the colors as the user left them, kept for the
+    /// next open. A color of a kind no longer kept is let go.
+    public func setColors(_ new: VaultColors) {
+        var new = new
+        new.prune(keeping: kinds)
+        colors = new
+        new.save(to: defaults)
+    }
+
+    /// One card's own color; nil has it follow its group again.
+    public func setColor(_ color: VaultCardColor?, of card: VaultCardID) {
+        var changed = colors
+        changed.cards[card.key] = color
+        setColors(changed)
+    }
+
+    /// The tint a card is drawn in on this tab, or nil for the window's hue. Other Finds holds
+    /// kinds the main view does not show yet, which have no group and so no color.
+    public func tint(of card: VaultCardID) -> VaultTint? {
+        tab == .other ? nil : colors.tint(of: card, kinds: kinds, groups: groups)
+    }
+
     static let geoFilterKey = "vaultGeoFilter"
     static let kindFilterKey = "vaultKindFilter"
     static let personFilterKey = "vaultPersonFilter"
@@ -652,6 +676,7 @@ public final class VaultModel: ObservableObject {
         geoFilter = defaults.string(forKey: Self.geoFilterKey).flatMap(VaultGeoFilter.init(rawValue:)) ?? .all
         groups = VaultGroups.load(from: defaults)
         kinds = VaultKinds.load(from: defaults)
+        colors = VaultColors.load(from: defaults)
         kindFilter = defaults.string(forKey: Self.kindFilterKey).flatMap { groups.order.contains($0) ? $0 : nil }
         switch defaults.string(forKey: Self.personFilterKey) {
         case "household"?: personFilter = .household
@@ -849,6 +874,8 @@ public final class VaultModel: ObservableObject {
             return kind.name.isEmpty ? nil : kind
         })
         kinds.save(to: defaults)
+        // A removed kind's color goes with it.
+        if !gone.isEmpty { setColors(colors) }
         if !gone.isEmpty {
             folded.subtract(gone.map(\.key))
             saveFolded()

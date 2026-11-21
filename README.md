@@ -179,6 +179,9 @@ for: a passport number, a member ID, a loan number.
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **Card colors**: each card's title takes a soft tint of its group's color, so a kind is found
+  by its color. Right-click a card's title (or use Color beside Kind) to give one its own;
+  Customize Groups sets a group's color or turns colors off.
 - **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
   an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
   always shows what it was read as, and As Read puts it back; passports, visas and other checked

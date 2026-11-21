@@ -137,6 +137,8 @@ struct VaultCard: View {
     @AppStorage("vaultShowsList") private var showsList = false
     /// Folding a card animates only when the Mac allows motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// With Increase Contrast on, a card's color is its symbol alone, with no wash behind its title.
+    @Environment(\.colorSchemeContrast) private var contrast
     /// The detail whose Copy just ran, for its two seconds of "Copied".
     @State private var copiedDetail: String?
     /// The number whose documents are all listed; the others show the first few.
@@ -292,9 +294,11 @@ struct VaultCard: View {
             .presentedNativeControlAccent()
         }
         .sheet(isPresented: $customizingGroups) {
-            VaultGroupsSheet(groups: model.groups, kinds: model.kinds, onDone: { groups, kinds in
+            VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors, onDone: { groups, kinds, colors in
                 model.setGroups(groups)
                 model.setKinds(kinds)
+                // After the kinds: a removed kind's color goes with it.
+                model.setColors(colors)
             })
                 .presentedNativeControlAccent()
         }
@@ -600,7 +604,8 @@ struct VaultCard: View {
                         model.kindFilter = nil
                     }
                     ForEach(model.groups.order, id: \.self) { id in
-                        optionChip(model.groups.name(id), count: model.count(kind: .some(id)), isSelected: model.kindFilter == id) {
+                        optionChip(model.groups.name(id), dot: model.tab == .other ? nil : model.colors.tint(ofGroup: id)?.color,
+                                   count: model.count(kind: .some(id)), isSelected: model.kindFilter == id) {
                             model.kindFilter = id
                         }
                     }
@@ -684,7 +689,7 @@ struct VaultCard: View {
         .background(Capsule().fill(.quaternary.opacity(0.5)))
     }
 
-    private func optionChip(_ title: String, code: String? = nil, count: Int, isSelected: Bool,
+    private func optionChip(_ title: String, code: String? = nil, dot: Color? = nil, count: Int, isSelected: Bool,
                             pick: @escaping () -> Void) -> some View {
         Button {
             pick()
@@ -692,6 +697,8 @@ struct VaultCard: View {
         } label: {
             HStack(spacing: 4) {
                 if let code { countryCode(code).accessibilityHidden(true) }
+                // A group's color, as its cards carry it.
+                if let dot { Circle().fill(dot).frame(width: 7, height: 7).accessibilityHidden(true) }
                 Text(title)
                     .scaledFont(.subheadline.weight(isSelected ? .semibold : .medium))
                 Text(count.formatted())
@@ -879,61 +886,68 @@ struct VaultCard: View {
                     model.toggleFold(card, all: NSEvent.modifierFlags.contains(.option))
                 }
             } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "chevron.right")
-                        .scaledFont(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isFolded ? 0 : 90))
-                        .frame(width: 10)
-                    Image(systemName: model.kinds.symbol(of: card))
-                        .scaledFont(.caption.weight(.semibold))
-                        .foregroundStyle(glassHue.accentColor)
-                        .frame(width: 20, height: 20)
-                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.14)))
-                    Text(title)
-                        .scaledFont(.subheadline.weight(.semibold))
-                    Text(rows.count.formatted())
-                        .scaledFont(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 6)
-                    if isFolded {
-                        Text(Self.foldedSummary(rows))
-                            .scaledFont(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+                VaultCardHeader(title: title, symbol: model.kinds.symbol(of: card), count: rows.count,
+                                isFolded: isFolded, foldedSummary: Self.foldedSummary(rows),
+                                tint: model.tint(of: card), accent: glassHue.accentColor,
+                                washes: contrast != .increased)
             }
             .buttonStyle(.plain)
-            .help(isFolded ? "Expand. ⌥-click to expand every card." : "Collapse. ⌥-click to collapse every card.")
+            .help(isFolded ? "Expand. ⌥-click to expand every card. Right-click for its color."
+                           : "Collapse. ⌥-click to collapse every card. Right-click for its color.")
             .accessibilityLabel("\(title), \(rows.count)")
             .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
-            if !isFolded {
-                ForEach(rows) { row in rowView(row).id(row.id) }
-                if let elsewhere = model.elsewhere(card) {
-                    Button {
-                        model.geoFilter = elsewhere.filter
-                    } label: {
-                        Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
-                            .scaledFont(.caption.weight(.medium))
-                            .foregroundStyle(glassHue.accentColor)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show \(elsewhere.filter.title)")
+            // Nothing about color sits on the card itself: it is chosen here, beside Kind in the
+            // chosen ID's details, or in Customize Groups.
+            .contextMenu {
+                Button(isFolded ? "Expand" : "Collapse") {
+                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(card) }
                 }
+                Button(model.allFolded ? "Expand All Cards" : "Collapse All Cards") {
+                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() }
+                }
+                Divider()
+                Menu("Color") { colorMenu(for: card) }
+            }
+            if !isFolded {
+                // The rows keep the card's inset; the title bar above runs edge to edge.
+                Group {
+                    ForEach(rows) { row in rowView(row).id(row.id) }
+                    if let elsewhere = model.elsewhere(card) {
+                        Button {
+                            model.geoFilter = elsewhere.filter
+                        } label: {
+                            Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
+                                .scaledFont(.caption.weight(.medium))
+                                .foregroundStyle(glassHue.accentColor)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show \(elsewhere.filter.title)")
+                    }
+                }
+                .padding(.horizontal, 4)
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.bottom, 4)
+        .padding(.bottom, isFolded ? 0 : 4)
         .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
+        // The title bar's wash follows the card's corners.
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+    }
+
+    /// The Color choices for `card`: the menu on its title, and beside Kind in an ID's details.
+    private func colorMenu(for card: VaultCardID) -> some View {
+        let group = model.kinds.group(of: card, in: model.groups).map(model.groups.name) ?? "Its Group"
+        return VaultColorMenu(own: model.colors.own(card), groupName: group, isOn: model.colors.isOn,
+                              pick: { model.setColor($0, of: card) },
+                              turnOn: {
+                                  var colors = model.colors
+                                  colors.isOn = true
+                                  model.setColors(colors)
+                              })
     }
 
     /// A folded card's one line: "3 people · 1 expired · 2 to confirm".
@@ -959,11 +973,20 @@ struct VaultCard: View {
                             .frame(maxWidth: .infinity)
                     }
                     ForEach(model.cards, id: \.card.key) { card in
-                        Text(model.kinds.title(of: card.card))
-                            .scaledFont(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.top, 8)
+                        HStack(spacing: 6) {
+                            // A colored card's kind keeps its color here, as its symbol.
+                            if let tint = model.tint(of: card.card) {
+                                Image(systemName: model.kinds.symbol(of: card.card))
+                                    .scaledFont(.caption.weight(.semibold))
+                                    .foregroundStyle(tint.color)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(model.kinds.title(of: card.card))
+                                .scaledFont(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
                         ForEach(card.rows) { row in rowView(row).id(row.id) }
                     }
                 }
@@ -1195,13 +1218,32 @@ struct VaultCard: View {
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
-                if VaultKinds.canChange(from: row.readAs) {
-                    kindMenu(row)
+                HStack(spacing: 10) {
+                    if VaultKinds.canChange(from: row.readAs) {
+                        kindMenu(row)
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                    } else {
+                        Text(row.readAs.title)
+                            .scaledFont(.callout)
+                    }
+                    // The card's color, where the card is named. Not on Other Finds, whose kinds
+                    // have no card on the main view.
+                    if row.standing.tab != .other {
+                        Menu {
+                            colorMenu(for: row.card)
+                        } label: {
+                            Label {
+                                Text("Color")
+                            } icon: {
+                                Image(nsImage: VaultTintPalette.swatch(model.tint(of: row.card)))
+                            }
+                            .labelStyle(.titleAndIcon)
+                        }
                         .menuStyle(.borderlessButton)
                         .fixedSize()
-                } else {
-                    Text(row.readAs.title)
-                        .scaledFont(.callout)
+                        .help("The color of the \(model.kinds.title(of: row.card)) card")
+                    }
                 }
                 if let note = Self.kindNote(row) {
                     Text(note)
@@ -2353,16 +2395,31 @@ struct VaultLargeType: View {
 struct VaultGroupsSheet: View {
     @State var groups: VaultGroups
     @State var kinds: VaultKinds
-    let onDone: (VaultGroups, VaultKinds) -> Void
+    @State var colors: VaultColors
+    let onDone: (VaultGroups, VaultKinds, VaultColors) -> Void
     @Environment(\.dismiss) private var dismiss
     /// The kinds as the sheet opened, for a name emptied and left blank.
     private let original: VaultKinds
 
-    init(groups: VaultGroups, kinds: VaultKinds, onDone: @escaping (VaultGroups, VaultKinds) -> Void) {
+    init(groups: VaultGroups, kinds: VaultKinds, colors: VaultColors,
+         onDone: @escaping (VaultGroups, VaultKinds, VaultColors) -> Void) {
         _groups = State(initialValue: groups)
         _kinds = State(initialValue: kinds)
+        _colors = State(initialValue: colors)
         self.onDone = onDone
         original = kinds
+    }
+
+    /// A group's color, as its popup's choice.
+    private func groupColor(_ id: VaultGroups.ID) -> Binding<String> {
+        Binding(get: { colors.color(ofGroup: id).key },
+                set: { colors.groups[id] = VaultCardColor(key: $0) })
+    }
+
+    /// A card's own color as its popup's choice, or the group's when it has none.
+    private func cardColor(_ card: VaultCardID) -> Binding<String> {
+        Binding(get: { colors.own(card)?.key ?? VaultColorPicker.groupKey },
+                set: { colors.cards[card.key] = VaultCardColor(key: $0) })
     }
 
     private func edit(_ id: VaultCustomKind.ID, _ change: (inout VaultCustomKind) -> Void) {
@@ -2374,23 +2431,43 @@ struct VaultGroupsSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Customize Groups")
                 .scaledFont(.title3.weight(.semibold))
-            Text("The Vault starts with these. Rename a group, or move a kind to another one; the Kinds choice follows.")
+            Text("The Vault starts with these. Rename a group, give it a color, or move a kind to another one; the Kinds choice follows.")
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Form {
+                Section {
+                    Toggle("Color the cards", isOn: $colors.isOn)
+                } footer: {
+                    Text("A card takes its group’s color unless it has one of its own. A card’s own color is also in the menu on its title (right-click) and beside Kind once an ID is chosen.")
+                        .foregroundStyle(.secondary)
+                }
                 Section("Groups") {
                     ForEach(groups.order, id: \.self) { id in
-                        TextField("Name", text: Binding(get: { groups.name(id) },
-                                                        set: { groups.names[id] = $0 }))
-                            .accessibilityLabel("Name of the group \(groups.name(id))")
+                        HStack(spacing: 8) {
+                            TextField("Name", text: Binding(get: { groups.name(id) },
+                                                            set: { groups.names[id] = $0 }))
+                                .labelsHidden()
+                                .accessibilityLabel("Name of the group \(groups.name(id))")
+                            VaultColorPicker(key: groupColor(id), accessibilityLabel: "Color of the group \(groups.name(id))")
+                                .disabled(!colors.isOn)
+                        }
                     }
                 }
                 Section("Kinds") {
                     ForEach(VaultCategory.mainView, id: \.self) { category in
-                        Picker(category.title, selection: Binding(get: { groups.group(of: category) ?? "" },
-                                                                  set: { groups.groupOf[category] = $0 })) {
-                            ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                        LabeledContent(category.title) {
+                            HStack(spacing: 8) {
+                                Picker("Group of \(category.title)", selection: Binding(get: { groups.group(of: category) ?? "" },
+                                                                                        set: { groups.groupOf[category] = $0 })) {
+                                    ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                                }
+                                .labelsHidden()
+                                .fixedSize()
+                                VaultColorPicker(key: cardColor(.builtIn(category)), followsGroup: true,
+                                                 accessibilityLabel: "Color of \(category.title)")
+                                    .disabled(!colors.isOn)
+                            }
                         }
                     }
                 }
@@ -2413,6 +2490,9 @@ struct VaultGroupsSheet: View {
                             }
                             .labelsHidden()
                             .fixedSize()
+                            VaultColorPicker(key: cardColor(.custom(kind.id)), followsGroup: true,
+                                             accessibilityLabel: "Color of the kind \(kind.name)")
+                                .disabled(!colors.isOn)
                             Button("Remove") { kinds.custom.removeAll { $0.id == kind.id } }
                                 .controlSize(.small)
                                 .help("Its IDs go back where they were before it.")
@@ -2428,7 +2508,11 @@ struct VaultGroupsSheet: View {
             }
             .formStyle(.grouped)
             HStack {
-                Button("Use the App’s Groups") { groups = .default }
+                Button("Use the App’s Groups") {
+                    groups = .default
+                    // The app's groups come with the app's colors; a card's own color is kept.
+                    colors.groups = [:]
+                }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -2442,14 +2526,14 @@ struct VaultGroupsSheet: View {
                         let name = kinds.custom[index].name.trimmingCharacters(in: .whitespacesAndNewlines)
                         kinds.custom[index].name = name.isEmpty ? (original.kind(kinds.custom[index].id)?.name ?? name) : name
                     }
-                    onDone(groups, kinds)
+                    onDone(groups, kinds, colors)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
-        .frame(width: 460, height: 620)
+        .frame(width: 520, height: 680)
     }
 }
 
