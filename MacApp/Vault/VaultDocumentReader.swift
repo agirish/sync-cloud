@@ -76,9 +76,14 @@ struct VaultFolderReader: VaultDocumentReading {
     private static func read(_ file: URL, under folders: [String]) -> [[String]] {
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-                  let lines = recognise(image) else { return [] }
-            return [lines]
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
+            // A photo or scan saved as an image is read as a scanned page is: on colored
+            // security paper, in its ink alone as well (``VaultPageSource/seen(_:from:under:)``).
+            // An image is what it is: there is no sharper render of it to read again.
+            let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
+                                                  barcodes: { decodeBarcodes(image) },
+                                                  inkOnly: { inkOnly(image).flatMap(recognise) })
+            return VaultPageSource.seen(picture, from: file.path, under: folders).map { [$0] } ?? []
         }
         // A locked PDF is passed over: its password is not the Vault's to ask for.
         guard let document = PDFDocument(url: file) else {
@@ -104,7 +109,8 @@ struct VaultFolderReader: VaultDocumentReading {
             let picture = VaultPageSource.Picture(
                 isScan: { drawsScan(page) },
                 read: { sharper in render(page, longSide: sharper ? 4000 : 2400).flatMap(recognise) },
-                barcodes: { render(page, longSide: 4000).map(decodeBarcodes) ?? [] })
+                barcodes: { render(page, longSide: 4000).map(decodeBarcodes) ?? [] },
+                inkOnly: { render(page).flatMap(inkOnly).flatMap(recognise) })
             guard let lines = VaultPageSource.lines(textLayer: page.string ?? "", from: file.path, under: folders,
                                                     picture: picture) else {
                 unreadable += 1
@@ -208,6 +214,49 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     /// A barcode's text, one element to a line.
+    /// A share of strongly colored pixels this large is security paper, or a color photo: a
+    /// Social Security card's red pattern measured 12% on the owner's three cards, color passport
+    /// photos 14 to 41%, plain scans and letters under 2%.
+    static let coloredPaper = 0.08
+
+    /// `image` in its ink alone, when it is on colored paper: every pixel dark and grey (ink)
+    /// black, every other white. Nil for a page that is not colored, which is never read this
+    /// way. The thresholds read DANI, and the card's number, on a Social Security card whose
+    /// red pattern Vision otherwise reads into the letters.
+    static func inkOnly(_ image: CGImage) -> CGImage? {
+        guard coloredShare(image) >= coloredPaper else { return nil }
+        let (w, h) = (image.width, image.height)
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let (r, g, b) = (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
+            let ink = (r + g + b) / 3 < 140 && max(r, g, b) - min(r, g, b) < 70
+            let value: UInt8 = ink ? 0 : 255
+            pixels[i] = value; pixels[i + 1] = value; pixels[i + 2] = value; pixels[i + 3] = 255
+        }
+        return context.makeImage()
+    }
+
+    /// The share of `image`'s pixels, sampled at 400 across, that are strongly colored and not
+    /// dark: a hue well apart from grey, bright enough to be paper rather than ink.
+    static func coloredShare(_ image: CGImage) -> Double {
+        let w = 400, h = max(1, image.height * 400 / max(image.width, 1))
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var colored = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let (r, g, b) = (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
+            if max(r, g, b) - min(r, g, b) > 50 && max(r, g, b) > 120 { colored += 1 }
+        }
+        return Double(colored) / Double(w * h)
+    }
+
     private static func payloadLines(_ results: [VNBarcodeObservation]) -> [String] {
         results.compactMap(\.payloadStringValue)
             .flatMap { $0.components(separatedBy: CharacterSet(charactersIn: "\n\r\u{1e}")) }

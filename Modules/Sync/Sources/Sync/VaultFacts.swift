@@ -382,7 +382,10 @@ struct VaultPeopleClusters {
         return false
     }
 
-    private static func editDistance(_ a: [Character], _ b: [Character]) -> Int {
+    /// Letters to change, add or drop to turn one word into the other.
+    static func editDistance(_ a: [Character], _ b: [Character]) -> Int {
+        guard !a.isEmpty else { return b.count }
+        guard !b.isEmpty else { return a.count }
         var previous = Array(0...b.count)
         for i in 1...a.count {
             var current = [i] + Array(repeating: 0, count: b.count)

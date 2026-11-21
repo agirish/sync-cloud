@@ -451,10 +451,23 @@ extension VaultReading {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { continue }
             guard trimmed.allSatisfy({ ($0.isLetter && $0.isASCII && $0.isUppercase) || $0 == " " }),
-                  !trimmed.lowercased().contains("signature") else { break }
+                  !trimmed.lowercased().contains("signature"), !holdsMisreadCardWord(trimmed) else { break }
             words.append(trimmed)
         }
         return nameOnly(words.joined(separator: " "))
+    }
+
+    /// The card's own long words, which its background prints over and over in small type.
+    private static let printedWords = ["social", "security", "administration", "america", "united", "states",
+                                       "signature", "established"]
+
+    /// Whether `line` holds one of the card's own words as a scan misreads it ("SDCIAL SEGURITY",
+    /// a line of the background's small print): a word of five letters or more, one letter from
+    /// one of them. No name is: a name that close to "Social" is a misread of it.
+    static func holdsMisreadCardWord(_ line: String) -> Bool {
+        line.lowercased().split(whereSeparator: { !$0.isLetter }).contains { word in
+            word.count >= 5 && printedWords.contains { VaultPeopleClusters.editDistance(Array(word), Array($0)) <= 1 }
+        }
     }
 
     /// The date below a card's signature line, which is when the card was issued.
