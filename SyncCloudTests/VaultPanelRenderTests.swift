@@ -110,9 +110,12 @@ final class VaultPanelProof: VaultAuthenticating, @unchecked Sendable {
         let off = try Self.render(rig.model, defaults: rig.defaults, name: "body-off")
         // A wash this light is close to the greys of the panel's own buttons, so each is counted
         // against the same panel with colors off: what the wash adds is the rows' ground.
+        // A one-row card's ground is about 13,000 points square; the count is in pixels, four to a
+        // point on this Mac's display and one on the hosted runner's.
+        let scale = Double(on.pixelsWide) / Double(Self.size.width)
         for tint in [VaultTint.blue, .violet, .rose, .green] {
             let (washed, plain) = (try pixels(near: Self.bodyWash(tint), in: on), try pixels(near: Self.bodyWash(tint), in: off))
-            #expect(washed - plain > 20_000, "\(tint) under its cards' rows: \(plain) → \(washed)")
+            #expect(Double(washed - plain) > 5_000 * scale * scale, "\(tint) under its cards' rows: \(plain) → \(washed)")
         }
         #expect(VaultTintPalette.bodyWash(dark: false) < VaultTintPalette.wash(dark: false), "lighter than the title's")
         #expect(VaultTintPalette.bodyWash(dark: true) < VaultTintPalette.wash(dark: true))
