@@ -231,6 +231,22 @@ struct PrintedPage {
     /// mask's asterisks ("****1234") leaves `*` out.
     func value(_ labels: [String], _ value: NSRegularExpression, below: Int = 1,
                skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 }) -> String? {
+        values(labels, value, below: below, skipping: skipping, keeping: keeping, first: true).first?.value
+    }
+
+    /// One value found beside a label: the value, the line the label is on, and the line the
+    /// value is on (the same, or one under it).
+    struct Hit: Equatable {
+        let value: String
+        let label: Int
+        let line: Int
+    }
+
+    /// Every value `value(_:_:below:skipping:keeping:)` would find, one for each line the label
+    /// is on, in page order: a family's card prints a member ID row for each person.
+    func values(_ labels: [String], _ value: NSRegularExpression, below: Int = 1,
+                skipping: Set<Character> = separators, keeping: (String) -> String? = { $0 },
+                first: Bool = false) -> [Hit] {
         func leading<S: StringProtocol>(_ text: S) -> String? {
             let s = String(text)
             let ns = s as NSString
@@ -239,14 +255,31 @@ struct PrintedPage {
             let range = m.numberOfRanges > 1 && m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range
             return ns.substring(with: range).trimmingCharacters(in: .whitespaces)
         }
+        var out: [Hit] = []
         for (index, line) in lines.enumerated() {
             guard let hit = Self.labelHit(labels, in: line) else { continue }
-            if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) { return found }
-            for next in (index + 1)..<min(lines.count, index + 1 + below) {
-                if let found = leading(lines[next].drop(while: skipping.contains)).flatMap(keeping) { return found }
+            if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) {
+                out.append(Hit(value: found, label: index, line: index))
+            } else if let next = ((index + 1)..<min(lines.count, index + 1 + below)).first(where: {
+                leading(lines[$0].drop(while: skipping.contains)).flatMap(keeping) != nil
+            }), let found = leading(lines[next].drop(while: skipping.contains)).flatMap(keeping) {
+                out.append(Hit(value: found, label: index, line: next))
+            } else {
+                continue
             }
+            if first { break }
         }
-        return nil
+        return out
+    }
+
+    /// Every value of the first of `labels`, in the order given, that has one.
+    func values(preferring labels: [String], _ value: NSRegularExpression, skipping: Set<Character> = separators,
+                keeping: (String) -> String? = { $0 }) -> [Hit] {
+        for label in labels {
+            let found = values([label], value, skipping: skipping, keeping: keeping)
+            if !found.isEmpty { return found }
+        }
+        return []
     }
 
     /// Whether `word` is printed as a word of its own: "OCI", never the oci inside "Social".

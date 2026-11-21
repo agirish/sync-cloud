@@ -79,10 +79,18 @@ extension VaultReading {
         var seen = Set<String>()
         for kind in accountKinds {
             let isVINKind = kind.name == "VIN"
-            guard let value = page.value(preferring: kind.labels, accountValue, skipping: beforeNumber,
-                                         keeping: { isVINKind ? vin($0) : accountNumber($0) }),
-                  seen.insert(normalized(value)).inserted else { continue }
-            out.append(accountFind(value, kind: kind.name, page: page, path: path, roots: roots, people: people))
+            let rows = page.values(preferring: kind.labels, accountValue, skipping: beforeNumber,
+                                   keeping: { isVINKind ? vin($0) : accountNumber($0) })
+            guard !rows.isEmpty else { continue }
+            // A family's card prints a row for each person, each with its own birth date: every
+            // row is read, and the date says whose it is (``VaultReadFacts/personKey``). Rows
+            // without one are the same number printed again, or another's: only the first counts.
+            let born = rows.map { birthDate(of: $0, on: page) }
+            let read = rows.count > 1 && born.allSatisfy { $0 != nil } ? Array(zip(rows, born)) : [(rows[0], born[0])]
+            for (row, born) in read where seen.insert(normalized(row.value)).inserted {
+                out.append(accountFind(row.value, kind: kind.name, page: page, path: path, roots: roots, people: people,
+                                       born: born))
+            }
         }
         // The group number is the plan's, shared by everyone on it: a detail of the member's, never
         // a number of its own.
@@ -172,18 +180,38 @@ extension VaultReading {
         accountFind(value, kind: "Account number", page: page, path: path, roots: roots, people: people)
     }
 
+    /// The birth date printed in a number's own row, when its label's row names one ("Medical
+    /// Record No./ID  Date of Birth" over "11 0012345678  01/09/1988"). A US paper's order when the
+    /// date reads both ways: accounts are read from Health, Home, Vehicles and School.
+    static func birthDate(of row: PrintedPage.Hit, on page: PrintedPage) -> Date? {
+        let label = page.lines[row.label].lowercased()
+        guard label.contains("birth") || page.lines[row.label].range(of: #"(?<![A-Za-z])DOB(?![A-Za-z])"#,
+                                                                    options: [.regularExpression, .caseInsensitive]) != nil
+        else { return nil }
+        let line = page.lines[row.line]
+        let after = line.range(of: row.value).map { String(line[$0.upperBound...]) } ?? line
+        // The first date after the number: as read when it reads one way only, else month first.
+        guard let at = PrintedPage.dates(in: after, order: nil).first?.at else { return nil }
+        let either = PrintedPage.dates(in: after, order: nil).filter { $0.at == at }
+        return either.count == 1 ? either[0].date
+            : PrintedPage.dates(in: after, order: .monthFirst).first { $0.at == at }?.date
+    }
+
     private static func accountFind(_ value: String, kind: String, page: PrintedPage, path: String,
-                                    roots: [String], people: [Person]) -> VaultFind {
+                                    roots: [String], people: [Person], born: Date? = nil) -> VaultFind {
         let issuer = accountIssuer(path, under: roots, people: people)
         let category = accountCategory(path, kind: kind, under: roots)
-        let holder = page.value(preferring: holderLabels, holderValue, keeping: nameOnly)
+        // A row's birth date says whose the number is; the page's one name, on a family's card,
+        // would make every row the first person's.
+        let holder = born == nil ? page.value(preferring: holderLabels, holderValue, keeping: nameOnly) : nil
         var details: [VaultDetail] = []
         if let issuer { details.append(VaultDetail("Issued by", .text(issuer))) }
         if let group = groupNumber(on: page) {
             details.append(VaultDetail("Group number", .number(group)))
         }
         let card = page.says("id card") || path.lowercased().contains("id card")
-        let facts = VaultReadFacts(category: category, holder: holder, form: kind, dated: fileDate(path) ?? yearOf(path),
+        let facts = VaultReadFacts(category: category, holder: holder, born: born, form: kind,
+                                   dated: fileDate(path) ?? yearOf(path),
                                    details: details,
                                    sources: [VaultSource(path: path, role: card ? "ID card" : "Account paper",
                                                          rank: card ? IDRank.card : IDRank.letter)])
