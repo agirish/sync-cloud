@@ -5,9 +5,10 @@ import SwiftUI
 /// passports). As many columns as fit at `minColumnWidth`, sharing the width; one column when
 /// narrow, as the grid it replaces was.
 ///
-/// Cards keep their order: the first ones fill the top row left to right, and each after goes
-/// under the shortest. Folding a card can move the ones after it to another column; the panel
-/// animates that (``withDesignAnimation``), so the move is followed rather than jumped.
+/// Columns are chosen from each card's full size (``VaultMasonrySize``): its header and every
+/// row, folded or not. So folding a card shrinks it where it stands; only the cards under it in
+/// its own column move up, and none changes column. They are chosen again only when which cards
+/// there are, or how many rows each holds, changes. Placing uses each card's height as drawn.
 struct VaultMasonry: Layout {
     var minColumnWidth: CGFloat = 270
     var spacing: CGFloat = 12
@@ -22,14 +23,26 @@ struct VaultMasonry: Layout {
         return (count, max(0, columnWidth))
     }
 
-    /// Where each card goes: its column's left edge and its top, and the height of the whole.
-    func placements(width: CGFloat, heights: [CGFloat]) -> (origins: [CGPoint], height: CGFloat) {
+    /// Which column each card goes in: the shortest so far by full size, the leftmost of a tie,
+    /// so the first cards fill the top row left to right. Sizes alone, in whatever unit they
+    /// come (rows, or points): the gap between cards is the same in every column.
+    func assignments(width: CGFloat, sizes: [CGFloat]) -> [Int] {
+        var totals = Array(repeating: CGFloat(0), count: columns(for: width).count)
+        return sizes.map { size in
+            let column = totals.indices.min { totals[$0] < totals[$1] || (totals[$0] == totals[$1] && $0 < $1) } ?? 0
+            totals[column] += size
+            return column
+        }
+    }
+
+    /// Where each card goes, in the columns `assignments` chose, stacked at the heights drawn;
+    /// and the height of the whole. `sizes` choose the columns; without them, `heights` do.
+    func placements(width: CGFloat, heights: [CGFloat], sizes: [CGFloat]? = nil) -> (origins: [CGPoint], height: CGFloat) {
         let (count, columnWidth) = columns(for: width)
+        let chosen = assignments(width: width, sizes: sizes ?? heights)
         var tops = Array(repeating: CGFloat(0), count: count)
         var origins: [CGPoint] = []
-        for height in heights {
-            // The shortest column, the leftmost of any tie: order reads left to right.
-            let column = tops.indices.min { tops[$0] < tops[$1] || (tops[$0] == tops[$1] && $0 < $1) } ?? 0
+        for (height, column) in zip(heights, chosen) {
             origins.append(CGPoint(x: CGFloat(column) * (columnWidth + spacing), y: tops[column]))
             tops[column] += height + spacing
         }
@@ -37,23 +50,34 @@ struct VaultMasonry: Layout {
         return (origins, heights.isEmpty ? 0 : max(0, tallest - spacing))
     }
 
-    private func heights(_ subviews: Subviews, columnWidth: CGFloat) -> [CGFloat] {
-        subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
+    private func measure(_ subviews: Subviews, columnWidth: CGFloat) -> (heights: [CGFloat], sizes: [CGFloat]) {
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
+        // A card that says its full size is placed by it; one that does not, by its height.
+        let sizes = zip(subviews, heights).map { subview, height in subview[VaultMasonrySize.self] ?? height }
+        return (heights, sizes)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         // Unspecified or unbounded, the ideal width: one column.
         let width = proposal.width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? minColumnWidth
         let (_, columnWidth) = columns(for: width)
-        return CGSize(width: width, height: placements(width: width, heights: heights(subviews, columnWidth: columnWidth)).height)
+        let (heights, sizes) = measure(subviews, columnWidth: columnWidth)
+        return CGSize(width: width, height: placements(width: width, heights: heights, sizes: sizes).height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let (_, columnWidth) = columns(for: bounds.width)
-        let (origins, _) = placements(width: bounds.width, heights: heights(subviews, columnWidth: columnWidth))
+        let (heights, sizes) = measure(subviews, columnWidth: columnWidth)
+        let (origins, _) = placements(width: bounds.width, heights: heights, sizes: sizes)
         for (subview, origin) in zip(subviews, origins) {
             subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), anchor: .topLeading,
                           proposal: ProposedViewSize(width: columnWidth, height: nil))
         }
     }
+}
+
+/// A card's full size for choosing its column, folded or not: its header and every row, in
+/// rows. Set with `.layoutValue(key: VaultMasonrySize.self, value: …)`.
+struct VaultMasonrySize: LayoutValueKey {
+    static let defaultValue: CGFloat? = nil
 }

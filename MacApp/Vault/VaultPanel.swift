@@ -837,6 +837,9 @@ struct VaultCard: View {
                         ForEach(model.cards, id: \.card.key) { card in
                             categoryCard(card.card, card.rows)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                                // Its column comes from its header and every row, folded or
+                                // not: folding it never moves a card to another column.
+                                .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.rows.count))
                         }
                     }
                     // Kinds that only the other country has, which no card here can point to.

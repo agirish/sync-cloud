@@ -33,6 +33,22 @@ import Testing
         #expect(height == 600)
     }
 
+    /// Folding a card makes it short; the columns come from its full size, so no card moves to
+    /// another column, and the cards under it in its own column move up.
+    @Test func foldingACardMovesNoCardToAnotherColumn() {
+        // Rows per card (header and rows): passports 8, I-94s 3, cases 5, licenses 3, SSNs 3.
+        let sizes: [CGFloat] = [8, 3, 5, 3, 3]
+        let open: [CGFloat] = [500, 180, 300, 180, 180]
+        // The passports folded to their header: as short as any card now.
+        let folded: [CGFloat] = [40, 180, 300, 180, 180]
+        let before = layout.placements(width: 900, heights: open, sizes: sizes).origins
+        let after = layout.placements(width: 900, heights: folded, sizes: sizes).origins
+        #expect(before.map(\.x) == after.map(\.x), "every card in the column it was in")
+        // Chosen by their heights instead, the folded passports' column would take the next card.
+        #expect(layout.placements(width: 900, heights: folded).origins.map(\.x) != before.map(\.x))
+        #expect(layout.assignments(width: 900, sizes: sizes) == [0, 1, 2, 1, 2])
+    }
+
     @Test func aTieGoesToTheLeftmostAndOneColumnStacksInOrder() {
         let (origins, height) = layout.placements(width: 300, heights: [100, 50, 70])
         #expect(origins.map(\.y) == [0, 112, 174])
