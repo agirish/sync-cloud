@@ -831,10 +831,12 @@ struct VaultCard: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 270), spacing: 12, alignment: .top)],
-                              alignment: .leading, spacing: 12) {
+                    // Packed into columns, each card under the shortest (``VaultMasonry``): no gap
+                    // under a short card beside a tall one.
+                    VaultMasonry(minColumnWidth: 270, spacing: 12) {
                         ForEach(model.cards, id: \.card.key) { card in
                             categoryCard(card.card, card.rows)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
                         }
                     }
                     // Kinds that only the other country has, which no card here can point to.
