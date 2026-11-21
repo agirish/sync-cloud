@@ -1068,11 +1068,28 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// account's folder, and the card its numbers go on. Kept across a change of rules: it is the
     /// user's, not the reader's.
     public var lessons: [String: VaultCardID]
+    /// Documents an older build read IDs from, kept when what it read is let go with its rules,
+    /// so Refresh can read those first. Nil once a refresh has.
+    public var staleSources: [String]?
+    /// Documents an ID was read from that were not where they had been at the last look.
+    public var notFound: [String]?
+    /// A refresh has followed a change of rules, and the other files have not been read with
+    /// the new ones: the panel offers Discover More.
+    public var needsDiscover: Bool?
+    public var lastRefreshed: Date?
+    public var lastDiscovered: Date?
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
-                needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:]) {
+                needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
+                staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
+                lastRefreshed: Date? = nil, lastDiscovered: Date? = nil) {
+        self.staleSources = staleSources
+        self.notFound = notFound
+        self.needsDiscover = needsDiscover
+        self.lastRefreshed = lastRefreshed
+        self.lastDiscovered = lastDiscovered
         self.version = version
         self.generation = generation
         self.finds = finds
@@ -1086,6 +1103,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
+        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered
     }
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
@@ -1101,6 +1119,12 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         choices = try c.decodeIfPresent([String: VaultChoice].self, forKey: .choices) ?? [:]
         needsReadAgain = try c.decodeIfPresent(Bool.self, forKey: .needsReadAgain) ?? false
         lessons = try c.decodeIfPresent([String: VaultCardID].self, forKey: .lessons) ?? [:]
+        // Lenient: none of these is worth losing To Confirm over.
+        staleSources = try? c.decodeIfPresent([String].self, forKey: .staleSources)
+        notFound = try? c.decodeIfPresent([String].self, forKey: .notFound)
+        needsDiscover = try? c.decodeIfPresent(Bool.self, forKey: .needsDiscover)
+        lastRefreshed = try? c.decodeIfPresent(Date.self, forKey: .lastRefreshed)
+        lastDiscovered = try? c.decodeIfPresent(Date.self, forKey: .lastDiscovered)
     }
 }
 

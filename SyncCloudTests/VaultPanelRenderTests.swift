@@ -44,6 +44,8 @@ struct VaultPanelAllows: VaultAuthenticating {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-panel-\(UUID().uuidString)")
         let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultPanelKeychain())
         let scratch = TestDefaults()
+        // Locked only by closing: a render late in a slow run must not find it timed out.
+        scratch.defaults.set(VaultLockSettings.Relock.whenClosed.rawValue, forKey: VaultLockSettings.relockKey)
         let model = VaultModel(store: store, authenticator: VaultPanelAllows(), defaults: scratch.defaults,
                                copyToPasteboard: { _ in })
         await model.opened()

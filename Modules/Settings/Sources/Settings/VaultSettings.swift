@@ -12,6 +12,8 @@ struct VaultSettingsTab: View {
     @AppStorage(VaultLockSettings.requiresAuthenticationKey) private var requiresAuthentication: Bool = true
     @AppStorage(VaultLockSettings.askKey) private var ask: VaultLockSettings.Ask = .whenOpened
     @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterOneMinute
+    /// Whether Refresh runs by itself as the Vault opens (``VaultRefresh``).
+    @AppStorage(VaultRefresh.automaticKey) private var refreshesByItself: Bool = true
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
     @State private var isAsking = false
     /// Settings ▸ Vault ▸ Folders to read, read again when the page appears.
@@ -54,7 +56,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Folders to Read",
-                caption: "Read Documents in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It reads only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. You can also change the folders from the arrow beside the Vault’s Read Documents button."
+                caption: "Discover More in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It looks only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. Refresh reads again only the documents IDs came from. You can also change the folders from the arrow beside the Vault’s Discover More button."
             ) {
                 SettingsRow("Folders") {
                     // One column, right-aligned: each folder's Remove lines up under the last, and
@@ -101,10 +103,12 @@ struct VaultSettingsTab: View {
                     }
                     .help("Folders and everything in them: the first three pages of each scan or PDF, skipping files over 60 MB.")
                 }
+                Toggle("Refresh by itself when the Vault opens", isOn: $refreshesByItself.loggingSettingsChange("vault.refreshesByItself"))
+                    .help("Reads again a document an ID came from when it has changed, and all of them after an update. It opens no other file. Off, Refresh waits in the arrow beside Discover More.")
             }
             SettingsSection(
                 "Set Aside",
-                caption: "IDs you marked Not a Real ID, or removed after adding them from a document. Read Documents doesn’t offer them again until you forget them; then the next read opens every file again."
+                caption: "IDs you marked Not a Real ID, or removed after adding them from a document. Discover More doesn’t offer them again until you forget them; then the next read opens every file again."
             ) {
                 SettingsRow("IDs set aside") {
                     HStack(spacing: 8) {
@@ -122,7 +126,7 @@ struct VaultSettingsTab: View {
                         .frame(minWidth: 70, alignment: .trailing)
                         .disabled(setAsideCount == 0)
                     }
-                    .help("Forget, and the next Read Documents opens every file and offers these IDs again.")
+                    .help("Forget, and the next read opens every file and offers these IDs again.")
                 }
             }
         }

@@ -221,6 +221,9 @@ struct VaultCard: View {
             model.showsList = showsList
             await model.opened()
             searchFocused = true
+            // Refresh runs by itself (Settings ▸ Vault can turn that off): it opens only documents
+            // IDs were already read from, and of those only the ones that changed.
+            model.refreshIfWanted(with: VaultFolderReader(folders: readFolders))
         }
         // The countdown, and a shown number's thirty seconds. A sleep loop on the view's own
         // task, so it stops when the panel closes.
@@ -362,7 +365,7 @@ struct VaultCard: View {
             case .entry(let entry):
                 Text(entry.sourcePath == nil
                      ? "The ID is removed for good."
-                     : "The ID is removed for good, and Read Documents won’t offer it again. The document it came from isn’t touched.")
+                     : "The ID is removed for good, and it won’t be offered again when documents are read. The document it came from isn’t touched.")
             case .find:
                 Text("A misread: it comes off the Vault and isn’t offered again. Settings ▸ Vault can forget the IDs set aside.")
             }
@@ -384,7 +387,7 @@ struct VaultCard: View {
             Button("Choose Folders…") { addFolders() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from the arrow beside Read Documents or in Settings ▸ Vault.")
+            Text("The Vault reads only the folders you choose, such as the one that holds your passport scans. You can change them later from the arrow beside Discover More or in Settings ▸ Vault.")
         }
     }
 
@@ -424,12 +427,26 @@ struct VaultCard: View {
         .padding(.vertical, 10)
     }
 
-    /// Read Documents, with its folders beside it: a click reads what is new or changed; the
-    /// arrow lists the folders, adds one, or reads everything again.
+    /// Reading documents, in one menu. A click is Discover More: it looks through the chosen
+    /// folders for IDs the Vault does not have yet. The arrow has Refresh, which reads again only
+    /// the documents IDs came from, Read Everything Again, and the folders.
     private var readMenu: some View {
         Menu {
-            Button("Read New and Changed Documents") { readDocuments() }
-            Button("Read Everything Again") { readDocuments(again: true) }
+            Button {
+                read(.discover)
+            } label: {
+                Text("Discover More")
+                Text(Self.discoverLine(folders: readFolders.count))
+            }
+            Button {
+                read(.refresh())
+            } label: {
+                Text("Refresh")
+                Text(Self.refreshLine(documents: model.refreshSources.count))
+            }
+            .disabled(model.refreshSources.isEmpty && !model.needsReadAgain)
+            Divider()
+            Button("Read Everything Again") { read(.everything) }
             Divider()
             if readFolders.isEmpty {
                 Text("No folders chosen yet")
@@ -451,14 +468,15 @@ struct VaultCard: View {
             Button("Add Folder…") { addFolders() }
             Button("Folder Settings…", action: onOpenSettings)
         } label: {
-            Label("Read Documents", systemImage: "doc.text.viewfinder")
+            Label("Discover More", systemImage: "doc.text.viewfinder")
         } primaryAction: {
-            readDocuments()
+            read(.discover)
         }
         .menuIndicator(.visible)
         .fixedSize()
-        .help(model.reading == nil ? "Read Documents: find IDs in the folders you chose. The arrow lists the folders."
-                                   : "Reading your documents…")
+        .help(model.reading == nil
+              ? "Discover More: look through the folders you chose for IDs that are not in the Vault yet. The arrow has Refresh and the folders."
+              : model.reading?.scope.isRefresh == true ? "Refreshing your IDs from their documents…" : "Reading your documents…")
         .disabled(model.contents != .loaded || model.reading != nil)
     }
 
@@ -966,6 +984,7 @@ struct VaultCard: View {
         ScrollViewReader { scroller in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    readAgainBanner
                     tabBanner
                     if model.cards.isEmpty {
                         EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
@@ -1014,25 +1033,50 @@ struct VaultCard: View {
     /// tabs hold only what was saved until the folders are read again.
     @ViewBuilder
     private var readAgainBanner: some View {
-        if model.needsReadAgain, model.reading == nil {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.clockwise.circle")
-                    .foregroundStyle(glassHue.accentColor)
-                Text("This version reads documents better. Read them again to fill Current and Archive; your choices are kept.")
-                    .scaledFont(.subheadline)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
+        if model.needsReadAgain, let reading = model.reading, reading.scope.isRefresh {
+            // Refresh runs by itself after an update: nothing to click, only to stop.
+            readingBanner("This version reads documents better. Updating the \(Self.documents(reading.total)) your IDs came from: \(reading.done.formatted()) done.") {
+                Button("Stop") { model.stopReading() }
+                    .controlSize(.small)
+            }
+        } else if model.needsReadAgain, model.reading == nil {
+            readingBanner("This version reads documents better. Refresh reads again the \(Self.documents(model.refreshSources.count)) your IDs came from; your choices are kept.") {
                 Button {
-                    readDocuments(again: true)
+                    read(.refresh())
                 } label: {
-                    Label("Read Again", systemImage: "doc.text.viewfinder")
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderedProminent).accentedProminent(glassHue)
                 .controlSize(.small)
             }
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.1)))
+        } else if model.needsDiscover, model.reading == nil {
+            readingBanner("Your IDs are up to date. The other files in your folders have not been read with this version: Discover More looks through them, and goes on if you close the Vault.") {
+                Button {
+                    read(.discover)
+                } label: {
+                    Label("Discover More", systemImage: "doc.text.viewfinder")
+                }
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+                .controlSize(.small)
+                Button("Not Now") { model.dismissDiscover() }
+                    .controlSize(.small)
+            }
         }
+    }
+
+    private func readingBanner(_ text: String, @ViewBuilder actions: () -> some View) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.clockwise.circle")
+                .foregroundStyle(glassHue.accentColor)
+            Text(text)
+                .scaledFont(.subheadline)
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            actions()
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.1)))
     }
 
     /// Whether this tab has numbers the three choices hide.
@@ -1042,7 +1086,7 @@ struct VaultCard: View {
 
     private var emptyTitle: String { model.query.isEmpty ? "Nothing here" : "No IDs match" }
     private var emptyMessage: String {
-        model.query.isEmpty ? "IDs that belong here appear after Read Documents, or when you add one."
+        model.query.isEmpty ? "IDs that belong here appear after Discover More, or when you add one."
             : "Search looks at names, notes and kinds in every tab, never at the IDs themselves."
     }
 
@@ -1093,11 +1137,17 @@ struct VaultCard: View {
 
     @ViewBuilder
     private func badges(_ row: VaultModel.Row) -> some View {
+        // What the last refresh did to it, while that is news.
+        if model.changes[row.id] != nil { Pill(.mini, tint: glassHue.accentColor, text: "Updated") }
+        if row.documentMissing { Pill(.mini, tint: .secondary, text: "File not found") }
         if row.standing.inUse { Pill(.mini, tint: SemanticColor.info, text: "In use") }
         if row.standing.expired { Pill(.mini, tint: SemanticColor.warning, text: "Expired") }
         if row.standing.pending { Pill(.mini, tint: glassHue.accentColor, text: "Pending") }
         if row.isSaved {
-            Pill(.mini, tint: SemanticColor.success, text: "In Vault")
+            // News about a saved ID stands in for "In Vault", so a row never carries three marks.
+            if model.changes[row.id] == nil, !row.documentMissing {
+                Pill(.mini, tint: SemanticColor.success, text: "In Vault")
+            }
         } else if row.standing.tab != .archive {
             Pill(.mini, tint: glassHue.accentColor, text: "To confirm")
         }
@@ -1464,6 +1514,7 @@ struct VaultCard: View {
                     callout("Expired, and the newest of its kind read for \(row.whose). It stays here until a newer one is read.",
                             tint: SemanticColor.warning)
                 }
+                refreshNotes(row, shown: shown)
                 numberBox(row, shown: shown)
                 actionBar(row)
                 if let facts = row.facts, !facts.details.isEmpty {
@@ -1489,6 +1540,55 @@ struct VaultCard: View {
             }
             .padding(14)
         }
+    }
+
+    /// What the last refresh found about this ID: what reads differently now, a document that
+    /// reads as another number (asked about, never taken), and a document that is not where it was.
+    @ViewBuilder
+    private func refreshNotes(_ row: VaultModel.Row, shown: Bool) -> some View {
+        if let changed = model.changes[row.id] {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Changed by Refresh")
+                    .scaledFont(.callout.weight(.semibold))
+                ForEach(Array(changed.enumerated()), id: \.offset) { _, change in
+                    Text(Self.changeLine(change, shown: shown))
+                        .scaledFont(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.12)))
+        }
+        if row.isSaved, let other = model.rereads[row.id], let find = model.finds.first(where: { $0.id == other }) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Its document reads differently now: \(VaultMask.masked(find.value)). Your saved ID has not been changed.")
+                    .scaledFont(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Button("Keep Mine") { model.keepSaved(row.id) }
+                        .help("Sets the other reading aside; it is not offered again.")
+                    Button("Use the New Reading") { Task { await model.useReread(row.id) } }
+                        .help("Changes the saved ID to the number its document reads now, after Touch ID.")
+                }
+                .controlSize(.small)
+                .disabled(model.isAsking)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Radius.chip).fill(SemanticColor.warning.opacity(0.14)))
+        }
+        if row.documentMissing {
+            callout("Its document is not where it was. The ID is kept, and Discover More finds a moved document again.",
+                    tint: Color.secondary)
+        }
+    }
+
+    /// "Valid until: 14 Mar 2027 → 14 Mar 2031", or for a detail read for the first time
+    /// "Issued: 12 Nov 2026 (new)". A number in it shows only its ending unless the ID is shown.
+    static func changeLine(_ change: VaultChange, shown: Bool) -> String {
+        guard let was = change.was else { return "\(change.label): \(change.now.drawn(shown: shown)) (new)" }
+        return "\(change.label): \(was.drawn(shown: shown)) → \(change.now.drawn(shown: shown))"
     }
 
     private func detailLede(_ row: VaultModel.Row) -> String {
@@ -1637,9 +1737,17 @@ struct VaultCard: View {
     /// any number in them cut to its ending.
     private func documentsList(_ row: VaultModel.Row, shown: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Documents with this ID")
-                .scaledFont(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("Documents with this ID")
+                    .scaledFont(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 6)
+                Button("Refresh") { read(.refresh(only: row.id)) }
+                    .buttonStyle(.link)
+                    .scaledFont(.subheadline)
+                    .disabled(model.reading != nil)
+                    .help("Reads this ID’s documents again")
+            }
             let documents = Array(row.documents.enumerated())
             let listed = allDocumentsShown == row.id ? documents : Array(documents.prefix(Self.documentsShown))
             ForEach(listed, id: \.element.path) { index, source in
@@ -1825,12 +1933,14 @@ struct VaultCard: View {
             if let reading = model.reading {
                 ProgressView()
                     .controlSize(.mini)
-                Text(reading.total == 0 ? "Finding documents…"
-                                        : "Reading \(reading.done.formatted()) of \(Self.documents(reading.total))…")
+                Text(Self.progress(reading))
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             } else if let last = model.lastReading {
                 Text(Self.summary(last))
+                    .foregroundStyle(.secondary)
+            } else if let runs = Self.lastRuns(refreshed: model.lastRefreshed, discovered: model.lastDiscovered, now: model.now) {
+                Text(runs)
                     .foregroundStyle(.secondary)
             } else {
                 Text("Sealed on this Mac. Never sent to Claude.")
@@ -1869,8 +1979,59 @@ struct VaultCard: View {
         count == 1 ? "1 document" : "\(count.formatted()) documents"
     }
 
+    /// The footer while a read runs.
+    static func progress(_ reading: VaultModel.ReadingProgress) -> String {
+        if reading.scope.isRefresh {
+            return reading.total == 0 ? "Checking your documents…"
+                : "Refreshing \(reading.done.formatted()) of \(documents(reading.total))…"
+        }
+        return reading.total == 0 ? "Finding documents…" : "Reading \(reading.done.formatted()) of \(documents(reading.total))…"
+    }
+
+    /// The line under Discover More in its menu: where it looks.
+    static func discoverLine(folders count: Int) -> String {
+        count == 0 ? "No folders chosen yet" : "New and changed files in \(folders(count))"
+    }
+
+    /// The line under Refresh in its menu: how many documents it reads again.
+    static func refreshLine(documents count: Int) -> String {
+        count == 0 ? "No ID has been read from a document yet" : "The \(documents(count)) your IDs came from"
+    }
+
+    static func folders(_ count: Int) -> String { count == 1 ? "1 folder" : "\(count.formatted()) folders" }
+
+    /// The footer after a refresh: "Refreshed 212 documents: 2 IDs updated, 1 file not found."
+    static func refreshSummary(_ last: VaultModel.ReadingSummary) -> String {
+        var parts: [String] = []
+        if last.updated > 0 { parts.append(last.updated == 1 ? "1 ID updated" : "\(last.updated.formatted()) IDs updated") }
+        if last.newNumbers > 0 { parts.append(newNumbers(last.newNumbers)) }
+        if last.gone > 0 { parts.append(last.gone == 1 ? "1 waiting ID no longer read" : "\(last.gone.formatted()) waiting IDs no longer read") }
+        if last.missing > 0 { parts.append(last.missing == 1 ? "1 file not found" : "\(last.missing.formatted()) files not found") }
+        return "Refreshed \(documents(last.documents)): \(parts.isEmpty ? "nothing changed" : parts.joined(separator: ", "))."
+    }
+
+    /// The footer at rest: "Refreshed 5 minutes ago · Discovered 3 days ago". Nil before either.
+    static func lastRuns(refreshed: Date?, discovered: Date?, now: Date) -> String? {
+        let parts = [refreshed.map { "Refreshed \(ago($0, now: now))" }, discovered.map { "Discovered \(ago($0, now: now))" }]
+            .compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// How long ago, in words a glance takes in: "just now", "5 minutes ago", "3 hours ago",
+    /// "yesterday", "12 days ago".
+    static func ago(_ date: Date, now: Date) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 90 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60)) minutes ago" }
+        if seconds < 5400 { return "1 hour ago" }
+        if seconds < 86_400 { return "\(Int((seconds / 3600).rounded())) hours ago" }
+        if seconds < 172_800 { return "yesterday" }
+        return "\(Int(seconds / 86_400)) days ago"
+    }
+
     /// The footer after a read: "Read 3 new or changed of 812 documents: 1 new ID to confirm."
     static func summary(_ last: VaultModel.ReadingSummary) -> String {
+        if last.scope.isRefresh { return refreshSummary(last) }
         if last.opened == last.documents {
             return "Read \(documents(last.documents)): \(newNumbers(last.newNumbers))."
         }
@@ -1928,6 +2089,7 @@ struct VaultCard: View {
     /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.
     static func rowSpoken(title: String, row: VaultModel.Row) -> String {
         var parts = [title, row.category.singular, spokenNumber(row.value, shown: false)]
+        if row.documentMissing { parts.append("file not found") }
         if row.standing.inUse { parts.append("in use") }
         if row.standing.expired { parts.append("expired") }
         if row.standing.pending { parts.append("pending") }
@@ -2001,16 +2163,21 @@ struct VaultCard: View {
 
     /// Read Documents, over the folders chosen here or in Settings ▸ Vault. `again` opens every
     /// file, not only the new and changed ones.
-    private func readDocuments(again: Bool = false) {
+    private func readDocuments(again: Bool = false) { read(again ? .everything : .discover) }
+
+    /// Starts a read of `scope`: the folders (Discover More, Read Everything Again), or only the
+    /// documents IDs came from (Refresh).
+    private func read(_ scope: VaultReadScope) {
         guard model.reading == nil else { return }
         let folders = VaultReadFolders.folders()
         readFolders = folders
-        guard !folders.isEmpty else {
+        // Looking for more needs somewhere to look; a refresh reads documents it already knows.
+        guard scope.isRefresh || !folders.isEmpty else {
             askingForFolders = true
             return
         }
         // The model runs it, so it carries on when the panel closes.
-        model.startReading(with: VaultFolderReader(folders: folders), again: again)
+        model.startReading(with: VaultFolderReader(folders: folders), scope: scope)
     }
 
     /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.

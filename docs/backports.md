@@ -16168,6 +16168,13 @@ its symbol in the color (`VaultCardHeader`), by group with a choice per card, se
 card's title, beside Kind, or in Customize Groups. Names of groups, kinds and colors in
 UserDefaults; nothing sealed changes.
 
+2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
+from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
+(`VaultChange`), asks before a saved ID takes another reading, and keeps an ID whose file moved;
+the toolbar's Read Documents is Discover More. `VaultReadingState` gains optional fields
+(`staleSources`, `notFound`, `needsDiscover`, the two dates): a file an older build sealed opens
+unchanged, and an older build ignores them.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

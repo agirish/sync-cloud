@@ -153,6 +153,7 @@ public struct SettingsView: View {
         /// - One-Way Sync is drawn by the app (`SettingsView.oneWaySync`), so a test here has
         ///   nothing to measure.
         /// - Ask Claude ▸ Privacy grows with the hidden and shared lists.
+        /// - Vault grows with the folders it reads, a row each.
         ///
         /// **A fit-guard fixture built with a nil dependency measures only the empty state**, so a
         /// page with an unbounded list belongs here however well its `else` branch fits. Name
@@ -162,7 +163,7 @@ public struct SettingsView: View {
         public static let exemptFromFitGuard: Set<SettingsPlace> = [
             SettingsPlace(.cloudProviders), SettingsPlace(.localFolders), SettingsPlace(.nameChecks),
             SettingsPlace(.people), SettingsPlace(.oneWaySync), SettingsPlace(.privacy),
-            SettingsPlace(.toFile), SettingsPlace(.ignored),
+            SettingsPlace(.toFile), SettingsPlace(.ignored), SettingsPlace(.vault),
         ]
 
         /// The rail's rows in groups, separated by a hairline.
@@ -852,10 +853,12 @@ enum SettingsSearchIndex {
         .init(at: .vault, title: "Lock again",
               keywords: ["vault", "relock", "timeout", "idle", "one minute", "two minutes", "five minutes", "ten minutes", "auto lock"]),
         .init(at: .vault, title: "Folders to read",
-              keywords: ["vault", "read documents", "scan", "passport", "receipt number", "i-94",
+              keywords: ["vault", "read documents", "discover more", "scan", "passport", "receipt number", "i-94",
                          "folders", "what to read"]),
+        .init(at: .vault, title: "Refresh by itself when the Vault opens",
+              keywords: ["vault", "refresh", "automatic", "by itself", "read again", "update", "changed document"]),
         .init(at: .vault, title: "IDs set aside",
-              keywords: ["vault", "not this", "set aside", "forget", "offered again", "read documents"]),
+              keywords: ["vault", "not this", "set aside", "forget", "offered again", "read documents", "discover more"]),
         // Advanced
         .init(at: .advanced, title: "Run Setup Again",
               keywords: ["setup", "guided setup", "first run", "onboarding", "welcome",

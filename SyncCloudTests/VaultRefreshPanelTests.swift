@@ -1,0 +1,127 @@
+import AppKit
+import SwiftUI
+import Sync
+import Testing
+@testable import SyncCloud
+
+/// Refresh and Discover More as the panel says and draws them. Every ID is made up.
+@MainActor
+@Suite struct VaultRefreshPanelTests {
+    // MARK: Words
+
+    @Test func theFooterSaysWhatARefreshDid() {
+        typealias Summary = VaultModel.ReadingSummary
+        #expect(VaultCard.summary(Summary(documents: 212, opened: 3, newNumbers: 0, scope: .refresh(), updated: 2, missing: 1))
+                == "Refreshed 212 documents: 2 IDs updated, 1 file not found.")
+        #expect(VaultCard.summary(Summary(documents: 1, opened: 0, newNumbers: 0, scope: .refresh()))
+                == "Refreshed 1 document: nothing changed.")
+        #expect(VaultCard.summary(Summary(documents: 40, opened: 40, newNumbers: 1, scope: .refresh(), updated: 1, gone: 2))
+                == "Refreshed 40 documents: 1 ID updated, 1 new ID to confirm, 2 waiting IDs no longer read.")
+        // A read of the folders keeps its own words.
+        #expect(VaultCard.summary(Summary(documents: 812, opened: 3, newNumbers: 1))
+                == "Read 3 new or changed of 812 documents: 1 new ID to confirm.")
+    }
+
+    @Test func theFooterSaysWhichReadIsRunning() {
+        typealias Progress = VaultModel.ReadingProgress
+        #expect(VaultCard.progress(Progress(done: 0, total: 0, scope: .refresh())) == "Checking your documents…")
+        #expect(VaultCard.progress(Progress(done: 64, total: 212, scope: .refresh())) == "Refreshing 64 of 212 documents…")
+        #expect(VaultCard.progress(Progress(done: 0, total: 0, scope: .discover)) == "Finding documents…")
+        #expect(VaultCard.progress(Progress(done: 5, total: 9, scope: .everything)) == "Reading 5 of 9 documents…")
+    }
+
+    @Test func theMenuSaysWhereEachLooks() {
+        #expect(VaultCard.discoverLine(folders: 0) == "No folders chosen yet")
+        #expect(VaultCard.discoverLine(folders: 1) == "New and changed files in 1 folder")
+        #expect(VaultCard.discoverLine(folders: 3) == "New and changed files in 3 folders")
+        #expect(VaultCard.refreshLine(documents: 0) == "No ID has been read from a document yet")
+        #expect(VaultCard.refreshLine(documents: 212) == "The 212 documents your IDs came from")
+    }
+
+    @Test func atRestTheFooterSaysWhenEachLastRan() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func back(_ seconds: TimeInterval) -> Date { now.addingTimeInterval(-seconds) }
+        #expect(VaultCard.lastRuns(refreshed: nil, discovered: nil, now: now) == nil)
+        #expect(VaultCard.lastRuns(refreshed: back(20), discovered: nil, now: now) == "Refreshed just now")
+        #expect(VaultCard.lastRuns(refreshed: back(300), discovered: back(3 * 86_400 + 60), now: now)
+                == "Refreshed 5 minutes ago · Discovered 3 days ago")
+        #expect(VaultCard.ago(back(4000), now: now) == "1 hour ago")
+        #expect(VaultCard.ago(back(3 * 3600), now: now) == "3 hours ago")
+        #expect(VaultCard.ago(back(30 * 3600), now: now) == "yesterday")
+        #expect(VaultCard.ago(now.addingTimeInterval(60), now: now) == "just now", "a clock set back never reads as the future")
+    }
+
+    @Test func aChangeSaysWhatFromAndToAndHidesANumberUntilShown() {
+        let day = { (y: Int, m: Int, d: Int) in Calendar(identifier: .gregorian).date(from: DateComponents(timeZone: TimeZone(identifier: "UTC"), year: y, month: m, day: d))! }
+        let moved = VaultChange(label: "Valid until", was: .date(day(2027, 3, 14)), now: .date(day(2031, 3, 14)))
+        #expect(VaultCard.changeLine(moved, shown: false) == "Valid until: 14 March 2027 → 14 March 2031")
+        let new = VaultChange(label: "Class", was: nil, now: .text("C"))
+        #expect(VaultCard.changeLine(new, shown: true) == "Class: C (new)")
+        let group = VaultChange(label: "Group number", was: .number("0012345"), now: .number("0099999"))
+        #expect(VaultCard.changeLine(group, shown: false) == "Group number: •••2345 → •••9999")
+        #expect(VaultCard.changeLine(group, shown: true) == "Group number: 0012345 → 0099999")
+    }
+
+    // MARK: Drawn
+
+    /// Documents the test can change.
+    final class Shelf: VaultDocumentReading, @unchecked Sendable {
+        private let lock = NSLock()
+        private var pages: [String: [String]]
+        private var stamps: [String: Int] = [:]
+        init(_ pages: [String: [String]]) { self.pages = pages }
+        func write(_ path: String, _ page: [String]) { lock.withLock { pages[path] = page; stamps[path, default: 1] += 1 } }
+        func remove(_ path: String) { lock.withLock { pages[path] = nil } }
+        func files() async -> [URL] { lock.withLock { pages.keys.sorted().map { URL(fileURLWithPath: $0) } } }
+        func pages(in file: URL) async -> [[String]] { lock.withLock { pages[file.path].map { [$0] } ?? [] } }
+        func stamp(of file: URL) -> String? { lock.withLock { pages[file.path] == nil ? nil : String(stamps[file.path, default: 1]) } }
+        func modified(of file: URL) -> Date? { nil }
+        func exists(_ file: URL) -> Bool { lock.withLock { pages[file.path] != nil } }
+    }
+
+    static let root = "/Users/anna/Documents"
+    static let dental = root + "/Health/Dental/ID Cards/card.pdf"
+    static let vision = root + "/Health/Vision/ID Cards/card.pdf"
+    static func card(_ plan: String, id: String, group: String) -> [String] {
+        [plan, "Member Name: ANNA ERIKSSON", "Member ID: \(id)", "Group Number: \(group)"]
+    }
+
+    @Test func aRefreshedIDIsMarkedAndAMovedDocumentIsSaidSo() async throws {
+        let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let shelf = Shelf([Self.dental: Self.card("Delta Dental", id: "XZB123456789", group: "0012345"),
+                           Self.vision: Self.card("Clear Vision", id: "VSP99887766", group: "0044")])
+        await rig.model.readDocuments(with: shelf)
+        let before = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "refresh-before")
+
+        shelf.write(Self.dental, Self.card("Delta Dental", id: "XZB123456789", group: "0099999"))
+        shelf.remove(Self.vision)
+        await rig.model.readDocuments(with: shelf, scope: .refresh())
+        let dental = try #require(rig.model.rows.first { $0.value == "XZB123456789" })
+        #expect(rig.model.changes[dental.id] != nil)
+        #expect(rig.model.rows.first { $0.value == "VSP99887766" }?.documentMissing == true)
+        rig.model.selection = dental.id
+        let after = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "refresh-after")
+        #expect(differingPixels(before, after) > 4000, "the Updated mark, the File not found mark and what changed are drawn")
+    }
+
+    @Test func afterAnUpdateTheBannerOffersDiscoverMoreUntilNotNow() async throws {
+        let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
+        let plain = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "banner-none")
+        // A refresh that follows a change of rules leaves the folders to be looked at.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-refresh-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultPanelKeychain())
+        try store.saveReading(VaultReadingState(needsDiscover: true))
+        let scratch = TestDefaults()
+        let model = VaultModel(store: store, authenticator: VaultPanelAllows(), defaults: scratch.defaults, copyToPasteboard: { _ in })
+        await model.opened()
+        #expect(model.needsDiscover)
+        _ = model.add(VaultModel.Draft(title: "Passport", value: "A38291647", category: .passport))
+        let offered = try VaultPanelRenderTests.render(model, defaults: scratch.defaults, name: "banner-discover")
+        model.dismissDiscover()
+        let dismissed = try VaultPanelRenderTests.render(model, defaults: scratch.defaults, name: "banner-dismissed")
+        #expect(differingPixels(offered, dismissed) > 4000, "the banner is drawn, and Not Now takes it away")
+        _ = plain
+    }
+}

@@ -233,7 +233,6 @@ func laidOutHeight(_ view: some View, width: CGFloat = SettingsSheetMetrics.cont
         // Non-nil closures, or sections go unmeasured: the setup, reset, rules and help buttons are
         // drawn only when their closure is there.
         [(SettingsPlace(.general), AnyView(GeneralSettingsTab().environmentObject(settings))),
-         (SettingsPlace(.vault), AnyView(VaultSettingsTab())),
          (SettingsPlace(.look), AnyView(AppearanceSettingsTab())),
          (SettingsPlace(.textAndSpacing), AnyView(ReadabilitySettingsTab())),
          (SettingsPlace(.panes), AnyView(BrowseSettingsTab(page: .panes, onCustomizePaneBar: {},

@@ -190,7 +190,10 @@ for: a passport number, a member ID, a loan number.
   every other ID's country comes from its document), a person, and a group of kinds such as
   Travel & Immigration or Legal & IDs, which you can rename and rearrange. Once chosen, each shrinks
   to one token, and the Vault opens as you left it.
-- **Read Documents** looks in folders you choose for passports (from the photo page, checked
+- **Refresh** reads again only the documents your IDs came from: quick, run by itself as the Vault
+  opens and after an update, and it marks what changed. A saved ID is never changed for it, and
+  an ID is never dropped because its file moved.
+- **Discover More** looks in folders you choose for passports (from the photo page, checked
   against its own check digits, with its issue date), visas (US visa foils, OCI cards and e-OCIs,
   and visas granted online such as India's e-Visa), I-94 records and USCIS receipt numbers, and for the
   cards a household files under Legal: US driver's licenses (from the barcode on the back),

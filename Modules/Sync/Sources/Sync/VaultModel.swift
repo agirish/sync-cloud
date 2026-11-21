@@ -21,12 +21,17 @@ public protocol VaultDocumentReading: Sendable {
     /// Whether only the files ``VaultReadPlan`` picks are opened. The app's reader does; a
     /// stand-in in a test reads every file it is handed unless it says otherwise.
     var followsReadPlan: Bool { get }
+    /// Whether a document an ID was read from is still where it was: what Refresh asks before
+    /// it opens anything.
+    func exists(_ file: URL) -> Bool
 }
 
 extension VaultDocumentReading {
     public func walk() async -> (files: [URL], unreachable: [String]) { (await files(), []) }
 
     public var followsReadPlan: Bool { false }
+
+    public func exists(_ file: URL) -> Bool { FileManager.default.fileExists(atPath: file.path) }
 
     public func modified(of file: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
@@ -174,6 +179,14 @@ public final class VaultModel: ObservableObject {
     public struct ReadingProgress: Equatable, Sendable {
         public var done: Int
         public var total: Int
+        /// What is being read: the folders, or only the documents IDs came from.
+        public var scope: VaultReadScope
+
+        public init(done: Int, total: Int, scope: VaultReadScope = .discover) {
+            self.done = done
+            self.total = total
+            self.scope = scope
+        }
     }
 
     /// What the last Read Documents came to.
@@ -183,13 +196,44 @@ public final class VaultModel: ObservableObject {
         /// Those opened this time: new, changed, or all of them on a first read.
         public var opened: Int
         public var newNumbers: Int
+        /// What was read: the folders, or (Refresh) only the documents IDs came from, in which
+        /// case `documents` counts those.
+        public var scope: VaultReadScope
+        /// Refresh: IDs whose dates or details read differently now.
+        public var updated: Int
+        /// Refresh: documents that were not where they had been.
+        public var missing: Int
+        /// Refresh: waiting IDs their documents no longer give.
+        public var gone: Int
 
-        public init(documents: Int, opened: Int? = nil, newNumbers: Int) {
+        public init(documents: Int, opened: Int? = nil, newNumbers: Int, scope: VaultReadScope = .discover,
+                    updated: Int = 0, missing: Int = 0, gone: Int = 0) {
             self.documents = documents
             self.opened = opened ?? documents
             self.newNumbers = newNumbers
+            self.scope = scope
+            self.updated = updated
+            self.missing = missing
+            self.gone = gone
         }
     }
+
+    /// What the last refresh changed about each ID, until the Vault is let go: its row says
+    /// Updated, and its details say what from and to.
+    @Published public private(set) var changes: [UUID: [VaultChange]] = [:]
+    /// A saved ID whose document now reads as another number, by the waiting ID that reading
+    /// made. The saved one is never changed for it: the panel asks.
+    @Published public private(set) var rereads: [UUID: UUID] = [:]
+    /// Documents an ID was read from that were not found where they had been. The ID is kept;
+    /// Discover More finds a moved document again by its number.
+    @Published public private(set) var missingDocuments: Set<String> = [] { didSet { rowsRevision &+= 1 } }
+    /// A refresh has brought the IDs up to this build's rules, and the rest of the folders have
+    /// not been read with them: the panel offers Discover More, once.
+    @Published public private(set) var needsDiscover = false
+    @Published public private(set) var lastRefreshed: Date?
+    @Published public private(set) var lastDiscovered: Date?
+    /// Documents an older build read IDs from, for the refresh that follows a change of rules.
+    private var staleSources: Set<String> = []
 
     /// Numbers read from documents and not yet confirmed. Sealed in Read Documents' own file
     /// between reads, and let go from memory with the entries when the Vault locks.
@@ -282,6 +326,9 @@ public final class VaultModel: ObservableObject {
         public var chosenCard: VaultCardID?
         /// The folder whose lesson put it on ``card``, when no choice of its own did.
         public var learnedFrom: String?
+        /// The document it was read from is not where it was (``VaultModel/missingDocuments``).
+        /// The ID is kept; Discover More finds a moved document again.
+        public var documentMissing = false
 
         /// Every document carrying the number, the one it was read from first.
         public var documents: [VaultSource] { facts?.orderedSources ?? [] }
@@ -375,6 +422,12 @@ public final class VaultModel: ObservableObject {
         func withMentions(_ facts: VaultReadFacts?, _ value: String) -> VaultReadFacts? {
             guard var facts else { return nil }
             for source in mentions[VaultReading.normalized(value)] ?? [] { facts.add(source) }
+            // A document that is not where it was is passed over while another carries the ID:
+            // a scan moved and found again is simply read from where it is now.
+            if !missingDocuments.isEmpty {
+                let found = facts.sources.filter { !missingDocuments.contains($0.path) }
+                if !found.isEmpty { facts.sources = found }
+            }
             return facts
         }
         /// One number before its standing is known.
@@ -495,7 +548,8 @@ public final class VaultModel: ObservableObject {
                        assignment: item.chosen, isHousehold: isHousehold,
                        geo: item.chosenGeo ?? read.geo, geoReason: item.chosenGeo == nil ? read.reason : "You chose it",
                        chosenGeo: item.chosenGeo, card: item.drawnOn, readAs: item.readAs,
-                       chosenCard: item.card.flatMap { kinds.exists($0) ? $0 : nil }, learnedFrom: item.learnedFrom)
+                       chosenCard: item.card.flatMap { kinds.exists($0) ? $0 : nil }, learnedFrom: item.learnedFrom,
+                       documentMissing: item.facts?.primary.map { missingDocuments.contains($0.path) } ?? false)
         }
     }
 
@@ -1075,12 +1129,68 @@ public final class VaultModel: ObservableObject {
     }
 
     /// Read Documents, run by the model so it goes on when the panel closes. One at a time.
-    public func startReading(with reader: VaultDocumentReading, again: Bool = false) {
+    public func startReading(with reader: VaultDocumentReading, again: Bool = false, scope: VaultReadScope? = nil) {
         guard reading == nil, readingTask == nil else { return }
         readingTask = Task { [weak self] in
-            await self?.readDocuments(with: reader, again: again)
+            await self?.readDocuments(with: reader, again: again, scope: scope)
             self?.readingTask = nil
         }
+    }
+
+    /// Stop, on the banner of a refresh that is running: what was read so far is kept, and the
+    /// next one carries on.
+    public func stopReading() {
+        readingTask?.cancel()
+    }
+
+    /// The Vault opened: Refresh runs by itself when the setting allows (it only opens documents
+    /// IDs were already read from), so a changed scan or an app update needs no click.
+    public func refreshIfWanted(with reader: VaultDocumentReading) {
+        guard VaultRefresh.isAutomatic(in: defaults), contents == .loaded,
+              needsReadAgain || !refreshSources.isEmpty else { return }
+        startReading(with: reader, scope: .refresh())
+    }
+
+    /// Every document an ID was read from, saved or waiting: what Refresh looks at. Not the
+    /// documents that only name an ID; those come back with Discover More.
+    public var refreshSources: Set<String> {
+        var paths = staleSources
+        for entry in entries {
+            if let path = entry.sourcePath { paths.insert(path) }
+            for source in entry.facts?.sources ?? [] { paths.insert(source.path) }
+        }
+        for find in finds { for source in find.facts.sources { paths.insert(source.path) } }
+        for byFile in copies.values { paths.formUnion(byFile.keys) }
+        return paths
+    }
+
+    /// Not Now, on the banner that offers Discover More after an update: it is not offered again
+    /// until the next one. The menu still has it.
+    public func dismissDiscover() {
+        guard needsDiscover else { return }
+        needsDiscover = false
+        readingChanged = true
+        saveReading()
+    }
+
+    /// Keep Mine: the saved ID stands, and the other reading of its document is set aside.
+    public func keepSaved(_ id: UUID) {
+        guard let find = rereads[id] else { return }
+        rereads[id] = nil
+        setAside(find)
+    }
+
+    /// Use the New Reading: the saved ID takes the number its document now reads, after a proof
+    /// when one is owed, as any change to a number does.
+    @discardableResult
+    public func useReread(_ id: UUID) async -> Bool {
+        guard let findID = rereads[id], let find = finds.first(where: { $0.id == findID }),
+              let entry = entries.first(where: { $0.id == id }) else { return false }
+        var draft = Draft(entry)
+        draft.value = find.value
+        guard await update(id, to: draft) else { return false }
+        rereads[id] = nil
+        return true
     }
 
     /// Lets every number go from memory. To Confirm is sealed first, so the next unlock brings it
@@ -1094,6 +1204,11 @@ public final class VaultModel: ObservableObject {
         copies = [:]
         choices = [:]
         lessons = [:]
+        staleSources = []
+        missingDocuments = []
+        // What a refresh changed holds numbers too, and is news only while the Vault is up.
+        changes = [:]
+        rereads = [:]
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
         contents = .notLoaded
@@ -1121,6 +1236,17 @@ public final class VaultModel: ObservableObject {
                     }, uniquingKeysWith: { a, _ in a })) { a, _ in a }
                 readIndex = sameRules && state.generation == VaultSetAside.generation(in: defaults) ? state.read : [:]
                 lessons = state.lessons
+                // What another build read IDs from is where Refresh looks first: remembered,
+                // though what it read there is let go.
+                staleSources = Set(state.staleSources ?? [])
+                if !sameRules {
+                    staleSources.formUnion(state.finds.flatMap { $0.facts.sources.map(\.path) })
+                    staleSources.formUnion(state.copies.values.flatMap(\.keys))
+                }
+                missingDocuments = Set(state.notFound ?? [])
+                needsDiscover = state.needsDiscover ?? false
+                lastRefreshed = state.lastRefreshed
+                lastDiscovered = state.lastDiscovered
                 // Asked for whenever anything read is let go: waiting finds, and also what saved
                 // numbers took from their documents (a renewed license's expiry), which a Vault
                 // with nothing left to confirm would otherwise lose without a word.
@@ -1351,7 +1477,14 @@ public final class VaultModel: ObservableObject {
     /// Only files that are new or changed since they were last read are opened, so a second read
     /// of a large folder is quick, and a read that was stopped carries on where it stopped.
     /// `again` opens every file, as after a change to what the Vault reads.
-    public func readDocuments(with reader: VaultDocumentReading, again: Bool = false) async {
+    ///
+    /// `scope` says what is looked at (``VaultReadScope``): the folders, as above, or with
+    /// `.refresh` only the documents an ID was already read from, without walking any folder.
+    /// A refresh opens those that changed since they were read (all of them after a change of
+    /// rules), marks what it changed, and never lets an ID go because its document moved.
+    public func readDocuments(with reader: VaultDocumentReading, again: Bool = false,
+                              scope: VaultReadScope? = nil) async {
+        let scope = scope ?? (again ? .everything : .discover)
         // Stopped before it began (the Mac locked first): nothing is loaded for it.
         guard reading == nil, !Task.isCancelled else { return }
         load()
@@ -1359,9 +1492,54 @@ public final class VaultModel: ObservableObject {
         // Settings ▸ Vault ▸ Forget while the Vault stayed loaded: the record of read files
         // belongs to before it, and every file is read again so the forgotten come back.
         let generation = VaultSetAside.generation(in: defaults)
-        if again || generation != readGeneration { readIndex = [:] }
+        if scope == .everything || generation != readGeneration { readIndex = [:] }
         readGeneration = generation
-        reading = ReadingProgress(done: 0, total: 0)
+        let began = Date()
+        // A refresh that follows a change of rules has nothing to compare against: what the
+        // older rules read was let go, so nothing it reads now is "changed".
+        let afterNewRules = needsReadAgain
+        var refreshFiles: [URL] = []
+        var refreshMissing = Set<String>()
+        var refreshKnown = 0
+        if case .refresh(let only) = scope {
+            let known = only.map { id in rows.first { $0.id == id }?.documents.map(\.path) ?? [] } ?? refreshSources.sorted()
+            refreshKnown = known.count
+            // One ID's documents are read whether or not they changed: it was asked for.
+            let index = only == nil ? readIndex : [:]
+            // Asked off the main actor: a file's size and date, for a few hundred files.
+            let look = await Task.detached { () -> (changed: [URL], missing: [String]) in
+                var changed: [URL] = [], missing: [String] = []
+                for path in known {
+                    let url = URL(fileURLWithPath: path)
+                    guard reader.exists(url) else { missing.append(path); continue }
+                    if let stamp = reader.stamp(of: url), index[path] == stamp { continue }
+                    changed.append(url)
+                }
+                return (changed, missing)
+            }.value
+            guard !Task.isCancelled, contents == .loaded, reading == nil else { return }
+            refreshMissing = Set(look.missing)
+            let missing = missingDocuments.subtracting(known).union(refreshMissing)
+            if missing != missingDocuments {
+                missingDocuments = missing
+                readingChanged = true
+            }
+            refreshFiles = look.changed
+            // Asked for by name: its documents are opened though nothing says they changed.
+            if only != nil { for file in refreshFiles { readIndex[file.path] = nil } }
+            // Nothing to open: no progress to show. What it found missing is sealed, and that it
+            // looked is remembered for the footer.
+            if refreshFiles.isEmpty {
+                finishRefresh(only: only, afterNewRules: afterNewRules)
+                if !refreshMissing.isEmpty || lastReading?.scope.isRefresh == true {
+                    lastReading = ReadingSummary(documents: refreshKnown, opened: 0, newNumbers: 0, scope: scope,
+                                                 missing: refreshMissing.count)
+                }
+                saveReading()
+                return
+            }
+        }
+        reading = ReadingProgress(done: 0, total: 0, scope: scope)
         defer {
             reading = nil
             // The Vault closed while this read went on, and kept the numbers for it: let them go
@@ -1373,23 +1551,44 @@ public final class VaultModel: ObservableObject {
                 releaseIfLocked()
             }
         }
-        let began = Date()
-        let (files, unreachable) = await reader.walk()
-        // The Mac locked during the walk, letting the numbers go: nothing to read into.
-        guard !Task.isCancelled, contents == .loaded else {
-            Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
-            return
+        var files = refreshFiles
+        var unreachable: [String] = []
+        if !scope.isRefresh {
+            (files, unreachable) = await reader.walk()
+            // The Mac locked during the walk, letting the numbers go: nothing to read into.
+            guard !Task.isCancelled, contents == .loaded else {
+                Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
+                return
+            }
         }
         let roots = VaultReadFolders.folders(in: defaults)
         // Which files to open, by their paths alone (``VaultReadPlan``): a small share of what is
         // on disk. The rest are still present: what was read from them before stays.
-        let steps = reader.followsReadPlan
-            ? VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
-            : files.map { VaultReadPlan.Step(file: $0, account: nil) }
-        reading = ReadingProgress(done: 0, total: steps.count)
+        // A refresh opens every changed document an ID came from; the plan chooses among the
+        // folders' files, which is Discover More's question.
+        let steps: [VaultReadPlan.Step]
+        if !reader.followsReadPlan {
+            steps = files.map { VaultReadPlan.Step(file: $0, account: nil) }
+        } else if scope.isRefresh {
+            steps = VaultReadPlan.every(files, under: roots, modified: { reader.modified(of: $0) })
+        } else {
+            steps = VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
+        }
+        reading = ReadingProgress(done: 0, total: steps.count, scope: scope)
         // Counts only, here and below. A file's name can hold the very number it carries.
-        Logger.shared.info("Vault: \(files.count) document(s) in the read folders, \(steps.count) to look at"
-                           + (again || readIndex.isEmpty ? ", every one" : ", new and changed ones"))
+        if scope.isRefresh {
+            Logger.shared.info("Vault: refresh, \(refreshKnown) document(s) IDs were read from, \(steps.count) to open"
+                               + (afterNewRules ? ", every one after a change of rules" : ", changed since they were read")
+                               + (refreshMissing.isEmpty ? "" : ", \(refreshMissing.count) not found"))
+        } else {
+            Logger.shared.info("Vault: \(files.count) document(s) in the read folders, \(steps.count) to look at"
+                               + (scope == .everything || readIndex.isEmpty ? ", every one" : ", new and changed ones"))
+        }
+        // What each ID read as before, for what a refresh changed; and what was waiting.
+        let rowsBefore: [UUID: Row] = scope.isRefresh && !afterNewRules
+            ? Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) : [:]
+        let waitingBefore = Set(finds.map(\.id))
+        var readNow: [String: [VaultFind]] = [:]
         var tally = VaultReadTally()
         tally.documents = files.count
         func stopped(at index: Int) {
@@ -1428,7 +1627,7 @@ public final class VaultModel: ObservableObject {
             // The panel closed or the Mac locked, letting the numbers go. What was
             // read so far was sealed as it went.
             if Task.isCancelled || contents != .loaded { return stopped(at: index) }
-            if let account = step.account, settled.contains(account) {
+            if !scope.isRefresh, let account = step.account, settled.contains(account) {
                 reading = ReadingProgress(done: index + 1, total: steps.count)
                 continue
             }
@@ -1456,6 +1655,7 @@ public final class VaultModel: ObservableObject {
                 uniquingKeysWith: { a, _ in a })
             forgetSource(file.path)
             let read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
+            readNow[file.path] = read.finds
             tally.record(pages, read)
             for var find in read.finds {
                 let key = VaultReading.normalized(find.value)
@@ -1500,6 +1700,43 @@ public final class VaultModel: ObservableObject {
                 Logger.shared.debug("Vault: \(index + 1) of \(steps.count) document(s) looked at, \(tally.opened) opened")
             }
         }
+        if case .refresh(let only) = scope {
+            // What reads differently now, per ID: its row says Updated and its details say how.
+            var updated = 0
+            for row in rows {
+                guard let old = rowsBefore[row.id] else { continue }
+                let changed = VaultRefresh.changes(from: old.facts, to: row.facts)
+                guard !changed.isEmpty else { continue }
+                changes[row.id] = changed
+                updated += 1
+            }
+            // A saved ID whose own document was opened and no longer gives its number, but
+            // gives one other of its kind: the saved one stands, and the panel asks.
+            for entry in entries {
+                guard let path = entry.sourcePath ?? entry.facts?.primary?.path, let found = readNow[path] else { continue }
+                let own = VaultReading.normalized(entry.value)
+                guard !found.contains(where: { VaultReading.normalized($0.value) == own }) else { continue }
+                let others = found.filter { find in
+                    find.category == entry.category
+                        && !entries.contains { VaultReading.normalized($0.value) == VaultReading.normalized(find.value) }
+                }
+                if others.count == 1, let other = others.first,
+                   let waiting = finds.first(where: { VaultReading.normalized($0.value) == VaultReading.normalized(other.value) }) {
+                    rereads[entry.id] = waiting.id
+                }
+            }
+            let gone = waitingBefore.subtracting(finds.map(\.id)).count
+            finishRefresh(only: only, afterNewRules: afterNewRules)
+            readingChanged = true
+            saveReading()
+            lastReading = ReadingSummary(documents: refreshKnown, opened: tally.opened, newNumbers: tally.added,
+                                         scope: scope, updated: updated, missing: refreshMissing.count, gone: gone)
+            Logger.shared.info("Vault: refreshed \(refreshKnown) document(s), \(tally.opened) opened, \(updated) ID(s) updated, "
+                               + "\(tally.added) new, \(gone) no longer read, \(refreshMissing.count) not found, in "
+                               + String(format: "%.1f", Date().timeIntervalSince(began)) + " s")
+            if selection.flatMap(row) == nil { selection = visibleIDs.first }
+            return
+        }
         // A file gone from the folders is forgotten, so one put back is read again; a number
         // whose every document is gone is let go, rather than pointing at nothing. Only under a
         // folder this read could see into: one that gave no files at all is unmounted, renamed
@@ -1526,11 +1763,36 @@ public final class VaultModel: ObservableObject {
         // was out of reach waits for it.
         if unreachable.isEmpty, folders.isEmpty || reached.count == folders.count { choices = [:] }
         needsReadAgain = false
+        // The folders have been read with this build's rules: nothing is left to offer.
+        needsDiscover = false
+        staleSources = []
+        lastDiscovered = clock()
+        // A document a saved ID points at that the folders no longer hold is marked, and one
+        // found again is not. The ID stays either way; its row says so.
+        var pointedAt = missingDocuments
+        for entry in entries {
+            if let path = entry.sourcePath { pointedAt.insert(path) }
+            for source in entry.facts?.sources ?? [] { pointedAt.insert(source.path) }
+        }
+        missingDocuments = pointedAt.filter { !present.contains($0) && !reader.exists(URL(fileURLWithPath: $0)) }
         readingChanged = true
         saveReading()
-        lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added)
+        lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added, scope: scope)
         Logger.shared.info(tally.summary(seconds: Date().timeIntervalSince(began)))
         if selection.flatMap(row) == nil { selection = visibleIDs.first }
+    }
+
+    /// A refresh of every ID is done: the older build's documents have been read again, and
+    /// after a change of rules the rest of the folders are still to be looked at.
+    private func finishRefresh(only: UUID?, afterNewRules: Bool) {
+        guard only == nil else { return }
+        if !staleSources.isEmpty { staleSources = []; readingChanged = true }
+        if afterNewRules {
+            needsReadAgain = false
+            needsDiscover = true
+            readingChanged = true
+        }
+        lastRefreshed = clock()
     }
 
     /// The read folders this read saw into: each that gave at least one file. With no folders
@@ -1625,7 +1887,11 @@ public final class VaultModel: ObservableObject {
         guard readingChanged, contents == .loaded, let store else { return }
         let state = VaultReadingState(generation: readGeneration, finds: finds, read: readIndex,
                                       mentions: mentions, copies: copies, choices: choices,
-                                      needsReadAgain: needsReadAgain, lessons: lessons)
+                                      needsReadAgain: needsReadAgain, lessons: lessons,
+                                      staleSources: staleSources.isEmpty ? nil : staleSources.sorted(),
+                                      notFound: missingDocuments.isEmpty ? nil : missingDocuments.sorted(),
+                                      needsDiscover: needsDiscover ? true : nil,
+                                      lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered)
         do {
             try store.saveReading(state)
             readingChanged = false

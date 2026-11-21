@@ -54,6 +54,24 @@ public struct VaultReadPlan: Equatable, Sendable {
         steps = whole + accounts
     }
 
+    /// Steps for a refresh: every file given and none passed over, since each already gave an ID.
+    /// An account's papers keep its name and go newest year first, so a number that two years'
+    /// papers print unlabelled is read from both again.
+    public static func every(_ files: [URL], under roots: [String] = [], modified: (URL) -> Date? = { _ in nil }) -> [Step] {
+        var whole: [Step] = []
+        var papers: [(account: String, year: String, file: URL)] = []
+        for file in files {
+            if area(of: file.path, under: roots) == .accounts,
+               let (account, year) = accountYear(of: file, under: roots, modified: modified) {
+                papers.append((account, year, file))
+            } else {
+                whole.append(Step(file: file, account: nil))
+            }
+        }
+        papers.sort { $0.account != $1.account ? $0.account < $1.account : $0.year > $1.year }
+        return whole + papers.map { Step(file: $0.file, account: $0.account) }
+    }
+
     // MARK: Areas
 
     private static let identityFolders: Set<String> = ["immigration", "legal"]

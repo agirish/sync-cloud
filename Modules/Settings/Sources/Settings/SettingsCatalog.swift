@@ -539,6 +539,10 @@ public enum SettingsCatalog {
         // Never in chat, and a count only: a folder's name can say what kind of papers are in it.
         e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],
           storage: .owner("VaultReadFolders"), control: .list, tier: .notInChat, privacy: .countOnly),
+        // Whether documents are opened without being asked for: the user's own call.
+        e("vault.refreshesByItself", .vault, "Refresh by itself when the Vault opens", indexed: true,
+          storage: app(VaultRefresh.automaticKey, "VaultRefresh.automaticKey", "true"),
+          control: .toggle, default: .bool(true), tier: .notInChat),
         // Fingerprints only, never numbers; still not Claude's to clear.
         e("vault.setAside", .vault, "IDs set aside", indexed: true, others: ["Forget"],
           control: .button("Forget"), tier: .notInChat),
