@@ -783,7 +783,10 @@ public final class VaultModel: ObservableObject {
     /// Every row in the order it is drawn: what the arrow keys walk.
     /// A folded card's rows are passed over: they are not on screen.
     private var visibleIDs: [UUID] {
-        cards.filter { showsList || !folded.contains($0.card.key) }.flatMap { $0.rows.map(\.id) }
+        switch layout {
+        case .people: return peopleSections.flatMap { $0.rows.map(\.id) }
+        case .cards, .list: return cards.filter { showsList || !folded.contains($0.card.key) }.flatMap { $0.rows.map(\.id) }
+        }
     }
 
     // MARK: Folded cards
@@ -794,7 +797,37 @@ public final class VaultModel: ObservableObject {
     /// key is its name, as before custom kinds. In the list, nothing is folded.
     @Published public private(set) var folded: Set<String> = []
     /// Set by the panel: the list shows every row whatever is folded.
-    public var showsList = false { didSet { keepSelectionVisible() } }
+    public var showsList: Bool {
+        get { layout == .list }
+        set { layout = newValue ? .list : .cards }
+    }
+    /// Set by the panel: cards by kind, one list, or sections by person. It decides which rows
+    /// are on screen and in what order the arrow keys walk them.
+    public var layout: VaultLayout = .cards { didSet { keepSelectionVisible() } }
+
+    /// Copies a person's section of the People view as text (``VaultPersonText``). With
+    /// `numbers` every ID is in full and the birth date is given, so a proof is asked first when
+    /// one is owed; without, only what the rows already draw.
+    @discardableResult
+    public func copyPerson(_ owner: VaultPersonSection.Owner, numbers: Bool) async -> Bool {
+        guard let title = peopleSections.first(where: { $0.id == owner })?.title else { return false }
+        if numbers, lock.settings.requiresAuthentication, !lock.isOpen(at: clock()) {
+            guard await prove("copy \(title)’s IDs", for: nil) else { return false }
+        }
+        // Looked up again after the proof: the panel may have closed and let the numbers go.
+        guard contents == .loaded, let section = peopleSections.first(where: { $0.id == owner }) else { return false }
+        copyToPasteboard(VaultPersonText.text(section, numbers: numbers))
+        used()
+        return true
+    }
+
+    /// Copies a person's birth date as MM/DD/YYYY, behind the proof of one of their IDs: it is as
+    /// private as a number, and cleared from the clipboard the same way.
+    @discardableResult
+    public func copyBirth(_ date: Date, in section: VaultPersonSection) async -> Bool {
+        guard let id = section.rows.first?.id else { return false }
+        return await copy(VaultReading.formDate(date), for: id)
+    }
 
     private func loadFolded() {
         folded = Set((defaults.stringArray(forKey: Self.foldedKey) ?? []).filter { VaultCardID(key: $0) != nil })

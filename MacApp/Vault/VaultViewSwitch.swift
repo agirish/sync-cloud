@@ -1,8 +1,9 @@
 import AppKit
 import Design
 import SwiftUI
+import Sync
 
-/// Cards or List: a segmented control whose segments carry a symbol and a word each.
+/// Cards, List or People: a segmented control whose segments carry a symbol and a word each.
 ///
 /// SwiftUI's segmented `Picker` gives a segment its words or its image, never both: a `Label`
 /// loses its icon whatever its style, and an image inside the words comes out as an empty
@@ -10,12 +11,13 @@ import SwiftUI
 /// built here with both, which keeps AppKit's keyboard and VoiceOver behaviour; the selection takes
 /// the same accent `accentedSegments` gives every other segmented picker.
 struct VaultViewSwitch: NSViewRepresentable {
-    @Binding var showsList: Bool
+    @Binding var layout: VaultLayout
     let hue: LiquidGlassHue
 
-    private static let segments: [(title: String, symbol: String, help: String)] = [
-        ("Cards", "square.grid.2x2", "One card per kind of ID"),
-        ("List", "list.bullet", "Every ID in one list"),
+    static let segments: [(layout: VaultLayout, title: String, symbol: String, help: String)] = [
+        (.cards, "Cards", "square.grid.2x2", "One card per kind of ID"),
+        (.list, "List", "list.bullet", "Every ID in one list"),
+        (.people, "People", "person.2", "Each person’s IDs together, with their name as documents print it"),
     ]
 
     func makeNSView(context: Context) -> NSSegmentedControl {
@@ -32,7 +34,7 @@ struct VaultViewSwitch: NSViewRepresentable {
             control.setImageScaling(.scaleProportionallyDown, forSegment: index)
             control.setToolTip(segment.help, forSegment: index)
         }
-        control.setAccessibilityLabel("Cards or list")
+        control.setAccessibilityLabel("Cards, list or people")
         control.target = context.coordinator
         control.action = #selector(Coordinator.changed(_:))
         control.setContentHuggingPriority(.required, for: .horizontal)
@@ -40,18 +42,20 @@ struct VaultViewSwitch: NSViewRepresentable {
     }
 
     func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.showsList = $showsList
-        control.selectedSegment = showsList ? 1 : 0
+        context.coordinator.layout = $layout
+        control.selectedSegment = Self.segments.firstIndex { $0.layout == layout } ?? 0
         control.selectedSegmentBezelColor = NSColor(SegmentedAccent.tint(for: hue))
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(showsList: $showsList) }
+    func makeCoordinator() -> Coordinator { Coordinator(layout: $layout) }
 
     @MainActor final class Coordinator: NSObject {
-        var showsList: Binding<Bool>
-        init(showsList: Binding<Bool>) { self.showsList = showsList }
+        var layout: Binding<VaultLayout>
+        init(layout: Binding<VaultLayout>) { self.layout = layout }
+
         @objc func changed(_ control: NSSegmentedControl) {
-            showsList.wrappedValue = control.selectedSegment == 1
+            guard VaultViewSwitch.segments.indices.contains(control.selectedSegment) else { return }
+            layout.wrappedValue = VaultViewSwitch.segments[control.selectedSegment].layout
         }
     }
 }

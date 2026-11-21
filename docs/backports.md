@@ -16175,6 +16175,12 @@ the toolbar's Read Documents is Discover More. `VaultReadingState` gains optiona
 (`staleSources`, `notFound`, `needsDiscover`, the two dates): a file an older build sealed opens
 unchanged, and an older build ignores them.
 
+2026-11-20: a third layout, People (`VaultLayout`, `VaultModel.peopleSections`): the same rows
+grouped by person, each section with the name as each identity paper prints it and the date of
+birth, which until now was read and never shown; it is drawn only while one of that person's IDs
+may be (`canShowBirth`). `vaultLayout` replaces `vaultShowsList` in UserDefaults, which is still
+read once.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

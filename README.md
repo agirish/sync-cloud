@@ -179,6 +179,10 @@ for: a passport number, a member ID, a loan number.
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **People** (beside Cards and List) groups the same IDs by person: each section opens with the
+  name as each document prints it and the date of birth (hidden until one of their IDs is shown),
+  then their IDs with the kind on each row. Copy Summary gives endings only; Copy with Numbers
+  asks for Touch ID.
 - **Card colors**: each card's title takes a soft tint of its group's color, so a kind is found
   by its color. Right-click a card's title (or use Color beside Kind) to give one its own;
   Customize Groups sets a group's color or turns colors off.

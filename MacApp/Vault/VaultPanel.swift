@@ -134,7 +134,11 @@ struct VaultCard: View {
     @State private var askingToAddPerson: String?
 
     /// Cards (the default) or one list.
-    @AppStorage("vaultShowsList") private var showsList = false
+    @AppStorage("vaultLayout") private var layoutName = ""
+    /// The choice from before People was a layout: Cards or List.
+    @AppStorage("vaultShowsList") private var showedList = false
+    /// Cards by kind (the default), one list, or sections by person.
+    private var layout: VaultLayout { VaultLayout(rawValue: layoutName) ?? (showedList ? .list : .cards) }
     /// Folding a card animates only when the Mac allows motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// With Increase Contrast on, a card's color is its symbol alone, with no wash behind its title.
@@ -218,7 +222,7 @@ struct VaultCard: View {
             readFolders = VaultReadFolders.folders()
             // Whose a read number is, and the filter's names, come from the household.
             model.people = people
-            model.showsList = showsList
+            model.layout = layout
             await model.opened()
             searchFocused = true
             // Refresh runs by itself (Settings ▸ Vault can turn that off): it opens only documents
@@ -545,7 +549,7 @@ struct VaultCard: View {
             searchField
                 .frame(minWidth: 160, maxWidth: 320)
             Spacer(minLength: 8)
-            if !showsList, !model.cards.isEmpty {
+            if layout == .cards, !model.cards.isEmpty {
                 Button {
                     withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() }
                 } label: {
@@ -556,9 +560,11 @@ struct VaultCard: View {
                 .controlSize(.small)
                 .help(model.allFolded ? "Open every card" : "Fold every card to its header. ⌥-click a card’s header does the same.")
             }
-            VaultViewSwitch(showsList: $showsList, hue: glassHue)
+            VaultViewSwitch(layout: Binding(get: { layout }, set: { chosen in
+                layoutName = chosen.rawValue
+                model.layout = chosen
+            }), hue: glassHue)
                 .fixedSize()
-                .onChange(of: showsList) { _, list in model.showsList = list }
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -798,7 +804,11 @@ struct VaultCard: View {
                         VStack(spacing: 0) {
                             searchRow
                             Group {
-                                if showsList { listView } else { cardsView }
+                                switch layout {
+                                case .cards: cardsView
+                                case .list: listView
+                                case .people: peopleView
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1016,6 +1026,163 @@ struct VaultCard: View {
         }
     }
 
+    /// The People view: a section per person, opening with their name as their documents print it
+    /// and their date of birth, then their IDs with the kind on each row. The same rows, filters,
+    /// search and keys as the cards; only the grouping differs.
+    private var peopleView: some View {
+        ScrollViewReader { scroller in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    readAgainBanner
+                    tabBanner
+                    let sections = model.peopleSections
+                    if sections.isEmpty {
+                        if hiddenByChoices {
+                            EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
+                                           message: "IDs on this tab belong to another country, person or kind.",
+                                           primary: .init("Show Everything", systemImage: "arrow.uturn.backward") {
+                                               model.resetFilters()
+                                           }, layout: .compact)
+                                .padding(.top, 24)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
+                                .padding(.top, 24)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    ForEach(sections) { section in personSection(section) }
+                }
+                .padding(12)
+            }
+            .onChange(of: model.selection) { _, id in if let id { scroller.scrollTo(id) } }
+        }
+    }
+
+    private func personSection(_ section: VaultPersonSection) -> some View {
+        let showsBirth = model.canShowBirth(in: section)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text(section.id == .household ? "⌂" : String(section.title.prefix(1)).uppercased())
+                    .scaledFont(.callout.weight(.bold))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(.quaternary))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(section.title)
+                        .scaledFont(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab))
+                        .scaledFont(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                let key = "person-\(section.title)"
+                Button(copiedDetail == key + "-summary" ? "Copied" : "Copy Summary") {
+                    copyPerson(section, numbers: false, key: key + "-summary")
+                }
+                .help("Copies each ID’s name, ending and expiry as text. No ID in full.")
+                Button(copiedDetail == key + "-numbers" ? "Copied" : "Copy with Numbers") {
+                    copyPerson(section, numbers: true, key: key + "-numbers")
+                }
+                .help("Copies every ID in full with the date of birth, after Touch ID. It clears from the clipboard after a minute.")
+                if case .person(let id) = section.id {
+                    Button {
+                        startAdding(for: id)
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .help("Add an ID for \(section.title)")
+                    .accessibilityLabel("Add an ID for \(section.title)")
+                }
+            }
+            .controlSize(.small)
+            .disabled(model.isAsking)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            if !section.names.isEmpty || !section.born.isEmpty {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 5) {
+                    ForEach(Array(section.names.enumerated()), id: \.offset) { _, name in
+                        GridRow {
+                            Text("Name on \(ListFormatter.localizedString(byJoining: name.on))")
+                                .foregroundStyle(.secondary)
+                            Text(name.name)
+                                .fixedSize(horizontal: false, vertical: true)
+                            let key = "name-\(section.title)-\(name.name)"
+                            Button(copiedDetail == key ? "Copied" : "Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(name.name, forType: .string)
+                                flashCopied(key)
+                            }
+                            .controlSize(.small)
+                            .help("Copies “\(name.name)”.")
+                        }
+                    }
+                    ForEach(section.born, id: \.self) { date in
+                        GridRow {
+                            Text("Date of birth")
+                                .foregroundStyle(.secondary)
+                            Text(showsBirth ? VaultReading.spelled(date) : "•• ••••• ••••")
+                                .foregroundStyle(showsBirth ? .primary : .secondary)
+                            let key = "born-\(section.title)-\(date.timeIntervalSince1970)"
+                            Button(copiedDetail == key ? "Copied" : showsBirth ? "Copy" : "Show") {
+                                Task {
+                                    if showsBirth {
+                                        if await model.copyBirth(date, in: section) { flashCopied(key) }
+                                    } else if let id = section.rows.first?.id {
+                                        await model.show(id)
+                                    }
+                                }
+                            }
+                            .controlSize(.small)
+                            .help(showsBirth ? "Copies \(VaultReading.formDate(date)), the way US forms ask for a date. It clears after a minute."
+                                             : "Shows it after Touch ID or your password.")
+                        }
+                    }
+                }
+                .scaledFont(.callout)
+                .padding(.horizontal, 12)
+                if section.born.count > 1 {
+                    Text("Their documents give more than one date of birth. Check which is right; the Vault does not choose.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(SemanticColor.warning)
+                        .padding(.horizontal, 12)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(section.rows) { row in rowView(row, underPerson: true).id(row.id) }
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 4)
+        }
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(section.title)
+    }
+
+    /// "4 IDs · 2 in Archive"; on Archive, "2 IDs · 4 current".
+    static func personSubtitle(ids: Int, elsewhere: Int, tab: VaultStanding.Tab) -> String {
+        var parts = [ids == 1 ? "1 ID" : "\(ids.formatted()) IDs"]
+        if elsewhere > 0 {
+            parts.append(tab == .archive ? "\(elsewhere.formatted()) current" : "\(elsewhere.formatted()) in Archive")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func copyPerson(_ section: VaultPersonSection, numbers: Bool, key: String) {
+        Task { if await model.copyPerson(section.id, numbers: numbers) { flashCopied(key) } }
+    }
+
+    /// "Copied" on a button for two seconds.
+    private func flashCopied(_ key: String) {
+        copiedDetail = key
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if copiedDetail == key { copiedDetail = nil }
+        }
+    }
+
     @ViewBuilder
     private var tabBanner: some View {
         if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1091,20 +1258,32 @@ struct VaultCard: View {
     }
 
     /// One number: whose, what it is, its ending, and badges for what needs noticing.
-    private func rowView(_ row: VaultModel.Row) -> some View {
+    private func rowView(_ row: VaultModel.Row, underPerson: Bool = false) -> some View {
         let isSelected = model.selection == row.id
+        let title = underPerson ? Self.kindTitle(row) : rowTitle(row)
         return Button {
             model.selection = row.id
             editing = nil
         } label: {
             HStack(spacing: 9) {
-                Text(initials(row))
-                    .scaledFont(.caption.weight(.bold))
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(.quaternary))
+                if underPerson {
+                    // Under a person's name the row says which kind, in the card's own color.
+                    let ink = model.tint(of: row.card)?.color ?? glassHue.accentColor
+                    Image(systemName: model.kinds.symbol(of: row.card))
+                        .scaledFont(.caption.weight(.semibold))
+                        .foregroundStyle(ink)
+                        .frame(width: 26, height: 26)
+                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(ink.opacity(0.16)))
+                        .accessibilityHidden(true)
+                } else {
+                    Text(initials(row))
+                        .scaledFont(.caption.weight(.bold))
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.quaternary))
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
-                        Text(rowTitle(row))
+                        Text(title)
                             .scaledFont(.body.weight(.semibold))
                             .lineLimit(1)
                         if model.geoFilter == .all, model.spansCountries, let code = row.geo.code { countryCode(code) }
@@ -1131,8 +1310,13 @@ struct VaultCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu { rowMenu(row) }
-        .accessibilityLabel(Self.rowSpoken(title: rowTitle(row), row: row))
+        .accessibilityLabel(Self.rowSpoken(title: title, row: row))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// A row's title under its person's name: what the ID is, as its details call it.
+    static func kindTitle(_ row: VaultModel.Row) -> String {
+        row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
     }
 
     @ViewBuilder
@@ -2114,10 +2298,12 @@ struct VaultCard: View {
         }
     }
 
-    private func startAdding() {
+    private func startAdding(for person: String? = nil) {
         var blank = VaultModel.Draft()
-        // A new number starts with the person the list is filtered to.
-        if case .person(let id) = model.personFilter { blank.personID = id } else { blank.isHousehold = true }
+        // A new number starts with the person it was asked for, or the one the list is filtered to.
+        if let person {
+            blank.personID = person
+        } else if case .person(let id) = model.personFilter { blank.personID = id } else { blank.isHousehold = true }
         draft = blank
         editing = .new
     }
