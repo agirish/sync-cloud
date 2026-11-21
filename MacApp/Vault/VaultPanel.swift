@@ -2060,7 +2060,7 @@ struct VaultCard: View {
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Pill(.mini, tint: index == 0 ? SemanticColor.success : .secondary,
-                             text: index == 0 ? "Read from" : source.role)
+                             text: index == 0 ? (row.chosenSource == nil ? "Read from" : "Read from · Your Choice") : source.role)
                             .help(index == 0 ? source.role : "Names this ID")
                         Button {
                             quickLook(source.path, for: row)
@@ -2079,6 +2079,17 @@ struct VaultCard: View {
                             .lineLimit(1)
                             .truncationMode(.head)
                             .help(((shown ? folder : VaultMask.folder(folder)) as NSString).abbreviatingWithTildeInPath)
+                        if index == 0, row.chosenSource != nil {
+                            Button("Let the App Choose") { model.readFrom(row.id, copy: nil) }
+                                .buttonStyle(.link)
+                                .scaledFont(.caption)
+                                .help("Reads this ID from the copy the Vault would choose")
+                        } else if index > 0, row.sourceChoices.contains(source.path) {
+                            Button("Read from This Copy") { model.readFrom(row.id, copy: source.path) }
+                                .buttonStyle(.link)
+                                .scaledFont(.caption)
+                                .help("Another copy of the same document: its name and details are shown, and it opens. The dates stay the same.")
+                        }
                     }
                     Spacer(minLength: 4)
                     Button {
@@ -2489,7 +2500,7 @@ struct VaultCard: View {
         Task {
             // The editor draws the number in full, so it opens only once that is allowed.
             guard await model.show(entry.id) else { return }
-            draft = model.prepared(VaultModel.Draft(entry))
+            draft = model.prepared(VaultModel.Draft(entry), for: entry.id)
             editing = .existing(entry.id)
         }
     }
@@ -2527,7 +2538,7 @@ struct VaultCard: View {
     private func startConfirming(_ find: VaultFind) {
         Task {
             guard await model.show(find.id) else { return }
-            draft = model.prepared(VaultModel.Draft(find, people: people))
+            draft = model.prepared(VaultModel.Draft(find, people: people), for: find.id)
             editing = .confirming(find.id)
         }
     }

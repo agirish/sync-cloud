@@ -25,10 +25,13 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
     /// The card it goes on, as the user chose (``VaultCardID``); nil goes by what it was read as.
     /// Later reads keep it.
     public var card: VaultCardID?
+    /// The copy of its document the user chose to read it from (Read from This Copy), by path;
+    /// nil lets the Vault choose. Later reads keep it.
+    public var chosenSource: String?
 
     public init(id: UUID = UUID(), title: String, value: String, note: String = "",
                 facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil,
-                geo: VaultGeo? = nil, card: VaultCardID? = nil) {
+                geo: VaultGeo? = nil, card: VaultCardID? = nil, chosenSource: String? = nil) {
         self.id = id
         self.title = title
         self.value = value
@@ -38,6 +41,7 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
         self.assignment = assignment
         self.geo = geo
         self.card = card
+        self.chosenSource = chosenSource
     }
 
     /// The shape the earlier reader built, for tests and simple callers: a category worked out
@@ -1146,19 +1150,26 @@ public struct VaultChoice: Codable, Equatable, Sendable {
     public var assignment: VaultAssignment?
     public var geo: VaultGeo?
     public var card: VaultCardID?
+    public var source: String?
 
-    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil, card: VaultCardID? = nil) {
+    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil, card: VaultCardID? = nil,
+                source: String? = nil) {
         self.id = id
         self.pin = pin
         self.assignment = assignment
         self.geo = geo
         self.card = card
+        self.source = source
     }
 
     /// What the user chose about `find`.
     public init(_ find: VaultFind) {
-        self.init(id: find.id, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card)
+        self.init(id: find.id, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card,
+                  source: find.chosenSource)
     }
+
+    /// Whether the user chose anything about it.
+    public var isChosen: Bool { pin != nil || assignment != nil || geo != nil || card != nil || source != nil }
 }
 
 extension VaultReadingState: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {

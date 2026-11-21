@@ -218,8 +218,10 @@ for: a passport number, a member ID, a loan number.
   elsewhere only files named as IDs are opened, so a read opens about a tenth of a Documents
   folder. **Current**
   shows one of each kind per person; **Archive** keeps the expired, replaced and archived ones. Each
-  ID lists every document that names it, with Quick Look and Reveal in Browse. After the first
-  read only new and changed files are opened, and a read goes on when the Vault is closed.
+  ID lists every document that names it, with Quick Look and Reveal in Browse, the one it is read
+  from first; where one document is filed twice, Read from This Copy reads it from the other.
+  After the first read only new and changed files are opened, and a read goes on when the Vault
+  is closed.
 - **Remove** an ID with ⌘⌫, a right-click or the ⋯ menu; the Vault asks first.
 
 ### 🧭 Guided setup

@@ -72,6 +72,10 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// The name on its document as the user corrected it (Edit's Name), when the scan misread
     /// it: "Shweta Ravindra Dani" for a card read as "…Dant". What was read stays in ``facts``.
     public var holderName: String?
+    /// The copy of its document the user chose to read it from (Read from This Copy), by path,
+    /// when another copy of the same document would be: its name and details are shown, and it
+    /// opens. Nil lets the Vault choose.
+    public var chosenSource: String?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -105,7 +109,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource
     }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,

@@ -221,6 +221,10 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     public var details: [VaultDetail]
     /// Every document carrying the number, best first.
     public var sources: [VaultSource]
+    /// The document whose reading this is, when several were merged (``VaultCopies/merged(_:speaking:)``):
+    /// the one ``primary`` names. Nil for a reading made before it was kept, which goes by
+    /// ``orderedSources`` alone.
+    public var spokenBy: String?
 
     public init(category: VaultCategory, holder: String? = nil, born: Date? = nil, issuer: String? = nil,
                 form: String? = nil, dated: Date? = nil, validUntil: Date? = nil, pending: Bool = false,
@@ -238,14 +242,19 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
         self.sources = sources
     }
 
-    /// The document it was read from: the most trusted of its sources, and among copies trusted
-    /// alike, the one filed where that kind of document lives.
+    /// The document it was read from: the one whose reading this is (``spokenBy``), so the
+    /// document named is the one whose dates and details are shown. With none kept, the most
+    /// trusted of its sources, and among copies trusted alike, the one filed where that kind of
+    /// document lives.
     public var primary: VaultSource? { orderedSources.first }
 
-    /// Sources best first, the primary at the top: by how far the document is trusted, then by
-    /// where it is filed (``VaultSource/placement(for:)``), then by name.
+    /// Sources best first, the primary at the top: the one it was read from (``spokenBy``), then
+    /// by how far the document is trusted, then by where it is filed
+    /// (``VaultSource/placement(for:)``), then by name.
     public var orderedSources: [VaultSource] {
-        sources.sorted { a, b in
+        let speaker = spokenBy.flatMap { path in sources.contains { $0.path == path } ? path : nil }
+        return sources.sorted { a, b in
+            if let speaker, (a.path == speaker) != (b.path == speaker) { return a.path == speaker }
             if a.rank != b.rank { return a.rank > b.rank }
             let (pa, pb) = (a.placement(for: category), b.placement(for: category))
             if pa != pb { return pa > pb }
@@ -483,9 +492,13 @@ public enum VaultStandings {
             read.append((item, facts))
         }
 
+        /// Filed in an Archive folder: every copy of its most trusted kind of document is, so the
+        /// household moved the number there. Not the one it was read from alone, which can be a
+        /// copy kept in Archive beside one that is not, or a copy the user chose to read it from.
         func archived(_ facts: VaultReadFacts) -> Bool {
-            guard let path = facts.primary?.path else { return false }
-            return VaultReading.isArchivePath(path, under: readFolders)
+            guard let top = facts.sources.map(\.rank).max() else { return false }
+            return facts.sources.filter { $0.rank == top }
+                .allSatisfy { VaultReading.isArchivePath($0.path, under: readFolders) }
         }
         /// What orders one group, latest first: two dates, the second breaking a tie on the first.
         /// Each document's own date (a passport's expiry, an I-94's entry or its extension's
@@ -668,8 +681,11 @@ public enum VaultCopies {
     /// admit-until, an approval's validity. Not the document's date first: a copy's date can be
     /// only its file name's, and a scan with a later name but fewer fields would speak for the
     /// number (tried on 2026-11-19: five I-94s lost their admit-until). Between two readings of
-    /// one card (its front and its barcode), the one that says more. One key, compared in order,
-    /// so sorting by this is consistent.
+    /// one card (its front and its barcode), the one that says more. Then the newer by its own
+    /// date, then by its expiry: two approvals good for the same years, the later notice. Last,
+    /// between copies of one document saying as much, the one filed where that kind of document
+    /// lives (``VaultSource/placement(for:)``): the passport's own folder over a petition's copy.
+    /// One key, compared in order, so sorting by this is consistent.
     static func supersedes(_ incoming: VaultReadFacts, _ held: VaultReadFacts) -> Bool {
         let (ra, rb) = (incoming.primary?.rank ?? 0, held.primary?.rank ?? 0)
         if ra != rb { return ra > rb }
@@ -680,8 +696,44 @@ public enum VaultCopies {
         case let (a?, b?) where a != b: return a > b
         case (_?, nil): return true
         case (nil, _?): return false
-        default: return incoming.details.count > held.details.count
+        default: break
         }
+        if incoming.details.count != held.details.count { return incoming.details.count > held.details.count }
+        if incoming.dated != held.dated { return (incoming.dated ?? .distantPast) > (held.dated ?? .distantPast) }
+        if incoming.validUntil != held.validUntil {
+            return (incoming.validUntil ?? .distantPast) > (held.validUntil ?? .distantPast)
+        }
+        let (pa, pb) = (incoming.primary?.placement(for: incoming.category) ?? 0,
+                        held.primary?.placement(for: held.category) ?? 0)
+        return pa > pb
+    }
+
+    /// Whether two readings of one number are copies of one document, as alike as the Vault can
+    /// tell: the same kind of document, filed in an Archive folder or not alike, with the same
+    /// date and the same expiry. Either can speak for the number without changing its dates, so
+    /// the one shown is the user's to choose (``merged(_:speaking:)``).
+    static func sameCopy(_ a: VaultReadFacts, _ b: VaultReadFacts) -> Bool {
+        guard let pa = a.primary, let pb = b.primary else { return false }
+        return pa.rank == pb.rank && pa.rank > VaultReading.Rank.mention
+            && VaultReading.isArchivePath(pa.path) == VaultReading.isArchivePath(pb.path)
+            && a.dated == b.dated && a.validUntil == b.validUntil
+    }
+
+    /// `copies` best first (``supersedes(_:_:)``), then by name.
+    static func ordered(_ copies: [VaultFind]) -> [VaultFind] {
+        copies.sorted { a, b in
+            if supersedes(a.facts, b.facts) { return true }
+            if supersedes(b.facts, a.facts) { return false }
+            return a.sourcePath < b.sourcePath
+        }
+    }
+
+    /// The documents among `copies` that could speak for the number in place of the one that
+    /// does (``sameCopy(_:_:)``), as their paths: what Read from This Copy offers.
+    static func choices(_ copies: [VaultFind]) -> [String] {
+        let ordered = Self.ordered(copies)
+        guard let best = ordered.first else { return [] }
+        return ordered.dropFirst().filter { sameCopy($0.facts, best.facts) }.map(\.sourcePath)
     }
 
     /// Whether two readings of one number are of the same document, not a renewal under the same
@@ -698,13 +750,20 @@ public enum VaultCopies {
     ///
     /// Rebuilt rather than merged into, so a file that is changed or gone takes what it said
     /// with it: a misread expiry does not outlive the scan it came from.
-    static func merged(_ copies: [VaultFind]) -> VaultFind? {
-        let ordered = copies.sorted { a, b in
-            if supersedes(a.facts, b.facts) { return true }
-            if supersedes(b.facts, a.facts) { return false }
-            return a.sourcePath < b.sourcePath
+    ///
+    /// `chosen`, the document the user chose to read it from, speaks instead when it is a copy
+    /// of the one that would (``sameCopy(_:_:)``); otherwise, as when a renewal under the same
+    /// number has come since, the choice is passed over. The result names its speaker
+    /// (``VaultReadFacts/spokenBy``).
+    static func merged(_ copies: [VaultFind], speaking chosen: String? = nil) -> VaultFind? {
+        var ordered = Self.ordered(copies)
+        guard let first = ordered.first else { return nil }
+        if let chosen, let index = ordered.firstIndex(where: { $0.sourcePath == chosen }), index > 0,
+           sameCopy(ordered[index].facts, first.facts) {
+            ordered.insert(ordered.remove(at: index), at: 0)
         }
-        guard var best = ordered.first else { return nil }
+        var best = ordered[0]
+        best.facts.spokenBy = best.sourcePath
         // What the best document itself said, before anything is borrowed into it.
         let speaker = best.facts
         for copy in ordered.dropFirst() {

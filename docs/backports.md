@@ -16206,6 +16206,14 @@ copied and changed by name, reads, backups and refused proofs, sealed with the V
 file of its own (`vault-activity.sealed`, `SCVACTV1`), bounded to 500 events and ninety days, shown
 in Settings ▸ Vault after a proof. A title's own digits are cut to their ending before it is listed.
 
+2026-11-21: an ID names the document it is read from (`VaultReadFacts.spokenBy`), the one whose
+dates and details it shows; its "Read from" pill was worked out apart and named another file on 32
+of 77 IDs read from several files. Copies alike in everything else are ordered by where each is
+filed (`VaultCopies.supersedes`), and an ID is in an Archive folder only when every copy of its
+best kind of document is. Read from This Copy (`VaultModel.readFrom`, `VaultEntry.chosenSource`,
+`VaultFind.chosenSource`, `VaultChoice.source`) reads an ID from another copy of the same document
+(`VaultCopies.sameCopy`); its dates, tab and card stay. The sealed formats gain optional fields only.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

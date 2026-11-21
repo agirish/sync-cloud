@@ -353,6 +353,14 @@ public final class VaultModel: ObservableObject {
         public var holderAsRead: String? { readHolder ?? facts?.holder }
         /// A name chosen for this ID alone, which no correction made everywhere changes.
         public var ownHolderName: String?
+        /// The document the Vault itself would read it from: where it is filed, for its Kind's
+        /// folder lesson and its person's folder, whichever copy it is read from.
+        public var appSource: String?
+        /// The copy the user chose to read it from, while it is in force (Read from This Copy).
+        public var chosenSource: String?
+        /// The other copies of the document it is read from, any of which it could be read from
+        /// instead without its dates changing: where Read from This Copy is offered.
+        public var sourceChoices: [String] = []
 
         /// Every document carrying the number, the one it was read from first.
         public var documents: [VaultSource] { facts?.orderedSources ?? [] }
@@ -364,17 +372,37 @@ public final class VaultModel: ObservableObject {
     /// as; otherwise what was saved stands, with every document read since listed under it.
     private func readSince(_ entry: VaultEntry) -> VaultReadFacts? {
         guard var saved = entry.facts else { return nil }
-        guard let read = copies[VaultReading.normalized(entry.value)].flatMap({ Self.merged(Array($0.values)) }) else {
-            return saved
-        }
+        guard let read = Self.merged(readCopies(of: entry.value)) else { return saved }
         if Self.supersedes(read.facts, saved) {
             var newer = read.facts
             newer.category = saved.category
             for source in saved.sources { newer.add(source) }
             return newer
         }
+        // Saved before the Vault kept which document a reading is: the one today's reading of the
+        // same document comes from.
+        if saved.spokenBy == nil, VaultCopies.sameDocument(saved, read.facts) { saved.spokenBy = read.facts.spokenBy }
         for source in read.facts.sources { saved.add(source) }
         return saved
+    }
+
+    /// What each document said about `value`, one reading per file.
+    private func readCopies(of value: String) -> [VaultFind] {
+        Array((copies[VaultReading.normalized(value)] ?? [:]).values)
+    }
+
+    /// The copies `value` could be read from in place of the document it is read from now (``VaultCopies/choices(_:)``), and the reading with `chosen` speaking when it is one
+    /// of them. None unless `shown`, what the number shows now, is today's reading of its copies,
+    /// read from the same document with the same dates: a saved reading that stands apart from
+    /// its copies is not changed by choosing one.
+    private func sourceChoices(of value: String, shown: VaultReadFacts?, chosen: String?) -> (paths: [String], reading: VaultReadFacts?) {
+        let all = readCopies(of: value).filter { !missingDocuments.contains($0.sourcePath) }
+        guard let shown, let speaker = shown.primary?.path, all.count > 1, let auto = Self.merged(all),
+              auto.facts.spokenBy == speaker, auto.facts.dated == shown.dated, auto.facts.validUntil == shown.validUntil
+        else { return ([], nil) }
+        let paths = VaultCopies.choices(all)
+        guard let chosen, paths.contains(chosen), let read = Self.merged(all, speaking: chosen) else { return (paths, nil) }
+        return (paths, read.facts)
     }
 
     /// The person in the household a printed name answers to, when exactly one does.
@@ -473,6 +501,22 @@ public final class VaultModel: ObservableObject {
             /// The name read, when a correction took its place.
             var readHolder: String?
             var ownHolderName: String?
+            /// The Vault's own pick of document, and the user's while in force.
+            var appSource: String?
+            var chosenSource: String?
+            var sourceChoices: [String] = []
+        }
+        /// `facts` read from the copy the user chose, when it is one of the copies it could be
+        /// read from (``sourceChoices(of:speaker:chosen:)``), keeping what it was saved as.
+        func chosenReading(_ facts: VaultReadFacts?, value: String, chosen: String?)
+            -> (facts: VaultReadFacts?, app: String?, chosen: String?, choices: [String]) {
+            let app = facts?.primary?.path
+            let (paths, read) = sourceChoices(of: value, shown: facts, chosen: chosen)
+            guard var read, let facts, read.dated == facts.dated, read.validUntil == facts.validUntil
+            else { return (facts, app, nil, paths) }
+            read.category = facts.category
+            for source in facts.sources { read.add(source) }
+            return (read, app, read.spokenBy, paths)
         }
         /// A number's facts with the name corrected, and the name read when a correction took
         /// its place: before anything matches it to a person, so the corrected name is the one
@@ -484,7 +528,8 @@ public final class VaultModel: ObservableObject {
             return (facts, read)
         }
         var all: [Item] = entries.map { entry in
-            let (facts, read) = corrected(withMentions(readSince(entry), entry.value), own: entry.holderName)
+            let reading = chosenReading(readSince(entry), value: entry.value, chosen: entry.chosenSource)
+            let (facts, read) = corrected(withMentions(reading.facts, entry.value), own: entry.holderName)
             // A saved number's person was chosen in the editor; with none, it goes by its name.
             let chosen = entry.assignment
             var personID: String?
@@ -493,10 +538,12 @@ public final class VaultModel: ObservableObject {
             return Item(id: entry.id, title: entry.title, value: entry.value, note: entry.note, category: entry.category,
                         facts: facts, isSaved: true, pin: entry.pin,
                         chosen: chosen, personID: personID, chosenGeo: entry.geo, card: entry.card, readHolder: read,
-                        ownHolderName: entry.holderName)
+                        ownHolderName: entry.holderName, appSource: reading.app, chosenSource: reading.chosen,
+                        sourceChoices: reading.choices)
         }
         all += finds.map { find in
-            let (facts, read) = corrected(withMentions(find.facts, find.value), own: nil)
+            let reading = chosenReading(find.facts, value: find.value, chosen: find.chosenSource)
+            let (facts, read) = corrected(withMentions(reading.facts, find.value), own: nil)
             var personID: String?
             switch find.assignment {
             case .person(let id)?: personID = id
@@ -505,13 +552,14 @@ public final class VaultModel: ObservableObject {
             }
             return Item(id: find.id, title: find.title, value: find.value, note: find.note, category: find.category,
                         facts: facts, isSaved: false, pin: find.pin,
-                        chosen: find.assignment, personID: personID, chosenGeo: find.geo, card: find.card, readHolder: read)
+                        chosen: find.assignment, personID: personID, chosenGeo: find.geo, card: find.card, readHolder: read,
+                        appSource: reading.app, chosenSource: reading.chosen, sourceChoices: reading.choices)
         }
         // The card each goes on (Kind), before anything weighs it: moved to another app kind, it is
         // weighed, and its household and country found, as that kind.
         for index in all.indices {
             let item = all[index]
-            let (card, learned) = drawnCard(for: item.category, chosen: item.card, path: item.facts?.primary?.path)
+            let (card, learned) = drawnCard(for: item.category, chosen: item.card, paths: Self.lessonPaths(item.facts, app: item.appSource))
             all[index].readAs = item.category
             all[index].drawnOn = card
             all[index].learnedFrom = learned
@@ -557,7 +605,7 @@ public final class VaultModel: ObservableObject {
         // A paper that prints no name is whoever's folder it is filed in: `Health/Medical/Shweta`.
         for index in all.indices where all[index].chosen == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
-            if let path = all[index].facts?.primary?.path,
+            if let path = all[index].appSource ?? all[index].facts?.primary?.path,
                let id = Self.person(inPath: path, under: folders, among: people) {
                 all[index].personID = id
             }
@@ -589,7 +637,8 @@ public final class VaultModel: ObservableObject {
                        chosenGeo: item.chosenGeo, card: item.drawnOn, readAs: item.readAs,
                        chosenCard: item.card.flatMap { kinds.canHold($0) ? $0 : nil }, learnedFrom: item.learnedFrom,
                        documentMissing: item.facts?.primary.map { missingDocuments.contains($0.path) } ?? false,
-                       readHolder: item.readHolder, ownHolderName: item.ownHolderName)
+                       readHolder: item.readHolder, ownHolderName: item.ownHolderName,
+                       appSource: item.appSource, chosenSource: item.chosenSource, sourceChoices: item.sourceChoices)
         }
     }
 
@@ -934,14 +983,23 @@ public final class VaultModel: ObservableObject {
     /// The card a number goes on, and the folder that taught it when that did: its own choice,
     /// else its folder's lesson, else its own kind's card. Only an account's kind moves
     /// (``VaultKinds/changeable``), and a custom kind no longer kept is as if never chosen.
-    private func drawnCard(for category: VaultCategory, chosen: VaultCardID?, path: String?) -> (VaultCardID, String?) {
+    private func drawnCard(for category: VaultCategory, chosen: VaultCardID?, paths: [String]) -> (VaultCardID, String?) {
         guard VaultKinds.canChange(from: category) else { return (.builtIn(category), nil) }
         if let chosen, kinds.canHold(chosen) { return (chosen, nil) }
-        if let path {
+        for path in paths {
             let folder = VaultKinds.lessonFolder(of: path)
             if let lesson = lessons[folder], kinds.canHold(lesson) { return (lesson, folder) }
         }
         return (.builtIn(category), nil)
+    }
+
+    /// Where a number's folder lesson is looked for: the folder of the document the Vault reads it
+    /// from, then those of its other documents of that kind, so a lesson taught where an
+    /// account's papers are filed still holds when its newest statement is filed elsewhere.
+    nonisolated static func lessonPaths(_ facts: VaultReadFacts?, app: String?) -> [String] {
+        guard let facts, let first = app ?? facts.primary?.path else { return [] }
+        let rank = facts.sources.first { $0.path == first }?.rank
+        return [first] + facts.orderedSources.filter { $0.path != first && $0.rank == rank }.map(\.path)
     }
 
     /// Kind: moves a number to another card. A number read from an account's folder teaches that
@@ -954,7 +1012,7 @@ public final class VaultModel: ObservableObject {
         guard let row = rows.first(where: { $0.id == id }), VaultKinds.canChange(from: row.readAs) else { return }
         if let card, !kinds.canHold(card) { return }
         let asRead = card == nil || card == .builtIn(row.readAs)
-        let path = row.facts?.primary?.path
+        let path = row.appSource ?? row.facts?.primary?.path
         let folder = path.flatMap { path in
             VaultKinds.teaches(path, under: VaultReadFolders.folders(in: defaults)) ? VaultKinds.lessonFolder(of: path) : nil
         }
@@ -977,6 +1035,33 @@ public final class VaultModel: ObservableObject {
         showEvenIfFiltered(id)
     }
 
+    // MARK: Read from
+
+    /// Read from This Copy: reads a number from another copy of the document it is read from
+    /// (``Row/sourceChoices``), whose name and details are then shown and which opens; nil, or
+    /// the Vault's own pick, is Let the App Choose. Its dates, tab and card stay as they are.
+    /// Later reads keep the choice while the copy is still one of the number's; a renewal under
+    /// the same number, a document with other dates, speaks for it in its place.
+    public func readFrom(_ id: UUID, copy path: String?) {
+        guard let row = rows.first(where: { $0.id == id }) else { return }
+        let chosen = path == row.appSource ? nil : path
+        if let chosen, !row.sourceChoices.contains(chosen) { return }
+        guard chosen != row.chosenSource else { return }
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            var changed = entries
+            changed[index].chosenSource = chosen
+            guard write(changed) else { return }
+        } else if let index = finds.firstIndex(where: { $0.id == id }) {
+            finds[index].chosenSource = chosen
+            readingChanged = true
+            saveReading()
+        } else {
+            return
+        }
+        rowsRevision &+= 1
+        showEvenIfFiltered(id)
+    }
+
     // MARK: Names
 
     /// Names corrected everywhere (``Draft/correctEverywhere``): the name as read, by
@@ -992,10 +1077,13 @@ public final class VaultModel: ObservableObject {
 
     /// `draft` as Edit opens it: its Name holding the correction in force (this ID's own, else
     /// one made everywhere), and Everywhere ticked when that is where it comes from. Saving it
-    /// unchanged changes nothing for any other ID.
-    public func prepared(_ draft: Draft) -> Draft {
+    /// unchanged changes nothing for any other ID. With `id`, the name compared is the one that
+    /// ID's document is read with now, which can be another copy's than the saved reading's.
+    public func prepared(_ draft: Draft, for id: UUID? = nil) -> Draft {
         var draft = draft
-        guard let read = draft.facts?.holder else { return draft }
+        guard let read = id.flatMap({ id in rows.first { $0.id == id }?.holderAsRead }) ?? draft.facts?.holder else { return draft }
+        // The editor's Name compares against what it shows as read.
+        draft.facts?.holder = read
         let everywhere = names[VaultReading.spellingKey(read)]
         draft.holderName = draft.holderName ?? everywhere
         draft.correctEverywhere = draft.holderName != nil && draft.holderName == everywhere
@@ -1479,7 +1567,7 @@ public final class VaultModel: ObservableObject {
                 mentions = sameRules ? state.mentions : [:]
                 copies = sameRules ? state.copies : [:]
                 choices = sameRules ? state.choices : state.choices.merging(Dictionary(
-                    state.finds.filter { $0.pin != nil || $0.assignment != nil || $0.geo != nil || $0.card != nil }.map {
+                    state.finds.filter { VaultChoice($0).isChosen }.map {
                         (VaultReading.normalized($0.value), VaultChoice($0))
                     }, uniquingKeysWith: { a, _ in a })) { a, _ in a }
                 readIndex = sameRules && state.generation == VaultSetAside.generation(in: defaults) ? state.read : [:]
@@ -1496,6 +1584,9 @@ public final class VaultModel: ObservableObject {
                 lastRefreshed = state.lastRefreshed
                 lastDiscovered = state.lastDiscovered
                 names = state.names
+                // Merged by an older build of the same rules: rebuilt, so each names the document
+                // it is read from and copies are weighed as they are now.
+                if sameRules { finds = finds.map { rebuilt($0, VaultReading.normalized($0.value)) } }
                 // Asked for whenever anything read is let go: waiting finds, and also what saved
                 // numbers took from their documents (a renewed license's expiry), which a Vault
                 // with nothing left to confirm would otherwise lose without a word.
@@ -1619,7 +1710,7 @@ public final class VaultModel: ObservableObject {
         return id
     }
 
-    private func add(_ draft: Draft, sourcePath: String?) -> UUID? {
+    private func add(_ draft: Draft, sourcePath: String?, chosenSource: String? = nil, readHolder: String? = nil) -> UUID? {
         guard draft.isComplete, contents == .loaded || contents == .notLoaded else { return nil }
         if contents == .notLoaded { load() }
         guard contents == .loaded else { return nil }
@@ -1640,7 +1731,8 @@ public final class VaultModel: ObservableObject {
         entry.assignment = draft.assignment ?? waiting?.assignment
         entry.geo = draft.geo ?? waiting?.geo
         entry.card = draft.card ?? waiting?.card
-        entry.holderName = draft.facts == nil ? nil : storedName(for: draft, read: facts?.holder)
+        entry.chosenSource = chosenSource ?? waiting?.chosenSource
+        entry.holderName = draft.facts == nil ? nil : storedName(for: draft, read: readHolder ?? facts?.holder)
         guard write(entries + [entry]) else { return nil }
         dropFinds(matching: entry.value)
         selection = entry.id
@@ -1668,7 +1760,9 @@ public final class VaultModel: ObservableObject {
         changed[index].pin = draft.pin
         changed[index].geo = draft.geo
         changed[index].card = draft.card
-        changed[index].holderName = changed[index].facts == nil ? nil : storedName(for: draft, read: changed[index].facts?.holder)
+        let shownRead = rows.first { $0.id == id }?.holderAsRead
+        changed[index].holderName = changed[index].facts == nil ? nil
+            : storedName(for: draft, read: shownRead ?? changed[index].facts?.holder)
         changed[index].updatedAt = clock()
         used()
         let before = entries[index]
@@ -1942,7 +2036,7 @@ public final class VaultModel: ObservableObject {
                 if let choice = before[key] {
                     find = VaultFind(id: choice.id, title: find.title, value: find.value, note: find.note,
                                      facts: find.facts, pin: choice.pin, assignment: choice.assignment, geo: choice.geo,
-                                     card: choice.card)
+                                     card: choice.card, chosenSource: choice.source)
                 }
                 if take(find), before[key] == nil { tally.added += 1 }
             }
@@ -2088,7 +2182,9 @@ public final class VaultModel: ObservableObject {
         VaultCopies.supersedes(incoming, held)
     }
 
-    nonisolated static func merged(_ copies: [VaultFind]) -> VaultFind? { VaultCopies.merged(copies) }
+    nonisolated static func merged(_ copies: [VaultFind], speaking chosen: String? = nil) -> VaultFind? {
+        VaultCopies.merged(copies, speaking: chosen)
+    }
 
     nonisolated static func fuller(_ kept: String?, _ other: String?) -> String? { VaultCopies.fuller(kept, other) }
 
@@ -2118,7 +2214,8 @@ public final class VaultModel: ObservableObject {
     private func rebuilt(_ find: VaultFind, _ value: String) -> VaultFind {
         guard let merged = Self.merged(Array((copies[value] ?? [:]).values)) else { return find }
         return VaultFind(id: find.id, title: merged.title, value: find.value, note: merged.note,
-                         facts: merged.facts, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card)
+                         facts: merged.facts, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card,
+                         chosenSource: find.chosenSource)
     }
 
     /// Lets go of what `path` said: as a source of a waiting number (the number goes when it was
@@ -2186,7 +2283,8 @@ public final class VaultModel: ObservableObject {
         var draft = draft
         // What was read stays with the number, whatever the editor changed about its name.
         if draft.facts == nil { draft.facts = find.facts }
-        guard let id = add(draft, sourcePath: find.sourcePath) else { return nil }
+        guard let id = add(draft, sourcePath: find.sourcePath, chosenSource: find.chosenSource,
+                           readHolder: rows.first { $0.id == findID }?.holderAsRead) else { return nil }
         record(.confirmed, id: id)
         if VaultReading.normalized(draft.value) != VaultReading.normalized(find.value) {
             remember(find.value)
