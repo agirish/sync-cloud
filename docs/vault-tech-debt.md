@@ -30,7 +30,8 @@ IDs here (`VT…`) are stable: never renumber, and cite them in commit bodies.
 
 1. **Safety net** — VT20, VT21, VT30 (rolling backups, golden-file test, tolerant decoding). Nothing
    else changes the format until these are in.
-2. **Bugs** — VT40–VT47 (readers) and VB2, VB4–VB7 from the artifact.
+2. **Bugs** — VT46 and VT47 (readers; VT40–VT45 are closed, see section G) and VB2, VB4–VB7 from
+   the artifact.
 3. **Logging and tests** — VT22–VT29.
 4. **Security** — VT31–VT36.
 5. **Model** — VT1–VT6, which unblock VF10–VF14.
@@ -159,8 +160,9 @@ same decrypted JSON. Add one per format change.
 
 **VT27 — `MacApp/Vault` has no tests** (2,900 lines). At least: `VaultPasteboard` (concealed and
 transient markers present, `currentHostOnly`, cleared after the interval only when the change count is
-unchanged, cleared on quit); `VaultFolderReader` (60 MB cap, three-page cap, the 40-character text-layer
-rule, locked PDF, orientation: see VT44); `VaultCardSize.fitted`; `VaultActivityWatch` window scoping;
+unchanged, cleared on quit); `VaultFolderReader` (60 MB cap, three-page cap, locked PDF; the
+text-layer rule is now `VaultPageSource` in `Sync` with `VaultPageSourceTests`, and
+`VaultFolderReaderTests` covers the scan check and one stamped scan read with Vision); `VaultCardSize.fitted`; `VaultActivityWatch` window scoping;
 whatever VT8 leaves in the view.
 
 **VT28 — Privacy tests are two.** Add: nothing in `UserDefaults` under any `vault*` key contains a
@@ -241,16 +243,17 @@ them settings when VF8/VF9 add the Settings rows.
 Found by a second reviewer reading `VaultReading`, `VaultIDReading`, `VaultAccountReading`,
 `VaultTravelReading`, `VaultPrintedPage`, `VaultReadPlan` and `VaultDocumentReader` end to end.
 **Checked** means I re-read the cited lines and agree; **relayed** means I did not. Each fix needs a
-test with a made-up page that fails before it, and a `VaultReading.version` bump.
+test with a made-up page that fails before it, and a `VaultReading.version` bump. VT40–VT43 and VT45
+were fixed together at version 13; VT46 and VT47 are open.
 
 | ID | Where | Defect | Example | Status |
 |---|---|---|---|---|
-| VT40 | `VaultDocumentReader.swift:103` | A PDF page with more than 40 non-space characters of text layer is never sent to Vision. | A scanned passport page stamped with a DocuSign envelope ID yields only the stamp. | checked |
-| VT41 | `VaultAccountReading.swift:44` | `accountValue` joins any following space-separated group that holds a digit. | `Student ID: 123456 5th Grade` → `123456 5th`; `Loan Number: 0123456789 30 Year Fixed` → `0123456789 30`. | checked |
-| VT42 | `VaultIDReading.swift:487` | `contains("epan")` also matches "Employee PAN", "the PAN". | A tax notice is ranked a PAN card and offers the deductor's PAN. | checked |
-| VT43 | `VaultIDReading.swift:571` | `contains("enrollmentno")` matches "Open Enrollment Notice" and waives the Aadhaar label. | A 12-digit member ID passing Verhoeff (1 in 10) becomes an Aadhaar number at rank 40. | checked |
-| VT44 | `VaultDocumentReader.swift:78`, `:155` | Images are decoded and handed to Vision with no EXIF orientation. | A portrait iPhone photo of a card is read sideways. | checked (code); effect not run |
-| VT45 | `VaultIDReading.swift:329` | The cue `socialsecuritycard` alone makes a page a card; only SS-5 and I-9 are excluded. | A W-4 or I-765 with the number on its own line is filed as a Social Security card. | checked |
+| VT40 | `VaultDocumentReader.swift:103` | A PDF page with more than 40 non-space characters of text layer is never sent to Vision. | A scanned passport page stamped with a DocuSign envelope ID yields only the stamp. | **fixed** 2026-11-20. The rule moved to `VaultPageSource` (`Sync`): a page that draws a scan-sized picture under a layer of at most 400 letters the readers find no number in is read from its picture too, and that reading is taken when it gives a number. Still open: a full-page text layer a scanner wrote is trusted even when it misread the number. |
+| VT41 | `VaultAccountReading.swift:44` | `accountValue` joins any following space-separated group that holds a digit. | `Student ID: 123456 5th Grade` → `123456 5th`; `Loan Number: 0123456789 30 Year Fixed` → `0123456789 30`. | **fixed** 2026-11-20. A space joins only groups of digits, and only in a number that starts with a group of five characters at most. Still open: a short number followed by a bare count (`12345 30 Year`). |
+| VT42 | `VaultIDReading.swift:487` | `contains("epan")` also matches "Employee PAN", "the PAN". | A tax notice is ranked a PAN card and offers the deductor's PAN. | **fixed** 2026-11-20. "e-PAN" counts only as a word of its own (`ePANWord`). |
+| VT43 | `VaultIDReading.swift:571` | `contains("enrollmentno")` matches "Open Enrollment Notice" and waives the Aadhaar label. | A 12-digit member ID passing Verhoeff (1 in 10) becomes an Aadhaar number at rank 40. | **fixed** 2026-11-20. The label counts only with a number in UIDAI's shape after it, `1234/12345/…` (`enrolmentNumber`). |
+| VT44 | `VaultDocumentReader.swift:78`, `:155` | Images are decoded and handed to Vision with no EXIF orientation. | A portrait iPhone photo of a card is read sideways. | **not a defect**, run 2026-11-20. Vision's accurate level read a made-up card and passport zone stored a quarter turn either way and upside down, with no orientation passed: every line, in order, at 30, 20 and 14 px type. The only differences were single characters (`O`/`0`, `I`/`T`), in both directions and upright too. Nothing changed. |
+| VT45 | `VaultIDReading.swift:329` | The cue `socialsecuritycard` alone makes a page a card; only SS-5 and I-9 are excluded. | A W-4 or I-765 with the number on its own line is filed as a Social Security card. | **fixed** 2026-11-20. Those words alone count only on a page that prints neither a form's number (`Form W-4`, `Form I-765`, `Form 1040`) nor an OMB number. Still open: a page that is no federal form and quotes the words (an employer's checklist). |
 | VT46 | `VaultReading.swift:800`, `:850` | A zone whose first letter was read as a digit can pass every check (G≡6, L≡1, U≡0 under 7-3-1); the "eight digits + IND" rule runs only after a failure. | Indian passport `G1234567` accepted as `61234567`. | relayed |
 | VT47 | `VaultReading.swift:809` | An unreadable character in the number field is only ever filled with a digit or `<`. | `Z` read as `Ž` fills as `5` and passes. | relayed, plausible |
 

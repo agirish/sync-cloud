@@ -214,6 +214,20 @@ import Testing
         // A number runs to its last group with a digit, never into the next word.
         #expect(Self.read(["Account Number: 12345 Due 02/01/2025"], at: "Home/Utilities/PG&E/2025/bill.pdf").first?.value == "12345")
     }
+
+    @Test func aNumberStopsBeforeWhatIsPrintedAfterIt() {
+        // A word that holds a digit is the next thing on the line, not more of the number.
+        #expect(Self.read(["Twin Creeks Elementary", "Student ID: 123456 5th Grade"],
+                          at: "School/US/Liv/Twin Creeks/Report Card 2025.pdf").first?.value == "123456")
+        // A long run of digits is whole already: what follows a space is the loan's term.
+        #expect(Self.read(["Mortgage statement", "Loan Number: 0123456789 30 Year Fixed"],
+                          at: "Home/Mortgage/Statements/2025/Apr.pdf").first?.value == "0123456789")
+        // A number printed in groups, by spaces or dashes, is still read to its last group.
+        for whole in ["1234 5678 9012", "XZB-45-1234", "CA-123-4567-89", "8155 60 012 3456789"] {
+            #expect(Self.read(["Account Number: " + whole + " Due 02/01/2025"], at: "Home/Utilities/Cable/2025/bill.pdf")
+                .first?.value == whole, "\(whole.count)")
+        }
+    }
 }
 
 /// Read Documents carries on when the panel closes, and lets the numbers go when it ends.

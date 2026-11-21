@@ -65,7 +65,7 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     func pages(in file: URL) async -> [[String]] {
-        await Task.detached(priority: .userInitiated) { Self.read(file) }.value
+        await Task.detached(priority: .userInitiated) { [folders] in Self.read(file, under: folders) }.value
     }
 
     /// Each page's lines kept apart, so a name line on one page is never paired with a number on
@@ -73,7 +73,7 @@ struct VaultFolderReader: VaultDocumentReading {
     /// blank page; a file with no page read at all comes back empty, so it is not marked read and
     /// the next read tries it again, and what it gave before stays. One broken page does not keep
     /// a file's other pages from being read, on this read or any later one.
-    private static func read(_ file: URL) -> [[String]] {
+    private static func read(_ file: URL, under folders: [String]) -> [[String]] {
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
@@ -99,36 +99,71 @@ struct VaultFolderReader: VaultDocumentReading {
         }
         for index in 0..<min(document.pageCount, pagesPerDocument) {
             guard let page = document.page(at: index) else { continue }
-            let layer = page.string ?? ""
-            if layer.filter({ !$0.isWhitespace }).count > 40 {
-                var lines = layer.components(separatedBy: .newlines)
-                // A scanner's text layer carries the words, never a barcode: a license back is
-                // rendered once for its barcode alone.
-                if VaultReading.wantsSharperRead(lines), let image = render(page, longSide: 4000) {
-                    let decoded = decodeBarcodes(image)
-                    lines += decoded
-                    Logger.shared.debug("Vault: a license back was rendered for its barcode; "
-                                        + (decoded.isEmpty ? "none decoded" : "decoded"))
-                }
-                pages.append(lines)
-            } else {
-                guard let image = render(page), var lines = recognise(image) else {
-                    unreadable += 1
-                    continue
-                }
-                // A Social Security card's small type runs a digit in at this size, and a license
-                // back's barcode can fail to decode; both read true at about 4000 pixels. Only
-                // such a page, with nothing read from it, is read again.
-                if VaultReading.wantsSharperRead(lines), let sharper = render(page, longSide: 4000),
-                   let again = recognise(sharper) {
-                    lines = again
-                    Logger.shared.debug("Vault: a page was read again at 4000 px; "
-                                        + (VaultReading.wantsSharperRead(lines) ? "still nothing read" : "now read"))
-                }
-                pages.append(lines)
+            // Which reading counts is ``VaultPageSource``'s rule; the renders are made here, and
+            // only when it asks.
+            let picture = VaultPageSource.Picture(
+                isScan: { drawsScan(page) },
+                read: { sharper in render(page, longSide: sharper ? 4000 : 2400).flatMap(recognise) },
+                barcodes: { render(page, longSide: 4000).map(decodeBarcodes) ?? [] })
+            guard let lines = VaultPageSource.lines(textLayer: page.string ?? "", from: file.path, under: folders,
+                                                    picture: picture) else {
+                unreadable += 1
+                continue
             }
+            pages.append(lines)
         }
         return pages
+    }
+
+    /// A picture this many pixels on its long side could be a scan of the page: a card scanned at
+    /// 150 dpi is about 500, and a letterhead's logo is mostly smaller.
+    static let scanLongSide = 400
+
+    /// Whether the page draws a picture that could be a scan of it: one of its image objects, or
+    /// one inside a form it draws, is at least ``scanLongSide`` pixels on its long side. Where the
+    /// picture sits on the page is not looked at; a wrong yes costs one recognition.
+    static func drawsScan(_ page: PDFPage) -> Bool {
+        guard var node = page.pageRef?.dictionary else { return false }
+        // A page's resources are its own, or its parent's.
+        for _ in 0..<16 {
+            var resources: CGPDFDictionaryRef?
+            if CGPDFDictionaryGetDictionary(node, "Resources", &resources), let resources {
+                return holdsScan(resources, depth: 0)
+            }
+            var parent: CGPDFDictionaryRef?
+            guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { return false }
+            node = parent
+        }
+        return false
+    }
+
+    private static func holdsScan(_ resources: CGPDFDictionaryRef, depth: Int) -> Bool {
+        var objects: CGPDFDictionaryRef?
+        guard CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else { return false }
+        var found = false
+        CGPDFDictionaryApplyBlock(objects, { _, object, _ in
+            var stream: CGPDFStreamRef?
+            var subtype: UnsafePointer<CChar>?
+            guard CGPDFObjectGetValue(object, .stream, &stream), let stream,
+                  let dictionary = CGPDFStreamGetDictionary(stream),
+                  CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype else { return true }
+            switch String(cString: subtype) {
+            case "Image":
+                var width: CGPDFInteger = 0, height: CGPDFInteger = 0
+                CGPDFDictionaryGetInteger(dictionary, "Width", &width)
+                CGPDFDictionaryGetInteger(dictionary, "Height", &height)
+                found = max(width, height) >= scanLongSide
+            case "Form" where depth < 3:
+                var inner: CGPDFDictionaryRef?
+                if CGPDFDictionaryGetDictionary(dictionary, "Resources", &inner), let inner {
+                    found = holdsScan(inner, depth: depth + 1)
+                }
+            default:
+                break
+            }
+            return !found
+        }, nil)
+        return found
     }
 
     /// The page at about 2400 pixels on its long side: the zone's small type needs that much.

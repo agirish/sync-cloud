@@ -325,19 +325,29 @@ extension VaultReading {
 
     // MARK: Social Security numbers and ITINs
 
-    /// What only a Social Security card, or its stub, prints.
-    private static let cardCues = ["establishedfor", "socialsecuritycard", "validforworkonly", "workonlywith",
-                                   "dhsauthorization", "notvalidforemployment"]
+    /// What only a Social Security card prints.
+    private static let cardCues = ["establishedfor", "validforworkonly", "workonlywith", "dhsauthorization",
+                                   "notvalidforemployment"]
+    /// A federal form's own number, with spaces dropped: "Form W-4", "Form I-765", "Form 1040".
+    /// Not the "Form SSA-3000" on a card's back.
+    private static let formNumber = try! NSRegularExpression(pattern: #"form(?:[wi]-?[0-9]|ss-?[0-9]|[0-9]{3,4})"#)
     private static let ssnLine = try! NSRegularExpression(pattern: #"^\s*([0-9]{3})[- ]([0-9]{2})[- ]([0-9]{4})\s*$"#)
     private static let itinInText = try! NSRegularExpression(pattern: #"(?<![0-9])(9[0-9]{2})-([0-9]{2})-([0-9]{4})(?![0-9])"#)
 
     /// A card or its stub, and not a form that prints the card's words: the application for one
     /// (SSA's SS-5) or the I-9's list of documents ("valid for work only with DHS authorization").
+    ///
+    /// "Social Security card" alone is the stub's heading, and also what a form asks about: "the
+    /// name on your social security card" (W-4, W-2), "issue you a Social Security card" (I-765).
+    /// With none of the card's own print read, those words count only on a page that is no form:
+    /// one printing neither a form's number nor an OMB number.
     static func isSocialSecurityCard(_ squeezed: String) -> Bool {
-        guard cardCues.contains(where: squeezed.contains) else { return false }
         let forms = ["applicationforasocialsecuritycard", "formss-5", "ss-5", "employmenteligibilityverification",
                      "formi-9", "listsofacceptabledocuments"]
-        return !forms.contains(where: squeezed.contains)
+        guard !forms.contains(where: squeezed.contains) else { return false }
+        if cardCues.contains(where: squeezed.contains) { return true }
+        guard squeezed.contains("socialsecuritycard"), !squeezed.contains("ombno") else { return false }
+        return formNumber.firstMatch(in: squeezed, range: NSRange(location: 0, length: (squeezed as NSString).length)) == nil
     }
 
     /// A Social Security number SSA could have assigned: never area 000, 666 or 900 and up, group
@@ -476,15 +486,20 @@ extension VaultReading {
     private static let panPattern = try! NSRegularExpression(
         pattern: #"(?<![A-Za-z0-9])([A-Z]{3}[PCHFATBLJG][A-Z][0-9]{4}[A-Z])(?![A-Za-z0-9])"#)
 
+    /// "e-PAN", "ePAN" or "e - PAN" as a word of its own: never the end of "Employee PAN" or
+    /// "the PAN", which run together as "epan" once spaces are dropped, nor "Schedule E PAN".
+    private static let ePANWord = try! NSRegularExpression(pattern: #"(?<![A-Za-z])e(?: ?- ?)?PAN(?![A-Za-z])"#,
+                                                           options: [.caseInsensitive])
+
     static func panNumbers(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
+        let ePAN = page.contains { ePANWord.firstMatch(in: $0, range: NSRange(location: 0, length: ($0 as NSString).length)) != nil }
         guard squeezed.contains("permanentaccountnumber") || squeezed.contains("incometaxdepartment")
-                || squeezed.contains("e-pan") || squeezed.contains("panverification") else { return [] }
+                || ePAN || squeezed.contains("panverification") else { return [] }
         // An e-PAN prints neither the department nor "card", only that it is one. The department's
         // name alone is on every tax notice too: the older card also prints "GOVT. OF INDIA" and
         // the holder's father, which a notice does not.
-        let card = squeezed.contains("permanentaccountnumbercard") || squeezed.contains("e-pan")
-            || squeezed.contains("epan") || squeezed.contains("cardnotvalidunless")
+        let card = squeezed.contains("permanentaccountnumbercard") || ePAN || squeezed.contains("cardnotvalidunless")
             || squeezed.contains("panverificationrecord")
             || (squeezed.contains("incometaxdepartment") && squeezed.contains("govt")
                 && squeezed.contains("permanentaccountnumber")
@@ -566,10 +581,17 @@ extension VaultReading {
         return c == 0
     }
 
+    /// An Aadhaar letter's enrolment number beside its label, as UIDAI prints it: "Enrolment No.:
+    /// 1234/12345/12345". The label alone is also the start of "Open Enrollment Notice", and a
+    /// health plan has an enrollment number of its own.
+    private static let enrolmentNumber = try! NSRegularExpression(
+        pattern: #"enrol{1,2}ment\s*(?:no|number)[\s.:#-]*[0-9]{4}\s*/\s*[0-9]{5}"#, options: [.caseInsensitive])
+
     static func aadhaarNumbers(on page: [String], from path: String) -> [VaultFind] {
         let squeezed = squeezed(page)
-        let uidai = squeezed.contains("uniqueidentificationauthority") || squeezed.contains("enrolmentno")
-            || squeezed.contains("enrollmentno") || squeezed.contains("uidai")
+        let text = page.joined(separator: "\n")
+        let uidai = squeezed.contains("uniqueidentificationauthority") || squeezed.contains("uidai")
+            || enrolmentNumber.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) != nil
         guard uidai || squeezed.contains("aadhaar") || squeezed.contains("aadhar") else { return [] }
         let receipt = squeezed.contains("paymentreceipt") || squeezed.contains("acknowledgement") || squeezed.contains("invoice")
         let role = receipt ? "Aadhaar receipt" : uidai ? "Aadhaar letter" : squeezed.contains("digilocker") ? "Aadhaar, DigiLocker" : "Names it"

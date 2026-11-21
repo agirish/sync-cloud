@@ -35,15 +35,28 @@ extension VaultReading {
                                                      "account id"]),
     ]
 
-    /// A number beside one of those labels: groups of letters and digits joined by a space or a
-    /// dash, every group holding a digit but a short prefix a dash ties to the rest, so
-    /// "1234 5678 9012", "XZB-45-1234" and "CA-123-4567-89" are read whole, "12345 Due" stops
-    /// before the word, "12345678 01/02/1990" and "12345-67-89 01-01-2022" (a card's columns read
-    /// as one line) stop before the date, and the words of "write your account number on your check" or "is 987654" are no
-    /// number at all.
-    private static let accountValue = try! NSRegularExpression(
-        pattern: #"(?:(?=[A-Z]*[0-9])[A-Z0-9]+|[A-Z]{1,4}(?=-[A-Z]*[0-9]))(?:(?: (?![0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{2,4}(?![0-9]))|-)(?=[A-Z]*[0-9])[A-Z0-9]+(?![/.:][0-9])){0,6}(?![A-Za-z0-9])"#,
-        options: [.caseInsensitive])
+    /// A number beside one of those labels: groups of letters and digits joined by a dash, every
+    /// group holding a digit but a short prefix a dash ties to the rest ("XZB-45-1234",
+    /// "CA-123-4567-89"), or groups of digits joined by a space when the number starts with a short
+    /// group, as one printed in groups does ("1234 5678 9012", "8155 60 012 3456789").
+    ///
+    /// It stops before what the line prints next: the word of "12345 Due"; a word that holds a
+    /// digit ("123456 5th Grade"); whatever follows a long run, which is whole already
+    /// ("0123456789 30 Year Fixed"); a date ("12345678 01/02/1990", "12345-67-89 01-01-2022", a
+    /// card's columns read as one line). The words of "write your account number on your check" or
+    /// "is 987654" are no number at all.
+    private static let accountValue: NSRegularExpression = {
+        let group = #"(?=[A-Z]*[0-9])[A-Z0-9]+"#
+        let first = "(?:\(group)|[A-Z]{1,4}(?=-[A-Z]*[0-9]))"
+        let dashed = "-\(group)(?![/.:][0-9])"
+        let notADate = #"(?![0-9]{1,2}[-/.][0-9]{1,2}[-/.][0-9]{2,4}(?![0-9]))"#
+        let spaced = " \(notADate)[0-9]+(?![A-Z0-9])(?![/.:][0-9])"
+        /// A first group of five characters at most: longer, and it is no number printed in groups.
+        let short = #"(?=[A-Z0-9]{1,5}(?![A-Z0-9]))"#
+        return try! NSRegularExpression(
+            pattern: "(?:\(short)\(first)(?:\(spaced)|\(dashed)){0,6}|\(first)(?:\(dashed)){0,6})(?![A-Za-z0-9])",
+            options: [.caseInsensitive])
+    }()
     /// What may stand between a label and its number: not `*`, so a mask's "****1234" is seen as
     /// masked and never read as "1234".
     private static let beforeNumber = PrintedPage.separators.subtracting(["*"])
