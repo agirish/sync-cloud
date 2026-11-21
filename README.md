@@ -190,8 +190,9 @@ for: a passport number, a member ID, a loan number.
   name as each document prints it and the date of birth (hidden until one of their IDs is shown),
   then their IDs with the kind on each row. Copy Summary gives endings only; Copy with Numbers
   asks for Touch ID.
-- **Card colors**: each card's title takes a soft tint of its group's color, so a kind is found
-  by its color. Right-click a card's title and choose Color (or use Color beside Kind): one row of
+- **Card colors**: each card takes a soft tint of its group's color, its title more than its
+  rows, so a kind is found by its color. The chosen row is a light lift, not a fill in the
+  window's hue. Right-click a card's title and choose Color (or use Color beside Kind): one row of
   colors for that card alone, one for its whole group. Customize Groups turns colors off.
 - **Name on the Document**, in Edit, corrects a name a scan misread, for one ID or for every ID
   read with that name and later reads; what was read stays in sight.

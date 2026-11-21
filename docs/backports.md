@@ -16168,7 +16168,9 @@ its symbol in the color (`VaultCardHeader`), by group with a choice per card, se
 card's title, beside Kind, or in Customize Groups. Names of groups, kinds and colors in
 UserDefaults; nothing sealed changes. Later that day the title's menu lost its Color submenu, which
 shut whenever the Vault's rows changed under it: Color opens a popover with a row for the card and
-a row for its group (`VaultColorPopover`, `VaultColorChoice`).
+a row for its group (`VaultColorPopover`, `VaultColorChoice`). 2026-11-21: the wash covers the
+whole card, lighter under its rows (`VaultCardBodyWash`), and the chosen row is a light lift on a
+washed card and a quiet grey on plain ground, not a fill in the window's hue (`VaultRowLift`).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

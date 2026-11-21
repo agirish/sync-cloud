@@ -25,8 +25,13 @@ enum VaultTintPalette {
     static let saturation = 0.5
 
     /// How strong the wash behind a card's title is. Soft: the title over it stays in the text
-    /// color, and a selected row under it, drawn in the window's hue, is not taken for more of it.
+    /// color.
     static func wash(dark: Bool) -> Double { dark ? 0.22 : 0.14 }
+
+    /// How strong the wash under a card's rows is: the whole card is in its color, the title bar
+    /// more than the rows, so the bar still reads as the card's head and the rows' words, pills
+    /// and the lifted chosen row keep their contrast.
+    static func bodyWash(dark: Bool) -> Double { dark ? 0.11 : 0.07 }
 
     /// The shade's sRGB parts, from its hue, ``saturation`` and ``lightness(dark:)``.
     static func rgb(_ tint: VaultTint, dark: Bool) -> (red: Double, green: Double, blue: Double) {
@@ -141,6 +146,57 @@ struct VaultCardHeader: View {
             }
         }
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - A card's rows
+
+/// The ground under a card's rows: a lighter wash of the card's color than its title bar's, or
+/// nothing for a card with no color.
+struct VaultCardBodyWash: View {
+    let tint: VaultTint?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        if let tint {
+            tint.color.opacity(VaultTintPalette.bodyWash(dark: scheme == .dark))
+        }
+    }
+}
+
+/// The chosen row's ground, never a fill in the window's hue: on a card washed in its own color
+/// that would be a second color beside the first.
+///
+/// On a washed card it is a light lift off the card, as a chosen segment is lifted off its
+/// control: near white, with a soft shadow. On plain ground (a card with no color, the List and
+/// People layouts, Increase Contrast) white would not show, so it is a quiet grey instead.
+struct VaultRowLift: ViewModifier {
+    let isChosen: Bool
+    /// Whether the row lies on a card's wash.
+    let onColor: Bool
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    /// The lift's fill on a washed card: near white on a light one, a lighter step on a dark one.
+    static func lift(dark: Bool) -> Color { Color.white.opacity(dark ? 0.16 : 0.92) }
+    /// The fill on plain ground: the text color, faintly.
+    static func plain(dark: Bool) -> Color { Color.primary.opacity(dark ? 0.13 : 0.075) }
+
+    func body(content: Content) -> some View {
+        content.background {
+            if isChosen {
+                let shape = RoundedRectangle(cornerRadius: Radius.chip)
+                let dark = scheme == .dark
+                if onColor {
+                    shape.fill(Self.lift(dark: dark))
+                        .shadow(color: .black.opacity(dark ? 0.35 : 0.16), radius: 1.5, y: 0.5)
+                        .overlay(shape.strokeBorder(Color.primary.opacity(0.08)))
+                } else {
+                    shape.fill(Self.plain(dark: dark))
+                        .overlay(shape.strokeBorder(Color.primary.opacity(contrast == .increased ? 0.55 : 0)))
+                }
+            }
+        }
     }
 }
 

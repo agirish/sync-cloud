@@ -1016,7 +1016,9 @@ struct VaultCard: View {
     private func categoryCard(_ card: VaultCardID, _ rows: [VaultModel.Row]) -> some View {
         let isFolded = model.isFolded(card)
         let title = model.kinds.title(of: card)
-        return VStack(alignment: .leading, spacing: 2) {
+        // The whole card is in its color, but for Increase Contrast, where its symbol alone is.
+        let washed = contrast != .increased && model.tint(of: card) != nil
+        return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) {
                     model.toggleFold(card, all: NSEvent.modifierFlags.contains(.option))
@@ -1042,9 +1044,10 @@ struct VaultCard: View {
             }
             .popover(isPresented: isColoring(.title(card)), arrowEdge: .bottom) { colorPopover(for: card, at: .title(card)).presentedNativeControlAccent() }
             if !isFolded {
-                // The rows keep the card's inset; the title bar above runs edge to edge.
-                Group {
-                    ForEach(rows) { row in rowView(row).id(row.id) }
+                // The rows keep the card's inset; the title bar above runs edge to edge. One stack,
+                // so one wash lies under them all.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(rows) { row in rowView(row, onColor: washed).id(row.id) }
                     if let elsewhere = model.elsewhere(card) {
                         Button {
                             model.geoFilter = elsewhere.filter
@@ -1062,9 +1065,13 @@ struct VaultCard: View {
                     }
                 }
                 .padding(.horizontal, 4)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The rows under a lighter wash than the title's.
+                .background(VaultCardBodyWash(tint: washed ? model.tint(of: card) : nil))
             }
         }
-        .padding(.bottom, isFolded ? 0 : 4)
         .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
         // The title bar's wash follows the card's corners.
         .clipShape(RoundedRectangle(cornerRadius: Radius.card))
@@ -1372,7 +1379,7 @@ struct VaultCard: View {
     }
 
     /// One number: whose, what it is, its ending, and badges for what needs noticing.
-    private func rowView(_ row: VaultModel.Row, underPerson: Bool = false) -> some View {
+    private func rowView(_ row: VaultModel.Row, underPerson: Bool = false, onColor: Bool = false) -> some View {
         let isSelected = model.selection == row.id
         let title = underPerson ? Self.kindTitle(row) : rowTitle(row)
         return Button {
@@ -1418,8 +1425,7 @@ struct VaultCard: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: Radius.chip)
-                .fill(isSelected ? glassHue.accentColor.opacity(0.16) : Color.clear))
+            .modifier(VaultRowLift(isChosen: isSelected, onColor: onColor))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
