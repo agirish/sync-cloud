@@ -55,6 +55,65 @@ import Testing
         #expect(model.peopleSections.last?.names.isEmpty == true, "the household has no name or birth date")
     }
 
+    // MARK: Where a date of birth was read
+
+    static let renewal = root + "/Immigration/Passport/Anna/renewal.pdf"
+
+    /// Anna's two passports, whose zones give different dates of birth: one of them was misread.
+    static func twoDates(_ rig: Rig) async -> VaultModel {
+        VaultReadFolders.add(root, in: rig.defaults)
+        let model = rig.model()
+        model.people = people
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            passport: VaultToConfirmTests.passportPage,
+            renewal: VaultReadingTests.zone("P", number: "X7654321", born: "731218", expires: "340101", given: "ANNA<MARIA"),
+        ]))
+        // Whatever the reading made of two dates under one name, both are hers here.
+        for row in model.rows where row.category == .passport && row.personID != "anna" { model.assign(row.id, to: .person("anna")) }
+        return model
+    }
+
+    @Test func eachDateOfBirthNamesTheIDsItWasReadFrom() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.twoDates(rig)
+        let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(anna.born == [VaultReadingTests.day(1973, 12, 18), VaultReadingTests.day(1974, 8, 12)], "both, earliest first: \(anna.born)")
+        let wrong = try #require(anna.births.first), right = try #require(anna.births.last)
+        #expect(wrong.rows.count == 1 && right.rows.count == 1)
+        #expect(wrong.rows.first?.facts?.primary?.path == Self.renewal, "the date traced to the scan it came from")
+        #expect(right.rows.first?.facts?.primary?.path == Self.passport)
+        #expect(wrong.rows.first?.id != right.rows.first?.id)
+
+        // The ID is where it is put right: given to someone else, its date goes with it.
+        model.assign(try #require(wrong.rows.first).id, to: .person("erik"))
+        let after = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(after.born == [VaultReadingTests.day(1974, 8, 12)], "one date again: \(after.born)")
+        #expect(model.peopleSections.first { $0.id == .person("erik") }?.born == [VaultReadingTests.day(1973, 12, 18)])
+    }
+
+    @Test func aSourceOnTheOtherTabOrBehindAFilterIsStillNamedAndCanBeChosen() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.twoDates(rig)
+        let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        let source = try #require(anna.births.first?.rows.first)
+        model.pin(source.id, .older)
+        model.personFilter = .person("erik")
+        model.personFilter = .everyone
+        model.tab = .current
+        let still = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(still.births.count == 2, "a date from an archived ID is still her date as read")
+        #expect(still.births.first?.rows.first?.standing.tab == .archive)
+        model.reveal(source.id)
+        #expect(model.tab == .archive && model.selection == source.id, "choosing it goes to its tab")
+    }
+
+    @Test func aNameReadWithALineBreakOrInAnotherCaseIsTheSameName() {
+        #expect(VaultPersonText.tidied("\nanna  maria\tEriksson ") == "anna maria Eriksson")
+        #expect(VaultPersonText.tidied("Anna Maria Eriksson") == "Anna Maria Eriksson")
+        #expect(VaultPersonText.tidied(" \n ") == "")
+    }
+
     @Test func aNameNobodyInPeopleAnswersToGetsItsOwnSection() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.model(rig)

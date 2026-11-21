@@ -18,6 +18,57 @@ import Testing
         #expect(VaultCard.personSubtitle(ids: 2, elsewhere: 4, tab: .archive) == "2 IDs · 4 current")
     }
 
+    @Test func aDateOfBirthSaysWhichIDItWasReadFromOrHowMany() async throws {
+        let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
+        let visa = try #require(rig.model.rows.first { $0.category == .usVisa })
+        let passports = rig.model.rows.filter { $0.category == .passport }
+        #expect(VaultCard.readFrom([visa]) == "Read from Visa", "one ID is named; a typed one has no document")
+        #expect(VaultCard.readFrom(passports + [visa]) == "Read from 3 IDs", "several are counted, and listed in the menu")
+        #expect(VaultCard.sourceLine(visa) == "Visa")
+        rig.model.pin(visa.id, .older)
+        let archived = try #require(rig.model.rows.first { $0.id == visa.id })
+        #expect(VaultCard.sourceLine(archived) == "Visa (Archive)", "one on the other tab says so")
+        #expect(VaultCard.printedOn(["passport", "visa", "I-94"]) == "On passport, visa, and I-94")
+    }
+
+    /// Two made-up passports of one person whose zones give different dates of birth.
+    static let root = "/Users/anna/Documents"
+    static let passport = root + "/Immigration/Passport/Anna/scan.pdf"
+    static let renewal = root + "/Immigration/Passport/Anna/renewal.pdf"
+    static let nameLine = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<"
+
+    static func twoDates() async throws -> (model: VaultModel, defaults: UserDefaults, cleanUp: () -> Void) {
+        let rig = try await VaultPanelRenderTests.rig()
+        VaultReadFolders.add(root, in: rig.defaults)
+        rig.model.people = [Person(id: "anna", displayName: "Anna", fullNames: ["Anna Maria Eriksson"]),
+                            Person(id: "erik", displayName: "Erik")]
+        await rig.model.readDocuments(with: VaultRefreshPanelTests.Shelf([
+            passport: [nameLine, "L898902C36UTO7408122F1204159ZE184226B<<<<<10"],
+            renewal: [nameLine, "X7654321<5UTO7312184F3401011<<<<<<<<<<<<<<02"],
+        ]))
+        for row in rig.model.rows where row.facts?.born != nil && row.personID != "anna" { rig.model.assign(row.id, to: .person("anna")) }
+        rig.defaults.set(VaultLayout.people.rawValue, forKey: "vaultLayout")
+        rig.model.layout = .people
+        return (rig.model, rig.defaults, rig.cleanUp)
+    }
+
+    @Test func twoDatesOfBirthAreEachDrawnWithTheirSourceAndAWarning() async throws {
+        let two = try await Self.twoDates(); defer { two.cleanUp() }
+        let anna = try #require(two.model.peopleSections.first { $0.id == .person("anna") })
+        #expect(anna.births.count == 2, "\(anna.births.map(\.date))")
+        #expect(anna.births.map { VaultCard.readFrom($0.rows) } == ["Read from Passport · renewal.pdf", "Read from Passport · scan.pdf"],
+                "two passports told apart by their documents")
+        let both = try VaultPanelRenderTests.render(two.model, defaults: two.defaults, name: "people-two-dates")
+
+        // Given to someone else, the wrong one goes: its line, its source and the warning with it.
+        let one = try await Self.twoDates(); defer { one.cleanUp() }
+        let wrong = try #require(one.model.peopleSections.first { $0.id == .person("anna") }?.births.first?.rows.first)
+        one.model.assign(wrong.id, to: .person("erik"))
+        let single = try VaultPanelRenderTests.render(one.model, defaults: one.defaults, name: "people-one-date")
+        #expect(one.model.peopleSections.first { $0.id == .person("anna") }?.births.count == 1)
+        #expect(differingPixels(both, single) > 3000, "the second date, where it was read and the warning are drawn only while there are two")
+    }
+
     @Test func peopleDrawsASectionPerPersonWithTheKindOnEachRowInItsColor() async throws {
         let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
         let cards = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "people-cards")

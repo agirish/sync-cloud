@@ -16170,7 +16170,9 @@ UserDefaults; nothing sealed changes. Later that day the title's menu lost its C
 shut whenever the Vault's rows changed under it: Color opens a popover with a row for the card and
 a row for its group (`VaultColorPopover`, `VaultColorChoice`). 2026-11-21: the wash covers the
 whole card, lighter under its rows (`VaultCardBodyWash`), and the chosen row is a light lift on a
-washed card and a quiet grey on plain ground, not a fill in the window's hue (`VaultRowLift`).
+washed card and a quiet grey on plain ground, not a fill in the window's hue (`VaultRowLift`). Later that day People's date of birth
+names the ID and document each date was read from (`VaultPersonSection.Birth`), and names read
+with a line break or extra spaces are tidied before they are compared (`VaultPersonText.tidied`).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

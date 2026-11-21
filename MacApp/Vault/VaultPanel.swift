@@ -1221,52 +1221,18 @@ struct VaultCard: View {
             .disabled(model.isAsking)
             .padding(.horizontal, 8)
             .padding(.top, 8)
-            if !section.names.isEmpty || !section.born.isEmpty {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 5) {
-                    ForEach(Array(section.names.enumerated()), id: \.offset) { _, name in
-                        GridRow {
-                            Text("Name on \(ListFormatter.localizedString(byJoining: name.on))")
-                                .foregroundStyle(.secondary)
-                            Text(name.name)
-                                .fixedSize(horizontal: false, vertical: true)
-                            let key = "name-\(section.title)-\(name.name)"
-                            Button(copiedDetail == key ? "Copied" : "Copy") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(name.name, forType: .string)
-                                flashCopied(key)
-                            }
-                            .controlSize(.small)
-                            .help("Copies “\(name.name)”.")
-                        }
-                    }
-                    ForEach(section.born, id: \.self) { date in
-                        GridRow {
-                            Text("Date of birth")
-                                .foregroundStyle(.secondary)
-                            Text(showsBirth ? VaultReading.spelled(date) : "•• ••••• ••••")
-                                .foregroundStyle(showsBirth ? .primary : .secondary)
-                            let key = "born-\(section.title)-\(date.timeIntervalSince1970)"
-                            Button(copiedDetail == key ? "Copied" : showsBirth ? "Copy" : "Show") {
-                                Task {
-                                    if showsBirth {
-                                        if await model.copyBirth(date, in: section) { flashCopied(key) }
-                                    } else if let id = section.rows.first?.id {
-                                        await model.show(id)
-                                    }
-                                }
-                            }
-                            .controlSize(.small)
-                            .help(showsBirth ? "Copies \(VaultReading.formDate(date)), the way US forms ask for a date. \(Self.clipboardClears)"
-                                             : "Shows it after Touch ID or your password.")
-                        }
-                    }
-                }
-                .scaledFont(.callout)
-                .padding(.horizontal, 12)
-                if section.born.count > 1 {
-                    Text("Their documents give more than one date of birth. Check which is right; the Vault does not choose.")
+            if !section.names.isEmpty || !section.births.isEmpty {
+                personFacts(section, showsBirth: showsBirth)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 2)
+                if section.births.count > 1 {
+                    Label("Their documents give more than one date of birth. Each says which ID it was read from: open the wrong one to give it to whoever it belongs to, or to remove it.",
+                          systemImage: "exclamationmark.triangle.fill")
                         .scaledFont(.caption)
                         .foregroundStyle(SemanticColor.warning)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12)
                 }
             }
@@ -1432,6 +1398,122 @@ struct VaultCard: View {
         .contextMenu { rowMenu(row) }
         .accessibilityLabel(Self.rowSpoken(title: title, row: row))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Who a person is on paper: each name as documents print it and each date of birth, the
+    /// value first, where it comes from under it, and Copy at the edge. Three columns, so the
+    /// labels, the values and the buttons each keep one line down the block.
+    private func personFacts(_ section: VaultPersonSection, showsBirth: Bool) -> some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
+            ForEach(Array(section.names.enumerated()), id: \.offset) { index, name in
+                GridRow {
+                    Text(index == 0 ? "Name" : "")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name.name)
+                            .lineLimit(1)
+                        Text(Self.printedOn(name.on))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    let key = "name-\(section.title)-\(name.name)"
+                    Button(copiedDetail == key ? "Copied" : "Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(name.name, forType: .string)
+                        flashCopied(key)
+                    }
+                    .controlSize(.small)
+                    .help("Copies “\(name.name)”.")
+                }
+            }
+            ForEach(Array(section.births.enumerated()), id: \.offset) { index, birth in
+                GridRow {
+                    Text(index == 0 ? "Date of birth" : "")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(showsBirth ? VaultReading.spelled(birth.date) : "•• ••••• ••••")
+                            .foregroundStyle(showsBirth ? .primary : .secondary)
+                        birthSource(birth)
+                    }
+                    let key = "born-\(section.title)-\(birth.date.timeIntervalSince1970)"
+                    Button(copiedDetail == key ? "Copied" : showsBirth ? "Copy" : "Show") {
+                        Task {
+                            if showsBirth {
+                                if await model.copyBirth(birth.date, in: section) { flashCopied(key) }
+                            } else if let id = section.rows.first?.id {
+                                await model.show(id)
+                            }
+                        }
+                    }
+                    .controlSize(.small)
+                    .help(showsBirth ? "Copies \(VaultReading.formDate(birth.date)), the way US forms ask for a date. \(Self.clipboardClears)"
+                                     : "Shows it after Touch ID or your password.")
+                }
+            }
+        }
+        .scaledFont(.callout)
+    }
+
+    /// Where a date of birth was read: the ID, as a link that chooses it, so its document can be
+    /// looked at and the ID given to someone else or removed. Several IDs go in a menu.
+    @ViewBuilder
+    private func birthSource(_ birth: VaultPersonSection.Birth) -> some View {
+        if birth.rows.count == 1, let row = birth.rows.first {
+            Button {
+                openSource(row)
+            } label: {
+                Text(Self.readFrom(birth.rows))
+                    .scaledFont(.caption)
+                    .foregroundStyle(glassHue.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help(Self.sourceHelp(row))
+        } else {
+            Menu {
+                ForEach(birth.rows) { row in
+                    Button(Self.sourceLine(row)) { openSource(row) }
+                }
+            } label: {
+                Text(Self.readFrom(birth.rows))
+                    .scaledFont(.caption)
+                    .foregroundStyle(glassHue.accentColor)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("The IDs this date was read from. Choose one to see its document.")
+        }
+    }
+
+    /// Chooses the ID a fact was read from, on whichever tab it is and past any filter or search.
+    private func openSource(_ row: VaultModel.Row) {
+        model.query = ""
+        model.reveal(row.id)
+        editing = nil
+    }
+
+    /// "On passport, visa and I-94": the papers that print a name one way.
+    static func printedOn(_ papers: [String]) -> String {
+        "On \(ListFormatter.localizedString(byJoining: papers))"
+    }
+
+    /// "Read from Passport · renewal.pdf", or "Read from 4 IDs". The document's name tells two
+    /// IDs of one kind apart, which is the case two dates of birth usually are.
+    static func readFrom(_ rows: [VaultModel.Row]) -> String {
+        guard rows.count == 1, let row = rows.first else { return "Read from \(rows.count) IDs" }
+        let file = (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
+        return "Read from \(kindTitle(row))" + (file.map { " · \($0)" } ?? "")
+    }
+
+    /// One ID in the menu of several: what it is, and that it is on the other tab when it is.
+    static func sourceLine(_ row: VaultModel.Row) -> String {
+        row.standing.tab == .archive ? "\(kindTitle(row)) (Archive)" : kindTitle(row)
+    }
+
+    /// The link's tip: the document by name, and what choosing the ID is for.
+    static func sourceHelp(_ row: VaultModel.Row) -> String {
+        let file = (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
+        return "\(file.map { "Read from “\($0)”. " } ?? "")Choose this ID to see its document, give it to someone else with Belongs to, or remove it."
     }
 
     /// A row's title under its person's name: what the ID is, as its details call it.

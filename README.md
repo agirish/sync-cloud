@@ -188,7 +188,7 @@ for: a passport number, a member ID, a loan number.
   is set aside first and never deleted. A Vault this Mac can't open offers both ways on.
 - **People** (beside Cards and List) groups the same IDs by person: each section opens with the
   name as each document prints it and the date of birth (hidden until one of their IDs is shown),
-  then their IDs with the kind on each row. Copy Summary gives endings only; Copy with Numbers
+  each with the ID and document it was read from, so a wrong date can be traced and moved, then their IDs with the kind on each row. Copy Summary gives endings only; Copy with Numbers
   asks for Touch ID.
 - **Card colors**: each card takes a soft tint of its group's color, its title more than its
   rows, so a kind is found by its color. The chosen row is a light lift, not a fill in the

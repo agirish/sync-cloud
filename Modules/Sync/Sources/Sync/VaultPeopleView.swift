@@ -28,12 +28,23 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         public var on: [String]
     }
 
+    /// A date of birth, and the IDs whose documents give it: where it was found, so a wrong one
+    /// can be traced to the ID to remove or to give to whoever it belongs to.
+    public struct Birth: Equatable, Sendable {
+        public var date: Date
+        /// Their IDs that carry this date, in the cards' order, from either tab and whatever the
+        /// filters hide.
+        public var rows: [VaultModel.Row]
+    }
+
     public var id: Owner
     /// The person's name in People, "Household", or the name as read.
     public var title: String
     public var names: [PrintedName]
-    /// The birth dates their documents give: one, unless two documents disagree.
-    public var born: [Date]
+    /// The birth dates their documents give, earliest first: one, unless two documents disagree.
+    public var births: [Birth]
+    /// The dates alone.
+    public var born: [Date] { births.map(\.date) }
     /// Their IDs on the tab being shown, in the cards' order.
     public var rows: [VaultModel.Row]
     /// How many more they have on the other tab (Archive while Current is shown, and the reverse).
@@ -63,16 +74,22 @@ extension VaultModel {
             let papers = theirs.sorted { (order.firstIndex(of: $0.category) ?? 99) < (order.firstIndex(of: $1.category) ?? 99) }
             for row in papers where id != .household {
                 // An identity paper's name: an account's holder line is the plan's, not the form's.
-                guard let holder = row.facts?.holder, !holder.isEmpty, let kind = VaultPersonText.paper(row.category) else { continue }
+                guard let holder = row.facts?.holder.map(VaultPersonText.tidied), !holder.isEmpty,
+                      let kind = VaultPersonText.paper(row.category) else { continue }
                 if let index = names.firstIndex(where: { $0.name.caseInsensitiveCompare(holder) == .orderedSame }) {
                     if !names[index].on.contains(kind) { names[index].on.append(kind) }
                 } else {
                     names.append(.init(name: holder, on: [kind]))
                 }
             }
-            let born = Set(theirs.compactMap { id == .household ? nil : $0.facts?.born }).sorted()
+            // Each date with the IDs it was read from: a second date is one ID's reading, and the
+            // ID is where it is put right.
+            let dated = id == .household ? [] : papers.filter { $0.facts?.born != nil }
+            let births = Dictionary(grouping: dated) { $0.facts?.born ?? .distantPast }
+                .map { VaultPersonSection.Birth(date: $0.key, rows: $0.value) }
+                .sorted { $0.date < $1.date }
             let onThisTab = Set(rows.map(\.id))
-            return VaultPersonSection(id: id, title: title, names: names, born: born, rows: rows,
+            return VaultPersonSection(id: id, title: title, names: names, births: births, rows: rows,
                                       elsewhere: theirs.filter { !onThisTab.contains($0.id) && $0.standing.tab != tab && $0.standing.tab != .other }.count)
         }
         var sections = people.compactMap { section(.person($0.id), $0.displayName) }
@@ -122,6 +139,13 @@ public enum VaultPersonText {
             lines.append(line)
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// A name as it is drawn and compared: one line, single spaces. A scan can read a name with
+    /// a line break or a run of spaces in it, which would draw on a second line and pass for a
+    /// different name from the same one read cleanly.
+    static func tidied(_ name: String) -> String {
+        name.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// What an identity paper is called in "Name on …"; nil for an account's papers.
