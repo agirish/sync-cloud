@@ -164,6 +164,9 @@ struct VaultCard: View {
         /// A number read from a document, being checked before it is added.
         case confirming(UUID)
     }
+    /// An ID was typed in while the panel showed only its lock: the lock says so, since the
+    /// list that would show it is not drawn.
+    @State private var addedWhileLocked = false
     /// Read Documents was asked for with no folder chosen yet.
     @State private var askingForFolders = false
     /// The folders Read Documents looks in, read again as the panel appears and after a change.
@@ -233,9 +236,7 @@ struct VaultCard: View {
             model.layout = layout
             await model.opened()
             searchFocused = true
-            // Refresh runs by itself (Settings ▸ Vault can turn that off): it opens only documents
-            // IDs were already read from, and of those only the ones that changed.
-            model.refreshIfWanted(with: VaultFolderReader(folders: readFolders))
+            refreshByItself()
         }
         // The countdown, and a shown number's thirty seconds. A sleep loop on the view's own
         // task, so it stops when the panel closes.
@@ -245,6 +246,14 @@ struct VaultCard: View {
                 model.tick()
             }
         }
+        // Unlocked later than it opened: the refresh waits for the numbers to be read, and what
+        // was said on the lock is done with.
+        .onChange(of: model.isSealedShut) { _, sealed in
+            if !sealed {
+                addedWhileLocked = false
+                refreshByItself()
+            }
+        }
         // People changed in Settings, or a person was added here: whose each number is follows.
         .onChange(of: people) { _, now in model.people = now }
         // Back to SyncCloud with the Vault up and locked: Touch ID is asked for at once, as when
@@ -252,9 +261,8 @@ struct VaultCard: View {
         // Mac left alone; a cancelled prompt waits for the next return.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             let settings = model.lock.settings
-            // The same rule as opening: only a Vault with something saved asks at once.
-            guard model.contents == .loaded, settings.requiresAuthentication, settings.ask == .whenOpened,
-                  !model.isOpen, !model.isAsking, !model.entries.isEmpty else { return }
+            // The same rule as opening: only a Vault with something sealed asks at once.
+            guard settings.requiresAuthentication, settings.ask == .whenOpened, model.isSealedShut, !model.isAsking else { return }
             Task { await model.unlock() }
         }
         // Access ran out (Lock Now, the idle limit, a number's thirty seconds): nothing that draws
@@ -428,7 +436,7 @@ struct VaultCard: View {
                 Label("Add", systemImage: "plus")
             }
             .help("Add an ID")
-            .disabled(model.contents != .loaded)
+            .disabled(contentsUnreadable)
             readMenu
             Button(action: onOpenSettings) {
                 Label("Settings", systemImage: "gearshape")
@@ -496,7 +504,14 @@ struct VaultCard: View {
         .help(model.reading == nil
               ? "Discover More: look through the folders you chose for IDs that are not in the Vault yet. The arrow has Refresh and the folders."
               : model.reading?.scope.isRefresh == true ? "Refreshing your IDs from their documents…" : "Reading your documents…")
-        .disabled(model.contents != .loaded || model.reading != nil)
+        .disabled(contentsUnreadable || model.reading != nil)
+    }
+
+    /// The sealed file could not be opened: nothing may be added to or read into it. A Vault
+    /// that is only locked takes both; neither shows what is in it.
+    private var contentsUnreadable: Bool {
+        if case .unreadable = model.contents { return true }
+        return false
     }
 
     @ViewBuilder
@@ -520,14 +535,14 @@ struct VaultCard: View {
     @ViewBuilder
     private var lockButton: some View {
         let settings = model.lock.settings
-        if settings.requiresAuthentication, settings.ask == .whenOpened, model.contents == .loaded {
-            if model.isOpen {
+        if settings.requiresAuthentication, settings.ask == .whenOpened {
+            if model.isOpen, model.contents == .loaded {
                 Button {
                     model.lockNow()
                 } label: {
                     Label("Lock Now", systemImage: "lock")
                 }
-            } else if !model.entries.isEmpty {
+            } else if model.isSealedShut {
                 Button {
                     Task { await model.unlock() }
                 } label: {
@@ -804,7 +819,19 @@ struct VaultCard: View {
                            caption: "The sealed file has been left as it is.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .notLoaded, .loaded:
-            if model.entries.isEmpty, model.finds.isEmpty, editing == nil {
+            if model.isSealedShut {
+                // Locked means locked: nothing behind the lock is drawn, or was even read.
+                HStack(spacing: 0) {
+                    lockedView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Typing an ID in shows nothing that is in the Vault, so Add still works.
+                    if editing == .new {
+                        Divider()
+                        editor
+                            .frame(width: VaultCardSize.detailWidth)
+                    }
+                }
+            } else if model.entries.isEmpty, model.finds.isEmpty, editing == nil {
                 EmptyStateView(icon: "lock.doc", title: "Nothing in the Vault yet",
                                message: "Keep the IDs and account numbers you get asked for here: a passport number, a member ID, a loan number. Each is sealed on this Mac and shown only to you.",
                                caption: model.lastReading.map { "Read \(Self.documents($0.documents)); nothing new to confirm." },
@@ -834,6 +861,46 @@ struct VaultCard: View {
                 }
             }
         }
+    }
+
+    /// The locked panel: a lock, and the one way past it. No name, date or ending.
+    private var lockedView: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.fill")
+                .scaledFont(.title.weight(.semibold))
+                .foregroundStyle(glassHue.accentColor)
+                .frame(width: 54, height: 54)
+                .background(RoundedRectangle(cornerRadius: Radius.card).fill(glassHue.accentColor.opacity(0.14)))
+                .accessibilityHidden(true)
+            Text("The Vault is locked")
+                .scaledFont(.title3.weight(.semibold))
+            Text("Nothing in it is shown, or read from disk, until you prove it is you.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                Task { await model.unlock() }
+            } label: {
+                Label("Unlock", systemImage: "touchid")
+            }
+            .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(model.isAsking)
+            if addedWhileLocked {
+                Text("Added. Unlock to see it.")
+                    .scaledFont(.callout)
+                    .foregroundStyle(SemanticColor.success)
+            } else {
+                Text("Add and Discover More still work while it is locked.")
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            noticeText
+        }
+        .padding(24)
+        .frame(maxWidth: 380)
     }
 
     /// Current, Archive and Other Finds, and beside them what they are showing: where, whose and
@@ -1310,7 +1377,7 @@ struct VaultCard: View {
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(VaultMask.masked(row.value))
+                    Text(model.masked(row))
                         .scaledFont(.callout.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1812,7 +1879,7 @@ struct VaultCard: View {
     /// The number, with its own Copy once it may be shown; while locked, the way to show it.
     private func numberBox(_ row: VaultModel.Row, shown: Bool) -> some View {
         HStack(spacing: 8) {
-            Text(shown ? row.value : VaultMask.masked(row.value))
+            Text(shown ? row.value : model.masked(row))
                 .scaledFont(.title2.monospaced().weight(.semibold))
                 .foregroundStyle(shown ? .primary : .secondary)
                 .lineLimit(1)
@@ -1821,7 +1888,7 @@ struct VaultCard: View {
                 // plainly, never concealed nor cleared. Copy and Large Type are the ways out.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(shown ? "The ID" : "The ID, hidden")
-                .accessibilityValue(Self.spokenNumber(row.value, shown: shown))
+                .accessibilityValue(Self.spokenNumber(row.value, shown: shown, hidesEnding: row.category.hidesEnding))
             Spacer(minLength: 4)
             // Large Type beside the number, for reading it out on a call; behind Touch ID while
             // the number is hidden, as Show is.
@@ -2284,15 +2351,18 @@ struct VaultCard: View {
 
     /// What VoiceOver says of the number: each character apart while shown, so it is spelled out
     /// rather than read as one large number; its last four while hidden.
-    static func spokenNumber(_ value: String, shown: Bool) -> String {
+    static func spokenNumber(_ value: String, shown: Bool, hidesEnding: Bool = false) -> String {
         let plain = VaultReading.normalized(value)
-        guard shown else { return plain.count > 4 ? "ending \(plain.suffix(4).map(String.init).joined(separator: " "))" : "" }
+        guard shown else {
+            // A kind whose ending is itself a secret is not spoken either.
+            return plain.count > 4 && !hidesEnding ? "ending \(plain.suffix(4).map(String.init).joined(separator: " "))" : ""
+        }
         return plain.map(String.init).joined(separator: " ")
     }
 
     /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.
     static func rowSpoken(title: String, row: VaultModel.Row) -> String {
-        var parts = [title, row.category.singular, spokenNumber(row.value, shown: false)]
+        var parts = [title, row.category.singular, spokenNumber(row.value, shown: false, hidesEnding: row.category.hidesEnding)]
         if row.documentMissing { parts.append("file not found") }
         if row.standing.inUse { parts.append("in use") }
         if row.standing.expired { parts.append("expired") }
@@ -2340,7 +2410,11 @@ struct VaultCard: View {
     private func save() {
         switch editing {
         case .new:
-            if model.add(draft) != nil { editing = nil }
+            let sealed = model.isSealedShut
+            if model.add(draft) != nil {
+                editing = nil
+                addedWhileLocked = sealed
+            }
         case .existing(let id):
             Task { if await model.update(id, to: draft) { editing = nil } }
         case .confirming(let id):
@@ -2370,6 +2444,14 @@ struct VaultCard: View {
     /// Read Documents, over the folders chosen here or in Settings ▸ Vault. `again` opens every
     /// file, not only the new and changed ones.
     private func readDocuments(again: Bool = false) { read(again ? .everything : .discover) }
+
+    /// Refresh runs by itself once the Vault has been read (Settings ▸ Vault can turn that off):
+    /// it opens only documents IDs were already read from, and of those only the ones that
+    /// changed. Never behind the lock: a locked panel has read nothing to refresh.
+    private func refreshByItself() {
+        guard model.contents == .loaded, !model.isSealedShut else { return }
+        model.refreshIfWanted(with: VaultFolderReader(folders: readFolders))
+    }
 
     /// Starts a read of `scope`: the folders (Discover More, Read Everything Again), or only the
     /// documents IDs came from (Refresh).

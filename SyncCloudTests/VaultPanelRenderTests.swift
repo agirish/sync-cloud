@@ -31,6 +31,12 @@ struct VaultPanelAllows: VaultAuthenticating {
     func prove(reason: String) async -> VaultProof { .allowed }
 }
 
+/// A proof the test answers: allowed until told otherwise.
+final class VaultPanelProof: VaultAuthenticating, @unchecked Sendable {
+    var answer: VaultProof = .allowed
+    func prove(reason: String) async -> VaultProof { answer }
+}
+
 /// The whole Vault panel, drawn over a made-up household and read back. Every ID here is made up.
 ///
 /// Set `TEST_RUNNER_VAULT_PANEL_PNG` to a folder when running to keep each render as a PNG there,
@@ -40,13 +46,14 @@ struct VaultPanelAllows: VaultAuthenticating {
     static let size = CGSize(width: 1000, height: 620)
 
     /// A Vault with one ID on each of several cards, unlocked.
-    static func rig() async throws -> (model: VaultModel, defaults: UserDefaults, cleanUp: () -> Void) {
+    static func rig() async throws -> (model: VaultModel, defaults: UserDefaults, proof: VaultPanelProof, cleanUp: () -> Void) {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-panel-\(UUID().uuidString)")
         let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultPanelKeychain())
         let scratch = TestDefaults()
         // Locked only by closing: a render late in a slow run must not find it timed out.
         scratch.defaults.set(VaultLockSettings.Relock.whenClosed.rawValue, forKey: VaultLockSettings.relockKey)
-        let model = VaultModel(store: store, authenticator: VaultPanelAllows(), defaults: scratch.defaults,
+        let proof = VaultPanelProof()
+        let model = VaultModel(store: store, authenticator: proof, defaults: scratch.defaults,
                                copyToPasteboard: { _ in })
         await model.opened()
         func add(_ title: String, _ value: String, _ category: VaultCategory, _ person: String?) {
@@ -63,7 +70,7 @@ struct VaultPanelAllows: VaultAuthenticating {
         add("Harborline Mortgage loan", "0044918857", .loans, nil)
         model.people = [Person(id: "anna", displayName: "Anna"), Person(id: "erik", displayName: "Erik")]
         await model.unlock()
-        return (model, scratch.defaults, { try? FileManager.default.removeItem(at: folder) })
+        return (model, scratch.defaults, proof, { try? FileManager.default.removeItem(at: folder) })
     }
 
     static func render(_ model: VaultModel, defaults: UserDefaults, name: String) throws -> NSBitmapImageRep {

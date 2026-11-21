@@ -63,6 +63,16 @@ public enum VaultCategory: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Whether even this kind's ending is a secret while it is hidden: the last four of a Social
+    /// Security number are what a bank asks to check who is calling, and an Aadhaar number's are
+    /// what its masked form prints. Its row then shows no ending until the number may be shown.
+    public var hidesEnding: Bool {
+        switch self {
+        case .ssn, .aadhaar: return true
+        default: return false
+        }
+    }
+
     /// The entry kind a number of this category is saved as, for the parts of the Vault that
     /// still group by kind.
     public var kind: VaultEntry.Kind {

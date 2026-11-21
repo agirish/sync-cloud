@@ -223,7 +223,7 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         #expect(model.selection == Self.passport.id, "the first row in list order is chosen")
     }
 
-    @Test func aCancelledProofLeavesNamesAndEndingsOnly() async throws {
+    @Test func aCancelledProofLeavesTheVaultUnreadWithNothingToShow() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])
         rig.auth.answer = .cancelled
@@ -232,8 +232,8 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         await model.opened()
 
         #expect(!model.isOpen)
-        #expect(model.entries.map(\.title) == ["Mortgage loan number"])
-        #expect(model.drawn(Self.mortgage) == "••••••7365")
+        #expect(model.isSealedShut, "locked means locked: the panel draws its lock and nothing else")
+        #expect(model.contents == .notLoaded && model.entries.isEmpty, "and nothing was read from disk for it")
         #expect(model.notice == nil, "cancelling is not an error")
         #expect(await model.copy(Self.mortgage.id) == false)
         #expect(rig.copied.isEmpty)
@@ -407,6 +407,9 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
 
     @Test func changingAndRemovingAskFirstWhenTheNumberIsHidden() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
+        // "For every ID" is where a hidden number sits in a list that shows: under "As soon as
+        // Vault opens" a locked panel lists nothing to change.
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
         try rig.seed([Self.mortgage, Self.passport])
         rig.auth.answer = .cancelled
         let model = rig.model()

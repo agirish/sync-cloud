@@ -116,6 +116,16 @@ public struct VaultLock: Equatable, Sendable {
         return now.timeIntervalSince(lastActivity) < limit
     }
 
+    /// Whether the panel is to show nothing at all: the lock is on, it asks as the Vault opens,
+    /// and nobody has proved it since (or the proof has run out). Locked means locked: not a
+    /// name, a date or an ending is drawn then, and nothing is read from disk for the panel.
+    ///
+    /// Never under "For every ID", which has no unlocking of the whole: there the list is what
+    /// a number is chosen from, so it shows, each number behind its own proof.
+    public func hidesEverything(at now: Date) -> Bool {
+        settings.requiresAuthentication && settings.ask == .whenOpened && !isOpen(at: now)
+    }
+
     /// Whether `id`'s number may be drawn in full.
     public func canShow(_ id: UUID, at now: Date) -> Bool {
         if isOpen(at: now) { return true }

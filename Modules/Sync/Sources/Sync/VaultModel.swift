@@ -1069,11 +1069,39 @@ public final class VaultModel: ObservableObject {
             lock.lock()
         }
         lock.expire(at: now)
+        hasSomethingSealed = store.map { $0.hasFile || FileManager.default.fileExists(atPath: $0.readingURL.path) } ?? false
+        // Locked means locked: under "As soon as Vault opens" nothing is read from disk for the
+        // panel until the owner has proved it, so a locked Vault holds nothing to show. A Vault
+        // with nothing sealed yet has nothing to guard: it is read without asking, for its
+        // empty state.
+        if lock.hidesEverything(at: now), hasSomethingSealed {
+            // A Vault whose key is not on this Mac cannot be opened by any proof: it is said so
+            // at once, rather than asked for first.
+            guard store?.hasFile != true || store?.fingerprint("") != nil else {
+                load()
+                return
+            }
+            await unlock()
+            return
+        }
         load()
-        guard case .loaded = contents, !entries.isEmpty,
-              lock.settings.requiresAuthentication, lock.settings.ask == .whenOpened,
-              !lock.isOpen(at: now) else { return }
-        await unlock()
+    }
+
+    /// Whether anything had been sealed on this Mac, the Vault's file or what was read, when the
+    /// panel opened: asked then, without the key. With nothing sealed there is nothing to guard:
+    /// the panel draws its empty state and not its lock, and what is typed in or read in that
+    /// sitting is drawn as rows are (a name and an ending) until the panel closes. From the next
+    /// open it is behind the lock.
+    @Published public private(set) var hasSomethingSealed = false
+
+    /// Whether the panel shows only its lock (``VaultLock/hidesEverything(at:)``), with something
+    /// behind it.
+    public var isSealedShut: Bool { hasSomethingSealed && lock.hidesEverything(at: now) }
+
+    /// A row's number as its row draws it while hidden: its ending, or for a kind whose ending is
+    /// itself a secret (``VaultCategory/hidesEnding``) nothing at all until the number may be shown.
+    public func masked(_ row: Row) -> String {
+        VaultMask.masked(row.value, keep: row.category.hidesEnding && !lock.canShow(row.id, at: now) ? 0 : 4)
     }
 
     /// The panel went away. Locks if the setting says closing locks, and then lets the numbers go:
@@ -1104,6 +1132,15 @@ public final class VaultModel: ObservableObject {
         lockEpoch &+= 1
         lock.lock()
         now = clock()
+        // Locked, the panel holds nothing: the numbers go now, not when it closes.
+        releaseIfSealedShut()
+    }
+
+    /// Lets the numbers go when the lock that hides everything has closed with the panel up:
+    /// Lock Now, or the idle limit passing. A read in progress keeps them until it ends.
+    private func releaseIfSealedShut() {
+        guard contents == .loaded, isSealedShut else { return }
+        releaseIfLocked()
     }
 
     /// The Mac is going to sleep or its screen locked: lock whatever the setting, and forget.
@@ -1123,6 +1160,7 @@ public final class VaultModel: ObservableObject {
     public func tick() {
         now = clock()
         lock.expire(at: now)
+        releaseIfSealedShut()
     }
 
     private func used() { lock.used(at: clock()) }
@@ -1326,11 +1364,19 @@ public final class VaultModel: ObservableObject {
     }
 
     /// Unlock: the header's button, and what opening does by itself.
-    public func unlock() async {
-        guard lock.needsProof(for: nil, at: clock()) else { return }
+    /// True when the Vault is open afterwards. Opening it reads it: nothing was loaded for a
+    /// locked panel.
+    @discardableResult
+    public func unlock() async -> Bool {
+        guard lock.needsProof(for: nil, at: clock()) else {
+            load()
+            return true
+        }
         // Under "every number" there is nothing to unlock as a whole; the button is not drawn.
-        guard lock.settings.ask == .whenOpened else { return }
-        await prove("unlock your Vault", for: nil)
+        guard lock.settings.ask == .whenOpened else { return false }
+        guard await prove("unlock your Vault", for: nil) else { return false }
+        load()
+        return true
     }
 
     /// Show: draws `id`'s number in full, after a proof when one is owed.
@@ -1577,7 +1623,9 @@ public final class VaultModel: ObservableObject {
             reading = nil
             // The Vault closed while this read went on, and kept the numbers for it: let them go
             // now, as closing would have, however the read ended.
-            if releaseAfterReading {
+            // Or it was read while the panel showed only its lock: nothing was drawn, and what
+            // was loaded to read into goes too.
+            if releaseAfterReading || (panelUp && hasSomethingSealed && lock.hidesEverything(at: clock())) {
                 releaseAfterReading = false
                 now = clock()
                 lock.expire(at: now)

@@ -114,7 +114,8 @@ public enum VaultPersonText {
         }
         for row in section.rows {
             let title = row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
-            var line = "\(title): \(numbers ? row.value : ending(row.value))"
+            // A summary is made to be passed on: a kind whose ending is itself a secret gives none.
+            var line = "\(title): \(numbers ? row.value : row.category.hidesEnding ? "hidden" : ending(row.value))"
             if let until = row.facts?.validUntil {
                 line += ", valid to \(numbers ? VaultReading.formDate(until) : VaultReading.monthYear(until))"
             }

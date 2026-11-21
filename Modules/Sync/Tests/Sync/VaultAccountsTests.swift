@@ -269,7 +269,7 @@ import Testing
         #expect(Set(model.finds.map(\.value)) == ["D1234567", "D7654321"])
     }
 
-    @Test func reopenedBeforeTheReadEndsItKeepsWhatItShows() async throws {
+    @Test func reopenedAndStillLockedTheReadEndsWithNothingHeldAndWhatItReadSealed() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([VaultModelTests.passport])
         let model = rig.model()
@@ -278,9 +278,13 @@ import Testing
                                                  "/r/b.pdf": VaultFixtures.licensePage],
                                          onFirst: { model.closed(); rig.auth.answer = .cancelled; await model.opened() })
         await model.readDocuments(with: documents)
-        // Reopened, and the proof was cancelled: the panel shows the IDs locked, names and endings only.
-        #expect(!model.entries.isEmpty, "the read let go of IDs a reopened, locked panel was showing")
-        #expect(!model.finds.isEmpty)
+        // Reopened, and the proof was cancelled: the panel shows only its lock, so the read ends
+        // with nothing held, as it would have with the panel closed. What it read is sealed.
+        #expect(model.isSealedShut)
+        #expect(model.entries.isEmpty && model.finds.isEmpty, "a locked panel held its IDs after the read")
+        rig.auth.answer = .allowed
+        #expect(await model.unlock())
+        #expect(!model.entries.isEmpty && !model.finds.isEmpty, "one proof later, the saved ID and what was read are there")
     }
 
     @Test func theMacLockingStopsTheRead() async throws {

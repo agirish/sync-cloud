@@ -86,23 +86,42 @@ import Testing
         [plan, "Member Name: ANNA ERIKSSON", "Member ID: \(id)", "Group Number: \(group)"]
     }
 
+    /// A Vault that has read a dental and a vision card; with `refreshed`, the dental card's group
+    /// then changed and the vision card went, and a refresh ran. Drawn once: a hosted panel that
+    /// goes away closes its Vault, so a model is never drawn, changed and drawn again.
+    static func drawn(refreshed: Bool, name: String) async throws -> (model: VaultModel, picture: NSBitmapImageRep, cleanUp: () -> Void) {
+        let rig = try await VaultPanelRenderTests.rig()
+        VaultReadFolders.add(root, in: rig.defaults)
+        let shelf = Shelf([dental: card("Delta Dental", id: "XZB123456789", group: "0012345"),
+                           vision: card("Clear Vision", id: "VSP99887766", group: "0044")])
+        await rig.model.readDocuments(with: shelf)
+        if refreshed {
+            shelf.write(dental, card("Delta Dental", id: "XZB123456789", group: "0099999"))
+            shelf.remove(vision)
+            await rig.model.readDocuments(with: shelf, scope: .refresh())
+        }
+        rig.model.selection = rig.model.rows.first { $0.value == "XZB123456789" }?.id
+        return (rig.model, try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: name), rig.cleanUp)
+    }
+
     @Test func aRefreshedIDIsMarkedAndAMovedDocumentIsSaidSo() async throws {
+        let before = try await Self.drawn(refreshed: false, name: "refresh-before"); defer { before.cleanUp() }
+        let after = try await Self.drawn(refreshed: true, name: "refresh-after"); defer { after.cleanUp() }
+        #expect(differingPixels(before.picture, after.picture) > 4000, "the Updated mark, the File not found mark and what changed are drawn")
+    }
+
+    @Test func aRefreshMarksWhatChangedAndWhatWentInTheModelThePanelDraws() async throws {
         let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
         VaultReadFolders.add(Self.root, in: rig.defaults)
         let shelf = Shelf([Self.dental: Self.card("Delta Dental", id: "XZB123456789", group: "0012345"),
                            Self.vision: Self.card("Clear Vision", id: "VSP99887766", group: "0044")])
         await rig.model.readDocuments(with: shelf)
-        let before = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "refresh-before")
-
         shelf.write(Self.dental, Self.card("Delta Dental", id: "XZB123456789", group: "0099999"))
         shelf.remove(Self.vision)
         await rig.model.readDocuments(with: shelf, scope: .refresh())
         let dental = try #require(rig.model.rows.first { $0.value == "XZB123456789" })
         #expect(rig.model.changes[dental.id] != nil)
         #expect(rig.model.rows.first { $0.value == "VSP99887766" }?.documentMissing == true)
-        rig.model.selection = dental.id
-        let after = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "refresh-after")
-        #expect(differingPixels(before, after) > 4000, "the Updated mark, the File not found mark and what changed are drawn")
     }
 
     @Test func afterAnUpdateTheBannerOffersDiscoverMoreUntilNotNow() async throws {

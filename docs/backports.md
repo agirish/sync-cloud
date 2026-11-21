@@ -16185,6 +16185,13 @@ read once.
 (`VaultWindowPrivacy`, `NSWindow.sharingType`), and how long a copy stays on the clipboard is a
 setting (`VaultSharingSettings`); both in Settings ▸ Vault.
 
+2026-11-20: locked means locked (`VaultLock.hidesEverything`, `VaultModel.isSealedShut`). Under
+"As soon as Vault opens", `opened()` asks for the proof before `load()`, Lock Now and the idle
+limit release the numbers with the panel up, and the panel draws only its lock; a read or an Add
+behind the lock is sealed and let go. A cancelled proof used to leave every name, date and ending
+on screen. Under "For every ID" the list still shows, and a kind whose ending is itself a secret
+(`VaultCategory.hidesEnding`) draws none until shown. No sealed format changes.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
