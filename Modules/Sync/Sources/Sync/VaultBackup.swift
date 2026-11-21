@@ -153,6 +153,13 @@ public struct VaultBackup {
         self.clock = clock
     }
 
+    /// A line for the Vault's activity list, when it keeps one.
+    private func note(_ kind: VaultActivityEvent.Kind, _ what: String) {
+        guard VaultActivitySettings.keeps(in: defaults) else { return }
+        let now = clock()
+        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: now, kind: kind, what: what)], now: now)
+    }
+
     // MARK: Settings
 
     public static let folderKey = "vaultBackupFolder"
@@ -245,6 +252,7 @@ public struct VaultBackup {
         defaults.set(now, forKey: Self.lastKey)
         // A count and nothing else: neither the folder's name nor an ID belongs in the log.
         Logger.shared.info("Vault: backed up \(entries.count) ID(s)")
+        note(.backedUp, entries.count == 1 ? "Backed up 1 ID" : "Backed up \(entries.count) IDs")
         return url
     }
 
@@ -304,6 +312,8 @@ public struct VaultBackup {
             return .failure(.notWritten)
         }
         Logger.shared.info("Vault: restored from a backup (\(mode == .replace ? "replaced" : "added what was missing")), \(entries.count) ID(s) now")
+        note(.restored, mode == .replace ? "Replaced the Vault from a backup of \(contents.entries.count) ID(s)"
+                                         : "Added what was missing from a backup of \(contents.entries.count) ID(s)")
         NotificationCenter.default.post(name: Self.didRestore, object: nil, userInfo: [Self.restoredPathKey: store.fileURL.path])
         return .success(entries.count)
     }

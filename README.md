@@ -181,6 +181,8 @@ for: a passport number, a member ID, a loan number.
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **Activity** (Settings ▸ Vault): a sealed list of what was unlocked, shown, copied and changed,
+  and each proof refused, by ID name and never by number.
 - **Backup and restore** (Settings ▸ Vault): a passphrase-sealed backup of every saved ID, by hand
   or weekly, that opens on another Mac. Restoring adds what is missing or replaces the Vault, which
   is set aside first and never deleted. A Vault this Mac can't open offers both ways on.

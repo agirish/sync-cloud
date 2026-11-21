@@ -262,7 +262,9 @@ public final class VaultModel: ObservableObject {
     public init(store: VaultStore?, authenticator: VaultAuthenticating,
                 defaults: UserDefaults = .standard,
                 clock: @escaping @Sendable () -> Date = { Date() },
+                activity: VaultActivityStore? = nil,
                 copyToPasteboard: @escaping @MainActor (String) -> Void) {
+        self.activity = activity
         self.store = store
         self.authenticator = authenticator
         self.defaults = defaults
@@ -1145,6 +1147,28 @@ public final class VaultModel: ObservableObject {
 
     private var restoreWatch: NSObjectProtocol?
 
+    // MARK: Activity
+
+    /// Where what is done here is listed (``VaultActivityStore``); nil keeps no list.
+    private let activity: VaultActivityStore?
+
+    /// Adds a line to the activity list, when Settings ▸ Vault keeps one. `what` is a name or a
+    /// label, with any number in it cut to its ending: a title can be typed with one in it.
+    private func record(_ kind: VaultActivityEvent.Kind, _ what: String = "", whose: String? = nil) {
+        guard let activity, VaultActivitySettings.keeps(in: defaults) else { return }
+        let at = clock()
+        activity.append([VaultActivityEvent(at: at, kind: kind, what: VaultMask.fileName(what), whose: whose)], now: at)
+    }
+
+    /// The same for one ID, named as its row names it.
+    private func record(_ kind: VaultActivityEvent.Kind, id: UUID, detail: String? = nil) {
+        guard activity != nil else { return }
+        let row = rows.first { $0.id == id }
+        let name = row.map { $0.isTypedIn ? $0.title : $0.title.replacingOccurrences(of: " case", with: "") }
+            ?? entries.first { $0.id == id }?.title ?? finds.first { $0.id == id }?.title ?? "an ID"
+        record(kind, detail.map { "\($0) of \(name)" } ?? name, whose: row?.whose)
+    }
+
     /// The Vault's file was replaced by a restore: lock, stop any read, and let go of what was
     /// loaded without sealing it over what the restore wrote. The next unlock reads the new file.
     private func vaultWasRestored() {
@@ -1404,11 +1428,15 @@ public final class VaultModel: ObservableObject {
         case .allowed:
             notice = nil
             lock.proved(for: id, at: now)
+            if id == nil { record(.unlocked) }
             return true
         case .cancelled:
+            // Someone asked and did not prove it: worth a line, since it may not have been the owner.
+            record(.proofRefused, reason)
             return false
         case .unavailable(let message), .failed(let message):
             notice = message
+            record(.proofRefused, reason)
             return false
         }
     }
@@ -1435,6 +1463,7 @@ public final class VaultModel: ObservableObject {
         guard let row = row(id) else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("show \(row.title)", for: id) else { return false }
+            record(.shown, id: id)
         }
         used()
         return lock.canShow(id, at: clock())
@@ -1450,6 +1479,7 @@ public final class VaultModel: ObservableObject {
         guard lock.canShow(id, at: clock()) else { return false }
         copyToPasteboard(row.value)
         used()
+        record(.copied, id: id)
         return true
     }
 
@@ -1464,6 +1494,7 @@ public final class VaultModel: ObservableObject {
         guard lock.canShow(id, at: clock()) else { return false }
         copyToPasteboard(detailNumber)
         used()
+        record(.copied, id: id, detail: "A detail")
         return true
     }
 
@@ -1478,7 +1509,11 @@ public final class VaultModel: ObservableObject {
 
     /// Adds a number. No proof: the person typing it already has it in hand.
     @discardableResult
-    public func add(_ draft: Draft) -> UUID? { add(draft, sourcePath: nil) }
+    public func add(_ draft: Draft) -> UUID? {
+        guard let id = add(draft, sourcePath: nil) else { return nil }
+        record(.added, id: id)
+        return id
+    }
 
     private func add(_ draft: Draft, sourcePath: String?) -> UUID? {
         guard draft.isComplete, contents == .loaded || contents == .notLoaded else { return nil }
@@ -1532,6 +1567,7 @@ public final class VaultModel: ObservableObject {
         used()
         let before = entries[index]
         guard write(changed) else { return false }
+        record(.edited, id: id)
         // A read number corrected by hand: the misreading is set aside, as Confirm does, so the
         // next read does not offer it again.
         if before.facts != nil, VaultReading.normalized(before.value) != VaultReading.normalized(changed[index].value) {
@@ -1569,7 +1605,10 @@ public final class VaultModel: ObservableObject {
         // "everything but this one" from an emptied list would write an empty Vault.
         guard contents == .loaded, entries.contains(where: { $0.id == id }) else { return false }
         used()
+        // Named before it goes: a removed ID has no row to be named by.
+        let whose = rows.first { $0.id == id }?.whose
         guard write(entries.filter { $0.id != id }) else { return false }
+        record(.removed, entry.title, whose: whose)
         if entry.sourcePath != nil { remember(entry.value) }
         keepSelectionVisible()
         return true
@@ -1865,6 +1904,8 @@ public final class VaultModel: ObservableObject {
             Logger.shared.info("Vault: refreshed \(refreshKnown) document(s), \(tally.opened) opened, \(updated) ID(s) updated, "
                                + "\(tally.added) new, \(gone) no longer read, \(refreshMissing.count) not found, in "
                                + String(format: "%.1f", Date().timeIntervalSince(began)) + " s")
+            record(.refreshed, "Refreshed \(refreshKnown) document(s): \(updated) ID(s) updated, \(tally.added) new, "
+                   + "\(refreshMissing.count) not found")
             if selection.flatMap(row) == nil { selection = visibleIDs.first }
             return
         }
@@ -1910,6 +1951,7 @@ public final class VaultModel: ObservableObject {
         saveReading()
         lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added, scope: scope)
         Logger.shared.info(tally.summary(seconds: Date().timeIntervalSince(began)))
+        record(.discovered, "Looked through \(tally.opened) of \(files.count) document(s): \(tally.added) new ID(s) to confirm")
         if selection.flatMap(row) == nil { selection = visibleIDs.first }
     }
 
@@ -2039,6 +2081,7 @@ public final class VaultModel: ObservableObject {
         // What was read stays with the number, whatever the editor changed about its name.
         if draft.facts == nil { draft.facts = find.facts }
         guard let id = add(draft, sourcePath: find.sourcePath) else { return nil }
+        record(.confirmed, id: id)
         if VaultReading.normalized(draft.value) != VaultReading.normalized(find.value) {
             remember(find.value)
             copies[VaultReading.normalized(find.value)] = nil
@@ -2053,6 +2096,7 @@ public final class VaultModel: ObservableObject {
     /// until Settings ▸ Vault forgets the numbers set aside.
     public func setAside(_ findID: UUID) {
         guard let find = finds.first(where: { $0.id == findID }) else { return }
+        record(.setAside, find.title, whose: rows.first { $0.id == findID }?.whose)
         remember(find.value)
         finds.removeAll { $0.id == findID }
         copies[VaultReading.normalized(find.value)] = nil

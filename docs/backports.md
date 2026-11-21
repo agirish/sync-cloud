@@ -16199,6 +16199,11 @@ Keychain. Restore adds what is missing or replaces, and replacing renames the Va
 (`VaultStore.setAside`), as does Set It Aside and Start New for a Vault this Mac cannot open.
 The Vault's own sealed files do not change.
 
+2026-11-20: an activity list (`VaultActivityStore`, `VaultActivityEvent`): unlocks, IDs shown,
+copied and changed by name, reads, backups and refused proofs, sealed with the Vault's key in a
+file of its own (`vault-activity.sealed`, `SCVACTV1`), bounded to 500 events and ninety days, shown
+in Settings ▸ Vault after a proof. A title's own digits are cut to their ending before it is listed.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

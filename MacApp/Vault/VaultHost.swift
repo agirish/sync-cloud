@@ -81,9 +81,11 @@ extension VaultModel {
     /// The app's Vault: the sealed file in Application Support, macOS's own proof, and a
     /// pasteboard copy that cleans up after itself.
     static func live() -> VaultModel {
-        VaultModel(store: VaultStore.defaultURL().map { VaultStore(fileURL: $0) },
-                   authenticator: VaultDeviceOwnerProof(),
-                   copyToPasteboard: { VaultPasteboard.copyConcealed($0) })
+        let store = VaultStore.defaultURL().map { VaultStore(fileURL: $0) }
+        return VaultModel(store: store,
+                          authenticator: VaultDeviceOwnerProof(),
+                          activity: store.map { VaultActivityStore.beside($0) },
+                          copyToPasteboard: { VaultPasteboard.copyConcealed($0) })
     }
 }
 

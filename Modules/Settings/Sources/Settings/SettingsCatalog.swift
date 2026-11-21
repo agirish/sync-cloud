@@ -548,6 +548,12 @@ public enum SettingsCatalog {
         e("vault.hidesFromScreenSharing", .vault, "Hide from screen sharing while an ID is shown", indexed: true,
           storage: app(VaultSharingSettings.hidesFromCaptureKey, "VaultSharingSettings.hidesFromCaptureKey", "true"),
           control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
+        // Which IDs were used and when: listed for the owner, shown after a proof, never to Claude.
+        e("vault.keepsActivity", .vault, "Keep a list of what is done in the Vault", indexed: true,
+          storage: app(VaultActivitySettings.keepsKey, "VaultActivitySettings.keepsKey", "true"),
+          control: .toggle, default: .bool(true), tier: .notInChat),
+        e("vault.activity", .vault, "Vault activity", indexed: true, others: ["Show…"],
+          control: .button("Show…"), tier: .notInChat),
         // The backup's passphrase, folder and acts: the user's own, and never Claude's to make or put back.
         e("vault.backupPassphrase", .vault, "Backup passphrase", indexed: true, others: ["Set…", "Change…"],
           control: .button("Set…"), tier: .notInChat),

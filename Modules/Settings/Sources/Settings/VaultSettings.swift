@@ -17,6 +17,9 @@ struct VaultSettingsTab: View {
     @AppStorage(VaultSharingSettings.hidesFromCaptureKey) private var hidesFromCapture: Bool = true
     /// Whether Refresh runs by itself as the Vault opens (``VaultRefresh``).
     @AppStorage(VaultRefresh.automaticKey) private var refreshesByItself: Bool = true
+    @AppStorage(VaultActivitySettings.keepsKey) private var keepsActivity: Bool = true
+    /// The activity list, read after a proof and shown in a sheet; nil while it is not up.
+    @State private var activityShown: [VaultActivityEvent]?
     @AppStorage(VaultBackup.weeklyKey) private var backsUpWeekly: Bool = true
     /// The backup section's state, read when the page appears and after each act.
     @State private var hasPassphrase = false
@@ -137,6 +140,19 @@ struct VaultSettingsTab: View {
                 }
             }
             SettingsSection(
+                "Activity",
+                caption: "What was unlocked, shown, copied and changed in the Vault, and each proof that was refused. It names an ID, never its number, and is sealed with the Vault: not the app’s log, and never sent to Claude."
+            ) {
+                Toggle("Keep a list of what is done in the Vault", isOn: $keepsActivity.loggingSettingsChange("vault.keepsActivity"))
+                    .help("Off, nothing more is listed. What was listed stays until you clear it.")
+                SettingsRow("Vault activity") {
+                    Button("Show…") { showActivity() }
+                        .controlSize(.small)
+                        .disabled(isAsking)
+                        .help("Shows the list after Touch ID or your password.")
+                }
+            }
+            SettingsSection(
                 "Folders to Read",
                 caption: "Discover More in the Vault looks in these folders for passports, visas and OCI cards, I-94 records and USCIS receipt numbers, and for driver’s licenses, Social Security cards, ITINs, PAN, Aadhaar and voter IDs; under Health, Home, Vehicles and School, for account numbers, one paper per account per year. It looks only when you ask, on this Mac, opens only new and changed files after the first time, and adds nothing until you confirm it. Refresh reads again only the documents IDs came from. You can also change the folders from the arrow beside the Vault’s Discover More button."
             ) {
@@ -217,6 +233,14 @@ struct VaultSettingsTab: View {
             setAsideCount = VaultSetAside.fingerprints().count
             refreshBackupState()
         }
+        .sheet(isPresented: Binding(get: { activityShown != nil }, set: { if !$0 { activityShown = nil } })) {
+            VaultActivitySheet(events: activityShown ?? []) {
+                activityStore?.clear()
+                SettingsWindowLog.log("vault.activity", "cleared")
+                activityShown = []
+            }
+            .presentedNativeControlAccent()
+        }
         .sheet(isPresented: $settingPassphrase) {
             VaultPassphraseSheet(title: hasPassphrase ? "Change the Backup Passphrase" : "Set a Backup Passphrase",
                                  note: "At least \(VaultBackupFile.leastPassphraseLength) characters. It is the only way to open a backup on another Mac, so keep it somewhere safe.",
@@ -257,6 +281,23 @@ struct VaultSettingsTab: View {
             Button("Cancel", role: .cancel) {}
         } message: { offer in
             Text(offer.message)
+        }
+    }
+
+    // MARK: Activity
+
+    private var activityStore: VaultActivityStore? {
+        VaultStore.defaultURL().map { VaultActivityStore.beside(VaultStore(fileURL: $0)) }
+    }
+
+    /// The list says which IDs were used and when: it is shown to the Mac's owner only.
+    private func showActivity() {
+        isAsking = true
+        Task { @MainActor in
+            let proof = await VaultDeviceOwnerProof().prove(reason: "show the Vault’s activity")
+            isAsking = false
+            guard case .allowed = proof else { return }
+            activityShown = activityStore?.load() ?? []
         }
     }
 
@@ -466,5 +507,49 @@ struct VaultPassphraseSheet: View {
         .textFieldStyle(.roundedBorder)
         .padding(20)
         .frame(width: 400)
+    }
+}
+
+/// The Vault's activity, newest first, shown after a proof.
+struct VaultActivitySheet: View {
+    let events: [VaultActivityEvent]
+    let clear: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Vault Activity").font(.headline)
+            if events.isEmpty {
+                Text("Nothing has been listed yet.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else {
+                List(events) { event in
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(event.at.formatted(date: .abbreviated, time: .shortened))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 150, alignment: .leading)
+                        Text(event.line)
+                            .font(.callout)
+                            .foregroundStyle(event.kind == .proofRefused ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(minHeight: 280)
+            }
+            HStack {
+                Button("Clear…", role: .destructive, action: clear)
+                    .disabled(events.isEmpty)
+                    .help("Removes the list for good.")
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .accentedProminent()
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
     }
 }
