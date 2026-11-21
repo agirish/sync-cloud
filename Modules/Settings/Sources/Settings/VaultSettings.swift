@@ -12,6 +12,8 @@ struct VaultSettingsTab: View {
     @AppStorage(VaultLockSettings.requiresAuthenticationKey) private var requiresAuthentication: Bool = true
     @AppStorage(VaultLockSettings.askKey) private var ask: VaultLockSettings.Ask = .whenOpened
     @AppStorage(VaultLockSettings.relockKey) private var relock: VaultLockSettings.Relock = .afterOneMinute
+    @AppStorage(VaultSharingSettings.clipboardSecondsKey) private var clipboardSeconds: Int = VaultSharingSettings.defaultClipboardSeconds
+    @AppStorage(VaultSharingSettings.hidesFromCaptureKey) private var hidesFromCapture: Bool = true
     /// Whether Refresh runs by itself as the Vault opens (``VaultRefresh``).
     @AppStorage(VaultRefresh.automaticKey) private var refreshesByItself: Bool = true
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
@@ -53,6 +55,23 @@ struct VaultSettingsTab: View {
                 }
                 // Asking for every number leaves nothing unlocked to time out.
                 .disabled(!requiresAuthentication || ask == .everyNumber)
+            }
+            SettingsSection(
+                "Copying and Sharing",
+                caption: "A copied ID is marked so clipboard-history apps skip it, stays on this Mac, and is cleared. While an ID is shown in full, SyncCloud’s window is left out of screen sharing and recordings; your own screenshots of it come out without the window too."
+            ) {
+                SettingsRow("Clear the clipboard after") {
+                    Picker("Clear the clipboard after", selection: $clipboardSeconds.loggingSettingsChange("vault.clipboardSeconds")) {
+                        ForEach(VaultSharingSettings.clipboardChoices, id: \.self) { seconds in
+                            Text(VaultSharingSettings.label(seconds: seconds)).tag(seconds)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("How long an ID copied from the Vault stays on the clipboard.")
+                }
+                Toggle("Hide from screen sharing while an ID is shown", isOn: $hidesFromCapture.loggingSettingsChange("vault.hidesFromScreenSharing"))
+                    .help("Keeps SyncCloud’s window out of screen sharing, recordings and screenshots while the Vault shows an ID in full. Off, a shared screen shows it.")
             }
             SettingsSection(
                 "Folders to Read",

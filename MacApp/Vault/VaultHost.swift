@@ -87,10 +87,31 @@ extension VaultModel {
     }
 }
 
+/// Keeps a shown ID out of screen sharing, recordings and screenshots.
+///
+/// The Vault is drawn inside the app's window, so it is the window that is left out of what other
+/// apps can capture, and only while an ID is drawn in full: locked, or with every ID showing its
+/// ending alone, the window shares as usual. The user's own screenshots come out without it too;
+/// Settings ▸ Vault turns this off.
+@MainActor
+enum VaultWindowPrivacy {
+    /// What the window should be while `exposed` says an ID is drawn in full.
+    static func sharing(exposed: Bool, defaults: UserDefaults = .standard) -> NSWindow.SharingType {
+        exposed && VaultSharingSettings.hidesFromCapture(in: defaults) ? .none : .readOnly
+    }
+
+    static func apply(exposed: Bool, to window: NSWindow?, defaults: UserDefaults = .standard) {
+        guard let window else { return }
+        let wanted = sharing(exposed: exposed, defaults: defaults)
+        if window.sharingType != wanted { window.sharingType = wanted }
+    }
+}
+
 /// Copying a number out of the Vault.
 enum VaultPasteboard {
-    /// How long a copied number stays on the pasteboard.
-    static let clearAfter: Duration = .seconds(60)
+    /// How long a copied number stays on the pasteboard: a minute unless Settings ▸ Vault says
+    /// otherwise. Read at each copy, so a change applies to the next one.
+    static var clearAfter: Duration { .seconds(VaultSharingSettings.clipboardSeconds()) }
 
     /// Copies `value`, marked concealed, and clears it a minute later unless something else was
     /// copied meanwhile. The same recipe as the API key's Copy in Settings (`CloudKeyRow`), for

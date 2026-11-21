@@ -150,6 +150,14 @@ struct VaultCard: View {
     /// A passport can be named on dozens of documents: the first few, then Show All.
     static let documentsShown = 5
 
+    /// Whether the panel is drawing an ID in full somewhere: unlocked (the chosen ID's number,
+    /// the editor, Large Type, a document's preview), or one ID shown under "For every ID".
+    private var exposesAnID: Bool {
+        guard model.contents == .loaded else { return false }
+        if model.isOpen { return model.selectedRow != nil || editing != nil }
+        return model.selection.map { model.lock.canShow($0, at: model.now) } ?? false
+    }
+
     private enum Editing: Equatable {
         case new
         case existing(UUID)
@@ -313,6 +321,8 @@ struct VaultCard: View {
         // A read in progress goes on: the model runs it, and lets the numbers go when it ends.
         .onDisappear {
             activity.stop()
+            // The panel is gone, and with it every ID it drew: the window shares as usual.
+            VaultWindowPrivacy.apply(exposed: false, to: activity.window)
             model.closed()
         }
         // Using the Vault keeps it open: the pointer moving over it, and any click, key or scroll
@@ -322,6 +332,11 @@ struct VaultCard: View {
         }
         .onAppear { activity.start { model.panelActivity() } }
         .background(VaultWindowReader(watch: activity))
+        // While an ID is drawn in full, the window is kept out of screen sharing and recordings
+        // (``VaultWindowPrivacy``); the moment none is, it shares again.
+        .onChange(of: exposesAnID, initial: true) { _, exposed in
+            VaultWindowPrivacy.apply(exposed: exposed, to: activity.window)
+        }
         // ⌘⌫ removes the chosen row, after asking. Not while the search has text, where it
         // deletes to the start of the line as usual, nor while the editor is open.
         .background {
@@ -1085,7 +1100,7 @@ struct VaultCard: View {
                 Button(copiedDetail == key + "-numbers" ? "Copied" : "Copy with Numbers") {
                     copyPerson(section, numbers: true, key: key + "-numbers")
                 }
-                .help("Copies every ID in full with the date of birth, after Touch ID. It clears from the clipboard after a minute.")
+                .help("Copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)")
                 if case .person(let id) = section.id {
                     Button {
                         startAdding(for: id)
@@ -1135,7 +1150,7 @@ struct VaultCard: View {
                                 }
                             }
                             .controlSize(.small)
-                            .help(showsBirth ? "Copies \(VaultReading.formDate(date)), the way US forms ask for a date. It clears after a minute."
+                            .help(showsBirth ? "Copies \(VaultReading.formDate(date)), the way US forms ask for a date. \(Self.clipboardClears)"
                                              : "Shows it after Touch ID or your password.")
                         }
                     }
@@ -1823,7 +1838,7 @@ struct VaultCard: View {
                 } label: {
                     Label(copied == row.id ? "Copied" : "Copy", systemImage: copied == row.id ? "checkmark" : "doc.on.doc")
                 }
-                .help("Copies the ID. It clears from the clipboard after a minute.")
+                .help("Copies the ID. \(Self.clipboardClears)")
             } else {
                 Button {
                     Task { await model.show(row.id) }
@@ -1901,7 +1916,7 @@ struct VaultCard: View {
                 copyDetail(detail, of: row)
             }
             .controlSize(.small)
-            .help(detail.isNumber ? "Copies it in full, after Touch ID; it clears after a minute."
+            .help(detail.isNumber ? "Copies it in full, after Touch ID. \(Self.clipboardClears)"
                   : detail.copied == detail.drawn(shown: true) ? "Copies “\(detail.copied)”."
                   : "Copies \(detail.copied), the way US forms ask for a date.")
         }
@@ -2170,6 +2185,11 @@ struct VaultCard: View {
                 : "Refreshing \(reading.done.formatted()) of \(documents(reading.total))…"
         }
         return reading.total == 0 ? "Finding documents…" : "Reading \(reading.done.formatted()) of \(documents(reading.total))…"
+    }
+
+    /// "It clears from the clipboard after 1 minute.", by the setting.
+    static var clipboardClears: String {
+        "It clears from the clipboard after \(VaultSharingSettings.label(seconds: VaultSharingSettings.clipboardSeconds()))."
     }
 
     /// The line under Discover More in its menu: where it looks.

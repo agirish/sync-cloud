@@ -16181,6 +16181,10 @@ birth, which until now was read and never shown; it is drawn only while one of t
 may be (`canShowBirth`). `vaultLayout` replaces `vaultShowsList` in UserDefaults, which is still
 read once.
 
+2026-11-20: while an ID is drawn in full, the window is left out of screen capture
+(`VaultWindowPrivacy`, `NSWindow.sharingType`), and how long a copy stays on the clipboard is a
+setting (`VaultSharingSettings`); both in Settings ▸ Vault.
+
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

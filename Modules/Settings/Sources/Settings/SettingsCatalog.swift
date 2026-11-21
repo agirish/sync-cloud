@@ -539,6 +539,15 @@ public enum SettingsCatalog {
         // Never in chat, and a count only: a folder's name can say what kind of papers are in it.
         e("vault.readFolders", .vault, "Folders to read", indexed: true, others: ["Add…"],
           storage: .owner("VaultReadFolders"), control: .list, tier: .notInChat, privacy: .countOnly),
+        // How far a shown or copied ID travels: the user's own, and not Claude's to loosen.
+        e("vault.clipboardSeconds", .vault, "Clear the clipboard after", indexed: true,
+          storage: app(VaultSharingSettings.clipboardSecondsKey, "VaultSharingSettings.clipboardSecondsKey",
+                       "VaultSharingSettings.defaultClipboardSeconds"),
+          control: .menu(VaultSharingSettings.clipboardChoices.map { SettingChoice(.int($0), VaultSharingSettings.label(seconds: $0)) }),
+          default: .int(VaultSharingSettings.defaultClipboardSeconds), tier: .notInChat),
+        e("vault.hidesFromScreenSharing", .vault, "Hide from screen sharing while an ID is shown", indexed: true,
+          storage: app(VaultSharingSettings.hidesFromCaptureKey, "VaultSharingSettings.hidesFromCaptureKey", "true"),
+          control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
         // Whether documents are opened without being asked for: the user's own call.
         e("vault.refreshesByItself", .vault, "Refresh by itself when the Vault opens", indexed: true,
           storage: app(VaultRefresh.automaticKey, "VaultRefresh.automaticKey", "true"),
