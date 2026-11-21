@@ -22,13 +22,12 @@ import Testing
         let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
         let visa = try #require(rig.model.rows.first { $0.category == .usVisa })
         let passports = rig.model.rows.filter { $0.category == .passport }
-        #expect(VaultCard.readFrom([visa]) == "Read from Visa", "one ID is named; a typed one has no document")
-        #expect(VaultCard.readFrom(passports + [visa]) == "Read from 3 IDs", "several are counted, and listed in the menu")
+        #expect(VaultCard.sourceLabel([visa]) == "From Visa", "one ID is named; a typed one has no document")
+        #expect(VaultCard.sourceLabel(passports + [visa]) == "From 3 IDs", "several are counted, and listed in a popover")
         #expect(VaultCard.sourceLine(visa) == "Visa")
         rig.model.pin(visa.id, .older)
         let archived = try #require(rig.model.rows.first { $0.id == visa.id })
         #expect(VaultCard.sourceLine(archived) == "Visa (Archive)", "one on the other tab says so")
-        #expect(VaultCard.printedOn(["passport", "visa", "I-94"]) == "On passport, visa, and I-94")
     }
 
     /// Two made-up passports of one person whose zones give different dates of birth.
@@ -56,7 +55,7 @@ import Testing
         let two = try await Self.twoDates(); defer { two.cleanUp() }
         let anna = try #require(two.model.peopleSections.first { $0.id == .person("anna") })
         #expect(anna.births.count == 2, "\(anna.births.map(\.date))")
-        #expect(anna.births.map { VaultCard.readFrom($0.rows) } == ["Read from Passport · renewal.pdf", "Read from Passport · scan.pdf"],
+        #expect(anna.births.map { VaultCard.sourceLabel($0.rows) } == ["From Passport · renewal.pdf", "From Passport · scan.pdf"],
                 "two passports told apart by their documents")
         let both = try VaultPanelRenderTests.render(two.model, defaults: two.defaults, name: "people-two-dates")
 
@@ -67,6 +66,24 @@ import Testing
         let single = try VaultPanelRenderTests.render(one.model, defaults: one.defaults, name: "people-one-date")
         #expect(one.model.peopleSections.first { $0.id == .person("anna") }?.births.count == 1)
         #expect(differingPixels(both, single) > 3000, "the second date, where it was read and the warning are drawn only while there are two")
+    }
+
+    @Test func aDocumentRunningOutWithinHalfAYearSaysHowSoon() throws {
+        // Midnight UTC, as the reader stores a document's dates; "now" is midday here.
+        func day(_ y: Int, _ m: Int, _ d: Int) -> Date {
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC")!
+            return utc.date(from: DateComponents(year: y, month: m, day: d))!
+        }
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = .current
+        let now = try #require(local.date(from: DateComponents(year: 2026, month: 11, day: 21, hour: 12)))
+        #expect(VaultCard.expiresSoon(day(2027, 3, 15), now: now) == "Expires in 114 days")
+        #expect(VaultCard.expiresSoon(day(2026, 11, 22), now: now) == "Expires tomorrow")
+        #expect(VaultCard.expiresSoon(day(2027, 5, 22), now: now) == "Expires in 182 days", "six months ahead is still said")
+        #expect(VaultCard.expiresSoon(day(2027, 5, 23), now: now) == nil, "further off is not news")
+        #expect(VaultCard.expiresSoon(day(2026, 11, 20), now: now) == nil, "run out: Expired says that")
+        #expect(VaultCard.expiresSoon(nil, now: now) == nil)
     }
 
     @Test func peopleDrawsASectionPerPersonWithTheKindOnEachRowInItsColor() async throws {

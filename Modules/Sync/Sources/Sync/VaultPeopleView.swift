@@ -37,16 +37,27 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         public var rows: [VaultModel.Row]
     }
 
+    /// The person's IDs of one group (Travel & Immigration, Legal & IDs, …), drawn under its name.
+    public struct KindGroup: Equatable, Sendable {
+        /// Nil for kinds listed under no group.
+        public var id: VaultGroups.ID?
+        public var name: String
+        public var rows: [VaultModel.Row]
+    }
+
     public var id: Owner
     /// The person's name in People, "Household", or the name as read.
     public var title: String
     public var names: [PrintedName]
-    /// The birth dates their documents give, earliest first: one, unless two documents disagree.
+    /// The birth dates their documents give: one, unless two documents disagree. The date most of
+    /// their IDs give comes first, so a lone misreading is the one listed under it.
     public var births: [Birth]
     /// The dates alone.
     public var born: [Date] { births.map(\.date) }
-    /// Their IDs on the tab being shown, in the cards' order.
-    public var rows: [VaultModel.Row]
+    /// Their IDs on the tab being shown, group by group: the order they are drawn and walked in.
+    public var rows: [VaultModel.Row] { groups.flatMap(\.rows) }
+    /// Their IDs on the tab being shown under each group, in the groups' order, then the cards'.
+    public var groups: [KindGroup]
     /// How many more they have on the other tab (Archive while Current is shown, and the reverse).
     public var elsewhere: Int
 }
@@ -87,9 +98,9 @@ extension VaultModel {
             let dated = id == .household ? [] : papers.filter { $0.facts?.born != nil }
             let births = Dictionary(grouping: dated) { $0.facts?.born ?? .distantPast }
                 .map { VaultPersonSection.Birth(date: $0.key, rows: $0.value) }
-                .sorted { $0.date < $1.date }
+                .sorted { ($0.rows.count, $1.date) > ($1.rows.count, $0.date) }
             let onThisTab = Set(rows.map(\.id))
-            return VaultPersonSection(id: id, title: title, names: names, births: births, rows: rows,
+            return VaultPersonSection(id: id, title: title, names: names, births: births, groups: grouped(rows),
                                       elsewhere: theirs.filter { !onThisTab.contains($0.id) && $0.standing.tab != tab && $0.standing.tab != .other }.count)
         }
         var sections = people.compactMap { section(.person($0.id), $0.displayName) }
@@ -105,6 +116,25 @@ extension VaultModel {
         sections += unnamed.compactMap { section(.unnamed($0), $0) }
         if let household = section(.household, "Household") { sections.append(household) }
         return sections
+    }
+
+    /// `rows` under the groups their cards are listed in, in the groups' order and, within one, the
+    /// cards' order; kinds in no group last, under Other.
+    func grouped(_ rows: [Row]) -> [VaultPersonSection.KindGroup] {
+        let cards = kinds.order
+        let sorted = rows.enumerated().sorted { a, b in
+            let (x, y) = (cards.firstIndex(of: a.element.card) ?? .max, cards.firstIndex(of: b.element.card) ?? .max)
+            return x != y ? x < y : a.offset < b.offset
+        }.map(\.element)
+        let byGroup = Dictionary(grouping: sorted) { kinds.group(of: $0.card, in: groups) }
+        var out = groups.order.compactMap { id -> VaultPersonSection.KindGroup? in
+            guard let rows = byGroup[id], !rows.isEmpty else { return nil }
+            return .init(id: id, name: groups.name(id), rows: rows)
+        }
+        let placed = Set(out.flatMap { $0.rows.map(\.id) })
+        let rest = sorted.filter { !placed.contains($0.id) }
+        if !rest.isEmpty { out.append(.init(id: nil, name: "Other", rows: rest)) }
+        return out
     }
 
     /// Whether a person's birth date may be drawn: when one of their IDs may be. It is as private
@@ -146,6 +176,15 @@ public enum VaultPersonText {
     /// different name from the same one read cleanly.
     static func tidied(_ name: String) -> String {
         name.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// Where a name is printed, in a line: "On passport", "On all 9 kinds of identity paper" when
+    /// it is their only spelling, else the papers that print it this way, the first three named.
+    public static func paperLine(_ name: VaultPersonSection.PrintedName, only: Bool) -> String {
+        if name.on.count == 1 { return "On \(name.on[0])" }
+        if only { return "On all \(name.on.count) kinds of identity paper" }
+        if name.on.count <= 3 { return "On \(ListFormatter.localizedString(byJoining: name.on))" }
+        return "On \(name.on.prefix(3).joined(separator: ", ")) and \(name.on.count - 3) more"
     }
 
     /// What an identity paper is called in "Name on …"; nil for an account's papers.

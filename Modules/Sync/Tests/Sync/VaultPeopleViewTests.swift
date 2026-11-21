@@ -108,6 +108,46 @@ import Testing
         #expect(model.tab == .archive && model.selection == source.id, "choosing it goes to its tab")
     }
 
+    @Test func aPersonsIDsAreGroupedInTheGroupsOrderAndWalkedInThatOrder() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        _ = model.add(VaultModel.Draft(title: "Social Security number", value: "123-45-6789", personID: "anna", category: .ssn))
+        let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(anna.groups.map(\.name) == ["Travel & Immigration", "Legal & IDs", "Health"], "\(anna.groups.map(\.name))")
+        #expect(anna.groups.map { $0.rows.map(\.category) } == [[.passport], [.ssn], [.health]])
+        #expect(anna.rows.map(\.category) == [.passport, .ssn, .health], "rows are the groups' rows, in order")
+        // A kind moved to another group goes with it.
+        var groups = model.groups
+        groups.groupOf[.ssn] = "travel"
+        model.setGroups(groups)
+        let moved = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(moved.groups.map { $0.rows.map(\.category) } == [[.passport, .ssn], [.health]])
+    }
+
+    @Test func theDateMostIDsGiveComesFirst() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.twoDates(rig)
+        // A third passport scan that agrees with the 1974 date: two IDs against one.
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            Self.passport: VaultToConfirmTests.passportPage,
+            Self.renewal: VaultReadingTests.zone("P", number: "X7654321", born: "731218", expires: "340101", given: "ANNA<MARIA"),
+            Self.root + "/Immigration/Passport/Anna/old.pdf": VaultReadingTests.zone("P", number: "Q1234567", born: "740812", expires: "200101", given: "ANNA<MARIA"),
+        ]))
+        for row in model.rows where row.category == .passport && row.personID != "anna" { model.assign(row.id, to: .person("anna")) }
+        let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
+        #expect(anna.births.map(\.rows.count) == [2, 1], "\(anna.births.map { ($0.date, $0.rows.count) })")
+        #expect(anna.born.first == VaultReadingTests.day(1974, 8, 12), "the later date leads: more IDs give it")
+    }
+
+    @Test func aNameSaysWhereItIsPrintedInOneShortLine() {
+        let one = VaultPersonSection.PrintedName(name: "Anna", on: ["passport"])
+        let many = VaultPersonSection.PrintedName(name: "Anna", on: ["passport", "visa", "I-94", "USCIS notice", "PAN card"])
+        #expect(VaultPersonText.paperLine(one, only: true) == "On passport")
+        #expect(VaultPersonText.paperLine(many, only: true) == "On all 5 kinds of identity paper", "every paper agrees")
+        #expect(VaultPersonText.paperLine(many, only: false) == "On passport, visa, I-94 and 2 more", "one spelling of several")
+        #expect(VaultPersonText.paperLine(.init(name: "Anna", on: ["passport", "visa"]), only: false) == "On passport and visa")
+    }
+
     @Test func aNameReadWithALineBreakOrInAnotherCaseIsTheSameName() {
         #expect(VaultPersonText.tidied("\nanna  maria\tEriksson ") == "anna maria Eriksson")
         #expect(VaultPersonText.tidied("Anna Maria Eriksson") == "Anna Maria Eriksson")

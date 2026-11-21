@@ -16172,7 +16172,9 @@ a row for its group (`VaultColorPopover`, `VaultColorChoice`). 2026-11-21: the w
 whole card, lighter under its rows (`VaultCardBodyWash`), and the chosen row is a light lift on a
 washed card and a quiet grey on plain ground, not a fill in the window's hue (`VaultRowLift`). Later that day People's date of birth
 names the ID and document each date was read from (`VaultPersonSection.Birth`), and names read
-with a line break or extra spaces are tidied before they are compared (`VaultPersonText.tidied`).
+with a line break or extra spaces are tidied before they are compared (`VaultPersonText.tidied`). Then People's facts became tiles, its rows
+grouped (`VaultPersonSection.KindGroup`), and every layout's rows lost "In Vault" and the file count
+and gained "Expires in N days" within six months.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
