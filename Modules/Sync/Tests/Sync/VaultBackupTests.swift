@@ -43,6 +43,19 @@ import Testing
         #expect(throws: VaultBackupError.notABackup) { try VaultBackupFile.open(weak, passphrase: Self.phrase) }
     }
 
+    /// The header is read before anything is proved, and a backup folder may be a synced one.
+    @Test func aFileThatAsksForAbsurdWorkIsRefusedBeforeAnyIsDone() throws {
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage])
+        var file = try VaultBackupFile.seal(contents, passphrase: Self.phrase, rounds: Self.rounds, salt: Self.salt)
+        // Its rounds, four bytes after the marker, rewritten to the most a header can say.
+        file.replaceSubrange(8..<12, with: [0xFF, 0xFF, 0xFF, 0xFF])
+        let start = Date()
+        #expect(throws: VaultBackupError.notABackup) { try VaultBackupFile.open(file, passphrase: Self.phrase) }
+        #expect(Date().timeIntervalSince(start) < 1, "refused on its header, with no key stretched")
+        #expect(VaultBackupFile.rounds <= VaultBackupFile.mostRounds, "this build's own files stay inside the limit")
+        #expect(VaultBackupFile.mostRounds < 10_000_000)
+    }
+
     @Test func aShortPassphraseIsRefusedAndTwoBackupsOfTheSameVaultDiffer() throws {
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage])
         #expect(throws: VaultBackupError.passphraseTooShort) { try VaultBackupFile.seal(contents, passphrase: "short", rounds: Self.rounds) }
@@ -152,6 +165,54 @@ import Testing
         #expect(await backup.restore(contents, mode: .addMissing) == .success(2))
         #expect(rig.auth.reasons.last == "restore your Vault from a backup")
         #expect(try rig.store.load() == [renamed, Self.passport], "the ID it already had keeps this Vault's name for it")
+    }
+
+    /// A backup made before a number was corrected holds the old number under the same id.
+    @Test func whatIsAddedNeverSharesAnIDWithARecordAlreadyHere() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        var corrected = Self.mortgage
+        corrected.value = "0044918858"
+        try rig.seed([corrected])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        // The backup's copy: the same record, id and all, with the number as it was.
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage, Self.passport])
+        #expect(Self.mortgage.id == corrected.id && Self.mortgage.value != corrected.value)
+
+        #expect(await backup.restore(contents, mode: .addMissing) == .success(3))
+        let now = try rig.store.load()
+        #expect(now.first == corrected, "the record here is untouched")
+        #expect(Set(now.map(\.id)).count == 3, "three records, three ids: \(now.map(\.id))")
+        let old = try #require(now.first { $0.value == Self.mortgage.value })
+        #expect(old.id != corrected.id, "the old number came back as an ID of its own")
+        #expect(old.title == Self.mortgage.title && old.addedAt == Self.mortgage.addedAt, "and is otherwise as the backup had it")
+        #expect(now.last == Self.passport, "one whose id is free keeps it")
+    }
+
+    /// Replace sets the Vault aside before writing the new one: if that cannot be written, the
+    /// Vault goes back where it was.
+    @Test func aReplaceThatCannotBeWrittenLeavesTheVaultInPlace() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let before = try Data(contentsOf: rig.store.fileURL)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
+
+        rig.keychain.forcedCopyStatus = errSecAuthFailed   // the Keychain refuses the key
+        #expect(await backup.restore(contents, mode: .replace) == .failure(.notWritten))
+        rig.keychain.forcedCopyStatus = nil
+        #expect(try Data(contentsOf: rig.store.fileURL) == before, "byte for byte where it was")
+        #expect(try rig.store.load() == [Self.mortgage])
+        let aside = try FileManager.default.contentsOfDirectory(at: rig.store.fileURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.contains(".set-aside-") }
+        #expect(aside.isEmpty, "nothing is left set aside by a restore that did not happen: \(aside.map(\.lastPathComponent))")
+
+        // And a Vault this Mac cannot open, whose new key the Keychain will not take, is still there.
+        rig.keychain.itemData = nil
+        rig.keychain.forcedAddStatus = errSecAuthFailed
+        #expect(await backup.restore(contents, mode: .replace) == .failure(.notWritten))
+        #expect(try Data(contentsOf: rig.store.fileURL) == before, "kept for the day its key turns up")
     }
 
     @Test func replaceSetsTheOldVaultAsideAndNeverDeletesIt() async throws {

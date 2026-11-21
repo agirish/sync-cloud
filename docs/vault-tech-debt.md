@@ -55,7 +55,7 @@ free: **VT99** (VT61 and VT62 were never used). **Checked** means the lines were
 1. **Wait for the three branches above to land**, then rebase.
 2. **Safety net:** VT55 (one sealed-file writer), then VT20, VT21, VT30, VT24 (resume `11b5a7218`).
    Nothing else changes a sealed format until these are in.
-3. **Internal bugs:** VT56, VT57, VT58, VT63, VT68, VT52, VT54, VT59, VT73 (a, c).
+3. **Internal bugs:** VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c).
 4. **Efficiency:** VT9, VT10, VT65, VT66, VT67, VT82, VT83, VT84, VT85, VT77, VT78.
 5. **Tests and logging:** VT94, VT98, VT95, VT29, VT96, VT97, VT71, VT26, VT27, VT28, VT22, VT23, VT25.
 6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
@@ -182,7 +182,10 @@ correction.*
     written in one atomic swap (the read index may stay apart: it is a cache);
   - UserDefaults keeps view preferences and settings only.
 
-**VT56 — Restore ▸ Replace sets the Vault aside before it knows it can write.** *Bug; checked.*
+**VT56 — Restore ▸ Replace sets the Vault aside before it knows it can write.** *Bug; fixed
+2026-11-21 by putting it back: `moveAside` answers what it moved and a failed save calls `putBack`
+(`aReplaceThatCannotBeWrittenLeavesTheVaultInPlace`). Sealing before setting aside still waits on
+VT55's one writer.*
 - **The problem.** `store.setAside` runs (`VaultBackup.swift:306`), then `store.save` (`:310`). A
   refused Keychain or disk leaves the Vault renamed away. Settings then says nothing was changed
   (`VaultSettings.swift:420`), no `didRestore` is posted, and a model still holding the old list can
@@ -193,7 +196,8 @@ correction.*
   change on success.
 
 **VT57 — Restore ▸ Add What's Missing can bring back a second record with the same id.** *Bug;
-checked.*
+fixed 2026-11-21: `VaultEntry.reissued()`, and `id` is `private(set)`
+(`whatIsAddedNeverSharesAnIDWithARecordAlreadyHere`).*
 - **The problem.** `held + contents.entries.filter { new number }` keeps each backup entry's `id`
   (`VaultBackup.swift:304`). Back up, fix a typo in a number, then Add Missing: the old number returns
   under the same id. After that:
@@ -204,7 +208,9 @@ checked.*
 - **Done when:** a test covers it.
 
 **VT58 — Backup key derivation: no upper bound, and on the main actor.** *Security and efficiency;
-checked.*
+checked. The bound is in since 2026-11-21 (`VaultBackupFile.mostRounds`, eight times `rounds`;
+`aFileThatAsksForAbsurdWorkIsRefusedBeforeAnyIsDone`); the main actor and the tests' full-strength
+derivations are open.*
 - **The problem.**
   - `VaultBackupFile.open` checks only `rounds >= leastRounds` (`VaultBackup.swift:104`). A `.scvault`
     whose header claims `UInt32.max` rounds runs PBKDF2 on the main actor. At 600,000 rounds ≈ 0.7 s,

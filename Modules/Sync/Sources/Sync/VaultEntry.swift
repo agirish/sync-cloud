@@ -35,7 +35,8 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         }
     }
 
-    public let id: UUID
+    /// Its identity for as long as it is kept; only ``reissued()`` gives a copy another.
+    public private(set) var id: UUID
     /// What it is, in the user's words: "Mortgage loan number".
     public var title: String
     /// The number in full, as typed or read, spaces and dashes included.
@@ -133,6 +134,16 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
 /// An entry never prints its number. A log line, an assertion message or a `dump` that takes one
 /// shows the title and the ending, the same as a locked row (``EditorPDFSecret`` is the model).
+extension VaultEntry {
+    /// The same record under a new identity: for one restored from a backup when another record
+    /// here already has its id.
+    func reissued() -> VaultEntry {
+        var copy = self
+        copy.id = UUID()
+        return copy
+    }
+}
+
 extension VaultEntry: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String { "VaultEntry(\(title), \(VaultMask.masked(value)))" }
     public var debugDescription: String { description }

@@ -49,6 +49,10 @@ public enum VaultBackupFile {
     public static let rounds: UInt32 = 600_000
     /// The least a file may claim: one that asks for almost no work is not one this app made.
     static let leastRounds: UInt32 = 100_000
+    /// The most a file may claim. The header is read before anything is proved, and a file in a
+    /// synced folder is anyone's to write: one asking for billions of rounds would hold the app
+    /// for over an hour. Eight times what this build writes leaves room to raise ``rounds``.
+    static let mostRounds: UInt32 = 4_800_000
     static let saltLength = 16
     public static let fileExtension = "scvault"
     /// Shorter than this is refused: the passphrase is all that guards the file once it leaves
@@ -101,7 +105,8 @@ public enum VaultBackupFile {
         let head = data.prefix(headLength)
         let rounds = head.dropFirst(marker.count).prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         let salt = Data(head.suffix(saltLength))
-        guard rounds >= leastRounds, let box = try? AES.GCM.SealedBox(combined: data.dropFirst(headLength)) else {
+        guard rounds >= leastRounds, rounds <= mostRounds,
+              let box = try? AES.GCM.SealedBox(combined: data.dropFirst(headLength)) else {
             throw VaultBackupError.notABackup
         }
         guard let key = key(passphrase: passphrase, salt: salt, rounds: rounds),
@@ -301,14 +306,27 @@ public struct VaultBackup {
         case .addMissing:
             guard let held = try? store.load() else { return .failure(.vaultUnreadable) }
             let have = Set(held.map { VaultReading.normalized($0.value) })
-            entries = held + contents.entries.filter { !have.contains(VaultReading.normalized($0.value)) }
+            // A backup made before a number was corrected holds the old number under the same
+            // id. It comes back as an ID of its own: two records with one id would be removed
+            // together and edited as one.
+            var ids = Set(held.map(\.id))
+            let missing = contents.entries.filter { !have.contains(VaultReading.normalized($0.value)) }
+                .map { ids.insert($0.id).inserted ? $0 : $0.reissued() }
+            entries = held + missing
         case .replace:
-            guard store.setAside(at: clock(), fileManager: fileManager) else { return .failure(.notWritten) }
             entries = contents.entries
+        }
+        // Replace sets what is here aside first, and puts it back if the new Vault cannot be
+        // written (a refused Keychain, a full disk): never a Mac left with no Vault in place.
+        var moved: [VaultStore.Aside] = []
+        if mode == .replace {
+            guard let aside = store.moveAside(at: clock(), fileManager: fileManager) else { return .failure(.notWritten) }
+            moved = aside
         }
         do {
             try store.save(entries)
         } catch {
+            store.putBack(moved, fileManager: fileManager)
             return .failure(.notWritten)
         }
         Logger.shared.info("Vault: restored from a backup (\(mode == .replace ? "replaced" : "added what was missing")), \(entries.count) ID(s) now")
@@ -320,14 +338,27 @@ public struct VaultBackup {
 }
 
 extension VaultStore {
+    /// A file set aside: where it was, and where it is now.
+    struct Aside: Equatable {
+        let from: URL
+        let to: URL
+    }
+
     /// Renames the Vault's file, and what was read, aside: `vault.sealed.set-aside-<stamp>`.
     /// Nothing is deleted, so a Vault this Mac cannot open is kept for the day its key turns up,
     /// and a new one can be started or restored in its place. True when no sealed file is left
     /// in the way.
     @discardableResult
     public func setAside(at date: Date = Date(), fileManager: FileManager = .default) -> Bool {
+        moveAside(at: date, fileManager: fileManager) != nil
+    }
+
+    /// ``setAside(at:fileManager:)``, answering what it moved so a caller that then fails can put
+    /// it back. Nil when a file could not be moved; what did move is put back first, so a
+    /// refusal leaves everything where it was.
+    func moveAside(at date: Date, fileManager: FileManager) -> [Aside]? {
         let stamp = Int(date.timeIntervalSince1970)
-        var clear = true
+        var moved: [Aside] = []
         for url in [fileURL, readingURL] where fileManager.fileExists(atPath: url.path) {
             var aside = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).set-aside-\(stamp)")
             var copy = 1
@@ -337,11 +368,26 @@ extension VaultStore {
             }
             do {
                 try fileManager.moveItem(at: url, to: aside)
+                moved.append(Aside(from: url, to: aside))
             } catch {
                 Logger.shared.warning("Vault: a sealed file could not be set aside — \(error.localizedDescription)")
-                clear = false
+                putBack(moved, fileManager: fileManager)
+                return nil
             }
         }
-        return clear
+        return moved
+    }
+
+    /// Puts files set aside back where they were. A file written there meanwhile (half of a save
+    /// that failed) is replaced: what was set aside is the Vault.
+    func putBack(_ moved: [Aside], fileManager: FileManager) {
+        for aside in moved {
+            do {
+                if fileManager.fileExists(atPath: aside.from.path) { try fileManager.removeItem(at: aside.from) }
+                try fileManager.moveItem(at: aside.to, to: aside.from)
+            } catch {
+                Logger.shared.warning("Vault: a sealed file set aside could not be put back — \(error.localizedDescription)")
+            }
+        }
     }
 }

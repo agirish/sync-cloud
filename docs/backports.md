@@ -16199,7 +16199,9 @@ under PBKDF2-HMAC-SHA256 of a passphrase (600,000 rounds, the rounds and salt au
 file of their own (`SCVBACK1`, `.scvault`), by hand or weekly; the passphrase is kept in the login
 Keychain. Restore adds what is missing or replaces, and replacing renames the Vault's files aside
 (`VaultStore.setAside`), as does Set It Aside and Start New for a Vault this Mac cannot open.
-The Vault's own sealed files do not change.
+The Vault's own sealed files do not change. 2026-11-21: a Replace that cannot be
+written puts the Vault back, what is added never shares an id with a record already held, and a
+file asking for more than eight times this build's rounds is refused.
 
 2026-11-20: an activity list (`VaultActivityStore`, `VaultActivityEvent`): unlocks, IDs shown,
 copied and changed by name, reads, backups and refused proofs, sealed with the Vault's key in a
