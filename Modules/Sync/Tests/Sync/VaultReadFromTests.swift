@@ -182,6 +182,8 @@ import Testing
         model.readFrom(saved, copy: nil)
         let back = try Self.row(model)
         #expect(back.chosenSource == nil && back.facts?.primary?.path == Self.dental && back.sourceChoices == [Self.scan])
+        #expect(back.facts?.holder == "Dlvit Girish", "the name its own copy reads, not the chosen copy's kept from Confirm")
+        #expect(model.entries.first { $0.id == saved }?.facts?.holder == "Dlvit Girish")
     }
 
     @Test func onlyAnOfferedCopyCanBeChosen() async throws {

@@ -2283,8 +2283,11 @@ public final class VaultModel: ObservableObject {
     public func confirm(_ findID: UUID, as draft: Draft) -> UUID? {
         guard let find = finds.first(where: { $0.id == findID }) else { return nil }
         var draft = draft
-        // What was read stays with the number, whatever the editor changed about its name.
+        // What was read stays with the number, whatever the editor changed about its name, and
+        // whichever copy it is read from: ``prepared(_:for:)`` puts a chosen copy's name in the
+        // editor, and saved here it would outlive the choice.
         if draft.facts == nil { draft.facts = find.facts }
+        draft.facts?.holder = find.facts.holder
         guard let id = add(draft, sourcePath: find.sourcePath, chosenSource: find.chosenSource,
                            readHolder: rows.first { $0.id == findID }?.holderAsRead) else { return nil }
         record(.confirmed, id: id)
