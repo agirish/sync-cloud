@@ -1084,7 +1084,7 @@ logging, tests, reader bugs, security internals) is [`docs/vault-tech-debt.md`](
 
 | Phase | Items |
 |---|---|
-| 1 · Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF4 locked means locked · VF5 calmer panel · bugs VB2, VB4–VB7 |
+| 1 · Quick | VF1 Quick Vault (global shortcut, floating panel) · VF2 search that finds · VF3 Pinned and Recent · VF4 locked means locked · VF5 calmer panel · VF21 card colors (a soft tint on each card's title bar, by group or kind) · VF22 Refresh (re-read only the documents IDs came from) and Discover More (look for new ones) · bugs VB2, VB4–VB7 |
 | 2 · Safe | VF6 backup and restore · VF7 key tied to Touch ID · VF8 Activity · VF9 hidden from screen sharing |
 | 3 · Complete | VF10 records with fields · VF11 new kinds (bank, card, address, vehicle, insurance, traveler) · VF12 person sheet · VF13 copy formats · VF14 own kinds and fields |
 | 4 · Smart | VF15 Needs attention · VF16 review queue · VF17 Form Mode · VF18 attach and drop · VF19 emergency sheet · VF20 reads more |
@@ -1102,7 +1102,8 @@ photo read sideways) was tested and is not a defect. Still open of the bugs: VB1
 
 **Open calls:** VQ1 Quick Vault's shortcut · VQ2 what a locked Vault shows · VQ3 whether it holds card
 numbers · VQ4 whether check-digit reads skip confirming · VQ5 password fallback for the tied key ·
-VQ6 where backups go.
+VQ6 where backups go · VQ7 whether a card's color follows its group or is its own · VQ8 whether
+Refresh runs by itself for a changed source document.
 
 ---
 
