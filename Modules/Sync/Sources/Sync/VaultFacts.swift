@@ -326,9 +326,12 @@ public struct VaultStandingInput: Sendable {
     /// The user said whose it is (Belongs To), so it is grouped by that alone, never joined to
     /// another person's documents by the birth date or name it was read with.
     public var isChosen: Bool
+    /// The card it is drawn on (``VaultCardID/key``), when not its category's: a custom kind's
+    /// numbers are weighed against each other, never against Other's.
+    public var card: String?
 
     public init(id: UUID, value: String, category: VaultCategory, facts: VaultReadFacts?, pin: VaultPin?,
-                assignment: VaultAssignment? = nil, isChosen: Bool = false) {
+                assignment: VaultAssignment? = nil, isChosen: Bool = false, card: String? = nil) {
         self.id = id
         self.value = value
         self.category = category
@@ -336,6 +339,7 @@ public struct VaultStandingInput: Sendable {
         self.pin = pin
         self.assignment = assignment
         self.isChosen = isChosen
+        self.card = card
     }
 
     /// What tells whose it is: what the user chose alone; otherwise the person matched, the birth
@@ -532,7 +536,12 @@ public enum VaultStandings {
                 let visaClass = facts.details.first { $0.label == "Visa class" }
                     .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
                 return "visa|\(person)|\(facts.issuer ?? "")|\(facts.form ?? "")|\(visaClass)"
-            default: return "\(facts.category.rawValue)|\(person)"
+            // An account is weighed against the same issuer's for the same person: a dental plan's
+            // member ID never sends a vision plan's to Archive.
+            default:
+                let issuer = facts.details.first { $0.label == "Issued by" }
+                    .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
+                return "\(item.card ?? facts.category.rawValue)|\(person)|\(issuer)"
             }
         }
 

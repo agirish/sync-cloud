@@ -359,23 +359,23 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let model = rig.model()
         await model.readDocuments(with: Self.documents)
         // A passport and an I-94 are current; the sample receipt, with no validity, is in Archive.
-        #expect(model.cards.map(\.category) == [.passport, .i94])
+        #expect(model.cards.map(\.card) == [.builtIn(.passport), .builtIn(.i94)])
         model.selection = model.cards[0].rows[0].id
         // Folding the card the chosen row is in moves the choice to a row on screen.
-        model.toggleFold(.passport)
+        model.toggleFold(.builtIn(.passport))
         #expect(model.selectedRow?.category == .i94)
         model.moveSelection(by: -1)
         #expect(model.selectedRow?.category == .i94, "the folded passport card's row is skipped")
 
         // ⌥-click on an open card folds every card; Collapse All then reads Expand All.
-        model.toggleFold(.i94, all: true)
+        model.toggleFold(.builtIn(.i94), all: true)
         #expect(model.allFolded)
         model.toggleFoldAll()
         #expect(model.folded.isEmpty)
 
         // Kept for the next open.
-        model.toggleFold(.uscisCase)
-        #expect(rig.model().folded == [.uscisCase])
+        model.toggleFold(.builtIn(.uscisCase))
+        #expect(rig.model().folded == ["uscisCase"], "stored by the kind's own name, as before custom kinds")
     }
 
     @Test func aChoiceToMarkOlderOutlivesTheNextRead() async throws {

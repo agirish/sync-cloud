@@ -290,9 +290,14 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         let model = rig.model()
         await model.opened()
         #expect(model.secondsLeft == 120)
-
-        rig.clock.advance(119); model.tick()
-        #expect(model.isOpen && model.secondsLeft == 1)
+        // Counted down to the panel only in its last ten seconds.
+        #expect(model.secondsBeforeLock == nil)
+        rig.clock.advance(109); model.tick()
+        #expect(model.secondsLeft == 11 && model.secondsBeforeLock == nil, "eleven seconds left: not yet")
+        rig.clock.advance(1); model.tick()
+        #expect(model.secondsBeforeLock == 10, "ten seconds left: counted down")
+        rig.clock.advance(9); model.tick()
+        #expect(model.isOpen && model.secondsLeft == 1 && model.secondsBeforeLock == 1)
         rig.clock.advance(1); model.tick()
         #expect(!model.isOpen)
         #expect(model.drawn(Self.mortgage) == "••••••7365")

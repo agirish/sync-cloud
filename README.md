@@ -179,6 +179,10 @@ for: a passport number, a member ID, a loan number.
   Security & ITIN, PAN Cards, Aadhaar, Voter IDs, Health & Medical, Utilities & Phone, Loans &
   Mortgage, or one list. Each detail beside an ID (an expiry, a validity's start and end) has its
   own Copy; dates copy as MM/DD/YYYY.
+- **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
+  an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
+  always shows what it was read as, and As Read puts it back; passports, visas and other checked
+  IDs keep their kind.
 - **Showing: where, whose, which kinds**: choose the United States or India (a passport shows in both;
   every other ID's country comes from its document), a person, and a group of kinds such as
   Travel & Immigration or Legal & IDs, which you can rename and rearrange. Once chosen, each shrinks

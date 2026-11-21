@@ -53,11 +53,11 @@ import Testing
         await model.readDocuments(with: Self.documents)
         model.geoFilter = .us
 
-        let elsewhere = try #require(model.elsewhere(.driversLicense))
+        let elsewhere = try #require(model.elsewhere(.builtIn(.driversLicense)))
         #expect(elsewhere.filter == .india && elsewhere.count == 1)
-        #expect(model.elsewhere(.passport) == nil, "a passport is in every country already")
+        #expect(model.elsewhere(.builtIn(.passport)) == nil, "a passport is in every country already")
         model.geoFilter = .all
-        #expect(model.elsewhere(.driversLicense) == nil)
+        #expect(model.elsewhere(.builtIn(.driversLicense)) == nil)
     }
 
     @Test func usedInWinsOverTheDocumentAndOutlivesARead() async throws {

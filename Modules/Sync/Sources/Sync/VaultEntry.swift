@@ -66,6 +66,9 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     private var household: Bool?
     /// Where it is used, as the user chose (Used In). Nil goes by the document, or Anywhere.
     public var geo: VaultGeo?
+    /// The card it goes on when moved from its own (Kind): another account kind or one the
+    /// household made. Nil draws it on ``category``'s card, which stays what it was read or typed as.
+    public var card: VaultCardID?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -99,7 +102,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card
     }
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,

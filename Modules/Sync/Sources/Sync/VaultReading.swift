@@ -22,10 +22,13 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
     public var assignment: VaultAssignment?
     /// Where it is used, as the user chose. Later reads keep it.
     public var geo: VaultGeo?
+    /// The card it goes on, as the user chose (``VaultCardID``); nil goes by what it was read as.
+    /// Later reads keep it.
+    public var card: VaultCardID?
 
     public init(id: UUID = UUID(), title: String, value: String, note: String = "",
                 facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil,
-                geo: VaultGeo? = nil) {
+                geo: VaultGeo? = nil, card: VaultCardID? = nil) {
         self.id = id
         self.title = title
         self.value = value
@@ -34,6 +37,7 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
         self.pin = pin
         self.assignment = assignment
         self.geo = geo
+        self.card = card
     }
 
     /// The shape the earlier reader built, for tests and simple callers: a category worked out
@@ -1060,11 +1064,15 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     public var choices: [String: VaultChoice]
     /// What an older build read was let go, and no read since has finished: the panel asks for one.
     public var needsReadAgain: Bool
+    /// What choosing a kind for a read number taught (``VaultKinds/lessonFolder(of:)``): an
+    /// account's folder, and the card its numbers go on. Kept across a change of rules: it is the
+    /// user's, not the reader's.
+    public var lessons: [String: VaultCardID]
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
                 copies: [String: [String: VaultFind]] = [:], choices: [String: VaultChoice] = [:],
-                needsReadAgain: Bool = false) {
+                needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:]) {
         self.version = version
         self.generation = generation
         self.finds = finds
@@ -1073,10 +1081,11 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         self.copies = copies
         self.choices = choices
         self.needsReadAgain = needsReadAgain
+        self.lessons = lessons
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, generation, finds, read, mentions, copies, choices, needsReadAgain
+        case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
     }
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
@@ -1091,6 +1100,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         copies = try c.decodeIfPresent([String: [String: VaultFind]].self, forKey: .copies) ?? [:]
         choices = try c.decodeIfPresent([String: VaultChoice].self, forKey: .choices) ?? [:]
         needsReadAgain = try c.decodeIfPresent(Bool.self, forKey: .needsReadAgain) ?? false
+        lessons = try c.decodeIfPresent([String: VaultCardID].self, forKey: .lessons) ?? [:]
     }
 }
 
@@ -1100,12 +1110,19 @@ public struct VaultChoice: Codable, Equatable, Sendable {
     public var pin: VaultPin?
     public var assignment: VaultAssignment?
     public var geo: VaultGeo?
+    public var card: VaultCardID?
 
-    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil) {
+    public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil, card: VaultCardID? = nil) {
         self.id = id
         self.pin = pin
         self.assignment = assignment
         self.geo = geo
+        self.card = card
+    }
+
+    /// What the user chose about `find`.
+    public init(_ find: VaultFind) {
+        self.init(id: find.id, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card)
     }
 }
 

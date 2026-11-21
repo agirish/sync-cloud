@@ -165,6 +165,9 @@ struct VaultCard: View {
     /// Where, Whose or Kinds, opened to choose again.
     @State private var choosing: Choosing?
     @State private var customizingGroups = false
+    /// New Kind… was chosen for this ID: the name sheet is up.
+    @State private var namingKindFor: UUID?
+    @State private var newKindName = ""
     /// The entry whose Copy just ran, for the button's two seconds of "Copied".
     @State private var copied: UUID?
     /// What Remove… or ⌘⌫ is asking about, until the dialog is answered.
@@ -189,7 +192,13 @@ struct VaultCard: View {
         VStack(spacing: 0) {
             header
             Divider()
+            // Under macOS's Touch ID or password prompt, the IDs blur away: the prompt asks who
+            // is at the Mac, and what it guards stays out of sight until they answer.
             content
+                .blur(radius: model.isAsking ? 18 : 0)
+                .allowsHitTesting(!model.isAsking)
+                .accessibilityHidden(model.isAsking)
+                .designAnimation(.easeOut(duration: 0.18), value: model.isAsking)
             Divider()
             footer
         }
@@ -270,8 +279,23 @@ struct VaultCard: View {
             if now == nil, editing == nil, largeType == nil { focusSearch(again: true) }
         }
         .onChange(of: model.query) { _, _ in choosing = nil }
+        .sheet(isPresented: Binding(get: { namingKindFor != nil }, set: { if !$0 { namingKindFor = nil } })) {
+            VaultNewKindSheet(name: $newKindName, groups: model.groups,
+                              takenBy: { VaultKinds.appKind(named: $0)?.title }) { group in
+                if let id = namingKindFor, let card = model.addKind(named: newKindName, group: group) {
+                    model.setKind(id, to: card)
+                }
+                namingKindFor = nil
+            } onCancel: {
+                namingKindFor = nil
+            }
+            .presentedNativeControlAccent()
+        }
         .sheet(isPresented: $customizingGroups) {
-            VaultGroupsSheet(groups: model.groups, onDone: { model.setGroups($0) })
+            VaultGroupsSheet(groups: model.groups, kinds: model.kinds, onDone: { groups, kinds in
+                model.setGroups(groups)
+                model.setKinds(kinds)
+            })
                 .presentedNativeControlAccent()
         }
         .onChange(of: largeType) { _, now in if now == nil { focusSearch() } }
@@ -441,16 +465,15 @@ struct VaultCard: View {
             Pill(.mini, tint: SemanticColor.warning, systemImage: "lock.open", text: "Lock is off")
         } else if settings.ask == .everyNumber {
             Pill(.mini, tint: .secondary, systemImage: "lock", text: "Asks for every ID")
+        } else if let left = model.secondsBeforeLock {
+            // Counted down only in its last seconds, when a click would keep it open.
+            Pill(.mini, tint: SemanticColor.warning, systemImage: "lock.open",
+                 text: "Locks in 0:" + String(format: "%02d", left))
         } else if model.isOpen {
-            Pill(.mini, tint: SemanticColor.success, systemImage: "lock.open", text: unlockedText)
+            Pill(.mini, tint: SemanticColor.success, systemImage: "lock.open", text: "Unlocked")
         } else {
             Pill(.mini, tint: .secondary, systemImage: "lock", text: "Locked")
         }
-    }
-
-    private var unlockedText: String {
-        guard let left = model.secondsLeft else { return "Unlocked" }
-        return "Unlocked · \(left / 60):" + String(format: "%02d", left % 60)
     }
 
     @ViewBuilder
@@ -810,8 +833,8 @@ struct VaultCard: View {
                     }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 270), spacing: 12, alignment: .top)],
                               alignment: .leading, spacing: 12) {
-                        ForEach(model.cards, id: \.category) { card in
-                            categoryCard(card.category, card.rows)
+                        ForEach(model.cards, id: \.card.key) { card in
+                            categoryCard(card.card, card.rows)
                         }
                     }
                     // Kinds that only the other country has, which no card here can point to.
@@ -842,12 +865,13 @@ struct VaultCard: View {
 
     /// A card: its header folds and opens it (⌥-click: every card); folded, the header says what
     /// is inside in one line.
-    private func categoryCard(_ category: VaultCategory, _ rows: [VaultModel.Row]) -> some View {
-        let isFolded = model.folded.contains(category)
+    private func categoryCard(_ card: VaultCardID, _ rows: [VaultModel.Row]) -> some View {
+        let isFolded = model.isFolded(card)
+        let title = model.kinds.title(of: card)
         return VStack(alignment: .leading, spacing: 2) {
             Button {
                 withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) {
-                    model.toggleFold(category, all: NSEvent.modifierFlags.contains(.option))
+                    model.toggleFold(card, all: NSEvent.modifierFlags.contains(.option))
                 }
             } label: {
                 HStack(spacing: 7) {
@@ -856,12 +880,12 @@ struct VaultCard: View {
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isFolded ? 0 : 90))
                         .frame(width: 10)
-                    Image(systemName: category.symbol)
+                    Image(systemName: model.kinds.symbol(of: card))
                         .scaledFont(.caption.weight(.semibold))
                         .foregroundStyle(glassHue.accentColor)
                         .frame(width: 20, height: 20)
                         .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.14)))
-                    Text(category.title)
+                    Text(title)
                         .scaledFont(.subheadline.weight(.semibold))
                     Text(rows.count.formatted())
                         .scaledFont(.caption.weight(.semibold).monospacedDigit())
@@ -880,11 +904,11 @@ struct VaultCard: View {
             }
             .buttonStyle(.plain)
             .help(isFolded ? "Expand. ⌥-click to expand every card." : "Collapse. ⌥-click to collapse every card.")
-            .accessibilityLabel("\(category.title), \(rows.count)")
+            .accessibilityLabel("\(title), \(rows.count)")
             .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
             if !isFolded {
                 ForEach(rows) { row in rowView(row).id(row.id) }
-                if let elsewhere = model.elsewhere(category) {
+                if let elsewhere = model.elsewhere(card) {
                     Button {
                         model.geoFilter = elsewhere.filter
                     } label: {
@@ -929,8 +953,8 @@ struct VaultCard: View {
                             .padding(.top, 24)
                             .frame(maxWidth: .infinity)
                     }
-                    ForEach(model.cards, id: \.category) { card in
-                        Text(card.category.title)
+                    ForEach(model.cards, id: \.card.key) { card in
+                        Text(model.kinds.title(of: card.card))
                             .scaledFont(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
@@ -1064,6 +1088,7 @@ struct VaultCard: View {
         }
         Divider()
         belongsToMenu(row)
+        if VaultKinds.canChange(from: row.readAs) { kindMenu(row) }
         Divider()
         if row.standing.tab == .archive {
             Button("Make Current") { model.pin(row.id, .current) }
@@ -1125,6 +1150,76 @@ struct VaultCard: View {
         }
     }
 
+    /// Kind: the card an account goes on. The app's account kinds, the household's own, and New
+    /// Kind…; As Read puts it back, and a folder's lesson can be forgotten here. Never offered for
+    /// a passport, a visa or another ID its reader checked (``VaultKinds/changeable``).
+    private func kindMenu(_ row: VaultModel.Row) -> some View {
+        Menu {
+            ForEach(model.kinds.targets, id: \.key) { card in
+                Button {
+                    model.setKind(row.id, to: card)
+                } label: {
+                    if row.card == card {
+                        Label(model.kinds.title(of: card), systemImage: "checkmark")
+                    } else {
+                        Text(model.kinds.title(of: card))
+                    }
+                }
+            }
+            Divider()
+            Button("New Kind…") {
+                newKindName = ""
+                namingKindFor = row.id
+            }
+            if row.card != .builtIn(row.readAs) {
+                Divider()
+                Button("\(row.isTypedIn ? "As Typed" : "As Read"): \(row.readAs.title)") { model.setKind(row.id, to: nil) }
+            }
+            if let folder = row.learnedFrom {
+                Button("Forget What “\((folder as NSString).lastPathComponent)” Taught") { model.forgetLesson(folder) }
+            }
+        } label: {
+            Text(model.kinds.title(of: row.card))
+        }
+    }
+
+    /// The detail's Kind: the card it is on, and how it got there when not as read.
+    private func kindRow(_ row: VaultModel.Row) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Kind")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                if VaultKinds.canChange(from: row.readAs) {
+                    kindMenu(row)
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                } else {
+                    Text(row.readAs.title)
+                        .scaledFont(.callout)
+                }
+                if let note = Self.kindNote(row) {
+                    Text(note)
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .help(VaultKinds.canChange(from: row.readAs)
+              ? "The card this ID is on. Moving one read from an account’s folder moves that folder’s other IDs too, now and on later reads."
+              : row.isTypedIn ? "Its kind was chosen when it was typed in; Edit changes it."
+                : "Its kind was checked when it was read: it stays on its card.")
+    }
+
+    /// Why an ID is on the card it is, when not as read: never lost from sight.
+    static func kindNote(_ row: VaultModel.Row) -> String? {
+        if let folder = row.learnedFrom {
+            return "Learned from your choice for “\((folder as NSString).lastPathComponent)”"
+        }
+        guard row.card != .builtIn(row.readAs) else { return nil }
+        return "\(row.isTypedIn ? "Typed in" : "Read") as \(row.readAs.title)"
+    }
+
     /// Used In: where the number is used, and how that is known. A choice wins over the document,
     /// and later reads keep it.
     private func usedIn(_ row: VaultModel.Row) -> some View {
@@ -1171,6 +1266,28 @@ struct VaultCard: View {
     private func finishConfirming() {
         guard case .confirming(let id) = editing else { return }
         if model.confirm(id, as: draft) != nil { editing = nil }
+    }
+
+    /// The editor's Kind. Typed in, an app kind is what the number is. Read from a document, an
+    /// account moved to another account kind keeps what it was read as and goes on that card, as
+    /// the Kind menu does; a checked ID's kind is as before. A household kind is offered only for
+    /// an account (the picker leaves it out otherwise), and is a card it goes on.
+    private var draftCard: Binding<VaultCardID> {
+        Binding(get: { draft.card.flatMap { model.kinds.canHold($0) ? $0 : nil } ?? .builtIn(draft.category) },
+                set: { card in
+                    switch card {
+                    case .builtIn(let category):
+                        if draft.facts != nil, VaultKinds.canChange(from: draft.category), VaultKinds.canChange(from: category) {
+                            draft.card = category == draft.category ? nil : card
+                        } else {
+                            draft.category = category
+                            draft.card = nil
+                        }
+                    case .custom:
+                        guard VaultKinds.canChange(from: draft.category) else { return }
+                        draft.card = card
+                    }
+                })
     }
 
     /// The editor's Belongs To, as one value for its picker.
@@ -1291,6 +1408,7 @@ struct VaultCard: View {
                         .frame(maxWidth: 240, alignment: .leading)
                 }
                 .help("Whose this ID is. A choice here wins over the name on the document, and later reads keep it.")
+                kindRow(row)
                 usedIn(row)
                 if row.standing.inUse {
                     callout("Still in use: a visa that is still good is in this passport, so carry it with the new one.",
@@ -1582,9 +1700,15 @@ struct VaultCard: View {
                 }
                 field("Kind") {
                     // The cards: a number typed in goes on its own kind's card.
-                    Picker("Kind", selection: $draft.category) {
+                    Picker("Kind", selection: draftCard) {
                         ForEach(VaultCategory.typedIn, id: \.self) { category in
-                            Text(category.singular).tag(category)
+                            Text(category.singular).tag(VaultCardID.builtIn(category))
+                        }
+                        if VaultKinds.canChange(from: draft.category), !model.kinds.custom.isEmpty {
+                            Divider()
+                            ForEach(model.kinds.custom) { kind in
+                                Text(kind.name).tag(VaultCardID.custom(kind.id))
+                            }
                         }
                     }
                 }
@@ -2218,11 +2342,28 @@ struct VaultLargeType: View {
 
 // MARK: - Customize Groups
 
-/// The Kinds choice's groups: rename one, or move a kind to another. Starts from the app's.
+/// The Kinds choice's groups: rename one, or move a kind to another. Starts from the app's. The
+/// household's own kinds are here too: renamed, moved to a group, or removed, which puts their
+/// IDs back on the cards they were read as.
 struct VaultGroupsSheet: View {
     @State var groups: VaultGroups
-    let onDone: (VaultGroups) -> Void
+    @State var kinds: VaultKinds
+    let onDone: (VaultGroups, VaultKinds) -> Void
     @Environment(\.dismiss) private var dismiss
+    /// The kinds as the sheet opened, for a name emptied and left blank.
+    private let original: VaultKinds
+
+    init(groups: VaultGroups, kinds: VaultKinds, onDone: @escaping (VaultGroups, VaultKinds) -> Void) {
+        _groups = State(initialValue: groups)
+        _kinds = State(initialValue: kinds)
+        self.onDone = onDone
+        original = kinds
+    }
+
+    private func edit(_ id: VaultCustomKind.ID, _ change: (inout VaultCustomKind) -> Void) {
+        guard let index = kinds.custom.firstIndex(where: { $0.id == id }) else { return }
+        change(&kinds.custom[index])
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2248,6 +2389,37 @@ struct VaultGroupsSheet: View {
                         }
                     }
                 }
+                Section {
+                    if kinds.custom.isEmpty {
+                        Text("None yet. Choose New Kind… from an account’s Kind menu.")
+                            .foregroundStyle(.secondary)
+                    }
+                    // By id, never by position: a row removed while its name is being typed in
+                    // must not write into the row that takes its place.
+                    ForEach(kinds.custom) { kind in
+                        HStack(spacing: 8) {
+                            TextField("Name", text: Binding(get: { kinds.kind(kind.id)?.name ?? kind.name },
+                                                            set: { name in edit(kind.id) { $0.name = name } }))
+                                .labelsHidden()
+                                .accessibilityLabel("Name of the kind \(kind.name)")
+                            Picker("Group", selection: Binding(get: { kinds.kind(kind.id)?.group ?? kind.group },
+                                                               set: { group in edit(kind.id) { $0.group = group } })) {
+                                ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                            Button("Remove") { kinds.custom.removeAll { $0.id == kind.id } }
+                                .controlSize(.small)
+                                .help("Its IDs go back where they were before it.")
+                                .accessibilityLabel("Remove the kind \(kind.name)")
+                        }
+                    }
+                } header: {
+                    Text("Your Kinds")
+                } footer: {
+                    Text("Removing one puts its IDs back where they were before it.")
+                        .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
             HStack {
@@ -2260,13 +2432,70 @@ struct VaultGroupsSheet: View {
                     for id in groups.order where groups.names[id]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true {
                         groups.names[id] = VaultGroups.default.names[id]
                     }
-                    onDone(groups)
+                    // So does an emptied kind's: the kind is kept, never removed by a blank name.
+                    for index in kinds.custom.indices {
+                        let name = kinds.custom[index].name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        kinds.custom[index].name = name.isEmpty ? (original.kind(kinds.custom[index].id)?.name ?? name) : name
+                    }
+                    onDone(groups, kinds)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
-        .frame(width: 460, height: 560)
+        .frame(width: 460, height: 620)
+    }
+}
+
+/// New Kind…: a name, and the group the Kinds choice lists it under (Other's to start).
+struct VaultNewKindSheet: View {
+    @Binding var name: String
+    let groups: VaultGroups
+    /// The app kind a name already belongs to, if one does.
+    let takenBy: (String) -> String?
+    let onCreate: (VaultGroups.ID) -> Void
+    let onCancel: () -> Void
+    @State private var group: VaultGroups.ID = ""
+    @FocusState private var nameFocused: Bool
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("New Kind")
+                .scaledFont(.title3.weight(.semibold))
+            Text("A card of your own for accounts, such as Memberships. Other IDs read from the same account’s folder follow.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Form {
+                TextField("Name", text: $name, prompt: Text("Memberships"))
+                    .focused($nameFocused)
+                Picker("Group", selection: $group) {
+                    ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                }
+            }
+            .formStyle(.grouped)
+            if let taken = takenBy(trimmed) {
+                Text("\(taken) is already one of the Vault’s kinds.")
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Create") { onCreate(group) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(trimmed.isEmpty || takenBy(trimmed) != nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+        .onAppear {
+            group = groups.group(of: .other) ?? groups.order.first ?? ""
+            nameFocused = true
+        }
     }
 }
