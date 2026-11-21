@@ -59,6 +59,45 @@ import Testing
 
     static func row(_ model: VaultModel, _ value: String) -> VaultModel.Row? { model.rows.first { $0.value == value } }
 
+    /// A shelf that says what the model showed as it opened each document.
+    final class Watched: VaultDocumentReading, @unchecked Sendable {
+        let shelf: Shelf
+        let onOpen: @MainActor @Sendable () -> Void
+        init(_ shelf: Shelf, onOpen: @escaping @MainActor @Sendable () -> Void) {
+            self.shelf = shelf
+            self.onOpen = onOpen
+        }
+        func files() async -> [URL] { await shelf.files() }
+        func pages(in file: URL) async -> [[String]] {
+            await onOpen()
+            return await shelf.pages(in: file)
+        }
+        func stamp(of file: URL) -> String? { shelf.stamp(of: file) }
+        func modified(of file: URL) -> Date? { nil }
+        func exists(_ file: URL) -> Bool { shelf.exists(file) }
+    }
+
+    /// The panel's "Updating… Stop" line shows while a refresh is what is running. The progress
+    /// was rebuilt after each document without saying so, and from the second document on a
+    /// refresh looked like Discover More: the line and its Stop went, and the read carried on.
+    @Test func aRefreshIsStillARefreshAfterItsFirstDocument() async throws {
+        let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
+        shelf.write(Self.dental, Self.card(group: "0099999"))
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)
+        var seen: [VaultModel.ReadingProgress] = []
+        let watched = Watched(shelf) { if let reading = model.reading { seen.append(reading) } }
+        await model.readDocuments(with: watched, scope: .refresh())
+        #expect(seen.map(\.done) == [0, 1] && seen.map(\.total) == [2, 2], "two changed documents, one at a time")
+        #expect(seen.allSatisfy { $0.scope.isRefresh }, "a refresh, for as long as it runs")
+        #expect(model.reading == nil)
+        // Discover More says what it is all the way through too.
+        seen = []
+        shelf.write(Self.dental, Self.card(group: "0011111"))
+        shelf.write(Self.letter, ["Member ID: NEW000111222"])
+        await model.readDocuments(with: watched)
+        #expect(seen.count >= 2 && seen.allSatisfy { $0.scope == .discover })
+    }
+
     // MARK: What it opens
 
     @Test func refreshOpensOnlyChangedDocumentsThatGaveAnIDAndWalksNoFolder() async throws {

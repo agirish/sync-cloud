@@ -187,10 +187,12 @@ public final class VaultModel: ObservableObject {
     public struct ReadingProgress: Equatable, Sendable {
         public var done: Int
         public var total: Int
-        /// What is being read: the folders, or only the documents IDs came from.
+        /// What is being read: the folders, or only the documents IDs came from. Said every
+        /// time the progress is made, with no default: left out after each document, it turned
+        /// a running refresh into Discover More, and the panel's line with its Stop went.
         public var scope: VaultReadScope
 
-        public init(done: Int, total: Int, scope: VaultReadScope = .discover) {
+        public init(done: Int, total: Int, scope: VaultReadScope) {
             self.done = done
             self.total = total
             self.scope = scope
@@ -1998,13 +2000,13 @@ public final class VaultModel: ObservableObject {
             // read so far was sealed as it went.
             if Task.isCancelled || contents != .loaded { return stopped(at: index) }
             if !scope.isRefresh, let account = step.account, settled.contains(account) {
-                reading = ReadingProgress(done: index + 1, total: steps.count)
+                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
                 continue
             }
             let stamp = reader.stamp(of: file)
             if let stamp, readIndex[file.path] == stamp {
                 settle(step)
-                reading = ReadingProgress(done: index + 1, total: steps.count)
+                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
                 continue
             }
             let pages = await reader.pages(in: file)
@@ -2014,7 +2016,7 @@ public final class VaultModel: ObservableObject {
             // and the choices made about it, stay; it is not marked read, so the next read tries again.
             guard !pages.isEmpty else {
                 tally.record(pages, ([], []))
-                reading = ReadingProgress(done: index + 1, total: steps.count)
+                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
                 continue
             }
             // A changed file is read afresh: what it said before is let go first. A number it
@@ -2063,7 +2065,7 @@ public final class VaultModel: ObservableObject {
             if let stamp { readIndex[file.path] = stamp }
             settle(step)
             readingChanged = true
-            reading = ReadingProgress(done: index + 1, total: steps.count)
+            reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
             // Sealed every so often, so a read stopped halfway keeps what it had.
             if tally.opened % 25 == 0 { saveReading() }
             if tally.opened % 250 == 0 {
