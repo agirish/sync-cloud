@@ -6,7 +6,8 @@ import Foundation
 /// renders (``VaultDocumentReading``).
 public enum VaultPageSource {
 
-    /// A text layer of no more letters than this is a blank scan's stray marks, and says nothing.
+    /// A text layer of no more letters than this, giving and naming no number, is a blank scan's
+    /// stray marks.
     public static let leastText = 40
     /// A layer of no more letters than this may be only what was put on a scan after it was made:
     /// a signing service's envelope ID, a case number, typed fields. Under one, a scan is read
@@ -39,75 +40,110 @@ public enum VaultPageSource {
         }
     }
 
-    /// The page's lines, or nil when its picture could not be read and it has no text layer, or
-    /// one that says nothing.
-    /// `path` is the file's and `roots` the read folders, for asking the readers what a reading
-    /// gives.
+    /// How one page was read.
+    public struct Reading: Equatable, Sendable {
+        /// The page's lines.
+        public var lines: [String]
+        /// Its other reading, when both its picture and its text layer were read and each says
+        /// something the other does not. A page of its own for the readers, never joined to
+        /// ``lines``: a rule that looks at a whole page (is this a form, whose notice is this)
+        /// would take the two for one document.
+        public var also: [String]?
+
+        public init(lines: [String], also: [String]? = nil) {
+            self.lines = lines
+            self.also = also
+        }
+    }
+
+    /// The page as read, or nil when its picture could not be read and it has no text layer, or
+    /// one that says nothing. `path` is the file's and `roots` the read folders, for asking the
+    /// readers what a reading gives.
     ///
-    /// A page that is typed, with no scan on it, is its text layer and nothing else: most pages
-    /// are, and a render and a recognition cost about a second. A page that draws a scan is read
-    /// from its picture as well when its layer may not be the whole of it:
+    /// A page that is typed, with no scan on it, is its text layer: most pages are, and a render
+    /// and a recognition cost about a second. (Only a typed license back is rendered, for its
+    /// barcode, and a page whose whole text is forty letters or fewer.) A page that draws a scan
+    /// is read from its picture as well when its layer may not be the whole of it:
     ///
-    /// - The layer gives the readers no number, whatever its length: a signing service's stamp
+    /// - the layer gives the readers no number, whatever its length: a signing service's stamp
     ///   over a scanned passport, a scanner's own text that garbled the number, a bill whose
-    ///   font maps to nothing. Vision's reading is taken when it gives one. On the owner's
-    ///   papers that was 61 of 592 full pages, and 99 short ones.
-    /// - The layer is short (``stampAtMost``) and gives a number: a case number stamped on the
-    ///   scan of something else. Vision's reading is taken when it gives every number the layer
-    ///   does and more; both, when each gives numbers of kinds the other lacks. When the two give
-    ///   different numbers of one kind, one of them misread it, and the layer's is kept: text
-    ///   that was typed is exact.
+    ///   font maps to nothing. On the owner's papers that was 61 of 592 full pages, and 99
+    ///   short ones;
+    /// - the layer is short (``stampAtMost``) and gives a number: a case number stamped on the
+    ///   scan of something else.
+    ///
+    /// A reading says more than the other when it reads a number the other does not, names one
+    /// the other never says, or knows more about one both read (whose it is, its dates, a
+    /// license's barcode). Where only the picture says more, the picture is the page; where
+    /// only the layer does, or neither, the layer. Where each says more than the other, both
+    /// are kept (``Reading/also``), as two pages and never joined into one: neither reading is
+    /// dropped while it says something of its own. When they give different numbers of one
+    /// kind, there is no telling a stamp, which is exact, from a scanner's own reading, which
+    /// is not; both numbers are kept, and each waits to be confirmed like any other.
     ///
     /// A full page of text that gives a number is trusted as it is: there Vision more often
     /// lost the layer's number than added one (56 pages against 11).
-    public static func lines(textLayer: String, from path: String, under roots: [String] = [],
-                             picture: Picture) -> [String]? {
+    public static func reading(textLayer: String, from path: String, under roots: [String] = [],
+                               picture: Picture) -> Reading? {
         let letters = textLayer.filter { !$0.isWhitespace }.count
-        guard letters > leastText else { return seen(picture, from: path, under: roots) }
         var layer = textLayer.components(separatedBy: .newlines)
-        /// The numbers a reading gives, by what kind each is.
-        func numbers(_ finds: [VaultFind]) -> [String: VaultCategory] {
-            Dictionary(finds.map { (VaultReading.normalized($0.value), $0.category) }, uniquingKeysWith: { first, _ in first })
+        /// What a reading gives: its finds, their numbers, and every number it gives or names.
+        func read(_ lines: [String]) -> (finds: [VaultFind], numbers: Set<String>, any: Set<String>) {
+            let read = VaultReading.read(pages: [lines], from: path, under: roots)
+            let numbers = Set(read.finds.map { VaultReading.normalized($0.value) })
+            return (read.finds, numbers, numbers.union(read.mentions.map { VaultReading.normalized($0.value) }))
         }
-        let typed = VaultReading.read(pages: [layer], from: path, under: roots)
-        let fromLayer = numbers(typed.finds)
+        let typed = read(layer)
+        // A few letters that say nothing are a blank scan's stray marks, and the page is its
+        // picture. A few that give a number ("Receipt Number LIN…", 26 letters) are a stamp.
+        guard letters > leastText || !typed.any.isEmpty else {
+            return seen(picture, from: path, under: roots).map { Reading(lines: $0) }
+        }
+        // Whether the sharper read was made: it looks for a license's barcode too.
         var readSharper = false
-        if fromLayer.isEmpty || letters <= stampAtMost, picture.isScan() {
+        // So short a layer is on a scan, whatever the file's pictures say.
+        if typed.numbers.isEmpty || letters <= stampAtMost, letters <= leastText || picture.isScan() {
             guard let seen = look(at: picture, from: path, under: roots) else {
-                // Vision refuses requests for minutes at a time. A layer that gives or names a
-                // number is kept. One that says nothing is no reading of the page: it is
-                // unreadable, as a page with no layer is, and tried again rather than marked read.
-                guard typed.finds.isEmpty, typed.mentions.isEmpty else { return layer }
+                // Vision can refuse requests for minutes at a time. A layer that gives or names
+                // a number is kept. One that says nothing is no reading of the page: the page
+                // is left out, as one with no layer is, and a file with no page read at all is
+                // tried again on the next read rather than marked read.
+                guard typed.any.isEmpty else { return Reading(lines: layer) }
                 Logger.shared.debug("Vault: a scan under a text layer could not be read from its picture")
                 return nil
             }
             readSharper = seen.sharper
-            let fromPicture = numbers(VaultReading.read(pages: [seen.lines], from: path, under: roots).finds)
-            let added = fromPicture.filter { fromLayer[$0.key] == nil }
-            let missed = fromLayer.filter { fromPicture[$0.key] == nil }
-            // Counts and kinds of reading only, here and below: never what was read.
-            if added.isEmpty {
-                Logger.shared.debug("Vault: a scan under a text layer gave no more from its picture")
-            } else if missed.isEmpty {
-                Logger.shared.debug("Vault: a scan under a text layer was read from its picture")
-                return seen.lines
-            } else if Set(added.values).isDisjoint(with: missed.values) {
-                Logger.shared.debug("Vault: a scan under a text layer was read from its picture and its layer")
-                // Kept apart by an empty line, so no rule pairs a line of one with a line of the other.
-                return seen.lines + [""] + layer
-            } else {
-                Logger.shared.debug("Vault: a scan's picture and its text layer disagreed; the layer was kept")
+            let pictured = read(seen.lines)
+            /// Whether `one` says something `other` does not: a number it reads that the other
+            /// does not read, one it names that the other never says, or more about a number
+            /// both read (whose it is, its dates, a license's barcode).
+            func saysMore(_ one: (finds: [VaultFind], numbers: Set<String>, any: Set<String>),
+                          than other: (finds: [VaultFind], numbers: Set<String>, any: Set<String>)) -> (new: Bool, more: Bool) {
+                let new = !one.numbers.isSubset(of: other.numbers) || !one.any.isSubset(of: other.any)
+                let shared = one.finds.filter { other.numbers.contains(VaultReading.normalized($0.value)) }
+                return (new, new || (!shared.isEmpty && !inkKeepsEverything(shared, other.finds)))
             }
+            let picture = saysMore(pictured, than: typed), text = saysMore(typed, than: pictured)
+            // Counts and kinds of reading only, here and below: never what was read.
+            if picture.more {
+                Logger.shared.debug("Vault: a scan under a text layer was read from its picture"
+                                    + (text.more ? "; the two readings are kept as two pages" : ""))
+                guard text.more else { return Reading(lines: seen.lines) }
+                // The one with a number of its own is the page; with neither, what was typed.
+                return picture.new ? Reading(lines: seen.lines, also: layer) : Reading(lines: layer, also: seen.lines)
+            }
+            Logger.shared.debug("Vault: a scan under a text layer gave no more from its picture")
         }
         // A scanner's text layer carries the words, never a barcode: a license back is rendered
-        // once for its barcode alone, unless the sharper read above already looked for it.
+        // once for its barcode alone. Not when the sharper read above already looked: had it
+        // decoded one, that reading would say more than the layer and be the page.
         if !readSharper, VaultReading.wantsSharperRead(layer) {
             let decoded = picture.barcodes()
             layer += decoded
             Logger.shared.debug("Vault: a license back was rendered for its barcode; "
                                 + (decoded.isEmpty ? "none decoded" : "decoded"))
         }
-        return layer
+        return Reading(lines: layer)
     }
 
     /// The picture as Vision reads it: what a page with no text layer, or a photo or scan

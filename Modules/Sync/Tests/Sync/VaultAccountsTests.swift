@@ -228,6 +228,20 @@ import Testing
             #expect(Self.read(["Mortgage statement", "Loan Number: " + printed], at: "Home/Mortgage/Statements/2025/Apr.pdf")
                 .first?.value == number, "\(printed.count)")
         }
+        // The same, as papers more often print them: the count tied to its word by a dash, a
+        // date with its month spelled or its slashes spaced, a toll-free number, a rate.
+        let tied = ["0123456789 30-Year Fixed", "0123456789 15-yr ARM", "0123456789 2-year agreement",
+                    "0123456789 05-Jan-2025", "0123456789 05/JAN/2025", "0123456789 01 / 02 / 2025",
+                    "0123456789 1-800-555-0142", "0123456789 1 (800) 555-0142", "0123456789 (510) 555-0142",
+                    "0123456789 800 555-0142", "0123456789 5% fixed"]
+        for printed in tied {
+            #expect(Self.read(["Mortgage statement", "Loan Number: " + printed], at: "Home/Mortgage/Statements/2025/Apr.pdf")
+                .first?.value == "0123456789", "\(printed.dropFirst(11))")
+        }
+        #expect(Self.read(["Mortgage statement", "Loan Number  Loan Type", "0123456789 30-Year Fixed"],
+                          at: "Home/Mortgage/Statements/2025/Apr.pdf").first?.value == "0123456789")
+        #expect(Self.read(["Twin Creeks Elementary", "Student ID: 123456 5-A"],
+                          at: "School/US/Liv/Twin Creeks/Report Card 2025.pdf").first?.value == "123456")
         // A number printed in groups, by spaces or dashes, is still read to its last group.
         for whole in ["1234 5678 9012", "XZB-45-1234", "CA-123-4567-89", "8155 60 012 3456789"] {
             #expect(Self.read(["Account Number: " + whole + " Due 02/01/2025"], at: "Home/Utilities/Cable/2025/bill.pdf")
@@ -242,8 +256,17 @@ import Testing
             #expect(Self.read(["Account Number: " + whole], at: "Home/Utilities/Cable/2025/bill.pdf").first?.value == whole,
                     "\(whole.count)")
         }
+        // A group in the middle may hold a letter, as an insurer's policy number does: cut at it,
+        // the first two groups passed for the whole number. An ordinal is still the next word.
+        #expect(Self.read(["Auto policy declarations", "Policy Number: 01234 56 78U 7101 2"],
+                          at: "Vehicles/Insurance/2025/Declarations.pdf").first?.value == "01234 56 78U 7101 2")
+        #expect(Self.read(["Twin Creeks Elementary", "Student ID: 123456 5th 2025"],
+                          at: "School/US/Liv/Twin Creeks/Report Card 2025.pdf").first?.value == "123456")
+        // Four digits and two pairs are a date only when they could be one.
+        #expect(Self.read(["Auto policy declarations", "Policy Number: 12 3456-78-90"],
+                          at: "Vehicles/Insurance/2025/Declarations.pdf").first?.value == "12 3456-78-90")
         // A VIN is checked by its own check digit, so a space anywhere in it costs nothing.
-        for printed in ["1HGCM82633 A004352", "1HGCM 82633A 004352", "1HG CM82633A004352"] {
+        for printed in ["1HGCM82633 A004352", "1HGCM 82633A 004352", "1HG CM82633A004352", "1HGCM-82633A-004352"] {
             #expect(Self.read(["VIN: " + printed], at: "Vehicles/Honda/Accord/Registration/2025.pdf").first?.value
                     == "1HGCM82633A004352", "\(printed.count)")
         }

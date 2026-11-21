@@ -1,9 +1,11 @@
 import AppKit
 import CoreText
 import Foundation
+import ImageIO
 import PDFKit
 import Sync
 import Testing
+import Vision
 @testable import SyncCloud
 
 /// Read Documents' reader on real files (``VaultFolderReader``): which PDF pages it reads from
@@ -135,6 +137,17 @@ import Testing
         }
         #expect(try search("three-tiles.pdf", tiles(3)).found)
         #expect(try !search("two-tiles.pdf", tiles(2)).found)
+        // The size that counts: a card scanned at 150 dpi is a scan, a picture a little smaller
+        // is a logo or a photo.
+        func one(_ width: Int, _ height: Int) -> [String] {
+            ["<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Im1 5 0 R >> >> >>",
+             Self.emptyPage, Self.image(width, height)]
+        }
+        #expect(try search("card.pdf", one(500, 320)).found)
+        #expect(try search("exactly.pdf", one(500, 300)).found && 500 * 300 == VaultFolderReader.scanPixels)
+        #expect(try !search("photo.pdf", one(499, 300)).found)
+        // A file claiming a picture larger than any could be is a scan, not an overflow.
+        #expect(try search("absurd.pdf", one(4_000_000_000, 4_000_000_000)).found)
         // One small picture under two names is one picture.
         #expect(try !search("twice.pdf", [
             "<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /A 5 0 R /B 5 0 R >> >> >>",
@@ -144,7 +157,7 @@ import Testing
     /// Sixty forms that all name the page's own resources as theirs: walked again from each one,
     /// that is millions of visits (1.5 s measured, and minutes at two hundred). Each dictionary
     /// is opened once.
-    @Test func formsThatShareThePagesResourcesAreOpenedOnce() throws {
+    @Test(.timeLimit(.minutes(1))) func formsThatShareThePagesResourcesAreOpenedOnce() throws {
         let dir = FixtureDir()
         let forms = 60
         let names = (0..<forms).map { "/F\($0) \(7 + $0) 0 R" }.joined(separator: " ")
@@ -154,7 +167,7 @@ import Testing
         ] + (0..<forms).map { _ in Self.form(resources: "5 0 R") }, to: dir.path("shared.pdf"))
         let search = VaultFolderReader.scanSearch(try Self.page(at: dir.path("shared.pdf")))
         #expect(!search.found, "a letterhead's logo, however many forms draw it")
-        #expect(search.opened == 1)
+        #expect(search.opened == 1, "one dictionary, walked once however many forms name it")
     }
 
     // MARK: When Vision refuses
@@ -180,11 +193,96 @@ import Testing
         #expect(asked == [.any])
     }
 
-    /// The CPU's own reading, which the fallback above hands back: it must be a real one.
+    /// The same through the reader itself, on a scanned page with no text: what the app's Read
+    /// Documents runs, Vision alone stood in for. No Vision here, so this runs anywhere.
+    @Test func theReaderItselfReadsARefusedPageOnTheCPU() async throws {
+        struct Refused: Error {}
+        let dir = FixtureDir()
+        let path = dir.path("scan.pdf")
+        try Self.writePDF(picture: Self.scan(of: Self.passport), text: [], to: path)
+        let asked = Asked()
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        reader.vision = { _, processor in
+            asked.note(processor)
+            if processor == .any { throw Refused() }
+            return Self.passport
+        }
+        #expect(await reader.pages(in: URL(fileURLWithPath: path)) == [Self.passport])
+        #expect(asked.processors == [.any, .cpu])
+        // Refused on both: no page, so the file is not marked read with nothing.
+        reader.vision = { _, _ in throw Refused() }
+        #expect(await reader.pages(in: URL(fileURLWithPath: path)).isEmpty)
+        // An image file is read the same way.
+        let image = dir.path("scan.png")
+        let destination = try #require(CGImageDestinationCreateWithURL(URL(fileURLWithPath: image) as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try Self.scan(of: Self.passport, width: 400, height: 260), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let again = Asked()
+        reader.vision = { _, processor in
+            again.note(processor)
+            if processor == .any { throw Refused() }
+            return Self.passport
+        }
+        #expect(await reader.pages(in: URL(fileURLWithPath: image)) == [Self.passport])
+        #expect(again.processors == [.any, .cpu])
+    }
+
+    /// Which processors a reader asked, in order; the reader asks from its own task.
+    private final class Asked: @unchecked Sendable {
+        private let lock = NSLock()
+        private var asked: [VaultFolderReader.Processor] = []
+        func note(_ processor: VaultFolderReader.Processor) { lock.withLock { asked.append(processor) } }
+        var processors: [VaultFolderReader.Processor] { lock.withLock { asked } }
+    }
+
+    /// A stamped scan through the reader with a known reading for its picture: the picture is
+    /// the file's page and the typed text a page after it. Runs anywhere.
+    @Test func aScanUnderATypedNumberIsTwoPagesWhateverReadsThePicture() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("exhibit.pdf")
+        let typed = "Exhibit 4 to the petition, receipt LIN2412345678, page 3 of 12"
+        try Self.writePDF(picture: Self.scan(of: Self.passport), text: [typed], to: path)
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        reader.vision = { _, _ in Self.passport }
+        let pages = await reader.pages(in: URL(fileURLWithPath: path))
+        #expect(pages.first == Self.passport && pages.count == 2)
+        #expect(pages.last?.joined().contains("LIN2412345678") == true)
+        #expect(Set(VaultReading.read(pages: pages, from: path, under: [dir.url.path]).finds.map(\.value))
+                == ["L898902C3", "LIN2412345678"])
+    }
+
+    /// The CPU's own reading, which the fallback above hands back: it must be a real one, and
+    /// made on the CPU at every stage of both requests, or it is the refused read made again.
     /// Pinned: Vision's `.accurate` recognizer fails on GitHub's hosted VMs.
     @Test(.machinePinned(.textRecognition)) func theCPUReadsAPageByItself() throws {
         let lines = try VaultFolderReader.read(Self.scan(of: Self.passport), on: .cpu)
         #expect(VaultReading.finds(in: lines, from: "/Passport/scan.jpg").map(\.value) == ["L898902C3"])
+
+        func devices(_ request: VNRequest) throws -> [Bool] {
+            try request.supportedComputeStageDevices.keys.map { stage in
+                if case .cpu? = request.computeDevice(for: stage) { true } else { false }
+            }
+        }
+        let held = try VaultFolderReader.requests(on: .cpu)
+        #expect(try !devices(held.text).isEmpty && devices(held.text).allSatisfy { $0 })
+        #expect(try devices(held.barcodes).allSatisfy { $0 })
+        // Left to Vision, nothing is held anywhere.
+        let free = try VaultFolderReader.requests(on: .any)
+        #expect(try devices(free.text).allSatisfy { !$0 })
+    }
+
+    /// A scanned passport page under a typed case number, read by Vision itself: both numbers,
+    /// whether Vision read the typed line too (one page) or not (the layer as a second).
+    /// Pinned: Vision's `.accurate` recognizer fails on GitHub's hosted VMs.
+    @Test(.machinePinned(.textRecognition)) func aScanUnderATypedNumberGivesBothNumbers() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("exhibit.pdf")
+        let typed = "Exhibit 4 to the petition, receipt LIN2412345678, page 3 of 12"
+        try Self.writePDF(picture: Self.scan(of: Self.passport), text: [typed], to: path)
+        let pages = await VaultFolderReader(folders: [dir.url.path]).pages(in: URL(fileURLWithPath: path))
+        #expect((1...2).contains(pages.count))
+        let finds = VaultReading.read(pages: pages, from: path, under: [dir.url.path]).finds
+        #expect(Set(finds.map(\.value)) == ["L898902C3", "LIN2412345678"])
     }
 
     /// A scanned passport page a signing service stamped: the stamp is the page's whole text

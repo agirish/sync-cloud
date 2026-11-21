@@ -30,8 +30,19 @@ import Testing
             barcodes: { asked.barcodes += 1; return barcodes })
     }
 
+    static func reading(_ layer: String, _ picture: VaultPageSource.Picture) -> VaultPageSource.Reading? {
+        VaultPageSource.reading(textLayer: layer, from: path, picture: picture)
+    }
+
+    /// The page's own lines, for the cases where there is one reading.
     static func lines(_ layer: String, _ picture: VaultPageSource.Picture) -> [String]? {
-        VaultPageSource.lines(textLayer: layer, from: path, picture: picture)
+        reading(layer, picture)?.lines
+    }
+
+    /// The numbers a page gives as the app reads it: each reading a page of its own.
+    static func numbers(_ reading: VaultPageSource.Reading?) -> Set<String> {
+        guard let reading else { return [] }
+        return Set(VaultReading.read(pages: [reading.lines] + (reading.also.map { [$0] } ?? []), from: path).finds.map(\.value))
     }
 
     static func numbers(_ lines: [String]?) -> Set<String> {
@@ -55,10 +66,10 @@ import Testing
         #expect(Self.lines(Self.letter.joined(separator: "\n"), Self.picture(asked, reads: Self.passport)) == Self.passport)
         #expect(asked.reads == [false])
         // Told by the folder it is filed in, as the app tells it: an account's paper.
-        let bill = VaultPageSource.lines(
+        let bill = VaultPageSource.reading(
             textLayer: Self.letter.joined(separator: "\n"), from: "/Users/anna/Documents/Home/Utilities/Power/2024/Mar.pdf",
             under: ["/Users/anna/Documents"], picture: Self.picture(Asked(), reads: ["Account Number: 1234 5678 9012"]))
-        #expect(bill == ["Account Number: 1234 5678 9012"])
+        #expect(bill == VaultPageSource.Reading(lines: ["Account Number: 1234 5678 9012"]), "a layer that says nothing is not kept beside it")
     }
 
     @Test func aTypedPageIsNeverRendered() {
@@ -79,7 +90,7 @@ import Testing
 
     /// Vision refuses requests for minutes at a time (2026-11-20: seven registration scans in a
     /// row gave nothing on one read of the owner's folder, and their numbers on the next).
-    @Test func aScanWhosePictureCouldNotBeReadIsTriedAgain() {
+    @Test func aScanWhosePictureCouldNotBeReadIsLeftOutNotReadAsItsLayer() {
         // Its layer says nothing: unreadable, as a page with no layer is, never read as that layer.
         #expect(Self.lines(Self.stamp, Self.picture(Asked(), reads: nil)) == nil)
         #expect(Self.lines(Self.letter.joined(separator: "\n"), Self.picture(Asked(), reads: nil)) == nil)
@@ -104,6 +115,20 @@ import Testing
         // Only beside a digit: a name keeps its letter.
         #expect(VaultPageSource.zeroed("SØREN 4Ø4 ØØ7 Ø K2Ø") == "SØREN 404 007 Ø K20")
         #expect(VaultPageSource.zeroed("no such letter") == "no such letter")
+        // Each sign a slashed zero is read as; and only beside a digit of this script.
+        #expect(VaultPageSource.zeroed("1Ø 2ø 3∅ 4⌀") == "10 20 30 40")
+        #expect(VaultPageSource.zeroed("\u{0663}Ø") == "\u{0663}Ø")
+        // The sharper reading and the ink-alone one are put back the same way.
+        let card = VaultIDReadingTests.ssnCard
+        let slashed = card.map { $0 == "123-45-6789" ? "123-45-67Ø9" : $0 }
+        let runIn = card.map { $0 == "123-45-6789" ? "1234-56-789" : $0 }
+        #expect(Self.numbers(Self.reading("", Self.picture(Asked(), reads: runIn, sharper: slashed))) == ["123456709"])
+        // In its ink alone the same foil reads with a slashed zero: put back, it keeps the number
+        // the first reading had, and is taken; left as read, it would be another number.
+        let plain = ["Control Number", "20241234560001"] + foil
+        let ink = ["Control Number", "2024123456ØØØ1", "read in its ink alone"] + foil
+        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { ink })
+        #expect(VaultPageSource.seen(inked, from: Self.path) == ["Control Number", "20241234560001", "read in its ink alone"] + foil)
     }
 
     // MARK: A layer that gives a number
@@ -117,27 +142,110 @@ import Testing
 
     @Test func aStampWithANumberDoesNotHideTheScanUnderIt() {
         #expect(Self.numbers([Self.caseStamp]) == ["LIN2412345678"])
-        // Vision read the stamp too: its reading has everything, and is the page.
+        // The picture is the page, and the stamp's own text a second reading beside it: never
+        // one page made of both.
+        let missed = Self.reading(Self.caseStamp, Self.picture(Asked(), reads: Self.passport))
+        #expect(missed == VaultPageSource.Reading(lines: Self.passport, also: [Self.caseStamp]))
+        #expect(Self.numbers(missed) == ["L898902C3", "LIN2412345678"])
+        // Vision read the stamp too: its reading says all the layer does, and is the page alone.
         let both = Self.passport + [Self.caseStamp]
-        #expect(Self.lines(Self.caseStamp, Self.picture(Asked(), reads: both)) == both)
-        // Vision missed the stamp: the two readings together, an empty line between them.
-        let merged = Self.lines(Self.caseStamp, Self.picture(Asked(), reads: Self.passport))
-        #expect(merged == Self.passport + ["", Self.caseStamp])
-        #expect(Self.numbers(merged) == ["L898902C3", "LIN2412345678"])
-        // Vision read nothing new: the layer, untouched.
-        #expect(Self.lines(Self.caseStamp, Self.picture(Asked(), reads: [Self.caseStamp])) == [Self.caseStamp])
+        #expect(Self.reading(Self.caseStamp, Self.picture(Asked(), reads: both)) == VaultPageSource.Reading(lines: both))
+        // Vision read nothing new: the layer, alone.
+        #expect(Self.reading(Self.caseStamp, Self.picture(Asked(), reads: [Self.caseStamp]))
+                == VaultPageSource.Reading(lines: [Self.caseStamp]))
     }
 
-    @Test func whereTheTwoReadingsDisagreeTheTypedOneIsKept() {
-        // One digit of the stamp's number misread by Vision: two receipt numbers, and no telling
-        // which from the numbers alone. What was typed is exact.
+    /// Joined into one page, a stamp that names a form made the card under it a form, and the
+    /// card's number was dropped (`isSocialSecurityCard` reads the whole page).
+    @Test func aStampNamingAFormDoesNotCostTheCardUnderIt() {
+        let stamp = "Exhibit 2 to Form I-9, receipt LIN2412345678, page 3 of 12"
+        #expect(Self.numbers(VaultIDReadingTests.ssnCard + ["", stamp]) == ["LIN2412345678"], "what one page of both loses")
+        let reading = Self.reading(stamp, Self.picture(Asked(), reads: VaultIDReadingTests.ssnCard))
+        #expect(reading == VaultPageSource.Reading(lines: VaultIDReadingTests.ssnCard, also: [stamp]))
+        #expect(Self.numbers(reading) == ["123456789", "LIN2412345678"])
+    }
+
+    /// Two numbers of one kind: a misread of the stamp's, another case's notice under it, or a
+    /// scanner's own text that is the misread one. Nothing tells them apart, so nothing is
+    /// dropped: each waits to be confirmed.
+    @Test func whereTheTwoReadingsDisagreeBothAreKept() {
+        // Vision misread a digit of the stamp's number: the passport under it is still read.
         let misread = Self.caseStamp.replacingOccurrences(of: "LIN2412345678", with: "LIN2412345673")
-        let kept = Self.lines(Self.caseStamp, Self.picture(Asked(), reads: Self.passport + [misread]))
-        #expect(kept == [Self.caseStamp])
-        #expect(Self.numbers(kept) == ["LIN2412345678"])
+        let reading = Self.reading(Self.caseStamp, Self.picture(Asked(), reads: Self.passport + [misread]))
+        #expect(reading == VaultPageSource.Reading(lines: Self.passport + [misread], also: [Self.caseStamp]))
+        #expect(Self.numbers(reading) == ["L898902C3", "LIN2412345673", "LIN2412345678"])
+        // Another case's notice under the stamp: two cases, and both are real.
+        let other = Self.reading(Self.caseStamp, Self.picture(Asked(), reads: ["Receipt Number EAC2190012345"]))
+        #expect(Self.numbers(other) == ["EAC2190012345", "LIN2412345678"])
+        // The layer is the scanner's own reading, and the wrong one: Vision's is not lost to it.
+        let bill = "/Users/anna/Documents/Home/Utilities/Power/2024/Mar.pdf"
+        let scanned = VaultPageSource.reading(
+            textLayer: "Statement for March 2024, page 1 of 2.\nAccount Number: 1234 5678 9072", from: bill,
+            under: ["/Users/anna/Documents"], picture: Self.picture(Asked(), reads: ["Account Number: 1234 5678 9012"]))
+        let pages = [scanned?.lines ?? []] + (scanned?.also.map { [$0] } ?? [])
+        #expect(Set(VaultReading.read(pages: pages, from: bill, under: ["/Users/anna/Documents"]).finds.map(\.value))
+                == ["1234 5678 9012", "1234 5678 9072"])
+    }
+
+    /// A number the picture only names (a letter quoting a passport number) counts as something
+    /// the layer does not say.
+    @Test func aNumberThePictureOnlyNamesIsNotLostUnderAStamp() throws {
+        let naming = ["Enclosed is a copy of the beneficiary's passport, passport number L898902C3, for the file."]
+        #expect(VaultReading.read(pages: [naming], from: Self.path).finds.isEmpty)
+        let reading = try #require(Self.reading(Self.stamp, Self.picture(Asked(), reads: naming)))
+        #expect(reading == VaultPageSource.Reading(lines: naming))
+        #expect(VaultReading.read(pages: [reading.lines], from: Self.path).mentions.map(\.value) == ["L898902C3"])
+        // And a number the layer only names is kept beside a picture that gives another.
+        let typed = naming[0]
+        #expect(Self.reading(typed, Self.picture(Asked(), reads: ["Receipt Number EAC2190012345"]))
+                == VaultPageSource.Reading(lines: ["Receipt Number EAC2190012345"], also: naming))
+    }
+
+    /// The layer gives the number and the picture the same one, with whose it is: nothing new to
+    /// add, but more known. The layer speaks first, and the picture fills what it is silent on.
+    @Test func aPictureThatKnowsMoreOfTheLayersNumberIsThePage() throws {
+        // The layer gives the number; the picture the same one, and whose it is.
+        let typed = "Receipt Number LIN2412345678 is on file with the service center."
+        let notice = ["I-797C Receipt Notice", "Receipt Number LIN2412345678", "Applicant ERIKSSON, ANNA", "Form I-539"]
+        #expect(Self.reading(typed, Self.picture(Asked(), reads: notice)) == VaultPageSource.Reading(lines: notice))
+        // Each knows something of it the other does not: both, the typed one first.
+        let dated = "Receipt Number LIN2412345678, I-797A approval notice. Valid from 10/01/2026 to 09/30/2029."
+        let reading = try #require(Self.reading(dated, Self.picture(Asked(), reads: notice)))
+        #expect(reading == VaultPageSource.Reading(lines: [dated], also: notice))
+        let find = try #require(VaultReading.read(pages: [reading.lines, reading.also ?? []], from: Self.path).finds.first)
+        #expect(find.holder == "Anna Eriksson" && find.validUntil != nil, "one number, with what each page knows of it")
+        // The same number printed another way is the same number, and a picture that knows no
+        // more of it is not kept: the layer, alone.
+        let bill = "/Users/anna/Documents/Home/Utilities/Power/2024/Mar.pdf"
+        let same = VaultPageSource.reading(textLayer: "Statement, page 1 of 2.\nAccount Number: 1234 5678 9012", from: bill,
+                                           under: ["/Users/anna/Documents"],
+                                           picture: Self.picture(Asked(), reads: ["Account Number: 1234-5678-9012"]))
+        #expect(same == VaultPageSource.Reading(lines: ["Statement, page 1 of 2.", "Account Number: 1234 5678 9012"]))
+    }
+
+    /// The layer only names the number (a cover sheet: "passport number L898902C3 enclosed");
+    /// the picture reads it, from the passport itself. Naming is less than reading: on the
+    /// owner's papers two passport scans gave nothing while the two were counted alike.
+    @Test func aNumberTheLayerOnlyNamesIsReadFromThePicture() {
+        let naming = "Enclosed is a copy of the beneficiary's passport, passport number L898902C3, for the file."
+        #expect(Self.numbers([naming]).isEmpty)
+        #expect(Self.reading(naming, Self.picture(Asked(), reads: Self.passport)) == VaultPageSource.Reading(lines: Self.passport))
     }
 
     // MARK: The lengths the rule turns on
+
+    @Test func aFewLettersThatGiveANumberAreAStampNotStrayMarks() {
+        let stamp = "Receipt Number LIN2412345678"
+        #expect(stamp.filter { $0 != " " }.count <= VaultPageSource.leastText)
+        // Over a scan: both, where the stamp was dropped as marks. So short a layer is on a
+        // scan whatever the file's pictures say, so the picture is read without asking.
+        let asked = Asked()
+        let reading = Self.reading(stamp, Self.picture(asked, isScan: false, reads: Self.passport))
+        #expect(reading == VaultPageSource.Reading(lines: Self.passport, also: [stamp]))
+        #expect(asked.scans == 0 && asked.reads == [false])
+        // The picture unreadable: the stamp is still what the page says.
+        #expect(Self.reading(stamp, Self.picture(Asked(), reads: nil)) == VaultPageSource.Reading(lines: [stamp]))
+    }
 
     @Test func theLayersLengthIsCountedInLettersNotSpaces() {
         // Forty letters or fewer are a blank scan's stray marks: the picture, whatever it is.
@@ -149,7 +257,7 @@ import Testing
         let most = number + String(repeating: "x", count: VaultPageSource.stampAtMost - number.filter { $0 != " " }.count)
         #expect(most.filter { $0 != " " }.count == VaultPageSource.stampAtMost)
         let under = Asked(), over = Asked()
-        #expect(Self.numbers(Self.lines(most, Self.picture(under, reads: Self.passport))) == ["L898902C3", "LIN2412345678"])
+        #expect(Self.numbers(Self.reading(most, Self.picture(under, reads: Self.passport))) == ["L898902C3", "LIN2412345678"])
         #expect(Self.lines(most + "x", Self.picture(over, reads: Self.passport)) == [most + "x"])
         #expect(under.reads == [false] && over.reads.isEmpty)
     }
@@ -193,6 +301,17 @@ import Testing
                                Self.picture(decoded, reads: Self.licenseBack, sharper: Self.licenseBack + VaultIDReadingTests.barcode))
         #expect(lines == Self.licenseBack + VaultIDReadingTests.barcode)
         #expect(decoded.reads == [false, true] && decoded.barcodes == 0)
+        // A license's front and back on one page, its layer giving the number: the sharper read
+        // decodes the barcode. It adds no number, but says more of the layer's (a birth date, an
+        // expiry), so it is the page; once it was thrown away, with the barcode in it.
+        let front = ["DRIVER LICENSE", "DL D1234567", "LN ERIKSSON", "FN ANNA"] + Self.licenseBack
+        #expect(Self.numbers(front) == ["D1234567"] && VaultReading.wantsSharperRead(front), "the fixture is a license with no barcode")
+        let both = Asked()
+        let given = Self.reading(front.joined(separator: "\n"),
+                                 Self.picture(both, reads: front, sharper: front + VaultIDReadingTests.barcode,
+                                              barcodes: VaultIDReadingTests.barcode))
+        #expect(given == VaultPageSource.Reading(lines: front + VaultIDReadingTests.barcode))
+        #expect(both.reads == [false, true] && both.barcodes == 0)
         // The sharper render failed: the barcode is still looked for, once.
         let failed = Asked()
         _ = Self.lines(Self.licenseBack.joined(separator: "\n"),

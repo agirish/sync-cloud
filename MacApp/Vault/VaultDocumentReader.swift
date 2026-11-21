@@ -14,6 +14,9 @@ import Vision
 /// only the files that changed since the last read.
 struct VaultFolderReader: VaultDocumentReading {
     let folders: [String]
+    /// How a picture is read: by Vision (``read(_:on:)``). Handed in so a test can be Vision
+    /// refusing, or a reading it knows, and still go through everything else the reader does.
+    var vision: @Sendable (CGImage, Processor) throws -> [String] = { try VaultFolderReader.read($0, on: $1) }
 
     /// What a number can be printed on.
     static let extensions: Set<String> = ["pdf", "jpg", "jpeg", "png", "heic", "tif", "tiff"]
@@ -65,15 +68,25 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     func pages(in file: URL) async -> [[String]] {
-        await Task.detached(priority: .userInitiated) { [folders] in Self.read(file, under: folders) }.value
+        await Task.detached(priority: .userInitiated) { [folders, vision] in
+            Self.read(file, under: folders, vision: vision)
+        }.value
     }
 
     /// Each page's lines kept apart, so a name line on one page is never paired with a number on
     /// another. A page that could not be rendered or recognised is left out, never read as a
     /// blank page; a file with no page read at all comes back empty, so it is not marked read and
     /// the next read tries it again, and what it gave before stays. One broken page does not keep
-    /// a file's other pages from being read, on this read or any later one.
-    private static func read(_ file: URL, under folders: [String]) -> [[String]] {
+    /// a file's other pages from being read, on this read or any later one; the file is then
+    /// marked read without it (`docs/vault-tech-debt.md`, VT54).
+    ///
+    /// A page read both ways (``VaultPageSource/Reading/also``) gives its second reading as one
+    /// more page, after the file's own, so each page a zone is found on keeps its number.
+    private static func read(_ file: URL, under folders: [String],
+                             vision: @escaping @Sendable (CGImage, Processor) throws -> [String]) -> [[String]] {
+        // The image's lines, any license barcode's text after them; nil when Vision failed on
+        // both processors, which is not the same as a page with no text.
+        func recognise(_ image: CGImage) -> [String]? { recognised(image, read: vision) }
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
@@ -95,6 +108,7 @@ struct VaultFolderReader: VaultDocumentReading {
             return []
         }
         var pages: [[String]] = []
+        var secondReadings: [[String]] = []
         var unreadable = 0
         defer {
             if unreadable > 0 {
@@ -111,14 +125,15 @@ struct VaultFolderReader: VaultDocumentReading {
                 read: { sharper in render(page, longSide: sharper ? 4000 : 2400).flatMap(recognise) },
                 barcodes: { render(page, longSide: 4000).map(decodeBarcodes) ?? [] },
                 inkOnly: { render(page).flatMap(inkOnly).flatMap(recognise) })
-            guard let lines = VaultPageSource.lines(textLayer: page.string ?? "", from: file.path, under: folders,
-                                                    picture: picture) else {
+            guard let reading = VaultPageSource.reading(textLayer: page.string ?? "", from: file.path, under: folders,
+                                                        picture: picture) else {
                 unreadable += 1
                 continue
             }
-            pages.append(lines)
+            pages.append(reading.lines)
+            if let also = reading.also { secondReadings.append(also) }
         }
-        return pages
+        return pages + secondReadings
     }
 
     /// Pictures of this many pixels in all could be a scan of the page, or of a card on it: a
@@ -128,7 +143,9 @@ struct VaultFolderReader: VaultDocumentReading {
 
     /// Whether the page draws pictures that could be a scan of it: its image objects, and those
     /// inside the forms it draws, come to ``scanPixels`` or more. Where a picture sits on the
-    /// page, or whether it is drawn at all, is not looked at; a wrong yes costs one recognition.
+    /// page, or whether it is drawn at all, is not looked at. A wrong yes, on a typed page whose
+    /// text gives no number, costs a recognition (three at most: sharper, and in its ink alone),
+    /// and its picture is the page only if it gives a number the text does not.
     static func drawsScan(_ page: PDFPage) -> Bool { scanSearch(page).found }
 
     /// ``drawsScan(_:)``, and how many resource dictionaries it opened to find out: each one
@@ -142,7 +159,7 @@ struct VaultFolderReader: VaultDocumentReading {
             if CGPDFDictionaryGetDictionary(node, "Resources", &resources), let resources {
                 let search = ScanSearch()
                 search.look(in: resources, depth: 0)
-                return (search.pixels >= scanPixels, search.opened.count)
+                return (search.pixels >= scanPixels, search.walked)
             }
             var parent: CGPDFDictionaryRef?
             guard CGPDFDictionaryGetDictionary(node, "Parent", &parent), let parent else { return (false, 0) }
@@ -155,11 +172,15 @@ struct VaultFolderReader: VaultDocumentReading {
     /// counted once. It stops as soon as there are enough.
     private final class ScanSearch {
         var pixels = 0
-        var opened = Set<CGPDFDictionaryRef>()
+        /// How many dictionaries were walked, each time one was: more than there are means one
+        /// was walked twice.
+        var walked = 0
+        private var opened = Set<CGPDFDictionaryRef>()
         private var counted = Set<CGPDFStreamRef>()
 
         func look(in resources: CGPDFDictionaryRef, depth: Int) {
             guard depth < 8, pixels < scanPixels, opened.insert(resources).inserted else { return }
+            walked += 1
             var objects: CGPDFDictionaryRef?
             guard CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else { return }
             CGPDFDictionaryApplyBlock(objects, { _, object, _ in
@@ -201,12 +222,6 @@ struct VaultFolderReader: VaultDocumentReading {
     /// the CPU alone.
     enum Processor: Sendable { case any, cpu }
 
-    /// The image's lines, any license barcode's text after them; nil when Vision failed, which
-    /// is not the same as a page with no text.
-    private static func recognise(_ image: CGImage) -> [String]? {
-        recognised(image) { try read($0, on: $1) }
-    }
-
     /// `read` on Vision's choice of processor and, when that fails, again on the CPU. The Neural
     /// Engine can refuse every text request for minutes or hours while the CPU still reads a
     /// page in under a second (`PictureText` does the same for Save as PDF); without this a
@@ -227,6 +242,14 @@ struct VaultFolderReader: VaultDocumentReading {
     /// same pass and its text added after the page's lines, one element to a line, for
     /// ``VaultReading`` to read: it states the number, name and dates outright.
     static func read(_ image: CGImage, on processor: Processor) throws -> [String] {
+        let (text, barcodes) = try requests(on: processor)
+        try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
+        let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        return lines + payloadLines(barcodes.results ?? [])
+    }
+
+    /// The two requests a page is read with, each held to the CPU at every stage when asked.
+    static func requests(on processor: Processor) throws -> (text: VNRecognizeTextRequest, barcodes: VNDetectBarcodesRequest) {
         let text = VNRecognizeTextRequest()
         text.recognitionLevel = .accurate
         text.usesLanguageCorrection = false
@@ -240,9 +263,7 @@ struct VaultFolderReader: VaultDocumentReading {
                 }
             }
         }
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([text, barcodes])
-        let lines = (text.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-        return lines + payloadLines(barcodes.results ?? [])
+        return (text, barcodes)
     }
 
     /// A page's PDF417 barcodes and nothing else.
@@ -257,7 +278,6 @@ struct VaultFolderReader: VaultDocumentReading {
         return payloadLines(barcodes.results ?? [])
     }
 
-    /// A barcode's text, one element to a line.
     /// A share of strongly colored pixels this large is security paper, or a color photo: a
     /// Social Security card's red pattern measured 12% on the owner's three cards, color passport
     /// photos 14 to 41%, plain scans and letters under 2%.
@@ -301,6 +321,7 @@ struct VaultFolderReader: VaultDocumentReading {
         return Double(colored) / Double(w * h)
     }
 
+    /// A barcode's text, one element to a line.
     private static func payloadLines(_ results: [VNBarcodeObservation]) -> [String] {
         results.compactMap(\.payloadStringValue)
             .flatMap { $0.components(separatedBy: CharacterSet(charactersIn: "\n\r\u{1e}")) }
