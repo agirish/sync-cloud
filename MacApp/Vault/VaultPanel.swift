@@ -830,15 +830,7 @@ struct VaultCard: View {
     }
 
     /// "US" or "IN", small, beside a country's name or a row's.
-    private func countryCode(_ code: String) -> some View {
-        Text(code)
-            .scaledFont(.caption2.weight(.bold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
-            .background(RoundedRectangle(cornerRadius: 3).fill(.quaternary))
-            .accessibilityLabel(code == "US" ? "United States" : code == "IN" ? "India" : code)
-    }
+    private func countryCode(_ code: String) -> some View { VaultRowLabel.country(code) }
 
     private var searchField: some View {
         HStack(spacing: 6) {
@@ -1200,73 +1192,78 @@ struct VaultCard: View {
                 }
                 .padding(12)
             }
-            .onChange(of: model.selection) { _, id in if let id { scroller.scrollTo(id) } }
+            .onChange(of: model.selection) { before, id in
+                guard let id else { return }
+                // A row is found by its line, and a line only once its person is drawn: going to
+                // another person's ID, their section comes first, then the line on the next turn.
+                // Within one person it goes straight to the line, never back to the person's top.
+                let sections = model.peopleSections
+                guard let section = sections.first(where: { $0.rows.contains { $0.id == id } }),
+                      let line = section.groups.lazy.compactMap({ group in Self.lines(group.rows).first { $0.rows.contains { $0.id == id } } }).first
+                else { return scroller.scrollTo(id) }
+                if section.rows.contains(where: { $0.id == before }) {
+                    scroller.scrollTo(line.id)
+                } else {
+                    scroller.scrollTo(section.id)
+                    Task { @MainActor in scroller.scrollTo(line.id) }
+                }
+            }
         }
     }
 
     private func personSection(_ section: VaultPersonSection) -> some View {
         let showsBirth = model.canShowBirth(in: section)
         let key = "person-\(section.title)"
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text(section.id == .household ? "⌂" : String(section.title.prefix(1)).uppercased())
-                    .scaledFont(.callout.weight(.bold))
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(.quaternary))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(section.title)
-                        .scaledFont(.title3.weight(.semibold))
-                        .lineLimit(1)
-                    Text(Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab))
-                        .scaledFont(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                // One menu for both copies: a summary with endings, or every ID in full.
-                Menu {
-                    Button("Copy Summary") { copyPerson(section, numbers: false, key: key + "-summary") }
-                    Button("Copy with Numbers…") { copyPerson(section, numbers: true, key: key + "-numbers") }
-                } label: {
-                    Text(copiedDetail?.hasPrefix(key) == true ? "Copied" : "Copy")
-                }
-                .fixedSize()
-                .help("Copy Summary copies each ID’s name, ending and expiry, no ID in full. Copy with Numbers copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)")
-                if case .person(let id) = section.id {
-                    Button {
-                        startAdding(for: id)
-                    } label: {
-                        Label("Add ID", systemImage: "plus")
-                    }
-                    .help("Add an ID for \(section.title)")
-                }
-            }
-            .controlSize(.small)
-            .disabled(model.isAsking)
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
+        // Lazy down to each line of rows: a person's IDs are drawn as they scroll in, a line at a
+        // time, not all in the frame their heading arrives in. Built at once, a section of 14 IDs
+        // took 40 ms, and People jumped at every person (2026-11-22). The spacing is the stack's
+        // old one, given item by item.
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            // Its own view, skipped while these stay the same, as the rows are.
+            VaultPersonHeader(owner: section.id, title: section.title,
+                              subtitle: Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab),
+                              copied: copiedDetail?.hasPrefix(key) == true, isAsking: model.isAsking,
+                              copyHelp: "Copy Summary copies each ID’s name, ending and expiry, no ID in full. Copy with Numbers copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)",
+                              copy: { numbers in copyPerson(section, numbers: numbers, key: key + (numbers ? "-numbers" : "-summary")) },
+                              add: { id in startAdding(for: id) })
+                .equatable()
             if !section.names.isEmpty || !section.births.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
                     if !section.names.isEmpty { nameTile(section) }
                     if !section.births.isEmpty { birthTile(section, showsBirth: showsBirth) }
                 }
                 .padding(.horizontal, 8)
+                .padding(.top, 8)
             }
             ForEach(section.groups, id: \.name) { group in
-                VStack(alignment: .leading, spacing: 2) {
-                    groupHeading(group)
-                    // Two columns once each can hold a row's title and number side by side.
-                    // Two columns at most: a third would cut each title short.
+                groupHeading(group)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 8)
+                // Two columns once each can hold a row's title and number side by side, so a
+                // line is two rows; at a narrower width the two stack. Two columns at most: a
+                // third would cut each title short.
+                ForEach(VaultCard.lines(group.rows)) { line in
                     VaultTwoUp(minColumnWidth: 300, spacing: 14, rowSpacing: 2) {
-                        ForEach(group.rows) { row in rowView(row, underPerson: true).id(row.id) }
+                        ForEach(line.rows) { row in rowView(row, underPerson: true).id(row.id) }
                     }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
                 }
             }
-            .padding(.horizontal, 4)
-            Spacer(minLength: 0).frame(height: 2)
+            Spacer(minLength: 0).frame(height: 2).padding(.top, 8)
         }
         .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+    }
+
+    /// A group's rows two at a time, in order: People's lines.
+    struct Line: Identifiable {
+        var rows: [VaultModel.Row]
+        var id: UUID { rows[0].id }
+    }
+
+    static func lines(_ rows: [VaultModel.Row]) -> [Line] {
+        stride(from: 0, to: rows.count, by: 2).map { Line(rows: Array(rows[$0..<min($0 + 2, rows.count)])) }
     }
 
     /// A group's name over its rows, with a dot in its color.
@@ -1721,59 +1718,18 @@ struct VaultCard: View {
     private func rowView(_ row: VaultModel.Row, underPerson: Bool = false, onColor: Bool = false) -> some View {
         let isSelected = model.selection == row.id
         let title = underPerson ? row.kindTitle : row.listTitle
-        return Button {
-            model.selection = row.id
-            editing = nil
-        } label: {
-            HStack(spacing: 9) {
-                if underPerson {
-                    // Under a person's name the row says which kind, in the card's own color.
-                    let ink = model.tint(of: row.card)?.color ?? glassHue.accentColor
-                    Image(systemName: model.kinds.symbol(of: row.card))
-                        .scaledFont(.caption.weight(.semibold))
-                        .foregroundStyle(ink)
-                        .frame(width: 26, height: 26)
-                        .background(RoundedRectangle(cornerRadius: Radius.chip).fill(ink.opacity(0.16)))
-                        .accessibilityHidden(true)
-                } else {
-                    Text(initials(row))
-                        .scaledFont(.caption.weight(.bold))
-                        .frame(width: 26, height: 26)
-                        .background(Circle().fill(.quaternary))
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        Text(title)
-                            .scaledFont(.body.weight(.semibold))
-                            .lineLimit(1)
-                        if model.geoFilter == .all, model.spansCountries, let code = row.geo.code { countryCode(code) }
-                    }
-                    let subtitle = row.listSubtitle(now: model.now)
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .scaledFont(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(model.masked(row))
-                        .scaledFont(.callout.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    HStack(spacing: 3) { badges(row) }
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .modifier(VaultRowLift(isChosen: isSelected, onColor: onColor))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu { rowMenu(row) }
-        .accessibilityLabel(row.spoken(title: title))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Worked out here, drawn by a label that is skipped while these stay the same.
+        let lead: VaultRowLabel.Lead = underPerson
+            ? .kind(symbol: model.kinds.symbol(of: row.card), ink: model.tint(of: row.card)?.color ?? glassHue.accentColor)
+            : .initials(initials(row))
+        let label = VaultRowLabel(lead: lead, title: title,
+                                  countryCode: model.geoFilter == .all && model.spansCountries ? row.geo.code : nil,
+                                  subtitle: row.listSubtitle(now: model.now), masked: model.masked(row),
+                                  badges: badges(row), isChosen: isSelected, onColor: onColor)
+        return VaultRow(row: row, label: label, spoken: row.spoken(title: title), people: people, model: model,
+                        select: { model.selection = row.id; editing = nil },
+                        menu: { rowMenu($0) })
+            .equatable()
     }
 
     /// Chooses the ID a fact was read from, on whichever tab it is and past any filter or search.
@@ -1803,22 +1759,23 @@ struct VaultCard: View {
     }
 
 
-    @ViewBuilder
-    private func badges(_ row: VaultModel.Row) -> some View {
+    private func badges(_ row: VaultModel.Row) -> [VaultRowLabel.Badge] {
+        var badges: [VaultRowLabel.Badge] = []
         // What the last refresh did to it, while that is news.
-        if model.changes[row.id] != nil { Pill(.mini, tint: glassHue.accentColor, text: "Updated") }
-        if row.documentMissing { Pill(.mini, tint: .secondary, text: "File not found") }
-        if row.standing.inUse { Pill(.mini, tint: SemanticColor.info, text: "In use") }
+        if model.changes[row.id] != nil { badges.append(.init(text: "Updated", tint: glassHue.accentColor)) }
+        if row.documentMissing { badges.append(.init(text: "File not found", tint: .secondary)) }
+        if row.standing.inUse { badges.append(.init(text: "In use", tint: SemanticColor.info)) }
         if row.standing.expired {
-            Pill(.mini, tint: SemanticColor.error, text: "Expired")
+            badges.append(.init(text: "Expired", tint: SemanticColor.error))
         } else if row.standing.tab == .current, let soon = Self.expiresSoon(row.facts?.validUntil, now: model.now) {
-            Pill(.mini, tint: SemanticColor.warning, text: soon)
+            badges.append(.init(text: soon, tint: SemanticColor.warning))
         }
-        if row.standing.pending { Pill(.mini, tint: glassHue.accentColor, text: "Pending") }
+        if row.standing.pending { badges.append(.init(text: "Pending", tint: glassHue.accentColor)) }
         // Marks are for what needs noticing: a saved ID is the usual case and carries none.
         if !row.isSaved, row.standing.tab != .archive {
-            Pill(.mini, tint: glassHue.accentColor, text: "To confirm")
+            badges.append(.init(text: "To confirm", tint: glassHue.accentColor))
         }
+        return badges
     }
 
     /// How soon a document runs out, while that is within half a year: many countries want a
