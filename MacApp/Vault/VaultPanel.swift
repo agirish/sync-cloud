@@ -154,16 +154,8 @@ struct VaultCard: View {
     /// the editor, Large Type, a document's preview), one ID shown under "For every ID", or a
     /// date of birth in People, which is drawn in full once one of that person's IDs may be
     /// (VT73).
-    private var exposesAnID: Bool { Self.drawsAnIDInFull(model, layout: layout, editing: editing != nil) }
+    private var exposesAnID: Bool { model.drawsAnIDInFull(layout: layout, editing: editing != nil) }
 
-    /// ``exposesAnID``'s rule, apart from the view so a test can ask it.
-    static func drawsAnIDInFull(_ model: VaultModel, layout: VaultLayout, editing: Bool) -> Bool {
-        guard model.contents == .loaded else { return false }
-        if layout == .people,
-           model.peopleSections.contains(where: { !$0.births.isEmpty && model.canShowBirth(in: $0) }) { return true }
-        if model.isOpen { return model.selectedRow != nil || editing }
-        return model.selection.map { model.lock.canShow($0, at: model.now) } ?? false
-    }
 
     private enum Editing: Equatable {
         case new
@@ -259,8 +251,8 @@ struct VaultCard: View {
         }
         .overlay {
             if let row = model.rows.first(where: { $0.id == largeType }), model.lock.canShow(row.id, at: model.now) {
-                VaultLargeType(heading: "\(row.isHousehold ? "Household" : (row.facts?.holder ?? row.whose)) · \(row.title)",
-                               idLabel: Self.idLabel(row), value: row.value, category: row.category,
+                VaultLargeType(heading: row.largeTypeHeading,
+                               idLabel: row.idLabel, value: row.value, category: row.category,
                                lines: Self.largeTypeLines(row), lit: largeTypeLine, accent: glassHue.accentColor,
                                onLight: { largeTypeLine = $0 },
                                onStep: { stepLargeType(by: $0) },
@@ -992,13 +984,7 @@ struct VaultCard: View {
                     tabBanner
                     if model.cards.isEmpty {
                         if hiddenByChoices {
-                            EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
-                                           message: "IDs on this tab belong to another country, person or kind.",
-                                           primary: .init("Show Everything", systemImage: "arrow.uturn.backward") {
-                                               model.resetFilters()
-                                           }, layout: .compact)
-                                .padding(.top, 24)
-                                .frame(maxWidth: .infinity)
+                            hiddenByChoicesState
                         } else {
                             EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
                                 .padding(.top, 24)
@@ -1056,7 +1042,7 @@ struct VaultCard: View {
                 }
             } label: {
                 VaultCardHeader(title: title, symbol: model.kinds.symbol(of: card), count: rows.count,
-                                isFolded: isFolded, foldedSummary: Self.foldedSummary(rows),
+                                isFolded: isFolded, foldedSummary: VaultModel.Row.foldedSummary(rows),
                                 tint: model.tint(of: card), accent: glassHue.accentColor,
                                 washes: contrast != .increased)
             }
@@ -1130,16 +1116,6 @@ struct VaultCard: View {
         Binding(get: { coloring == anchor }, set: { open in if !open, coloring == anchor { coloring = nil } })
     }
 
-    /// A folded card's one line: "3 people · 1 expired · 2 to confirm".
-    static func foldedSummary(_ rows: [VaultModel.Row]) -> String {
-        let people = Set(rows.map { $0.personID ?? $0.whose }).count
-        let expired = rows.filter(\.standing.expired).count
-        let waiting = rows.filter { !$0.isSaved && $0.standing.tab != .archive }.count
-        var parts = [people == 1 ? "1 person" : "\(people) people"]
-        if expired > 0 { parts.append("\(expired) expired") }
-        if waiting > 0 { parts.append("\(waiting) to confirm") }
-        return parts.joined(separator: " · ")
-    }
 
     /// The same rows, one column, under each kind's name.
     private var listView: some View {
@@ -1190,13 +1166,7 @@ struct VaultCard: View {
                     let sections = model.peopleSections
                     if sections.isEmpty {
                         if hiddenByChoices {
-                            EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
-                                           message: "IDs on this tab belong to another country, person or kind.",
-                                           primary: .init("Show Everything", systemImage: "arrow.uturn.backward") {
-                                               model.resetFilters()
-                                           }, layout: .compact)
-                                .padding(.top, 24)
-                                .frame(maxWidth: .infinity)
+                            hiddenByChoicesState
                         } else {
                             EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
                                 .padding(.top, 24)
@@ -1633,6 +1603,17 @@ struct VaultCard: View {
         Task { if await model.copyPerson(section.id, numbers: numbers) { flashCopied(key) } }
     }
 
+    /// The empty state when the tab has IDs but the choices hide them all (VT75: one for each layout that has it).
+    private var hiddenByChoicesState: some View {
+        EmptyStateView(icon: "line.3.horizontal.decrease.circle", title: "Nothing here for these choices",
+                       message: "IDs on this tab belong to another country, person or kind.",
+                       primary: .init("Show Everything", systemImage: "arrow.uturn.backward") {
+                           model.resetFilters()
+                       }, layout: .compact)
+            .padding(.top, 24)
+            .frame(maxWidth: .infinity)
+    }
+
     /// "Copied" on a button for two seconds.
     private func flashCopied(_ key: String) {
         copiedDetail = key
@@ -1719,7 +1700,7 @@ struct VaultCard: View {
     /// One number: whose, what it is, its ending, and badges for what needs noticing.
     private func rowView(_ row: VaultModel.Row, underPerson: Bool = false, onColor: Bool = false) -> some View {
         let isSelected = model.selection == row.id
-        let title = underPerson ? Self.kindTitle(row) : rowTitle(row)
+        let title = underPerson ? row.kindTitle : row.listTitle
         return Button {
             model.selection = row.id
             editing = nil
@@ -1747,7 +1728,7 @@ struct VaultCard: View {
                             .lineLimit(1)
                         if model.geoFilter == .all, model.spansCountries, let code = row.geo.code { countryCode(code) }
                     }
-                    let subtitle = rowSubtitle(row)
+                    let subtitle = row.listSubtitle(now: model.now)
                     if !subtitle.isEmpty {
                         Text(subtitle)
                             .scaledFont(.subheadline)
@@ -1771,7 +1752,7 @@ struct VaultCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu { rowMenu(row) }
-        .accessibilityLabel(Self.rowSpoken(title: title, row: row))
+        .accessibilityLabel(row.spoken(title: title))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
@@ -1787,12 +1768,12 @@ struct VaultCard: View {
     static func sourceLabel(_ rows: [VaultModel.Row]) -> String {
         guard rows.count == 1, let row = rows.first else { return "From \(rows.count) IDs" }
         let file = (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
-        return "From \(kindTitle(row))" + (file.map { " · \($0)" } ?? "")
+        return "From \(row.kindTitle)" + (file.map { " · \($0)" } ?? "")
     }
 
     /// One ID in the list of several: what it is, and that it is on the other tab when it is.
     static func sourceLine(_ row: VaultModel.Row) -> String {
-        row.standing.tab == .archive ? "\(kindTitle(row)) (Archive)" : kindTitle(row)
+        row.standing.tab == .archive ? "\(row.kindTitle) (Archive)" : row.kindTitle
     }
 
     /// The link's tip: the document by name, and what choosing the ID is for.
@@ -1801,10 +1782,6 @@ struct VaultCard: View {
         return "\(file.map { "Read from “\($0)”. " } ?? "")Choose this ID to see its document, give it to someone else with Belongs to, or remove it."
     }
 
-    /// A row's title under its person's name: what the ID is, as its details call it.
-    static func kindTitle(_ row: VaultModel.Row) -> String {
-        row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
-    }
 
     @ViewBuilder
     private func badges(_ row: VaultModel.Row) -> some View {
@@ -1995,7 +1972,7 @@ struct VaultCard: View {
                         .help("The color of the \(model.kinds.title(of: row.card)) card, and of its group")
                     }
                 }
-                if let note = Self.kindNote(row) {
+                if let note = row.kindNote {
                     Text(note)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -2008,14 +1985,6 @@ struct VaultCard: View {
                 : "Its kind was checked when it was read: it stays on its card.")
     }
 
-    /// Why an ID is on the card it is, when not as read: never lost from sight.
-    static func kindNote(_ row: VaultModel.Row) -> String? {
-        if let folder = row.learnedFrom {
-            return "Learned from your choice for “\((folder as NSString).lastPathComponent)”"
-        }
-        guard row.card != .builtIn(row.readAs) else { return nil }
-        return "\(row.isTypedIn ? "Typed in" : "Read") as \(row.readAs.title)"
-    }
 
     /// Used In: where the number is used, and how that is known. A choice wins over the document,
     /// and later reads keep it.
@@ -2156,17 +2125,9 @@ struct VaultCard: View {
                 })
     }
 
-    /// The editor's Belongs To, as one value for its picker.
-    static func belongsTag(_ assignment: VaultAssignment?) -> String {
-        switch assignment {
-        case .person(let id)?: return "person:" + id
-        case .household?: return "household"
-        case nil: return "document"
-        }
-    }
 
     private var draftBelongsTo: Binding<String> {
-        Binding(get: { Self.belongsTag(draft.assignment) }, set: { tag in
+        Binding(get: { VaultAssignment.tag(draft.assignment) }, set: { tag in
             if tag == "household" {
                 draft.personID = nil
                 draft.isHousehold = true
@@ -2185,47 +2146,7 @@ struct VaultCard: View {
         return String(row.whose.prefix(1)).uppercased()
     }
 
-    /// Whose it is, and which one when a person has more than one of a kind.
-    private func rowTitle(_ row: VaultModel.Row) -> String {
-        if row.isTypedIn { return row.title }
-        // Whose, when a name was read; then what tells this one apart from others of its kind.
-        let whose = row.personID != nil || row.facts?.holder != nil ? row.whose : nil
-        let which: String?
-        switch row.category {
-        case .passport: which = row.facts?.issuer
-        case .usVisa:
-            // An OCI card or an e-Visa by what it is ("OCI card", "India e-Visa"); a US visa by its class.
-            which = row.facts?.form != nil ? row.title
-                : row.facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
-        case .uscisCase: which = row.facts?.form ?? (whose == nil ? "USCIS case" : nil)
-        // An account read from a paper by who issued it and what the number is: "EBMUD · Account number".
-        case .health, .utilities, .loans, .other: which = row.facts == nil ? nil : row.title
-        default: which = nil
-        }
-        let parts = [whose, which].compactMap { $0 }
-        return parts.isEmpty ? row.category.singular : parts.joined(separator: " · ")
-    }
 
-    /// What tells it apart at a glance: when it runs out or why it is in Archive, and its files.
-    private func rowSubtitle(_ row: VaultModel.Row) -> String {
-        var parts: [String] = []
-        if row.isTypedIn {
-            parts.append(row.whose)
-            if !row.note.isEmpty { parts.append(row.note) }
-            parts.append("Typed in")
-            return parts.joined(separator: " · ")
-        }
-        if let reason = row.standing.reason, row.standing.tab == .archive {
-            parts.append(reason)
-        } else if let until = row.facts?.validUntil {
-            let word = row.category == .i94 ? "Admitted until" : VaultReading.hasRunOut(until, now: model.now) ? "Expired" : "Valid to"
-            parts.append("\(word) \(VaultReading.monthYear(until))")
-        } else if let dated = row.facts?.dated {
-            parts.append(VaultReading.monthYear(dated))
-        }
-        // How many documents carry it is in its details, which list them.
-        return parts.joined(separator: " · ")
-    }
 
     // MARK: The chosen number
 
@@ -2255,9 +2176,9 @@ struct VaultCard: View {
                     .id(row.id)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: ""))
+                    Text(row.kindTitle)
                         .scaledFont(.title3.weight(.semibold))
-                    Text(detailLede(row))
+                    Text(row.detailLede)
                         .scaledFont(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2367,12 +2288,6 @@ struct VaultCard: View {
         return "\(change.label): \(was.drawn(shown: shown)) → \(change.now.drawn(shown: shown))"
     }
 
-    private func detailLede(_ row: VaultModel.Row) -> String {
-        var parts = [row.isHousehold ? "Household" : (row.facts?.holder ?? row.whose)]
-        // Why it is in Archive is the Tab row's caption, so it isn't said twice.
-        if !row.isSaved, row.standing.tab != .archive { parts.append("To confirm") }
-        return parts.joined(separator: " · ")
-    }
 
     private func callout(_ text: String, tint: Color) -> some View {
         Text(text)
@@ -2395,7 +2310,7 @@ struct VaultCard: View {
                 // plainly, never concealed nor cleared. Copy and Large Type are the ways out.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(shown ? "The ID" : "The ID, hidden")
-                .accessibilityValue(Self.spokenNumber(row.value, shown: shown, hidesEnding: row.category.hidesEnding))
+                .accessibilityValue(VaultMask.spoken(row.value, shown: shown, hidesEnding: row.category.hidesEnding))
             Spacer(minLength: 4)
             // Large Type beside the number, for reading it out on a call; behind Touch ID while
             // the number is hidden, as Show is.
@@ -2694,13 +2609,13 @@ struct VaultCard: View {
                 field("Belongs to") {
                     Picker("Belongs to", selection: draftBelongsTo) {
                         ForEach(people) { person in
-                            Text(person.displayName).tag(Self.belongsTag(.person(person.id)))
+                            Text(person.displayName).tag(VaultAssignment.tag(.person(person.id)))
                         }
                         Divider()
-                        Text("Household").tag(Self.belongsTag(.household))
+                        Text("Household").tag(VaultAssignment.tag(.household))
                         // A read number may also go by the name on its document.
                         if let holder = draftHolder {
-                            Text("As the Document Says (\(holder))").tag(Self.belongsTag(nil))
+                            Text("As the Document Says (\(holder))").tag(VaultAssignment.tag(nil))
                         }
                     }
                 }
@@ -2941,54 +2856,8 @@ struct VaultCard: View {
 
     // MARK: Acts
 
-    /// What the ID in Large Type is called, as its document calls it; the heading above already
-    /// says what the document is, so this never repeats it ("Passport" over "Passport").
-    static func idLabel(_ row: VaultModel.Row) -> String {
-        let form = row.facts?.form
-        switch row.category {
-        case .passport: return "Passport number"
-        case .usVisa:
-            switch form {
-            case "OCI"?: return "OCI number"
-            case "e-Visa"?: return "Application number"
-            case nil where row.facts == nil: return "Visa number"
-            default: return "Control Number"
-            }
-        case .i94: return "Admission number"
-        case .uscisCase: return "Receipt number"
-        case .driversLicense: return row.title.hasPrefix("State ID") ? "ID number" : "License number"
-        case .ssn: return form == "ITIN" ? "ITIN" : "Social Security number"
-        case .pan: return "PAN"
-        case .aadhaar: return "Aadhaar number"
-        case .voterID: return "EPIC number"
-        // A read account's number as its paper calls it: "Member ID", "Policy number", "Student ID".
-        case .health: return form ?? "Member ID"
-        case .utilities, .loans: return form ?? "Account number"
-        case .other: return form ?? "Number"
-        }
-    }
 
-    /// What VoiceOver says of the number: each character apart while shown, so it is spelled out
-    /// rather than read as one large number; its last four while hidden.
-    static func spokenNumber(_ value: String, shown: Bool, hidesEnding: Bool = false) -> String {
-        let plain = VaultReading.normalized(value)
-        guard shown else {
-            // A kind whose ending is itself a secret is not spoken either.
-            return plain.count > 4 && !hidesEnding ? "ending \(plain.suffix(4).map(String.init).joined(separator: " "))" : ""
-        }
-        return plain.map(String.init).joined(separator: " ")
-    }
 
-    /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.
-    static func rowSpoken(title: String, row: VaultModel.Row) -> String {
-        var parts = [title, row.category.singular, spokenNumber(row.value, shown: false, hidesEnding: row.category.hidesEnding)]
-        if row.documentMissing { parts.append("file not found") }
-        if row.standing.inUse { parts.append("in use") }
-        if row.standing.expired { parts.append("expired") }
-        if row.standing.pending { parts.append("pending") }
-        parts.append(row.isSaved ? "in Vault" : row.standing.tab == .archive ? "older" : "to confirm")
-        return parts.filter { !$0.isEmpty }.joined(separator: ", ")
-    }
 
     /// esc and the ✕ undo one thing at a time: an open choice, Large Type, the editor, then the
     /// panel. esc (`clearingSearch`) also clears a typed search before closing; the ✕ says
@@ -3383,7 +3252,7 @@ struct VaultLargeType: View {
                 Text(heading)
                     .scaledFont(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
-                line(nil, label: idLabel, spoken: VaultCard.spokenNumber(value, shown: true)) {
+                line(nil, label: idLabel, spoken: VaultMask.spoken(value, shown: true)) {
                     Self.grouped(VaultMask.printed(value, as: category), accent: accent)
                         .font(.system(size: 54, weight: .semibold, design: .monospaced))
                         .lineLimit(1)
@@ -3443,7 +3312,7 @@ struct VaultLargeType: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, detail in
                 line(index, label: detail.label,
-                     spoken: detail.isNumber ? VaultCard.spokenNumber(detail.value, shown: true) : detail.value) {
+                     spoken: detail.isNumber ? VaultMask.spoken(detail.value, shown: true) : detail.value) {
                     (detail.isNumber ? Self.grouped(VaultMask.printed(detail.value, as: nil), accent: accent)
                                      : Text(detail.value))
                         .font(.system(size: 28, weight: .semibold, design: .monospaced))

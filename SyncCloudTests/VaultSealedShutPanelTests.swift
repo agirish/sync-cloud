@@ -27,8 +27,8 @@ import Testing
     }
 
     @Test func aRowOfAKindWhoseEndingIsASecretIsSpokenWithoutIt() {
-        #expect(VaultCard.spokenNumber("123-45-6789", shown: false, hidesEnding: true) == "")
-        #expect(VaultCard.spokenNumber("123-45-6789", shown: false) == "ending 6 7 8 9")
-        #expect(VaultCard.spokenNumber("123-45-6789", shown: true, hidesEnding: true) == "1 2 3 4 5 6 7 8 9")
+        #expect(VaultMask.spoken("123-45-6789", shown: false, hidesEnding: true) == "")
+        #expect(VaultMask.spoken("123-45-6789", shown: false) == "ending 6 7 8 9")
+        #expect(VaultMask.spoken("123-45-6789", shown: true, hidesEnding: true) == "1 2 3 4 5 6 7 8 9")
     }
 }

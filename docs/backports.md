@@ -16209,7 +16209,8 @@ Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:
 one Vault test kit, the lock as one table, tests for the app's clipboard and reader limits, and
-log lines for each session and for what Read Documents passed over.
+log lines for each session and for what Read Documents passed over. Batch 8: what a row says in the
+panel moved from the view into Sync, unchanged, with tests.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

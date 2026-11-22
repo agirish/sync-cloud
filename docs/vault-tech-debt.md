@@ -83,7 +83,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT58 backup key derivation | the bound: `5e33b3c47`; off the main actor (batches 3–4): `VaultBackup.write` and `read` derive in a detached task (the weekly backup, made one at a time, Back Up Now, Restore ▸ Choose and the passphrase sheet, whose Cancel stops it), pinned by a test that records where sealing and opening run; the backup tests derive at `leastRounds`, and the bound tests check one past each edge | none |
 | VT52 Read Documents outside the PDFKit lane | batches 3–4: every PDFKit call in `VaultFolderReader` takes a turn in `PDFKitSerialAccess.run`, the document is let go of in one, its bytes are read before it (an evicted iCloud file downloads outside the lane), and Vision runs outside; files are read on a queue of their own; pinned by a test that holds the lane (nothing is recognised meanwhile) and checks Vision never runs on the lane's queue | the count-only harness on the owner's folder was not run: the reader's output logic is unchanged |
 | VT54 a file with a page left out stamped read | batches 3–4: `VaultDocumentReading.reading(_:)` says whether every page meant to be read was; such a file gives what it gave, asks no Keep Mine question, and is opened once more as it stands, then marked read until it changes | a page that never reads is not read until its file changes |
-| VT73 (a, c) screen-capture gaps | batch 3: a date of birth People draws in full counts as an ID drawn in full (`VaultCard.drawsAnIDInFull`), and a window that arrives after the panel first decided is set as it arrives (`VaultActivityWatch.exposed`) | (b), the Quick Look panel of a Vault document, is the owner's call |
+| VT73 (a, c) screen-capture gaps | batch 3: a date of birth People draws in full counts as an ID drawn in full (`VaultModel.drawsAnIDInFull`), and a window that arrives after the panel first decided is set as it arrives (`VaultActivityWatch.exposed`) | (b), the Quick Look panel of a Vault document, is the owner's call |
 | VT102 `expiresSoon` repeats `hasRunOut` | batch 4: one `VaultReading.daysLeft`, which both use, on calendars kept (UTC, and the zone last asked); pinned against the old rule and the old count over 121 hours in three zones | none |
 | VT65 one action, one seal | batch 4: Confirm, Add and Edit run inside `sealingOnce`, so the reading file is sealed once at their end (Confirm with Everywhere sealed it up to four times), and a release inside one still seals first; pinned for all three by a disk that counts the seals | none |
 | VT94 leaked test plists | batch 5 (2026-11-21), the goal changed by decision: each Vault test's defaults suite is recorded with the shared ledger (`vaultScratchSuite`), whose sweep at a later test run's start, or the hourly sweep of stale scratch plists, deletes it (2,358 had piled up). Never wiped per test: that waits on cfprefsd under a global lock on the main actor (testing laws). The trade: cfprefsd keeps those domains cached until it restarts, as bare suites always did | no test can tell the ledger record was dropped (the hourly sweep cleans up anyway) |
@@ -108,6 +108,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT27 app-side tests | batch 7: copying a number (its markers, cleared when its time is up, never once something else was copied, cleared on quit; on a pasteboard of the test's own, never the user's), the card's size, which window's use counts (`VaultActivityWatch.belongs`), and the reader's 60 MB limit, three pages and locked PDFs | whatever VT8 leaves in the view |
 | VT22 session lines | batch 7: INFO lines for loaded (saved and waiting counts, how the lock is set), each proof (to unlock, for one ID, for a person's IDs) and its answer or its setting aside after a close or lock, each lock of an open Vault under "As soon as Vault opens" and why (Lock Now, sleep or the window closing, closed, idle, idle while closed, settings, restore), said once, and the numbers let go; never a title. Tests read the model's own lines (`sessionLine`), not the shared log capture | none |
 | VT25 reader skips | batch 7: `VaultReadNotes` counts locked, unopenable and unrecognised, and pages read from their picture, rendered sharper or taken in their ink alone; `VaultDocumentReading.noted(_:)` returns them, and both read summaries end with what is not zero | too-large files stay counted in the walk's own INFO line, not in the summaries; a refresh still opens a known document whatever its size, as before |
+| VT8 display rules in the view | batch 8: the row's title and line under it, the detail's lede, its kind's name and note, its number's label, what VoiceOver says, the folded summary, the Belongs To tag and Large Type's heading are public in `VaultRowText.swift`, on the row and beside it (`VaultMask.spoken`, `VaultAssignment.tag`), and the screen-capture rule is `VaultModel.drawsAnIDInFull(layout:editing:)`. Proof: each moved body reviewed against `origin/main` line by line; `VaultRowTextTests` pinned their literal output on the view's own functions first (Large Type's heading after) and passed unchanged on the moved ones, and `VaultRowTextBranchTests` covers the labels, titles and dates the app's test does not reach. Sync's two other " case" strips now use `kindTitle` | Escape's order and `save()`'s Add-to-People branch stay in the view, which owns that state; Large Type's lines map onto a view type |
 
 ---
 
@@ -331,21 +332,6 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 
 ## C. The panel and the app side
 
-**VT8 — Display rules live in the view, untested.** *Open.*
-- **The problem.** These are in `VaultPanel.swift`:
-  - `rowTitle` (`:1720`), `rowSubtitle` (`:1741`), `detailLede` (`:1900`), `idLabel` (`:2414`);
-  - `largeTypeLines` (`:2612`), `foldedSummary` (`:1096`), `kindTitle` (`:1432`), `kindNote`
-    (`:1612`);
-  - the Large Type heading (`:228`), `rowSpoken` (`:2451`), `belongsTag` (`:1691`), `escape`
-    (`:2464`), `save()`'s Add-to-People branch (`:2497`);
-  - and now `exposesAnID` (`:155`), the screen-capture decision.
-
-  Only `changeLine`, the footer strings and `spokenNumber` are tested.
-- **Done when:**
-  - each is a pure function in `Sync`, or a static on the row, with literal-value tests;
-  - the view only lays out;
-  - `exposesAnID` is `VaultModel.exposesAnID(editing:largeType:)`.
-
 **VT73 — Screen-capture gaps.** *Privacy; (a) and (c) closed in batch 3; (b) is the owner's call.*
 - (b) *Plausible.* Quick Look of a scan is `.quickLookPreview` (`ContentView.swift:1345`), its own
   panel. Only the main window's `sharingType` is set. Making the panel follow the setting while it
@@ -359,7 +345,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 - **Done when:** `VaultCard` takes its backup and folders as injected values (live from `ContentView`,
   nil in tests).
 
-**VT75 — Duplicated view code.** *Duplication; checked.*
+**VT75 — Duplicated view code.** *Part done in batch 8: the "Nothing here for these choices" state is one view (`hiddenByChoicesState`), the panel's " case" strip is `Row.kindTitle`, and the standing and Remove menu items went with the ⋯ menu (`e17c98c3a`); the 30 panel renders the app's tests make were compared byte for byte before and after, by hand (a throwaway run, not kept); none of them shows that empty state, which is identical by reading. Open below: "N More in …" (two stylings), the card chrome, the holder heading (now `largeTypeHeading` and `detailLede`, side by side in `VaultRowText.swift`), the registry built twice, the Copied timer in Large Type, the folder panel, `actionBar`'s lookups, and the two color pickers.*
 - **The duplicates.**
   - The standing and Remove menu items, written twice (`:1469–1482`, `:1977–1989`).
   - The "Nothing here for these choices" state, copied twice (`:963–975`, `:1154–1166`) and missing from

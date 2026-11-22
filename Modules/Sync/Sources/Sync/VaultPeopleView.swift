@@ -196,7 +196,7 @@ public enum VaultPersonText {
             for date in section.born { lines.append("Date of birth: \(VaultReading.formDate(date))") }
         }
         for row in section.rows {
-            let title = row.isTypedIn ? row.title : row.title.replacingOccurrences(of: " case", with: "")
+            let title = row.kindTitle
             // A summary is made to be passed on: a kind whose ending is itself a secret gives none.
             var line = "\(title): \(numbers ? row.value : row.category.hidesEnding ? "hidden" : ending(row.value))"
             if let until = row.facts?.validUntil {

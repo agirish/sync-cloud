@@ -1613,7 +1613,7 @@ public final class VaultModel: ObservableObject {
     private func record(_ kind: VaultActivityEvent.Kind, id: UUID, detail: String? = nil) {
         guard activity != nil else { return }
         let row = rows.first { $0.id == id }
-        let name = row.map { $0.isTypedIn ? $0.title : $0.title.replacingOccurrences(of: " case", with: "") }
+        let name = row.map(\.kindTitle)
             ?? entries.first { $0.id == id }?.title ?? finds.first { $0.id == id }?.title ?? "an ID"
         record(kind, detail.map { "\($0) of \(name)" } ?? name, whose: row?.whose)
     }

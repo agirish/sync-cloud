@@ -36,8 +36,8 @@ import Testing
         let section = try #require(model.peopleSections.first { !$0.births.isEmpty })
         try #require(model.canShowBirth(in: section), "the rig's Vault is open: its dates are drawn in full")
         model.selection = nil
-        #expect(VaultCard.drawsAnIDInFull(model, layout: .people, editing: false))
-        #expect(!VaultCard.drawsAnIDInFull(model, layout: .cards, editing: false), "no date is drawn on the cards")
+        #expect(model.drawsAnIDInFull(layout: .people, editing: false))
+        #expect(!model.drawsAnIDInFull(layout: .cards, editing: false), "no date is drawn on the cards")
     }
 
     /// A window that arrives after the panel first decided is set as it arrives (VT73).
