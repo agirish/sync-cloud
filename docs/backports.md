@@ -16211,7 +16211,10 @@ the same Kind offers it (`VaultModel.mergeSuggestion`), the sheet keeps either n
 other becomes a note through the same path as a correction, with Undo; the log gains Merged. Then Not for This ID, under a file that names a
 saved ID but isn't its Read from: the file comes off, remembered by its bytes (`VaultEntry.notOn`,
 `vault-format-4`), and is read again without the ID; Not an ID… on a card printing the subscriber's ID
-points to Belongs to; the log gains Took a file off.
+points to Belongs to; the log gains Took a file off. Then fields: More Fields under a read ID's details reads its card
+and offers what the details lack with Add, Add a Field… types one, and Edit removes them; they are
+kept apart from what was read (`VaultEntry.fields`, `vault-format-5`), and the card reader takes
+RxPCN's letters-only code.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

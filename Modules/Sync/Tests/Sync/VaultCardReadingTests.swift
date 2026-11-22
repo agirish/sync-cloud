@@ -18,7 +18,7 @@ import Testing
                     "Group Number: 0012345", "RxBIN 610014 RxPCN ADV RxGRP RX1234", "Effective 01/01/2025",
                     "Customer Service 1-800-555-0142", "Copay $25 ER $250"]
         #expect(Self.values(card) == [Self.pair("Member ID", "W288319122"), Self.pair("Subscriber ID", "W288319115"),
-                                      Self.pair("RxBIN", "610014")])
+                                      Self.pair("RxBIN", "610014"), Self.pair("RxPCN", "ADV")])
     }
 
     @Test func aLabelOverItsValueNamesIt() {
@@ -46,7 +46,10 @@ import Testing
     }
 
     @Test func aShortOrLetterOnlyValueAndAnUnlabelledNumberAreLeftOut() {
-        #expect(Self.values(["Plan A12", "RxPCN ADV", "W288319115"]).isEmpty)
+        #expect(Self.values(["Plan A12", "Plan ADV", "W288319115"]).isEmpty)
+        // A plan's processor code is letters alone, and is read beside its own label only.
+        #expect(Self.values(["RxPCN ADV"]) == [Self.pair("RxPCN", "ADV")])
+        #expect(Self.values(["RxPCN A"]).isEmpty)
         // The same value twice is listed once, by its first label.
         #expect(Self.values(["Member ID W288319122", "ID W288319122"]) == [Self.pair("Member ID", "W288319122")])
     }

@@ -62,6 +62,17 @@ import Testing
         _ = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "merge-offered")
     }
 
+    /// A field added to a saved dental ID is among the details the pane draws (below this
+    /// picture's bottom edge, so the row says so), and the pane draws with it.
+    @Test func anAddedFieldIsAmongTheDetailsThePaneDraws() async throws {
+        let (rig, dental) = try await Self.waiting(); defer { rig.cleanUp() }
+        let find = try #require(rig.model.finds.first { $0.id == dental })
+        let saved = try #require(rig.model.confirm(dental, as: VaultModel.Draft(find)))
+        #expect(await rig.model.addField(saved, label: "RxBIN", value: "610502"))
+        #expect(rig.model.rows.first { $0.id == saved }?.facts?.details.last == VaultDetail("RxBIN", .text("610502")))
+        _ = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "fields-added")
+    }
+
     @Test func aCorrectionAndAnIDAlreadySavedAreSaidInWords() {
         let id = UUID()
         #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 1)) == "Corrected one character of what card.pdf reads.")

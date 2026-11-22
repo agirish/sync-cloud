@@ -199,6 +199,12 @@ struct VaultCard: View {
     @State private var mergingFrom: UUID?
     @State private var mergeInto: UUID?
     @State private var mergeKeepsReading = false
+    /// More fields: the card read for the ID it is open on, and Add a Field…'s sheet.
+    @State private var moreFieldsRead: CardRead?
+    @State private var addingFieldTo: UUID?
+    @State private var newFieldLabel = ""
+    @State private var newFieldValue = ""
+    @State private var newFieldHidden = false
     @FocusState private var valueFocused: Bool
     /// An ID just moved to another tab, said on the ID the selection moved on to.
     @State private var moved: MovedNote?
@@ -351,6 +357,9 @@ struct VaultCard: View {
         }
         .sheet(isPresented: Binding(get: { mergingFrom != nil }, set: { if !$0 { mergingFrom = nil } })) {
             if let id = mergingFrom { mergeSheet(id).presentedNativeControlAccent() }
+        }
+        .sheet(isPresented: Binding(get: { addingFieldTo != nil }, set: { if !$0 { addingFieldTo = nil } })) {
+            addFieldSheet.presentedNativeControlAccent()
         }
         .sheet(isPresented: $customizingGroups) {
             VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors, onDone: { groups, kinds, colors in
@@ -2241,6 +2250,7 @@ struct VaultCard: View {
                         if !row.note.isEmpty { factRow("Note", row.note) }
                     }
                 }
+                if row.isSaved, !row.isTypedIn { moreFields(row, shown: shown) }
                 if row.isTypedIn {
                     Text("Typed in by hand.")
                         .scaledFont(.subheadline)
@@ -2458,6 +2468,111 @@ struct VaultCard: View {
         guard printedForSubscriber else { return aside }
         return "The card prints this as the subscriber’s ID, so it is most likely the subscriber’s real ID. "
             + "Belongs to gives it to them, and Correct the ID… fixes a misreading. " + aside
+    }
+
+    /// More fields on the card a saved ID is read from: folded until opened, which reads the card;
+    /// each value its details don't show yet with Add, and Add a Field… for one typed in.
+    @ViewBuilder
+    private func moreFields(_ row: VaultModel.Row, shown: Bool) -> some View {
+        let open = moreFieldsRead?.id == row.id
+        let file = row.documents.first.map { ($0.path as NSString).lastPathComponent }
+        VStack(alignment: .leading, spacing: 6) {
+            if let file {
+                Button {
+                    if open { moreFieldsRead = nil } else { readMoreFields(row) }
+                } label: {
+                    Label("More Fields on \(shown ? file : VaultMask.fileName(file))",
+                          systemImage: open ? "chevron.down" : "chevron.right")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+            if open, let read = moreFieldsRead {
+                switch read.result {
+                case nil:
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading the card…")
+                    }
+                    .foregroundStyle(.secondary)
+                case .notFound?:
+                    Text("The card isn’t where the Vault last saw it. Discover More finds a card that moved.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .unreadable?:
+                    Text("Nothing could be read from the card.")
+                        .foregroundStyle(.secondary)
+                case .read(let values)?:
+                    let offered = model.moreFields(values, for: row.id)
+                    if offered.isEmpty {
+                        Text("Every field on this card is in the details.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
+                            ForEach(offered, id: \.self) { value in
+                                GridRow {
+                                    Text(value.label).foregroundStyle(.secondary)
+                                    Text(VaultDetail(value.label, VaultModel.fieldValue(label: value.label, value: value.value))
+                                        .drawn(shown: shown))
+                                    Button("Add") { Task { await model.addField(row.id, label: value.label, value: value.value) } }
+                                        .buttonStyle(.link)
+                                        .help("Adds this field to the ID’s details")
+                                }
+                            }
+                        }
+                    }
+                }
+                Button("Add a Field…") {
+                    newFieldLabel = ""
+                    newFieldValue = ""
+                    newFieldHidden = false
+                    addingFieldTo = row.id
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .scaledFont(.callout)
+    }
+
+    private func readMoreFields(_ row: VaultModel.Row) {
+        guard let path = row.documents.first?.path else { return }
+        moreFieldsRead = CardRead(path: path, id: row.id, result: nil)
+        Task {
+            let result = await model.readCard(path, with: VaultFolderReader(folders: VaultReadFolders.folders()))
+            guard moreFieldsRead?.id == row.id, moreFieldsRead?.path == path else { return }
+            moreFieldsRead?.result = result
+        }
+    }
+
+    /// Add a Field…: a label and a value typed in, hidden like an ID when ticked.
+    private var addFieldSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add a Field")
+                .scaledFont(.headline)
+            TextField("Label", text: $newFieldLabel, prompt: Text("Payer ID"))
+            TextField("Value", text: $newFieldValue, prompt: Text("60054"))
+                .fontDesign(.monospaced)
+                .autocorrectionDisabled()
+            Toggle("Hide It Like an ID", isOn: $newFieldHidden)
+                .toggleStyle(.checkbox)
+            HStack {
+                Spacer()
+                Button("Cancel") { addingFieldTo = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add") {
+                    guard let id = addingFieldTo else { return }
+                    let (label, value, hidden) = (newFieldLabel, newFieldValue, newFieldHidden)
+                    Task { if await model.addField(id, label: label, value: value, hidden: hidden) { addingFieldTo = nil } }
+                }
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+                .keyboardShortcut(.defaultAction)
+                .disabled(newFieldLabel.trimmingCharacters(in: .whitespaces).isEmpty
+                          || newFieldValue.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(20)
+        .frame(width: 360)
     }
 
     /// "Close to Anna’s saved Dental · Member ID ●●●●2401: 2 characters differ." with Merge…,
@@ -2805,6 +2920,23 @@ struct VaultCard: View {
                                 Text(kind.name).tag(VaultCardID.custom(kind.id))
                             }
                         }
+                    }
+                }
+                if case .existing(let id) = editing, let added = model.entries.first(where: { $0.id == id })?.fields,
+                   !added.isEmpty {
+                    field("Added Fields") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(Array(added.enumerated()), id: \.offset) { index, detail in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(detail.label).foregroundStyle(.secondary)
+                                    Text(detail.drawn(shown: true))
+                                    Spacer(minLength: 4)
+                                    Button("Remove") { Task { await model.removeField(id, at: index) } }
+                                        .buttonStyle(.link)
+                                }
+                            }
+                        }
+                        .scaledFont(.callout)
                     }
                 }
                 field("Note") {

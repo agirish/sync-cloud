@@ -698,7 +698,9 @@ public final class VaultModel: ObservableObject {
         }
         var all: [Item] = entries.map { entry in
             let reading = chosenReading(readSince(entry, merges: merges), value: entry.value, chosen: entry.chosenSource)
-            let (facts, read) = corrected(withMentions(reading.facts, entry.value), own: entry.holderName)
+            var (facts, read) = corrected(withMentions(reading.facts, entry.value), own: entry.holderName)
+            // Fields added by hand show with its details, after what was read.
+            if let added = entry.fields, !added.isEmpty { facts?.details += added }
             // A saved number's person was chosen in the editor; with none, it goes by its name.
             let chosen = entry.assignment
             var personID: String?
@@ -3220,6 +3222,71 @@ public final class VaultModel: ObservableObject {
         saveReading()
         record(.takenOff, id: id)
         return true
+    }
+
+    // MARK: Fields added by hand
+
+    /// Labels whose value is a plan's code, printed on every card of the plan and read out to any
+    /// pharmacy: shown as printed, never hidden like an ID.
+    nonisolated static let planCodeLabels: Set<String> = ["rxbin", "rxpcn", "bin", "pcn", "payer id", "rx bin", "rx pcn"]
+
+    /// How an added field is drawn: a plan code as printed, a value with four digits or more
+    /// hidden like an ID until the lock allows, anything else as text.
+    public nonisolated static func fieldValue(label: String, value: String) -> VaultDetail.Value {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if planCodeLabels.contains(label.lowercased().trimmingCharacters(in: .whitespaces)) { return .text(trimmed) }
+        return trimmed.filter(\.isNumber).count >= 4 ? .number(trimmed) : .text(trimmed)
+    }
+
+    /// Adds a field to the saved ID `id`: `hidden` nil goes by ``fieldValue(label:value:)``.
+    /// Only on an ID read from a document, whose details it joins. A proof first when one is owed.
+    @discardableResult
+    public func addField(_ id: UUID, label: String, value: String, hidden: Bool? = nil) async -> Bool {
+        let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, !value.isEmpty, let entry = entries.first(where: { $0.id == id }), entry.facts != nil else { return false }
+        if lock.needsProof(for: id, at: clock()) {
+            guard await prove("change \(entry.title)", for: id) else { return false }
+        }
+        guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        let drawn: VaultDetail.Value = hidden.map { $0 ? .number(value) : .text(value) } ?? Self.fieldValue(label: label, value: value)
+        let field = VaultDetail(label, drawn)
+        guard !(entries[index].fields ?? []).contains(field) else { return true }
+        used()
+        var changed = entries
+        changed[index].fields = (changed[index].fields ?? []) + [field]
+        changed[index].updatedAt = clock()
+        return write(changed)
+    }
+
+    /// Removes the field at `index` from the saved ID `id`'s added fields.
+    @discardableResult
+    public func removeField(_ id: UUID, at index: Int) async -> Bool {
+        guard let entry = entries.first(where: { $0.id == id }), (entry.fields ?? []).indices.contains(index) else { return false }
+        if lock.needsProof(for: id, at: clock()) {
+            guard await prove("change \(entry.title)", for: id) else { return false }
+        }
+        guard contents == .loaded, let at = entries.firstIndex(where: { $0.id == id }),
+              (entries[at].fields ?? []).indices.contains(index) else { return false }
+        used()
+        var changed = entries
+        changed[at].fields?.remove(at: index)
+        if changed[at].fields?.isEmpty == true { changed[at].fields = nil }
+        changed[at].updatedAt = clock()
+        return write(changed)
+    }
+
+    /// What More fields offers from `values`, read off a saved ID's card: not the ID itself, not
+    /// another ID the Vault holds (a subscriber's on a dependent's card is another person's), and
+    /// nothing its details already show.
+    public func moreFields(_ values: [VaultCardValue], for id: UUID) -> [VaultCardValue] {
+        guard let row = rows.first(where: { $0.id == id }) else { return [] }
+        let held = Set(rows.map { VaultReading.normalized($0.value) })
+        let shown = Set((row.facts?.details ?? []).map { VaultReading.normalized($0.copied) })
+        return values.filter { value in
+            let key = VaultReading.normalized(value.value)
+            return !held.contains(key) && !shown.contains(key)
+        }
     }
 
     /// `read` with every number `instead` names given as the number a note says it is for.

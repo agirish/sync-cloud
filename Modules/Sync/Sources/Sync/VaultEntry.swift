@@ -83,6 +83,9 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// Documents that print its number but are not for it (Not for This ID), by their bytes
     /// (``VaultFileContents``): the reader takes nothing for it from them, wherever they move.
     public var notOn: [String]?
+    /// Fields added by hand from its card, or typed (More fields): drawn with its details wherever
+    /// they go, and kept apart from ``facts`` so they never decide which paper speaks for it.
+    public var fields: [VaultDetail]?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -116,7 +119,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs, notOn
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs, notOn, fields
     }
 
     /// Every key this build reads from a stored record, old ones included. A key outside it is a

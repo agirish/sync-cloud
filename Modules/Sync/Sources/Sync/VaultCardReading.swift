@@ -41,11 +41,11 @@ extension VaultReading {
     public static func cardValues(on pages: [[String]]) -> [VaultCardValue] {
         var out: [VaultCardValue] = []
         var seen = Set<String>()
-        func keep(_ label: [String], _ value: String) {
+        func keep(_ label: [String], _ value: String, code: Bool = false) {
             let raw = label.map(trimmedWord).filter { !$0.isEmpty }
             let words = labelWords(raw)
             // "Group Number" is cut back to "Number": what it is comes from the words before.
-            guard !words.isEmpty, !isNotIDLabel(Array(raw.suffix(3))), isID(value), seen.insert(normalized(value)).inserted else { return }
+            guard !words.isEmpty, !isNotIDLabel(Array(raw.suffix(3))), code || isID(value), seen.insert(normalized(value)).inserted else { return }
             out.append(VaultCardValue(label: words.joined(separator: " "), value: value))
         }
         for page in pages {
@@ -66,6 +66,13 @@ extension VaultReading {
                 var index = 0
                 while index < tokens.count {
                     let token = tokens[index]
+                    // A plan's processor code is letters alone: "RxPCN ADV".
+                    if let code = planCode(token, after: label) {
+                        keep(label, code, code: true)
+                        label = []
+                        index += 1
+                        continue
+                    }
                     if isWord(token) {
                         if closed { label = []; closed = false }
                         label.append(token)
@@ -77,6 +84,7 @@ extension VaultReading {
                     closed = false
                     let candidate = valueToken(token)
                     guard let first = candidate else { label = []; index += 1; continue }
+                    closed = false
                     // Groups of digits a space apart are one number: "1234 5678 9012".
                     var value = first
                     var next = index + 1
@@ -121,6 +129,17 @@ extension VaultReading {
     private static func isLabelLine(_ tokens: [String]) -> Bool {
         guard let last = tokens.last else { return false }
         return last.hasSuffix(":") || last.hasSuffix("#") || labelVocabulary.contains(trimmedWord(last).lowercased())
+    }
+
+    /// Labels whose value may be letters alone: a plan's processor control number.
+    private static let letterCodeLabels: Set<String> = ["rxpcn", "pcn"]
+
+    /// `token` as a letters-only plan code when `label` ends in one of ``letterCodeLabels``.
+    private static func planCode(_ token: String, after label: [String]) -> String? {
+        guard let last = label.last.map(trimmedWord)?.lowercased(), letterCodeLabels.contains(last) else { return nil }
+        let core = trimmedWord(token)
+        guard (2...10).contains(core.count), core.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        return core
     }
 
     /// A word of a label: letters, with a colon, a `#` or a full stop after it ("ID:", "No.",

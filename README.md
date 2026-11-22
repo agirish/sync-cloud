@@ -207,6 +207,8 @@ for: a passport number, a member ID, a loan number.
   whichever number is right; it holds back for different names and for IDs that differ only at the end.
 - **Not for This ID**, under a file that names an ID but isn't its own, takes the file off it for
   good, even after the file moves, and reads it again without that ID.
+- **More Fields** under a read ID's details lists what its card prints beyond them (RxBIN, RxPCN,
+  Payer ID) for Add, or takes one typed with Add a Field…; Edit removes them.
 - **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
   an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
   always shows what it was read as, and As Read puts it back; passports, visas and other checked
