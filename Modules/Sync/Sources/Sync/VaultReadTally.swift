@@ -17,6 +17,8 @@ public struct VaultReadTally: Equatable, Sendable {
     public private(set) var mentions = 0
     /// New to To Confirm.
     public var added = 0
+    /// Files passed over and why, pages not recognised, and how pages were read (VT25).
+    public var notes = VaultReadNotes()
     private var seen = Set<String>()
     private var seenMentions = Set<String>()
 
@@ -44,7 +46,7 @@ public struct VaultReadTally: Equatable, Sendable {
         if textless > 0 { line += " (\(textless) gave no text)" }
         line += kinds.isEmpty ? "; no numbers read" : "; read " + kinds.joined(separator: ", ")
         if mentions > 0 { line += "; \(mentions) named only" }
-        return line + "; \(added) new number(s) to confirm"
+        return line + "; \(added) new number(s) to confirm" + notes.summary
     }
 
     /// "45s", "31m 12s", "1h 02m".

@@ -131,6 +131,48 @@ import Testing
         #expect(VaultPageSource.seen(inked, from: Self.path) == ["Control Number", "20241234560001", "read in its ink alone"] + foil)
     }
 
+    /// How each page was read is noted for the read's summary (VT25), and only as counts: from
+    /// its picture, rendered sharper, taken in its ink alone, or rendered for a barcode.
+    @Test func eachPageNotesHowItWasRead() {
+        // A scan with no text layer: from its picture.
+        var notes = Self.reading("", Self.picture(Asked(), reads: Self.passport))?.notes
+        #expect(notes?.fromPicture == 1 && notes?.sharper == 0 && notes?.inkOnly == 0)
+        // A Social Security card with its number run in: read again sharper.
+        let card = VaultIDReadingTests.ssnCard
+        let runIn = card.map { $0 == "123-45-6789" ? "1234-56-789" : $0 }
+        notes = Self.reading("", Self.picture(Asked(), reads: runIn, sharper: card))?.notes
+        #expect(notes?.fromPicture == 1 && notes?.sharper == 1)
+        // Colored paper whose ink alone keeps every number: taken.
+        let foil = VaultReadingTests.zone("V", number: "H1234567", born: "740812", expires: "290930", country: "USA")
+        let plain = ["Control Number", "20241234560001"] + foil
+        let ink = ["Control Number", "20241234560001", "read in its ink alone"] + foil
+        let inked = VaultPageSource.Picture(isScan: { true }, read: { _ in plain }, barcodes: { [] }, inkOnly: { ink })
+        notes = VaultPageSource.noted(inked, from: Self.path)?.notes
+        #expect(notes?.inkOnly == 1 && notes?.fromPicture == 1)
+        // A full typed page: nothing of the picture.
+        let page = Self.letter + ["Receipt Number LIN2412345678"]
+        #expect(Self.reading(page.joined(separator: "\n"), Self.picture(Asked(), reads: Self.passport))?.notes == VaultReadNotes())
+        // A typed license back is rendered once for its barcode: rendered sharper, the layer kept.
+        let back = (Self.letter + ["ENDORSEMENTS NONE", "RESTRICTIONS NONE"]).joined(separator: "\n")
+        let rendered = Self.reading(back, Self.picture(Asked(), isScan: false, reads: nil, barcodes: ["ANSI 636014"]))
+        #expect(rendered?.notes.sharper == 1 && rendered?.notes.fromPicture == 0)
+        // The notes never make two readings of the same lines unequal.
+        var noted = VaultPageSource.Reading(lines: ["a"])
+        noted.notes.fromPicture = 3
+        #expect(noted == VaultPageSource.Reading(lines: ["a"]))
+    }
+
+    @Test func theNotesAddUpAndSayOnlyWhatIsNotZero() {
+        var a = VaultReadNotes(), b = VaultReadNotes()
+        a.locked = 2; a.fromPicture = 40; b.unopenable = 1; b.unrecognised = 3; b.sharper = 2; b.inkOnly = 5
+        #expect((a + b).summary == "; 2 locked, 1 could not be opened, 3 page(s) not recognized; "
+                + "40 page(s) read from their picture, 2 rendered sharper, 5 taken in their ink alone")
+        #expect(VaultReadNotes().summary == "")
+        var tally = VaultReadTally()
+        tally.notes = a
+        #expect(tally.summary(seconds: 5).hasSuffix("; 0 new number(s) to confirm; 2 locked; 40 page(s) read from their picture"))
+    }
+
     // MARK: A layer that gives a number
 
     @Test func aFullPageThatGivesANumberIsTrustedAsItIs() {

@@ -128,9 +128,11 @@ enum VaultPasteboard {
     /// its reasons: clipboard-history apps snapshot the pasteboard the instant it changes and the
     /// well-behaved ones skip concealed items, and Universal Clipboard relays the general
     /// pasteboard to nearby devices.
+    ///
+    /// `pasteboard` and `after` are the general pasteboard and the setting's time; a test hands in
+    /// a pasteboard of its own and a short time, so it never touches the user's clipboard.
     @MainActor
-    static func copyConcealed(_ value: String) {
-        let pasteboard = NSPasteboard.general
+    static func copyConcealed(_ value: String, on pasteboard: NSPasteboard = .general, after delay: Duration? = nil) {
         // This Mac only: Universal Clipboard would hand the number to every nearby device signed
         // in to the same account.
         pasteboard.prepareForNewContents(with: .currentHostOnly)
@@ -141,24 +143,29 @@ enum VaultPasteboard {
         pasteboard.setData(Data(), forType: .init("org.nspasteboard.TransientType"))
         pasteboard.setString(value, forType: .string)
         let stamp = pasteboard.changeCount
-        pendingClear = stamp
+        pendingClear = (pasteboard, stamp)
         watchForQuit()
+        let delay = delay ?? clearAfter
         Task { @MainActor in
-            try? await Task.sleep(for: clearAfter)
-            clear(ifStill: stamp)
+            try? await Task.sleep(for: delay)
+            clear(ifStill: stamp, on: pasteboard)
         }
     }
 
-    /// The copy that has yet to be cleared, by the pasteboard's change count.
-    @MainActor private static var pendingClear: Int?
+    /// The copy that has yet to be cleared: its pasteboard, and that pasteboard's change count.
+    @MainActor private static var pendingClear: (pasteboard: NSPasteboard, stamp: Int)?
     @MainActor private static var quitWatch: NSObjectProtocol?
 
-    @MainActor private static func clear(ifStill stamp: Int) {
-        guard pendingClear == stamp else { return }
+    @MainActor private static func clear(ifStill stamp: Int, on pasteboard: NSPasteboard) {
+        guard let pending = pendingClear, pending.stamp == stamp, pending.pasteboard === pasteboard else { return }
         pendingClear = nil
-        let pasteboard = NSPasteboard.general
         guard pasteboard.changeCount == stamp else { return }
         pasteboard.clearContents()
+    }
+
+    /// What quitting does: clears the copy still waiting, unless something else was copied since.
+    @MainActor static func clearPending() {
+        if let pending = pendingClear { clear(ifStill: pending.stamp, on: pending.pasteboard) }
     }
 
     /// Quitting inside the minute would leave the number on the clipboard for good: it is cleared
@@ -167,9 +174,7 @@ enum VaultPasteboard {
         guard quitWatch == nil else { return }
         quitWatch = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated {
-                if let stamp = pendingClear { clear(ifStill: stamp) }
-            }
+            MainActor.assumeIsolated { clearPending() }
         }
     }
 }

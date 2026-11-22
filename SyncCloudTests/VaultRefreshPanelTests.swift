@@ -78,20 +78,7 @@ import Testing
 
     // MARK: Drawn
 
-    /// Documents the test can change.
-    final class Shelf: VaultDocumentReading, @unchecked Sendable {
-        private let lock = NSLock()
-        private var pages: [String: [String]]
-        private var stamps: [String: Int] = [:]
-        init(_ pages: [String: [String]]) { self.pages = pages }
-        func write(_ path: String, _ page: [String]) { lock.withLock { pages[path] = page; stamps[path, default: 1] += 1 } }
-        func remove(_ path: String) { lock.withLock { pages[path] = nil } }
-        func files() async -> [URL] { lock.withLock { pages.keys.sorted().map { URL(fileURLWithPath: $0) } } }
-        func pages(in file: URL) async -> [[String]] { lock.withLock { pages[file.path].map { [$0] } ?? [] } }
-        func stamp(of file: URL) -> String? { lock.withLock { pages[file.path] == nil ? nil : String(stamps[file.path, default: 1]) } }
-        func modified(of file: URL) -> Date? { nil }
-        func exists(_ file: URL) -> Bool { lock.withLock { pages[file.path] != nil } }
-    }
+    typealias Shelf = VaultShelf
 
     static let root = "/Users/anna/Documents"
     static let dental = root + "/Health/Dental/ID Cards/card.pdf"
@@ -142,10 +129,10 @@ import Testing
         // A refresh that follows a change of rules leaves the folders to be looked at.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-refresh-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultPanelKeychain())
+        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultFakeKeychain())
         try store.saveReading(VaultReadingState(needsDiscover: true))
         let scratch = TestDefaults()
-        let model = VaultModel(store: store, authenticator: VaultPanelAllows(), defaults: scratch.defaults, copyToPasteboard: { _ in })
+        let model = VaultModel(store: store, authenticator: VaultFakeAuthenticator(), defaults: scratch.defaults, copyToPasteboard: { _ in })
         await model.opened()
         #expect(model.needsDiscover)
         _ = model.add(VaultModel.Draft(title: "Passport", value: "A38291647", category: .passport))

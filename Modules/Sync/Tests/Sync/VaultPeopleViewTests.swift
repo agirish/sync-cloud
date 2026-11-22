@@ -421,6 +421,8 @@ import Testing
         let model = await Self.model(rig)
         model.lockNow()
         let asked = rig.auth.reasons.count
+        var own: [String] = []
+        model.sessionLine = { own.append($0) }
 
         #expect(await model.copyPerson(.person("anna"), numbers: false))
         #expect(rig.auth.reasons.count == asked, "a summary shows nothing the rows do not")
@@ -434,6 +436,8 @@ import Testing
         #expect(await model.copyPerson(.person("anna"), numbers: true))
         #expect(rig.auth.reasons.last == "copy Anna’s IDs")
         #expect(rig.copied.last?.contains("XZB123456789") == true)
+        // The log says what the proof was for, never whose (VT22).
+        #expect(own == ["Vault: a proof for a person’s IDs was canceled", "Vault: a proof for a person’s IDs was given"])
     }
 
     @Test func aBirthDateShowsOnlyWhenOneOfTheirIDsMay() async throws {

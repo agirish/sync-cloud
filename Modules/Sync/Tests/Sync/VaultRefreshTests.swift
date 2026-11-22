@@ -8,33 +8,7 @@ import Testing
 @Suite struct VaultRefreshTests {
     typealias Rig = VaultModelTests.Rig
 
-    /// Documents the test can change, move away and count the opening of.
-    final class Shelf: VaultDocumentReading, @unchecked Sendable {
-        private let lock = NSLock()
-        private var pages: [String: [String]]
-        private var stamps: [String: Int] = [:]
-        private var opens: [String] = []
-        private var walks = 0
-
-        init(_ pages: [String: [String]]) { self.pages = pages }
-
-        /// Replaces a document's page, as a new scan saved over the old one would.
-        func write(_ path: String, _ page: [String]) {
-            lock.withLock { pages[path] = page; stamps[path, default: 1] += 1 }
-        }
-        func remove(_ path: String) { lock.withLock { pages[path] = nil } }
-        var opened: [String] { lock.withLock { opens } }
-        var walked: Int { lock.withLock { walks } }
-        func forgetOpened() { lock.withLock { opens = [] } }
-
-        func files() async -> [URL] { lock.withLock { walks += 1; return pages.keys.sorted().map { URL(fileURLWithPath: $0) } } }
-        func pages(in file: URL) async -> [[String]] {
-            lock.withLock { opens.append(file.path); return pages[file.path].map { [$0] } ?? [] }
-        }
-        func stamp(of file: URL) -> String? { lock.withLock { pages[file.path] == nil ? nil : String(stamps[file.path, default: 1]) } }
-        func modified(of file: URL) -> Date? { nil }
-        func exists(_ file: URL) -> Bool { lock.withLock { pages[file.path] != nil } }
-    }
+    typealias Shelf = VaultShelf
 
     static let root = "/Users/anna/Documents"
     static let dental = root + "/Health/Dental/ID Cards/card.pdf"

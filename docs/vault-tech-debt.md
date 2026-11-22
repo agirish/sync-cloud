@@ -51,8 +51,8 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 3. ~~**Internal bugs:** VT58, VT52, VT54, VT73 (a, c).~~ Done in batch 3. VT100, VT108 and VT73 (b) are the owner's call.
 4. ~~**Efficiency.**~~ Done in batches 4 and 6, but for VT10's held key and `keyState()`, which go with VT31,
    and VT85, measured out.
-5. **Tests and logging:** batch 5 did VT94, VT105, VT95, VT26, VT96, VT97, VT71, VT28 and half of VT29.
-   Left: VT98, VT29's lock table, VT27, VT22, VT23, VT25.
+5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
+   Activity line: the owner's call.
 6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
    VT76, VT103, VT106, VT79, VT80.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
@@ -103,6 +103,11 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT66 rows rebuild per row | batch 4 (one registry, no regex), batch 6: `primary` in one pass with each placement worked out once (pinned equal to the ordered list's first over 75 orders and speakers), and one merge per set of copies per rebuild (`MergeMemo`, counted) | none |
 | VT67 stats on the main actor | batch 6: the read plan's dates, each file's size and stamp (in one pass before the first file, so a read of unchanged files does not give the panel a redraw per file) and the check for documents saved IDs point at run off the main actor (pinned by a reader that notes any question asked on the main thread). Measured by hand on the owner's `~/Documents` (a throwaway program, not kept): exists and stamp for 500 PDFs, 46 ms | an evicted iCloud file was not shown: none of his 10,991 PDFs was evicted on 2026-11-21. Size, date and existence read metadata only |
 | VT9 the panel recomputes every second | batch 4 (the lists cached on what they are made of), batch 6: `now` and `lock` publish only when what the panel draws from them changes (`Clockface`: open or shut, the last ten seconds, the number shown, the day, how long ago the last Refresh and Discover were in the steps their wording turns on: half minutes in the first hour, half hours to a day, then days); pinned: a hundred seconds of use redraw nothing, the countdown once a second, a locked day with no Refresh or Discover yet nothing until midnight and then once, a shown number's seconds nothing and its end once. Large Type also closes when its row leaves the list, not only at a tick. A Stop during the last check of documents saved IDs point at now ends the read there, as a lock during its last file would | `rows` reads its folders from UserDefaults per access and `elsewhere(card)` and the counts run per draw: now per real redraw only, and a stored copy would miss a change made outside the app |
+| VT98 one Vault test kit | batch 7: `VaultTestKit.swift` holds the fake keychain and proof, the scratch folder and defaults suite, the clock, the rig and the shelf; Sync's suites use it through their old names, and `project.yml` compiles it into the app's tests, whose own keychain, proof and shelf fakes are gone | the narrower document fakes stay with the suites they serve |
+| VT29 lock under time | batch 5 (every route sealed shut, files byte-compared), batch 7: `VaultLockTableTests` runs every Ask × Relock setting against open, use, idle past the limit, close, reopen, sleep, Lock Now and a proof answered after a lock, 88 rows with the lock off, asserting open, loaded and proofs asked against limits and close rules written out in the test (a rule changed in the settings goes red); under "For every number" the proof answered after a lock is a number's own | a change of lock settings while open is not a row |
+| VT27 app-side tests | batch 7: copying a number (its markers, cleared when its time is up, never once something else was copied, cleared on quit; on a pasteboard of the test's own, never the user's), the card's size, which window's use counts (`VaultActivityWatch.belongs`), and the reader's 60 MB limit, three pages and locked PDFs | whatever VT8 leaves in the view |
+| VT22 session lines | batch 7: INFO lines for loaded (saved and waiting counts, how the lock is set), each proof (to unlock, for one ID, for a person's IDs) and its answer or its setting aside after a close or lock, each lock of an open Vault under "As soon as Vault opens" and why (Lock Now, sleep or the window closing, closed, idle, idle while closed, settings, restore), said once, and the numbers let go; never a title. Tests read the model's own lines (`sessionLine`), not the shared log capture | none |
+| VT25 reader skips | batch 7: `VaultReadNotes` counts locked, unopenable and unrecognised, and pages read from their picture, rendered sharper or taken in their ink alone; `VaultDocumentReading.noted(_:)` returns them, and both read summaries end with what is not zero | too-large files stay counted in the walk's own INFO line, not in the summaries; a refresh still opens a known document whatever its size, as before |
 
 ---
 
@@ -311,17 +316,6 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 - **Owner's call.** Merging chips by `spellingKey` makes one of the two disappear. The internal half:
   key every role lookup by the chip's own index, so each chip acts on itself.
 
-**VT22 — Session lines.** *Partly.*
-- **The problem.** The activity list records `unlocked` and `proofRefused` (`:1535–1543`). The log gets
-  nothing for open, lock, release or a proof discarded because `lockEpoch` moved (`:1530`).
-- **Done when:** INFO lines carry:
-  - opened, with lock mode and counts by state;
-  - proof asked, and its outcome or discard;
-  - locked, and why;
-  - released.
-
-  Never a title.
-
 **VT23 — Record lines.** *Partly.*
 - **Today.** `record` (`:1259`, `:1266`) is the one function, and it covers add, edit, remove, confirm,
   set aside, show and copy.
@@ -421,62 +415,11 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 **VT11 — Stale comment.** *Closed in batch 3: the comment went with VT73's change.* `VaultActivityWatch` says "every window has a Vault of its own"
 (`VaultPanel.swift:3105` at `710b5aaa3`); the app is one `Window` scene (`SyncCloudApp.swift:553`).
 
-**VT25 — Reader skips.** *Partly.*
-- **Today.** Too-large files and unreachable folders are counted at INFO (`VaultDocumentReader.swift:61–66`).
-- **Still missing.**
-  - Locked PDFs, unopenable PDFs and unrecognised pages are per-file DEBUG lines (`:103`, `:107`,
-    `:115`), never summed.
-  - `pages(in:)` returns `[]` for all of them, so the model cannot tell them apart.
-  - Refresh skips `walk()` and logs no size skips at all.
-- **Done when:**
-  - `pages(in:)` returns a skip reason;
-  - both summaries count each cause: too large, locked, unopenable, page unrecognised, read from the
-    picture, ink-only, sharper render.
-
 ## D. Tests
 
 There were **416** `@Test`s at `0409895c8`: 374 in 30 `Sync` files and 42 in 8 `SyncCloudTests` files (since then `VaultFormatTests`, with 46, and more in `VaultBackupTests`, `VaultRefreshTests`, `VaultNameCorrectionTests`, `VaultPeopleViewTests`, `VaultReadDocumentsTests`, `VaultReadingTests` and `VaultKindsTests`). None is
 parameterised. Three are machine-pinned to text recognition and skip on hosted CI
 (`VaultFolderReaderTests.swift:257`, `:277`, `:291`).
-
-**VT98 — One Vault test kit.** *Duplication; checked.*
-- **The problem.**
-  - `Rig` and `Clock` live in `VaultLockTests.swift:170–205`, `VaultFakeKeychain` in
-    `VaultStoreTests.swift:9`, `VaultFakeDocuments` in `VaultToConfirmTests.swift:8`, and
-    `PlannedDocuments` in `VaultAccountsTests.swift:442`.
-  - About 200 references go across suites; `VaultFixtures.swift` forwards only three.
-  - There are seven `VaultDocumentReading` fakes in `Sync`; the app's `Shelf`
-    (`VaultRefreshPanelTests.swift:68`) is a subset of `VaultRefreshTests.swift:12`.
-  - The keychain fake exists twice, and there are four proof fakes.
-- **Done when:** one `VaultTestKit.swift` (Rig, Clock, FakeKeychain, FakeProof, Shelf), compiled into
-  `SyncCloudTests` the way `project.yml` does for `EventsTestSupport`.
-
-**VT29 — Lock under time.** *Half done in batch 5: `VaultLockedRoutesTests` runs every route above once the numbers are let go: none succeeds, none asks for a proof, nothing reaches the clipboard, neither file changes by a byte; and a proof answered after the Vault locked meanwhile opens nothing (Copy, Edit, Copy a person's IDs). The guards in `write`, `saveReading` and the routes' own looks after a proof are not reached first by any route (each finds no ID, or no person, first): defence only. Open: the lock-state table.*
-- **The problem.**
-  - Lock behaviour is spread over 19 cases in `VaultModelTests`, 8 in `VaultSealedShutTests` and 6 in
-    `VaultProofTests`, with no table.
-  - On a locked model, these routes are never run with both files' bytes compared: assign, pin, setGeo,
-    setKind, update, delete, keepSaved, useReread, confirm, setAside, copyPerson, copyBirth,
-    copy(detail). Only copy is.
-  - No test holds a stale list while `contents != .loaded`, so deleting the guards in `write`
-    (`VaultModel.swift:1728`) or `saveReading` (`:2166`) most likely survives.
-- **Done when:**
-  - one table test covers every `Ask` × `Relock` × event (open, use, idle past the limit, close, reopen,
-    sleep, Lock Now, a proof answered after `lockEpoch` moved), asserting `isOpen` and what is loaded;
-  - a second table runs every route above sealed shut, asserting no proof is asked, nothing is returned
-    and both files are byte-identical.
-
-**VT27 — App-side tests.** *Partly.*
-- **Today.** Eight app-target files with 42 tests now cover the masonry, colors and popover, window
-  privacy, People, the locked panel, the refresh footer and the folder reader.
-- **Still untested:**
-  - `VaultPasteboard` (`VaultHost.swift:120`): markers, `.currentHostOnly`, clearing only when the
-    change count is unchanged, and on quit;
-  - `VaultCardSize.fitted` (`VaultPanel.swift:7`);
-  - `VaultActivityWatch` window scoping (`:2715`);
-  - in `VaultDocumentReader.swift`: `largestFile` (`:28`), `pagesPerDocument` (`:25`) and the
-    locked-PDF guard (`:106`);
-  - whatever VT8 leaves in the view.
 
 ## E. Security and privacy
 

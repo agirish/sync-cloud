@@ -95,6 +95,11 @@ struct VaultFolderReader: VaultDocumentReading {
     }
 
     func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) {
+        let read = await noted(file)
+        return (read.pages, read.complete)
+    }
+
+    func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
         await withCheckedContinuation { continuation in
             Self.workQueue.async { [folders, vision] in
                 continuation.resume(returning: Self.read(file, under: folders, vision: vision))
@@ -112,21 +117,27 @@ struct VaultFolderReader: VaultDocumentReading {
     /// A page read both ways (``VaultPageSource/Reading/also``) gives its second reading as one
     /// more page, after the file's own, so each page a zone is found on keeps its number.
     private static func read(_ file: URL, under folders: [String],
-                             vision: @escaping @Sendable (CGImage, Processor) throws -> [String]) -> (pages: [[String]], complete: Bool) {
+                             vision: @escaping @Sendable (CGImage, Processor) throws -> [String])
+        -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+        var notes = VaultReadNotes()
         // The image's lines, any license barcode's text after them; nil when Vision failed on
         // both processors, which is not the same as a page with no text.
         func recognise(_ image: CGImage) -> [String]? { recognised(image, read: vision) }
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return ([], true) }
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                notes.unopenable = 1
+                return ([], true, notes)
+            }
             // A photo or scan saved as an image is read as a scanned page is: on colored
             // security paper, in its ink alone as well (``VaultPageSource/seen(_:from:under:)``).
             // An image is what it is: there is no sharper render of it to read again.
             let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
                                                   barcodes: { decodeBarcodes(image) },
                                                   inkOnly: { inkOnly(image).flatMap(recognise) })
-            let page = VaultPageSource.seen(picture, from: file.path, under: folders)
-            return (page.map { [$0] } ?? [], page != nil)
+            let page = VaultPageSource.noted(picture, from: file.path, under: folders)
+            if page == nil { notes.unrecognised = 1 }
+            return (page.map { [$0.lines] } ?? [], page != nil, page.map { notes + $0.notes } ?? notes)
         }
         // Every PDFKit call takes its turn in the process's one lane (VT52); Vision does not, so
         // the lane is free while a page is recognised. The document is opened once and touched
@@ -136,7 +147,8 @@ struct VaultFolderReader: VaultDocumentReading {
         // not while every other PDFKit user waits.
         guard let bytes = try? Data(contentsOf: file, options: .mappedIfSafe) else {
             Logger.shared.debug("Vault: a PDF could not be opened")
-            return ([], true)
+            notes.unopenable = 1
+            return ([], true, notes)
         }
         // A locked PDF is passed over: its password is not the Vault's to ask for. The document is
         // only borrowed below, so this is its one owner, and it is let go of in a lane turn of its
@@ -144,17 +156,19 @@ struct VaultFolderReader: VaultDocumentReading {
         var held = lane({ PDFDocument(data: bytes) })
         guard held != nil else {
             Logger.shared.debug("Vault: a PDF could not be opened")
-            return ([], true)
+            notes.unopenable = 1
+            return ([], true, notes)
         }
         let result = readPages(of: held!)
         lane { held = nil }
         return result
 
-        func readPages(of document: PDFDocument) -> (pages: [[String]], complete: Bool) {
+        func readPages(of document: PDFDocument) -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
             let (locked, pageCount) = lane { (document.isLocked, document.pageCount) }
             guard !locked else {
                 Logger.shared.debug("Vault: a locked PDF was passed over")
-                return ([], true)
+                notes.locked = 1
+                return ([], true, notes)
             }
             var pages: [[String]] = []
             var secondReadings: [[String]] = []
@@ -179,6 +193,7 @@ struct VaultFolderReader: VaultDocumentReading {
                     continue
                 }
                 pages.append(reading.lines)
+                notes = notes + reading.notes
                 if let also = reading.also { secondReadings.append(also) }
             }
             if unreadable > 0 {
@@ -186,7 +201,8 @@ struct VaultFolderReader: VaultDocumentReading {
                                     + (pages.isEmpty ? "; the file is tried again next time"
                                                      : "; the rest were read, and the file is tried again"))
             }
-            return (pages + secondReadings, unreadable == 0)
+            notes.unrecognised += unreadable
+            return (pages + secondReadings, unreadable == 0, notes)
         }
     }
 

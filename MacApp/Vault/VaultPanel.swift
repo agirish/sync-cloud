@@ -3271,12 +3271,18 @@ struct VaultCard: View {
             matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .leftMouseDragged]
         ) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let window = self?.window, let target = event.window,
-                      target === window || target.sheetParent === window || target.parent === window else { return }
+                guard Self.belongs(event.window, to: self?.window) else { return }
                 onActivity()
             }
             return event
         }
+    }
+
+    /// Whether an event in `target` is use of the Vault in `window`: that window, or a sheet or
+    /// child window of it. Never with no window on either side.
+    static func belongs(_ target: NSWindow?, to window: NSWindow?) -> Bool {
+        guard let window, let target else { return false }
+        return target === window || target.sheetParent === window || target.parent === window
     }
 
     func stop() {

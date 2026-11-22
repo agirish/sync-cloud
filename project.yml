@@ -80,6 +80,8 @@ targets:
       - path: Modules/Events/Sources/EventsTestSupport/LogCapture.swift
       - path: Modules/Events/Sources/EventsTestSupport/MachinePinned.swift
       - path: Modules/Events/Sources/EventsTestSupport/DefaultsSuiteSupport.swift
+      # The Vault's test kit (VT98): the fakes, rig and shelf Sync's own Vault tests use.
+      - path: Modules/Sync/Tests/Sync/VaultTestKit.swift
     dependencies:
       - target: SyncCloud
     settings:

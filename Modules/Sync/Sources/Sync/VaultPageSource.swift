@@ -49,11 +49,17 @@ public enum VaultPageSource {
         /// ``lines``: a rule that looks at a whole page (is this a form, whose notice is this)
         /// would take the two for one document.
         public var also: [String]?
+        /// How the page was read, counted for the read's summary (VT25): never part of what it says,
+        /// so two readings of the same lines are equal however they were come by.
+        public var notes = VaultReadNotes()
 
-        public init(lines: [String], also: [String]? = nil) {
+        public init(lines: [String], also: [String]? = nil, notes: VaultReadNotes = VaultReadNotes()) {
             self.lines = lines
             self.also = also
+            self.notes = notes
         }
+
+        public static func == (a: Reading, b: Reading) -> Bool { a.lines == b.lines && a.also == b.also }
     }
 
     /// The page as read, or nil when its picture could not be read and it has no text layer, or
@@ -98,10 +104,11 @@ public enum VaultPageSource {
         // A few letters that say nothing are a blank scan's stray marks, and the page is its
         // picture. A few that give a number ("Receipt Number LIN…", 26 letters) are a stamp.
         guard letters > leastText || !typed.any.isEmpty else {
-            return seen(picture, from: path, under: roots).map { Reading(lines: $0) }
+            return noted(picture, from: path, under: roots)
         }
         // Whether the sharper read was made: it looks for a license's barcode too.
         var readSharper = false
+        var notes = VaultReadNotes()
         // So short a layer is on a scan, whatever the file's pictures say.
         if typed.numbers.isEmpty || letters <= stampAtMost, letters <= leastText || picture.isScan() {
             guard let seen = look(at: picture, from: path, under: roots) else {
@@ -114,6 +121,7 @@ public enum VaultPageSource {
                 return nil
             }
             readSharper = seen.sharper
+            let fromPicture = seen.notes
             let pictured = read(seen.lines, already: seen.read)
             /// Whether `one` says something `other` does not: a number it reads that the other
             /// does not read, one it names that the other never says, or more about a number
@@ -129,11 +137,14 @@ public enum VaultPageSource {
             if picture.more {
                 Logger.shared.debug("Vault: a scan under a text layer was read from its picture"
                                     + (text.more ? "; the two readings are kept as two pages" : ""))
-                guard text.more else { return Reading(lines: seen.lines) }
+                guard text.more else { return Reading(lines: seen.lines, notes: fromPicture) }
                 // The one with a number of its own is the page; with neither, what was typed.
-                return picture.new ? Reading(lines: seen.lines, also: layer) : Reading(lines: layer, also: seen.lines)
+                return picture.new ? Reading(lines: seen.lines, also: layer, notes: fromPicture)
+                    : Reading(lines: layer, also: seen.lines, notes: fromPicture)
             }
             Logger.shared.debug("Vault: a scan under a text layer gave no more from its picture")
+            // The layer is the page; a sharper render made on the way is still counted.
+            notes.sharper = fromPicture.sharper
         }
         // A scanner's text layer carries the words, never a barcode: a license back is rendered
         // once for its barcode alone. Not when the sharper read above already looked: had it
@@ -141,10 +152,11 @@ public enum VaultPageSource {
         if !readSharper, VaultReading.wantsSharperRead(layer) {
             let decoded = picture.barcodes()
             layer += decoded
+            notes.sharper = 1
             Logger.shared.debug("Vault: a license back was rendered for its barcode; "
                                 + (decoded.isEmpty ? "none decoded" : "decoded"))
         }
-        return Reading(lines: layer)
+        return Reading(lines: layer, notes: notes)
     }
 
     /// The picture as Vision reads it: what a page with no text layer, or a photo or scan
@@ -160,11 +172,16 @@ public enum VaultPageSource {
         look(at: picture, from: path, under: roots)?.lines
     }
 
+    /// ``seen(_:from:under:)`` as a reading, with how it was read (VT25).
+    public static func noted(_ picture: Picture, from path: String, under roots: [String] = []) -> Reading? {
+        look(at: picture, from: path, under: roots).map { Reading(lines: $0.lines, notes: $0.notes) }
+    }
+
     /// ``seen(_:from:under:)``, whether it took the sharper render, which looks for a license's
     /// barcode too, and what the lines read as when a colored page's two readings were weighed
     /// (nil otherwise), so they are not read once more.
     private static func look(at picture: Picture, from path: String, under roots: [String])
-        -> (lines: [String], sharper: Bool, read: (finds: [VaultFind], mentions: [VaultMention])?)? {
+        -> (lines: [String], sharper: Bool, read: (finds: [VaultFind], mentions: [VaultMention])?, notes: VaultReadNotes)? {
         guard var lines = picture.read(false).map({ $0.map(zeroed) }) else { return nil }
         var sharper = false
         if VaultReading.wantsSharperRead(lines), let again = picture.read(true).map({ $0.map(zeroed) }) {
@@ -174,6 +191,7 @@ public enum VaultPageSource {
                                 + (VaultReading.wantsSharperRead(lines) ? "still nothing read" : "now read"))
         }
         var read: (finds: [VaultFind], mentions: [VaultMention])?
+        var inkTaken = false
         if let ink = picture.inkOnly().map({ $0.map(zeroed) }) {
             let first = VaultReading.read(pages: [lines], from: path, under: roots)
             let inked = VaultReading.read(pages: [ink], from: path, under: roots)
@@ -182,8 +200,13 @@ public enum VaultPageSource {
                                 + (taken ? "that reading was taken" : "the first reading stands"))
             if taken { lines = ink }
             read = taken ? inked : first
+            inkTaken = taken
         }
-        return (lines, sharper, read)
+        var notes = VaultReadNotes()
+        notes.fromPicture = 1
+        notes.sharper = sharper ? 1 : 0
+        notes.inkOnly = inkTaken ? 1 : 0
+        return (lines, sharper, read, notes)
     }
 
     /// A line Vision read, with each "Ø" beside a digit put back to the zero it is. A visa foil
@@ -222,5 +245,44 @@ public enum VaultPageSource {
             return keeps(\.holder) && keeps(\.born) && keeps(\.issuer) && keeps(\.dated) && keeps(\.validUntil)
                 && Set(was.details.map(\.label)).isSubset(of: Set(kept.details.map(\.label)))
         }
+    }
+}
+
+/// How Read Documents got on with what it opened, counts only (VT25): files passed over and why,
+/// pages it could not recognise, and how pages were read. Summed over a read for its summary line.
+public struct VaultReadNotes: Equatable, Sendable {
+    /// PDFs with a password, passed over: theirs is not the Vault's to ask for.
+    public var locked = 0
+    /// Files that could not be opened at all.
+    public var unopenable = 0
+    /// Pages Vision could not recognise, left out.
+    public var unrecognised = 0
+    /// Pages read from their picture rather than their text layer.
+    public var fromPicture = 0
+    /// Pages rendered at 4000 pixels: read again sharper, or for a license's barcode.
+    public var sharper = 0
+    /// Pages on colored paper whose reading in their ink alone was taken.
+    public var inkOnly = 0
+
+    public init() {}
+
+    public static func + (a: VaultReadNotes, b: VaultReadNotes) -> VaultReadNotes {
+        var sum = a
+        sum.locked += b.locked; sum.unopenable += b.unopenable; sum.unrecognised += b.unrecognised
+        sum.fromPicture += b.fromPicture; sum.sharper += b.sharper; sum.inkOnly += b.inkOnly
+        return sum
+    }
+
+    /// "; 2 locked, 1 could not be opened, 3 page(s) not recognized; 40 page(s) read from their
+    /// picture, 2 rendered sharper, 5 taken in their ink alone": only what is not zero.
+    public var summary: String {
+        var out = ""
+        let skipped = [(locked, "locked"), (unopenable, "could not be opened"), (unrecognised, "page(s) not recognized")]
+            .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
+        if !skipped.isEmpty { out += "; " + skipped.joined(separator: ", ") }
+        let how = [(fromPicture, "page(s) read from their picture"), (sharper, "rendered sharper"), (inkOnly, "taken in their ink alone")]
+            .filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
+        if !how.isEmpty { out += "; " + how.joined(separator: ", ") }
+        return out
     }
 }

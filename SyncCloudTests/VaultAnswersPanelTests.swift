@@ -10,7 +10,7 @@ import Testing
     typealias Shelf = VaultRefreshPanelTests.Shelf
 
     /// A Vault with two health IDs read and waiting, the dental one chosen.
-    static func waiting() async throws -> (rig: (model: VaultModel, defaults: UserDefaults, proof: VaultPanelProof, cleanUp: () -> Void), dental: UUID) {
+    static func waiting() async throws -> (rig: (model: VaultModel, defaults: UserDefaults, proof: VaultFakeAuthenticator, cleanUp: () -> Void), dental: UUID) {
         let rig = try await VaultPanelRenderTests.rig()
         VaultReadFolders.add(VaultRefreshPanelTests.root, in: rig.defaults)
         await rig.model.readDocuments(with: Shelf([

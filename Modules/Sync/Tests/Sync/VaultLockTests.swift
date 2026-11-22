@@ -155,52 +155,11 @@ import Testing
     }
 }
 
-/// A stand-in for Touch ID that answers what the test tells it to and counts the asks.
-final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
-    var answer: VaultProof = .allowed
-    private(set) var reasons: [String] = []
-    func prove(reason: String) async -> VaultProof {
-        reasons.append(reason)
-        return answer
-    }
-}
-
 /// The panel's rules (``VaultModel``).
 @MainActor
 @Suite struct VaultModelTests {
-    /// A clock the test moves.
-    final class Clock: @unchecked Sendable {
-        var now = VaultLockTests.t0
-        func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
-    }
-
-    struct Rig {
-        let scratch: VaultScratch
-        let keychain = VaultFakeKeychain()
-        let auth = VaultFakeAuthenticator()
-        let clock = Clock()
-        let defaults: UserDefaults
-        let suite: String
-        var copied: [String] { box.copied }
-        final class Box: @unchecked Sendable { var copied: [String] = [] }
-        let box = Box()
-
-        init() throws {
-            scratch = try VaultScratch()
-            (suite, defaults) = vaultScratchSuite("vault-model-tests")
-        }
-
-        var store: VaultStore { VaultStore(fileURL: scratch.fileURL, keychain: keychain) }
-
-        @MainActor func model() -> VaultModel {
-            let clock = clock, box = box
-            return VaultModel(store: store, authenticator: auth, defaults: defaults,
-                              clock: { clock.now }, copyToPasteboard: { box.copied.append($0) })
-        }
-
-        func seed(_ entries: [VaultEntry]) throws { try store.save(entries) }
-        func cleanUp() { scratch.remove() }
-    }
+    typealias Clock = VaultTestClock
+    typealias Rig = VaultRig
 
     static let mortgage = VaultEntry(title: "Mortgage loan number", value: "0482917365", note: "Home loan servicer",
                                      kind: .home, addedAt: VaultLockTests.t0)

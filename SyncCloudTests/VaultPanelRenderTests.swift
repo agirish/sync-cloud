@@ -6,37 +6,6 @@ import Sync
 import Testing
 @testable import SyncCloud
 
-/// A keychain held in memory, for a Vault sealed in a temporary folder.
-final class VaultPanelKeychain: KeychainStore, @unchecked Sendable {
-    private var items: [String: Data] = [:]
-    private func key(_ query: [String: Any]) -> String {
-        "\(query[kSecAttrService as String] as? String ?? "")/\(query[kSecAttrAccount as String] as? String ?? "")"
-    }
-    func delete(_ query: [String: Any]) -> OSStatus {
-        items.removeValue(forKey: key(query)) == nil ? errSecItemNotFound : errSecSuccess
-    }
-    func add(_ attributes: [String: Any]) -> OSStatus {
-        guard items[key(attributes)] == nil, let data = attributes[kSecValueData as String] as? Data else { return errSecDuplicateItem }
-        items[key(attributes)] = data
-        return errSecSuccess
-    }
-    func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
-        guard let data = items[key(query)] else { return (errSecItemNotFound, nil) }
-        return (errSecSuccess, data as NSData)
-    }
-    func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus { errSecItemNotFound }
-}
-
-struct VaultPanelAllows: VaultAuthenticating {
-    func prove(reason: String) async -> VaultProof { .allowed }
-}
-
-/// A proof the test answers: allowed until told otherwise.
-final class VaultPanelProof: VaultAuthenticating, @unchecked Sendable {
-    var answer: VaultProof = .allowed
-    func prove(reason: String) async -> VaultProof { answer }
-}
-
 /// The whole Vault panel, drawn over a made-up household and read back. Every ID here is made up.
 ///
 /// Set `TEST_RUNNER_VAULT_PANEL_PNG` to a folder when running to keep each render as a PNG there,
@@ -46,13 +15,13 @@ final class VaultPanelProof: VaultAuthenticating, @unchecked Sendable {
     static let size = CGSize(width: 1000, height: 620)
 
     /// A Vault with one ID on each of several cards, unlocked.
-    static func rig() async throws -> (model: VaultModel, defaults: UserDefaults, proof: VaultPanelProof, cleanUp: () -> Void) {
+    static func rig() async throws -> (model: VaultModel, defaults: UserDefaults, proof: VaultFakeAuthenticator, cleanUp: () -> Void) {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-panel-\(UUID().uuidString)")
-        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultPanelKeychain())
+        let store = VaultStore(fileURL: folder.appendingPathComponent("vault.sealed"), keychain: VaultFakeKeychain())
         let scratch = TestDefaults()
         // Locked only by closing: a render late in a slow run must not find it timed out.
         scratch.defaults.set(VaultLockSettings.Relock.whenClosed.rawValue, forKey: VaultLockSettings.relockKey)
-        let proof = VaultPanelProof()
+        let proof = VaultFakeAuthenticator()
         let model = VaultModel(store: store, authenticator: proof, defaults: scratch.defaults,
                                copyToPasteboard: { _ in })
         await model.opened()

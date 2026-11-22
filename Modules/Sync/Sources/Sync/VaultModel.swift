@@ -13,6 +13,9 @@ public protocol VaultDocumentReading: Sendable {
     /// could not recognise) keeps the file from being marked read, so the next read tries it
     /// again (VT54). A reader that cannot tell says every page was.
     func reading(_ file: URL) async -> (pages: [[String]], complete: Bool)
+    /// ``reading(_:)``, and how it went, counts only (VT25): passed over as locked or unopenable,
+    /// pages not recognised, pages read from their picture. A reader that cannot tell notes nothing.
+    func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes)
     /// What a file holds, as a key two files share only when their bytes are the same (its size
     /// and SHA-256): a file whose bytes were read already in this read is not read again, its
     /// pages reused (VT107). Nil when the reader cannot tell, which reads every file.
@@ -41,6 +44,11 @@ extension VaultDocumentReading {
     public func walk() async -> (files: [URL], unreachable: [String]) { (await files(), []) }
 
     public func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) { (await pages(in: file), true) }
+
+    public func noted(_ file: URL) async -> (pages: [[String]], complete: Bool, notes: VaultReadNotes) {
+        let read = await reading(file)
+        return (read.pages, read.complete, VaultReadNotes())
+    }
 
     public func contentKey(of file: URL) async -> String? { nil }
 
@@ -1474,7 +1482,10 @@ public final class VaultModel: ObservableObject {
     /// The panel appeared. Reads the settings again, since Settings may have changed them, loads
     /// the file, and asks for a proof when the lock says to ask as it opens.
     public func opened() async {
+        let before = now
         now = clock()
+        // Left open by "even if closed" and run out before the timer said so: locked now, said once.
+        if lock.isOpen(at: before), !lock.isOpen(at: now) { logLocked("idle, while closed", wasOpen: true) }
         panelUp = true
         releaseWhenIdle?.cancel()
         // Opened again before a read that outlived the last close ended: the panel holds the
@@ -1482,6 +1493,7 @@ public final class VaultModel: ObservableObject {
         releaseAfterReading = false
         let settings = VaultLockSettings(defaults: defaults, store: store)
         if settings != lock.settings {
+            if settings.requiresAuthentication { logLocked("the lock’s settings changed") }
             lockEpoch &+= 1
             lock.settings = settings
             lock.lock()
@@ -1528,6 +1540,7 @@ public final class VaultModel: ObservableObject {
         now = clock()
         lockEpoch &+= 1
         panelUp = false
+        if lock.settings.relock.locksOnClose { logLocked("closed") }
         lock.closed()
         query = ""
         notice = nil
@@ -1539,14 +1552,40 @@ public final class VaultModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(Double(seconds) + 1))
                 guard let self, !Task.isCancelled, !self.panelUp else { return }
                 self.now = self.clock()
+                if !self.lock.isOpen(at: self.now) { self.logLocked("idle, while closed", wasOpen: true) }
                 self.lock.expire(at: self.now)
                 self.releaseIfLocked()
             }
         }
     }
 
+    /// How the lock is set, in Settings ▸ Vault's words, for the log.
+    static func lockMode(_ settings: VaultLockSettings) -> String {
+        guard settings.requiresAuthentication else { return "lock off" }
+        return "asks " + settings.ask.label.lowercased()
+            + (settings.ask == .whenOpened ? ", locks " + settings.relock.label.lowercased() : "")
+    }
+
+    /// Says the Vault locked and why (VT22): only an open Vault holding its numbers locks, which is
+    /// only ever one under "As soon as Vault opens". `wasOpen` is for a caller that has already seen
+    /// the lock run out.
+    private func logLocked(_ why: String, wasOpen: Bool? = nil) {
+        guard contents == .loaded, lock.settings.requiresAuthentication, wasOpen ?? lock.isOpen(at: clock()) else { return }
+        logSession("Vault: locked (\(why))")
+    }
+
+    /// Each session line as it is logged (VT22), for a test to read this model's own: the log's
+    /// capture sees every suite running beside it.
+    var sessionLine: ((String) -> Void)?
+
+    private func logSession(_ line: String) {
+        Logger.shared.info(line)
+        sessionLine?(line)
+    }
+
     /// Lock Now.
     public func lockNow() {
+        logLocked("Lock Now")
         lockEpoch &+= 1
         lock.lock()
         now = clock()
@@ -1581,6 +1620,7 @@ public final class VaultModel: ObservableObject {
     /// The Vault's file was replaced by a restore: lock, stop any read, and let go of what was
     /// loaded without sealing it over what the restore wrote. The next unlock reads the new file.
     private func vaultWasRestored() {
+        logLocked("restored from a backup")
         lockEpoch &+= 1
         lock.lock()
         now = clock()
@@ -1643,6 +1683,8 @@ public final class VaultModel: ObservableObject {
 
     /// The Mac is going to sleep or its screen locked: lock whatever the setting, and forget.
     public func systemLocked() {
+        // Also what the window closing does (`VaultHost`'s `onDisappear`).
+        logLocked("the Mac locked or slept, or the window closed")
         lockEpoch &+= 1
         lock.lock()
         now = clock()
@@ -1661,7 +1703,10 @@ public final class VaultModel: ObservableObject {
         next.expire(at: time)
         // Moved only when something drawn changes: then the panel redraws, and what reads the
         // time sees it. Otherwise everything drawn from the older time is the same.
-        if clockface(next, at: time) != clockface(lockState, at: now) { now = time }
+        if clockface(next, at: time) != clockface(lockState, at: now) {
+            if lockState.isOpen(at: now), !next.isOpen(at: time) { logLocked("idle", wasOpen: true) }
+            now = time
+        }
         lockState = next
         releaseIfSealedShut()
     }
@@ -1778,6 +1823,9 @@ public final class VaultModel: ObservableObject {
     /// Lets every number go from memory. To Confirm is sealed first, so the next unlock brings it
     /// back without reading anything again.
     private func release() {
+        if contents == .loaded {
+            logSession("Vault: let go of \(entries.count) saved ID(s) and \(finds.count) to confirm from memory")
+        }
         // Sealed whatever action is running: what is let go next cannot be sealed after.
         if contents == .loaded {
             let depth = sealDepth
@@ -1878,6 +1926,9 @@ public final class VaultModel: ObservableObject {
                     || (!sameRules && !(state.finds.isEmpty && state.copies.isEmpty && state.read.isEmpty))
                 if !sameRules { readingChanged = true }
             }
+            // Counts and the lock's settings only (VT22): never a title.
+            logSession("Vault: loaded, \(entries.count) saved ID(s) and \(finds.count) to confirm; "
+                       + Self.lockMode(lock.settings))
             keepSelectionVisible()
         } catch let error as VaultError {
             entries = []
@@ -1902,9 +1953,20 @@ public final class VaultModel: ObservableObject {
         let epoch = lockEpoch
         let proof = await authenticator.prove(reason: reason)
         now = clock()
+        // What was asked for, never for which ID or person (VT22).
+        let asked = id != nil ? "a proof for one ID" : reason == Self.unlockReason ? "a proof to unlock" : "a proof for a person’s IDs"
         // The panel closed, Lock Now was chosen or the Mac locked while the prompt was up: an
         // answer given after that opens nothing, and nothing is shown or copied for it.
-        guard epoch == lockEpoch else { return false }
+        guard epoch == lockEpoch else {
+            logSession("Vault: \(asked) was answered after the Vault closed or locked, and set aside")
+            return false
+        }
+        switch proof {
+        case .allowed: logSession("Vault: \(asked) was given")
+        case .cancelled: logSession("Vault: \(asked) was canceled")
+        case .unavailable: logSession("Vault: \(asked) could not be asked on this Mac")
+        case .failed: logSession("Vault: \(asked) failed")
+        }
         switch proof {
         case .allowed:
             notice = nil
@@ -1922,6 +1984,9 @@ public final class VaultModel: ObservableObject {
         }
     }
 
+    /// What the unlock prompt says after "SyncCloud is trying to".
+    static let unlockReason = "unlock your Vault"
+
     /// Unlock: the header's button, and what opening does by itself.
     /// True when the Vault is open afterwards. Opening it reads it: nothing was loaded for a
     /// locked panel.
@@ -1933,7 +1998,7 @@ public final class VaultModel: ObservableObject {
         }
         // Under "every number" there is nothing to unlock as a whole; the button is not drawn.
         guard lock.settings.ask == .whenOpened else { return false }
-        guard await prove("unlock your Vault", for: nil) else { return false }
+        guard await prove(Self.unlockReason, for: nil) else { return false }
         load()
         return true
     }
@@ -2352,7 +2417,9 @@ public final class VaultModel: ObservableObject {
             if let content, let read = readByContent[content] {
                 (pages, complete) = read
             } else {
-                (pages, complete) = await reader.reading(file)
+                let read = await reader.noted(file)
+                (pages, complete) = (read.pages, read.complete)
+                tally.notes = tally.notes + read.notes
                 if let content, !pages.isEmpty { readByContent[content] = (pages, complete) }
             }
             // Locked meanwhile, even if opened again since: this read was stopped.
@@ -2461,7 +2528,7 @@ public final class VaultModel: ObservableObject {
                                          scope: scope, updated: updated, missing: refreshMissing.count, gone: gone)
             Logger.shared.info("Vault: refreshed \(refreshKnown) document(s), \(tally.opened) opened, \(updated) ID(s) updated, "
                                + "\(tally.added) new, \(gone) no longer read, \(refreshMissing.count) not found, in "
-                               + String(format: "%.1f", Date().timeIntervalSince(began)) + " s")
+                               + String(format: "%.1f", Date().timeIntervalSince(began)) + " s" + tally.notes.summary)
             record(.refreshed, "Refreshed \(refreshKnown) document(s): \(updated) ID(s) updated, \(tally.added) new, "
                    + "\(refreshMissing.count) not found")
             if selection.flatMap(row) == nil { selection = visibleIDs.first }
