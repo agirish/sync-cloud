@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import Sync
@@ -220,6 +221,38 @@ import Testing
 
         model.undoMisread("Anna Maria Ericsson")
         #expect(try Self.anna(model).names.contains { $0.name == "Anna Maria Ericsson" })
+    }
+
+    /// Not a Misreading changes no view state of its own, so the model must say it changed:
+    /// before, People showed the old role until the next second's redraw (VT99).
+    @Test func everyRoleChangeTellsTheViewAtOnce() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        var told = 0
+        let watch = model.objectWillChange.sink { told += 1 }
+        defer { watch.cancel() }
+
+        model.setRole(.alsoUsed, of: "Anna Maria Ericsson", for: "anna")
+        #expect(told > 0, "Also used")
+        told = 0
+        model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna")
+        #expect(told > 0, "Misread")
+        told = 0
+        model.undoMisread("Anna Maria Ericsson")
+        #expect(told > 0, "taking a Misread back")
+    }
+
+    /// Rows never read a spelling's role, so choosing one rebuilds none (VT101). A Misread does
+    /// change what rows show, and does rebuild them.
+    @Test func aRoleRebuildsNoRowsButAMisreadDoes() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        let before = model.rowsRevision
+        model.setRole(.alsoUsed, of: "Anna Maria Ericsson", for: "anna")
+        model.setRole(.legal, of: "Anna Maria Eriksson", for: "anna")
+        #expect(model.rowsRevision == before)
+        model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna")
+        #expect(model.rowsRevision != before)
     }
 
     @Test func theLegalNameIsNeverMarkedMisreadAndALockedVaultChangesNothing() async throws {

@@ -453,7 +453,8 @@ public final class VaultModel: ObservableObject {
         var day: Int
         var folders: [String]
     }
-    private var rowsRevision = 0
+    /// Internal to read, so tests can see which changes rebuild the rows (VT71, VT101).
+    private(set) var rowsRevision = 0
     private var rowsCache: (key: RowsKey, rows: [Row])?
     /// Moves on whenever access ends by hand or by the system (close, Lock Now, sleep, new
     /// settings), so a proof asked for before it cannot open the Vault after it.
@@ -1071,10 +1072,13 @@ public final class VaultModel: ObservableObject {
 
     /// Names corrected everywhere (``Draft/correctEverywhere``): the name as read, by
     /// ``VaultReading/spellingKey(_:)``, and as it should be. Sealed with what was read.
-    private var names: [String: String] = [:] { didSet { rowsRevision &+= 1 } }
+    /// Published, so People's Misread and its undo show at once (VT99).
+    @Published private var names: [String: String] = [:] { didSet { rowsRevision &+= 1 } }
 
-    /// The roles chosen for each person's spellings (``VaultNameRoles``), by person.
-    var nameRoles: [String: VaultNameRoles] = [:] { didSet { rowsRevision &+= 1 } }
+    /// The roles chosen for each person's spellings (``VaultNameRoles``), by person. Published,
+    /// so a chosen role shows at once (VT99). Rows never read it, so it does not move
+    /// ``rowsRevision`` (VT101): only ``peopleSections`` does.
+    @Published var nameRoles: [String: VaultNameRoles] = [:]
 
     /// Corrects the name read as `key` to `name` on every ID read with it, or with nil, lets it
     /// be as read again. The People view's Misread; Edit's Everywhere does the same.

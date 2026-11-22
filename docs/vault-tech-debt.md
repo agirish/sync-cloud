@@ -48,9 +48,9 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 1. ~~Wait for the branches in flight to land.~~ Done.
 2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
    adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
-3. **Internal bugs:** VT99, VT104, VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c);
+3. **Internal bugs:** VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c);
    VT100 is the owner's call.
-4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT101, VT102, VT67, VT82, VT83,
+4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT102, VT67, VT82, VT83,
    VT84, VT85, VT77, VT78.
 5. **Tests and logging:** VT94, VT98, VT95, VT105, VT29, VT96, VT97, VT71, VT26, VT27, VT28, VT22, VT23,
    VT25.
@@ -75,6 +75,9 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 | VT24 silent failures | the same commit: both failures logged with size and marker only; a damaged reading file is renamed `…unreadable-<secs>`, never reset, and raises Read Again | where `names`, `nameRoles`, `lessons` live is VT6 |
 | VT56 Replace sets aside first | `5e33b3c47`: a failed save puts what was set aside back | sealing before the set-aside is not done: on a Mac whose key is gone it would make the new key while the old file is still in place, turning "key missing" into "wrong key" if the set-aside then failed |
 | VT57 Add Missing duplicates an id | `5e33b3c47`: `VaultEntry.reissued()`, `id` is `private(set)` | none |
+| VT99 a role change publishes nothing | "Vault: a chosen name role shows at once" (2026-11-21): `names` and `nameRoles` are `@Published`; Also used, Misread and its undo each tell the view | none |
+| VT101 a role change rebuilds every row | the same commit: `nameRoles` no longer moves `rowsRevision`, which tests can now read | none |
+| VT104 waiting finds merged again at every open | not done, measured 2026-11-21: 200 finds × 6 copies merge in ~60 ms per open (Debug; Release unmeasured, lower). The rebuild is what carries a merge change made without a `VaultReading.version` bump (as `vault-source` was) onto waiting IDs; skipping "already merged" finds would freeze the next such change, and a second hand-bumped revision costs more than it saves. Do not re-propose without a profile showing it | none |
 
 ---
 
@@ -382,8 +385,8 @@ open.** *Efficiency; checked; cost unmeasured.*
   at `:158`, `:237`, `:248`, `:304`, `:932`, `:984`, `:1109`, `:2151`, and by hand at `:730`, `:976`,
   `:1089`. `kinds` is `@Published` with no bump.
 - **Done when:** one table test changes each input in turn and asserts the rows follow. Since the
-  refresh it also covers `readFrom`'s hand bump (`:1063`) and asserts that `nameRoles` does not bump
-  (VT101).
+  refresh it also covers `readFrom`'s hand bump (`:1063`); `rowsRevision` is readable from tests
+  (VT101's test asserts `nameRoles` does not move it).
 
 **VT72 — Activity titles are cut at their last slash.** *Bug; checked.*
 - **The problem.** `record` masks with `VaultMask.fileName(what)` (`VaultModel.swift:1262`), which takes
@@ -391,16 +394,6 @@ open.** *Efficiency; checked; cost unmeasured.*
   Mortgage"; a proof reason "show H-1B / I-797" becomes " I-797".
 - **Fix.** A public `VaultMask.text(_:)` that masks the whole string.
 - **Done when:** a test uses a title with a slash. The fix makes a wrong line right.
-
-**VT99 — A role change publishes nothing.** *Bug; checked.*
-- **The problem.** `names` (`VaultModel.swift:1074`) and `nameRoles` (`:1077`) are not `@Published`;
-  their `didSet` bumps `rowsRevision`, which is not published either (`:453`). Not a Misreading
-  (`VaultPanel.swift:1380`) calls `setRole` and changes no view state, so People shows the old role
-  until the next one-second `tick()` redraws the panel (`VaultPanel.swift:262–265`). The popover paths
-  work only because closing a popover changes `@State`. VT9, which stops the per-second redraw, would
-  turn this into a view that stays stale.
-- **Fix.** `objectWillChange.send()` in `setRole` and `undoMisread`, or both `@Published private(set)`.
-- **Done when:** a test changes a role and sees `objectWillChange` fire. Do it before VT9.
 
 **VT100 — Two spellings can share one role key.** *Bug; checked; owner's call.*
 - **The problem.** People merges printed names with `caseInsensitiveCompare` (`peopleSections`,
@@ -410,18 +403,6 @@ open.** *Efficiency; checked; cost unmeasured.*
   second chip marks the first; Misread on it corrects nothing (`VaultNames.swift:103–105`).
 - **Owner's call.** Merging chips by `spellingKey` makes one of the two disappear. The internal half:
   key every role lookup by the chip's own index, so each chip acts on itself.
-
-**VT101 — A role change rebuilds every row.** *Efficiency; checked.*
-- **The problem.** `nameRoles`' `didSet` bumps `rowsRevision`, but `computedRows` never reads it; only
-  `roled` does.
-- **Fix.** No bump (VT99 covers the redraw). VT71's table test asserts it.
-
-**VT104 — Every waiting find is merged again at every open.** *Efficiency; checked.*
-- **The problem.** `if sameRules { finds = finds.map { rebuilt(...) } }` (`VaultModel.swift:1603` at
-  `710b5aaa3`) was meant for finds an older build merged, but sets no flag, so it runs on the main actor
-  at every open, for good.
-- **Fix.** Rebuild only finds with `facts.spokenBy == nil`; for one merged by this build it is a no-op.
-- **Done when:** a test opens twice and counts the merges; rows are byte-identical before and after.
 
 **VT22 — Session lines.** *Partly.*
 - **The problem.** The activity list records `unlocked` and `proofRefused` (`:1535–1543`). The log gets
