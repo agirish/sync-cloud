@@ -48,7 +48,7 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 1. ~~Wait for the branches in flight to land.~~ Done.
 2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
    adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
-3. **Internal bugs:** VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c);
+3. **Internal bugs:** VT58 (the main-actor half), VT68, VT52, VT54, VT59, VT73 (a, c);
    VT100 is the owner's call.
 4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT102, VT67, VT82, VT83,
    VT84, VT85, VT77, VT78.
@@ -77,6 +77,7 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 | VT57 Add Missing duplicates an id | `5e33b3c47`: `VaultEntry.reissued()`, `id` is `private(set)` | none |
 | VT99 a role change publishes nothing | "Vault: a chosen name role shows at once" (2026-11-21): `names` and `nameRoles` are `@Published`; Also used, Misread and its undo each tell the view | none |
 | VT101 a role change rebuilds every row | the same commit: `nameRoles` no longer moves `rowsRevision`, which tests can now read | none |
+| VT63 a name correction sealed before its save | "Vault: a refused save makes no name correction" (2026-11-21): `storedName` returns the correction and `apply(_:)` makes and seals it only after `write`, for Confirm and Edit alike. The old order also reached the disk: a later seal wrote it | none |
 | VT104 waiting finds merged again at every open | not done, measured 2026-11-21: 200 finds × 6 copies merge in ~60 ms per open (Debug; Release unmeasured, lower). The rebuild is what carries a merge change made without a `VaultReading.version` bump (as `vault-source` was) onto waiting IDs; skipping "already merged" finds would freeze the next such change, and a second hand-bumped revision costs more than it saves. Do not re-propose without a profile showing it | none |
 
 ---
@@ -300,15 +301,6 @@ derivations are open.*
   - finds are indexed by normalised number, and copies by path.
 
   VT31 makes this mandatory, since every read would then prompt.
-
-**VT63 — An "everywhere" name correction is sealed before the save it belongs to.** *Bug; checked.*
-- **The problem.** `storedName` changes `names` and calls `saveReading` before `write(entries)`
-  (`VaultModel.swift:1643` → `:1644` in `add`; `:1671` → `:1675` in `update`). If the write is refused,
-  the panel says the change wasn't kept, but the correction is sealed and already renames every other ID
-  read under that name.
-- **Fix.** `storedName` returns the pending change, which is applied and sealed only after `write`
-  succeeds.
-- **Done when:** a test with a failing store shows `names` unchanged.
 
 **VT64 — A removed ID's number lives on in the reading file.** *Privacy; checked.*
 - **The problem.** `delete` (`:1705–1721`) leaves `copies[number]` (whole `VaultFind`s, value included)

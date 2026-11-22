@@ -72,6 +72,49 @@ import Testing
         #expect(Self.holder(model, "HR55554444") == "Divit Girish")
     }
 
+    /// A correction made everywhere belongs to the save it came with: a save the Keychain refuses
+    /// renames no other ID, now or after the Vault is opened again (VT63).
+    @Test func aRefusedSaveMakesNoCorrectionEverywhere() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        var draft = model.prepared(VaultModel.Draft(find))
+        draft.holderName = "Divit Girish"
+        draft.correctEverywhere = true
+
+        rig.keychain.forcedCopyStatus = errSecAuthFailed
+        #expect(model.confirm(find.id, as: draft) == nil, "the save was refused")
+        #expect(Self.holder(model, "VSP99887766") == "Dlvit Girish", "renamed by a change that was not kept")
+        rig.keychain.forcedCopyStatus = nil
+
+        model.closed()
+        await model.opened()
+        #expect(Self.holder(model, "VSP99887766") == "Dlvit Girish")
+        // Saved this time, it reaches the others.
+        let again = try #require(model.finds.first { $0.value == "XZB123456789" })
+        #expect(model.confirm(again.id, as: draft) != nil)
+        #expect(Self.holder(model, "VSP99887766") == "Divit Girish")
+    }
+
+    /// The same for Edit: a refused save of a saved ID makes no correction everywhere (VT63).
+    @Test func aRefusedEditMakesNoCorrectionEverywhere() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        let saved = try Self.confirm(model, "XZB123456789", name: nil, everywhere: false)
+        let entry = try #require(model.entries.first { $0.id == saved })
+        var draft = model.prepared(VaultModel.Draft(entry), for: saved)
+        draft.holderName = "Divit Girish"
+        draft.correctEverywhere = true
+
+        rig.keychain.forcedCopyStatus = errSecAuthFailed
+        #expect(await model.update(saved, to: draft) == false, "the save was refused")
+        #expect(Self.holder(model, "VSP99887766") == "Dlvit Girish")
+        rig.keychain.forcedCopyStatus = nil
+        model.closed()
+        await model.opened()
+        #expect(Self.holder(model, "VSP99887766") == "Dlvit Girish")
+    }
+
     /// Confirming or editing another ID read the same way, its Name untouched, leaves the
     /// correction where it was.
     @Test func savingAnotherIDUntouchedKeepsTheCorrectionEverywhere() async throws {

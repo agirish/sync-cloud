@@ -1113,20 +1113,33 @@ public final class VaultModel: ObservableObject {
     /// correction, which this save makes, changes or, put back as read, unmakes); without, the
     /// name typed, or, typed back as read where a correction made everywhere would change it,
     /// the name as read, so it stays as read.
-    private func storedName(for draft: Draft, read: String?) -> String? {
+    ///
+    /// A correction made everywhere comes back as `everywhere`, not made: the caller makes it with
+    /// ``apply(_:)`` only once the save it belongs to is on disk, so a refused save renames no
+    /// other ID (VT63).
+    private func storedName(for draft: Draft, read: String?) -> (own: String?, everywhere: NameCorrection?) {
         let typed = draft.holderName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let wanted = typed.flatMap { $0.isEmpty || $0 == read ? nil : $0 }
-        guard let read else { return wanted }
+        guard let read else { return (wanted, nil) }
         let key = VaultReading.spellingKey(read)
         if draft.correctEverywhere, !key.isEmpty {
-            if names[key] != wanted {
-                names[key] = wanted
-                readingChanged = true
-                saveReading()
-            }
-            return nil
+            return (nil, names[key] != wanted ? NameCorrection(key: key, name: wanted) : nil)
         }
-        return wanted ?? (names[key] != nil ? read : nil)
+        return (wanted ?? (names[key] != nil ? read : nil), nil)
+    }
+
+    /// A correction made everywhere, waiting on the save it belongs to.
+    private struct NameCorrection {
+        let key: String
+        let name: String?
+    }
+
+    /// Makes and seals `correction`, after the save it came with.
+    private func apply(_ correction: NameCorrection?) {
+        guard let correction else { return }
+        names[correction.key] = correction.name
+        readingChanged = true
+        saveReading()
     }
 
     /// How many IDs other than `id` a correction made everywhere for `name` would change: those
@@ -1764,8 +1777,10 @@ public final class VaultModel: ObservableObject {
         entry.geo = draft.geo ?? waiting?.geo
         entry.card = draft.card ?? waiting?.card
         entry.chosenSource = chosenSource ?? waiting?.chosenSource
-        entry.holderName = draft.facts == nil ? nil : storedName(for: draft, read: readHolder ?? facts?.holder)
+        let name = draft.facts == nil ? (own: nil, everywhere: nil) : storedName(for: draft, read: readHolder ?? facts?.holder)
+        entry.holderName = name.own
         guard write(entries + [entry]) else { return nil }
+        apply(name.everywhere)
         dropFinds(matching: entry.value)
         selection = entry.id
         showEvenIfFiltered(entry.id)
@@ -1793,12 +1808,14 @@ public final class VaultModel: ObservableObject {
         changed[index].geo = draft.geo
         changed[index].card = draft.card
         let shownRead = rows.first { $0.id == id }?.holderAsRead
-        changed[index].holderName = changed[index].facts == nil ? nil
+        let name = changed[index].facts == nil ? (own: nil, everywhere: nil)
             : storedName(for: draft, read: shownRead ?? changed[index].facts?.holder)
+        changed[index].holderName = name.own
         changed[index].updatedAt = clock()
         used()
         let before = entries[index]
         guard write(changed) else { return false }
+        apply(name.everywhere)
         record(.edited, id: id)
         // A read number corrected by hand: the misreading is set aside, as Confirm does, so the
         // next read does not offer it again.
