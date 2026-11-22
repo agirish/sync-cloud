@@ -5,6 +5,43 @@ import Testing
 /// Read Documents over time: reading again, confirming, correcting, files that come and go.
 @MainActor
 @Suite struct VaultReadDocumentsTests {
+    /// Twelve member cards; the tenth opened stops the read, as Stop on the banner does.
+    struct StopsAtTheTenth: VaultDocumentReading {
+        final class Count: @unchecked Sendable { var opened = 0 }
+        let count = Count()
+        static func path(_ n: Int) -> String { "/Users/anna/Documents/Health/Dental/ID Cards/card \(n).pdf" }
+        func files() async -> [URL] { (1...12).map { URL(fileURLWithPath: Self.path($0)) } }
+        func pages(in file: URL) async -> [[String]] {
+            count.opened += 1
+            if count.opened == 10 { withUnsafeCurrentTask { $0?.cancel() } }
+            let n = (1...12).first { Self.path($0) == file.path } ?? 0
+            return [["Delta Dental", "Member Name: ANNA ERIKSSON", String(format: "Member ID: XZB1234567%02d", n)]]
+        }
+        func stamp(of file: URL) -> String? { "1" }
+        func modified(of file: URL) -> Date? { nil }
+        var followsReadPlan: Bool { false }
+        func exists(_ file: URL) -> Bool { true }
+    }
+
+    /// Stop keeps what was read: sealed at once, not at the next 25th file, so a quit with the
+    /// lock off loses none of it (VT68).
+    @Test @MainActor func whatAStoppedReadFoundIsSealed() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = rig.model()
+        await model.opened()
+        let reader = StopsAtTheTenth()
+        await Task { await model.readDocuments(with: reader) }.value
+        #expect(reader.count.opened == 10, "the read went on past Stop")
+        let found = model.finds.count
+        #expect(found == 9, "the tenth was opened as the read stopped, and is not taken")
+
+        // What a quit would leave: the sealed file, opened by a model of its own.
+        let after = rig.model()
+        await after.opened()
+        #expect(after.finds.count == found, "what the stopped read found was not sealed")
+    }
+
     typealias Rig = VaultModelTests.Rig
     typealias InterruptingProof = VaultFixtures.InterruptingProof
 

@@ -48,7 +48,7 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 1. ~~Wait for the branches in flight to land.~~ Done.
 2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
    adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
-3. **Internal bugs:** VT58 (the main-actor half), VT68, VT52, VT54, VT59, VT73 (a, c);
+3. **Internal bugs:** VT58 (the main-actor half), VT52, VT54, VT59, VT73 (a, c);
    VT100 is the owner's call.
 4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT102, VT67, VT82, VT83,
    VT84, VT85, VT77, VT78.
@@ -78,6 +78,7 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 | VT99 a role change publishes nothing | "Vault: a chosen name role shows at once" (2026-11-21): `names` and `nameRoles` are `@Published`; Also used, Misread and its undo each tell the view | none |
 | VT101 a role change rebuilds every row | the same commit: `nameRoles` no longer moves `rowsRevision`, which tests can now read | none |
 | VT63 a name correction sealed before its save | "Vault: a refused save makes no name correction" (2026-11-21): `storedName` returns the correction and `apply(_:)` makes and seals it only after `write`, for Confirm and Edit alike. The old order also reached the disk: a later seal wrote it | none |
+| VT68 Stop loses up to 24 files' reads | "Vault: Stop keeps what was read on disk" (2026-11-21): `readDocuments` seals on every way out (its `defer`), a no-op when nothing changed or the numbers were let go | none |
 | VT104 waiting finds merged again at every open | not done, measured 2026-11-21: 200 finds × 6 copies merge in ~60 ms per open (Debug; Release unmeasured, lower). The rebuild is what carries a merge change made without a `VaultReading.version` bump (as `vault-source` was) onto waiting IDs; skipping "already merged" finds would freeze the next such change, and a second hand-bumped revision costs more than it saves. Do not re-propose without a profile showing it | none |
 
 ---
@@ -357,13 +358,6 @@ open.** *Efficiency; checked; cost unmeasured.*
   - no stat runs on the main actor;
   - the open-time pass is measured on his folder;
   - a not-downloaded file is shown to be neither downloaded nor reported missing.
-
-**VT68 — Stop and quit can lose up to 24 files' reads.** *Bug; checked.*
-- **The problem.** State is sealed only every 25 opened files (`:1974`). `stopped(at:)` (`:1870`) and the
-  `defer` (`:1817`) do not seal, and with the lock off nothing releases the model. Quitting after Stop
-  therefore loses those finds and their stamps, although the comment at `:1387` says what was read is
-  kept.
-- **Done when:** a test that cancels at file 10 finds them on disk.
 
 **VT70 — "Whose is it" is worked out in two places.** *Duplication; checked; owner's call.*
 - **The problem.** The editor matches the name as read (`Draft(find, people:)`, `:136–143`). The row uses

@@ -1958,6 +1958,10 @@ public final class VaultModel: ObservableObject {
         }
         reading = ReadingProgress(done: 0, total: 0, scope: scope)
         defer {
+            // However the read ended (Stop included), what it read so far is sealed: it was sealed
+            // only every 25 files, and with the lock off nothing else would before a quit (VT68).
+            // Nothing to seal, or the numbers already let go, and this does nothing.
+            saveReading()
             reading = nil
             // The Vault closed while this read went on, and kept the numbers for it: let them go
             // now, as closing would have, however the read ended.
@@ -2043,8 +2047,8 @@ public final class VaultModel: ObservableObject {
         }
         for (index, step) in steps.enumerated() {
             let file = step.file
-            // The panel closed or the Mac locked, letting the numbers go. What was
-            // read so far was sealed as it went.
+            // Stopped, or the panel closed or the Mac locked, letting the numbers go. What was
+            // read so far is sealed: by the release, or on the way out (the `defer` above).
             if Task.isCancelled || contents != .loaded { return stopped(at: index) }
             if !scope.isRefresh, let account = step.account, settled.contains(account) {
                 reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
