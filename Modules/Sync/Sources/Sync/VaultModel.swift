@@ -2286,14 +2286,36 @@ public final class VaultModel: ObservableObject {
             finds[index] = rebuilt(finds[index], value)
             return false
         }
-        if entries.contains(where: { VaultReading.normalized($0.value) == value }) {
-            copies[value, default: [:]][path] = find
+        if let entry = entries.first(where: { VaultReading.normalized($0.value) == value }) {
+            // Another person's paper carrying the number (a dependent's card printing only the
+            // subscriber's ID) names it, and never speaks for it: its name and dates are not this ID's.
+            if isAnotherPersons(find, than: entry), let source = find.facts.primary {
+                mentions[value, default: []].append(VaultSource(path: source.path, role: source.role,
+                                                                rank: VaultReading.Rank.mention))
+            } else {
+                copies[value, default: [:]][path] = find
+            }
             return false
         }
         guard isNew(find) else { return false }
         copies[value, default: [:]][path] = find
         finds.append(rebuilt(find, value))
         return true
+    }
+
+    /// Whether `find` is made out to another of the household's people than the saved `entry`:
+    /// each answers to one person, by the choice made for it or its name (corrected, when it
+    /// was), and the two differ. A name that matches no one, or the same person's name misread,
+    /// leaves it a copy of the entry.
+    private func isAnotherPersons(_ find: VaultFind, than entry: VaultEntry) -> Bool {
+        func person(_ assignment: VaultAssignment?, _ holder: String?, own: String?) -> String? {
+            if case .person(let id)? = assignment { return id }
+            if assignment == .household { return nil }
+            return Self.person(named: correctedName(holder, own: own) ?? holder, among: people)
+        }
+        guard let held = person(entry.assignment, entry.facts?.holder, own: entry.holderName),
+              let read = person(find.assignment, find.facts.holder, own: nil) else { return false }
+        return held != read
     }
 
     /// `find` as all its documents now say, keeping its id and the user's choices.

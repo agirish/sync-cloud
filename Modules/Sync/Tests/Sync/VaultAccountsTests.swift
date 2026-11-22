@@ -525,4 +525,32 @@ import Testing
         #expect(rows.first { $0.value == "2045871" }?.personID == "liv")
         #expect(rows.first { $0.value == "VSP99887766" }?.personID == nil, "no person's folder above it but the Mac's own")
     }
+
+    /// A dependent's card that prints only the subscriber's number: a newer card under the saved
+    /// number, but another person's, never speaks for it. It is listed as naming it.
+    @Test func aDependentsCardPrintingTheSubscribersIDLeavesTheSavedIDAlone() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson"), Person(id: "liv", displayName: "Liv Eriksson")]
+        await model.opened()
+        let dental = Self.root + "/Health/Dental/ID Cards"
+        let anna = dental + "/2024/Anna card.pdf", liv = dental + "/2025/Liv card.pdf"
+        let annaCard = ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"]
+        let livCard = ["Delta Dental", "Member Name: LIV ERIKSSON", "Subscriber ID: XZB123456789"]
+        await model.readDocuments(with: PlannedDocuments(pages: [anna: annaCard]))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        let saved = try #require(model.confirm(find.id, as: model.prepared(VaultModel.Draft(find), for: find.id)))
+        let before = try #require(model.rows.first { $0.id == saved })
+        #expect(before.personID == "anna" && before.facts?.holder == "Anna Eriksson")
+
+        await model.readDocuments(with: PlannedDocuments(pages: [anna: annaCard, liv: livCard]), again: true)
+        let row = try #require(model.rows.first { $0.id == saved })
+        #expect(row.facts?.holder == "Anna Eriksson" && row.personID == "anna", "Liv's card does not rename Anna's ID")
+        #expect(row.facts?.dated == before.facts?.dated, "nor give it Liv's card's date")
+        #expect(row.facts?.primary?.path == anna)
+        #expect(row.facts?.sources.first { $0.path == liv }?.rank == VaultReading.Rank.mention,
+                "Liv's card is listed as naming it, not as its source")
+        #expect(model.finds.allSatisfy { $0.value != "XZB123456789" }, "nor offered again as a new ID")
+    }
 }
