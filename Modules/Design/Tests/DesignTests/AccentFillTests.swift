@@ -8,8 +8,20 @@ import Testing
 /// white is that this function guarantees the fill can carry it.
 @Suite struct AccentFillTests {
 
-    private func srgb(_ color: Color) -> NSColor {
-        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
+    /// Resolved in `appearance`, or with none named. The hues are fixed sRGB, the same in either
+    /// appearance, so most tests name none; `.red` is a system colour with a dark value of its own
+    /// and is resolved in each appearance by name (`docs/flaky-tests.md`, "A dynamic colour resolved
+    /// in whatever appearance the app had that moment").
+    private func srgb(_ color: Color, in appearance: NSAppearance.Name? = nil) -> NSColor {
+        var converted: NSColor?
+        if let appearance {
+            NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
+                converted = NSColor(color).usingColorSpace(.sRGB)
+            }
+        } else {
+            converted = NSColor(color).usingColorSpace(.sRGB)
+        }
+        guard let converted else {
             Issue.record("\(color) has no sRGB representation")
             return .white
         }
@@ -73,8 +85,15 @@ import Testing
     }
 
     /// The destructive red goes through the same call as the accents (`actionBarButton`), so its
-    /// white label has to survive the trip too — it starts dark enough that nothing should happen.
-    @Test func destructiveRedAlreadyCarriesWhite() {
-        #expect(whiteContrast(srgb(AccentFill.deepened(.red))) >= 4.5)
+    /// white label has to survive the trip too. Raw red carries white at only about 3.5:1, so the
+    /// deepening does the work, and in both appearances: `.red` has a dark value of its own, which
+    /// `deepened` must re-resolve rather than fix at call time.
+    @Test func destructiveRedCarriesWhiteOnceDeepened() {
+        for appearance: NSAppearance.Name in [.aqua, .darkAqua] {
+            #expect(whiteContrast(srgb(.red, in: appearance)) < 4.5,
+                    "raw red carries white in \(appearance.rawValue); this no longer tests the deepening")
+            let deep = whiteContrast(srgb(AccentFill.deepened(.red), in: appearance))
+            #expect(deep >= 4.5, "deepened red carries white at only \(deep):1 in \(appearance.rawValue)")
+        }
     }
 }

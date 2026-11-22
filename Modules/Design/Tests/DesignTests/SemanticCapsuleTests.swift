@@ -9,7 +9,11 @@ import Testing
 @Suite struct SemanticCapsuleTests {
 
     /// WCAG contrast ratio between two colors, via `AccentLabel`'s luminance (the module's one
-    /// implementation of the formula).
+    /// implementation of the formula). No appearance named: the capsule colours are fixed sRGB, and
+    /// the system accent `.none` brings in has the same value in Aqua and Dark Aqua (measured on
+    /// macOS 27); were it to differ, it only joins a minimum and a floor `AccentFill.deepened`
+    /// guarantees (`docs/flaky-tests.md`, "A dynamic colour resolved in whatever appearance the app
+    /// had that moment").
     private func contrast(_ a: Color, _ b: Color) -> Double {
         func luminance(_ color: Color) -> CGFloat {
             guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return 0 }

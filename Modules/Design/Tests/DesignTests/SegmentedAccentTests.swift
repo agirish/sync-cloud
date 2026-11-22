@@ -11,6 +11,11 @@ import Testing
 /// app, never offscreen. This pins the colour choice, metric neutrality and call-site coverage.
 @Suite struct SegmentedAccentTests {
 
+    /// No appearance named: the hues are fixed sRGB, and the system accent `.none` reads has the
+    /// same value in Aqua and Dark Aqua (measured on macOS 27), so two resolutions either
+    /// side of a pin still agree. If the accent ever gains a dark value, name the appearance here
+    /// (`docs/flaky-tests.md`, "A dynamic colour resolved in whatever appearance the app had that
+    /// moment").
     private func srgb(_ color: Color) -> NSColor {
         guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
             Issue.record("\(color) has no sRGB representation")

@@ -99,6 +99,9 @@ import SwiftUI
 
     // MARK: - Contrast helpers
 
+    /// No appearance named: every colour resolved here is fixed sRGB, the same in either
+    /// appearance; `.none`, the one system colour, is skipped (`docs/flaky-tests.md`, "A dynamic
+    /// colour resolved in whatever appearance the app had that moment").
     private func srgb(_ color: Color) -> NSColor {
         guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
             Issue.record("\(color) has no sRGB representation")

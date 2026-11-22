@@ -44,7 +44,8 @@ import SwiftUI
             size: size, appearance: scheme == .dark ? .darkAqua : .aqua))
     }
 
-    /// Pixels within 0.02 of `hue`'s raw accent on every channel, read from `colorAt` as-is.
+    /// Pixels within 0.02 of `hue`'s raw accent on every channel, read from `colorAt` as-is. The
+    /// target needs no appearance named: the tests pass only Coral, which is fixed sRGB.
     private func pixels(of hue: LiquidGlassHue, in rep: NSBitmapImageRep) throws -> Int {
         let target = try #require(NSColor(hue.accentColor).usingColorSpace(.sRGB))
         var n = 0

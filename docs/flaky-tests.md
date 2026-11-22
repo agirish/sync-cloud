@@ -5719,9 +5719,30 @@ for: dark `move` starts under `darkTextLuminance` and the lift brings it up to i
 3 s hold the suite passes; with `lightened` returning its input, the dark readability test and the
 lift test go red.
 
+**Audit of the other Design suites, 2026-11-22.** Five more resolve with a bare `srgb`:
+`AccentFillTests`, `SegmentedAccentTests`, `SemanticCapsuleTests`, `AccentLabelColorTests` and
+`StoredHueAccentTests`. None can flip. A probe resolved every colour they read in Aqua and in Dark
+Aqua: the hues and capsule colours are fixed sRGB, and the system accent (`.none`,
+`Color.accentColor`) is 0, 0.478, 1 in both on macOS 27, so even `SegmentedAccentTests`' pairs of
+separate resolutions agree either side of a pin. The one colour with a dark value is `.red`, in
+`AccentFillTests`. Holding Dark for 20 s in the pin test, with each suite waiting for the hold
+before every test, all five passed; a control in the same run read systemRed's dark value, so the
+hold reached the pool. `StoredHueAccentTests` is `@MainActor` and cannot run inside the pin at all.
+
+One test changed. `AccentFillTests.destructiveRedAlreadyCarriesWhite` said red starts dark enough
+that deepening does nothing; raw red carries white at 3.57:1 in light and 3.43:1 in dark, so the
+deepening does the work. Renamed `destructiveRedCarriesWhiteOnceDeepened`, it now resolves in Aqua
+and in Dark Aqua by name and asserts that raw red misses 4.5:1 in each. Proof: with `deepened`
+returning dark values untouched, the new test goes red and the old one passes; the old one, and the
+hue tests beside it, caught that only under the Dark hold. The fill's provider runs per appearance
+even for a fixed hue, so the old suite's verdict on a dark-only bug depended on what `NSApp` had.
+The other four suites' helpers say in a comment why they name no appearance.
+
 **Tell.** A colour test that reads `NSColor(someDynamicColor)` with no appearance around it, in a
 package where any suite writes `NSApp.appearance`. Name the appearance: what a colour test means
-depends on it.
+depends on it. A bare resolve is safe only when every colour it reads has one value in both
+appearances; measure that, and say so beside the helper.
 
 **See.** `SemanticInkContrastTests.srgb(_:in:)` in
-`Modules/Design/Tests/DesignTests/SemanticInkContrastTests.swift`.
+`Modules/Design/Tests/DesignTests/SemanticInkContrastTests.swift`, and
+`AccentFillTests.destructiveRedCarriesWhiteOnceDeepened`.
