@@ -478,7 +478,9 @@ import Testing
     @Test @MainActor func aVaultFileThatDoesNotOpenIsLoggedWithItsSizeAndMarkerOnly() async throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain())
-        try store.save([VaultEntry(title: "Passport", value: "Q7310462", addedAt: Self.day)])
+        // A title and number no other suite uses: the capture sees every case running beside
+        // this one, and a word like "Passport" is in their lines.
+        try store.save([VaultEntry(title: "Kestrelwood pass", value: "Q7310462", addedAt: Self.day)])
         var damaged = try Data(contentsOf: scratch.fileURL)
         damaged[damaged.count - 1] ^= 0x01
         try damaged.write(to: scratch.fileURL)
@@ -488,7 +490,7 @@ import Testing
         let lines = await log.entries.map(\.messageBody)
         // The whole sentence, size included: a sibling case's damaged file logs the same words.
         #expect(lines.contains("Vault: the sealed file did not open (wrongKeyOrDamaged, \(damaged.count) bytes, begins SCVAULT1) — it is left as it is"))
-        #expect(!lines.contains { $0.contains("Q7310462") || $0.contains("Passport") })
+        #expect(!lines.contains { $0.contains("Q7310462") || $0.contains("Kestrelwood") })
     }
 
     @Test func aSummaryNamesOnlyAVaultMarker() {
