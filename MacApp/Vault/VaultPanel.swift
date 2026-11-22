@@ -1650,9 +1650,6 @@ struct VaultCard: View {
     private var tabBanner: some View {
         if !model.query.trimmingCharacters(in: .whitespaces).isEmpty {
             EmptyView()
-        } else if model.tab == .archive {
-            Text("Older IDs: run out, replaced by a newer one, or filed in an Archive folder. Kept for reference; add one only if a form may ask for it.")
-                .scaledFont(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         } else if model.tab == .other {
             Text("Kinds the Vault can read but doesn’t show on the main view yet.")
                 .scaledFont(.subheadline).foregroundStyle(.secondary)
