@@ -74,6 +74,10 @@ extension VaultModel {
     /// A person's names and birth date come from all their documents, on either tab and whatever
     /// the filters hide: they are facts about the person, not about one ID.
     public var peopleSections: [VaultPersonSection] {
+        peopleSections(computing: computedPeopleSections)
+    }
+
+    var computedPeopleSections: [VaultPersonSection] {
         func owner(_ row: Row) -> VaultPersonSection.Owner {
             if row.isHousehold { return .household }
             if let id = row.personID { return .person(id) }

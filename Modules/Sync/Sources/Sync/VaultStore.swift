@@ -126,8 +126,18 @@ enum SealedFile {
             Logger.shared.warning("Vault: \(url.lastPathComponent) could not be made owner-only — \(error.localizedDescription)")
         }
         if fileManager.fileExists(atPath: target.path) {
-            _ = try fileManager.replaceItemAt(target, withItemAt: temporary, backupItemName: nil,
-                                              options: .usingNewMetadataOnly)
+            do {
+                _ = try fileManager.replaceItemAt(target, withItemAt: temporary, backupItemName: nil,
+                                                  options: .usingNewMetadataOnly)
+            } catch {
+                // A replace that failed partway can leave the original in the replacement folder,
+                // which the `defer` would remove: it goes back first.
+                if let original = (error as NSError).userInfo["NSFileOriginalItemLocationKey"] as? URL,
+                   !fileManager.fileExists(atPath: target.path) {
+                    try? fileManager.moveItem(at: original, to: target)
+                }
+                throw error
+            }
         } else {
             // A link whose file is gone is replaced, as a whole-file write always did.
             if (try? fileManager.destinationOfSymbolicLink(atPath: target.path)) != nil {
@@ -149,11 +159,22 @@ public struct VaultRecords: Equatable, Sendable {
     /// (``VaultEntry/storedKeys``), by id, as a JSON object: merged back in when it is sealed, so
     /// an older build's save never drops them.
     public var laterFields: [UUID: Data]
+    /// For a record holding something this build does not write (a later field at any depth),
+    /// the record as read and its JSON as stored: sealed back as it came while it is unchanged,
+    /// so a later field nested inside it (in its facts, say) is not lost to a save here.
+    public var stored: [UUID: [StoredRecord]]
 
-    public init(entries: [VaultEntry] = [], newer: [Data] = [], laterFields: [UUID: Data] = [:]) {
+    public struct StoredRecord: Equatable, Sendable {
+        public let entry: VaultEntry
+        public let json: Data
+    }
+
+    public init(entries: [VaultEntry] = [], newer: [Data] = [], laterFields: [UUID: Data] = [:],
+                stored: [UUID: [StoredRecord]] = [:]) {
         self.entries = entries
         self.newer = newer
         self.laterFields = laterFields
+        self.stored = stored
     }
 }
 
@@ -178,12 +199,10 @@ public enum VaultFile {
     /// Seals `records`: the entries as one JSON array, as every build before this one wrote them,
     /// with any newer records after them, each as it was read.
     public static func seal(_ records: VaultRecords, with key: SymmetricKey) throws -> Data {
-        guard !records.newer.isEmpty || !records.laterFields.isEmpty else {
+        guard !records.newer.isEmpty || !records.laterFields.isEmpty || !records.stored.isEmpty else {
             return try seal(records.entries, marker: marker, with: key)
         }
-        let encoder = jsonEncoder()
-        let elements = try records.entries.map { try merging(encoder.encode($0), records.laterFields[$0.id]) }
-            + records.newer
+        let elements = try elements(of: records)
         var plain = Data("[".utf8)
         for (index, element) in elements.enumerated() {
             if index > 0 { plain.append(Data(",".utf8)) }
@@ -191,6 +210,19 @@ public enum VaultFile {
         }
         plain.append(Data("]".utf8))
         return try sealPlain(plain, marker: marker, with: key)
+    }
+
+    /// Each record as it is sealed: unchanged ones holding what this build does not write as they
+    /// were stored, the rest encoded with their later top-level fields, then a later build's
+    /// records. What a passphrase backup carries too.
+    static func elements(of records: VaultRecords) throws -> [Data] {
+        let encoder = jsonEncoder()
+        return try records.entries.map { entry -> Data in
+            // Matched by the whole record, not the id alone: two records can share one (Add
+            // Missing made them until 5e33b3c47).
+            if let stored = records.stored[entry.id]?.first(where: { $0.entry == entry }) { return stored.json }
+            return try merging(encoder.encode(entry), records.laterFields[entry.id])
+        } + records.newer
     }
 
     /// Every record in `data`, decoded one by one when the list as a whole does not decode: one
@@ -203,11 +235,18 @@ public enum VaultFile {
             throw VaultError.unreadableFile
         }
         var records = VaultRecords()
+        let encoder = jsonEncoder()
+        /// Notes what `entry`, read from `element`, holds that this build would not write back.
+        func keep(_ entry: VaultEntry, from element: Any) {
+            records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
+            guard let json = try? JSONSerialization.data(withJSONObject: element, options: [.sortedKeys]),
+                  let ours = try? JSONSerialization.jsonObject(with: encoder.encode(entry)) as? NSDictionary,
+                  let theirs = element as? NSDictionary, ours != theirs else { return }
+            records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: json))
+        }
         if let entries = try? decoder.decode([VaultEntry].self, from: plain) {
             records.entries = entries
-            for (entry, element) in zip(entries, list) {
-                records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
-            }
+            for (entry, element) in zip(entries, list) { keep(entry, from: element) }
             return records
         }
         for element in list {
@@ -217,9 +256,27 @@ public enum VaultFile {
             }
             if let entry = try? decoder.decode(VaultEntry.self, from: json) {
                 records.entries.append(entry)
-                records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
+                keep(entry, from: element)
             } else {
                 records.newer.append(json)
+            }
+        }
+        return records
+    }
+
+    /// Records from a list of stored JSON objects, one by one: what ``openRecords(_:with:)``
+    /// does once the file is open, for a backup's `entries` too.
+    static func records(fromList list: [Any]) -> VaultRecords {
+        var records = VaultRecords()
+        let decoder = jsonDecoder(), encoder = jsonEncoder()
+        for element in list {
+            guard let json = try? JSONSerialization.data(withJSONObject: element, options: [.sortedKeys, .fragmentsAllowed]) else { continue }
+            guard let entry = try? decoder.decode(VaultEntry.self, from: json) else { records.newer.append(json); continue }
+            records.entries.append(entry)
+            records.laterFields[entry.id] = laterFields(of: element, known: VaultEntry.storedKeys)
+            if let ours = try? JSONSerialization.jsonObject(with: encoder.encode(entry)) as? NSDictionary,
+               let theirs = element as? NSDictionary, ours != theirs {
+                records.stored[entry.id, default: []].append(VaultRecords.StoredRecord(entry: entry, json: json))
             }
         }
         return records
@@ -235,11 +292,22 @@ public enum VaultFile {
 
     /// `encoded`, a JSON object, with `later`'s fields added where this build wrote none of its
     /// own. Unchanged without them.
-    static func merging(_ encoded: Data, _ later: Data?) throws -> Data {
+    ///
+    /// `whereOursIsEmpty`: `later`'s value also replaces one of this build's own that is empty (a
+    /// field it could not read, which it holds as empty until the user sets it).
+    static func merging(_ encoded: Data, _ later: Data?, whereOursIsEmpty: Bool = false) throws -> Data {
         guard let later,
               let extra = try JSONSerialization.jsonObject(with: later) as? [String: Any],
               var object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { return encoded }
-        object.merge(extra) { own, _ in own }
+        object.merge(extra) { own, theirs in
+            guard whereOursIsEmpty else { return own }
+            // A dictionary: what was stored, with what this build holds over it key by key, so
+            // setting one name here does not drop the rest a later build wrote.
+            if let ours = own as? [String: Any], let stored = theirs as? [String: Any] {
+                return stored.merging(ours) { _, mine in mine }
+            }
+            return own is NSNull ? theirs : own
+        }
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
@@ -381,9 +449,21 @@ public struct VaultStore {
     /// remove more than one record at once throws ``VaultError/wouldDrop(_:)`` unless
     /// `allowingDrops`: nothing in the app removes more than one, so a short list is a mistake,
     /// and one that cannot be undone, since a typed number is in no document to read again.
-    public func save(_ entries: [VaultEntry], allowingDrops: Bool = false) throws {
+    ///
+    /// `newer`: records a later build wrote that arrive with this save (a backup restored), kept
+    /// with those already on disk.
+    ///
+    /// `carrying`: records as a backup stored them, whose later fields go back with the entries
+    /// they belong to.
+    public func save(_ entries: [VaultEntry], allowingDrops: Bool = false, newer: [Data] = [],
+                     carrying: VaultRecords? = nil) throws {
         let key = try keyForWriting()
-        var records = VaultRecords(entries: entries)
+        var records = VaultRecords(entries: entries, newer: newer)
+        if let carrying {
+            let ids = Set(entries.map(\.id))
+            records.laterFields = carrying.laterFields.filter { ids.contains($0.key) }
+            records.stored = carrying.stored.filter { ids.contains($0.key) }
+        }
         var previous: Data?
         if hasFile {
             guard let data = fileManager.contents(atPath: fileURL.path) else {
@@ -397,8 +477,9 @@ public struct VaultStore {
                 Logger.shared.warning("Vault: the sealed file did not open (\(error), \(VaultFile.summary(of: data))) — nothing was written over it")
                 throw error
             }
-            records.newer = onDisk.newer
-            records.laterFields = onDisk.laterFields.filter { id, _ in entries.contains { $0.id == id } }
+            records.newer = onDisk.newer + newer.filter { !onDisk.newer.contains($0) }
+            records.laterFields.merge(onDisk.laterFields.filter { id, _ in entries.contains { $0.id == id } }) { mine, _ in mine }
+            records.stored.merge(onDisk.stored) { mine, theirs in mine + theirs }
             // IDs, not records: two records sharing an id (Add Missing made them until 5e33b3c47)
             // go together when that ID is removed, and that is one removal.
             let dropped = Set(onDisk.entries.map(\.id)).subtracting(entries.map(\.id)).count
@@ -441,13 +522,12 @@ public struct VaultStore {
 
     /// A name this store gave a backup: `vault-backup-<8-digit count>-…` or, from before counts,
     /// `vault-backup-<yyyyMMdd>T…`. Anything else under the prefix is not one, and is never pruned.
+    /// The whole name, not its start: a Finder or iCloud copy (`… 2.sealed`) is not one.
     private static func isBackupName(_ name: String) -> Bool {
-        guard name.hasPrefix(backupPrefix), name.hasSuffix(backupSuffix) else { return false }
-        let rest = name.dropFirst(backupPrefix.count)
-        let digits = rest.prefix(backupCountWidth)
-        guard digits.count == backupCountWidth, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return false }
-        return ["-", "T"].contains(rest.dropFirst(backupCountWidth).first)
+        name.wholeMatch(of: backupName) != nil || name.wholeMatch(of: backupNameBeforeCounts) != nil
     }
+    nonisolated(unsafe) private static let backupName = /vault-backup-[0-9]{8}-[0-9]{8}T[0-9]{6}\.[0-9]{3}Z\.sealed/
+    nonisolated(unsafe) private static let backupNameBeforeCounts = /vault-backup-[0-9]{8}T[0-9]{6}\.[0-9]{3}Z-[0-9]{3}\.sealed/
 
     /// A backup's count, which only grows: one more than the highest before it, whatever the
     /// clock says. Zero for a name from before counts (`vault-backup-<time>-NNN.sealed`, written
@@ -481,6 +561,22 @@ public struct VaultStore {
                              fileManager: fileManager)
     }
 
+    /// Keeps the Vault's file as it stands as the newest backup, when it opens with this Mac's
+    /// key: what Restore ▸ Replace does before it sets the file aside, so Go Back can return to
+    /// the Vault as it was just before. Nothing when there is no file or it does not open.
+    func keepBackupOfCurrent() {
+        guard let data = fileManager.contents(atPath: fileURL.path),
+              case .found(let key) = VaultKeychain.read(from: keychain),
+              (try? VaultFile.openRecords(data, with: key)) != nil else { return }
+        // Not pruned here: a Replace that then fails puts the Vault back, and must not have cost
+        // the oldest backup. The save that follows prunes, once it is in.
+        do {
+            try keepBackup(of: data)
+        } catch {
+            Logger.shared.warning("Vault: the Vault could not be kept as a backup before it was replaced — \(error.localizedDescription)")
+        }
+    }
+
     /// Lets go of all but the newest ``backupsKept``.
     private func pruneBackups() {
         for old in backups.dropFirst(Self.backupsKept) {
@@ -499,8 +595,8 @@ public struct VaultStore {
     public enum ReadingLoad: Equatable {
         /// No file: a fresh start.
         case none
-        /// A file is there and the Keychain will not give the key right now: nothing may be
-        /// sealed over it until it can be opened.
+        /// A file is there and cannot be opened right now (the Keychain withholds the key, or the
+        /// disk the file): nothing may be sealed over it until it can be.
         case keyRefused
         case loaded(VaultReadingState)
         /// A file is there and did not open: damaged, a later build's, or sealed with a key this
@@ -538,7 +634,12 @@ public struct VaultStore {
     /// right now is ``ReadingLoad/keyRefused``: it may give it later in the same run, and an empty
     /// state sealed then would write over the file.
     public func openReading() -> ReadingLoad {
-        guard let data = fileManager.contents(atPath: readingURL.path) else { return .none }
+        guard let data = fileManager.contents(atPath: readingURL.path) else {
+            guard hasReadingFile else { return .none }
+            // Held, not set aside: a refused read can pass, and the next open tries again.
+            Logger.shared.warning("Vault: the reading file is there but could not be read from disk — nothing is sealed over it")
+            return .keyRefused
+        }
         let key: SymmetricKey
         switch VaultKeychain.read(from: keychain) {
         case .found(let found): key = found
@@ -552,8 +653,29 @@ public struct VaultStore {
             guard var state = try? VaultFile.jsonDecoder().decode(VaultReadingState.self, from: plain) else {
                 throw VaultError.unreadableFile
             }
-            state.laterFields = (try? JSONSerialization.jsonObject(with: plain))
-                .flatMap { VaultFile.laterFields(of: $0, known: VaultReadingState.storedKeys) }
+            let object = (try? JSONSerialization.jsonObject(with: plain)) as? [String: Any]
+            state.laterFields = object.flatMap { VaultFile.laterFields(of: $0, known: VaultReadingState.storedKeys) }
+            // The user's own fields, read key by key: each this build can read is loaded, and only
+            // those it cannot (a later build's shape) are kept as stored, to be sealed back. So a
+            // name set here beside one in a later shape still reads at the next open.
+            var unread: [String: Any] = [:]
+            if let stored = object?["names"] as? [String: Any] {
+                var readable: [String: String] = [:], later: [String: Any] = [:]
+                for (key, value) in stored { if let name = value as? String { readable[key] = name } else { later[key] = value } }
+                state.names = readable
+                if !later.isEmpty { unread["names"] = later }
+            }
+            if let stored = object?["nameRoles"] as? [String: Any] {
+                let decoder = VaultFile.jsonDecoder()
+                var readable: [String: VaultNameRoles] = [:], later: [String: Any] = [:]
+                for (key, value) in stored {
+                    if let json = try? JSONSerialization.data(withJSONObject: value),
+                       let roles = try? decoder.decode(VaultNameRoles.self, from: json) { readable[key] = roles } else { later[key] = value }
+                }
+                state.nameRoles = readable.isEmpty ? nil : readable
+                if !later.isEmpty { unread["nameRoles"] = later }
+            }
+            state.unreadFields = unread.isEmpty ? nil : try? JSONSerialization.data(withJSONObject: unread, options: [.sortedKeys])
             return .loaded(state)
         } catch {
             Logger.shared.warning("Vault: the reading file did not open (\(error), \(VaultFile.summary(of: data)))")
@@ -583,7 +705,8 @@ public struct VaultStore {
     /// as a first read before any number is added needs.
     /// What a later build stored in it (``VaultReadingState/laterFields``) goes back with it.
     public func saveReading(_ state: VaultReadingState) throws {
-        let plain = try VaultFile.merging(VaultFile.jsonEncoder().encode(state), state.laterFields)
+        let plain = try VaultFile.merging(VaultFile.merging(VaultFile.jsonEncoder().encode(state), state.laterFields),
+                                          state.unreadFields, whereOursIsEmpty: true)
         let sealed = try VaultFile.sealPlain(plain, marker: VaultFile.readingMarker, with: try keyForWriting())
         do {
             try SealedFile.write(sealed, to: readingURL, fileManager: fileManager)
@@ -606,11 +729,20 @@ public struct VaultStore {
         case .notCreated:
             guard !hasFile else { throw VaultError.keyMissing }
             let leftovers = [readingURL, activityURL] + backups
+            var moved: [Aside] = []
             if leftovers.contains(where: { fileManager.fileExists(atPath: $0.path) }) {
-                guard let moved = moveAside(leftovers, at: clock(), fileManager: fileManager) else { throw VaultError.notWritten }
+                guard let aside = moveAside(leftovers, at: clock()) else { throw VaultError.notWritten }
+                moved = aside
                 Logger.shared.warning("Vault: \(moved.count) sealed file(s) with no key in this Mac's Keychain were set aside before a new key was made")
             }
-            return try VaultKeychain.create(in: keychain).get()
+            switch VaultKeychain.create(in: keychain) {
+            case .success(let key): return key
+            case .failure(let error):
+                // No new key, so nothing to keep them from: back where they were. Unless another
+                // caller made one meanwhile: then they stay aside, out of its way.
+                if case .found = VaultKeychain.read(from: keychain) {} else { putBack(moved) }
+                throw error
+            }
         }
     }
 
@@ -627,26 +759,28 @@ public struct VaultStore {
         let to: URL
     }
 
-    /// Renames the Vault's file, and what was read, aside: `vault.sealed.set-aside-<stamp>`.
-    /// Nothing is deleted, so a Vault this Mac cannot open is kept for the day its key turns up,
-    /// and a new one can be started or restored in its place. The activity list and the backups
-    /// stay: under the same key they are still this Mac's (Go Back reaches past a Replace); under
-    /// a lost one, ``keyForWriting()`` sets them aside before it makes a new key. True when no
-    /// sealed file is left in the way.
+    /// Set It Aside and Start New, for a Vault this Mac cannot open: renames the Vault's file,
+    /// what was read, and the backups kept before each save aside
+    /// (`vault.sealed.set-aside-<stamp>`). Nothing is deleted, so it is all kept, history and all,
+    /// for the day it can be opened; the backups may be the only readable copies of a damaged
+    /// file, and the new Vault's saves would prune them. The activity list stays: one this Mac
+    /// cannot open is set aside by its next entry. True when no sealed file is left in the way.
     @discardableResult
-    public func setAside(at date: Date = Date(), fileManager: FileManager? = nil) -> Bool {
-        moveAside(at: date, fileManager: fileManager ?? self.fileManager) != nil
+    public func setAside(at date: Date = Date()) -> Bool {
+        moveAside([fileURL, readingURL] + backups, at: date) != nil
     }
 
-    /// ``setAside(at:fileManager:)``, answering what it moved so a caller that then fails can put
-    /// it back. Nil when a file could not be moved; what did move is put back first, so a
-    /// refusal leaves everything where it was.
-    func moveAside(at date: Date, fileManager: FileManager) -> [Aside]? {
-        moveAside([fileURL, readingURL], at: date, fileManager: fileManager)
+    /// What Restore ▸ Replace moves: the Vault's file and what was read. The backups and the
+    /// activity list stay, still this Mac's under the same key, and Go Back reaches past the
+    /// Replace (``keepBackupOfCurrent()`` keeps the Vault as it was just before); under a lost
+    /// key, ``keyForWriting()`` sets them aside before it makes a new one. Nil when a file could
+    /// not be moved; what did move is put back first.
+    func moveAsideForReplace(at date: Date) -> [Aside]? {
+        moveAside([fileURL, readingURL], at: date)
     }
 
     /// Renames each of `urls` that is there to `<name>.set-aside-<stamp>`; all or none.
-    func moveAside(_ urls: [URL], at date: Date, fileManager: FileManager) -> [Aside]? {
+    func moveAside(_ urls: [URL], at date: Date) -> [Aside]? {
         let stamp = Int(date.timeIntervalSince1970)
         var moved: [Aside] = []
         for url in urls where fileManager.fileExists(atPath: url.path) {
@@ -661,7 +795,7 @@ public struct VaultStore {
                 moved.append(Aside(from: url, to: aside))
             } catch {
                 Logger.shared.warning("Vault: a sealed file could not be set aside — \(error.localizedDescription)")
-                putBack(moved, fileManager: fileManager)
+                putBack(moved)
                 return nil
             }
         }
@@ -670,7 +804,7 @@ public struct VaultStore {
 
     /// Puts files set aside back where they were. A file written there meanwhile (half of a save
     /// that failed) is replaced: what was set aside is the Vault.
-    func putBack(_ moved: [Aside], fileManager: FileManager) {
+    func putBack(_ moved: [Aside]) {
         for aside in moved {
             do {
                 if fileManager.fileExists(atPath: aside.from.path) { try fileManager.removeItem(at: aside.from) }

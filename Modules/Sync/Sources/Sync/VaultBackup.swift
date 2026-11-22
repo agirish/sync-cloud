@@ -26,6 +26,16 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
     public var version: Int
     public var madeAt: Date
     public var entries: [VaultEntry]
+    /// Records a later build wrote, as their JSON: read from a backup's `entries` when this build
+    /// cannot decode them (``laterRecords`` counts them), and put back with a restore, so a
+    /// restore here does not drop them.
+    public var newer: [Data] = []
+    /// The backup's `entries` as they are sealed, when made here from the Vault's file: each
+    /// record as ``VaultFile`` seals it (a later build's fields and records kept). Not decoded.
+    var sealedEntries: [Data]?
+    /// The backup's records as stored, one by one, with what each holds that this build does not
+    /// read: a restore seals them back so (``VaultStore/save(_:allowingDrops:newer:carrying:)``).
+    var stored: VaultRecords?
 
     public init(version: Int = 1, madeAt: Date, entries: [VaultEntry]) {
         self.version = version
@@ -62,6 +72,13 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
     public private(set) var laterRecords = 0
 
     private struct LaterRecord: Decodable {}
+
+    /// What the backup holds: its version, date, records and a later build's. How they were
+    /// stored (``stored``, ``sealedEntries``) is how they go back, not what they are.
+    public static func == (a: Self, b: Self) -> Bool {
+        a.version == b.version && a.madeAt == b.madeAt && a.entries == b.entries && a.newer == b.newer
+            && a.laterRecords == b.laterRecords
+    }
 }
 
 /// A backup's bytes: the Vault's IDs sealed under a key made from a passphrase, so the file opens
@@ -101,6 +118,13 @@ public enum VaultBackupFile {
         return SymmetricKey(data: Data(derived))
     }
 
+    /// `encoded` with its `entries` replaced by `sealed`, when there are any.
+    private static func withEntries(_ encoded: Data, _ sealed: [Data]) throws -> Data {
+        guard !sealed.isEmpty, var object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { return encoded }
+        object["entries"] = try sealed.map { try JSONSerialization.jsonObject(with: $0) }
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
     private static func header(rounds: UInt32, salt: Data) -> Data {
         var bytes = marker
         withUnsafeBytes(of: rounds.bigEndian) { bytes.append(contentsOf: $0) }
@@ -120,7 +144,7 @@ public enum VaultBackupFile {
         // The whole header is the marker the box authenticates, as the Vault's own files do with
         // theirs (VT55).
         guard let key = key(passphrase: passphrase, salt: salt, rounds: rounds),
-              let plain = try? VaultFile.jsonEncoder().encode(contents),
+              let plain = try? withEntries(VaultFile.jsonEncoder().encode(contents), contents.sealedEntries ?? []),
               let sealed = try? VaultFile.sealPlain(plain, marker: header(rounds: rounds, salt: salt), with: key) else {
             throw VaultBackupError.notWritten
         }
@@ -141,8 +165,15 @@ public enum VaultBackupFile {
               let plain = try? AES.GCM.open(box, using: key, authenticating: Data(head)) else {
             throw VaultBackupError.wrongPassphrase
         }
-        guard let contents = try? VaultFile.jsonDecoder().decode(VaultBackupContents.self, from: plain) else {
+        guard var contents = try? VaultFile.jsonDecoder().decode(VaultBackupContents.self, from: plain) else {
             throw VaultBackupError.notABackup
+        }
+        // Each record as stored: those this build passes over as their JSON, and later fields on
+        // those it reads, so a restore here keeps them.
+        if let list = (try? JSONSerialization.jsonObject(with: plain) as? [String: Any])?["entries"] as? [Any] {
+            let records = VaultFile.records(fromList: list)
+            contents.newer = records.newer
+            contents.stored = records
         }
         return contents
     }
@@ -172,16 +203,37 @@ public struct VaultBackup {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let clock: @Sendable () -> Date
+    /// PBKDF2 rounds for a backup made here: ``VaultBackupFile/rounds``, lowered only by tests.
+    private let rounds: UInt32
+    /// Sealing and opening, each with its key derivation: ``VaultBackupFile``'s, run off the main
+    /// actor (VT58). Injectable so a test can see where they run.
+    typealias Seal = @Sendable (VaultBackupContents, String, UInt32) throws -> Data
+    typealias Open = @Sendable (Data, String) throws -> VaultBackupContents
+    private let seal: Seal
+    private let open: Open
 
     public init(store: VaultStore, keychain: KeychainStore = SecItemKeychainStore(),
                 authenticator: VaultAuthenticating = VaultDeviceOwnerProof(), defaults: UserDefaults = .standard,
-                fileManager: FileManager = .default, clock: @escaping @Sendable () -> Date = { Date() }) {
+                fileManager: FileManager = .default, clock: @escaping @Sendable () -> Date = { Date() },
+                rounds: UInt32 = VaultBackupFile.rounds) {
+        self.init(store: store, keychain: keychain, authenticator: authenticator, defaults: defaults,
+                  fileManager: fileManager, clock: clock, rounds: rounds,
+                  seal: { try VaultBackupFile.seal($0, passphrase: $1, rounds: $2) },
+                  open: { try VaultBackupFile.open($0, passphrase: $1) })
+    }
+
+    init(store: VaultStore, keychain: KeychainStore, authenticator: VaultAuthenticating, defaults: UserDefaults,
+         fileManager: FileManager, clock: @escaping @Sendable () -> Date, rounds: UInt32,
+         seal: @escaping Seal, open: @escaping Open) {
         self.store = store
         self.keychain = keychain
         self.authenticator = authenticator
         self.defaults = defaults
         self.fileManager = fileManager
         self.clock = clock
+        self.rounds = rounds
+        self.seal = seal
+        self.open = open
     }
 
     /// A line for the Vault's activity list, when it keeps one.
@@ -214,9 +266,11 @@ public struct VaultBackup {
     /// Whether the weekly backup is owed: weekly is on, a passphrase is set, and none was made in
     /// the last seven days.
     public var isDue: Bool {
-        guard isWeekly, hasPassphrase else { return false }
-        guard let last = lastBackup else { return true }
-        return clock().timeIntervalSince(last) >= 7 * 86_400
+        guard isWeekly else { return false }
+        // The date first, the Keychain only when it says a week has passed: the panel asks at
+        // every open, and each passphrase read is a Keychain round trip (VT10).
+        if let last = lastBackup, clock().timeIntervalSince(last) < 7 * 86_400 { return false }
+        return hasPassphrase
     }
 
     // MARK: The passphrase
@@ -266,11 +320,25 @@ public struct VaultBackup {
     /// Seals `entries` under the kept passphrase and writes them to the backup folder, replacing
     /// a backup made earlier the same day. No proof is asked here: the caller holds the IDs
     /// already, which took one.
+    ///
+    /// The key is derived off the main actor (VT58): PBKDF2 at ``VaultBackupFile/rounds`` takes most
+    /// of a second, which held the panel as it opened for the weekly backup.
     @discardableResult
-    public func write(_ entries: [VaultEntry]) throws -> URL {
+    public func write(_ entries: [VaultEntry]) async throws -> URL {
         guard let passphrase = passphrase() else { throw VaultBackupError.noPassphrase }
         let now = clock()
-        let sealed = try VaultBackupFile.seal(VaultBackupContents(madeAt: now, entries: entries), passphrase: passphrase)
+        var contents = VaultBackupContents(madeAt: now, entries: entries)
+        // Each record as the Vault's file seals it: a later build's records, and its fields on
+        // records this build reads, go with it. The backup is the Vault's, not this build's view.
+        if let held = try? store.loadRecords() {
+            var records = VaultRecords(entries: entries, newer: held.newer, laterFields: held.laterFields, stored: held.stored)
+            records.laterFields = records.laterFields.filter { id, _ in entries.contains { $0.id == id } }
+            contents.sealedEntries = try? VaultFile.elements(of: records)
+        }
+        let rounds = rounds, seal = seal
+        let sealed = try await Task.detached(priority: .userInitiated) {
+            try seal(contents, passphrase, rounds)
+        }.value
         let url = folder.appendingPathComponent(Self.fileName(now))
         do {
             try SealedFile.write(sealed, to: url, fileManager: fileManager)
@@ -290,19 +358,23 @@ public struct VaultBackup {
         guard hasPassphrase else { return .failure(.noPassphrase) }
         guard case .allowed = await authenticator.prove(reason: "back up your Vault") else { return .failure(.notProved) }
         guard let entries = try? store.load() else { return .failure(.vaultUnreadable) }
-        do { return .success(try write(entries)) } catch let error as VaultBackupError { return .failure(error) } catch {
+        do { return .success(try await write(entries)) } catch let error as VaultBackupError { return .failure(error) } catch {
             return .failure(.notWritten)
         }
     }
 
     // MARK: Restoring
 
-    /// Opens a backup file with `passphrase`; with none given, with the kept one.
-    public func read(_ url: URL, passphrase: String? = nil) -> Result<VaultBackupContents, VaultBackupError> {
+    /// Opens a backup file with `passphrase`; with none given, with the kept one. The key is
+    /// derived off the main actor, as ``write(_:)`` does.
+    public func read(_ url: URL, passphrase: String? = nil) async -> Result<VaultBackupContents, VaultBackupError> {
         guard let data = fileManager.contents(atPath: url.path) else { return .failure(.notABackup) }
         guard let passphrase = passphrase ?? self.passphrase() else { return .failure(.noPassphrase) }
         do {
-            let contents = try VaultBackupFile.open(data, passphrase: passphrase)
+            let open = open
+            let contents = try await Task.detached(priority: .userInitiated) {
+                try open(data, passphrase)
+            }.value
             if contents.laterRecords > 0 {
                 Logger.shared.warning("Vault: \(contents.laterRecords) record(s) in a backup need a newer SyncCloud — passed over")
             }
@@ -322,10 +394,15 @@ public struct VaultBackup {
         return contents.entries.filter { !have.contains(VaultReading.normalized($0.value)) }.count
     }
 
+    /// A stored record's id, read from its JSON.
+    static func id(of record: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: record) as? [String: Any])?["id"] as? String
+    }
+
     /// Puts a backup back, after a proof. Returns how many IDs the Vault holds afterwards.
     ///
     /// Replace never deletes: the Vault's file and what was read are renamed aside first
-    /// (``VaultStore/setAside(at:)``), which is also what lets a Vault this Mac cannot open be
+    /// (``VaultStore/moveAsideForReplace(at:)``), which is also what lets a Vault this Mac cannot open be
     /// replaced at all.
     public func restore(_ contents: VaultBackupContents, mode: VaultRestoreMode) async -> Result<Int, VaultBackupError> {
         guard case .allowed = await authenticator.prove(reason: "restore your Vault from a backup") else {
@@ -340,23 +417,37 @@ public struct VaultBackup {
             // id. It comes back as an ID of its own: two records with one id would be removed
             // together and edited as one.
             var ids = Set(held.map(\.id))
-            let missing = contents.entries.filter { !have.contains(VaultReading.normalized($0.value)) }
+            // An ID this Vault holds only as a later build's record is held all the same: its
+            // older copy in the backup does not come back beside it.
+            let heldLater = Set(((try? store.loadRecords()) ?? VaultRecords()).newer.compactMap(Self.id(of:)))
+            let missing = contents.entries
+                .filter { !have.contains(VaultReading.normalized($0.value)) && !heldLater.contains($0.id.uuidString) }
                 .map { ids.insert($0.id).inserted ? $0 : $0.reissued() }
             entries = held + missing
         case .replace:
             entries = contents.entries
         }
+        // A later build's records in the backup come back too: all of them on a Replace; on Add
+        // Missing, those whose id this Vault does not hold already.
+        let newer: [Data]
+        if mode == .replace {
+            newer = contents.newer
+        } else {
+            let heldIDs = Set(((try? store.loadRecords()) ?? VaultRecords()).newer.compactMap(Self.id(of:)) + entries.map(\.id.uuidString))
+            newer = contents.newer.filter { Self.id(of: $0).map { !heldIDs.contains($0) } ?? true }
+        }
         // Replace sets what is here aside first, and puts it back if the new Vault cannot be
         // written (a refused Keychain, a full disk): never a Mac left with no Vault in place.
         var moved: [VaultStore.Aside] = []
         if mode == .replace {
-            guard let aside = store.moveAside(at: clock(), fileManager: fileManager) else { return .failure(.notWritten) }
+            store.keepBackupOfCurrent()
+            guard let aside = store.moveAsideForReplace(at: clock()) else { return .failure(.notWritten) }
             moved = aside
         }
         do {
-            try store.save(entries)
+            try store.save(entries, newer: newer, carrying: contents.stored)
         } catch {
-            store.putBack(moved, fileManager: fileManager)
+            store.putBack(moved)
             return .failure(.notWritten)
         }
         Logger.shared.info("Vault: restored from a backup (\(mode == .replace ? "replaced" : "added what was missing")), \(entries.count) ID(s) now")

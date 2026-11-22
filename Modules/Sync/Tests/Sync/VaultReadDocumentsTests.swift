@@ -23,6 +23,169 @@ import Testing
         func exists(_ file: URL) -> Bool { true }
     }
 
+    /// Files handed over in the order given, every one read.
+    final class InOrder: VaultDocumentReading, @unchecked Sendable {
+        let pages: [(String, [String])]
+        init(_ pages: [(String, [String])]) { self.pages = pages }
+        func files() async -> [URL] { pages.map { URL(fileURLWithPath: $0.0) } }
+        func pages(in file: URL) async -> [[String]] { pages.first { $0.0 == file.path }.map { [$0.1] } ?? [] }
+        func stamp(of file: URL) -> String? { "1" }
+        func modified(of file: URL) -> Date? { nil }
+        var followsReadPlan: Bool { false }
+        func exists(_ file: URL) -> Bool { true }
+    }
+
+    /// The order identity papers are read in changes nothing that is found: an original read
+    /// before or after its copies gives the same numbers, sources, details and rows (VT107).
+    @Test @MainActor func originalsFirstOrLastFindTheSame() async throws {
+        let root = "/Users/anna/Documents/Immigration"
+        let original = (root + "/Passport/Anna/scan.pdf", [VaultReadingTests.nameLine, VaultReadingTests.numberLine])
+        // The copy says less than the original: its number in a cover letter, no zone.
+        let copy = (root + "/Visa/Supporting Documents/passport copy.pdf",
+                    ["Passport number L898902C3", "Name ANNA MARIA ERIKSSON", "Issued 2012"])
+        let old = (root + "/Passport/Archive/old.pdf",
+                   ["P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<", "X7654321<5UTO7408122F0204159<<<<<<<<<<<<<<02"])
+        func read(_ order: [(String, [String])]) async throws -> (finds: [String], rows: [String], sealed: String) {
+            let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+            VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+            let model = rig.model()
+            await model.opened()
+            await model.readDocuments(with: InOrder(order))
+            // All of what was read, as sealed (finds, copies, mentions, the read index), with the
+            // ids a read makes afresh taken out and every list in a fixed order.
+            var state = try #require(rig.store.loadReading())
+            state.finds.sort { $0.value < $1.value }
+            state.lastRefreshed = nil; state.lastDiscovered = nil
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .iso8601
+            var sealed = String(decoding: try encoder.encode(state), as: UTF8.self)
+            sealed = sealed.replacingOccurrences(of: #""id":"[0-9A-F-]{36}""#, with: #""id":"-""#, options: .regularExpression)
+            let finds = model.finds.map { find in
+                "\(find.value) \(find.title) \(find.facts.holder ?? "") \(find.facts.primary?.path ?? "") "
+                    + find.facts.sources.map(\.path).sorted().joined(separator: ",")
+                    + " \(find.facts.dated.map { "\($0.timeIntervalSince1970)" } ?? "") \(find.facts.validUntil.map { "\($0.timeIntervalSince1970)" } ?? "")"
+            }.sorted()
+            let rows = model.rows.map { "\($0.value) \($0.title) \($0.pin.map { "\($0)" } ?? "")" }.sorted()
+            return (finds, rows, sealed)
+        }
+        let first = try await read([original, copy, old])
+        let last = try await read([old, copy, original])
+        #expect(!first.finds.isEmpty)
+        #expect(first.finds == last.finds)
+        #expect(first.rows == last.rows)
+        #expect(first.sealed == last.sealed, "what was sealed differs with the order read")
+    }
+
+    /// The plan opens an ID's own folder first, packets and archives last.
+    @Test func thePlanReadsOriginalsFirst() {
+        let root = "/Users/anna/Documents"
+        let files = ["/Immigration/Visa/Supporting Documents/passport copy.pdf", "/Immigration/Passport/Archive/old.pdf",
+                     "/Immigration/Letters/cover.pdf", "/Immigration/Passport/Anna/scan.pdf", "/Immigration/Letters/b.pdf"]
+            .map { URL(fileURLWithPath: root + $0) }
+        let order = VaultReadPlan(files: files, under: [root]).steps.map { $0.file.path.replacingOccurrences(of: root, with: "") }
+        // Ties keep the order given.
+        #expect(order == ["/Immigration/Passport/Anna/scan.pdf", "/Immigration/Passport/Archive/old.pdf",
+                          "/Immigration/Letters/cover.pdf", "/Immigration/Letters/b.pdf",
+                          "/Immigration/Visa/Supporting Documents/passport copy.pdf"])
+        #expect(VaultReadPlan.every(files, under: [root]).first?.file.path == root + "/Immigration/Passport/Anna/scan.pdf")
+    }
+
+    /// A passport saved in its own folder and, byte for byte, in a visa packet.
+    final class Twins: VaultDocumentReading, @unchecked Sendable {
+        static let own = "/Users/anna/Documents/Immigration/Passport/Anna/scan.pdf"
+        static let copy = "/Users/anna/Documents/Immigration/Visa/Supporting Documents/passport.pdf"
+        private let lock = NSLock()
+        private var reads: [String] = []
+        var read: [String] { lock.withLock { reads } }
+        func files() async -> [URL] { [Self.own, Self.copy].map { URL(fileURLWithPath: $0) } }
+        func pages(in file: URL) async -> [[String]] { await reading(file).pages }
+        func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) {
+            lock.withLock { reads.append(file.path) }
+            return ([[VaultReadingTests.nameLine, VaultReadingTests.numberLine]], true)
+        }
+        func contentKey(of file: URL) async -> String? { "same bytes" }
+        func size(of file: URL) -> Int? { 1024 }
+        func stamp(of file: URL) -> String? { "1" }
+        func modified(of file: URL) -> Date? { nil }
+        var followsReadPlan: Bool { false }
+        func exists(_ file: URL) -> Bool { true }
+    }
+
+    /// A file whose bytes were read already in this read is not read again: its pages are reused,
+    /// and it is still named as one of the number's documents (VT107).
+    @Test @MainActor func aByteIdenticalCopyIsReadOnceAndStillNamed() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = rig.model()
+        await model.opened()
+        let reader = Twins()
+        await model.readDocuments(with: reader)
+        #expect(reader.read.count == 1, "the same bytes were read twice: \(reader.read)")
+        let find = try #require(model.finds.first)
+        #expect(Set(find.facts.sources.map(\.path)) == [Twins.own, Twins.copy], "the copy is not named")
+    }
+
+    /// Files of different sizes cannot be copies of each other: none is hashed.
+    final class Unlike: VaultDocumentReading, @unchecked Sendable {
+        private let lock = NSLock()
+        private var hashed = 0
+        var hashes: Int { lock.withLock { hashed } }
+        func files() async -> [URL] { [Twins.own, Twins.copy].map { URL(fileURLWithPath: $0) } }
+        func pages(in file: URL) async -> [[String]] { [[VaultReadingTests.nameLine, VaultReadingTests.numberLine]] }
+        func contentKey(of file: URL) async -> String? { lock.withLock { hashed += 1 }; return file.path }
+        func size(of file: URL) -> Int? { file.path == Twins.own ? 1000 : 2000 }
+        func stamp(of file: URL) -> String? { "1" }
+        func modified(of file: URL) -> Date? { nil }
+        var followsReadPlan: Bool { false }
+        func exists(_ file: URL) -> Bool { true }
+    }
+
+    @Test @MainActor func onlyFilesOfOneSizeAreHashed() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = rig.model()
+        await model.opened()
+        let reader = Unlike()
+        await model.readDocuments(with: reader)
+        #expect(reader.hashes == 0, "a file no other shares a size with was hashed")
+    }
+
+    /// Two member cards, the second read with a page left out.
+    final class OnePageLeftOut: VaultDocumentReading, @unchecked Sendable {
+        static let whole = "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf"
+        static let partial = "/Users/anna/Documents/Health/Vision/ID Cards/card.pdf"
+        private let lock = NSLock()
+        private var opens: [String] = []
+        var opened: [String] { lock.withLock { opens } }
+        func files() async -> [URL] { [Self.whole, Self.partial].map { URL(fileURLWithPath: $0) } }
+        func pages(in file: URL) async -> [[String]] { await reading(file).pages }
+        func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) {
+            lock.withLock { opens.append(file.path) }
+            let id = file.path == Self.whole ? "XZB123456789" : "VSP99887766"
+            return ([["Member Name: ANNA ERIKSSON", "Member ID: \(id)"]], file.path == Self.whole)
+        }
+        func stamp(of file: URL) -> String? { "1" }
+        func modified(of file: URL) -> Date? { nil }
+        var followsReadPlan: Bool { false }
+        func exists(_ file: URL) -> Bool { true }
+    }
+
+    /// A file read with a page left out gives what it gave, and is not marked read: the next read
+    /// opens it again for the rest (VT54). A whole one is not opened again.
+    @Test @MainActor func aFileWithAPageLeftOutIsReadAgainNextTime() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = rig.model()
+        await model.opened()
+        let reader = OnePageLeftOut()
+        await model.readDocuments(with: reader)
+        #expect(Set(model.finds.map(\.value)) == ["XZB123456789", "VSP99887766"], "what the partial file gave was dropped")
+        await model.readDocuments(with: reader)
+        #expect(reader.opened == [OnePageLeftOut.whole, OnePageLeftOut.partial, OnePageLeftOut.partial])
+        // Left out again as it stands: marked read until it changes, not opened at every read.
+        await model.readDocuments(with: reader)
+        #expect(reader.opened.count == 3, "a page that never reads reopens its file at every read")
+    }
+
     /// Stop keeps what was read: sealed at once, not at the next 25th file, so a quit with the
     /// lock off loses none of it (VT68).
     @Test @MainActor func whatAStoppedReadFoundIsSealed() async throws {

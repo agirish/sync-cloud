@@ -163,17 +163,26 @@ public struct VaultKinds: Equatable, Sendable {
     /// Anna"): what a choice of kind is learned for. `Home/Utilities/EBMUD/2024/March.pdf`
     /// teaches `Home/Utilities/EBMUD`.
     public static func lessonFolder(of path: String) -> String {
-        let folders = (path as NSString).deletingLastPathComponent.split(separator: "/")
-            .filter { $0.range(of: #"^(?:19|20)[0-9]{2}(?![0-9])"#, options: .regularExpression) == nil }
+        let folders = (path as NSString).deletingLastPathComponent.split(separator: "/").filter { !isYear($0) }
         return "/" + folders.joined(separator: "/")
+    }
+
+    /// A folder named for a year (`2024`, `2024 Tax`), as a lesson is learnt without: what the
+    /// pattern `^(?:19|20)[0-9]{2}(?![0-9])` matched, without compiling it per folder (VT66).
+    static func isYear(_ folder: Substring) -> Bool {
+        let digits = Array(folder.utf8.prefix(5))
+        guard digits.count >= 4, digits[0] == UInt8(ascii: "1") && digits[1] == UInt8(ascii: "9")
+                || digits[0] == UInt8(ascii: "2") && digits[1] == UInt8(ascii: "0") else { return false }
+        let isDigit = { (b: UInt8) in (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(b) }
+        guard isDigit(digits[2]), isDigit(digits[3]) else { return false }
+        return digits.count == 4 || !isDigit(digits[4])
     }
 
     /// Whether a paper's folder is one account's, deep enough to learn for: below a kind of
     /// account (`Home/Utilities/EBMUD`, `Vehicles/Tesla/Supercharging`), never the area or its
     /// first folder (`Home/Utilities`), where loose papers of many accounts sit together.
     public static func teaches(_ path: String, under roots: [String]) -> Bool {
-        let place = VaultReadPlan.place(of: path, under: roots)
-            .filter { $0.range(of: #"^(?:19|20)[0-9]{2}(?![0-9])"#, options: .regularExpression) == nil }
+        let place = VaultReadPlan.place(of: path, under: roots).filter { !isYear(Substring($0)) }
         return place.count >= 3 && VaultReadPlan.area(of: path, under: roots) == .accounts
     }
 }

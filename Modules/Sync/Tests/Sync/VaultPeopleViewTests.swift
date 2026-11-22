@@ -255,6 +255,41 @@ import Testing
         #expect(model.rowsRevision != before)
     }
 
+    /// The panel draws every second; what it lists is worked out again only when what it is
+    /// made of moves (VT9): a tick recomputes nothing, a search once.
+    @Test func aTickRecomputesNothingTheListsAreMadeOf() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        let sections = model.peopleSections, cards = model.cards.map(\.card), visible = model.visibleRows.map(\.id)
+        _ = model.count(in: .current); _ = model.refreshSources
+        let before = model.visibleComputations
+        let everything = model.viewComputations
+        for _ in 0..<5 {
+            rig.clock.advance(1)
+            model.tick()
+            #expect(model.peopleSections == sections)
+            #expect(model.cards.map(\.card) == cards)
+            #expect(model.visibleRows.map(\.id) == visible)
+            _ = model.count(in: .current); _ = model.refreshSources
+        }
+        #expect(model.visibleComputations == before, "a tick worked the lists out again")
+        #expect(model.viewComputations == everything, "a tick worked the cards, counts, people or sources out again")
+        model.query = "dental"
+        #expect(model.visibleRows.count < visible.count)
+        _ = model.cards; _ = model.peopleSections
+        #expect(model.visibleComputations == before + 1)
+        model.query = ""
+        #expect(model.visibleRows.map(\.id) == visible, "back to what it was")
+        // What People is made of beyond the rows moves it too.
+        model.people = [Person(id: "anna", displayName: "Anna")]
+        #expect(model.peopleSections != sections, "a change of people left People as it was")
+        model.tab = .archive
+        #expect(model.count(in: .current) == model.rows.filter { $0.standing.tab == .current && model.passesFilters($0) }.count)
+        // Let go with the numbers.
+        model.systemLocked()
+        #expect(!model.holdsViewCaches, "a list of the numbers was kept after they were let go")
+    }
+
     @Test func theLegalNameIsNeverMarkedMisreadAndALockedVaultChangesNothing() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.spellings(rig)

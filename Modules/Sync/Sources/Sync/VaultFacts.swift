@@ -173,6 +173,15 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     public func placement(for category: VaultCategory) -> Int {
         let folders = (path as NSString).deletingLastPathComponent.lowercased()
             .split(separator: "/").map(String.init)
+        var score = 0
+        if folders.contains(where: Self.homes(for: category).contains) { score += 2 }
+        if folders.contains(where: Self.copyFolders.contains) { score -= 2 }
+        if folders.contains(where: Self.archiveFolders.contains) { score -= 1 }
+        return score
+    }
+
+    /// The folders a kind of ID is filed in when it is the original.
+    static func homes(for category: VaultCategory) -> [String] {
         let homes: [String]
         switch category {
         case .passport: homes = ["passport", "passports"]
@@ -187,14 +196,15 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
         case .voterID: homes = ["voter id", "voter ids", "voter", "epic"]
         default: homes = []
         }
-        let copies = ["supporting documents", "supporting docs", "petition", "petitions", "application",
-                      "applications", "evidence", "exhibits", "attachments", "packet"]
-        var score = 0
-        if folders.contains(where: homes.contains) { score += 2 }
-        if folders.contains(where: copies.contains) { score -= 2 }
-        if folders.contains(where: { ["archive", "archived", "archives", "old", "older", "expired"].contains($0) }) { score -= 1 }
-        return score
+        return homes
     }
+
+    /// Every kind's own folders, for ordering files before their kind is known.
+    static let homeFolders: Set<String> = Set(VaultCategory.allCases.flatMap { homes(for: $0) })
+    /// Folders of copies: what a packet, an application or evidence holds.
+    static let copyFolders: Set<String> = ["supporting documents", "supporting docs", "petition", "petitions", "application",
+                                           "applications", "evidence", "exhibits", "attachments", "packet"]
+    static let archiveFolders: Set<String> = ["archive", "archived", "archives", "old", "older", "expired"]
 }
 
 /// What a document said about a number besides the number itself.

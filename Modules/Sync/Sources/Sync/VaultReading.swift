@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A number read from a document, waiting in To Confirm until it is added or set aside.
 ///
@@ -501,10 +502,28 @@ public enum VaultReading {
     }
 
     private static func utcParts(_ date: Date) -> DateComponents {
+        utc.dateComponents([.year, .month, .day], from: date)
+    }
+
+    /// The Gregorian calendar in `timeZone`, kept for the zone last asked: a `Calendar` is costly
+    /// to build, and the panel asks per row per draw (VT102).
+    private static func calendar(in timeZone: TimeZone) -> Calendar {
+        localCalendar.withLock { held in
+            if let held, held.timeZone == timeZone { return held }
+            var calendar = utc
+            calendar.timeZone = timeZone
+            held = calendar
+            return calendar
+        }
+    }
+    private static let localCalendar = OSAllocatedUnfairLock<Calendar?>(initialState: nil)
+
+    /// Made once: a `Calendar` is costly to build, and the panel asks per row per draw (VT102).
+    private static let utc: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        return calendar.dateComponents([.year, .month, .day], from: date)
-    }
+        return calendar
+    }()
 
     /// "15 April 2032", the same however the Mac is set, so a test can read it back. Spelled from
     /// the date's UTC parts, the zone every date here is made in (``calendarDate(year:month:day:)``).
@@ -533,13 +552,16 @@ public enum VaultReading {
     /// afternoon before.
     public static func hasRunOut(_ validUntil: Date?, now: Date, timeZone: TimeZone = .current) -> Bool {
         guard let validUntil else { return false }
-        let last = utcParts(validUntil)
-        var local = Calendar(identifier: .gregorian)
-        local.timeZone = timeZone
-        let today = local.dateComponents([.year, .month, .day], from: now)
-        let a = (last.year ?? 0, last.month ?? 0, last.day ?? 0)
-        let b = (today.year ?? 0, today.month ?? 0, today.day ?? 0)
-        return b > a
+        return daysLeft(validUntil, now: now, timeZone: timeZone) < 0
+    }
+
+    /// Days from today (by the Mac's clock, in `timeZone`) to a document's last valid day (as
+    /// printed, kept in UTC): 0 on that day, negative once it has run out. The one rule
+    /// ``hasRunOut(_:now:timeZone:)`` and the panel's "Expires in N days" share (VT102).
+    public static func daysLeft(_ validUntil: Date, now: Date, timeZone: TimeZone = .current) -> Int {
+        let today = calendar(in: timeZone).dateComponents([.year, .month, .day], from: now)
+        guard let end = utc.date(from: utcParts(validUntil)), let start = utc.date(from: today) else { return 0 }
+        return utc.dateComponents([.day], from: start, to: end).day ?? 0
     }
 
     // MARK: Archive folders
@@ -1135,6 +1157,9 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// as a field, but merged back in when the state is sealed, so a file a newer SyncCloud wrote
     /// keeps what it holds when this one seals it (VT30). Set by ``VaultStore/openReading()``.
     public var laterFields: Data?
+    /// The user's own fields (`names`, `nameRoles`) as stored, when this build could not read
+    /// them (a later build's shape) and holds them empty: sealed back while still empty here.
+    public var unreadFields: Data?
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
     /// finds' choices can still be carried over.

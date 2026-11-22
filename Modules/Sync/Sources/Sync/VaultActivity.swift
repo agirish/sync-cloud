@@ -91,7 +91,7 @@ public enum VaultActivitySettings {
 /// The Vault's activity list, sealed with the Vault's key in a file of its own.
 ///
 /// Its own file, like what was read: which IDs were used, and when, is private too, so it is
-/// sealed; and it is not the Vault, so a damaged or outdated one is simply started again. It is
+/// sealed; and it is not the Vault, so a damaged or outdated one is set aside and started again. It is
 /// never the app's log, which holds nothing of the Vault's. Bounded: the newest events, and none
 /// older than ninety days.
 public struct VaultActivityStore {
@@ -120,12 +120,36 @@ public struct VaultActivityStore {
         return nil
     }
 
-    /// Every kept event, newest first; none when there is no file, no key, or a file this build
-    /// cannot read.
+    /// Every kept event this build can read, newest first; none when there is no file, no key,
+    /// or a file that does not open.
     public func load() -> [VaultActivityEvent] {
-        guard let data = fileManager.contents(atPath: fileURL.path), let key,
-              let events = try? VaultFile.open([VaultActivityEvent].self, data, marker: Self.marker, with: key) else { return [] }
-        return events
+        guard let data = fileManager.contents(atPath: fileURL.path), let key else { return [] }
+        return (try? Self.open(data, with: key))?.compactMap(\.event) ?? []
+    }
+
+    /// One stored event: this build's, read; a later build's, kept as its JSON, with its date when
+    /// this build can read one.
+    struct Stored {
+        let event: VaultActivityEvent?
+        let json: Data
+        let at: Date?
+    }
+
+    /// The list's events, one by one: one a later build wrote that this build cannot read (a
+    /// changed field) is kept as its JSON, not taken for a list that does not open (VT30).
+    /// In the order stored, which is the list's: newest first, as each entry was added.
+    static func open(_ data: Data, with key: SymmetricKey) throws -> [Stored] {
+        let plain = try VaultFile.openPlain(data, marker: marker, with: key)
+        guard let list = try? JSONSerialization.jsonObject(with: plain) as? [Any] else { throw VaultError.unreadableFile }
+        let decoder = VaultFile.jsonDecoder()
+        struct Dated: Decodable { let at: Date }
+        return try list.map { element in
+            guard let json = try? JSONSerialization.data(withJSONObject: element, options: [.sortedKeys, .fragmentsAllowed]) else {
+                throw VaultError.unreadableFile
+            }
+            if let event = try? decoder.decode(VaultActivityEvent.self, from: json) { return Stored(event: event, json: json, at: event.at) }
+            return Stored(event: nil, json: json, at: (try? decoder.decode(Dated.self, from: json))?.at)
+        }
     }
 
     /// Adds `events` to the front and seals the list, trimmed to its bounds. Never makes the
@@ -134,23 +158,39 @@ public struct VaultActivityStore {
     public func append(_ events: [VaultActivityEvent], now: Date) {
         guard !events.isEmpty, let key else { return }
         // A list there that does not open (damaged, a later build's, another key's) is set aside
-        // under a name of its own, never sealed over.
-        if let data = fileManager.contents(atPath: fileURL.path),
-           (try? VaultFile.open([VaultActivityEvent].self, data, marker: Self.marker, with: key)) == nil {
-            let aside = UnreadableSetAside.destination(for: fileURL, at: now, fileManager: fileManager)
-            do {
-                try fileManager.moveItem(at: fileURL, to: aside)
-                Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and was set aside as \(aside.lastPathComponent)")
-            } catch {
-                Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and could not be set aside — nothing was added to it")
-                return
+        // under a name of its own, never sealed over. Opened once, for both questions.
+        var held: [Stored] = []
+        if fileManager.fileExists(atPath: fileURL.path), fileManager.contents(atPath: fileURL.path) == nil {
+            Logger.shared.warning("Vault: the activity list is there but could not be read from disk — nothing was added to it")
+            return
+        }
+        if let data = fileManager.contents(atPath: fileURL.path) {
+            if let opened = try? Self.open(data, with: key) {
+                held = opened
+            } else {
+                let aside = UnreadableSetAside.destination(for: fileURL, at: now, fileManager: fileManager)
+                do {
+                    try fileManager.moveItem(at: fileURL, to: aside)
+                    Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and was set aside as \(aside.lastPathComponent)")
+                } catch {
+                    Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and could not be set aside — nothing was added to it")
+                    return
+                }
             }
         }
-        let kept = (events.sorted { $0.at > $1.at } + load())
-            .filter { now.timeIntervalSince($0.at) < Self.keptFor }
-            .prefix(Self.limit)
+        // The new events first, newest first, then the list as it was stored, a later build's in
+        // their places, within the bounds: none older than ninety days (one whose date this build
+        // cannot read is kept until the newest `limit` leave it out), the newest `limit`.
+        let encoder = VaultFile.jsonEncoder()
         do {
-            let sealed = try VaultFile.seal(Array(kept), marker: Self.marker, with: key)
+            let fresh = try events.sorted { $0.at > $1.at }.map { Stored(event: $0, json: try encoder.encode($0), at: $0.at) }
+            let elements = (fresh + held)
+                .filter { stored in stored.at.map { now.timeIntervalSince($0) < Self.keptFor } ?? true }
+                .prefix(Self.limit)
+                // As stored: a later build's fields on an event this build reads stay too.
+                .map(\.json)
+            let sealed = try VaultFile.sealPlain(Data("[".utf8) + elements.joined(separator: Data(",".utf8)) + Data("]".utf8),
+                                                 marker: Self.marker, with: key)
             try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the activity list could not be sealed — \(error.localizedDescription)")

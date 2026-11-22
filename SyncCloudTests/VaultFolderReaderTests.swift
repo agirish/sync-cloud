@@ -209,9 +209,11 @@ import Vision
         }
         #expect(await reader.pages(in: URL(fileURLWithPath: path)) == [Self.passport])
         #expect(asked.processors == [.any, .cpu])
-        // Refused on both: no page, so the file is not marked read with nothing.
+        // Refused on both: no page, so the file is not marked read with nothing, and the reader
+        // says a page was left out (VT54).
         reader.vision = { _, _ in throw Refused() }
-        #expect(await reader.pages(in: URL(fileURLWithPath: path)).isEmpty)
+        let refused = await reader.reading(URL(fileURLWithPath: path))
+        #expect(refused.pages.isEmpty && !refused.complete)
         // An image file is read the same way.
         let image = dir.path("scan.png")
         let destination = try #require(CGImageDestinationCreateWithURL(URL(fileURLWithPath: image) as CFURL, "public.png" as CFString, 1, nil))
@@ -225,6 +227,53 @@ import Vision
         }
         #expect(await reader.pages(in: URL(fileURLWithPath: image)) == [Self.passport])
         #expect(again.processors == [.any, .cpu])
+    }
+
+    /// Every PDFKit call takes its turn in the process's one lane (VT52): with the lane held, a
+    /// PDF is not opened, and nothing of it read, until it is let go.
+    @Test(.timeLimit(.minutes(1))) func aPDFIsReadOnlyInThePDFKitLane() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("scan.pdf")
+        try Self.writePDF(picture: Self.scan(of: Self.passport), text: [], to: path)
+        let asked = Asked()
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        // Vision runs outside the lane: never on its queue.
+        reader.vision = { _, processor in
+            let queue = String(cString: __dispatch_queue_get_label(nil))
+            asked.note(queue == "com.synccloud.pdfkit" ? .cpu : processor)
+            return Self.passport
+        }
+
+        let held = DispatchSemaphore(value: 0), letGo = DispatchSemaphore(value: 0)
+        // Let go however the test ends: a lane left held would hold every later test's PDFs.
+        defer { letGo.signal() }
+        let holding = Task { await PDFKitSerialAccess.perform { held.signal(); letGo.wait() } }
+        await withCheckedContinuation { c in DispatchQueue.global().async { held.wait(); c.resume() } }
+        let reading = Task { await reader.pages(in: URL(fileURLWithPath: path)) }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(asked.processors.isEmpty, "the PDF was read outside the PDFKit lane")
+        letGo.signal()
+        await holding.value
+        #expect(await reading.value == [Self.passport])
+        #expect(asked.processors == [.any], "Vision ran inside the PDFKit lane")
+    }
+
+    /// The key two files share only when their bytes do (VT107): size and SHA-256, so the same
+    /// bytes under two names match and one byte changed does not.
+    @Test func aFilesContentKeyIsItsBytes() async throws {
+        let dir = FixtureDir()
+        let bytes = Data((0..<3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        var changed = bytes
+        changed[2_999_999] ^= 1
+        for (name, data) in [("a.pdf", bytes), ("b.pdf", bytes), ("c.pdf", changed)] {
+            try data.write(to: URL(fileURLWithPath: dir.path(name)))
+        }
+        let reader = VaultFolderReader(folders: [dir.url.path])
+        let (a, b, c) = (await reader.contentKey(of: URL(fileURLWithPath: dir.path("a.pdf"))),
+                         await reader.contentKey(of: URL(fileURLWithPath: dir.path("b.pdf"))),
+                         await reader.contentKey(of: URL(fileURLWithPath: dir.path("c.pdf"))))
+        #expect(a != nil && a == b, "the same bytes under two names gave two keys")
+        #expect(a != c, "a byte changed gave the same key")
     }
 
     /// Which processors a reader asked, in order; the reader asks from its own task.

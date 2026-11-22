@@ -151,10 +151,17 @@ struct VaultCard: View {
     static let documentsShown = 5
 
     /// Whether the panel is drawing an ID in full somewhere: unlocked (the chosen ID's number,
-    /// the editor, Large Type, a document's preview), or one ID shown under "For every ID".
-    private var exposesAnID: Bool {
+    /// the editor, Large Type, a document's preview), one ID shown under "For every ID", or a
+    /// date of birth in People, which is drawn in full once one of that person's IDs may be
+    /// (VT73).
+    private var exposesAnID: Bool { Self.drawsAnIDInFull(model, layout: layout, editing: editing != nil) }
+
+    /// ``exposesAnID``'s rule, apart from the view so a test can ask it.
+    static func drawsAnIDInFull(_ model: VaultModel, layout: VaultLayout, editing: Bool) -> Bool {
         guard model.contents == .loaded else { return false }
-        if model.isOpen { return model.selectedRow != nil || editing != nil }
+        if layout == .people,
+           model.peopleSections.contains(where: { !$0.births.isEmpty && model.canShowBirth(in: $0) }) { return true }
+        if model.isOpen { return model.selectedRow != nil || editing }
         return model.selection.map { model.lock.canShow($0, at: model.now) } ?? false
     }
 
@@ -350,7 +357,9 @@ struct VaultCard: View {
         // A read in progress goes on: the model runs it, and lets the numbers go when it ends.
         .onDisappear {
             activity.stop()
-            // The panel is gone, and with it every ID it drew: the window shares as usual.
+            // The panel is gone, and with it every ID it drew: the window shares as usual, and a
+            // panel that comes back starts from nothing drawn.
+            activity.exposed = false
             VaultWindowPrivacy.apply(exposed: false, to: activity.window)
             model.closed()
         }
@@ -364,6 +373,9 @@ struct VaultCard: View {
         // While an ID is drawn in full, the window is kept out of screen sharing and recordings
         // (``VaultWindowPrivacy``); the moment none is, it shares again.
         .onChange(of: exposesAnID, initial: true) { _, exposed in
+            // Kept on the watch too, so a window that arrives after this first runs is set as it
+            // arrives (VT73).
+            activity.exposed = exposed
             VaultWindowPrivacy.apply(exposed: exposed, to: activity.window)
         }
         // ⌘⌫ removes the chosen row, after asking. Not while the search has text, where it
@@ -1811,15 +1823,9 @@ struct VaultCard: View {
     /// passport good for six months past a trip, and a renewal takes weeks. Nil further off, or
     /// once it has run out (Expired says that).
     static func expiresSoon(_ until: Date?, now: Date) -> String? {
-        guard let until, !VaultReading.hasRunOut(until, now: now) else { return nil }
-        var utc = Calendar(identifier: .gregorian)
-        utc.timeZone = TimeZone(identifier: "UTC")!
-        var local = Calendar(identifier: .gregorian)
-        local.timeZone = .current
-        let last = utc.dateComponents([.year, .month, .day], from: until)
-        let today = local.dateComponents([.year, .month, .day], from: now)
-        guard let end = utc.date(from: last), let start = utc.date(from: today),
-              let days = utc.dateComponents([.day], from: start, to: end).day, days <= 182 else { return nil }
+        guard let until else { return nil }
+        let days = VaultReading.daysLeft(until, now: now)
+        guard days >= 0, days <= 182 else { return nil }
         switch days {
         case 0: return "Expires today"
         case 1: return "Expires tomorrow"
@@ -3101,9 +3107,21 @@ struct VaultCard: View {
 @MainActor final class VaultActivityWatch {
     private var monitor: Any?
     /// The window the panel is in, set by ``VaultWindowReader``. Only events there, or in a sheet
-    /// or child window of it, count: work in another window leaves this one's Vault idle, and
-    /// every window has a Vault of its own.
-    weak var window: NSWindow?
+    /// or child window of it, count: work in another window leaves this one's Vault idle. Set as
+    /// it arrives, the window is kept out of screen sharing at once if an ID is already drawn
+    /// in full: the panel's first look at that can come before the window does.
+    weak var window: NSWindow? {
+        didSet {
+            guard window !== oldValue else { return }
+            // A window the panel leaves shares again; the one it arrives in is set at once.
+            VaultWindowPrivacy.apply(exposed: false, to: oldValue, defaults: defaults)
+            VaultWindowPrivacy.apply(exposed: exposed, to: window, defaults: defaults)
+        }
+    }
+    /// Whether the panel is drawing an ID in full (``VaultPanel``'s `exposesAnID`).
+    var exposed = false
+    /// Where Settings ▸ Vault's "Hide from screen sharing" is read: the app's own, or a test's.
+    var defaults: UserDefaults = .standard
 
     func start(_ onActivity: @escaping @MainActor () -> Void) {
         stop()

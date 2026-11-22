@@ -16182,8 +16182,16 @@ everywhere is kept only when the save it came with is. What a stopped read found
 a save lands and not repeated by one that keeps failing; the short-list guard counts IDs; a field
 a later build added is kept through a save; a lost key's leftover files, the activity list among
 them, are set aside before a new key; a reading file with no key, or one that will not move, is
-never written over; a stopped refresh still asks about a saved ID's changed document; and Set
-Aside and Replace leave the backups and the activity list in place.
+never written over; a stopped refresh still asks about a saved ID's changed document; and
+Replace leaves the backups and the activity list in place. Then, after a third review: Start New
+takes the backups with the Vault, Replace first keeps the Vault as a backup, a later field nested in
+an unchanged record and names in a later shape are kept, the activity list reads event by event, a
+backup carries a later build's records, and a damaged reading file no longer raises Read Again. The
+backup's key is derived off the main actor. Read Documents takes the PDFKit lane for every PDFKit call, a file with a
+page left out is read again next time, and a date of birth drawn in full keeps the window out of
+screen sharing as an ID does. Then batch 4: a byte-identical copy is read once, originals are read
+first, one Confirm seals the reading file once, the panel's lists (rows shown, cards, counts, People,
+refresh sources) are worked out once per change rather than at every second's redraw, and a document's days left are one rule.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
@@ -16218,8 +16226,8 @@ The Vault's own sealed files do not change. 2026-11-21: a Replace that cannot be
 written puts the Vault back, what is added never shares an id with a record already held, and a
 file asking for more than eight times this build's rounds is refused. Then every sealed file is
 written one way (`SealedFile.write`, owner-only before it is swapped in); each save keeps the file
-it replaces, the newest ten as `vault-backup-<stamp>-NNN.sealed` (`VaultStore.backups`), and refuses
-to drop more than one record at once (`VaultError.wouldDrop`); a record or activity kind a later
+it replaces, the newest ten as `vault-backup-<count>-<UTC time>.sealed` (`VaultStore.backups`), and refuses
+to drop more than one ID at once (`VaultError.wouldDrop`); a record or activity kind a later
 build wrote is kept as it came (`VaultRecords.newer`), a backup restores every record it can read,
 and a reading file that does not open is renamed aside, never reset. Committed sealed fixtures
 (`Fixtures/Vault`) pin every format.

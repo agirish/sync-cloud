@@ -381,7 +381,7 @@ import Testing
     @Test func onlyTheNewestBackupsAreKept() throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let keychain = VaultFakeKeychain()
-        // One clock reading for every save: names that collide still keep their order.
+        // One clock reading for every save: the count, not the time, keeps their order.
         let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, clock: { VaultFormatTests.day })
         for n in 1...(VaultStore.backupsKept + 3) {
             try store.save((1...n).map(Self.entry))
@@ -391,10 +391,10 @@ import Testing
         #expect(counts == Array((3...(VaultStore.backupsKept + 2)).reversed()))
     }
 
-    /// Set Aside moves the Vault's file and what was read, and leaves the backups and the
-    /// activity list where they are: under the same key they are still this Mac's. A new key's
-    /// saves, after the key is lost, never reach them: they are set aside before it is made.
-    @Test func settingAsideLeavesTheBackupsUntilANewKeyIsMade() throws {
+    /// Set It Aside and Start New takes the backups with the Vault: for a damaged file they may
+    /// be the only readable copies, and the new Vault's saves would prune them. The activity list
+    /// stays. Nothing it moved is in reach of the new Vault's saves.
+    @Test func settingAsideTakesTheBackupsAndLeavesTheActivityList() throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let keychain = VaultFakeKeychain()
         let ticker = Ticker()
@@ -408,16 +408,31 @@ import Testing
 
         #expect(store.setAside(at: Self.day))
         #expect(!store.hasFile)
-        #expect(try store.backups.map { try Data(contentsOf: $0) } == before, "the backups moved with a Set Aside")
+        #expect(store.backups.isEmpty, "the backups stayed in the new Vault's rotation")
         #expect(FileManager.default.fileExists(atPath: store.activityURL.path), "the activity list moved with a Set Aside")
-
-        // The key goes too: a new key's saves never reach the old backups.
-        keychain.itemData = nil
         for n in 1...(VaultStore.backupsKept + 2) { try store.save((1...n).map(Self.entry)) }
         let folder = scratch.fileURL.deletingLastPathComponent()
         let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasPrefix("vault-backup-") && $0.contains(".set-aside-") }.sorted(by: >)
         #expect(try aside.map { try Data(contentsOf: folder.appendingPathComponent($0)) } == before)
+    }
+
+    /// A Keychain that will not keep the new key: what was set aside for it goes back.
+    @Test func aNewKeyTheKeychainRefusesPutsTheLeftoversBack() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, clock: ticker.next)
+        try store.save([Self.entry(1)])
+        try store.save([Self.entry(1), Self.entry(2)])
+        try store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        try FileManager.default.removeItem(at: scratch.fileURL)
+        let before = try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted()
+        keychain.itemData = nil
+        keychain.forcedAddStatus = errSecAuthFailed
+        #expect(throws: VaultError.keyNotSaved(errSecAuthFailed)) { try store.save([Self.entry(3)]) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted() == before)
     }
 
     /// Only names this store gives a backup are backups: anything else under the prefix is never
@@ -427,7 +442,8 @@ import Testing
         let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: Ticker().next)
         try store.save([Self.entry(1)])
         let folder = scratch.fileURL.deletingLastPathComponent()
-        let strays = ["vault-backup-notes.sealed", "vault-backup-20261122.sealed"].map { folder.appendingPathComponent($0) }
+        let strays = ["vault-backup-notes.sealed", "vault-backup-20261122.sealed",
+                      "vault-backup-00000001-20270115T080001.000Z 2.sealed"].map { folder.appendingPathComponent($0) }
         for stray in strays { try Data("mine".utf8).write(to: stray) }
         for n in 2...(VaultStore.backupsKept + 3) { try store.save((1...n).map(Self.entry)) }
         for stray in strays {
@@ -464,8 +480,8 @@ import Testing
         #expect(try Data(contentsOf: folder.appendingPathComponent(aside)) == damaged)
     }
 
-    /// Opening the panel makes no key: a damaged reading file on a Mac with none is set aside,
-    /// and Read Again waits for the first save that makes one.
+    /// Opening the panel makes no key: a reading file on a Mac with none is set aside, and nothing
+    /// is sealed until a save makes one.
     @Test @MainActor func openingThePanelMakesNoKey() async throws {
         let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
         try FileManager.default.createDirectory(at: rig.store.readingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -473,11 +489,9 @@ import Testing
         let model = rig.model()
         await model.opened()
         #expect(rig.keychain.itemData == nil, "opening the panel made a key")
-        #expect(model.needsReadAgain)
-        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
-        let again = rig.model()
-        await again.opened()
-        #expect(again.needsReadAgain, "the first save did not seal Read Again")
+        let folder = rig.store.readingURL.deletingLastPathComponent()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .contains { $0.hasPrefix("vault-reading.sealed.unreadable-") })
     }
 
     @Test func aSaveThatWouldDropSeveralRecordsIsRefusedAndKeepsTheFile() throws {
@@ -642,6 +656,142 @@ import Testing
         #expect(saved[1]["note"] as? String == "renewed")
         #expect(saved[0]["expiresReminder"] == nil)
         #expect(try store.load() == changed)
+    }
+
+    /// A later field nested inside a record (in its facts) is kept while the record is unchanged;
+    /// an edited one keeps its top-level later fields.
+    @Test func aLaterBuildsNestedFieldSurvivesASaveOfOtherRecords() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        let entries = Array(try Self.formatEntries())
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode($0)) as? [String: Any]) }
+        var facts = try #require(list[1]["facts"] as? [String: Any])
+        facts["machineReadable"] = "P<USA"
+        list[1]["facts"] = facts
+        try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]),
+                                marker: VaultFile.marker, with: Self.key).write(to: scratch.fileURL)
+
+        var changed = try store.load()
+        changed[0].note = "renewed"   // another record edited
+        try store.save(changed)
+        let saved = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: scratch.fileURL), marker: VaultFile.marker, with: Self.key)) as? [[String: Any]])
+        #expect((saved[1]["facts"] as? [String: Any])?["machineReadable"] as? String == "P<USA",
+                "a later field inside an unchanged record was dropped")
+        #expect(try store.load() == changed)
+    }
+
+    /// The user's own fields a later build stored in a shape this one cannot read come back as
+    /// stored, not sealed empty, until set here.
+    @Test func namesThisBuildCannotReadAreKeptAsStored() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try store.saveReading(VaultReadingState())
+        let key = SymmetricKey(data: try #require(keychain.itemData))
+        var object = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        object["names"] = ["DLVITGIRISH": ["name": "Divit Girish", "since": 2027]]   // a later shape
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                                marker: VaultFile.readingMarker, with: key).write(to: store.readingURL)
+
+        var state = try #require(store.loadReading())
+        #expect(state.names.isEmpty)
+        state.generation = 9
+        try store.saveReading(state)
+        let after = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        #expect((after["names"] as? [String: Any])?["DLVITGIRISH"] != nil, "the names were sealed empty")
+        #expect(after["generation"] as? Int == 9)
+        // One name corrected here keeps the rest a later build wrote.
+        state = try #require(store.loadReading())
+        state.names["ANNAERIKSSON"] = "Anna Eriksson"
+        try store.saveReading(state)
+        let both = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        #expect((both["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "DLVITGIRISH"])
+        // Opened again, the name set here reads; the later one is still carried.
+        let reopened = try #require(store.loadReading())
+        #expect(reopened.names["ANNAERIKSSON"] == "Anna Eriksson", "a name set here was lost beside a later one")
+        try store.saveReading(reopened)
+        let again = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        #expect((again["names"] as? [String: Any])?.keys.sorted() == ["ANNAERIKSSON", "DLVITGIRISH"])
+    }
+
+    /// A disk that will not give a file's bytes, though the file is there.
+    final class WillNotRead: FileManager, @unchecked Sendable {
+        let path: String
+        init(_ url: URL) { path = url.standardizedFileURL.path }
+        override func contents(atPath path: String) -> Data? {
+            URL(fileURLWithPath: path).standardizedFileURL.path == self.path ? nil : super.contents(atPath: path)
+        }
+    }
+
+    /// A reading file or activity list that is there but will not read is never written over.
+    @Test func aFileThatIsThereButWillNotReadIsNeverWrittenOver() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try store.save([Self.entry(1)])
+        try store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: Self.day, kind: .unlocked)], now: Self.day)
+        let reading = try Data(contentsOf: store.readingURL)
+        let activity = try Data(contentsOf: store.activityURL)
+
+        #expect(VaultStore(fileURL: scratch.fileURL, keychain: keychain, fileManager: WillNotRead(store.readingURL)).openReading() == .keyRefused,
+                "a file the disk will not give now is held, not set aside")
+        VaultActivityStore.beside(store, keychain: keychain, fileManager: WillNotRead(store.activityURL))
+            .append([VaultActivityEvent(at: Self.day, kind: .copied, what: "Passport")], now: Self.day)
+        #expect(try Data(contentsOf: store.readingURL) == reading)
+        #expect(try Data(contentsOf: store.activityURL) == activity, "an activity list that would not read was sealed over")
+    }
+
+    /// The list keeps the order its entries were added in, newest first, whatever their times
+    /// say: two in one second, or a clock put back, never swap places.
+    @Test func theActivityListKeepsTheOrderItWasAddedIn() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try store.save([Self.entry(1)])
+        let activity = VaultActivityStore.beside(store, keychain: keychain)
+        activity.append([VaultActivityEvent(at: Self.day, kind: .copied, what: "First")], now: Self.day)
+        activity.append([VaultActivityEvent(at: Self.day, kind: .copied, what: "Second")], now: Self.day)
+        activity.append([VaultActivityEvent(at: Self.day.addingTimeInterval(-60), kind: .copied, what: "Third")], now: Self.day)
+        #expect(activity.load().map(\.what) == ["Third", "Second", "First"])
+    }
+
+    /// One event a later build wrote that this build cannot read (a changed field) neither hides
+    /// the list nor is lost from it.
+    @Test func anActivityEventThisBuildCannotReadIsKeptAndHidesNothing() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plain = Data(("[" + [
+            #"{"at":"2027-01-15T08:00:00Z","id":"00000000-0000-0000-0000-000000000031","kind":"copied","what":"Passport"}"#,
+            #"{"at":"2027-01-15T07:00:00Z","id":"00000000-0000-0000-0000-000000000032","kind":"shown","what":{"title":"Visa"}}"#,
+            #"{"at":"2026-06-01T07:00:00Z","id":"00000000-0000-0000-0000-000000000033","kind":"shown","what":{"title":"Old"}}"#,
+            #"{"id":"00000000-0000-0000-0000-000000000034","kind":"shown","what":{"title":"Undated"}}"#,
+        ].joined(separator: ",") + "]").utf8)
+        try VaultFile.sealPlain(plain, marker: VaultActivityStore.marker, with: Self.key).write(to: store.activityURL)
+        let activity = VaultActivityStore.beside(store, keychain: keychain)
+        #expect(activity.load().map(\.kind) == [.copied], "one event this build cannot read hid the list")
+        // A day on: within ninety days of both, past them for the one from June 2026.
+        let now = Self.day.addingTimeInterval(86_400)
+        activity.append([VaultActivityEvent(at: now, kind: .unlocked)], now: now)
+        let after = String(decoding: try VaultFile.openPlain(Data(contentsOf: store.activityURL),
+                                                             marker: VaultActivityStore.marker, with: Self.key), as: UTF8.self)
+        #expect(after.contains(#""title":"Visa""#), "the later build's event was lost")
+        #expect(!after.contains(#""title":"Old""#), "a later build's event was kept past ninety days")
+        #expect(activity.load().map(\.kind) == [.unlocked, .copied], "newest first")
+        // One with no date this build can read is kept in its place until the limit leaves it out.
+        #expect(after.contains(#""title":"Undated""#))
+        #expect(after.range(of: "Undated")!.lowerBound > after.range(of: "Visa")!.lowerBound, "the stored order changed")
     }
 
     /// The same for the reading file: a field a later build wrote there survives this build's seal.
@@ -856,7 +1006,9 @@ import Testing
         #expect(VaultFile.summary(of: Data()) == "0 bytes, no Vault marker")
     }
 
-    @Test @MainActor func aReadingFileThatDoesNotOpenAsksForAReadAndIsSetAside() async throws {
+    /// A reading file that does not open is set aside, never written over, and the panel starts
+    /// fresh as it always did: no banner, and the next Refresh or Read finds what was waiting.
+    @Test @MainActor func aReadingFileThatDoesNotOpenIsSetAsideAndThePanelStartsFresh() async throws {
         let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.entry(1)])
         let reading = rig.store.readingURL
@@ -867,7 +1019,7 @@ import Testing
         await model.opened()
 
         #expect(model.contents == .loaded)
-        #expect(model.needsReadAgain, "a lost reading file left no Read Again")
+        #expect(!model.needsReadAgain, "a banner says documents were updated, which they were not")
         let lines = await log.entries.map(\.messageBody)
         #expect(lines.contains("Vault: the reading file did not open (unreadableFile, 25 bytes, begins SCVREAD1)"))
         #expect(!lines.contains { $0.contains("not a sealed box") }, "the file's bytes reached the log")
@@ -877,10 +1029,6 @@ import Testing
         #expect(aside.count == 1, "the file that did not open was not kept")
         #expect(try Data(contentsOf: folder.appendingPathComponent(aside[0])) == Data("SCVREAD1 not a sealed box".utf8))
 
-        // Read Again outlives a quit.
-        let again = rig.model()
-        await again.opened()
-        #expect(again.needsReadAgain, "Read Again was lost with the relaunch")
     }
 
     /// A disk that will not move files: a damaged reading file stays where it is.

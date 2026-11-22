@@ -253,3 +253,28 @@ import Testing
         #expect(model.selectedRow?.title == "A loan", "the last one gone, the one before it")
     }
 }
+
+/// The year check that replaced a regex compiled per folder (VT66) answers as the regex did.
+@Suite struct VaultYearFolderTests {
+    @Test func theYearCheckAnswersAsThePatternDid() {
+        let pattern = #"^(?:19|20)[0-9]{2}(?![0-9])"#
+        var names = ["2024", "2024 Tax", "1999", "1899", "2100", "20245", "202", "20x4", "Tax 2024", "2024-25",
+                     "19", "", "2", "20 24", "２０２４", "2024é", "1900s", "20a4", "1988Archive"]
+        let alphabet = Array("012 9-aT.")
+        var seed: UInt64 = 7
+        for _ in 0..<4000 {
+            var name = ""
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let length = Int(seed >> 60) % 7
+            for _ in 0..<length {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                name.append(alphabet[Int(seed >> 33) % alphabet.count])
+            }
+            names.append(["19", "20", ""][Int(seed >> 13) % 3] + name)
+        }
+        for name in names {
+            let old = name.range(of: pattern, options: .regularExpression) != nil
+            #expect(VaultKinds.isYear(Substring(name)) == old, "\(name)")
+        }
+    }
+}

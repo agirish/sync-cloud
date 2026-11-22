@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImageIO
 import PDFKit
@@ -67,10 +68,38 @@ struct VaultFolderReader: VaultDocumentReading {
         return (found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }, unreachable.paths)
     }
 
-    func pages(in file: URL) async -> [[String]] {
-        await Task.detached(priority: .userInitiated) { [folders, vision] in
-            Self.read(file, under: folders, vision: vision)
-        }.value
+    /// Where files are read: a queue of its own, off the cooperative pool, so a wait for the
+    /// PDFKit lane (``PDFKitSerialAccess/run(_:)``) parks none of the pool's threads.
+    private static let workQueue = DispatchQueue(label: "com.synccloud.vault-reader", qos: .userInitiated,
+                                                 attributes: .concurrent)
+
+    func pages(in file: URL) async -> [[String]] { await reading(file).pages }
+
+    func contentKey(of file: URL) async -> String? {
+        await withCheckedContinuation { continuation in
+            Self.workQueue.async { continuation.resume(returning: Self.contentKey(file)) }
+        }
+    }
+
+    /// The file's size and SHA-256, read a megabyte at a time.
+    static func contentKey(_ file: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        var hash = SHA256()
+        var size = 0
+        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            hash.update(data: chunk)
+            size += chunk.count
+        }
+        return "\(size)-" + hash.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) {
+        await withCheckedContinuation { continuation in
+            Self.workQueue.async { [folders, vision] in
+                continuation.resume(returning: Self.read(file, under: folders, vision: vision))
+            }
+        }
     }
 
     /// Each page's lines kept apart, so a name line on one page is never paired with a number on
@@ -78,62 +107,83 @@ struct VaultFolderReader: VaultDocumentReading {
     /// blank page; a file with no page read at all comes back empty, so it is not marked read and
     /// the next read tries it again, and what it gave before stays. One broken page does not keep
     /// a file's other pages from being read, on this read or any later one; the file is then
-    /// marked read without it (`docs/vault-tech-debt.md`, VT54).
+    /// marked read while one is left out: `complete` says so (VT54).
     ///
     /// A page read both ways (``VaultPageSource/Reading/also``) gives its second reading as one
     /// more page, after the file's own, so each page a zone is found on keeps its number.
     private static func read(_ file: URL, under folders: [String],
-                             vision: @escaping @Sendable (CGImage, Processor) throws -> [String]) -> [[String]] {
+                             vision: @escaping @Sendable (CGImage, Processor) throws -> [String]) -> (pages: [[String]], complete: Bool) {
         // The image's lines, any license barcode's text after them; nil when Vision failed on
         // both processors, which is not the same as a page with no text.
         func recognise(_ image: CGImage) -> [String]? { recognised(image, read: vision) }
         guard file.pathExtension.lowercased() == "pdf" else {
             guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return ([], true) }
             // A photo or scan saved as an image is read as a scanned page is: on colored
             // security paper, in its ink alone as well (``VaultPageSource/seen(_:from:under:)``).
             // An image is what it is: there is no sharper render of it to read again.
             let picture = VaultPageSource.Picture(isScan: { true }, read: { sharper in sharper ? nil : recognise(image) },
                                                   barcodes: { decodeBarcodes(image) },
                                                   inkOnly: { inkOnly(image).flatMap(recognise) })
-            return VaultPageSource.seen(picture, from: file.path, under: folders).map { [$0] } ?? []
+            let page = VaultPageSource.seen(picture, from: file.path, under: folders)
+            return (page.map { [$0] } ?? [], page != nil)
         }
-        // A locked PDF is passed over: its password is not the Vault's to ask for.
-        guard let document = PDFDocument(url: file) else {
+        // Every PDFKit call takes its turn in the process's one lane (VT52); Vision does not, so
+        // the lane is free while a page is recognised. The document is opened once and touched
+        // only from inside a turn.
+        func lane<T>(_ body: () -> T) -> T { PDFKitSerialAccess.run(body) }
+        // The bytes are read before the lane is taken: a file iCloud has evicted downloads here,
+        // not while every other PDFKit user waits.
+        guard let bytes = try? Data(contentsOf: file, options: .mappedIfSafe) else {
             Logger.shared.debug("Vault: a PDF could not be opened")
-            return []
+            return ([], true)
         }
-        guard !document.isLocked else {
-            Logger.shared.debug("Vault: a locked PDF was passed over")
-            return []
+        // A locked PDF is passed over: its password is not the Vault's to ask for. The document is
+        // only borrowed below, so this is its one owner, and it is let go of in a lane turn of its
+        // own: PDFKit's teardown, its pages' with it, is PDFKit too.
+        var held = lane({ PDFDocument(data: bytes) })
+        guard held != nil else {
+            Logger.shared.debug("Vault: a PDF could not be opened")
+            return ([], true)
         }
-        var pages: [[String]] = []
-        var secondReadings: [[String]] = []
-        var unreadable = 0
-        defer {
+        let result = readPages(of: held!)
+        lane { held = nil }
+        return result
+
+        func readPages(of document: PDFDocument) -> (pages: [[String]], complete: Bool) {
+            let (locked, pageCount) = lane { (document.isLocked, document.pageCount) }
+            guard !locked else {
+                Logger.shared.debug("Vault: a locked PDF was passed over")
+                return ([], true)
+            }
+            var pages: [[String]] = []
+            var secondReadings: [[String]] = []
+            var unreadable = 0
+            for index in 0..<min(pageCount, pagesPerDocument) {
+                guard let page = lane({ document.page(at: index) }) else { continue }
+                // Which reading counts is ``VaultPageSource``'s rule; the renders are made here, and
+                // only when it asks.
+                let picture = VaultPageSource.Picture(
+                    isScan: { lane { drawsScan(page) } },
+                    read: { sharper in lane { render(page, longSide: sharper ? 4000 : 2400) }.flatMap(recognise) },
+                    barcodes: { lane { render(page, longSide: 4000) }.map(decodeBarcodes) ?? [] },
+                    inkOnly: { lane { render(page) }.flatMap(inkOnly).flatMap(recognise) })
+                let textLayer = lane { page.string ?? "" }
+                guard let reading = VaultPageSource.reading(textLayer: textLayer, from: file.path, under: folders,
+                                                            picture: picture) else {
+                    unreadable += 1
+                    continue
+                }
+                pages.append(reading.lines)
+                if let also = reading.also { secondReadings.append(also) }
+            }
             if unreadable > 0 {
                 Logger.shared.debug("Vault: \(unreadable) page(s) could not be recognised"
-                                    + (pages.isEmpty ? "; the file is tried again next time" : "; the rest were read"))
+                                    + (pages.isEmpty ? "; the file is tried again next time"
+                                                     : "; the rest were read, and the file is tried again"))
             }
+            return (pages + secondReadings, unreadable == 0)
         }
-        for index in 0..<min(document.pageCount, pagesPerDocument) {
-            guard let page = document.page(at: index) else { continue }
-            // Which reading counts is ``VaultPageSource``'s rule; the renders are made here, and
-            // only when it asks.
-            let picture = VaultPageSource.Picture(
-                isScan: { drawsScan(page) },
-                read: { sharper in render(page, longSide: sharper ? 4000 : 2400).flatMap(recognise) },
-                barcodes: { render(page, longSide: 4000).map(decodeBarcodes) ?? [] },
-                inkOnly: { render(page).flatMap(inkOnly).flatMap(recognise) })
-            guard let reading = VaultPageSource.reading(textLayer: page.string ?? "", from: file.path, under: folders,
-                                                        picture: picture) else {
-                unreadable += 1
-                continue
-            }
-            pages.append(reading.lines)
-            if let also = reading.also { secondReadings.append(also) }
-        }
-        return pages + secondReadings
     }
 
     /// Pictures of this many pixels in all could be a scan of the page, or of a card on it: a
@@ -215,7 +265,15 @@ struct VaultFolderReader: VaultDocumentReading {
         let scale = max(2, min(6, longSide / max(bounds.width, bounds.height, 1)))
         let image = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
                                    for: .mediaBox)
-        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        // Drawn into a bitmap of its own here, in the lane, so nothing PDFKit drew lazily is drawn
+        // later outside it. The same pixels.
+        guard let drawn = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        // A format a context will not take is read as it came, as it was before.
+        guard let context = CGContext(data: nil, width: drawn.width, height: drawn.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: drawn.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: drawn.bitmapInfo.rawValue) else { return drawn }
+        context.draw(drawn, in: CGRect(x: 0, y: 0, width: drawn.width, height: drawn.height))
+        return context.makeImage() ?? drawn
     }
 
     /// Which processor Vision may read on: its own choice, the Neural Engine when it has one, or

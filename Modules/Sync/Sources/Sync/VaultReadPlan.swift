@@ -15,7 +15,10 @@ import Foundation
 ///   three years that gave nothing.
 /// - **Everywhere else**: only a file whose name says it is an ID (a passport, a visa, a license).
 public struct VaultReadPlan: Equatable, Sendable {
-    public enum Area: Equatable, Sendable { case identity, accounts, elsewhere }
+    public enum Area: String, Equatable, Sendable, CustomStringConvertible {
+        case identity, accounts, elsewhere
+        public var description: String { rawValue }
+    }
 
     /// One file to open; `account` names the account it is a year of, for accounts.
     public struct Step: Equatable, Sendable {
@@ -51,7 +54,38 @@ public struct VaultReadPlan: Equatable, Sendable {
                 accounts.append(Step(file: years[account]![year]!.url, account: account))
             }
         }
-        steps = whole + accounts
+        steps = Self.originalsFirst(whole, under: roots) + accounts
+    }
+
+    /// Identity papers with the originals first: a file in an ID's own folder (Passport, Visa,
+    /// Form I-94…) before the rest, and copies in packets, applications and archives last, each
+    /// group in the order given. What is read is the same either way; a read stopped partway has
+    /// the originals, and a copy read after its original only confirms it (VT107).
+    static func originalsFirst(_ steps: [Step], under roots: [String] = []) -> [Step] {
+        steps.enumerated()
+            .map { (offset: $0.offset, step: $0.element, score: originalScore(below(roots, $0.element.file.path))) }
+            .sorted { a, b in a.score != b.score ? a.score > b.score : a.offset < b.offset }
+            .map(\.step)
+    }
+
+    /// `path` below the read folder it is in: a folder above it (a home folder named "Old")
+    /// says nothing about one copy against another.
+    private static func below(_ roots: [String], _ path: String) -> String {
+        guard let root = roots.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count }) else { return path }
+        return String(path.dropFirst(root.count))
+    }
+
+    /// How much a file's folders say it is an original, from the folder words
+    /// ``VaultSource/placement(for:)`` weighs, with no kind yet known: a packet of copies (−2) is
+    /// last wherever it is filed, even in an ID's own folder; otherwise an ID's own folder is +2,
+    /// and an archive −1.
+    static func originalScore(_ path: String) -> Int {
+        let folders = (path as NSString).deletingLastPathComponent.lowercased().split(separator: "/").map(String.init)
+        if folders.contains(where: VaultSource.copyFolders.contains) { return -2 }
+        var score = 0
+        if folders.contains(where: VaultSource.homeFolders.contains) { score += 2 }
+        if folders.contains(where: VaultSource.archiveFolders.contains) { score -= 1 }
+        return score
     }
 
     /// Steps for a refresh: every file given and none passed over, since each already gave an ID.
@@ -69,7 +103,7 @@ public struct VaultReadPlan: Equatable, Sendable {
             }
         }
         papers.sort { $0.account != $1.account ? $0.account < $1.account : $0.year > $1.year }
-        return whole + papers.map { Step(file: $0.file, account: $0.account) }
+        return originalsFirst(whole, under: roots) + papers.map { Step(file: $0.file, account: $0.account) }
     }
 
     // MARK: Areas

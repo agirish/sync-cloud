@@ -220,6 +220,32 @@ import Testing
         #expect(!VaultReading.hasRunOut(last, now: last.addingTimeInterval(31 * 3600), timeZone: pacific))
         // The 21st: run out.
         #expect(VaultReading.hasRunOut(last, now: last.addingTimeInterval(33 * 3600), timeZone: pacific))
+        // The same rule counts the days left (VT102): one rule, never two that can drift apart.
+        #expect(VaultReading.daysLeft(last, now: afternoonBefore, timeZone: pacific) == 1)
+        #expect(VaultReading.daysLeft(last, now: last.addingTimeInterval(31 * 3600), timeZone: pacific) == 0)
+        #expect(VaultReading.daysLeft(last, now: last.addingTimeInterval(33 * 3600), timeZone: pacific) == -1)
+        // Against the rule as it was written before (UTC day printed, local day today, compared).
+        func before(_ until: Date, _ now: Date, _ zone: TimeZone) -> Bool {
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC")!
+            var local = Calendar(identifier: .gregorian)
+            local.timeZone = zone
+            let a = utc.dateComponents([.year, .month, .day], from: until)
+            let b = local.dateComponents([.year, .month, .day], from: now)
+            return (b.year!, b.month!, b.day!) > (a.year!, a.month!, a.day!)
+        }
+        let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+        for hours in stride(from: -60, through: 60, by: 1) {
+            let now = last.addingTimeInterval(Double(hours) * 3600)
+            for zone in [pacific, tokyo, TimeZone(identifier: "UTC")!] {
+                #expect(VaultReading.hasRunOut(last, now: now, timeZone: zone) == before(last, now, zone), "\(hours) h, \(zone.identifier)")
+                var utc = Calendar(identifier: .gregorian); utc.timeZone = TimeZone(identifier: "UTC")!
+                var local = Calendar(identifier: .gregorian); local.timeZone = zone
+                let days = utc.dateComponents([.day], from: utc.date(from: local.dateComponents([.year, .month, .day], from: now))!,
+                                              to: utc.date(from: utc.dateComponents([.year, .month, .day], from: last))!).day!
+                #expect(VaultReading.daysLeft(last, now: now, timeZone: zone) == days, "\(hours) h, \(zone.identifier)")
+            }
+        }
     }
 
     @Test func onlyAnArchiveFolderInsideTheReadFolderCounts() {

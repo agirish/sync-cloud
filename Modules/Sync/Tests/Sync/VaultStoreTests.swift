@@ -44,7 +44,11 @@ final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
         return errSecSuccess
     }
 
+    /// Every read, by service: what a test counts round trips with (VT10).
+    private(set) var reads: [String] = []
+
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
+        reads.append(query[kSecAttrService as String] as? String ?? "")
         if let forcedCopyStatus { return (forcedCopyStatus, nil) }
         if let service = Self.otherService(query) {
             guard let data = others[service] else { return (errSecItemNotFound, nil) }

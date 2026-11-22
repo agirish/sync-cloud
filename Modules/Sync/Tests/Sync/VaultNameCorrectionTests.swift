@@ -96,6 +96,64 @@ import Testing
         #expect(Self.holder(model, "VSP99887766") == "Divit Girish")
     }
 
+    /// Counts the reading file put in place: each one is a whole seal.
+    final class CountsSeals: FileManager, @unchecked Sendable {
+        nonisolated(unsafe) var seals = 0
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if dstURL.lastPathComponent == "vault-reading.sealed" { seals += 1 }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+        override func replaceItem(at originalItemURL: URL, withItemAt newItemURL: URL, backupItemName: String?,
+                                  options: FileManager.ItemReplacementOptions = [],
+                                  resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            if originalItemURL.lastPathComponent == "vault-reading.sealed" { seals += 1 }
+            try super.replaceItem(at: originalItemURL, withItemAt: newItemURL, backupItemName: backupItemName,
+                                  options: options, resultingItemURL: resultingItemURL)
+        }
+    }
+
+    /// One action seals the reading file once (VT65): Confirm with Everywhere sealed it for the
+    /// correction, for the find it took away, and for itself.
+    @Test func oneConfirmSealsTheReadingFileOnce() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let disk = CountsSeals()
+        let store = VaultStore(fileURL: rig.scratch.fileURL, keychain: rig.keychain, fileManager: disk)
+        let model = VaultModel(store: store, authenticator: rig.auth, defaults: rig.defaults,
+                               clock: { VaultLockTests.t0 }, copyToPasteboard: { _ in })
+        model.people = [Person(id: "divit", displayName: "Divit")]
+        await model.opened()
+        await model.readDocuments(with: PlannedDocuments(pages: Self.pages))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        var draft = model.prepared(VaultModel.Draft(find))
+        draft.holderName = "Divit Girish"
+        draft.correctEverywhere = true
+        let before = disk.seals
+        #expect(model.confirm(find.id, as: draft) != nil)
+        #expect(disk.seals - before == 1, "\(disk.seals - before) seals for one Confirm")
+        #expect(Self.holder(model, "VSP99887766") == "Divit Girish")
+        // What it sealed is all of it, read from the file as it now stands.
+        let sealed = try #require(store.loadReading())
+        #expect(sealed.names.values.contains("Divit Girish"), "the correction was not in the one seal")
+        #expect(!sealed.finds.contains { $0.value == "XZB123456789" }, "the confirmed find was not taken out in it")
+
+        // Edit with Everywhere, and Add, seal once too.
+        let other = try #require(model.finds.first { $0.value == "VSP99887766" })
+        let saved = try #require(model.confirm(other.id, as: VaultModel.Draft(other)))
+        var edit = model.prepared(VaultModel.Draft(try #require(model.entries.first { $0.id == saved })), for: saved)
+        edit.holderName = "Divit G. Girish"
+        edit.correctEverywhere = true
+        let beforeEdit = disk.seals
+        #expect(await model.update(saved, to: edit))
+        #expect(disk.seals - beforeEdit == 1, "\(disk.seals - beforeEdit) seals for one Edit")
+        let waiting = try #require(model.finds.first { $0.value == "KP12345678" })
+        var typed = VaultModel.Draft(title: "Medical card", value: waiting.value, note: "", kind: .other)
+        typed.category = .health
+        let beforeAdd = disk.seals
+        #expect(model.add(typed) != nil)
+        #expect(disk.seals - beforeAdd == 1, "\(disk.seals - beforeAdd) seals for one Add")
+    }
+
     /// The same for Edit: a refused save of a saved ID makes no correction everywhere (VT63).
     @Test func aRefusedEditMakesNoCorrectionEverywhere() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }

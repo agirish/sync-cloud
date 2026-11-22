@@ -9,6 +9,17 @@ public protocol VaultDocumentReading: Sendable {
     /// One file's pages, each as its recognised lines; empty when it cannot be read. Pages are kept
     /// apart so a name line on one page is never paired with a number on another.
     func pages(in file: URL) async -> [[String]]
+    /// ``pages(in:)``, and whether every page meant to be read was: a page left out (one Vision
+    /// could not recognise) keeps the file from being marked read, so the next read tries it
+    /// again (VT54). A reader that cannot tell says every page was.
+    func reading(_ file: URL) async -> (pages: [[String]], complete: Bool)
+    /// What a file holds, as a key two files share only when their bytes are the same (its size
+    /// and SHA-256): a file whose bytes were read already in this read is not read again, its
+    /// pages reused (VT107). Nil when the reader cannot tell, which reads every file.
+    func contentKey(of file: URL) async -> String?
+    /// A file's size in bytes, which ``contentKey(of:)`` is asked for only when another file to
+    /// be read shares it. Nil when unknown.
+    func size(of file: URL) -> Int?
     /// What says a file has changed since it was read: its size and modification date. Nil reads
     /// it every time.
     func stamp(of file: URL) -> String?
@@ -28,6 +39,14 @@ public protocol VaultDocumentReading: Sendable {
 
 extension VaultDocumentReading {
     public func walk() async -> (files: [URL], unreachable: [String]) { (await files(), []) }
+
+    public func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) { (await pages(in: file), true) }
+
+    public func contentKey(of file: URL) async -> String? { nil }
+
+    public func size(of file: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int
+    }
 
     public var followsReadPlan: Bool { false }
 
@@ -412,8 +431,15 @@ public final class VaultModel: ObservableObject {
 
     /// The person in the household a printed name answers to, when exactly one does.
     public nonisolated static func person(named holder: String?, among people: [Person]) -> String? {
-        guard let holder, !people.isEmpty else { return nil }
-        let named = PersonRegistry(people: people).detect(in: holder)
+        guard !people.isEmpty else { return nil }
+        return person(named: holder, in: PersonRegistry(people: people))
+    }
+
+    /// ``person(named:among:)`` with the household's registry made once, as the rows are built:
+    /// making one tokenises every person's names (VT66).
+    nonisolated static func person(named holder: String?, in registry: PersonRegistry?) -> String? {
+        guard let holder, let registry else { return nil }
+        let named = registry.detect(in: holder)
         return named.count == 1 ? named.first : nil
     }
 
@@ -422,9 +448,13 @@ public final class VaultModel: ObservableObject {
     /// `Visitor Insurance/2021 - Girish, Muktha and Anuraag`). Never a folder above the read
     /// folder: the home folder is named for whoever's Mac it is.
     public nonisolated static func person(inPath path: String, under readFolders: [String], among people: [Person]) -> String? {
-        guard !people.isEmpty,
+        guard !people.isEmpty else { return nil }
+        return person(inPath: path, under: readFolders, in: PersonRegistry(people: people))
+    }
+
+    nonisolated static func person(inPath path: String, under readFolders: [String], in registry: PersonRegistry?) -> String? {
+        guard let registry,
               let root = readFolders.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count }) else { return nil }
-        let registry = PersonRegistry(people: people)
         let below = String(path.dropFirst(root.count + 1))
         for folder in (below as NSString).deletingLastPathComponent.split(separator: "/").reversed() {
             let named = registry.detect(in: String(folder))
@@ -437,7 +467,7 @@ public final class VaultModel: ObservableObject {
     /// Every number, saved and waiting, each with where it stands. Worked out afresh each time,
     /// so a saved passport and a newer one read today are weighed together.
     public var rows: [Row] {
-        let key = RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: VaultReadFolders.folders(in: defaults))
+        let key = rowsKey
         if let cached = rowsCache, cached.key == key { return cached.rows }
         let rows = computedRows
         rowsCache = (key, rows)
@@ -456,6 +486,53 @@ public final class VaultModel: ObservableObject {
     /// Internal to read, so tests can see which changes rebuild the rows (VT71, VT101).
     private(set) var rowsRevision = 0
     private var rowsCache: (key: RowsKey, rows: [Row])?
+    private var rowsKey: RowsKey {
+        RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: VaultReadFolders.folders(in: defaults))
+    }
+
+    /// What the panel's lists are worked out from beyond the rows: the search, the tab, the
+    /// filters and the kinds. The panel draws every second and asks for them many times a draw;
+    /// they are worked out again only when one of these moved (VT9).
+    private struct ViewKey: Equatable {
+        var rows: RowsKey
+        var query: String
+        var tab: VaultStanding.Tab
+        var person: PersonFilter
+        var geo: VaultGeoFilter
+        var kind: VaultGroups.ID?
+        var kinds: VaultKinds
+        var groups: VaultGroups
+    }
+    private var viewKey: ViewKey {
+        ViewKey(rows: rowsKey, query: query, tab: tab, person: personFilter, geo: geoFilter, kind: kindFilter,
+                kinds: kinds, groups: groups)
+    }
+    private var visibleCache: (key: ViewKey, rows: [Row])?
+    private var cardsCache: (key: ViewKey, cards: [(card: VaultCardID, rows: [Row])])?
+    private var tabCountsCache: (key: ViewKey, counts: [VaultStanding.Tab: Int])?
+    private var peopleCache: (key: ViewKey, people: [Person], roles: [String: VaultNameRoles], sections: [VaultPersonSection])?
+    private var sourcesCache: (revision: Int, stale: Set<String>, sources: Set<String>)?
+    /// ``peopleSections``, worked out again only when what they are made of moved.
+    func peopleSections(computing compute: @autoclosure () -> [VaultPersonSection]) -> [VaultPersonSection] {
+        let key = viewKey
+        if let cached = peopleCache, cached.key == key, cached.people == people, cached.roles == nameRoles {
+            return cached.sections
+        }
+        let sections = compute()
+        peopleCache = (key, people, nameRoles, sections)
+        viewComputations += 1
+        return sections
+    }
+    /// How often the visible rows were worked out: a test's measure of VT9.
+    private(set) var visibleComputations = 0
+    /// How often any of the panel's lists was worked out (visible rows, cards, tab counts,
+    /// people, refresh sources): a test's measure of VT9.
+    private(set) var viewComputations = 0
+    /// Whether any list the panel draws is held: none is once the numbers are let go.
+    var holdsViewCaches: Bool {
+        rowsCache != nil || visibleCache != nil || cardsCache != nil || tabCountsCache != nil
+            || peopleCache != nil || sourcesCache != nil
+    }
     /// Moves on whenever access ends by hand or by the system (close, Lock Now, sleep, new
     /// settings), so a proof asked for before it cannot open the Vault after it.
     private var lockEpoch = 0
@@ -477,6 +554,8 @@ public final class VaultModel: ObservableObject {
 
     private var computedRows: [Row] {
         let folders = VaultReadFolders.folders(in: defaults)
+        // Made once for every row, not once per row (VT66).
+        let registry = people.isEmpty ? nil : PersonRegistry(people: people)
         func withMentions(_ facts: VaultReadFacts?, _ value: String) -> VaultReadFacts? {
             guard var facts else { return nil }
             for source in mentions[VaultReading.normalized(value)] ?? [] { facts.add(source) }
@@ -540,7 +619,7 @@ public final class VaultModel: ObservableObject {
             let chosen = entry.assignment
             var personID: String?
             if case .person(let id)? = chosen { personID = id }
-            if chosen == nil { personID = Self.person(named: facts?.holder, among: people) }
+            if chosen == nil { personID = Self.person(named: facts?.holder, in: registry) }
             return Item(id: entry.id, title: entry.title, value: entry.value, note: entry.note, category: entry.category,
                         facts: facts, isSaved: true, pin: entry.pin,
                         chosen: chosen, personID: personID, chosenGeo: entry.geo, card: entry.card, readHolder: read,
@@ -554,7 +633,7 @@ public final class VaultModel: ObservableObject {
             switch find.assignment {
             case .person(let id)?: personID = id
             case .household?: personID = nil
-            case nil: personID = Self.person(named: facts?.holder, among: people)
+            case nil: personID = Self.person(named: facts?.holder, in: registry)
             }
             return Item(id: find.id, title: find.title, value: find.value, note: find.note, category: find.category,
                         facts: facts, isSaved: false, pin: find.pin,
@@ -612,7 +691,7 @@ public final class VaultModel: ObservableObject {
         for index in all.indices where all[index].chosen == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
             if let path = all[index].appSource ?? all[index].facts?.primary?.path,
-               let id = Self.person(inPath: path, under: folders, among: people) {
+               let id = Self.person(inPath: path, under: folders, in: registry) {
                 all[index].personID = id
             }
         }
@@ -669,6 +748,16 @@ public final class VaultModel: ObservableObject {
     /// The rows the tab, the person filter and the search leave. A search looks in every tab:
     /// a number asked about on a call may be an older one.
     public var visibleRows: [Row] {
+        let key = viewKey
+        if let cached = visibleCache, cached.key == key { return cached.rows }
+        let visible = computedVisibleRows
+        visibleCache = (key, visible)
+        visibleComputations += 1
+        viewComputations += 1
+        return visible
+    }
+
+    private var computedVisibleRows: [Row] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return rows.filter { row in
             // A search looks past the filters, as past the tabs: a number asked about on a call may
@@ -854,6 +943,15 @@ public final class VaultModel: ObservableObject {
     /// Cards in the main view's order, each with its rows: the app's kinds, then the household's.
     /// A kind with nothing is left out.
     public var cards: [(card: VaultCardID, rows: [Row])] {
+        let key = viewKey
+        if let cached = cardsCache, cached.key == key { return cached.cards }
+        let cards = computedCards
+        cardsCache = (key, cards)
+        viewComputations += 1
+        return cards
+    }
+
+    private var computedCards: [(card: VaultCardID, rows: [Row])] {
         let visible = visibleRows
         let order = tab == .other && !searching
             ? Set(visible.map(\.card)).sorted { $0.key < $1.key } : kinds.order
@@ -874,7 +972,14 @@ public final class VaultModel: ObservableObject {
 
     /// How many rows each tab has, as the person filter leaves them.
     public func count(in tab: VaultStanding.Tab) -> Int {
-        rows.filter { $0.standing.tab == tab && passesFilters($0) }.count
+        let key = viewKey
+        if let cached = tabCountsCache, cached.key == key, let count = cached.counts[tab] { return count }
+        let count = rows.filter { $0.standing.tab == tab && passesFilters($0) }.count
+        viewComputations += 1
+        var counts = tabCountsCache?.key == key ? tabCountsCache!.counts : [:]
+        counts[tab] = count
+        tabCountsCache = (key, counts)
+        return count
     }
 
     /// By card, then whose, then current before in-use before expired, then newest.
@@ -1429,10 +1534,25 @@ public final class VaultModel: ObservableObject {
     /// The weekly backup, when one is owed (``VaultBackup/isDue``): made from the IDs already in
     /// hand once the Vault is open, so it asks for nothing. A failure is logged and tried again
     /// at the next open.
-    public func backUpIfDue(using backup: VaultBackup?) {
-        guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return }
-        _ = try? backup.write(entries)
+    /// Answers the backup's task, for a caller that waits on it; the panel does not.
+    @discardableResult
+    public func backUpIfDue(using backup: VaultBackup?) -> Task<Void, Never>? {
+        // One at a time: it is due until its write lands, and the panel asks twice as it opens
+        // unlocked (on open, and as the lock lifts).
+        if let backingUp { return backingUp }
+        guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return nil }
+        let entries = entries
+        // Sealed off the main actor (VT58), so the panel draws while the key is derived.
+        let task = Task {
+            _ = try? await backup.write(entries)
+            backingUp = nil
+        }
+        backingUp = task
+        return task
     }
+
+    /// The weekly backup being written, if one is.
+    private var backingUp: Task<Void, Never>?
 
     /// Lets the numbers go when the lock that hides everything has closed with the panel up:
     /// Lock Now, or the idle limit passing. A read in progress keeps them until it ends.
@@ -1523,6 +1643,14 @@ public final class VaultModel: ObservableObject {
     /// Every document an ID was read from, saved or waiting: what Refresh looks at. Not the
     /// documents that only name an ID; those come back with Discover More.
     public var refreshSources: Set<String> {
+        if let cached = sourcesCache, cached.revision == rowsRevision, cached.stale == staleSources { return cached.sources }
+        let sources = computedRefreshSources
+        sourcesCache = (rowsRevision, staleSources, sources)
+        viewComputations += 1
+        return sources
+    }
+
+    private var computedRefreshSources: Set<String> {
         var paths = staleSources
         for entry in entries {
             if let path = entry.sourcePath { paths.insert(path) }
@@ -1565,7 +1693,13 @@ public final class VaultModel: ObservableObject {
     /// Lets every number go from memory. To Confirm is sealed first, so the next unlock brings it
     /// back without reading anything again.
     private func release() {
-        if contents == .loaded { saveReading() }
+        // Sealed whatever action is running: what is let go next cannot be sealed after.
+        if contents == .loaded {
+            let depth = sealDepth
+            sealDepth = 0
+            saveReading()
+            sealDepth = depth
+        }
         entries = []
         finds = []
         readIndex = [:]
@@ -1581,9 +1715,16 @@ public final class VaultModel: ObservableObject {
         names = [:]
         nameRoles = [:]
         readingLaterFields = nil
+        readingUnreadFields = nil
         readingHeld = false
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
+        // The panel's lists hold the rows, dates of birth and paths too: let go with them.
+        visibleCache = nil
+        cardsCache = nil
+        tabCountsCache = nil
+        peopleCache = nil
+        sourcesCache = nil
         contents = .notLoaded
         selection = nil
     }
@@ -1604,20 +1745,14 @@ public final class VaultModel: ObservableObject {
                 // so nothing is sealed over it this run.
                 readingHeld = true
             case .damaged:
-                // What was waiting and every choice made on it are gone with the file: ask for a
-                // read, which finds them again, and keep the file out of the next save's way.
-                // Sealed at once, so Read Again outlives a quit. A file that would not move is
-                // never sealed over: what it holds (name corrections, roles, lessons) is the
-                // user's own, and nothing seals this run.
-                needsReadAgain = true
+                // A fresh start, as it always was: with nothing marked read, the next Refresh or
+                // Read finds what was waiting again, and no banner says otherwise. The file is
+                // kept out of the next save's way, never sealed over: what it holds (name
+                // corrections, roles, lessons) is the user's own. One that would not move holds
+                // every seal this run.
                 if store.setAsideReading() == nil, store.hasReadingFile {
                     readingHeld = true
                     Logger.shared.warning("Vault: the reading file that did not open stays where it is, and nothing read this time is sealed")
-                } else {
-                    // Sealed only under a key already here: opening the panel makes none. With
-                    // no key, the first save that does seals Read Again with it.
-                    readingChanged = true
-                    if store.hasKey { saveReading() }
                 }
             case .loaded(let state):
                 // Another build's rules, or a Forget since: read every file again next time.
@@ -1647,6 +1782,7 @@ public final class VaultModel: ObservableObject {
                 names = state.names
                 nameRoles = state.nameRoles ?? [:]
                 readingLaterFields = state.laterFields
+                readingUnreadFields = state.unreadFields
                 // Merged by an older build of the same rules: rebuilt, so each names the document
                 // it is read from and copies are weighed as they are now.
                 if sameRules { finds = finds.map { rebuilt($0, VaultReading.normalized($0.value)) } }
@@ -1770,9 +1906,11 @@ public final class VaultModel: ObservableObject {
     /// Adds a number. No proof: the person typing it already has it in hand.
     @discardableResult
     public func add(_ draft: Draft) -> UUID? {
-        guard let id = add(draft, sourcePath: nil) else { return nil }
-        record(.added, id: id)
-        return id
+        sealingOnce {
+            guard let id = add(draft, sourcePath: nil) else { return nil }
+            record(.added, id: id)
+            return id
+        }
     }
 
     private func add(_ draft: Draft, sourcePath: String?, chosenSource: String? = nil, readHolder: String? = nil) -> UUID? {
@@ -1815,6 +1953,11 @@ public final class VaultModel: ObservableObject {
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(title)", for: id) else { return false }
         }
+        return sealingOnce { updating(id, to: draft) }
+    }
+
+    /// ``update(_:to:)`` once its proof is had: nothing here waits, so its seals are one.
+    private func updating(_ id: UUID, to draft: Draft) -> Bool {
         // Looked up again after the proof: while it was asked, the panel may have closed and let
         // the numbers go, or another number may have been removed and moved this one.
         guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }) else { return false }
@@ -1893,9 +2036,6 @@ public final class VaultModel: ObservableObject {
             try store.save(changed)
             entries = changed
             notice = nil
-            // What was waiting to be sealed with a key (Read Again after a damaged reading file,
-            // on a Mac that had none) is sealed now that this save has made one.
-            saveReading()
             return true
         } catch let error as VaultError {
             notice = Self.message(for: error)
@@ -2040,6 +2180,16 @@ public final class VaultModel: ObservableObject {
         // them from being opened, and asked about, again.
         let ownDocuments = scope.isRefresh ? Set(entries.compactMap { $0.sourcePath ?? $0.facts?.primary?.path }) : []
         var ownStamps: [String: String] = [:]
+        /// What each file's bytes gave, by ``VaultDocumentReading/contentKey(of:)``, for this read.
+        var readByContent: [String: ([[String]], Bool)] = [:]
+        // Sizes, read off the main actor; a size two planned files share marks possible copies.
+        let sizes: [String: Int] = await Task.detached { [steps] in
+            Dictionary(steps.compactMap { step in reader.size(of: step.file).map { (step.file.path, $0) } },
+                       uniquingKeysWith: { a, _ in a })
+        }.value
+        let sharedSizes = Set(Dictionary(grouping: sizes.values, by: { $0 }).filter { $0.value.count > 1 }.keys)
+        /// Files read with a page left out this time: what they gave asks no Keep Mine question.
+        var incomplete = Set<String>()
         var readNow: [String: [VaultFind]] = [:]
         var tally = VaultReadTally()
         tally.documents = files.count
@@ -2090,7 +2240,21 @@ public final class VaultModel: ObservableObject {
                 reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
                 continue
             }
-            let pages = await reader.pages(in: file)
+            // A file whose bytes were read already in this read (a copy saved in two folders) gives
+            // the same pages: they are reused, and only what is read from them is done again here,
+            // so this path keeps its own sources, copies and dates (VT107).
+            // Only a file another one planned is as big as can be a copy of it: those alone are
+            // hashed and kept. And within one area: how a page is read depends on where it is.
+            let content = sharedSizes.contains(sizes[file.path] ?? -1)
+                ? (await reader.contentKey(of: file)).map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
+                : nil
+            let (pages, complete): ([[String]], Bool)
+            if let content, let read = readByContent[content] {
+                (pages, complete) = read
+            } else {
+                (pages, complete) = await reader.reading(file)
+                if let content, !pages.isEmpty { readByContent[content] = (pages, complete) }
+            }
             // Locked meanwhile, even if opened again since: this read was stopped.
             guard !Task.isCancelled, contents == .loaded else { return stopped(at: index) }
             // Nothing came back: locked, damaged, or not there for a moment. What it gave before,
@@ -2143,8 +2307,15 @@ public final class VaultModel: ObservableObject {
                     for value in bare where bareSeen[account]?[value] == nil { bareSeen[account, default: [:]][value] = file.path }
                 }
             }
+            // A file with a page left out is not marked read: what it gave is taken, and the next
+            // read opens it again for the rest (VT54).
             if let stamp {
-                if ownDocuments.contains(file.path) { ownStamps[file.path] = stamp } else { readIndex[file.path] = stamp }
+                // Read with a page left out: tried once more as it stands, then marked read until
+                // it changes, so a page that never reads does not reopen its file at every read.
+                let partial = "partial " + stamp
+                let mark = complete || readIndex[file.path] == partial ? stamp : partial
+                if !complete { incomplete.insert(file.path) }
+                if ownDocuments.contains(file.path) { ownStamps[file.path] = mark } else { readIndex[file.path] = mark }
             }
             settle(step)
             readingChanged = true
@@ -2168,7 +2339,8 @@ public final class VaultModel: ObservableObject {
             // A saved ID whose own document was opened and no longer gives its number, but
             // gives one other of its kind: the saved one stands, and the panel asks.
             for entry in entries {
-                guard let path = entry.sourcePath ?? entry.facts?.primary?.path, let found = readNow[path] else { continue }
+                guard let path = entry.sourcePath ?? entry.facts?.primary?.path, let found = readNow[path],
+                      !incomplete.contains(path) else { continue }
                 let own = VaultReading.normalized(entry.value)
                 guard !found.contains(where: { VaultReading.normalized($0.value) == own }) else { continue }
                 let others = found.filter { find in
@@ -2368,11 +2540,27 @@ public final class VaultModel: ObservableObject {
     /// What a later build stored in the reading file that this one does not read: sealed back
     /// with it (``VaultReadingState/laterFields``).
     private var readingLaterFields: Data?
-    /// The reading file did not open and would not move aside: nothing is sealed over it until
-    /// the Vault is opened again (VT24).
+    /// The user's own fields this build could not read (``VaultReadingState/unreadFields``).
+    private var readingUnreadFields: Data?
+    /// The reading file did not open and would not move aside, or the Keychain withheld its key
+    /// (``VaultStore/ReadingLoad/keyRefused``): nothing is sealed over it until the Vault is
+    /// opened again (VT24). People's Misread and roles chosen meanwhile are not kept.
     private var readingHeld = false
 
+    /// Runs one action (Confirm, Add, Edit) so that every seal it asks for is one, at its end:
+    /// each seal re-encodes and encrypts the whole reading file (VT65).
+    private func sealingOnce<T>(_ action: () -> T) -> T {
+        sealDepth += 1
+        let result = action()
+        sealDepth -= 1
+        if sealDepth == 0 { saveReading() }
+        return result
+    }
+    private var sealDepth = 0
+
     func saveReading() {
+        // Within one action, the seal waits for its end (``sealingOnce(_:)``).
+        guard sealDepth == 0 else { return }
         // Never once the numbers are let go: what is in memory then is nothing, and sealing it
         // would write that over what was read. Never over a damaged file that would not move.
         guard readingChanged, contents == .loaded, !readingHeld, let store else { return }
@@ -2385,6 +2573,7 @@ public final class VaultModel: ObservableObject {
                                       lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
                                       nameRoles: nameRoles.isEmpty ? nil : nameRoles)
         state.laterFields = readingLaterFields
+        state.unreadFields = readingUnreadFields
         do {
             try store.saveReading(state)
             readingChanged = false
@@ -2396,6 +2585,10 @@ public final class VaultModel: ObservableObject {
     /// Adds a find as an entry, as the editor left it, and takes it out of To Confirm.
     @discardableResult
     public func confirm(_ findID: UUID, as draft: Draft) -> UUID? {
+        sealingOnce { confirming(findID, as: draft) }
+    }
+
+    private func confirming(_ findID: UUID, as draft: Draft) -> UUID? {
         guard let find = finds.first(where: { $0.id == findID }) else { return nil }
         var draft = draft
         // What was read stays with the number, whatever the editor changed about its name, and

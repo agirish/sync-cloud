@@ -39,7 +39,7 @@ import Testing
 
     @Test func aFileThatAsksForAlmostNoWorkIsNotOneOfOurs() throws {
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage])
-        let weak = try VaultBackupFile.seal(contents, passphrase: Self.phrase, rounds: 10, salt: Self.salt)
+        let weak = try VaultBackupFile.seal(contents, passphrase: Self.phrase, rounds: VaultBackupFile.leastRounds - 1, salt: Self.salt)
         #expect(throws: VaultBackupError.notABackup) { try VaultBackupFile.open(weak, passphrase: Self.phrase) }
     }
 
@@ -48,7 +48,8 @@ import Testing
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage])
         var file = try VaultBackupFile.seal(contents, passphrase: Self.phrase, rounds: Self.rounds, salt: Self.salt)
         // Its rounds, four bytes after the marker, rewritten to the most a header can say.
-        file.replaceSubrange(8..<12, with: [0xFF, 0xFF, 0xFF, 0xFF])
+        // One round past the bound: the edge, not the far end, is what is refused.
+        withUnsafeBytes(of: (VaultBackupFile.mostRounds + 1).bigEndian) { file.replaceSubrange(8..<12, with: $0) }
         let start = Date()
         #expect(throws: VaultBackupError.notABackup) { try VaultBackupFile.open(file, passphrase: Self.phrase) }
         #expect(Date().timeIntervalSince(start) < 1, "refused on its header, with no key stretched")
@@ -77,7 +78,7 @@ import Testing
         rig.defaults.set(folder.path, forKey: VaultBackup.folderKey)
         let clock = rig.clock
         return VaultBackup(store: rig.store, keychain: rig.keychain, authenticator: rig.auth, defaults: rig.defaults,
-                           clock: { clock.now })
+                           clock: { clock.now }, rounds: Self.rounds)
     }
 
     static func scratchFolder() -> URL {
@@ -103,18 +104,38 @@ import Testing
         #expect(url.lastPathComponent.hasPrefix("Vault Backup ") && url.pathExtension == "scvault")
         let mode = try #require((try FileManager.default.attributesOfItem(atPath: url.path))[.posixPermissions] as? NSNumber)
         #expect(mode.int16Value == 0o600)
-        #expect(try backup.read(url).get().entries == [Self.mortgage, Self.passport], "it opens with the kept passphrase")
+        #expect(try await backup.read(url).get().entries == [Self.mortgage, Self.passport], "it opens with the kept passphrase")
         #expect(backup.lastBackup == rig.clock.now)
     }
 
-    @Test func theWeeklyBackupIsOwedOnceAWeekAndOnlyWithAPassphrase() throws {
+    /// The key is derived off the main actor (VT58): at full strength it takes most of a second,
+    /// which held the panel as it opened for the weekly backup. Where sealing and opening run is
+    /// recorded as they run.
+    @Test func aBackupsKeyIsDerivedOffTheMainActor() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        rig.defaults.set(folder.path, forKey: VaultBackup.folderKey)
+        final class Where: @unchecked Sendable { var onMain: [Bool] = [] }
+        let seen = Where()
+        let clock = rig.clock
+        let backup = VaultBackup(store: rig.store, keychain: rig.keychain, authenticator: rig.auth, defaults: rig.defaults,
+                                 fileManager: .default, clock: { clock.now }, rounds: Self.rounds,
+                                 seal: { seen.onMain.append(Thread.isMainThread); return try VaultBackupFile.seal($0, passphrase: $1, rounds: $2) },
+                                 open: { seen.onMain.append(Thread.isMainThread); return try VaultBackupFile.open($0, passphrase: $1) })
+        try backup.setPassphrase(Self.phrase)
+        let url = try await backup.write([Self.mortgage])
+        #expect(try await backup.read(url).get().entries == [Self.mortgage])
+        #expect(seen.onMain == [false, false], "a key was derived on the main actor")
+    }
+
+    @Test func theWeeklyBackupIsOwedOnceAWeekAndOnlyWithAPassphrase() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
         #expect(!backup.isDue, "no passphrase: nothing is made, so nothing is owed")
         try backup.setPassphrase(Self.phrase)
         #expect(backup.isDue)
-        try backup.write([Self.mortgage])
+        try await backup.write([Self.mortgage])
         #expect(!backup.isDue)
         rig.clock.advance(6 * 86_400)
         #expect(!backup.isDue)
@@ -134,15 +155,15 @@ import Testing
         rig.auth.answer = .cancelled
         let model = rig.model()
         await model.opened()
-        model.backUpIfDue(using: backup)
+        #expect(model.backUpIfDue(using: backup) == nil)
         #expect(backup.lastBackup == nil, "a locked panel holds no IDs to back up")
 
         rig.auth.answer = .allowed
         #expect(await model.unlock())
-        model.backUpIfDue(using: backup)
+        await model.backUpIfDue(using: backup)?.value
         #expect(backup.lastBackup != nil)
         let made = try #require(try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).first)
-        #expect(try backup.read(made).get().entries == [Self.mortgage])
+        #expect(try await backup.read(made).get().entries == [Self.mortgage])
     }
 
     // MARK: Putting one back
@@ -239,13 +260,13 @@ import Testing
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
         try backup.setPassphrase("correct horse battery")
-        let url = try backup.write([Self.mortgage, Self.passport])
+        let url = try await backup.write([Self.mortgage, Self.passport])
         // Rewrite it as a later build would: one more record, of a kind this build has never seen.
         let passphrase = "correct horse battery"
         let sealed = try Data(contentsOf: url)
         let head = Data(sealed.prefix(28))
         let key = try #require(VaultBackupFile.key(passphrase: passphrase, salt: Data(head.suffix(16)),
-                                                   rounds: VaultBackupFile.rounds))
+                                                   rounds: Self.rounds))
         var object = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(sealed, marker: head, with: key)) as? [String: Any])
         var list = try #require(object["entries"] as? [[String: Any]])
         var later = list[0]
@@ -257,7 +278,7 @@ import Testing
         try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), marker: head, with: key)
             .write(to: url)
 
-        let contents = try backup.read(url).get()
+        let contents = try await backup.read(url).get()
         #expect(contents.laterRecords == 1)
         #expect(await backup.restore(contents, mode: .addMissing) == .success(2))
         #expect(try rig.store.load().map(\.title).sorted() == [Self.mortgage.title, Self.passport.title].sorted())
@@ -280,6 +301,122 @@ import Testing
         #expect(VaultActivityStore.beside(rig.store, keychain: rig.keychain).load().contains { $0.kind == .copied },
                 "the activity list went with the Replace")
         #expect(Set(backups).isSubset(of: Set(rig.store.backups)), "the backups went with the Replace")
+        let key = SymmetricKey(data: try #require(rig.keychain.itemData))
+        let newest = try #require(rig.store.backups.first)
+        #expect(try VaultFile.open(Data(contentsOf: newest), with: key) == [Self.mortgage, Self.passport],
+                "the Vault as it was just before the Replace is not among the backups")
+    }
+
+    /// A backup made here carries the records a later build wrote, after this build's, so a
+    /// later build restoring it gets them back.
+    @Test func aBackupCarriesALaterBuildsRecords() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.keychain.itemData = VaultFormatTests.key.withUnsafeBytes { Data($0) }
+        let entries = Array(try VaultFormatTests.formatEntries().prefix(2))
+        try FileManager.default.createDirectory(at: rig.scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try VaultFormatTests.sealed(entries, plus: [["category": "bankAccount"]]).write(to: rig.scratch.fileURL)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        let url = try await backup.write(entries)
+        let contents = try await backup.read(url).get()
+        #expect(contents.entries == entries)
+        #expect(contents.laterRecords == 1, "the later build's record was not carried")
+    }
+
+    /// A later build's records in a backup come back with a restore made here, Replace and Add
+    /// Missing alike, so a backup made from the result still has them.
+    @Test func aRestoreKeepsALaterBuildsRecords() async throws {
+        for mode in [VaultRestoreMode.replace, .addMissing] {
+            let rig = try Rig(); defer { rig.cleanUp() }
+            rig.keychain.itemData = VaultFormatTests.key.withUnsafeBytes { Data($0) }
+            let entries = Array(try VaultFormatTests.formatEntries().prefix(2))
+            try FileManager.default.createDirectory(at: rig.scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try VaultFormatTests.sealed(entries, plus: [["category": "bankAccount"]]).write(to: rig.scratch.fileURL)
+            let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+            let backup = Self.backup(rig, folder: folder)
+            try backup.setPassphrase(Self.phrase)
+            let contents = try await backup.read(try await backup.write(entries)).get()
+            #expect(contents.newer.count == 1)
+            // A Vault that lacks it now: one ID removed and the later record gone.
+            try VaultFormatTests.sealed([entries[0]], plus: []).write(to: rig.scratch.fileURL)
+            #expect(await backup.restore(contents, mode: mode) == .success(2))
+            #expect(try rig.store.loadRecords().newer.count == 1, "\(mode): the later build's record was dropped")
+        }
+    }
+
+    /// Add Missing never brings back beside it an ID this Vault holds only as a later build's
+    /// record; and a restore keeps a later build's fields on the records this build reads.
+    @Test func aRestoreRespectsWhatALaterBuildHolds() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.keychain.itemData = VaultFormatTests.key.withUnsafeBytes { Data($0) }
+        let entries = Array(try VaultFormatTests.formatEntries().prefix(2))
+        try FileManager.default.createDirectory(at: rig.scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try VaultFormatTests.sealed(entries, plus: [], laterOnFirst: ["expiresReminder": ["days": 30]]).write(to: rig.scratch.fileURL)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        let contents = try await backup.read(try await backup.write(entries)).get()
+
+        // Replace: the later field comes back on the record it was on.
+        #expect(await backup.restore(contents, mode: .replace) == .success(2))
+        #expect(try rig.store.loadRecords().laterFields[entries[0].id] != nil, "a later build's field was dropped by a restore")
+
+        // The second record is now only a later build's (a kind this build does not know).
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vaultBackupTests.encode($0)) as? [String: Any]) }
+        list[1]["category"] = "bankAccount"
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]),
+                                marker: VaultFile.marker, with: VaultFormatTests.key).write(to: rig.scratch.fileURL)
+        #expect(await backup.restore(contents, mode: .addMissing) == .success(1))
+        let after = try rig.store.loadRecords()
+        #expect(after.entries.count == 1 && after.newer.count == 1, "the later build's record came back twice")
+    }
+
+    /// Round trips (VT10): a weekly backup made days ago asks the Keychain nothing to know it is
+    /// not due, and an activity entry reads the Vault's key once.
+    @Test func fewerKeychainReads() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        _ = try await backup.write([Self.mortgage])
+        rig.clock.advance(3 * 86_400)
+        let before = rig.keychain.reads.count
+        #expect(!backup.isDue)
+        #expect(rig.keychain.reads.count == before, "a backup three days old asked the Keychain whether one is due")
+
+        let activity = VaultActivityStore.beside(rig.store, keychain: rig.keychain)
+        activity.append([VaultActivityEvent(at: VaultLockTests.t0, kind: .unlocked)], now: VaultLockTests.t0)
+        let reading = rig.keychain.reads.count
+        activity.append([VaultActivityEvent(at: VaultLockTests.t0, kind: .copied, what: "Passport")], now: VaultLockTests.t0)
+        #expect(rig.keychain.reads.count - reading == 1, "an activity entry read the key more than once")
+    }
+
+    /// The weekly backup is made once, though the panel asks twice as it opens unlocked.
+    @Test func theWeeklyBackupIsMadeOnceWhenAskedTwice() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        final class Seals: @unchecked Sendable { var count = 0 }
+        let seals = Seals()
+        rig.defaults.set(folder.path, forKey: VaultBackup.folderKey)
+        let clock = rig.clock
+        let backup = VaultBackup(store: rig.store, keychain: rig.keychain, authenticator: rig.auth, defaults: rig.defaults,
+                                 fileManager: .default, clock: { clock.now }, rounds: Self.rounds,
+                                 seal: { seals.count += 1; return try VaultBackupFile.seal($0, passphrase: $1, rounds: $2) },
+                                 open: { try VaultBackupFile.open($0, passphrase: $1) })
+        try backup.setPassphrase(Self.phrase)
+        let model = rig.model()
+        rig.auth.answer = .allowed
+        await model.opened()
+        #expect(await model.unlock())
+        let first = model.backUpIfDue(using: backup)
+        let second = model.backUpIfDue(using: backup)
+        await first?.value
+        await second?.value
+        #expect(seals.count == 1, "two backups were made")
+        #expect(model.backUpIfDue(using: backup) == nil, "made, it is no longer due")
     }
 
     /// The short-list guard (VT20) stops a save that drops several records at once. Replace is
@@ -328,7 +465,7 @@ import Testing
         let backup = Self.backup(rig, folder: folder)
         #expect(await backup.restore(VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport]), mode: .replace) == .success(1))
         // The notice arrives on the main queue.
-        for _ in 0..<20 where model.contents == .loaded { await Task.yield() }
+        await waitUntil("the restore's notice reached the panel") { model.contents != .loaded }
         #expect(model.contents == .notLoaded && model.entries.isEmpty, "what it held is no longer the Vault")
         #expect(await model.unlock())
         #expect(model.entries == [Self.passport])
@@ -376,5 +513,15 @@ import Testing
         } else {
             Issue.record("expected the Keychain's refusal to read as keyUnreadable, got \(refused.contents)")
         }
+    }
+}
+
+
+private extension JSONEncoder {
+    static var vaultBackupTests: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
     }
 }

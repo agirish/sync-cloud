@@ -29,6 +29,8 @@ struct VaultSettingsTab: View {
     @State private var backupMessage: String?
     @State private var backupFailed = false
     @State private var isBackingUp = false
+    /// A backup chosen to restore is being opened (its key derived): another choice waits.
+    @State private var openingBackup = false
     @State private var settingPassphrase = false
     /// A backup file chosen to restore that the kept passphrase did not open: asked for here.
     @State private var askingPassphraseFor: URL?
@@ -262,8 +264,10 @@ struct VaultSettingsTab: View {
                                  note: "“\(url.lastPathComponent)” was sealed with another passphrase than the one kept here.",
                                  confirms: false, action: "Open") { passphrase in
                 guard let backup else { return "The Vault’s folder couldn’t be found." }
-                switch backup.read(url, passphrase: passphrase) {
+                switch await backup.read(url, passphrase: passphrase) {
                 case .success(let contents):
+                    // Cancelled while the key was derived: the sheet is gone, and so is the offer.
+                    guard !Task.isCancelled else { return nil }
                     offerRestore(contents)
                     return nil
                 case .failure(let error):
@@ -373,15 +377,21 @@ struct VaultSettingsTab: View {
         panel.directoryURL = backup.folder
         panel.prompt = "Open Backup"
         panel.message = "Choose a Vault backup (.\(VaultBackupFile.fileExtension))."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        switch backup.read(url) {
-        case .success(let contents):
-            offerRestore(contents)
-        case .failure(.wrongPassphrase), .failure(.noPassphrase):
-            askingPassphraseFor = url
-        case .failure(let error):
-            backupFailed = true
-            backupMessage = Self.message(for: error)
+        guard !openingBackup, panel.runModal() == .OK, let url = panel.url else { return }
+        // Opened off the main actor (VT58): the key derivation takes most of a second, and a
+        // second choice meanwhile waits for this one rather than offering two restores.
+        openingBackup = true
+        Task { @MainActor in
+            defer { openingBackup = false }
+            switch await backup.read(url) {
+            case .success(let contents):
+                offerRestore(contents)
+            case .failure(.wrongPassphrase), .failure(.noPassphrase):
+                askingPassphraseFor = url
+            case .failure(let error):
+                backupFailed = true
+                backupMessage = Self.message(for: error)
+            }
         }
     }
 
@@ -461,12 +471,16 @@ struct VaultPassphraseSheet: View {
     /// Typed twice, as a new passphrase is.
     let confirms: Bool
     let action: String
-    /// Does it; nil when it worked, else what to say.
-    let submit: (String) -> String?
+    /// Does it; nil when it worked, else what to say. Awaited, so opening a backup's key is
+    /// derived off the main actor (VT58).
+    let submit: @MainActor (String) async -> String?
 
     @State private var passphrase = ""
     @State private var again = ""
     @State private var problem: String?
+    /// A submit running: a second press waits for it rather than deriving twice, and Cancel
+    /// stops it, so nothing it opens appears after the sheet is gone.
+    @State private var submitting: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
     private var isReady: Bool {
@@ -492,11 +506,20 @@ struct VaultPassphraseSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Cancel", role: .cancel) {
+                    submitting?.cancel()
+                    dismiss()
+                }
                     .keyboardShortcut(.cancelAction)
                 Button(action) {
-                    problem = submit(passphrase)
-                    if problem == nil { dismiss() }
+                    guard submitting == nil else { return }
+                    submitting = Task { @MainActor in
+                        let answer = await submit(passphrase)
+                        submitting = nil
+                        guard !Task.isCancelled else { return }
+                        problem = answer
+                        if problem == nil { dismiss() }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
@@ -507,6 +530,8 @@ struct VaultPassphraseSheet: View {
         .textFieldStyle(.roundedBorder)
         .padding(20)
         .frame(width: 400)
+        // Gone some other way (Settings closed): what it was doing opens nothing after it.
+        .onDisappear { submitting?.cancel() }
     }
 }
 
