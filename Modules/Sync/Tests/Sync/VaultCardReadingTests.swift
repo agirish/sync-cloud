@@ -21,6 +21,15 @@ import Testing
                                       Self.pair("RxBIN", "610014"), Self.pair("RxPCN", "ADV")])
     }
 
+    @Test func aPhoneNumberPrintedInGroupsIsLeftOut() {
+        #expect(Self.values(["Customer Service 1 (800) 555-0142"]).isEmpty)
+        #expect(Self.values(["Member Services 800 555 0142"]).isEmpty)
+        #expect(Self.values(["Pharmacy Help Desk 1 800 555 0142"]).isEmpty)
+        #expect(Self.values(["Member Services (800) 555-0142 Member ID W288319122"]) == [Self.pair("Member ID", "W288319122")])
+        // An account number in groups of four is not one.
+        #expect(Self.values(["Account Number 1234 5678 9012"]) == [Self.pair("Account Number", "1234 5678 9012")])
+    }
+
     @Test func aLabelOverItsValueNamesIt() {
         #expect(Self.values(["Subscriber ID", "W288319115"]) == [Self.pair("Subscriber ID", "W288319115")])
         #expect(Self.values(["Member #:", "XZB123456789"]) == [Self.pair("Member", "XZB123456789")])

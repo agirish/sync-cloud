@@ -22,7 +22,7 @@ public struct VaultCardValue: Equatable, Hashable, Sendable {
 ///
 /// A value holds a digit and at least four letters and digits. What is not an ID is left out: a
 /// plan's group number (it belongs to the plan, and the account reader keeps it apart), a date, a
-/// phone number, an amount or a rate.
+/// phone number (dashed, or in groups a space apart), an amount or a rate.
 extension VaultReading {
     /// At most this many words make a label: "Member ID Number" is three.
     static let cardLabelWords = 4
@@ -87,15 +87,18 @@ extension VaultReading {
                     closed = false
                     // Groups of digits a space apart are one number: "1234 5678 9012".
                     var value = first
+                    var groups = [first]
                     var next = index + 1
                     if first.allSatisfy(\.isNumber) {
                         while next < tokens.count, let more = valueToken(tokens[next]), more.allSatisfy(\.isNumber),
                               !isDateOrPhone(tokens[next]) {
                             value += " " + more
+                            groups.append(more)
                             next += 1
                         }
                     }
-                    if !label.isEmpty, !isDateOrPhone(token) { keep(label, value) }
+                    let phone = isPhone(groups, before: next < tokens.count ? tokens[next] : nil)
+                    if !label.isEmpty, !isDateOrPhone(token), !phone { keep(label, value) }
                     label = []
                     index = next
                 }
@@ -176,6 +179,18 @@ extension VaultReading {
 
     private static let dateOrPhone = try! NSRegularExpression(
         pattern: #"^(?:[0-9]{1,4}[-/.][0-9]{1,2}[-/.][0-9]{2,4}|(?:1-)?[0-9]{3}-[0-9]{3}-[0-9]{4})$"#)
+
+    private static let localNumber = try! NSRegularExpression(pattern: #"^[0-9]{3}-[0-9]{4}$"#)
+
+    /// Groups of digits a space apart that are a phone number: "800 555 0142", "1 800 555 0142",
+    /// or an area code before the rest of its number, "1 (800) 555-0142" (`next` is "555-0142").
+    private static func isPhone(_ groups: [String], before next: String?) -> Bool {
+        let lengths = groups.map(\.count)
+        if lengths == [3, 3, 4] || lengths == [1, 3, 3, 4] { return true }
+        guard lengths.last == 3, lengths.count <= 2, let next else { return false }
+        let core = next.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()"))
+        return localNumber.firstMatch(in: core, range: NSRange(core.startIndex..., in: core)) != nil
+    }
 
     /// "05-16-2030", "2030-05-16", "510-555-0142", "1-800-555-0142": a date or a phone number.
     private static func isDateOrPhone(_ token: String) -> Bool {
