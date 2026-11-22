@@ -32,6 +32,36 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
         self.madeAt = madeAt
         self.entries = entries
     }
+
+    private enum CodingKeys: String, CodingKey { case version, madeAt, entries }
+
+    /// A record a later build wrote (a kind, a place or a pin this one does not know) is passed
+    /// over, so a backup still restores every record it can read rather than none (VT30).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        madeAt = try c.decode(Date.self, forKey: .madeAt)
+        var list = try c.nestedUnkeyedContainer(forKey: .entries)
+        var entries: [VaultEntry] = []
+        var skipped = 0
+        while !list.isAtEnd {
+            if let entry = try? list.decode(VaultEntry.self) {
+                entries.append(entry)
+            } else {
+                // A failed element leaves the container where it was; step past it.
+                _ = try list.decode(LaterRecord.self)
+                skipped += 1
+            }
+        }
+        self.entries = entries
+        laterRecords = skipped
+    }
+
+    /// How many records in the backup need a newer SyncCloud. Not encoded: a backup is written
+    /// from what this build holds.
+    public private(set) var laterRecords = 0
+
+    private struct LaterRecord: Decodable {}
 }
 
 /// A backup's bytes: the Vault's IDs sealed under a key made from a passphrase, so the file opens
@@ -87,16 +117,14 @@ public enum VaultBackupFile {
             throw VaultBackupError.notWritten
         }
         let salt = salt ?? Data(random)
-        let head = header(rounds: rounds, salt: salt)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
+        // The whole header is the marker the box authenticates, as the Vault's own files do with
+        // theirs (VT55).
         guard let key = key(passphrase: passphrase, salt: salt, rounds: rounds),
-              let plain = try? encoder.encode(contents),
-              let sealed = try? AES.GCM.seal(plain, using: key, authenticating: head).combined else {
+              let plain = try? VaultFile.jsonEncoder().encode(contents),
+              let sealed = try? VaultFile.sealPlain(plain, marker: header(rounds: rounds, salt: salt), with: key) else {
             throw VaultBackupError.notWritten
         }
-        return head + sealed
+        return sealed
     }
 
     public static func open(_ data: Data, passphrase: String) throws -> VaultBackupContents {
@@ -113,9 +141,7 @@ public enum VaultBackupFile {
               let plain = try? AES.GCM.open(box, using: key, authenticating: Data(head)) else {
             throw VaultBackupError.wrongPassphrase
         }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let contents = try? decoder.decode(VaultBackupContents.self, from: plain) else {
+        guard let contents = try? VaultFile.jsonDecoder().decode(VaultBackupContents.self, from: plain) else {
             throw VaultBackupError.notABackup
         }
         return contents
@@ -162,7 +188,7 @@ public struct VaultBackup {
     private func note(_ kind: VaultActivityEvent.Kind, _ what: String) {
         guard VaultActivitySettings.keeps(in: defaults) else { return }
         let now = clock()
-        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: now, kind: kind, what: what)], now: now)
+        VaultActivityStore.beside(store, keychain: keychain, fileManager: fileManager).append([VaultActivityEvent(at: now, kind: kind, what: what)], now: now)
     }
 
     // MARK: Settings
@@ -247,9 +273,7 @@ public struct VaultBackup {
         let sealed = try VaultBackupFile.seal(VaultBackupContents(madeAt: now, entries: entries), passphrase: passphrase)
         let url = folder.appendingPathComponent(Self.fileName(now))
         do {
-            try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-            try sealed.write(to: url, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            try SealedFile.write(sealed, to: url, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: a backup could not be written — \(error.localizedDescription)")
             throw VaultBackupError.notWritten
@@ -277,7 +301,13 @@ public struct VaultBackup {
     public func read(_ url: URL, passphrase: String? = nil) -> Result<VaultBackupContents, VaultBackupError> {
         guard let data = fileManager.contents(atPath: url.path) else { return .failure(.notABackup) }
         guard let passphrase = passphrase ?? self.passphrase() else { return .failure(.noPassphrase) }
-        do { return .success(try VaultBackupFile.open(data, passphrase: passphrase)) } catch let error as VaultBackupError {
+        do {
+            let contents = try VaultBackupFile.open(data, passphrase: passphrase)
+            if contents.laterRecords > 0 {
+                Logger.shared.warning("Vault: \(contents.laterRecords) record(s) in a backup need a newer SyncCloud — passed over")
+            }
+            return .success(contents)
+        } catch let error as VaultBackupError {
             return .failure(error)
         } catch {
             return .failure(.notABackup)
@@ -344,7 +374,10 @@ extension VaultStore {
         let to: URL
     }
 
-    /// Renames the Vault's file, and what was read, aside: `vault.sealed.set-aside-<stamp>`.
+    /// Renames the Vault's file, what was read, and the copies kept before each save (VT20)
+    /// aside: `vault.sealed.set-aside-<stamp>`. The copies go with the file they are the history
+    /// of: they open only with its key, and left in place they would be pruned by the new
+    /// Vault's saves.
     /// Nothing is deleted, so a Vault this Mac cannot open is kept for the day its key turns up,
     /// and a new one can be started or restored in its place. True when no sealed file is left
     /// in the way.
@@ -359,7 +392,7 @@ extension VaultStore {
     func moveAside(at date: Date, fileManager: FileManager) -> [Aside]? {
         let stamp = Int(date.timeIntervalSince1970)
         var moved: [Aside] = []
-        for url in [fileURL, readingURL] where fileManager.fileExists(atPath: url.path) {
+        for url in [fileURL, readingURL] + backups where fileManager.fileExists(atPath: url.path) {
             var aside = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).set-aside-\(stamp)")
             var copy = 1
             while fileManager.fileExists(atPath: aside.path) {

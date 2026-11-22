@@ -19,7 +19,12 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
 
     public var id: UUID
     public var at: Date
-    public var kind: Kind
+    public var kind: Kind {
+        didSet { laterKind = nil }
+    }
+    /// The words a later build stored for ``Kind/other``, written back as they came so the first
+    /// append here does not turn them into "other" (VT30).
+    private var laterKind: String?
     /// What it was done to, in words: an ID's name, a detail's label, a read's summary.
     public var what: String
     /// Whose: a person's name or "Household". Nil for what is nobody's (unlocking, a read).
@@ -31,6 +36,28 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
         self.kind = kind
         self.what = what
         self.whose = whose
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, at, kind, what, whose }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        at = try c.decode(Date.self, forKey: .at)
+        let raw = try c.decode(String.self, forKey: .kind)
+        kind = Kind(rawValue: raw) ?? .other
+        laterKind = Kind(rawValue: raw) == nil ? raw : nil
+        what = try c.decode(String.self, forKey: .what)
+        whose = try c.decodeIfPresent(String.self, forKey: .whose)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(at, forKey: .at)
+        try c.encode(laterKind ?? kind.rawValue, forKey: .kind)
+        try c.encode(what, forKey: .what)
+        try c.encodeIfPresent(whose, forKey: .whose)
     }
 
     /// The event as one line: "Copied Passport · Anna", "Unlocked", "Proof refused: unlock your Vault".
@@ -70,20 +97,23 @@ public enum VaultActivitySettings {
 public struct VaultActivityStore {
     public let fileURL: URL
     private let keychain: KeychainStore
+    private let fileManager: FileManager
 
     static let marker = Data("SCVACTV1".utf8)
     public static let limit = 500
     public static let keptFor: TimeInterval = 90 * 86_400
 
-    public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore()) {
+    public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore(), fileManager: FileManager = .default) {
         self.fileURL = fileURL
         self.keychain = keychain
+        self.fileManager = fileManager
     }
 
     /// `vault-activity.sealed`, beside the Vault's file.
-    public static func beside(_ store: VaultStore, keychain: KeychainStore = SecItemKeychainStore()) -> VaultActivityStore {
+    public static func beside(_ store: VaultStore, keychain: KeychainStore = SecItemKeychainStore(),
+                              fileManager: FileManager = .default) -> VaultActivityStore {
         VaultActivityStore(fileURL: store.fileURL.deletingLastPathComponent().appendingPathComponent("vault-activity.sealed"),
-                           keychain: keychain)
+                           keychain: keychain, fileManager: fileManager)
     }
 
     private var key: SymmetricKey? {
@@ -94,7 +124,7 @@ public struct VaultActivityStore {
     /// Every kept event, newest first; none when there is no file, no key, or a file this build
     /// cannot read.
     public func load() -> [VaultActivityEvent] {
-        guard let data = FileManager.default.contents(atPath: fileURL.path), let key,
+        guard let data = fileManager.contents(atPath: fileURL.path), let key,
               let events = try? VaultFile.open([VaultActivityEvent].self, data, marker: Self.marker, with: key) else { return [] }
         return events
     }
@@ -109,9 +139,7 @@ public struct VaultActivityStore {
             .prefix(Self.limit)
         do {
             let sealed = try VaultFile.seal(Array(kept), marker: Self.marker, with: key)
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try sealed.write(to: fileURL, options: .atomic)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the activity list could not be sealed — \(error.localizedDescription)")
         }
@@ -119,6 +147,6 @@ public struct VaultActivityStore {
 
     /// Clear: the list goes, for good.
     public func clear() {
-        try? FileManager.default.removeItem(at: fileURL)
+        try? fileManager.removeItem(at: fileURL)
     }
 }

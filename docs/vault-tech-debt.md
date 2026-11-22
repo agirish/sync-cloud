@@ -14,8 +14,11 @@ First written at `3f953608b` (2026-11-20). **Re-reviewed end to end at `0409895c
 18 Vault commits (VF4, VF6, VF8, VF9, VF12, VF21, VF22 and three rounds of reader fixes): five reviewers
 by area (store and security, model, panel, readers, tests), each finding re-read at the cited lines, plus
 what the three sessions working on the Vault said they changed, plan and left behind. Line numbers are at
-`0409895c8`; re-find by symbol. IDs (`VT…`) are stable: never renumber, cite them in commit bodies. Next
-free: **VT99** (VT61 and VT62 were never used). **Checked** means the lines were read and the claim holds; **plausible** means inferred.
+`0409895c8`; re-find by symbol. **Refreshed at `710b5aaa3` (2026-11-21)** after nine more Vault commits
+(Read from This Copy, the Updating line, the restore fixes, the whole-card wash, People's tidier
+section, name roles): one reviewer on the new code, one on how files are picked, each finding re-read;
+new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in commit bodies. Next free:
+**VT108** (VT61 and VT62 were never used). **Checked** means the lines were read and the claim holds; **plausible** means inferred.
 
 ## Read first
 
@@ -35,31 +38,24 @@ free: **VT99** (VT61 and VT62 were never used). **Checked** means the lines were
 
 ### Other work on the Vault (2026-11-21)
 
-- **Landing today, not on `main` at `0409895c8`.** Rebase over them and re-find symbols before starting:
-  - `vault-source-themed` `3e266c2b9`, "Read from This Copy". Adds `VaultReadFacts.spokenBy`,
-    `VaultEntry`/`VaultFind.chosenSource`, `VaultChoice.source`, `VaultCopies.sameCopy/ordered/choices`,
-    a longer `supersedes` key, and archived-by-every-top-copy. Optional fields only; no version bump.
-    Touches VaultModel, VaultFacts, VaultReading, VaultEntry, VaultPanel.
-  - `vault-read-again-line-themed` `448fe7543`: a refresh keeps its Updating line
-    (`ReadingProgress.init` loses its `scope` default). Touches VaultModel.
-  - `vault-whole-card-themed` `0d9244712`: whole-card color wash and the row lift. Touches VaultPanel,
-    VaultCardColors.
-- **Parked, this brief's own session.** Checkpoint `11b5a7218` on `claude/vault-tech-debt-590b19`
-  holds VT20, VT21, VT24 and VT30. It was built before VaultBackup and VaultActivity existed, so it
-  needs the corrections those items now carry.
-- **None of the three sessions plans more Vault code** after these land. "Go Back to an Earlier Save"
-  (VF6) waits on VT20; VF7 (key tied to Touch ID, which is VT31) is deferred by the owner.
+- **Everything in flight has landed** (`16beb2712`, `d1e29f8c8`, `5e33b3c47`, `b3e4e3009`,
+  `774f315bd`, `28fa32dcb`, `29517d0ef`, `ac5eb5539`, `710b5aaa3`), and no other session has Vault work
+  open. "Go Back to an Earlier Save" (VF6) can now read `VaultStore.backups`; VF7 (key tied to Touch ID,
+  which is VT31) is deferred by the owner.
 
 ## Order
 
-1. **Wait for the three branches above to land**, then rebase.
-2. **Safety net:** VT55 (one sealed-file writer), then VT20, VT21, VT30, VT24 (resume `11b5a7218`).
-   Nothing else changes a sealed format until these are in.
-3. **Internal bugs:** VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c).
-4. **Efficiency:** VT9, VT10, VT65, VT66, VT67, VT82, VT83, VT84, VT85, VT77, VT78.
-5. **Tests and logging:** VT94, VT98, VT95, VT29, VT96, VT97, VT71, VT26, VT27, VT28, VT22, VT23, VT25.
+1. ~~Wait for the branches in flight to land.~~ Done.
+2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
+   adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
+3. **Internal bugs:** VT99, VT104, VT58 (the main-actor half), VT63, VT68, VT52, VT54, VT59, VT73 (a, c);
+   VT100 is the owner's call.
+4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT101, VT102, VT67, VT82, VT83,
+   VT84, VT85, VT77, VT78.
+5. **Tests and logging:** VT94, VT98, VT95, VT105, VT29, VT96, VT97, VT71, VT26, VT27, VT28, VT22, VT23,
+   VT25.
 6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
-   VT76, VT79, VT80, VT11.
+   VT76, VT103, VT106, VT79, VT80, VT11.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -68,99 +64,25 @@ free: **VT99** (VT61 and VT62 were never used). **Checked** means the lines were
 | ID | Closed by | Left over |
 |---|---|---|
 | VT32 decrypt after proof, let go at lock | `c4e9b6a7c` (VF4) | VT60: the lock-off route and a dead `settingsChanged()` |
-| VT33 a way out of an unreadable Vault | `95510e947` (VF6) | VT56, VT57 |
+| VT33 a way out of an unreadable Vault | `95510e947` (VF6) | VT56, VT57, both closed below |
 | VT36 screen capture | `7131333ca` (VF9) | VT73 |
 | VT40–VT43, VT45 reader bugs | `97e4f41ce`, redone `f7e441a7a` (v16) and `fd0377535` (v17) | VT88–VT92 |
 | VT44 EXIF orientation | not a defect, measured 2026-11-20: do not re-propose | none |
+| VT55 one sealed-file writer | "Vault: one sealed-file writer, backups before each save" (2026-11-21): `SealedFile.write` (owner-only before the swap, a refused chmod logged, the injected `FileManager` everywhere); the backup seals through `VaultFile.sealPlain` with its header as the marker | none |
+| VT20 rolling backups | the same commit: ten `vault-backup-<stamp>-NNN.sealed` beside the Vault's, newest first in `store.backups`; a save dropping more than one record throws `wouldDrop` unless `allowingDrops`; a set-aside takes the backups with it | VF6 reads `store.backups` |
+| VT21 golden files | the same commit: `Fixtures/Vault/` holds the Vault (formats 1, 2), the reading file (1, 2), a backup and the activity list | a fixture per later format change |
+| VT30 one bad record | the same commit: records decode one by one and a later build's go back untouched (`VaultRecords.newer`, `newerRecords` on the model); a backup restores what it can read (`laterRecords`); the activity list keeps a later kind's words | a panel line for `newerRecords` is new copy: owner's call |
+| VT24 silent failures | the same commit: both failures logged with size and marker only; a damaged reading file is renamed `…unreadable-<secs>`, never reset, and raises Read Again | where `names`, `nameRoles`, `lessons` live is VT6 |
+| VT56 Replace sets aside first | `5e33b3c47`: a failed save puts what was set aside back | sealing before the set-aside is not done: on a Mac whose key is gone it would make the new key while the old file is still in place, turning "key missing" into "wrong key" if the set-aside then failed |
+| VT57 Add Missing duplicates an id | `5e33b3c47`: `VaultEntry.reissued()`, `id` is `private(set)` | none |
 
 ---
 
 ## A. Storage and format
 
-**VT55 — One sealed-file writer.** *Duplication; checked.*
-- **The problem.** There are now four sealed families:
-  - `vault.sealed` (`SCVAULT1`);
-  - `vault-reading.sealed` (`SCVREAD1`);
-  - `vault-activity.sealed` (`SCVACTV1`);
-  - the weekly `.scvault` backups (`SCVBACK1`), plus `*.set-aside-<stamp>` files.
-
-  The first three share `VaultFile.seal/open` (`VaultStore.swift:111`, `:122`). The backup
-  re-implements the encoder and AES-GCM (`VaultBackup.swift:87–95`, `:111`). The tail is copied four
-  times: make the folder, `.atomic` write, `try?` 0600, warning (`VaultStore.swift:184`, `:215`,
-  `VaultActivity.swift:111`, `VaultBackup.swift:244`). Two more defects:
-  - `VaultActivityStore` hard-codes `FileManager.default`, so no test can fail its write.
-  - The 0600 is set after the rename, and a failed chmod is silent.
-- **Fix.**
-  - One `SealedFile.write(_:to:fileManager:)` with the permissions set on the temporary file.
-  - `VaultFile.sealPlain(_:aad:key:)` used by the backup, with its header as the AAD.
-- **Done when:**
-  - every sealed write goes through the one path;
-  - the injected file manager is used everywhere;
-  - a failed chmod is logged;
-  - decrypting before and after gives the same JSON.
-
-**VT20 — Rolling backups before every write.** *Open on `main`; built in `11b5a7218`.*
-- **The problem.** `VaultStore.save` (`VaultStore.swift:182`) swaps the file and keeps nothing. A logic
-  bug that writes a short list cannot be recovered from (one happened in development, `637c08706`), and
-  a typed entry cannot be re-read from documents. The weekly passphrase backup does not cover the days
-  between.
-- **Done when:**
-  - each save keeps the previous ten sealed files as one documented family beside the Vault's file,
-    written through VT55's writer;
-  - a save that drops more than one record at once is refused unless explicitly allowed;
-  - a test shows the drop guard never blocks Restore: Replace saves after `setAside`, onto no file, and
-    Add only adds;
-  - `store.backups`, newest first, is what VF6's Go Back to an Earlier Save reads.
-
-**VT21 — Golden sealed files.** *Open on `main`; two of four built in `11b5a7218`.*
-- **The problem.** No test pins an on-disk format. The backup is the one format that must open in a
-  later build on another Mac.
-- **Done when:** committed fixtures for all four formats, each opened by every later build and
-  re-sealed to the same decrypted JSON:
-  - the Vault file and the reading file, under a fixed key;
-  - a backup at `leastRounds` with a fixed salt and passphrase, where `VaultBackupFile.open` returns
-    literal contents;
-  - the activity list.
-
-  Add a new fixture per format change and keep the old ones. `vault-source`'s optional fields need no
-  new fixture: nil is not encoded.
-
-**VT30 — One bad record must not close the Vault.** *Open on `main`; built in `11b5a7218`.*
-- **The problem.** `[VaultEntry]` decodes as one array. An unknown `VaultCategory`, `VaultGeo` or
-  `VaultPin` raw value from a later build throws, and the whole file reads as `unreadableFile`. Two more
-  places share the failure:
-  - `VaultBackupContents.entries` (`VaultBackup.swift:113`): one unknown value makes a whole backup
-    "not a backup".
-  - The activity list decodes an unknown kind as `.other` and re-seals it as `"other"`
-    (`VaultActivity.swift:16`, `:107`), so a later build's kind is lost on the first append. Its test
-    checks decoding, not preservation (`VaultActivityTests.swift:97`).
-- **Done when:**
-  - records decode one by one, and an undecodable one is kept as its JSON and written back untouched;
-  - a backup restores every record it can read;
-  - the activity list keeps an unknown kind's raw string;
-  - the model exposes how many records need a newer SyncCloud (a panel line saying so is new copy:
-    owner's call).
-
-**VT24 — Failures that leave no trace.** *Open on `main`; built in `11b5a7218`, which needs one
-correction.*
-- **The problem.**
-  - `VaultModel.load` catches the store's error without a log line (`VaultModel.swift:1506`).
-  - `loadReading` answers `try? … nil` for a damaged reading file (`VaultStore.swift:205`), and
-    `VaultFile.open` drops the `DecodingError` (`:132`).
-- **The correction.** The reading file is **no longer disposable.** Since VF22 and `8e5613a50` it holds
-  the owner's own decisions: `names` (name corrections) and `lessons` (Kind lessons)
-  (`VaultReading.swift:1054–1101`). Its doc comment, "nothing in it is the user's own" (`:1051`), is now
-  false. So a damaged reading file must be set aside, never reset, and the panel must not imply
-  everything comes back with Read Again.
-- **Done when:**
-  - both failures are logged at WARNING with the file's size and marker only;
-  - a damaged reading file is renamed aside, which never deletes, and raises the banner;
-  - the doc comment says what the file holds;
-  - VT6 decides where `names` and `lessons` should live.
-
 **VT6 — Fewer homes for state.** *Open, and worse.*
 - **The problem.** What the Vault knows now lives in:
-  - four sealed files;
+  - four sealed families, plus the ten copies kept before each save (VT20);
   - UserDefaults keys, which hold:
     - set-aside fingerprints and their generation;
     - read folders, filters, folded cards, groups and group names;
@@ -176,70 +98,46 @@ correction.*
   - **A new path reaches the same state with no crash:** Restore ▸ Add What's Missing checks only saved
     entries (`VaultBackup.swift:301–304`), so a restored number that is also waiting in To Confirm shows
     twice.
+  - **The user's own choices live in the reading file:** `names`, `nameRoles` (since `710b5aaa3`) and
+    `lessons`. `VaultBackupContents` holds `entries` only, so none of them is ever backed up, and Set
+    Aside and Restore ▸ Replace move them away with the file. A damaged reading file is now renamed
+    aside, never reset (VT24, closed), so nothing is lost silently, but nothing brings them back either.
 - **Done when:**
   - `load()` reconciles: a waiting find whose number is saved is dropped, and a test seeds both files;
-  - saved and waiting records, set-aside fingerprints, `names` and `lessons` share one sealed document
-    written in one atomic swap (the read index may stay apart: it is a cache);
+  - saved and waiting records, set-aside fingerprints, `names`, `nameRoles` and `lessons` share one
+    sealed document, which the passphrase backup also carries (a backup format change: add a fixture),
+    written in one atomic swap through `SealedFile.write` (the read index may stay apart: it is a cache);
   - UserDefaults keeps view preferences and settings only.
-
-**VT56 — Restore ▸ Replace sets the Vault aside before it knows it can write.** *Bug; fixed
-2026-11-21 by putting it back: `moveAside` answers what it moved and a failed save calls `putBack`
-(`aReplaceThatCannotBeWrittenLeavesTheVaultInPlace`). Sealing before setting aside still waits on
-VT55's one writer.*
-- **The problem.** `store.setAside` runs (`VaultBackup.swift:306`), then `store.save` (`:310`). A
-  refused Keychain or disk leaves the Vault renamed away. Settings then says nothing was changed
-  (`VaultSettings.swift:420`), no `didRestore` is posted, and a model still holding the old list can
-  write it back on its next add.
-- **Fix.** Get the key and seal the bytes first: split `save` into seal and write. Then set aside, then
-  write.
-- **Done when:** a test with a refusing `KeychainStore` leaves `vault.sealed` in place. No behaviour
-  change on success.
-
-**VT57 — Restore ▸ Add What's Missing can bring back a second record with the same id.** *Bug;
-fixed 2026-11-21: `VaultEntry.reissued()`, and `id` is `private(set)`
-(`whatIsAddedNeverSharesAnIDWithARecordAlreadyHere`).*
-- **The problem.** `held + contents.entries.filter { new number }` keeps each backup entry's `id`
-  (`VaultBackup.swift:304`). Back up, fix a typo in a number, then Add Missing: the old number returns
-  under the same id. After that:
-  - `delete` (`VaultModel.swift:1720`, by id) removes both;
-  - `update` edits the first;
-  - `ForEach` sees duplicate ids.
-- **Fix.** Give a restored entry whose id is held a fresh `UUID()`.
-- **Done when:** a test covers it.
 
 **VT58 — Backup key derivation: no upper bound, and on the main actor.** *Security and efficiency;
 checked. The bound is in since 2026-11-21 (`VaultBackupFile.mostRounds`, eight times `rounds`;
 `aFileThatAsksForAbsurdWorkIsRefusedBeforeAnyIsDone`); the main actor and the tests' full-strength
 derivations are open.*
 - **The problem.**
-  - `VaultBackupFile.open` checks only `rounds >= leastRounds` (`VaultBackup.swift:104`). A `.scvault`
-    whose header claims `UInt32.max` rounds runs PBKDF2 on the main actor. At 600,000 rounds ≈ 0.7 s,
-    that is about 80 minutes of a frozen app; a backup folder may be a synced one.
+  - ~~No upper bound on a header's rounds~~: fixed.
   - The weekly backup derives at 600,000 rounds on the main actor as the panel opens
     (`backUpIfDue`, `VaultModel.swift:1310`, called from `VaultPanel.swift:244`, `:261`), and Restore ▸
     Choose does the same (`VaultSettings.swift:265`, `:377`).
   - The backup tests run five full-strength derivations through `VaultBackup.write` although their
     comment says they avoid it (`VaultBackupTests.swift:14`).
 - **Fix.**
-  - Refuse a header above a cap (e.g. 10 × `rounds`) as `notABackup`.
   - Derive in a detached task and await it.
   - Give `VaultBackup` an internal `rounds` parameter that tests set to `leastRounds`.
-- **Done when:**
-  - a 4-billion-round header is refused before any derivation;
-  - no PBKDF2 call runs on the main actor.
+- **Done when:** no PBKDF2 call runs on the main actor, and the tests derive at `leastRounds`.
 
 **VT59 — Set-aside: the activity file is left behind, and the code lives in the wrong file.**
 *Checked.*
 - **The problem.**
-  - `VaultStore.setAside(at:fileManager:)` moves only the Vault's and the reading file
-    (`VaultBackup.swift:331`). After a missing-key set-aside a new key is made, and the old activity file
+  - `VaultStore.moveAside(at:fileManager:)` (`VaultBackup.swift`, beside `Aside` and `putBack`) moves
+    the Vault's file, the reading file and, since VT20, the backups kept before each save, but not the
+    activity file. After a missing-key set-aside a new key is made, and the old activity file
     is overwritten on the next append (`VaultActivity.swift:107`). That breaks "kept for the day its key
     turns up".
   - It is an extension in `VaultBackup.swift` only because VaultStore was another session's at the
     time.
 - **Done when:**
   - the activity file moves with the others;
-  - `setAside` lives in `VaultStore.swift`.
+  - `setAside`, `moveAside`, `putBack` and `Aside` live in `VaultStore.swift`.
 
 **VT3 — Drop shims for builds that never shipped.** *Open.*
 - **The problem.** These remain:
@@ -251,9 +149,10 @@ derivations are open.*
 
   `Draft.kind` (`:98`) and `VaultFind.kind` (`:59`) have no production reader. `VaultEntry.dated` and
   `sourcePath` duplicate `facts.dated` and `facts.primary.path` (`:121–124`).
-- **Done when:** one migration rewrites the owner's file (after VT20's backup and VT21's fixture), and
-  the shims and their tests are gone. Do it after `vault-source` lands: it adds `chosenSource` to the
-  same `CodingKeys`.
+- **Done when:** one migration rewrites the owner's file, and the shims and their tests are gone.
+  Unblocked: VT20's backups and VT21's fixtures are in, and `chosenSource` has landed in the same
+  `CodingKeys`. The migration saves with `allowingDrops: false` (it drops nothing), adds a new
+  fixture format, and keeps `vault-format-1` opening.
 
 ## B. The model
 
@@ -286,9 +185,10 @@ derivations are open.*
   VT69 is the behaviour-preserving first step.
 
 **VT69 — The user's choices as one value.** *Duplication; checked. The first step of VT1.*
-- **The problem.** The two hand-written `VaultFind(...)` re-makes (`VaultModel.swift:1943`, `:2120`) are
-  where a forgotten new field silently drops a choice on every re-read; `vault-source` had to patch
-  both. `Item` (`:458–476`) mirrors `Row` (`:310–360`) field for field.
+- **The problem.** The two hand-written `VaultFind(...)` re-makes (`VaultModel.swift:2053`, `:2232` at
+  `710b5aaa3`) are where a forgotten new field silently drops a choice on every re-read; `vault-source`
+  had to patch both. `Draft` still lacks `chosenSource`, so `add` takes `chosenSource:` and
+  `readHolder:` as loose parameters (`:1727`). `Item` (`:458–476`) mirrors `Row` (`:310–360`) field for field.
 - **Fix.**
   - One `VaultChoices` (pin, assignment, geo, card, chosenSource) embedded in `VaultEntry`,
     `VaultFind`, `VaultChoice` and `Draft`, with `Codable` that keeps the JSON keys flat.
@@ -332,8 +232,9 @@ derivations are open.*
   nested functions and eleven locals. Within it:
   - The refresh tail (`:1979–2016`) and the discover tail (`:2023–2061`) repeat the same steps:
     `readingChanged`, `saveReading`, `lastReading`, the log line, `record`, and the selection fix-up.
-  - "Advance progress, then continue" is written four times (`:1907`, `:1913`, `:1923`, `:1972`). One
-    copy dropping `scope` is the bug `448fe7543` fixes.
+  - "Advance progress, then continue" is written four times (at `710b5aaa3`: `:2015`, `:2021`, `:2031`,
+    `:2080`). One copy dropping `scope` was the bug `d1e29f8c8` fixed by making `scope` required, which
+    closes that bug class; the four copies remain.
 - **Done when:**
   - (a) `VaultSession` owns lock, epoch, proof and release;
   - (b) the record store owns load, write and reconcile;
@@ -360,7 +261,11 @@ derivations are open.*
   - `peopleSections` in full, uncached.
 
   The cached `rows` still read UserDefaults and build `Calendar` components for their key on every
-  access (`VaultModel.swift:407`). `vault-whole-card` adds a second `tint(of:)` per card.
+  access (`VaultModel.swift:407`). Since the refresh, worse:
+  - `peopleSections` now also runs `roled` (an edit distance per spelling), `grouped` and the
+    date-of-birth grouping on every draw, and `setRole` calls it again (`VaultNames.swift:103`);
+  - `categoryCard` calls `tint(of:)` twice itself plus once for its header (`b3e4e3009`);
+  - `expiresSoon` runs per row per tick (VT102).
 - **Done when:**
   - `now` and `lock` publish only when a time-dependent output changes: the lock state, the
     last-ten-seconds countdown, a shown number's expiry, the day, the "ago" minute;
@@ -432,7 +337,9 @@ cost plausible.*
     `archived` (`:486`, `:548`).
   - `lessonFolder` compiles a regex per folder (`VaultKinds.swift:167`).
   - With `vault-source`, `merged` runs up to three times per row that has two or more copies
-    (`readSince`, then the automatic and the chosen merges in `sourceChoices`).
+    (`readSince`, then the automatic and the chosen merges in `sourceChoices`), and
+    `VaultCopies.choices` sorts the copies once more: up to four sorts per row with copies
+    (`VaultModel.swift:400–415` at `710b5aaa3`).
   - Rows rebuild on every `finds` or `copies` change: about once per opened file during a read.
 - **Fix.**
   - One registry per rebuild.
@@ -474,7 +381,9 @@ open.** *Efficiency; checked; cost unmeasured.*
 - **The problem.** Correctness depends on every input to `computedRows` bumping `rowsRevision`: `didSet`s
   at `:158`, `:237`, `:248`, `:304`, `:932`, `:984`, `:1109`, `:2151`, and by hand at `:730`, `:976`,
   `:1089`. `kinds` is `@Published` with no bump.
-- **Done when:** one table test changes each input in turn and asserts the rows follow.
+- **Done when:** one table test changes each input in turn and asserts the rows follow. Since the
+  refresh it also covers `readFrom`'s hand bump (`:1063`) and asserts that `nameRoles` does not bump
+  (VT101).
 
 **VT72 — Activity titles are cut at their last slash.** *Bug; checked.*
 - **The problem.** `record` masks with `VaultMask.fileName(what)` (`VaultModel.swift:1262`), which takes
@@ -482,6 +391,37 @@ open.** *Efficiency; checked; cost unmeasured.*
   Mortgage"; a proof reason "show H-1B / I-797" becomes " I-797".
 - **Fix.** A public `VaultMask.text(_:)` that masks the whole string.
 - **Done when:** a test uses a title with a slash. The fix makes a wrong line right.
+
+**VT99 — A role change publishes nothing.** *Bug; checked.*
+- **The problem.** `names` (`VaultModel.swift:1074`) and `nameRoles` (`:1077`) are not `@Published`;
+  their `didSet` bumps `rowsRevision`, which is not published either (`:453`). Not a Misreading
+  (`VaultPanel.swift:1380`) calls `setRole` and changes no view state, so People shows the old role
+  until the next one-second `tick()` redraws the panel (`VaultPanel.swift:262–265`). The popover paths
+  work only because closing a popover changes `@State`. VT9, which stops the per-second redraw, would
+  turn this into a view that stays stale.
+- **Fix.** `objectWillChange.send()` in `setRole` and `undoMisread`, or both `@Published private(set)`.
+- **Done when:** a test changes a role and sees `objectWillChange` fire. Do it before VT9.
+
+**VT100 — Two spellings can share one role key.** *Bug; checked; owner's call.*
+- **The problem.** People merges printed names with `caseInsensitiveCompare` (`peopleSections`,
+  `VaultPeopleView.swift`), but roles are keyed by `spellingKey`, letters only
+  (`VaultReading.swift:172`). "Anna-Maria Eriksson" and "Anna Maria Eriksson" are two chips with one
+  key; `roled` finds the key with `keys.firstIndex(of:)` (`VaultPeopleView.swift:130ff`). Legal on the
+  second chip marks the first; Misread on it corrects nothing (`VaultNames.swift:103–105`).
+- **Owner's call.** Merging chips by `spellingKey` makes one of the two disappear. The internal half:
+  key every role lookup by the chip's own index, so each chip acts on itself.
+
+**VT101 — A role change rebuilds every row.** *Efficiency; checked.*
+- **The problem.** `nameRoles`' `didSet` bumps `rowsRevision`, but `computedRows` never reads it; only
+  `roled` does.
+- **Fix.** No bump (VT99 covers the redraw). VT71's table test asserts it.
+
+**VT104 — Every waiting find is merged again at every open.** *Efficiency; checked.*
+- **The problem.** `if sameRules { finds = finds.map { rebuilt(...) } }` (`VaultModel.swift:1603` at
+  `710b5aaa3`) was meant for finds an older build merged, but sets no flag, so it runs on the main actor
+  at every open, for good.
+- **Fix.** Rebuild only finds with `facts.spokenBy == nil`; for one merged by this build it is a no-op.
+- **Done when:** a test opens twice and counts the merges; rows are byte-identical before and after.
 
 **VT22 — Session lines.** *Partly.*
 - **The problem.** The activity list records `unlocked` and `proofRefused` (`:1535–1543`). The log gets
@@ -579,7 +519,9 @@ open.** *Efficiency; checked; cost unmeasured.*
 **VT77 — Masonry measures every card twice per layout pass.** *Efficiency; plausible.*
 - **The problem.** `sizeThatFits` and `placeSubviews` both call `measure`, with `cache: ()`
   (`VaultMasonry.swift:64`, `:70`).
-- **Done when:** `makeCache`/`updateCache` hold the sizes keyed by column width.
+- **Done when:** `makeCache`/`updateCache` hold the sizes keyed by column width. `VaultTwoUp`
+  (`VaultMasonry.swift:95–125`, `710b5aaa3`) repeats the pattern: `lines()` measures every cell in both
+  `sizeThatFits` and `placeSubviews`; give it the same cache.
 
 **VT78 — Small allocations per draw.** *Efficiency; checked.*
 - **The problem.** `VaultTintPalette.swatch` builds a new `NSImage` on every draw (`VaultCardColors.swift:56`):
@@ -598,8 +540,30 @@ open.** *Efficiency; checked; cost unmeasured.*
 - **Fix.** Check both in `pages(in:)`.
 - **Owner's call:** this changes what Refresh reads, for files over 60 MB only.
 
+**VT102 — `expiresSoon` repeats `hasRunOut`, per row, per draw.** *Efficiency and duplication;
+checked.*
+- **The problem.** `VaultPanel.swift:1813` builds two `Calendar`s and a `TimeZone` per row on every draw
+  and reads `model.now`, so it runs every second; it repeats `VaultReading.hasRunOut`'s "UTC last day
+  against local today" (`VaultReading.swift:534`).
+- **Fix.** One `VaultReading.daysLeft(_:now:timeZone:)` on static calendars, used by both.
+- **Done when:** a test pins both answers across a time-zone edge; one source of the rule.
+
+**VT103 — People's groups use their name as the `ForEach` id.** *Plausible.*
+- **The problem.** `ForEach(section.groups, id: \.name)` (`VaultPanel.swift:1245`): a group the user
+  names "Other" collides with the made-up "Other" for kinds in no group (`grouped`,
+  `VaultPeopleView.swift:153`). `grouped`'s sort also calls `cards.firstIndex(of:)` twice per comparison.
+- **Fix.** `id: \.id` (nil is the made-up group's, unique); an index dictionary for the sort.
+
+**VT106 — Small duplications from the People work.** *Checked.*
+- The popover `Binding(get: x == key, set: …)` is written in `namePopover` and `birthSources` beside the
+  older `isColoring` (`VaultPanel.swift:1112`): one generic helper.
+- `(row.facts?.primary?.path).map { lastPathComponent }` three times (`sourceLabel`, `sourceHelp`,
+  `sourcesList`).
+- The doc reference ``sourceChoices(of:speaker:chosen:)`` (`VaultModel.swift:512`) names an old
+  signature; it is `(of:shown:chosen:)`.
+
 **VT11 — Stale comment.** *Open.* `VaultActivityWatch` says "every window has a Vault of its own"
-(`VaultPanel.swift:2717–2719`); the app is one `Window` scene (`SyncCloudApp.swift:553`).
+(`VaultPanel.swift:3105` at `710b5aaa3`); the app is one `Window` scene (`SyncCloudApp.swift:553`).
 
 **VT25 — Reader skips.** *Partly.*
 - **Today.** Too-large files and unreachable folders are counted at INFO (`VaultDocumentReader.swift:61–66`).
@@ -615,7 +579,7 @@ open.** *Efficiency; checked; cost unmeasured.*
 
 ## D. Tests
 
-There are now **416** `@Test`s: 374 in 30 `Sync` files and 42 in 8 `SyncCloudTests` files. None is
+There were **416** `@Test`s at `0409895c8`: 374 in 30 `Sync` files and 42 in 8 `SyncCloudTests` files (since then `VaultFormatTests` has added 21 and `VaultBackupTests` one more). None is
 parameterised. Three are machine-pinned to text recognition and skip on hosted CI
 (`VaultFolderReaderTests.swift:257`, `:277`, `:291`).
 
@@ -659,6 +623,16 @@ removed:
   the one it gives.
 - `drawn(_ entry:)` and `drawn(_ find:)` are tested (`VaultLockTests:222`, `:303`,
   `VaultToConfirmTests:77`) but used by no production code, and they ignore `hidesEnding` (VT80).
+
+**VT105 — The name-role tests claim more than they check.** *Checked.*
+- `theLegalNameIsNeverMarkedMisreadAndALockedVaultChangesNothing` never locks the Vault.
+- `thePassportsSpellingIsTheLegalName…` puts its key `#expect` inside `if let`, so it passes when the
+  name is absent.
+- In `theSummaryLeads…` the second `#expect` repeats the first.
+- Nothing tests that a reading file without `nameRoles` opens (`vault-reading-format-1` now does, in
+  `VaultFormatTests`) or that roles survive a change of reader rules, both claimed by `710b5aaa3`; a
+  malformed `nameRoles` decodes to nil through `try?` and the next seal drops it, untested.
+- **Done when:** each has a version that fails when its rule is broken (VT95's rule).
 
 **VT29 — Lock under time.** *Open, and wider.*
 - **The problem.**
@@ -829,6 +803,50 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
 - **Done when:**
   - `pages(in:)` reports an incomplete file;
   - its stamp is withheld.
+
+**VT107 — Pick identity files before opening them.** *Efficiency; checked; the owner asked for it
+(2026-11-21): "knowing which file to pick is important."*
+- **The problem.** Every file under Immigration or Legal is opened, file name unseen
+  (`VaultReadPlan.swift:36–37`); Refresh uses `VaultReadPlan.every`, which passes nothing over
+  (`:60–73`). Each opened PDF gives pages 1–3 (`VaultDocumentReader.swift:25`, `:119`), each page up to
+  three Vision passes plus a barcode render (`VaultPageSource.swift:140–182`): about nine recognitions,
+  roughly a second each. The walk sorts by path (`VaultDocumentReader.swift:67`), so
+  `…/Supporting Documents/…` can come before `…/Passport/…`. The signals that tell an original from a
+  copy already exist and are used only after reading:
+  - `placement(for:)` scores the folder: the home folder +2; supporting, petition, application,
+    evidence, exhibits, attachments, packet −2; archive −1 (`VaultFacts.swift:173–198`);
+  - `VaultSource.rank` comes from what the page says ("Passport photo page" is 40,
+    `VaultReading.swift:663–664`);
+  - the read index skips a file whose size and date are unchanged (`VaultModel.swift:2019`).
+
+  So a visa packet holding a passport copy is opened and read like the passport itself, although its
+  number is already held from the passport's own folder. On his folder (harness, 2026-11-20, not
+  re-measured): 11,299 files walked, 1,356 planned, 544 file-level finds for 129 numbers, about four
+  files per number, a full read 339 s. The cost lands on the first read, Read Everything Again
+  (`:1877`) and every `VaultReading.version` bump, which drops the read index and `copies`
+  (`:1578–1594`), so Refresh then reopens every copy too.
+- **Fix, safest first.**
+  1. **Read a byte-identical file once.** Group planned files by size, then SHA-256, and call
+     `pages(in:)` once per group; `VaultReading.read(pages:from:)` still runs per path, so each keeps
+     its source, copy, date and placement. Internal. Measure the groups first with the harness.
+  2. **Originals first.** Order identity steps by `placement` (home folder first, packets and archives
+     last), then path. Internal: same rows, waiting list and `copies` in either order (a model test
+     reads one fixture both ways); a stopped read then has the original before its copies.
+  3. **Pass over a supporting copy whose numbers are all held from a home-folder source.** Keep the
+     file → numbers map across a version bump so this is known before opening. *Owner's call:* the copy
+     leaves the row's documents and the Read from choice, a detail or later date only it has is lost
+     (`supersedes`, `VaultFacts.swift:702`), and a number new rules would find in it is missed. A packet
+     can be the only copy of a spouse's passport or an I-797, so "all its numbers held" is the test,
+     never the folder alone.
+  4. **Refresh reopens only the file each ID is read from**; other sources get the size-and-date check,
+     and a changed one sets `needsDiscover`. *Owner's call:* a changed copy shows later.
+  5. **Keep Vision's page text, sealed, by file stamp, page and render size**, so a version bump re-runs
+     the rules, not the OCR. *Owner's call:* it stores document text.
+  6. Not recommended: stop paging at the first number. An OCI card's back has its issue date; a visa
+     foil can sit on page 2.
+- **Done when:** (1) and (2) are in with the harness showing the same numbers, sources and counts and
+  fewer `pages(in:)` calls; (3)–(5) each wait for the owner. Relates to VT82–VT85 (cost per page),
+  VT67 (stats), VT81 (caps) and VT54 (stamping), none of which chooses files.
 
 **VT82 — Render each scanned page once per size.** *Efficiency; checked.*
 - **The problem.**

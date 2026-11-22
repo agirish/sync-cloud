@@ -257,6 +257,9 @@ public final class VaultModel: ObservableObject {
     /// What an older build read was let go with its rules, and no full read has run since: the
     /// panel says so above the cards, with Read Again, until one does.
     @Published public private(set) var needsReadAgain = false
+    /// Records in the sealed file a later build wrote, which this one keeps as they are and does
+    /// not draw (VT30).
+    @Published public private(set) var newerRecords = 0
     @Published public private(set) var lastReading: ReadingSummary?
     /// Numbers set aside while the Keychain would not give a fingerprint, as plain hashes, kept
     /// for this run only. Normally they go to ``VaultSetAside`` and outlive the app.
@@ -1568,10 +1571,19 @@ public final class VaultModel: ObservableObject {
         guard contents != .loaded else { keepSelectionVisible(); return }
         guard let store else { contents = .unreadable(.unreadableFile); return }
         do {
-            entries = try store.load()
+            let records = try store.loadRecords()
+            entries = records.entries
+            newerRecords = records.newer.count
             contents = .loaded
             readGeneration = VaultSetAside.generation(in: defaults)
-            if let state = store.loadReading() {
+            switch store.openReading() {
+            case .none: break
+            case .damaged:
+                // What was waiting and every choice made on it are gone with the file: ask for a
+                // read, which finds them again, and keep the file out of the next save's way.
+                store.setAsideReading()
+                needsReadAgain = true
+            case .loaded(let state):
                 // Another build's rules, or a Forget since: read every file again next time.
                 // What another build read is let go with it, as its finds were made by older
                 // rules; what the user chose about them is carried onto the next read's.
@@ -1611,9 +1623,11 @@ public final class VaultModel: ObservableObject {
             keepSelectionVisible()
         } catch let error as VaultError {
             entries = []
+            newerRecords = 0
             contents = .unreadable(error)
         } catch {
             entries = []
+            newerRecords = 0
             contents = .unreadable(.unreadableFile)
         }
     }
@@ -2381,6 +2395,8 @@ public final class VaultModel: ObservableObject {
             return "The Vault’s file didn’t open with this Mac’s key. It is damaged, or it came from another Mac."
         case .notWritten:
             return "The Vault couldn’t be saved, so that change wasn’t kept."
+        case .wouldDrop(let count):
+            return "That change would have removed \(count) IDs at once, so it wasn’t saved."
         }
     }
 }

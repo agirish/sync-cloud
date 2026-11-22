@@ -231,6 +231,22 @@ import Testing
         #expect(try Data(contentsOf: try #require(kept.first)) == before, "byte for byte what was there")
     }
 
+    /// The short-list guard (VT20) stops a save that drops several records at once. Replace is
+    /// the one act that does, on purpose, and it saves onto no file: what was there is set aside.
+    @Test func theShortListGuardNeverStopsAReplace() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let library = VaultEntry(title: "Library card", value: "LIB0000001", addedAt: VaultLockTests.t0)
+        let gym = VaultEntry(title: "Gym membership", value: "GYM0000001", addedAt: VaultLockTests.t0)
+        try rig.seed([Self.mortgage, library, gym])
+        #expect(throws: VaultError.wouldDrop(3)) { try rig.store.save([Self.passport]) }
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
+        #expect(await backup.restore(contents, mode: .replace) == .success(1))
+        #expect(try rig.store.load() == [Self.passport])
+    }
+
     @Test func aVaultThisMacCannotOpenCanBeReplacedFromABackup() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])

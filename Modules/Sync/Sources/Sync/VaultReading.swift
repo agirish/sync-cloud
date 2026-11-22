@@ -1053,8 +1053,10 @@ public enum VaultSetAside {
 /// the numbers waiting in To Confirm, and which files have been read, so the next read opens only
 /// new and changed ones.
 ///
-/// Its own file, not the Vault's, so a damaged or outdated one is simply started again: nothing
-/// in it is the user's own until it is confirmed into the Vault.
+/// Its own file, not the Vault's. Most of it a read finds again: what is waiting, the read
+/// index, mentions and copies. Some of it is the user's own and no read brings back: ``names``,
+/// ``nameRoles`` and ``lessons``. So a file that does not open is set aside, never started again
+/// over (``VaultStore/setAsideReading()``).
 public struct VaultReadingState: Codable, Equatable, Sendable {
     /// ``VaultReading/version`` when the files were read. Another version reads everything again.
     public var version: Int

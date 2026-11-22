@@ -16209,7 +16209,13 @@ Keychain. Restore adds what is missing or replaces, and replacing renames the Va
 (`VaultStore.setAside`), as does Set It Aside and Start New for a Vault this Mac cannot open.
 The Vault's own sealed files do not change. 2026-11-21: a Replace that cannot be
 written puts the Vault back, what is added never shares an id with a record already held, and a
-file asking for more than eight times this build's rounds is refused.
+file asking for more than eight times this build's rounds is refused. Then every sealed file is
+written one way (`SealedFile.write`, owner-only before it is swapped in); each save keeps the file
+it replaces, the newest ten as `vault-backup-<stamp>-NNN.sealed` (`VaultStore.backups`), and refuses
+to drop more than one record at once (`VaultError.wouldDrop`); a record or activity kind a later
+build wrote is kept as it came (`VaultRecords.newer`), a backup restores every record it can read,
+and a reading file that does not open is renamed aside, never reset. Committed sealed fixtures
+(`Fixtures/Vault`) pin every format.
 
 2026-11-20: an activity list (`VaultActivityStore`, `VaultActivityEvent`): unlocks, IDs shown,
 copied and changed by name, reads, backups and refused proofs, sealed with the Vault's key in a

@@ -19,6 +19,10 @@ public enum VaultError: Error, Equatable, Sendable {
     case wrongKeyOrDamaged
     /// The disk refused the write. The file on disk is the one from before.
     case notWritten
+    /// The write would have removed this many records at once. Nothing in the app removes more
+    /// than one, so it is taken for a mistake and refused (VT20); the file on disk is the one
+    /// from before.
+    case wouldDrop(Int)
 }
 
 /// The Vault's key: 256 random bits in the login Keychain, beside the Anthropic key.
@@ -86,6 +90,52 @@ public enum VaultKeychain {
     }
 }
 
+/// The one way a sealed file reaches the disk (VT55): the Vault's, what was read, the activity
+/// list, a passphrase backup and the copies kept before each save.
+///
+/// The bytes go to a temporary file in the volume's replacement folder, are made owner-only there,
+/// and are then swapped in whole. So a crash mid-write leaves the file before, never half of a
+/// sealed box, and the file is never readable by others under its own name, not even for the
+/// moment between a write and a chmod. Nothing is ever named with a leading dot beside the file:
+/// a backup folder may be in iCloud Drive.
+enum SealedFile {
+    static func write(_ data: Data, to url: URL, fileManager: FileManager) throws {
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let scratch = try fileManager.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                          appropriateFor: url, create: true)
+        defer { try? fileManager.removeItem(at: scratch) }
+        let temporary = scratch.appendingPathComponent(url.lastPathComponent)
+        try data.write(to: temporary, options: .withoutOverwriting)
+        do {
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+        } catch {
+            // Written all the same: the folder is the user's own, and a file left unwritten would
+            // lose the change. Said, so a disk that refuses permissions is not silent.
+            Logger.shared.warning("Vault: \(url.lastPathComponent) could not be made owner-only — \(error.localizedDescription)")
+        }
+        if fileManager.fileExists(atPath: url.path) {
+            _ = try fileManager.replaceItemAt(url, withItemAt: temporary, backupItemName: nil,
+                                              options: .usingNewMetadataOnly)
+        } else {
+            try fileManager.moveItem(at: temporary, to: url)
+        }
+    }
+}
+
+/// What a sealed Vault file holds: the records this build reads, and any a later build wrote that
+/// it cannot, kept as their JSON so they go back on disk as they came (VT30).
+public struct VaultRecords: Equatable, Sendable {
+    public var entries: [VaultEntry]
+    /// Each record this build could not decode, as the JSON it was stored as. Never drawn, never
+    /// changed; written back after ``entries``.
+    public var newer: [Data]
+
+    public init(entries: [VaultEntry] = [], newer: [Data] = []) {
+        self.entries = entries
+        self.newer = newer
+    }
+}
+
 /// The Vault's bytes on disk: a marker, then every entry as JSON sealed with AES-GCM.
 ///
 /// One sealed box for the whole list, not one per entry: the titles, the people and how many
@@ -97,11 +147,53 @@ public enum VaultFile {
     static let marker = Data("SCVAULT1".utf8)
 
     public static func seal(_ entries: [VaultEntry], with key: SymmetricKey) throws -> Data {
-        try seal(entries, marker: marker, with: key)
+        try seal(VaultRecords(entries: entries), with: key)
     }
 
     public static func open(_ data: Data, with key: SymmetricKey) throws -> [VaultEntry] {
-        try open([VaultEntry].self, data, marker: marker, with: key)
+        try openRecords(data, with: key).entries
+    }
+
+    /// Seals `records`: the entries as one JSON array, as every build before this one wrote them,
+    /// with any newer records after them, each as it was read.
+    public static func seal(_ records: VaultRecords, with key: SymmetricKey) throws -> Data {
+        guard !records.newer.isEmpty else { return try seal(records.entries, marker: marker, with: key) }
+        let encoder = jsonEncoder()
+        let elements = try records.entries.map { try encoder.encode($0) } + records.newer
+        var plain = Data("[".utf8)
+        for (index, element) in elements.enumerated() {
+            if index > 0 { plain.append(Data(",".utf8)) }
+            plain.append(element)
+        }
+        plain.append(Data("]".utf8))
+        return try sealPlain(plain, marker: marker, with: key)
+    }
+
+    /// Every record in `data`, decoded one by one when the list as a whole does not decode: one
+    /// record from a later build (a kind, a place or a pin this build does not know) is kept aside
+    /// rather than closing the Vault. Throws only for a file that is not a Vault file at all.
+    public static func openRecords(_ data: Data, with key: SymmetricKey) throws -> VaultRecords {
+        let plain = try openPlain(data, marker: marker, with: key)
+        let decoder = jsonDecoder()
+        if let entries = try? decoder.decode([VaultEntry].self, from: plain) {
+            return VaultRecords(entries: entries)
+        }
+        guard let list = try? JSONSerialization.jsonObject(with: plain) as? [Any] else {
+            throw VaultError.unreadableFile
+        }
+        var records = VaultRecords()
+        for element in list {
+            guard let json = try? JSONSerialization.data(withJSONObject: element,
+                                                         options: [.sortedKeys, .fragmentsAllowed]) else {
+                throw VaultError.unreadableFile
+            }
+            if let entry = try? decoder.decode(VaultEntry.self, from: json) {
+                records.entries.append(entry)
+            } else {
+                records.newer.append(json)
+            }
+        }
+        return records
     }
 
     /// Read Documents' file: the same sealing under its own marker, so neither file opens as the
@@ -109,17 +201,19 @@ public enum VaultFile {
     static let readingMarker = Data("SCVREAD1".utf8)
 
     static func seal<T: Encodable>(_ value: T, marker: Data, with key: SymmetricKey) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let plain = try encoder.encode(value)
-        guard let sealed = try AES.GCM.seal(plain, using: key, authenticating: marker).combined else {
-            throw VaultError.notWritten
-        }
-        return marker + sealed
+        try sealPlain(try jsonEncoder().encode(value), marker: marker, with: key)
     }
 
     static func open<T: Decodable>(_ type: T.Type, _ data: Data, marker: Data, with key: SymmetricKey) throws -> T {
+        let plain = try openPlain(data, marker: marker, with: key)
+        guard let value = try? jsonDecoder().decode(T.self, from: plain) else {
+            throw VaultError.unreadableFile
+        }
+        return value
+    }
+
+    /// The JSON inside a sealed file, for the format tests (``VaultFormatTests``).
+    static func openPlain(_ data: Data, marker: Data, with key: SymmetricKey) throws -> Data {
         guard data.count > marker.count, data.prefix(marker.count) == marker,
               let box = try? AES.GCM.SealedBox(combined: data.dropFirst(marker.count)) else {
             throw VaultError.unreadableFile
@@ -127,12 +221,39 @@ public enum VaultFile {
         guard let plain = try? AES.GCM.open(box, using: key, authenticating: marker) else {
             throw VaultError.wrongKeyOrDamaged
         }
+        return plain
+    }
+
+    /// Seals JSON as it is, for ``seal(_:with:)`` and the format tests.
+    static func sealPlain(_ plain: Data, marker: Data, with key: SymmetricKey) throws -> Data {
+        guard let sealed = try AES.GCM.seal(plain, using: key, authenticating: marker).combined else {
+            throw VaultError.notWritten
+        }
+        return marker + sealed
+    }
+
+    static func jsonEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    static func jsonDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let value = try? decoder.decode(T.self, from: plain) else {
-            throw VaultError.unreadableFile
-        }
-        return value
+        return decoder
+    }
+
+    /// A file's size and whether it begins with a Vault marker, for a log line about a file that
+    /// did not open. Never its bytes past the marker: a stray file could hold anything.
+    static func summary(of data: Data) -> String {
+        let head = data.prefix(8)
+        let known = [marker, readingMarker].contains(head)
+        let shaped = head.count == 8 && head.starts(with: Data("SCV".utf8))
+            && head.allSatisfy { (0x20...0x7e).contains($0) }
+        let begins = known || shaped ? "begins \(String(decoding: head, as: UTF8.self))" : "no Vault marker"
+        return "\(data.count) bytes, \(begins)"
     }
 }
 
@@ -144,12 +265,18 @@ public struct VaultStore {
     public let fileURL: URL
     private let keychain: KeychainStore
     private let fileManager: FileManager
+    /// When a backup is made, for its name.
+    private let clock: () -> Date
+
+    /// How many sealed files from before a save are kept beside the Vault's (VT20).
+    public static let backupsKept = 10
 
     public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore(),
-                fileManager: FileManager = .default) {
+                fileManager: FileManager = .default, clock: @escaping () -> Date = Date.init) {
         self.fileURL = fileURL
         self.keychain = keychain
         self.fileManager = fileManager
+        self.clock = clock
     }
 
     /// `~/Library/Application Support/SyncCloud/vault.sealed`. Not under a filing profile: the
@@ -166,46 +293,180 @@ public struct VaultStore {
 
     /// Every entry, or `[]` when nothing has been saved yet. No key is made by reading.
     public func load() throws -> [VaultEntry] {
-        guard hasFile else { return [] }
-        guard let data = fileManager.contents(atPath: fileURL.path) else { throw VaultError.unreadableFile }
+        try loadRecords().entries
+    }
+
+    /// Every record, those a later build wrote included, or none when nothing has been saved yet.
+    /// A file that does not open is logged, with its size and marker only, and thrown.
+    public func loadRecords() throws -> VaultRecords {
+        guard hasFile else { return VaultRecords() }
+        guard let data = fileManager.contents(atPath: fileURL.path) else {
+            Logger.shared.warning("Vault: the sealed file is there but could not be read from disk")
+            throw VaultError.unreadableFile
+        }
+        let key: SymmetricKey
         switch VaultKeychain.read(from: keychain) {
-        case .found(let key): return try VaultFile.open(data, with: key)
-        case .notCreated: throw VaultError.keyMissing
+        case .found(let found): key = found
+        case .notCreated:
+            Logger.shared.warning("Vault: the sealed file (\(VaultFile.summary(of: data))) has no key in this Mac's Keychain — it is left as it is")
+            throw VaultError.keyMissing
         case .unreadable(let status): throw VaultError.keyUnreadable(status)
+        }
+        do {
+            let records = try VaultFile.openRecords(data, with: key)
+            if !records.newer.isEmpty {
+                Logger.shared.warning("Vault: \(records.newer.count) record(s) in the sealed file need a newer SyncCloud — kept as they are")
+            }
+            return records
+        } catch let error as VaultError {
+            Logger.shared.warning("Vault: the sealed file did not open (\(error), \(VaultFile.summary(of: data))) — it is left as it is")
+            throw error
         }
     }
 
-    /// Seals `entries` and swaps the file in whole.
+    /// Seals `entries` and swaps the file in whole, after keeping the file it replaces as a backup.
     ///
     /// A key is made only for the very first save, when there is neither key nor file. With a file
-    /// on disk and no key, this throws: that file belongs to a key this Mac does not have.
-    public func save(_ entries: [VaultEntry]) throws {
-        let sealed = try VaultFile.seal(entries, with: try keyForWriting())
+    /// on disk and no key, this throws: that file belongs to a key this Mac does not have. So does
+    /// a file on disk this Mac cannot open: it is never written over.
+    ///
+    /// Records a later build wrote go back on disk with `entries`, untouched. A save that would
+    /// remove more than one record at once throws ``VaultError/wouldDrop(_:)`` unless
+    /// `allowingDrops`: nothing in the app removes more than one, so a short list is a mistake,
+    /// and one that cannot be undone, since a typed number is in no document to read again.
+    public func save(_ entries: [VaultEntry], allowingDrops: Bool = false) throws {
+        let key = try keyForWriting()
+        var records = VaultRecords(entries: entries)
+        var previous: Data?
+        if hasFile {
+            guard let data = fileManager.contents(atPath: fileURL.path) else {
+                Logger.shared.warning("Vault: the sealed file is there but could not be read from disk — nothing was written")
+                throw VaultError.unreadableFile
+            }
+            let onDisk: VaultRecords
+            do {
+                onDisk = try VaultFile.openRecords(data, with: key)
+            } catch let error as VaultError {
+                Logger.shared.warning("Vault: the sealed file did not open (\(error), \(VaultFile.summary(of: data))) — nothing was written over it")
+                throw error
+            }
+            records.newer = onDisk.newer
+            let kept = Set(entries.map(\.id))
+            let dropped = onDisk.entries.filter { !kept.contains($0.id) }.count
+            if dropped > 1, !allowingDrops {
+                Logger.shared.warning("Vault: a save would have removed \(dropped) records at once (\(onDisk.entries.count) → \(entries.count)) — refused, nothing was written")
+                throw VaultError.wouldDrop(dropped)
+            }
+            previous = data
+        }
+        let sealed = try VaultFile.seal(records, with: key)
         do {
-            try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
-                                            withIntermediateDirectories: true)
-            // `.atomic`: a crash mid-write leaves the last good file, never half of a sealed box.
-            try sealed.write(to: fileURL, options: .atomic)
-            // Owner-only, like the Keychain item it pairs with.
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            if let previous { try keepBackup(of: previous) }
+            try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the sealed file could not be written — \(error.localizedDescription)")
             throw VaultError.notWritten
         }
     }
 
+    // MARK: Backups
+
+    private static let backupPrefix = "vault-backup-"
+    private static let backupSuffix = ".sealed"
+
+    /// The sealed files kept from before each save, newest first. Each opens with the Vault's
+    /// key, as the Vault's own file does.
+    public var backups: [URL] {
+        let folder = fileURL.deletingLastPathComponent()
+        let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
+        return names
+            .filter { $0.hasPrefix(Self.backupPrefix) && $0.hasSuffix(Self.backupSuffix) }
+            .sorted(by: >)
+            .map { folder.appendingPathComponent($0) }
+    }
+
+    /// A backup's time in its name, in UTC to the millisecond: `20261121T174512.345Z`. Fixed
+    /// width, so names sort as the times do.
+    private static let backupStamp = Date.ISO8601FormatStyle(
+        dateSeparator: .omitted, dateTimeSeparator: .standard, timeSeparator: .omitted,
+        timeZoneSeparator: .omitted, includingFractionalSeconds: true, timeZone: .gmt)
+
+    /// Writes `data` as the newest backup, owner-only, then lets go of all but the newest
+    /// ``backupsKept``. A backup that cannot be written stops the save: the file on disk is then
+    /// still the only good copy.
+    private func keepBackup(of data: Data) throws {
+        let folder = fileURL.deletingLastPathComponent()
+        let stamp = clock().formatted(Self.backupStamp)
+        // Every name carries a three-digit count past the highest already there for this stamp, so
+        // saves in one millisecond still sort by name in the order they were made: a bare name
+        // would sort after its "-2", and a count freed by pruning would sort before the rest.
+        let named = Self.backupPrefix + stamp + "-"
+        let highest = backups.map(\.lastPathComponent).filter { $0.hasPrefix(named) }
+            .compactMap { Int($0.dropFirst(named.count).dropLast(Self.backupSuffix.count)) }.max() ?? 0
+        let url = folder.appendingPathComponent(named + String(format: "%03d", highest + 1) + Self.backupSuffix)
+        try SealedFile.write(data, to: url, fileManager: fileManager)
+        for old in backups.dropFirst(Self.backupsKept) {
+            try? fileManager.removeItem(at: old)
+        }
+    }
+
+    // MARK: Read Documents' file
+
     /// `vault-reading.sealed`, beside the Vault's file.
     public var readingURL: URL {
         fileURL.deletingLastPathComponent().appendingPathComponent("vault-reading.sealed")
     }
 
-    /// What Read Documents kept, or nil when there is nothing to open: no file, no key, or a file
-    /// this build cannot read. Nil is a fresh start, never an error to show; nothing in it was the
-    /// user's own until confirmed.
-    public func loadReading() -> VaultReadingState? {
+    /// What opening Read Documents' file found.
+    public enum ReadingLoad: Equatable {
+        /// No file, or no key to open it with: a fresh start.
+        case none
+        case loaded(VaultReadingState)
+        /// A file is there and did not open with this Mac's key: damaged, or a later build's.
+        /// What was waiting the next read finds again. The name corrections and Kind lessons it
+        /// held are the user's own and no read brings them back, so the file is set aside
+        /// (``setAsideReading()``), never written over or removed.
+        case damaged
+
+        /// The state, when one opened.
+        public var state: VaultReadingState? {
+            if case .loaded(let state) = self { return state }
+            return nil
+        }
+    }
+
+    /// What Read Documents kept, or nil when there is none or it did not open.
+    public func loadReading() -> VaultReadingState? { openReading().state }
+
+    /// What Read Documents kept. A file that does not open is logged with its size and marker
+    /// only, and the panel goes on without it; ``setAsideReading()`` then keeps it out of the next
+    /// save's way.
+    public func openReading() -> ReadingLoad {
         guard let data = fileManager.contents(atPath: readingURL.path),
-              case .found(let key) = VaultKeychain.read(from: keychain) else { return nil }
-        return try? VaultFile.open(VaultReadingState.self, data, marker: VaultFile.readingMarker, with: key)
+              case .found(let key) = VaultKeychain.read(from: keychain) else { return .none }
+        do {
+            return .loaded(try VaultFile.open(VaultReadingState.self, data, marker: VaultFile.readingMarker, with: key))
+        } catch {
+            Logger.shared.warning("Vault: the reading file did not open (\(error), \(VaultFile.summary(of: data))) — it is set aside, and what was waiting will be read again")
+            return .damaged
+        }
+    }
+
+    /// Renames a reading file that did not open (``ReadingLoad/damaged``) to
+    /// `vault-reading.sealed.unreadable-<seconds>`, so the next save does not write over it.
+    /// Never deletes it. Nil when there was nothing to move or the move failed.
+    @discardableResult
+    public func setAsideReading() -> URL? {
+        guard fileManager.fileExists(atPath: readingURL.path) else { return nil }
+        let aside = readingURL.appendingPathExtension("unreadable-\(Int(clock().timeIntervalSince1970))")
+        do {
+            try fileManager.moveItem(at: readingURL, to: aside)
+        } catch {
+            Logger.shared.warning("Vault: the reading file that did not open could not be set aside — \(error.localizedDescription)")
+            return nil
+        }
+        Logger.shared.info("Vault: the reading file that did not open was set aside as \(aside.lastPathComponent)")
+        return aside
     }
 
     /// Seals Read Documents' state. Makes the key on a Mac that has neither key nor Vault file,
@@ -213,10 +474,7 @@ public struct VaultStore {
     public func saveReading(_ state: VaultReadingState) throws {
         let sealed = try VaultFile.seal(state, marker: VaultFile.readingMarker, with: try keyForWriting())
         do {
-            try fileManager.createDirectory(at: readingURL.deletingLastPathComponent(),
-                                            withIntermediateDirectories: true)
-            try sealed.write(to: readingURL, options: .atomic)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: readingURL.path)
+            try SealedFile.write(sealed, to: readingURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the reading file could not be written — \(error.localizedDescription)")
             throw VaultError.notWritten
