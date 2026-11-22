@@ -22,6 +22,15 @@ import Testing
         return (rig, dental)
     }
 
+    /// Edit says what a corrected ID's documents read for it.
+    @Test func theEditorSaysWhatACorrectedIDsDocumentsRead() {
+        #expect(VaultCard.readingsLine(["WZ88319122"]) == "Its document reads WZ88319122 for this ID.")
+        #expect(VaultCard.readingsLine(["WZ88319122", "WZ8831912Z"])
+                == "Its documents read WZ88319122 and WZ8831912Z for this ID.")
+        #expect(VaultCard.readingsLine(["A", "B", "C"]) == "Its documents read A, B and C for this ID.")
+        #expect(VaultCard.readingsLine([]).isEmpty)
+    }
+
     /// Moving a waiting ID to Current by hand draws You moved it here under Tab; letting the Vault
     /// choose again draws the pane exactly as before, so the difference is the caption's.
     @Test func aTabYouChoseIsSaidUnderItAndLettingTheVaultChooseTakesItAway() async throws {

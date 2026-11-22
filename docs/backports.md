@@ -16197,7 +16197,11 @@ Vault…, Correct the ID… (the editor, with the cursor in the ID) and Not an I
 row under Used In shows the tab with the Vault's reason (`VaultStanding.reason`, "You moved it
 here" for a choice either way, `VaultStanding.movedByYou`) and a note with Undo when a move takes
 the ID out of the list; the right-click menu matches; another person's card under an ID says whose
-it is (`VaultModel.otherHolder`); and Anywhere is Every Country. Nothing sealed changes.
+it is (`VaultModel.otherHolder`); and Anywhere is Every Country. Nothing sealed changes. Then a read ID corrected by
+hand keeps a note of what its document reads for it (`VaultEntry.readAs`, `VaultReadAs`, known by the
+file's size and SHA-256 so it survives a move), checked before anything is taken from that file, in
+place of setting the misreading aside everywhere; Edit shows it with Forget. The Vault file gains
+that field (`vault-format-3`).
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

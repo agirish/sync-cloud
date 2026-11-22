@@ -2130,13 +2130,11 @@ public final class VaultModel: ObservableObject {
         guard write(changed) else { return false }
         apply(name.everywhere)
         record(.edited, id: id)
-        // A read number corrected by hand: the misreading is set aside, as Confirm does, so the
-        // next read does not offer it again.
+        // A read number corrected by hand: its documents keep a note of what they read for it,
+        // as Add to Vault does, so the next read gives them to this ID rather than offering the
+        // misreading again.
         if before.facts != nil, VaultReading.normalized(before.value) != VaultReading.normalized(changed[index].value) {
-            remember(before.value)
-            copies[VaultReading.normalized(before.value)] = nil
-            readingChanged = true
-            saveReading()
+            corrected(before.value, to: changed[index].value, for: id, owned: before.readAs ?? [])
         }
         dropFinds(matching: changed[index].value)
         return true
@@ -2353,6 +2351,10 @@ public final class VaultModel: ObservableObject {
             return
         }
         let sharedSizes = Set(Dictionary(grouping: sizes.values, by: { $0 }).filter { $0.value.count > 1 }.keys)
+        // What a corrected ID's documents read for it (``VaultReadAs``): checked before anything
+        // else is taken from a file. Only a file as big as one of them is hashed to be compared.
+        let readAs = readAsByContents()
+        let notedSizes = Set(readAs.keys.compactMap(VaultFileContents.size(of:)))
         /// Files read with a page left out this time: what they gave asks no Keep Mine question.
         var incomplete = Set<String>()
         var readNow: [String: [VaultFind]] = [:]
@@ -2410,8 +2412,10 @@ public final class VaultModel: ObservableObject {
             // so this path keeps its own sources, copies and dates (VT107).
             // Only a file another one planned is as big as can be a copy of it: those alone are
             // hashed and kept. And within one area: how a page is read depends on where it is.
-            let content = sharedSizes.contains(sizes[file.path] ?? -1)
-                ? (await reader.contentKey(of: file)).map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
+            let size = sizes[file.path] ?? -1
+            let bytes = sharedSizes.contains(size) || notedSizes.contains(size) ? await reader.contentKey(of: file) : nil
+            let content = sharedSizes.contains(size)
+                ? bytes.map { VaultReadPlan.area(of: file.path, under: roots).description + " " + $0 }
                 : nil
             let (pages, complete): ([[String]], Bool)
             if let content, let read = readByContent[content] {
@@ -2438,7 +2442,8 @@ public final class VaultModel: ObservableObject {
                 .map { (VaultReading.normalized($0.value), VaultChoice($0)) },
                 uniquingKeysWith: { a, _ in a })
             forgetSource(file.path)
-            let read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
+            var read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
+            if let bytes, let instead = readAs[bytes] { read = Self.reading(read, instead: instead) }
             readNow[file.path] = read.finds
             tally.record(pages, read)
             for var find in read.finds {
@@ -2819,8 +2824,7 @@ public final class VaultModel: ObservableObject {
                            readHolder: rows.first { $0.id == findID }?.holderAsRead) else { return nil }
         record(.confirmed, id: id)
         if VaultReading.normalized(draft.value) != VaultReading.normalized(find.value) {
-            remember(find.value)
-            copies[VaultReading.normalized(find.value)] = nil
+            corrected(find.value, to: draft.value, for: id, owned: [])
         }
         finds.removeAll { $0.id == findID }
         readingChanged = true
@@ -2839,6 +2843,119 @@ public final class VaultModel: ObservableObject {
         readingChanged = true
         saveReading()
         keepSelectionVisible()
+    }
+
+    // MARK: What a document reads for a corrected ID
+
+    /// A file's size and SHA-256 (``VaultFileContents``), off the main actor: what a note knows a
+    /// document by. A test hands in its own, for documents that are not on disk.
+    var fileContents: @Sendable (URL) async -> String? = { file in
+        await Task.detached(priority: .userInitiated) { VaultFileContents.key(of: file) }.value
+    }
+
+    /// The notes being written, one after another: each reads its documents' bytes first.
+    private var noting: Task<Void, Never>?
+
+    /// Waits for the notes being written, for a test.
+    func notesWritten() async { await noting?.value }
+
+    /// A read number `read`, corrected by hand to `value`: what its documents said goes with the
+    /// ID `id` saved as `value`, and each of them gets a note (``VaultReadAs``) of what it reads
+    /// for it. Nothing is set aside: the misreading may be a relative's real ID on another card.
+    /// A document `owned` already notes reads what its note says, not `read`, and keeps it.
+    private func corrected(_ read: String, to value: String, for id: UUID, owned: [VaultReadAs]) {
+        let old = VaultReading.normalized(read), new = VaultReading.normalized(value)
+        let paths = Set((copies[old] ?? [:]).keys).union((mentions[old] ?? []).map(\.path))
+        if let moved = copies.removeValue(forKey: old) {
+            for (path, var copy) in moved {
+                copy.value = value
+                copies[new, default: [:]][path] = copy
+            }
+        }
+        if let named = mentions.removeValue(forKey: old) { mentions[new, default: []].append(contentsOf: named) }
+        readingChanged = true
+        saveReading()
+        guard !paths.isEmpty else { return }
+        let earlier = noting, contentsOf = fileContents
+        let owned = Set(owned.map(\.contents))
+        noting = Task { [weak self] in
+            await earlier?.value
+            var notes: [VaultReadAs] = []
+            for path in paths.sorted() {
+                guard let contents = await contentsOf(URL(fileURLWithPath: path)), !owned.contains(contents),
+                      !notes.contains(where: { $0.contents == contents }) else { continue }
+                notes.append(VaultReadAs(contents: contents, reads: old))
+            }
+            self?.note(notes, for: id, of: paths.count)
+        }
+    }
+
+    /// Adds `notes` to the saved ID `id`, once its documents were read for them.
+    private func note(_ notes: [VaultReadAs], for id: UUID, of documents: Int) {
+        guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }) else {
+            Logger.shared.info("Vault: a corrected ID's note was not written; the Vault locked or the ID went")
+            return
+        }
+        if notes.isEmpty {
+            Logger.shared.info("Vault: none of a corrected ID's \(documents) document(s) could be read for a note; "
+                               + "its old reading may come back To Confirm")
+            return
+        }
+        var changed = entries
+        var kept = changed[index].readAs ?? []
+        for note in notes where !kept.contains(where: { $0.contents == note.contents }) { kept.append(note) }
+        guard kept != (changed[index].readAs ?? []) else { return }
+        changed[index].readAs = kept
+        guard write(changed) else { return }
+        Logger.shared.info("Vault: a corrected ID keeps a note for \(notes.count) of its \(documents) document(s)")
+    }
+
+    /// What a saved ID's documents read for it where that is not its number, each once.
+    public func readings(of id: UUID) -> [String] {
+        var seen: [String] = []
+        for note in entries.first(where: { $0.id == id })?.readAs ?? [] where !seen.contains(note.reads) {
+            seen.append(note.reads)
+        }
+        return seen
+    }
+
+    /// Forget: drops what a saved ID's documents were noted to read for it, after a proof when one
+    /// is owed. The next read of those documents offers what they read To Confirm again.
+    @discardableResult
+    public func forgetReadings(of id: UUID) async -> Bool {
+        guard let title = entries.first(where: { $0.id == id })?.title else { return false }
+        if lock.needsProof(for: id, at: clock()) {
+            guard await prove("change \(title)", for: id) else { return false }
+        }
+        guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].readAs != nil else { return false }
+        var changed = entries
+        changed[index].readAs = nil
+        used()
+        return write(changed)
+    }
+
+    /// Each file a saved ID's note knows, by its bytes: what it reads, and the number that is
+    /// read instead.
+    private func readAsByContents() -> [String: [String: String]] {
+        var notes: [String: [String: String]] = [:]
+        for entry in entries {
+            for note in entry.readAs ?? [] { notes[note.contents, default: [:]][note.reads] = entry.value }
+        }
+        return notes
+    }
+
+    /// `read` with every number `instead` names given as the number a note says it is for.
+    nonisolated static func reading(_ read: (finds: [VaultFind], mentions: [VaultMention]),
+                                    instead: [String: String]) -> (finds: [VaultFind], mentions: [VaultMention]) {
+        var read = read
+        for index in read.finds.indices {
+            if let value = instead[VaultReading.normalized(read.finds[index].value)] { read.finds[index].value = value }
+        }
+        for index in read.mentions.indices {
+            if let value = instead[VaultReading.normalized(read.mentions[index].value)] { read.mentions[index].value = value }
+        }
+        return read
     }
 
     /// Records a number as not to be offered again: its keyed fingerprint in UserDefaults, or,

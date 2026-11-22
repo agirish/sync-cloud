@@ -77,6 +77,9 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// when another copy of the same document would be: its name and details are shown, and it
     /// opens. Nil lets the Vault choose.
     public var chosenSource: String?
+    /// What its documents read for it where that is not its number, because the number was
+    /// corrected by hand (``VaultReadAs``). Nil when none.
+    public var readAs: [VaultReadAs]?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -110,7 +113,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs
     }
 
     /// Every key this build reads from a stored record, old ones included. A key outside it is a

@@ -239,12 +239,15 @@ import Testing
     @Test func aCorrectedMisreadIsNotOfferedAgain() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()
-        let documents = VaultFakeDocuments(pages: ["/r/a.pdf": VaultFixtures.licensePage])
+        var documents = VaultFakeDocuments(pages: ["/r/a.pdf": VaultFixtures.licensePage])
+        documents.knowsContents = true
+        model.fileContents = { [documents] in await documents.contentKey(of: $0) }
         await model.readDocuments(with: documents)
         let find = try #require(model.finds.first)
         var draft = VaultModel.Draft(find)
         draft.value = "D1234568"
         _ = model.confirm(find.id, as: draft)
+        await model.notesWritten()
 
         await model.readDocuments(with: documents, again: true)
         #expect(model.finds.isEmpty, "the misread came back")
@@ -387,7 +390,9 @@ import Testing
         let model = rig.model()
         await model.opened()
         let front = VaultFixtures.front(expiring: "05/16/2030")
-        let documents = VaultFakeDocuments(pages: ["/r/A.pdf": front])
+        var documents = VaultFakeDocuments(pages: ["/r/A.pdf": front])
+        documents.knowsContents = true
+        model.fileContents = { [documents] in await documents.contentKey(of: $0) }
         await model.readDocuments(with: documents)
         let find = try #require(model.finds.first)
         let id = try #require(model.confirm(find.id, as: VaultModel.Draft(title: "License", value: find.value,
@@ -395,6 +400,7 @@ import Testing
         let changed = await model.update(id, to: VaultModel.Draft(title: "License", value: "D7654321",
                                                                     category: .driversLicense))
         #expect(changed)
+        await model.notesWritten()
         await model.readDocuments(with: documents, again: true)
         #expect(model.finds.isEmpty, "the misreading was offered again")
     }

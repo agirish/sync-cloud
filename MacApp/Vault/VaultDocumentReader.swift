@@ -81,18 +81,8 @@ struct VaultFolderReader: VaultDocumentReading {
         }
     }
 
-    /// The file's size and SHA-256, read a megabyte at a time.
-    static func contentKey(_ file: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
-        defer { try? handle.close() }
-        var hash = SHA256()
-        var size = 0
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            hash.update(data: chunk)
-            size += chunk.count
-        }
-        return "\(size)-" + hash.finalize().map { String(format: "%02x", $0) }.joined()
-    }
+    /// The file's size and SHA-256 (``VaultFileContents``): the key a Vault note knows a card by.
+    static func contentKey(_ file: URL) -> String? { VaultFileContents.key(of: file) }
 
     func reading(_ file: URL) async -> (pages: [[String]], complete: Bool) {
         let read = await noted(file)

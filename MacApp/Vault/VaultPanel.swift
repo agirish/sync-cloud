@@ -2657,6 +2657,19 @@ struct VaultCard: View {
                         .focused($valueFocused)
                         .help(readValue.map { "Read from the document as \($0). Scans often mix up Z and 2, O and 0, I and 1, B and 8." } ?? "")
                 }
+                // What its documents were noted to read for it, when its number was corrected.
+                if case .existing(let id) = editing, case let readings = model.readings(of: id), !readings.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(Self.readingsLine(readings))
+                            .scaledFont(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Forget") { Task { await model.forgetReadings(of: id) } }
+                            .buttonStyle(.link)
+                            .scaledFont(.callout)
+                            .help("The document’s next read offers what it reads To Confirm again")
+                    }
+                }
                 if let read = draft.facts?.holder {
                     field("Name on the Document") {
                         TextField("Name on the Document", text: draftName, prompt: Text(read))
@@ -2734,6 +2747,13 @@ struct VaultCard: View {
         case .find(let find): return "Is “\(find.title)” not an ID?"
         case nil: return ""
         }
+    }
+
+    /// "Its document reads WZ88319122 for this ID.": what a corrected ID's documents read.
+    static func readingsLine(_ readings: [String]) -> String {
+        guard let last = readings.last else { return "" }
+        if readings.count == 1 { return "Its document reads \(last) for this ID." }
+        return "Its documents read \(readings.dropLast().joined(separator: ", ")) and \(last) for this ID."
     }
 
     /// The ID the editor is open for: one saved, or one read and waiting.

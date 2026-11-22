@@ -25,6 +25,17 @@ struct VaultFakeDocuments: VaultDocumentReading {
         return [pages[file.path] ?? []]
     }
     func stamp(of file: URL) -> String? { stamps[file.path] }
+    /// Whether a file's size and bytes are known (``VaultDocumentReading/contentKey(of:)``): its
+    /// page's text stands for its bytes. Off, every file is read as it comes.
+    var knowsContents = false
+    func size(of file: URL) -> Int? { knowsContents ? Self.bytes(pages[file.path])?.count : nil }
+    func contentKey(of file: URL) async -> String? { knowsContents ? Self.contents(of: pages[file.path]) : nil }
+
+    static func bytes(_ page: [String]?) -> Data? { page.map { Data($0.joined(separator: "\n").utf8) } }
+    /// A page's key, as ``VaultFileContents/key(of:)`` gives a file's.
+    static func contents(of page: [String]?) -> String? {
+        bytes(page).map { VaultFileContents.key(size: $0.count, digest: SHA256.hash(data: $0)) }
+    }
 }
 
 /// Read Documents and To Confirm (``VaultModel/readDocuments(with:)``).
