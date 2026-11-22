@@ -45,7 +45,9 @@ extension VaultReading {
             let raw = label.map(trimmedWord).filter { !$0.isEmpty }
             let words = labelWords(raw)
             // "Group Number" is cut back to "Number": what it is comes from the words before.
-            guard !words.isEmpty, !isNotIDLabel(Array(raw.suffix(3))), code || isID(value), seen.insert(normalized(value)).inserted else { return }
+            // A letter alone is no label: it is a number's first letter, read apart ("V 9416925").
+            guard !words.isEmpty, !(words.count == 1 && words[0].count == 1 && words[0].allSatisfy(\.isLetter)),
+                  !isNotIDLabel(Array(raw.suffix(3))), code || isID(value), seen.insert(normalized(value)).inserted else { return }
             out.append(VaultCardValue(label: words.joined(separator: " "), value: value))
         }
         for page in pages {
@@ -168,9 +170,11 @@ extension VaultReading {
         return core
     }
 
+    /// Four letters and digits or more, a digit among them, and not one digit over and over
+    /// ("111111111" fills a box on a form; it is nobody's number).
     private static func isID(_ value: String) -> Bool {
         let letters = value.filter { $0.isLetter || $0.isNumber }
-        return letters.count >= 4 && value.contains(where: \.isNumber)
+        return letters.count >= 4 && value.contains(where: \.isNumber) && Set(letters).count > 1
     }
 
     private static func isNotIDLabel(_ words: [String]) -> Bool {

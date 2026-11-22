@@ -16214,7 +16214,10 @@ saved ID but isn't its Read from: the file comes off, remembered by its bytes (`
 points to Belongs to; the log gains Took a file off. Then fields: More Fields under a read ID's details reads its card
 and offers what the details lack with Add, Add a Field… types one, and Edit removes them; they are
 kept apart from what was read (`VaultEntry.fields`, `vault-format-5`), and the card reader takes
-RxPCN's letters-only code.
+RxPCN's letters-only code. Then an X beside each offered value dismisses it for that ID, remembered
+(`VaultEntry.notFields`, `vault-format-6`), with Show Dismissed to bring them back; More Fields
+leaves out a piece of the ID's own number, and the card reader takes no one-letter label and no
+value of one digit over and over.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

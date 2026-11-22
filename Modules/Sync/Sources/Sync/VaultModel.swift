@@ -3345,17 +3345,59 @@ public final class VaultModel: ObservableObject {
         return write(changed)
     }
 
-    /// What More fields offers from `values`, read off a saved ID's card: not the ID itself, not
-    /// another ID the Vault holds (a subscriber's on a dependent's card is another person's), and
-    /// nothing its details already show.
+    /// What More fields offers from `values`, read off a saved ID's card: not the ID itself or a
+    /// piece of it (a passport number read as "V" and "9416925"), not another ID the Vault holds
+    /// (a subscriber's on a dependent's card is another person's), nothing its details already
+    /// show, and nothing the user dismissed for it.
     public func moreFields(_ values: [VaultCardValue], for id: UUID) -> [VaultCardValue] {
         guard let row = rows.first(where: { $0.id == id }) else { return [] }
         let held = Set(rows.map { VaultReading.normalized($0.value) })
         let shown = Set((row.facts?.details ?? []).map { VaultReading.normalized($0.copied) })
+        let dismissed = Set(entries.first { $0.id == id }?.notFields ?? [])
         return values.filter { value in
             let key = VaultReading.normalized(value.value)
-            return !held.contains(key) && !shown.contains(key)
+            return !held.contains { Self.overlaps(key, $0) } && !shown.contains(key) && !dismissed.contains(key)
         }
+    }
+
+    /// Whether two normalized values are one number, or one is a piece of the other at least five
+    /// characters long: what a card prints around a number, or a number split where it has a space.
+    nonisolated static func overlaps(_ one: String, _ other: String) -> Bool {
+        if one == other { return true }
+        let (short, long) = one.count < other.count ? (one, other) : (other, one)
+        return short.count >= 5 && long.contains(short)
+    }
+
+    /// How many values on this card the user dismissed for the saved ID `id`.
+    public func dismissedFields(_ values: [VaultCardValue], for id: UUID) -> Int {
+        let dismissed = Set(entries.first { $0.id == id }?.notFields ?? [])
+        return Set(values.map { VaultReading.normalized($0.value) }).intersection(dismissed).count
+    }
+
+    /// The X beside a value in More fields: it is not a field of the saved ID `id`, and is never
+    /// offered for it again. Nothing is shown by it, so it asks for no proof.
+    @discardableResult
+    public func dismissField(_ id: UUID, value: String) -> Bool {
+        let key = VaultReading.normalized(value)
+        guard !key.isEmpty, contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        guard !(entries[index].notFields ?? []).contains(key) else { return true }
+        used()
+        var changed = entries
+        changed[index].notFields = (changed[index].notFields ?? []) + [key]
+        changed[index].updatedAt = clock()
+        return write(changed)
+    }
+
+    /// Show Dismissed: every value dismissed for the saved ID `id` is offered again.
+    @discardableResult
+    public func restoreDismissedFields(_ id: UUID) -> Bool {
+        guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }),
+              entries[index].notFields != nil else { return false }
+        used()
+        var changed = entries
+        changed[index].notFields = nil
+        changed[index].updatedAt = clock()
+        return write(changed)
     }
 
     /// `read` with every number `instead` names given as the number a note says it is for.

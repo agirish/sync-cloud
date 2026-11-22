@@ -22,6 +22,12 @@ import Testing
         return (rig, dental)
     }
 
+    /// The link under More Fields that offers dismissed values again.
+    @Test func showDismissedSaysHowMany() {
+        #expect(VaultCard.showDismissedTitle(1) == "Show 1 Dismissed")
+        #expect(VaultCard.showDismissedTitle(3) == "Show 3 Dismissed")
+    }
+
     /// Edit says what a corrected ID's documents read for it.
     @Test func theEditorSaysWhatACorrectedIDsDocumentsRead() {
         #expect(VaultCard.readingsLine(["WZ88319122"]) == "Its document reads WZ88319122 for this ID.")

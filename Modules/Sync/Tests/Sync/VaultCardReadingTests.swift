@@ -30,6 +30,16 @@ import Testing
         #expect(Self.values(["Account Number 1234 5678 9012"]) == [Self.pair("Account Number", "1234 5678 9012")])
     }
 
+    /// A number's first letter read apart is not its label, and a box filled with one digit is
+    /// nobody's number: a passport page gave "V 9416925" and "ifrf 111111111".
+    @Test func aLetterAloneIsNoLabelAndOneDigitOverAndOverIsNoValue() {
+        #expect(Self.values(["V 9416925"]).isEmpty)
+        #expect(Self.values(["ifrf 111111111"]).isEmpty)
+        #expect(Self.values(["Member ID 0000 0000"]).isEmpty)
+        #expect(Self.values(["Member ID 1111 1112"]) == [Self.pair("Member ID", "1111 1112")])
+        #expect(Self.values(["ID 9416925"]) == [Self.pair("ID", "9416925")], "a two-letter label stays")
+    }
+
     @Test func aLabelOverItsValueNamesIt() {
         #expect(Self.values(["Subscriber ID", "W288319115"]) == [Self.pair("Subscriber ID", "W288319115")])
         #expect(Self.values(["Member #:", "XZB123456789"]) == [Self.pair("Member", "XZB123456789")])

@@ -70,4 +70,41 @@ import Testing
                       VaultCardValue(label: "RxPCN", value: "ADV")]
         #expect(fresh.moreFields(values, for: id) == [VaultCardValue(label: "RxPCN", value: "ADV")])
     }
+
+    /// A piece of the ID's own number, read apart from its first letter, is the ID, not a field.
+    @Test func moreFieldsLeavesOutAPieceOfTheIDsOwnNumber() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (model, id) = try await Self.saved(rig)
+        let values = [VaultCardValue(label: "No V", value: "02462401"),
+                      VaultCardValue(label: "Card", value: "1102462401-01"),
+                      VaultCardValue(label: "Box", value: "2462"),
+                      VaultCardValue(label: "RxBIN", value: "610502")]
+        #expect(model.moreFields(values, for: id).map(\.label) == ["Box", "RxBIN"])
+        #expect(VaultModel.overlaps("V9416925", "9416925"))
+        #expect(!VaultModel.overlaps("V9416925", "9416"), "four characters are too few to say")
+    }
+
+    /// The X beside a value: never offered for that ID again, sealed with it, and Show Dismissed
+    /// offers them all again. Another ID's card still offers the same value.
+    @Test func aDismissedValueIsNotOfferedAgainUntilShowDismissed() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (model, id) = try await Self.saved(rig)
+        let values = [VaultCardValue(label: "ifrf", value: "1234 5678"), VaultCardValue(label: "RxBIN", value: "610502")]
+        #expect(model.dismissedFields(values, for: id) == 0)
+        #expect(model.dismissField(id, value: "12345678"), "dismissed as read, spaces or none")
+        #expect(model.dismissField(id, value: "1234 5678"), "twice is once")
+        #expect(model.moreFields(values, for: id) == [VaultCardValue(label: "RxBIN", value: "610502")])
+        #expect(model.dismissedFields(values, for: id) == 1)
+        #expect(model.entries.first { $0.id == id }?.notFields == ["12345678"])
+
+        let next = rig.model()
+        await next.opened()
+        #expect(next.moreFields(values, for: id).map(\.label) == ["RxBIN"], "forgotten when the Vault opened again")
+
+        #expect(next.restoreDismissedFields(id))
+        #expect(next.moreFields(values, for: id) == values)
+        #expect(next.dismissedFields(values, for: id) == 0)
+        #expect(!next.restoreDismissedFields(id), "nothing left to show")
+        #expect(!next.dismissField(UUID(), value: "1"), "no such ID")
+    }
 }

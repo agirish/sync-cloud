@@ -2448,7 +2448,8 @@ struct VaultCard: View {
     }
 
     /// More fields on the card a saved ID is read from: folded until opened, which reads the card;
-    /// each value its details don't show yet with Add, and Add a Field… for one typed in.
+    /// each value its details don't show yet with Add and an X that dismisses it for good (Show
+    /// N Dismissed brings them back), and Add a Field… for one typed in.
     @ViewBuilder
     private func moreFields(_ row: VaultModel.Row, shown: Bool) -> some View {
         let open = moreFieldsRead?.id == row.id
@@ -2481,8 +2482,9 @@ struct VaultCard: View {
                         .foregroundStyle(.secondary)
                 case .read(let values)?:
                     let offered = model.moreFields(values, for: row.id)
+                    let dismissed = model.dismissedFields(values, for: row.id)
                     if offered.isEmpty {
-                        Text("Every field on this card is in the details.")
+                        Text(dismissed > 0 ? "Nothing else on this card to add." : "Every field on this card is in the details.")
                             .foregroundStyle(.secondary)
                     } else {
                         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
@@ -2494,9 +2496,23 @@ struct VaultCard: View {
                                     Button("Add") { Task { await model.addField(row.id, label: value.label, value: value.value) } }
                                         .buttonStyle(.link)
                                         .help("Adds this field to the ID’s details")
+                                    Button {
+                                        model.dismissField(row.id, value: value.value)
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.secondary)
+                                    .help("Not a field: it isn’t offered again for this ID")
+                                    .accessibilityLabel("Not a Field")
                                 }
                             }
                         }
+                    }
+                    if dismissed > 0 {
+                        Button(Self.showDismissedTitle(dismissed)) { model.restoreDismissedFields(row.id) }
+                            .buttonStyle(.link)
+                            .help("Offers again the values you said aren’t fields")
                     }
                 }
                 Button("Add a Field…") {
@@ -2510,6 +2526,9 @@ struct VaultCard: View {
         }
         .scaledFont(.callout)
     }
+
+    /// The link that offers dismissed values again: "Show 1 Dismissed", "Show 2 Dismissed".
+    static func showDismissedTitle(_ count: Int) -> String { "Show \(count) Dismissed" }
 
     private func readMoreFields(_ row: VaultModel.Row) {
         guard let path = row.documents.first?.path else { return }
