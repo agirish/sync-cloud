@@ -98,8 +98,15 @@ extension VaultReading {
         var seen = Set<String>()
         for kind in accountKinds {
             let isVINKind = kind.name == "VIN"
-            let rows = page.values(preferring: kind.labels, isVINKind ? vinValue : accountValue, skipping: beforeNumber,
+            // The first label with a number, as ``PrintedPage/values(preferring:_:skipping:keeping:)``
+            // finds it, and which label that was.
+            var rows: [PrintedPage.Hit] = []
+            var label = ""
+            for each in kind.labels {
+                rows = page.values([each], isVINKind ? vinValue : accountValue, skipping: beforeNumber,
                                    keeping: { isVINKind ? vin($0) : accountNumber($0) })
+                if !rows.isEmpty { label = each; break }
+            }
             guard !rows.isEmpty else { continue }
             // A family's card prints a row for each person, each with its own birth date: every
             // row is read, and the date says whose it is (``VaultReadFacts/personKey``). Rows
@@ -108,7 +115,7 @@ extension VaultReading {
             let read = rows.count > 1 && born.allSatisfy { $0 != nil } ? Array(zip(rows, born)) : [(rows[0], born[0])]
             for (row, born) in read where seen.insert(normalized(row.value)).inserted {
                 out.append(accountFind(row.value, kind: kind.name, page: page, path: path, roots: roots, people: people,
-                                       born: born))
+                                       born: born, subscriberLabel: label.hasPrefix("subscriber")))
             }
         }
         // The group number is the plan's, shared by everyone on it: a detail of the member's, never
@@ -217,7 +224,8 @@ extension VaultReading {
     }
 
     private static func accountFind(_ value: String, kind: String, page: PrintedPage, path: String,
-                                    roots: [String], people: [Person], born: Date? = nil) -> VaultFind {
+                                    roots: [String], people: [Person], born: Date? = nil,
+                                    subscriberLabel: Bool = false) -> VaultFind {
         let issuer = accountIssuer(path, under: roots, people: people)
         let category = accountCategory(path, kind: kind, under: roots)
         // A row's birth date says whose the number is; the page's one name, on a family's card,
@@ -229,11 +237,16 @@ extension VaultReading {
             details.append(VaultDetail("Group number", .number(group)))
         }
         let card = page.says("id card") || path.lowercased().contains("id card")
-        let facts = VaultReadFacts(category: category, holder: holder, born: born, form: kind,
+        var facts = VaultReadFacts(category: category, holder: holder, born: born, form: kind,
                                    dated: fileDate(path) ?? yearOf(path),
                                    details: details,
                                    sources: [VaultSource(path: path, role: card ? "ID card" : "Account paper",
                                                          rank: card ? IDRank.card : IDRank.letter)])
+        // A number printed as the subscriber's, beside a name that is not read as the
+        // subscriber's ("Member Name: Liv", "Subscriber ID: …"): perhaps a dependent's card.
+        if subscriberLabel, holder == nil || holder != page.value(preferring: ["subscriber name"], holderValue, keeping: nameOnly) {
+            facts.printedForSubscriber = true
+        }
         let title = issuer.map { "\($0) · \(kind)" } ?? kind
         return VaultFind(title: title, value: value, note: sentence([holder].compactMap { $0 }), facts: facts)
     }

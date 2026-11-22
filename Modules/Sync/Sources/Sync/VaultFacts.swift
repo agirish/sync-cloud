@@ -235,6 +235,11 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     /// the one ``primary`` names. Nil for a reading made before it was kept, which goes by
     /// ``orderedSources`` alone.
     public var spokenBy: String?
+    /// The number was printed beside a subscriber's label ("Subscriber ID") on a paper whose name
+    /// was not read as the subscriber's: on a dependent's card it is another person's number, so
+    /// the name says nothing about whose it is (``VaultModel``'s copies of one number). Nil
+    /// otherwise.
+    public var printedForSubscriber: Bool?
 
     public init(category: VaultCategory, holder: String? = nil, born: Date? = nil, issuer: String? = nil,
                 form: String? = nil, dated: Date? = nil, validUntil: Date? = nil, pending: Bool = false,

@@ -119,6 +119,22 @@ import Testing
         #expect(find.facts.primary?.role == "ID card")
     }
 
+    @Test func aNumberPrintedAsTheSubscribersBesideAnotherNameIsMarked() throws {
+        let at = "Health/Dental/ID Cards/card.pdf"
+        let dependent = try #require(Self.read(["Subscriber Name: ANNA ERIKSSON", "Member Name: LIV ERIKSSON",
+                                                "Subscriber ID: XZB123456789"], at: at).first)
+        #expect(dependent.holder == "Liv Eriksson" && dependent.facts.printedForSubscriber == true)
+        let subscriber = try #require(Self.read(["Subscriber Name: ANNA ERIKSSON", "Subscriber ID: XZB123456789"],
+                                                at: at).first)
+        #expect(subscriber.facts.printedForSubscriber == nil, "the name is the subscriber's own")
+        let member = try #require(Self.read(["Member Name: LIV ERIKSSON", "Member ID: XZB123456789"], at: at).first)
+        #expect(member.facts.printedForSubscriber == nil)
+        // Both labels on one line: the Member ID's, which comes first.
+        let both = try #require(Self.read(["Member Name: LIV ERIKSSON", "Subscriber / Member ID: XZB123456789"],
+                                          at: at).first)
+        #expect(both.facts.printedForSubscriber == nil)
+    }
+
     @Test func aLoanAPolicyAndAStudentIDGoOnTheirCards() throws {
         let loan = try #require(Self.read(["Mortgage statement", "Loan Number: 0123456789"],
                                           at: "Home/Mortgage/Statements/2025/Apr.pdf").first)
@@ -552,5 +568,72 @@ import Testing
         #expect(row.facts?.sources.first { $0.path == liv }?.rank == VaultReading.Rank.mention,
                 "Liv's card is listed as naming it, not as its source")
         #expect(model.finds.allSatisfy { $0.value != "XZB123456789" }, "nor offered again as a new ID")
+    }
+
+    static let dental = root + "/Health/Dental/ID Cards"
+    static let annaCard = dental + "/2024/Anna card.pdf", livCard = dental + "/2025/Liv card.pdf"
+
+    func family(_ rig: Rig) async -> VaultModel {
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let model = rig.model()
+        model.people = [Person(id: "anna", displayName: "Anna Eriksson"), Person(id: "liv", displayName: "Liv Eriksson")]
+        await model.opened()
+        return model
+    }
+
+    /// Both cards read before either is confirmed: the card printing the number as its member's
+    /// own says whose it is, and stays so once confirmed.
+    @Test func aWaitingIDIsTheMemberIDCardsPersonsAndStaysSoOnceConfirmed() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await family(rig)
+        await model.readDocuments(with: PlannedDocuments(pages: [
+            Self.annaCard: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"],
+            Self.livCard: ["Delta Dental", "Member Name: LIV ERIKSSON", "Subscriber ID: XZB123456789"],
+        ]))
+        #expect(model.finds.filter { $0.value == "XZB123456789" }.count == 1)
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        #expect(find.holder == "Anna Eriksson" && find.facts.dated == VaultReadingTests.day(2024, 1, 1))
+        #expect(find.facts.primary?.path == Self.annaCard)
+        #expect(find.facts.sources.first { $0.path == Self.livCard }?.rank == VaultReading.Rank.mention)
+        let waiting = try #require(model.rows.first { $0.id == find.id })
+        #expect(waiting.personID == "anna")
+
+        let saved = try #require(model.confirm(find.id, as: model.prepared(VaultModel.Draft(find), for: find.id)))
+        let row = try #require(model.rows.first { $0.id == saved })
+        #expect(row.facts?.holder == "Anna Eriksson" && row.personID == "anna")
+        #expect(row.facts?.primary?.path == Self.annaCard && row.facts?.dated == VaultReadingTests.day(2024, 1, 1),
+                "Liv's newer card, a copy since before Confirm, does not speak for it after")
+    }
+
+    /// Both cards print the number as the subscriber's: whose it is cannot be told, so it shows
+    /// no one's name until the person is chosen, and then that person's card speaks.
+    @Test func aWaitingIDWhoseCardsCannotTellShowsNoNameUntilChosen() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await family(rig)
+        await model.readDocuments(with: PlannedDocuments(pages: [
+            Self.annaCard: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Subscriber ID: XZB123456789"],
+            Self.livCard: ["Delta Dental", "Member Name: LIV ERIKSSON", "Subscriber ID: XZB123456789"],
+        ]))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        #expect(find.holder == nil && find.note.isEmpty, "neither Anna's nor Liv's name")
+        #expect(try #require(model.rows.first { $0.id == find.id }).personID == nil)
+        #expect(find.facts.sources.map(\.path).sorted() == [Self.annaCard, Self.livCard])
+
+        model.assign(find.id, to: .person("anna"))
+        let chosen = try #require(model.finds.first { $0.id == find.id })
+        #expect(chosen.holder == "Anna Eriksson" && chosen.facts.primary?.path == Self.annaCard)
+        #expect(chosen.facts.sources.first { $0.path == Self.livCard }?.rank == VaultReading.Rank.mention)
+    }
+
+    /// One person's two cards under one number: the newer still speaks, as a renewal does.
+    @Test func onePersonsNewerCardStillSpeaks() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await family(rig)
+        await model.readDocuments(with: PlannedDocuments(pages: [
+            Self.annaCard: ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB123456789"],
+            Self.dental + "/2025/Anna card.pdf": ["Delta Dental", "Member Name: ANNA ERIKSSON", "Subscriber ID: XZB123456789"],
+        ]))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        #expect(find.facts.primary?.path == Self.dental + "/2025/Anna card.pdf" && find.holder == "Anna Eriksson")
     }
 }

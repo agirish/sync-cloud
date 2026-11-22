@@ -1352,3 +1352,16 @@ Needs a copy of a statements inbox, such as the dry-run fixture's `Documents/TOD
 - [ ] **VoiceOver.** The card is read as its question, then its text, both buttons and the checkbox.
 - [ ] **Not a filed folder.** Organize This Folder… on a filed folder with subfolders (say
   `Finance`): no question, its own files only.
+
+## Vault: a dependent's card under the subscriber's ID (2026-11-22)
+
+Needs a dependent's insurance card that prints only the subscriber's number (“Subscriber ID”, no
+Member ID of its own), and the subscriber's own card, both under Health, with both people in
+Settings ▸ People. Tests cover it on made-up cards (`VaultAccountModelTests`); not yet tried on a
+real one.
+
+- [ ] **A saved ID keeps its own name.** With the subscriber's ID saved, Read Documents: its row
+  keeps the subscriber's name and date. The dependent's card is listed under it, not as Read from.
+- [ ] **A waiting ID.** Both cards read before either is confirmed: To Confirm shows the ID once,
+  under the person whose card prints it as “Member ID”. When both print “Subscriber ID”, no name
+  shows; pick the person in Belongs To and that person's card becomes Read from.

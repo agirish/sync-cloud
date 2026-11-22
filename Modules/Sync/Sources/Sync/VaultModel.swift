@@ -396,18 +396,22 @@ public final class VaultModel: ObservableObject {
     /// as; otherwise what was saved stands, with every document read since listed under it.
     private func readSince(_ entry: VaultEntry) -> VaultReadFacts? {
         guard var saved = entry.facts else { return nil }
-        guard let read = Self.merged(readCopies(of: entry.value)) else { return saved }
+        // Another person's paper carrying the number (a dependent's card printing only the
+        // subscriber's ID) names it, and never speaks for it: its name and dates are not this ID's.
+        let parts = person(of: entry).map { split(readCopies(of: entry.value), owner: $0) }
+            ?? (own: readCopies(of: entry.value), others: [], unknown: false)
+        guard let read = Self.merged(parts.own) else { return Self.naming(saved, parts.others) }
         if Self.supersedes(read.facts, saved) {
             var newer = read.facts
             newer.category = saved.category
             for source in saved.sources { newer.add(source) }
-            return newer
+            return Self.naming(newer, parts.others)
         }
         // Saved before the Vault kept which document a reading is: the one today's reading of the
         // same document comes from.
         if saved.spokenBy == nil, VaultCopies.sameDocument(saved, read.facts) { saved.spokenBy = read.facts.spokenBy }
         for source in read.facts.sources { saved.add(source) }
-        return saved
+        return Self.naming(saved, parts.others)
     }
 
     /// What each document said about `value`, one reading per file.
@@ -737,6 +741,8 @@ public final class VaultModel: ObservableObject {
             _ = write(changed)
         } else if let index = finds.firstIndex(where: { $0.id == id }) {
             finds[index].assignment = assignment
+            // Its person chosen, that person's papers speak for it (``split(_:owner:)``).
+            finds[index] = rebuilt(finds[index], VaultReading.normalized(finds[index].value))
             readingChanged = true
             saveReading()
         }
@@ -2458,15 +2464,8 @@ public final class VaultModel: ObservableObject {
             finds[index] = rebuilt(finds[index], value)
             return false
         }
-        if let entry = entries.first(where: { VaultReading.normalized($0.value) == value }) {
-            // Another person's paper carrying the number (a dependent's card printing only the
-            // subscriber's ID) names it, and never speaks for it: its name and dates are not this ID's.
-            if isAnotherPersons(find, than: entry), let source = find.facts.primary {
-                mentions[value, default: []].append(VaultSource(path: source.path, role: source.role,
-                                                                rank: VaultReading.Rank.mention))
-            } else {
-                copies[value, default: [:]][path] = find
-            }
+        if entries.contains(where: { VaultReading.normalized($0.value) == value }) {
+            copies[value, default: [:]][path] = find
             return false
         }
         guard isNew(find) else { return false }
@@ -2475,24 +2474,61 @@ public final class VaultModel: ObservableObject {
         return true
     }
 
-    /// Whether `find` is made out to another of the household's people than the saved `entry`:
-    /// each answers to one person, by the choice made for it or its name (corrected, when it
-    /// was), and the two differ. A name that matches no one, or the same person's name misread,
-    /// leaves it a copy of the entry.
-    private func isAnotherPersons(_ find: VaultFind, than entry: VaultEntry) -> Bool {
-        func person(_ assignment: VaultAssignment?, _ holder: String?, own: String?) -> String? {
-            if case .person(let id)? = assignment { return id }
-            if assignment == .household { return nil }
-            return Self.person(named: correctedName(holder, own: own) ?? holder, among: people)
+    /// The household person a document's name answers to, as corrected everywhere when it was.
+    private func person(of copy: VaultFind) -> String? {
+        Self.person(named: correctedName(copy.facts.holder, own: nil) ?? copy.facts.holder, among: people)
+    }
+
+    /// One number's copies when they name more than one of the household's people, as a
+    /// dependent's card printing only the subscriber's ID does: the copies of the number's own
+    /// person, who speak for it, and the others, which only name it. Its person is `owner` when
+    /// known (a saved ID's, or the one chosen for it); else the one person a paper printing the
+    /// number as its member's own names (not ``VaultReadFacts/printedForSubscriber``). With none or
+    /// two, whose it is cannot be told: every copy is kept, and `unknown` says so. A copy whose
+    /// name matches no one is the owner's.
+    private func split(_ all: [VaultFind], owner: String?) -> (own: [VaultFind], others: [VaultFind], unknown: Bool) {
+        let named = all.map { (copy: $0, person: person(of: $0)) }
+        let people = Set(named.compactMap(\.person))
+        guard people.count > 1 || (owner != nil && people.contains { $0 != owner }) else { return (all, [], false) }
+        let printedOwn = Set(named.filter { $0.copy.facts.printedForSubscriber != true }.compactMap(\.person))
+        guard let owner = owner ?? (printedOwn.count == 1 ? printedOwn.first : nil) else { return (all, [], true) }
+        let own = named.filter { $0.person == nil || $0.person == owner }.map(\.copy)
+        return (own, named.filter { $0.person != nil && $0.person != owner }.map(\.copy), false)
+    }
+
+    /// `facts` with each of `others`' documents listed as naming the number, never as its source.
+    private static func naming(_ facts: VaultReadFacts, _ others: [VaultFind]) -> VaultReadFacts {
+        var facts = facts
+        for other in others {
+            for source in other.facts.sources {
+                facts.add(VaultSource(path: source.path, role: source.role, rank: VaultReading.Rank.mention))
+            }
         }
-        guard let held = person(entry.assignment, entry.facts?.holder, own: entry.holderName),
-              let read = person(find.assignment, find.facts.holder, own: nil) else { return false }
-        return held != read
+        return facts
+    }
+
+    /// The person a saved ID is, by the choice made for it or its name (its own, else corrected).
+    private func person(of entry: VaultEntry) -> String? {
+        if case .person(let id)? = entry.assignment { return id }
+        if entry.assignment == .household { return nil }
+        let holder = entry.facts?.holder
+        return Self.person(named: correctedName(holder, own: entry.holderName) ?? holder, among: people)
     }
 
     /// `find` as all its documents now say, keeping its id and the user's choices.
     private func rebuilt(_ find: VaultFind, _ value: String) -> VaultFind {
-        guard let merged = Self.merged(Array((copies[value] ?? [:]).values)) else { return find }
+        var owner: String?
+        if case .person(let id)? = find.assignment { owner = id }
+        let parts = split(Array((copies[value] ?? [:]).values), owner: owner)
+        guard var merged = Self.merged(parts.own) else { return find }
+        merged.facts = Self.naming(merged.facts, parts.others)
+        // Two of the household's people, and nothing to tell whose it is: no one's name, until
+        // the person is chosen.
+        if parts.unknown {
+            merged.facts.holder = nil
+            merged.facts.born = nil
+            merged.note = ""
+        }
         return VaultFind(id: find.id, title: merged.title, value: find.value, note: merged.note,
                          facts: merged.facts, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card,
                          chosenSource: find.chosenSource)
