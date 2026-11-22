@@ -7,7 +7,7 @@ import Foundation
 /// was on the clipboard.
 public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
     public enum Kind: String, Codable, Sendable {
-        case unlocked, proofRefused, shown, copied, added, confirmed, edited, removed, setAside
+        case unlocked, proofRefused, shown, copied, added, confirmed, edited, removed, setAside, corrected
         case refreshed, discovered, backedUp, restored
         /// A kind a later build wrote: kept and listed by its words alone.
         case other
@@ -74,6 +74,7 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
         case .edited: verb = "Edited"
         case .removed: verb = "Removed"
         case .setAside: verb = "Set aside as not an ID"
+        case .corrected: verb = "Corrected"
         }
         return [verb + (what.isEmpty ? "" : " " + what), whose].compactMap { $0 }.joined(separator: " · ")
     }

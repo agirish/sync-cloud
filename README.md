@@ -198,6 +198,11 @@ for: a passport number, a member ID, a loan number.
   colors for that card alone, one for its whole group. Customize Groups turns colors off.
 - **Name on the Document**, in Edit, corrects a name a scan misread, for one ID or for every ID
   read with that name and later reads; what was read stays in sight.
+- **Correct the ID…**, or a change to the ID in Add to Vault or Edit, fixes a number a scan
+  misread. The card keeps a note of what it reads for the ID, so later reads give it to this ID
+  even after the card moves, and nothing is set aside everywhere. On this card lists the card's
+  other IDs with their labels, an ID already in the Vault can't be added twice, and Undo puts a
+  correction back until the Vault locks.
 - **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
   an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
   always shows what it was read as, and As Read puts it back; passports, visas and other checked

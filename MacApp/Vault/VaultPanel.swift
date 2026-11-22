@@ -192,6 +192,9 @@ struct VaultCard: View {
     @State private var editing: Editing?
     /// The ID as read, for the editor's ID field tooltip, while one read is being added.
     @State private var readValue: String?
+    /// The card the editor read for On this card, and what reading it gave: nil while it reads.
+    @State private var cardReading: CardRead?
+    @State private var allCardValuesShown = false
     @FocusState private var valueFocused: Bool
     /// An ID just moved to another tab, said on the ID the selection moved on to.
     @State private var moved: MovedNote?
@@ -318,6 +321,7 @@ struct VaultCard: View {
             choosing = nil
             // A move's note is for the ID the selection moved on to, not the next one chosen.
             if moved?.shownOn != now { moved = nil }
+            if let corrected = model.lastCorrection, corrected.id != now { model.dismissCorrection() }
             followQuickLook()
             // A click on a row leaves no field focused: the keys come back to the search. Not
             // forced while it has them, which would select what is typed there.
@@ -2214,6 +2218,7 @@ struct VaultCard: View {
                 numberBox(row, shown: shown)
                 actionBar(row)
                 movedNote(for: row)
+                correctionNote(for: row)
                 if let facts = row.facts, !facts.details.isEmpty {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
                         ForEach(Array(facts.details.enumerated()), id: \.offset) { index, detail in
@@ -2406,6 +2411,41 @@ struct VaultCard: View {
         }
     }
 
+    /// "Corrected one character of what Aetna card.pdf reads." with Undo, under the ID just fixed.
+    @ViewBuilder
+    private func correctionNote(for row: VaultModel.Row) -> some View {
+        if let corrected = model.lastCorrection, corrected.id == row.id, editing == nil {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
+                Text(Self.correctionLine(corrected))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Undo") { model.undoCorrection() }
+                    .buttonStyle(.link)
+                    .help("Puts the ID back as it was read")
+            }
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    static func correctionLine(_ corrected: VaultModel.Correction) -> String {
+        guard let file = corrected.file else { return "Corrected the ID as it was read." }
+        switch corrected.changed {
+        case 1?: return "Corrected one character of what \(file) reads."
+        case let count? where count > 1: return "Corrected \(count) characters of what \(file) reads."
+        default: return "Corrected what \(file) reads."
+        }
+    }
+
+    /// "This is Abhishek’s Aetna · Member ID, already in the Vault. It can’t be added as Shweta’s
+    /// too.": an ID the editor will not add again. `whose` is the saved one's person, `other`
+    /// the editor's when that is someone else.
+    static func alreadySavedLine(title: String, whose: String?, as other: String?) -> String {
+        let owner = whose.map { "\($0)’s \(title)" } ?? title
+        guard let other else { return "This ID is already in the Vault: \(owner)." }
+        return "This is \(owner), already in the Vault. It can’t be added as \(other)’s too."
+    }
+
     /// A detail with its own Copy. A date copies as MM/DD/YYYY; a detail that is a number copies
     /// as the number does, after Touch ID, cleared from the clipboard after a minute.
     private func detailRow(_ detail: VaultDetail, at index: Int, of row: VaultModel.Row, shown: Bool) -> some View {
@@ -2585,6 +2625,16 @@ struct VaultCard: View {
                             .help("The document’s next read offers what it reads To Confirm again")
                     }
                 }
+                if let saved = alreadySaved {
+                    Text(Self.alreadySavedLine(title: saved.title, whose: Self.owner(of: saved),
+                                               as: otherPerson(than: saved)))
+                        .scaledFont(.callout)
+                        .foregroundStyle(SemanticColor.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let card = cardReading, card.id == editingID {
+                    field("On this card") { onThisCard(card) }
+                }
                 if let read = draft.facts?.holder {
                     field("Name on the Document") {
                         TextField("Name on the Document", text: draftName, prompt: Text(read))
@@ -2645,7 +2695,7 @@ struct VaultCard: View {
                     Button(isConfirming ? "Add to Vault" : "Save") { save() }
                         .buttonStyle(.borderedProminent).accentedProminent(glassHue)
                         .keyboardShortcut(.defaultAction)
-                        .disabled(!draft.isComplete || model.isAsking)
+                        .disabled(!draft.isComplete || model.isAsking || alreadySaved != nil)
                 }
                 .padding(.top, 4)
                 noticeText
@@ -2669,6 +2719,135 @@ struct VaultCard: View {
         guard let last = readings.last else { return "" }
         if readings.count == 1 { return "Its document reads \(last) for this ID." }
         return "Its documents read \(readings.dropLast().joined(separator: ", ")) and \(last) for this ID."
+    }
+
+    /// What reading the editor's card came to, for the ID it is open for.
+    struct CardRead: Equatable {
+        let path: String
+        let id: UUID
+        var result: VaultModel.CardReading?
+    }
+
+    /// Reads the card `id` was read from, for On this card: kept by the model for the file's size
+    /// and date, so opening the editor again reads nothing.
+    private func readCardForEditor(_ id: UUID) {
+        allCardValuesShown = false
+        guard let path = model.rows.first(where: { $0.id == id })?.documents.first?.path else {
+            cardReading = nil
+            return
+        }
+        cardReading = CardRead(path: path, id: id, result: nil)
+        Task {
+            let result = await model.readCard(path, with: VaultFolderReader(folders: VaultReadFolders.folders()))
+            guard editingID == id, cardReading?.path == path else { return }
+            cardReading?.result = result
+        }
+    }
+
+    /// The other IDs a card prints, at most ``documentsShown`` until Show All, each with Use.
+    @ViewBuilder
+    private func onThisCard(_ card: CardRead) -> some View {
+        switch card.result {
+        case nil:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Reading the card…")
+            }
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+        case .notFound?:
+            Text("The card isn’t where the Vault last saw it. Discover More finds a card that moved.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .unreadable?:
+            Text("Nothing could be read from the card.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+        case .read(let values)?:
+            let others = Self.otherValues(values, excluding: cardExclusions)
+            if others.isEmpty {
+                Text("No other IDs on this card.")
+                    .scaledFont(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                let listed = allCardValuesShown ? others : Array(others.prefix(Self.documentsShown))
+                let locked = listed.compactMap { model.lockedRow(holding: $0.value) }
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(listed, id: \.self) { value in
+                        let hidden = model.lockedRow(holding: value.value) != nil
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(hidden ? VaultMask.masked(value.value) : value.value)
+                                .fontDesign(.monospaced)
+                            Text("Next to \(value.label)")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Button("Use") {
+                                draft.value = value.value
+                                valueFocused = true
+                            }
+                            .disabled(hidden)
+                            .help("Puts this ID in the field above")
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        if !locked.isEmpty, let id = editingID {
+                            Button("Show") {
+                                Task { await model.showTogether([id] + locked, reason: "show the IDs on this card") }
+                            }
+                            .buttonStyle(.link)
+                        }
+                        if others.count > Self.documentsShown {
+                            Button(allCardValuesShown ? "Show Fewer" : "Show All \(others.count)") {
+                                allCardValuesShown.toggle()
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
+                .scaledFont(.callout)
+            }
+        }
+    }
+
+    /// The values `values` holds that are none of `excluding`, compared as numbers.
+    static func otherValues(_ values: [VaultCardValue], excluding: [String]) -> [VaultCardValue] {
+        let left = Set(excluding.map(VaultReading.normalized))
+        return values.filter { !left.contains(VaultReading.normalized($0.value)) }
+    }
+
+    /// What On this card leaves out: the ID in the field, what was read for it, and for a saved ID
+    /// its number and what its documents were noted to read.
+    private var cardExclusions: [String] {
+        var out = [draft.value]
+        if let readValue { out.append(readValue) }
+        if case .existing(let id) = editing {
+            if let entry = model.entries.first(where: { $0.id == id }) { out.append(entry.value) }
+            out += model.readings(of: id)
+        }
+        return out
+    }
+
+    /// The saved ID, other than the one being edited, that already holds the number in the field.
+    private var alreadySaved: VaultModel.Row? {
+        guard editing != nil else { return nil }
+        var own: UUID?
+        if case .existing(let id) = editing { own = id }
+        return model.savedRow(holding: draft.value, excluding: own)
+    }
+
+    /// Whose a saved row is, for a sentence: a person's name, "the household", or nil when unknown.
+    static func owner(of row: VaultModel.Row) -> String? {
+        if row.isHousehold { return "the household" }
+        return row.whose.isEmpty ? nil : row.whose
+    }
+
+    /// The editor's person, by name, when it is not `saved`'s.
+    private func otherPerson(than saved: VaultModel.Row) -> String? {
+        if draft.isHousehold { return saved.isHousehold ? nil : "the household" }
+        guard let person = draft.personID, person != saved.personID else { return nil }
+        return people.first { $0.id == person }?.displayName
     }
 
     /// The ID the editor is open for: one saved, or one read and waiting.
@@ -2884,6 +3063,7 @@ struct VaultCard: View {
         } else if case .person(let id) = model.personFilter { blank.personID = id } else { blank.isHousehold = true }
         draft = blank
         readValue = nil
+        cardReading = nil
         editing = .new
     }
 
@@ -2894,6 +3074,7 @@ struct VaultCard: View {
             draft = model.prepared(VaultModel.Draft(entry), for: entry.id)
             readValue = nil
             editing = .existing(entry.id)
+            if entry.facts != nil { readCardForEditor(entry.id) } else { cardReading = nil }
         }
     }
 
@@ -2934,6 +3115,7 @@ struct VaultCard: View {
             draft = model.prepared(VaultModel.Draft(find, people: people), for: find.id)
             readValue = find.value
             editing = .confirming(find.id)
+            readCardForEditor(find.id)
             if correcting { DispatchQueue.main.async { valueFocused = true } }
         }
     }

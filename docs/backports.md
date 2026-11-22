@@ -16204,7 +16204,9 @@ place of setting the misreading aside everywhere; Edit shows it with Forget. The
 that field (`vault-format-3`). Then the editor's groundwork: one card read alone for every value it prints
 beside a label (`VaultReading.cardValues`), kept in memory for the file's size and date until the
 Vault locks (`VaultModel.readCard`), and one proof that shows several IDs together under "For every
-number" (`VaultLock.proved(for:)` with a set, `VaultModel.showTogether`). Nothing drawn uses them yet.
+number" (`VaultLock.proved(for:)` with a set, `VaultModel.showTogether`). Then Correct the ID… uses them: the editor lists the card's other IDs under On this card
+with Use, refuses an ID the Vault already has and says whose, and a saved correction says what it
+changed with Undo until the Vault locks (`VaultModel.undoCorrection`); the log gains Corrected.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

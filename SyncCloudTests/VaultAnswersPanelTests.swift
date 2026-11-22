@@ -31,6 +31,34 @@ import Testing
         #expect(VaultCard.readingsLine([]).isEmpty)
     }
 
+    /// Adding a waiting ID with one character fixed draws the note under it; once the selection
+    /// moves off, the same pane is drawn without it.
+    @Test func aCorrectionIsSaidUnderTheIDUntilTheNoteGoes() async throws {
+        let (rig, dental) = try await Self.waiting(); defer { rig.cleanUp() }
+        let find = try #require(rig.model.finds.first { $0.id == dental })
+        var draft = VaultModel.Draft(find)
+        draft.value = "XZB123456780"
+        let id = try #require(rig.model.confirm(dental, as: draft))
+        #expect(rig.model.lastCorrection?.id == id && rig.model.selection == id)
+        let noted = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "corrected-note")
+        rig.model.dismissCorrection()
+        let plain = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "corrected-plain")
+        #expect(differingPixels(noted, plain) > 300, "the note and its Undo are drawn")
+    }
+
+    @Test func aCorrectionAndAnIDAlreadySavedAreSaidInWords() {
+        let id = UUID()
+        #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 1)) == "Corrected one character of what card.pdf reads.")
+        #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 3)) == "Corrected 3 characters of what card.pdf reads.")
+        #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: nil)) == "Corrected what card.pdf reads.")
+        #expect(VaultCard.alreadySavedLine(title: "Aetna · Member ID", whose: "Abhishek", as: "Shweta")
+                == "This is Abhishek’s Aetna · Member ID, already in the Vault. It can’t be added as Shweta’s too.")
+        #expect(VaultCard.alreadySavedLine(title: "Aetna · Member ID", whose: "Abhishek", as: nil)
+                == "This ID is already in the Vault: Abhishek’s Aetna · Member ID.")
+        let values = [VaultCardValue(label: "Member ID", value: "W288319122"), VaultCardValue(label: "Subscriber ID", value: "W288319115")]
+        #expect(VaultCard.otherValues(values, excluding: ["w2883-19122"]) == [values[1]])
+    }
+
     /// Moving a waiting ID to Current by hand draws You moved it here under Tab; letting the Vault
     /// choose again draws the pane exactly as before, so the difference is the caption's.
     @Test func aTabYouChoseIsSaidUnderItAndLettingTheVaultChooseTakesItAway() async throws {
