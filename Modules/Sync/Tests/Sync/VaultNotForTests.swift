@@ -50,6 +50,30 @@ import Testing
         #expect(model.finds.allSatisfy { $0.value != "1102462401" })
     }
 
+    @Test func aFileACorrectionNotedOffersWhatItReadsOnceTakenOff() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        // Anna's card misread as Erik's real ID, which his claim prints: one waiting ID, two files.
+        let erik = VaultMergeTests.root + "/Dental/Claims/Claim Erik 2024.pdf"
+        let pages = [Self.card: VaultMergeTests.page("1102462409"),
+                     erik: ["Delta Dental", "Claim", "Member ID: 1102462409", "Policy Number: P77881234"]]
+        let documents = Self.documents(pages)
+        model.fileContents = { [documents] in await documents.contentKey(of: $0) }
+        await model.readDocuments(with: documents)
+        let find = try #require(model.finds.first { $0.value == "1102462409" })
+        var draft = VaultModel.Draft(find)
+        draft.value = "1102462401"
+        let id = try #require(model.confirm(find.id, as: draft))
+        await model.notesWritten()
+        #expect(model.entries.first { $0.id == id }?.readAs?.count == 2, "both files were noted")
+        #expect(await model.notForThisID(id, path: erik))
+        #expect(model.entries.first { $0.id == id }?.readAs?.count == 1, "the claim's note stayed")
+        await model.readDocuments(with: documents)
+        #expect(model.finds.contains { $0.value == "1102462409" }, "what the claim reads never came up")
+        #expect(model.rows.first { $0.id == id }?.documents.map(\.path) == [Self.card])
+    }
+
     @Test func theFileAnIDIsReadFromCannotBeTakenOff() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let (model, id, readFrom, _) = try await Self.rig(rig)

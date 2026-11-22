@@ -3260,8 +3260,9 @@ public final class VaultModel: ObservableObject {
     /// Not for This ID: the document at `path` names the saved ID `id` but is not for it (a claim
     /// listing it, another person's card). It comes off the ID's list, remembered for its bytes so
     /// a move does not bring it back, and is marked unread: the next Discover More reads it
-    /// without this ID, so an ID of its own can come up To Confirm. Never the file it is read
-    /// from: Read from This Copy on another copy changes that.
+    /// without this ID, so an ID of its own can come up To Confirm, even when a correction noted
+    /// it as reading the ID. Never the file it is read from: Read from This Copy on another copy
+    /// changes that.
     @discardableResult
     public func notForThisID(_ id: UUID, path: String) async -> Bool {
         guard let row = rows.first(where: { $0.id == id }), row.isSaved,
@@ -3274,6 +3275,10 @@ public final class VaultModel: ObservableObject {
         used()
         var changed = entries
         if !(changed[index].notOn ?? []).contains(bytes) { changed[index].notOn = (changed[index].notOn ?? []) + [bytes] }
+        // A note from a correction that took this file for the ID goes too: it would turn what the
+        // file reads into this ID's number, which is then dropped, so nothing ever came up.
+        changed[index].readAs?.removeAll { $0.contents == bytes }
+        if changed[index].readAs?.isEmpty == true { changed[index].readAs = nil }
         changed[index].facts?.sources.removeAll { $0.path == path }
         guard write(changed) else { return false }
         let key = VaultReading.normalized(changed[index].value)
