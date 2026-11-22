@@ -310,20 +310,10 @@ struct VaultCard: View {
         // a number in full stays up. The editor draws it in its field; Large Type draws it big.
         // Large Type also goes when its number does (removed, set aside), or its state would hold
         // the keys with nothing on screen.
-        .onChange(of: model.now) { _, now in
-            if let id = largeType, !model.lock.canShow(id, at: now) || !model.rows.contains(where: { $0.id == id }) {
-                largeType = nil
-            }
-            // Quick Look shows the chosen number's scan, which prints it in full.
-            if quickLookPath != nil, model.selectedRow.map({ !model.lock.canShow($0.id, at: now) }) ?? true {
-                onCloseQuickLook()
-            }
-            switch editing {
-            case .existing(let id)?, .confirming(let id)?:
-                if !model.lock.canShow(id, at: now) { editing = nil }
-            default: break
-            }
-        }
+        // Asked when the time moves (only when something drawn from it changes, VT9) and when the
+        // rows do, so a number gone from the list takes Large Type with it at once.
+        .onChange(of: model.now) { _, now in closeWhatCannotShow(at: now) }
+        .onChange(of: model.rows.map(\.id)) { _, _ in closeWhatCannotShow(at: model.now) }
         // Back to the search once the editor or Large Type closes, so the arrows, Return and
         // Space work again without a click.
         .onChange(of: editing) { _, now in if now == nil { focusSearch() } }
@@ -3171,6 +3161,23 @@ struct VaultCard: View {
     /// The arrows: the next row, or in Large Type the next line.
     private func arrow(_ step: Int) {
         if largeType != nil { stepLargeType(by: step) } else { model.moveSelection(by: step) }
+    }
+
+    /// Closes what draws a number in full once it may not be drawn: Large Type (or once its number
+    /// is gone from the list), Quick Look of the chosen number's scan, which prints it in full, and
+    /// the editor.
+    private func closeWhatCannotShow(at now: Date) {
+        if let id = largeType, !model.lock.canShow(id, at: now) || !model.rows.contains(where: { $0.id == id }) {
+            largeType = nil
+        }
+        if quickLookPath != nil, model.selectedRow.map({ !model.lock.canShow($0.id, at: now) }) ?? true {
+            onCloseQuickLook()
+        }
+        switch editing {
+        case .existing(let id)?, .confirming(let id)?:
+            if !model.lock.canShow(id, at: now) { editing = nil }
+        default: break
+        }
     }
 
     /// Lights the line `step` away in Large Type, round from the last detail to the ID.

@@ -51,6 +51,20 @@ import Testing
         #expect(VaultCard.ago(now.addingTimeInterval(60), now: now) == "just now", "a clock set back never reads as the future")
     }
 
+    /// The panel redraws for "how long ago" only when the model's step moves (VT9): wherever the
+    /// wording changes, second by second over three days, so must the step.
+    @Test func theWordingNeverChangesWithinOneStep() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var missed: [Int] = []
+        var wording = VaultCard.ago(now, now: now), step = VaultModel.agoStep(0)
+        for second in 1...(3 * 86_400) {
+            let (w, s) = (VaultCard.ago(now.addingTimeInterval(-Double(second)), now: now), VaultModel.agoStep(Double(second)))
+            if w != wording, s == step { missed.append(second) }
+            (wording, step) = (w, s)
+        }
+        #expect(missed.isEmpty, "the wording changed within a step at \(missed.prefix(5)) s")
+    }
+
     @Test func aChangeSaysWhatFromAndToAndHidesANumberUntilShown() {
         let day = { (y: Int, m: Int, d: Int) in Calendar(identifier: .gregorian).date(from: DateComponents(timeZone: TimeZone(identifier: "UTC"), year: y, month: m, day: d))! }
         let moved = VaultChange(label: "Valid until", was: .date(day(2027, 3, 14)), now: .date(day(2031, 3, 14)))

@@ -1,3 +1,4 @@
+import Combine
 import EventsTestSupport
 import Foundation
 import Testing
@@ -279,6 +280,71 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         #expect(!model.canShow(Self.mortgage))
         #expect(await model.copy(Self.passport.id))
         #expect(rig.auth.reasons.last == "copy Passport")
+    }
+
+    /// A tick redraws the panel only when something drawn from the time changes (VT9): not each
+    /// second of use, not each restart of the idle timer, but each of the last ten seconds, the
+    /// lock itself, and a new day.
+    @Test func aTickRedrawsOnlyWhenSomethingDrawnChanges() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.defaults.set(VaultLockSettings.Relock.afterTwoMinutes.rawValue, forKey: VaultLockSettings.relockKey)
+        try rig.seed([Self.mortgage])
+        let model = rig.model()
+        await model.opened()
+        var redraws = 0
+        let watching = model.objectWillChange.sink { redraws += 1 }
+        defer { watching.cancel() }
+        // A hundred seconds of use, the pointer moving: the idle timer restarts each time.
+        for _ in 0..<100 {
+            rig.clock.advance(1)
+            model.panelActivity()
+            model.tick()
+        }
+        #expect(redraws == 0, "\(redraws) redraws in a hundred seconds of use")
+        #expect(model.secondsLeft == 120 && model.isOpen)
+        // Left alone: quiet until the countdown, then once a second, then locked.
+        rig.clock.advance(109); model.tick()
+        #expect(redraws == 0 && model.secondsBeforeLock == nil)
+        for second in (1...10).reversed() {
+            rig.clock.advance(1); model.tick()
+            #expect(model.secondsBeforeLock == second)
+        }
+        #expect(redraws == 10, "\(redraws): one per counted second")
+        rig.clock.advance(1); model.tick()
+        #expect(!model.isOpen && redraws >= 11, "locking redraws")
+        // Locked, the clock running: nothing, a tick a minute, until the day turns.
+        let locked = redraws
+        let tomorrow = Calendar.current.startOfDay(for: rig.clock.now).addingTimeInterval(86_400)
+        while tomorrow.timeIntervalSince(rig.clock.now) > 61 {
+            rig.clock.advance(60); model.tick()
+        }
+        rig.clock.advance(tomorrow.timeIntervalSince(rig.clock.now) - 1); model.tick()
+        #expect(redraws == locked, "\(redraws - locked) redraws locked, before midnight")
+        rig.clock.advance(2); model.tick()
+        #expect(redraws == locked + 1, "a new day redraws: days left and Expired follow it")
+    }
+
+    /// Under "every number" a shown number's thirty seconds redraw nothing until they run out, and
+    /// then the panel redraws, so what draws the number closes (VT9).
+    @Test func aShownNumbersEndRedrawsAndItsSecondsDoNot() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
+        try rig.seed([Self.mortgage, Self.passport])
+        let model = rig.model()
+        await model.opened()
+        var redraws = 0
+        let watching = model.objectWillChange.sink { redraws += 1 }
+        defer { watching.cancel() }
+        #expect(await model.show(Self.mortgage.id))
+        #expect(model.canShow(Self.mortgage))
+        let shown = redraws
+        #expect(shown > 0, "showing it redraws")
+        for _ in 0..<29 {
+            rig.clock.advance(1); model.noteActivity(); model.tick()
+        }
+        #expect(redraws == shown, "\(redraws - shown) redraws while it is worked on")
+        rig.clock.advance(31); model.tick()
+        #expect(!model.canShow(Self.mortgage) && redraws == shown + 1, "its end redraws once")
     }
 
     @Test func idleTimeLocksAndTheCountdownIsPublished() async throws {

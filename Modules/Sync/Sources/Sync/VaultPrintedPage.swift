@@ -23,10 +23,33 @@ struct PrintedPage {
     /// Lower case with no white space, for a cue a scan broke up ("Permanent Account Numbe r").
     let squeezed: String
 
+    /// Each line's letters with spaces left out, worked out once for every label asked about.
+    /// Made here, with the page: made at first use instead (a lazy class holding the lines, tried in
+    /// batch 6), three of the owner's account papers read differently, the cause not found.
+    let lettered: [Lettered]
+
     init(_ lines: [String]) {
         self.lines = lines
         text = lines.joined(separator: "\n")
         squeezed = Self.squeeze(text)
+        lettered = lines.map(Lettered.init)
+    }
+
+    /// A line's characters that are not white space, lower case, and where each one is in the
+    /// line: what ``labelHit(_:in:)`` matches labels against.
+    struct Lettered {
+        let line: String
+        let kept: [String.Index]
+        let letters: [Character]
+
+        init(_ line: String) {
+            self.line = line
+            kept = line.indices.filter { !line[$0].isWhitespace }
+            letters = kept.map { index -> Character in
+                let lower = String(line[index]).lowercased()
+                return lower.count == 1 ? Character(lower) : line[index]
+            }
+        }
     }
 
     static func squeeze(_ s: String) -> String { s.lowercased().filter { !$0.isWhitespace } }
@@ -108,18 +131,18 @@ struct PrintedPage {
     /// of ISSUE. Of two labels starting at one place the longer wins ("Date of issue of ETA" over
     /// "Date of issue").
     static func labelHit(_ labels: [String], in line: String) -> Range<String.Index>? {
-        let kept = line.indices.filter { !line[$0].isWhitespace }
-        let letters = kept.map { index -> Character in
-            let lower = String(line[index]).lowercased()
-            return lower.count == 1 ? Character(lower) : line[index]
-        }
+        labelHit(labels, in: Lettered(line))
+    }
+
+    static func labelHit(_ labels: [String], in lettered: Lettered) -> Range<String.Index>? {
+        let (line, kept, letters) = (lettered.line, lettered.kept, lettered.letters)
         var best: (start: Int, end: Int)?
         for label in labels {
             let wanted = Array(squeeze(label))
             guard !wanted.isEmpty, wanted.count <= letters.count else { continue }
             for start in 0...(letters.count - wanted.count) where letters[start] == wanted[0] {
                 let end = start + wanted.count
-                guard Array(letters[start..<end]) == wanted else { continue }
+                guard letters[start..<end].elementsEqual(wanted) else { continue }
                 let before = kept[start] > line.startIndex ? line[line.index(before: kept[start])] : " "
                 let afterIndex = line.index(after: kept[end - 1])
                 let after = afterIndex < line.endIndex ? line[afterIndex] : " "
@@ -166,7 +189,7 @@ struct PrintedPage {
     func date(_ labels: [String], order: DateOrder?, unless: [String] = []) -> Date? {
         let others = unless.map(Self.squeeze)
         for (index, line) in lines.enumerated() {
-            guard let hit = Self.labelHit(labels, in: line) else { continue }
+            guard let hit = Self.labelHit(labels, in: lettered[index]) else { continue }
             // The label qualified by another field's word just before it: "Passport Date of
             // Issue", not "Passport No: A1234567  Date of Issue: …" or "Passport Number   Visa
             // Expiry Date", whose dates are still the visa's.
@@ -257,7 +280,7 @@ struct PrintedPage {
         }
         var out: [Hit] = []
         for (index, line) in lines.enumerated() {
-            guard let hit = Self.labelHit(labels, in: line) else { continue }
+            guard let hit = Self.labelHit(labels, in: lettered[index]) else { continue }
             if let found = leading(line[hit.upperBound...].drop(while: skipping.contains)).flatMap(keeping) {
                 out.append(Hit(value: found, label: index, line: index))
             } else if let next = ((index + 1)..<min(lines.count, index + 1 + below)).first(where: {
@@ -284,7 +307,7 @@ struct PrintedPage {
 
     /// Whether `word` is printed as a word of its own: "OCI", never the oci inside "Social".
     func hasWord(_ word: String) -> Bool {
-        lines.contains { Self.labelHit([word], in: $0) != nil }
+        lettered.contains { Self.labelHit([word], in: $0) != nil }
     }
 
     /// The first of `labels`, in the order given, that has a value: for a field one kind of

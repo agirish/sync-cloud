@@ -1,4 +1,5 @@
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import SyncCloud
 
@@ -56,5 +57,49 @@ import Testing
         #expect(layout.placements(width: 900, heights: []).height == 0)
         let tie = layout.placements(width: 552, heights: [100, 100, 10]).origins
         #expect(tie[2].x == 0, "both columns as tall: the left one")
+    }
+}
+
+/// The layouts keep each pass's measurements; a card that grows on its own, with no change to which
+/// cards there are, must still be measured again.
+@MainActor @Suite struct VaultMasonryCacheTests {
+    final class Box: ObservableObject { @Published var height: CGFloat = 100 }
+
+    /// Observed by the card alone: the layout's container sees no change when it moves.
+    struct Card: View {
+        @ObservedObject var box: Box
+        var body: some View { Color.clear.frame(height: box.height) }
+    }
+
+    private func hosted(_ content: some View) -> NSHostingView<AnyView> {
+        let view = NSHostingView(rootView: AnyView(content.frame(width: 300)))
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: 2000)
+        view.layoutSubtreeIfNeeded()
+        return view
+    }
+
+    private func settled(_ view: NSHostingView<AnyView>) async -> CGFloat {
+        for _ in 0..<20 {
+            await Task.yield()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        view.layoutSubtreeIfNeeded()
+        return view.fittingSize.height
+    }
+
+    @Test func aCardThatGrowsIsMeasuredAgainInColumns() async {
+        let box = Box()
+        let view = hosted(VaultMasonry { Card(box: box); Color.clear.frame(height: 50) })
+        #expect(await settled(view) == 162)
+        box.height = 300
+        #expect(await settled(view) == 362, "300, the gap and 50")
+    }
+
+    @Test func aRowThatGrowsIsMeasuredAgainInTwoUp() async {
+        let box = Box()
+        let view = hosted(VaultTwoUp(minColumnWidth: 200, spacing: 8, rowSpacing: 6) { Card(box: box); Color.clear.frame(height: 50) })
+        #expect(await settled(view) == 156)
+        box.height = 300
+        #expect(await settled(view) == 356, "300, the line gap and 50")
     }
 }

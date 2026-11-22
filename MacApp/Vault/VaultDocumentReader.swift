@@ -163,11 +163,15 @@ struct VaultFolderReader: VaultDocumentReading {
                 guard let page = lane({ document.page(at: index) }) else { continue }
                 // Which reading counts is ``VaultPageSource``'s rule; the renders are made here, and
                 // only when it asks.
+                // Each render is made once per page and scale, and each read once per scale (VT82):
+                // the picture is read and then read in its ink alone from the same 2400-pixel
+                // render, and a card-size page, clamped at 6, is the same image at 2400 and 4000.
+                let renders = PageRenders(page: page, bounds: lane { page.bounds(for: .mediaBox) }, lane: lane)
                 let picture = VaultPageSource.Picture(
                     isScan: { lane { drawsScan(page) } },
-                    read: { sharper in lane { render(page, longSide: sharper ? 4000 : 2400) }.flatMap(recognise) },
-                    barcodes: { lane { render(page, longSide: 4000) }.map(decodeBarcodes) ?? [] },
-                    inkOnly: { lane { render(page) }.flatMap(inkOnly).flatMap(recognise) })
+                    read: { sharper in renders.read(longSide: sharper ? 4000 : 2400, recognise) },
+                    barcodes: { renders.image(longSide: 4000).map(decodeBarcodes) ?? [] },
+                    inkOnly: { renders.image(longSide: 2400).flatMap(inkOnly).flatMap(recognise) })
                 let textLayer = lane { page.string ?? "" }
                 guard let reading = VaultPageSource.reading(textLayer: textLayer, from: file.path, under: folders,
                                                             picture: picture) else {
@@ -259,10 +263,55 @@ struct VaultFolderReader: VaultDocumentReading {
         }
     }
 
-    /// The page at about 2400 pixels on its long side: the zone's small type needs that much.
-    private static func render(_ page: PDFPage, longSide: CGFloat = 2400) -> CGImage? {
+    /// One page's renders and readings, each made once and only when asked, by scale: two long
+    /// sides that clamp to one scale are one image. Only the 2400-pixel render is kept, which is
+    /// read and then read in its ink alone; the sharper one is asked for once (its reading is kept,
+    /// and the barcode render is asked for only when the sharper read was not made), so it is let go
+    /// rather than held beside the other for the rest of the page.
+    final class PageRenders {
+        private let page: PDFPage
+        private let bounds: CGRect
+        private let lane: (() -> CGImage?) -> CGImage?
+        private var images: [CGFloat: CGImage?] = [:]
+        private var reads: [CGFloat: [String]?] = [:]
+        /// How many renders were made: one per scale asked for, at most.
+        private(set) var made = 0
+
+        /// `bounds` is the page's media box, asked for in the lane.
+        init(page: PDFPage, bounds: CGRect, lane: @escaping (() -> CGImage?) -> CGImage?) {
+            (self.page, self.bounds, self.lane) = (page, bounds, lane)
+        }
+
+        private func scale(_ longSide: CGFloat) -> CGFloat { VaultFolderReader.scale(of: bounds, longSide: longSide) }
+
+        func image(longSide: CGFloat) -> CGImage? {
+            let scale = scale(longSide)
+            if let image = images[scale] { return image }
+            let image = lane { VaultFolderReader.render(page, scale: scale) }
+            made += 1
+            if scale == self.scale(2400) { images[scale] = image }
+            return image
+        }
+
+        /// The render's lines, as `recognise` reads them: Vision once per scale.
+        func read(longSide: CGFloat, _ recognise: (CGImage) -> [String]?) -> [String]? {
+            let scale = scale(longSide)
+            if let lines = reads[scale] { return lines }
+            let lines = image(longSide: longSide).flatMap(recognise)
+            reads[scale] = lines
+            return lines
+        }
+    }
+
+    /// The scale a page is rendered at for `longSide` pixels: never under 2 nor over 6.
+    static func scale(of bounds: CGRect, longSide: CGFloat) -> CGFloat {
+        max(2, min(6, longSide / max(bounds.width, bounds.height, 1)))
+    }
+
+    /// The page drawn at `scale` (``scale(of:longSide:)``): about 2400 pixels on its long side is
+    /// what a zone's small type needs; 4000 for a Social Security card's or a barcode's.
+    static func render(_ page: PDFPage, scale: CGFloat) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
-        let scale = max(2, min(6, longSide / max(bounds.width, bounds.height, 1)))
         let image = page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
                                    for: .mediaBox)
         // Drawn into a bitmap of its own here, in the lane, so nothing PDFKit drew lazily is drawn

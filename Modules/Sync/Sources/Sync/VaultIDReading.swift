@@ -301,14 +301,16 @@ extension VaultReading {
     /// A line naming a relative, whose name is never the holder's: "Father's Name", "S/O", "W/O".
     static let relativeLabels = ["father", "husband", "mother", "guardian", "spouse", "s/o", "d/o", "c/o", "w/o", "s/w/d"]
 
+    /// The words that end a labelled name: a card's own words and the labels printed after a name.
+    private static let labelledNameStops: Set<String> = cardWords.union(["blood", "group", "gender", "sex", "age", "dob", "relation"])
+
     /// The name after "Name :" on a line, up to the next label: "Name : RAVI KUMAR Blood Group :
     /// O+" is Ravi Kumar. Nil when what follows is a label, or not two words.
     static func labelledName(_ line: String) -> String? {
         let ns = line as NSString
         guard let m = printedName.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        let stops: Set<String> = cardWords.union(["blood", "group", "gender", "sex", "age", "dob", "relation"])
         let words = ns.substring(with: m.range(at: 1)).split(separator: " ").map(String.init)
-        let name = words.prefix { !stops.contains($0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))) }
+        let name = words.prefix { !labelledNameStops.contains($0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))) }
         guard name.filter({ $0.count >= 2 }).count >= 2 else { return nil }
         return titleCased(name.joined(separator: " "))
     }
@@ -405,7 +407,7 @@ extension VaultReading {
     public static func wantsSharperRead(_ page: [String]) -> Bool {
         let squeezed = squeezed(page)
         if isSocialSecurityCard(page) {
-            return socialSecurityNumbers(on: page, from: "").isEmpty
+            return socialSecurityNumbers(on: page, from: "", isCard: true).isEmpty
         }
         let licenseBack = squeezed.contains("licensetodrive") || squeezed.contains("issuedasalicense")
             || (squeezed.contains("endorsements") && squeezed.contains("restrictions"))
@@ -413,8 +415,13 @@ extension VaultReading {
     }
 
     static func socialSecurityNumbers(on page: [String], from path: String) -> [VaultFind] {
+        socialSecurityNumbers(on: page, from: path, isCard: isSocialSecurityCard(page))
+    }
+
+    /// ``socialSecurityNumbers(on:from:)`` for a caller that has already asked whether the page
+    /// is a card.
+    private static func socialSecurityNumbers(on page: [String], from path: String, isCard: Bool) -> [VaultFind] {
         let squeezed = squeezed(page)
-        let isCard = isSocialSecurityCard(page)
         let isITINNotice = squeezed.contains("individualtaxpayeridentificationnumber")
         guard isCard || isITINNotice else { return [] }
         // Two cards scanned on one page: which name goes with which number is not printed in a

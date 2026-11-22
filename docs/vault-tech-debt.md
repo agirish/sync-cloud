@@ -49,8 +49,8 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
    adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
 3. ~~**Internal bugs:** VT58, VT52, VT54, VT73 (a, c).~~ Done in batch 3. VT100, VT108 and VT73 (b) are the owner's call.
-4. **Efficiency:** batch 4 did VT107 (steps 1–2), VT102, VT65, and parts of VT9, VT66 and VT10. Left:
-   VT9's publishing, VT66's sorts and merges, VT10's held key, VT67, VT82, VT83, VT84, VT85, VT77, VT78.
+4. ~~**Efficiency.**~~ Done in batches 4 and 6, but for VT10's held key and `keyState()`, which go with VT31,
+   and VT85, measured out.
 5. **Tests and logging:** batch 5 did VT94, VT105, VT95, VT26, VT96, VT97, VT71, VT28 and half of VT29.
    Left: VT98, VT29's lock table, VT27, VT22, VT23, VT25.
 6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
@@ -94,6 +94,15 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT97 the swatch test | batch 5: it waits on the click's answer, not a fixed sleep, and its window sits beneath every other | none |
 | VT71 the rows cache | batch 5: `VaultRowsCacheTests` makes the changes the rows are made of, as the app does (people, owner, pin, country, kind, Read from This Copy, a name corrected, a Misread, Not This, Remove, a document gone, a kind added, renamed and removed), and checks the cached rows equal rows worked out afresh | the hand bumps in `readFrom` and `setKinds` are redundant (their changes also move `entries` or `finds`); a read-folder change |
 | VT28 privacy tests | batch 5: `VaultDetail.Value`, `VaultChange`, `VaultPersonSection` and its names and dates of birth print no number in full, no name and no date; the privacy test covers them, `VaultReadingState`, `VaultChoice` and `VaultFind`, `dump` included, and the whole-life test checks the log and preferences | `MachineZone`, `Row` and `VaultReadTally` in the privacy test; `VaultMask.fileName`'s property test; the read folders and kind and group names are the user's own, in the clear |
+| VT78 allocations per draw | batch 6: the eight colors are made once, each drawing the shade of whichever appearance it is drawn in (pinned light after dark, dark after light) | the swatch image stays one per draw, on purpose: a review probe showed SwiftUI never draws a held `Image(nsImage:)` again when the appearance changes, so a cached one kept the other appearance's shade |
+| VT77 masonry measures twice | batch 6: `VaultMasonry` and `VaultTwoUp` keep a pass's measurements by width, emptied in `updateCache`, which SwiftUI calls when a card grows on its own with no change to which cards there are (pinned: a no-op `updateCache` goes red) | none |
+| VT85 regexes per line | measured out (2026-11-21, by hand with a throwaway program, not kept): Foundation keeps a pattern's compiled form, so `range(of:options: .regularExpression)` costs 0.3 µs a line against 3.6 µs compiled each time, and a `static let` saves 0.1 µs. `labelledName`'s stop set is now made once | none; do not re-propose |
+| VT84 label search | batch 6: each line's letters and where they sit are worked out once per page (`PrintedPage.lettered`) and compared without a copy per try; a page's group number, holder, subscriber and issuer once per page, not per number (`AccountPageFacts`) | each label is still squeezed per call: a few letters. The letters stay made with the page: made at first use (tried after review), three of the owner's account papers read differently, the cause not found |
+| VT83 a page through the readers five times | batch 6: a colored page's two readings are kept from the weighing and not read again; `wantsSharperRead` asks once whether a page is a Social Security card. The other reads are of other lines (the typed layer, the file's pages together) | none |
+| VT82 renders per page | batch 6: `PageRenders` makes each render once per page and scale and reads each once per scale, so the ink-alone read takes the 2400-pixel render, and a card-size page, the same image at 2400 and 4000, goes through Vision once (pinned, counted) | a page read sharper holds its 2400-pixel render while the sharper one is made, two at once where one was: up to about 130 MB for a large square page, whose 2400 render is clamped near 4000 pixels |
+| VT66 rows rebuild per row | batch 4 (one registry, no regex), batch 6: `primary` in one pass with each placement worked out once (pinned equal to the ordered list's first over 75 orders and speakers), and one merge per set of copies per rebuild (`MergeMemo`, counted) | none |
+| VT67 stats on the main actor | batch 6: the read plan's dates, each file's size and stamp (in one pass before the first file, so a read of unchanged files does not give the panel a redraw per file) and the check for documents saved IDs point at run off the main actor (pinned by a reader that notes any question asked on the main thread). Measured by hand on the owner's `~/Documents` (a throwaway program, not kept): exists and stamp for 500 PDFs, 46 ms | an evicted iCloud file was not shown: none of his 10,991 PDFs was evicted on 2026-11-21. Size, date and existence read metadata only |
+| VT9 the panel recomputes every second | batch 4 (the lists cached on what they are made of), batch 6: `now` and `lock` publish only when what the panel draws from them changes (`Clockface`: open or shut, the last ten seconds, the number shown, the day, how long ago the last Refresh and Discover were in the steps their wording turns on: half minutes in the first hour, half hours to a day, then days); pinned: a hundred seconds of use redraw nothing, the countdown once a second, a locked day with no Refresh or Discover yet nothing until midnight and then once, a shown number's seconds nothing and its end once. Large Type also closes when its row leaves the list, not only at a tick. A Stop during the last check of documents saved IDs point at now ends the read there, as a lock during its last file would | `rows` reads its folders from UserDefaults per access and `elsewhere(card)` and the counts run per draw: now per real redraw only, and a stored copy would miss a change made outside the app |
 
 ---
 
@@ -244,38 +253,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
     and one `finish(scope:)`, tested with no model;
   - (d) rows, cards and people are a pure function of (records, people, filters, now).
 
-**VT9 — The whole panel recomputes every second.** *Half done in batch 4: `visibleRows`, `cards`, the tab counts, `peopleSections` and `refreshSources` are cached on what they are made of (`ViewKey`), so a tick recomputes none of them (`aTickRecomputesNothingTheListsAreMadeOf`). Open: `now` and `lock` still publish every second (the panel's countdowns read them), `rows` reads UserDefaults for its key at each access, and `elsewhere(card)` and `count(person:geo:kind:)` are still worked out per draw.*
-- **The problem.** `tick()` assigns `now` every second, and `lock.expire` mutates `lock`, both
-  `@Published` (`VaultModel.swift:1336–1340`; driven at `VaultPanel.swift:248–252`). `panelActivity()` →
-  `used()` changes `lock` again up to once a second while the pointer moves, so the comment at `:1352`
-  ("does not redraw the panel") is wrong. `VaultOverlay` and `VaultCard` observe the whole model
-  (`VaultPanel.swift:41`, `:121`).
-
-  One draw runs `cards` → `visibleRows` (filter, then sort with `localizedStandardCompare`) about six
-  times:
-  - `allFolded` three times in `searchRow` (`:593–598`) and once per card header (`:1038`);
-  - `cards` twice in `cardsView` (`:962`, `:980`).
-
-  On top of that, one draw runs:
-  - `count(in:)` eleven times, four of them in `controlRow`;
-  - `refreshSources` twice, a fresh `Set` over every source each time (`:479`, `:481`);
-  - `elsewhere(card)` per card;
-  - `peopleSections` in full, uncached.
-
-  The cached `rows` still read UserDefaults and build `Calendar` components for their key on every
-  access (`VaultModel.swift:407`). Since the refresh, worse:
-  - `peopleSections` now also runs `roled` (an edit distance per spelling), `grouped` and the
-    date-of-birth grouping on every draw, and `setRole` calls it again (`VaultNames.swift:103`);
-  - `categoryCard` calls `tint(of:)` twice itself plus once for its header (`b3e4e3009`);
-  - `expiresSoon` runs per row per tick (VT102).
-- **Done when:**
-  - `now` and `lock` publish only when a time-dependent output changes: the lock state, the
-    last-ten-seconds countdown, a shown number's expiry, the day, the "ago" minute;
-  - `visibleRows`, `cards`, counts, `peopleSections` and `refreshSources` are cached on (rows revision,
-    query, tab, filters, layout, folded, kinds, groups), with the read folders a stored property;
-  - a counting test sees one `computedRows` and one sort per change and none per tick.
-
-**VT10 — Keychain round trips.** *Part done in batches 3–4: an activity entry reads the key once (it was twice), and `isDue` asks the Keychain only once a week has passed. Open: the key held from a load until `release()` (it changes the key's lifetime: do it with VT31), `keyState()` for the probe, and indexed finds.*
+**VT10 — Keychain round trips.** *Part done in batches 3–4: an activity entry reads the key once (it was twice), and `isDue` asks the Keychain only once a week has passed. Open, with VT31: the key held from a load until `release()` (it changes the key's lifetime), and `keyState()` for the probe (an attributes-only query cannot tell a key the Keychain withholds for now, which today opens to its notice at once, from one it releases: the panel would ask for a proof first). Indexed finds judged in batch 6 not worth it: the scans run per action, and a read's per-file account check is about 680,000 normalisations (1,356 files by about 500 finds, estimated, not timed), well under a six-minute read.*
 - **The problem.** With the lock on, open plus unlock reads the Vault key five times:
   - `fingerprint("")`, a probe by side effect that tells a missing key from a present one
     (`VaultModel.swift:1191`);
@@ -309,43 +287,6 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 - **Fix.** `delete` drops `copies[key]` and those mentions, and seals.
 - **Done when:** the sealed state holds no key for a removed number.
 - **Owner's call (small):** the Refresh document count drops to the right number.
-
-**VT66 — Rebuilding rows repeats work per row and per comparison.** *Part done in batch 4: one `PersonRegistry` per rebuild, and the year-folder check without a regex (pinned against the old pattern). Open below: `primary`'s sort and the merges per row.* *Efficiency; mechanism checked,
-cost plausible.*
-- **The problem.**
-  - A `PersonRegistry`, which tokenises every person's names, is built per row (`person(named:)` `:383`,
-    `person(inPath:)` `:394`).
-  - `VaultReadFacts.primary` sorts every source, lowercasing and splitting paths inside the comparator
-    (`VaultFacts.swift:229–238`). It is called several times per row (`:514`, `:560`, `:591`), twice per
-    comparison in `merged`'s sort (`:674`, `:702`), and inside the standings comparator through
-    `archived` (`:486`, `:548`).
-  - `lessonFolder` compiles a regex per folder (`VaultKinds.swift:167`).
-  - With `vault-source`, `merged` runs up to three times per row that has two or more copies
-    (`readSince`, then the automatic and the chosen merges in `sourceChoices`), and
-    `VaultCopies.choices` sorts the copies once more: up to four sorts per row with copies
-    (`VaultModel.swift:400–415` at `710b5aaa3`).
-  - Rows rebuild on every `finds` or `copies` change: about once per opened file during a read.
-- **Fix.**
-  - One registry per rebuild.
-  - `primary` as one O(s) pass, with placement worked out once per source.
-  - The regex precompiled.
-  - One merge per row, its result reused.
-- **Done when:** a rows fixture gives byte-identical `Row`s and a counting test sees the work once.
-
-**VT67 — Discover and Refresh stat files on the main actor, and Refresh stats everything at every
-open.** *Efficiency; checked; cost unmeasured.*
-- **The problem.**
-  - `VaultReadPlan` is built on the main actor and calls `reader.modified` per account file, twice when
-    the year comes from the date (`VaultReadPlan.swift:42`, `:166`).
-  - `reader.stamp` runs per step (`VaultModel.swift:1910`) and `reader.exists` per path pointed at
-    (`:2055`).
-  - `refreshIfWanted` stats every source at every open. Its stats are off the main actor (`:1784`), but
-    the cost on the owner's ~500 sources is unmeasured, and nobody has checked what happens to an iCloud
-    file that is not downloaded: is it downloaded, or counted missing?
-- **Done when:**
-  - no stat runs on the main actor;
-  - the open-time pass is measured on his folder;
-  - a not-downloaded file is shown to be neither downloaded nor reported missing.
 
 **VT70 — "Whose is it" is worked out in two places.** *Duplication; checked; owner's call.*
 - **The problem.** The editor matches the name as read (`Draft(find, people:)`, `:136–143`). The row uses
@@ -451,19 +392,6 @@ open.** *Efficiency; checked; cost unmeasured.*
   - the model owns the layout key;
   - the view reads `model.people`;
   - each pair is one optional (19 → 16 `@State`).
-
-**VT77 — Masonry measures every card twice per layout pass.** *Efficiency; plausible.*
-- **The problem.** `sizeThatFits` and `placeSubviews` both call `measure`, with `cache: ()`
-  (`VaultMasonry.swift:64`, `:70`).
-- **Done when:** `makeCache`/`updateCache` hold the sizes keyed by column width. `VaultTwoUp`
-  (`VaultMasonry.swift:95–125`, `710b5aaa3`) repeats the pattern: `lines()` measures every cell in both
-  `sizeThatFits` and `placeSubviews`; give it the same cache.
-
-**VT78 — Small allocations per draw.** *Efficiency; checked.*
-- **The problem.** `VaultTintPalette.swatch` builds a new `NSImage` on every draw (`VaultCardColors.swift:56`):
-  once in `kindRow` and eight per picker in Customize Groups. `tint.color` builds a dynamic `NSColor`
-  per call (`:75`).
-- **Done when:** nine swatches and eight colors are held in static storage.
 
 **VT79 — A process-wide retroactive conformance.** *Complexity; checked.*
 - **The problem.** `extension URL: @retroactive Identifiable` (`VaultSettings.swift:452`) exists for one
@@ -666,53 +594,6 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
 - **Done when:** (1) and (2) are in with the harness showing the same numbers, sources and counts and
   fewer `pages(in:)` calls; (3)–(5) each wait for the owner. Relates to VT82–VT85 (cost per page),
   VT67 (stats), VT81 (caps) and VT54 (stamping), none of which chooses files.
-
-**VT82 — Render each scanned page once per size.** *Efficiency; checked.*
-- **The problem.**
-  - `inkOnly: { render(page)… }` (`VaultDocumentReader.swift:127`) renders at 2400 px again after
-    `read(false)` (`:125`) rendered and dropped the same image. That happens on every page read from its
-    picture, since `coloredShare` needs the render (`VaultPageSource.swift:174`): about 690 extra renders
-    per full read of the owner's papers.
-  - For a card-size page the scale is clamped to 6 (`:215`), so the 2400 and 4000 renders are identical
-    and the "sharper" read re-runs Vision, about 1 s, on the same image.
-- **Fix.**
-  - Memoise `render(page, longSide:)` per page.
-  - Skip `read(true)` when the two scales are equal.
-- **Done when:** a counting reader in `VaultFolderReaderTests` sees one render per page and size.
-
-  Since VT52 the renders run inside the PDFKit lane, so a memoised render also shortens how long the lane is held. Feeding ink-only from the 4000 render when the sharper read was taken is a reader
-  change (VT88).
-
-**VT83 — Each page goes through the reader suite up to five times.** *Efficiency; checked.*
-- **The problem.**
-  - The passes: the typed layer (`VaultPageSource.swift:96`), the picture (`:116`), two more on colored
-    paper (`:175–176`), and the per-file read (`VaultModel.swift:1933`). On colored pages, `:116`
-    repeats `:175` or `:176` exactly.
-  - `wantsSharperRead` runs `isSocialSecurityCard` twice and the SSN reader once per call. It is called
-    up to three times per page, once only to word a debug line (`:172`).
-- **Done when:**
-  - `look` returns the finds it computed;
-  - `wantsSharperRead` is computed once per page;
-  - the readers' output is unchanged.
-
-**VT84 — Label search rebuilds every line's letters per label.** *Efficiency; mechanism checked.*
-- **The problem.** This is the whole CPU cost of reading a typed account PDF.
-  - `labelHit` (`VaultPrintedPage.swift:110–134`) allocates a `String` per character per line per label.
-  - `values(preferring:)` (`:276`) scans the page once per label, and `accountNumbers` asks about 57
-    labels per page.
-  - `groupNumber` is computed again per find (`VaultAccountReading.swift:116`, `:228`), as are the
-    holder (`:225`) and a `PersonRegistry` (`:260`).
-- **Done when:**
-  - each line's squeezed letters and index map are computed once in `PrintedPage.init`;
-  - each label is squeezed once;
-  - group, holder and registry are hoisted out of the per-find loop.
-
-**VT85 — Regexes compiled per line.** *Efficiency; plausible (Foundation may cache).*
-- **The problem.** `range(of:options: .regularExpression)` is called inside loops at
-  `VaultIDReading.swift:102`, `:412`, `:471`, `:584`, `:613`, `:704`, `:707`, `:750` and
-  `VaultAccountReading.swift:137–138`, `:207`, `:264`. `labelledName` rebuilds its stop set per call
-  (`VaultIDReading.swift:309`).
-- **Done when:** each is a `static let`.
 
 **VT50 — Duplicated toolkit.** *Open; references corrected.*
 - **Squeezing.** `VaultReading.squeezed` (`VaultIDReading.swift:41`) equals `PrintedPage.squeezed`

@@ -16198,6 +16198,9 @@ row under Used In shows the tab with the Vault's reason (`VaultStanding.reason`,
 here" for a choice either way, `VaultStanding.movedByYou`) and a note with Undo when a move takes
 the ID out of the list; the right-click menu matches; another person's card under an ID says whose
 it is (`VaultModel.otherHolder`); and Anywhere is Every Country. Nothing sealed changes.
+Batch 6: the panel redraws only when something it draws from
+the time or the lock changes, Read Documents renders and reads each page once per size and asks
+no file's size or date on the main actor, and the rows merge each set of copies once.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

@@ -261,20 +261,31 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
     /// document named is the one whose dates and details are shown. With none kept, the most
     /// trusted of its sources, and among copies trusted alike, the one filed where that kind of
     /// document lives.
-    public var primary: VaultSource? { orderedSources.first }
+    /// ``orderedSources``' first, in one pass: the earliest of the best, as the sort keeps it.
+    public var primary: VaultSource? {
+        let (placed, before) = sourceOrder
+        return placed.min(by: before)?.source
+    }
 
     /// Sources best first, the primary at the top: the one it was read from (``spokenBy``), then
     /// by how far the document is trusted, then by where it is filed
     /// (``VaultSource/placement(for:)``), then by name.
     public var orderedSources: [VaultSource] {
+        let (placed, before) = sourceOrder
+        return placed.sorted(by: before).map(\.source)
+    }
+
+    /// Each source with where it is filed, worked out once (VT66), and the order between two.
+    private var sourceOrder: (placed: [(source: VaultSource, placement: Int)],
+                              before: ((source: VaultSource, placement: Int), (source: VaultSource, placement: Int)) -> Bool) {
         let speaker = spokenBy.flatMap { path in sources.contains { $0.path == path } ? path : nil }
-        return sources.sorted { a, b in
-            if let speaker, (a.path == speaker) != (b.path == speaker) { return a.path == speaker }
-            if a.rank != b.rank { return a.rank > b.rank }
-            let (pa, pb) = (a.placement(for: category), b.placement(for: category))
-            if pa != pb { return pa > pb }
-            return a.path < b.path
-        }
+        let placed = sources.map { (source: $0, placement: $0.placement(for: category)) }
+        return (placed, { a, b in
+            if let speaker, (a.source.path == speaker) != (b.source.path == speaker) { return a.source.path == speaker }
+            if a.source.rank != b.source.rank { return a.source.rank > b.source.rank }
+            if a.placement != b.placement { return a.placement > b.placement }
+            return a.source.path < b.source.path
+        })
     }
 
     /// Whose it is, as far as the document says: the date of birth when it was read, which tells

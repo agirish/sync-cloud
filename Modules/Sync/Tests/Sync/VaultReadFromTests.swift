@@ -186,6 +186,55 @@ import Testing
         #expect(model.entries.first { $0.id == saved }?.facts?.holder == "Dlvit Girish")
     }
 
+    /// The primary is found in one pass (VT66), and is always the ordered list's first: by the
+    /// copy that spoke, its rank, where it is filed and its name, ties to the earliest given.
+    @Test func thePrimaryIsAlwaysTheFirstInOrder() {
+        let paths = [Self.home, Self.petition, Self.root + "/Immigration/Passport/Old/passport.pdf",
+                     Self.root + "/Immigration/Passport/Anna/copies/passport.pdf", Self.home]
+        let ranks = [VaultReading.Rank.passportPage, 1, VaultReading.Rank.passportPage]
+        var checked = 0
+        for size in 1...paths.count {
+            for offset in 0..<paths.count {
+                let sources = (0..<size).map { i in
+                    VaultSource(path: paths[(i + offset) % paths.count], role: "Role \(i)", rank: ranks[(i * 7 + offset) % ranks.count])
+                }
+                for speaker in [nil, sources.last?.path, "/not/among/them.pdf"] {
+                    var facts = VaultReadFacts(category: .passport, sources: sources)
+                    facts.spokenBy = speaker
+                    #expect(facts.primary == facts.orderedSources.first, "\(size) sources from \(offset), speaker \(speaker ?? "none")")
+                    checked += 1
+                }
+            }
+        }
+        #expect(checked == 75)
+        // A whole tie, the same file at the same rank: the earliest given, both ways.
+        let first = VaultSource(path: Self.home, role: "First", rank: 1)
+        let second = VaultSource(path: Self.home, role: "Second", rank: 1)
+        for (sources, earliest) in [([first, second], "First"), ([second, first], "Second")] {
+            let facts = VaultReadFacts(category: .passport, sources: sources)
+            #expect(facts.primary?.role == earliest && facts.orderedSources.first?.role == earliest)
+        }
+    }
+
+    /// A rows rebuild merges a number's copies once (VT66): a saved ID's own copies and the copies
+    /// it could be read from are the same files, and were merged twice; read from a chosen copy,
+    /// one more. The row is the same either way.
+    @Test func aRebuildMergesEachSetOfCopiesOnce() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        let saved = try #require(model.confirm(find.id, as: model.prepared(VaultModel.Draft(find), for: find.id)))
+        #expect(model.entries.count == 1 && model.finds.isEmpty)
+        let before = try Self.row(model)
+        #expect(before.sourceChoices == [Self.scan])
+        #expect(model.rowsWorkedOutAfresh == model.rows)
+        #expect(model.rowsMerges == 1, "\(model.rowsMerges) merges for one saved ID's two copies")
+        model.readFrom(saved, copy: Self.scan)
+        #expect(try Self.row(model).chosenSource == Self.scan)
+        _ = model.rowsWorkedOutAfresh
+        #expect(model.rowsMerges == 2, "\(model.rowsMerges) merges: the copies, and the chosen one speaking")
+    }
+
     @Test func onlyAnOfferedCopyCanBeChosen() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.model(rig)

@@ -126,6 +126,12 @@ public struct VaultLock: Equatable, Sendable {
         settings.requiresAuthentication && settings.ask == .whenOpened && !isOpen(at: now)
     }
 
+    /// The number shown under "every number", while its time lasts.
+    public func shownID(at now: Date) -> UUID? {
+        guard let shown, now < shown.until else { return nil }
+        return shown.id
+    }
+
     /// Whether `id`'s number may be drawn in full.
     public func canShow(_ id: UUID, at now: Date) -> Bool {
         if isOpen(at: now) { return true }

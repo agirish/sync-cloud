@@ -48,8 +48,15 @@ enum VaultTintPalette {
         return (part(h + 1.0 / 3), part(h), part(h - 1.0 / 3))
     }
 
-    /// The shade for whichever appearance it is drawn in.
-    static func nsColor(_ tint: VaultTint) -> NSColor {
+    /// The shade for whichever appearance it is drawn in, one per tint, made once: a dynamic
+    /// color resolves at each draw, so the same one serves both appearances.
+    static func nsColor(_ tint: VaultTint) -> NSColor { colors[tint]! }
+
+    static let swiftUIColors = Dictionary(uniqueKeysWithValues: VaultTint.allCases.map { ($0, Color(nsColor: colors[$0]!)) })
+
+    private static let colors = Dictionary(uniqueKeysWithValues: VaultTint.allCases.map { ($0, makeColor($0)) })
+
+    private static func makeColor(_ tint: VaultTint) -> NSColor {
         NSColor(name: nil) { appearance in
             let parts = rgb(tint, dark: appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
             return NSColor(srgbRed: parts.red, green: parts.green, blue: parts.blue, alpha: 1)
@@ -57,7 +64,9 @@ enum VaultTintPalette {
     }
 
     /// A small round swatch for a menu line: a menu draws an item's image, never a SwiftUI shape.
-    /// Nil is "no color", an empty ring.
+    /// Nil is "no color", an empty ring. A new image per draw, on purpose: SwiftUI keeps an
+    /// `Image(nsImage:)` it has drawn and never draws a held one again when the appearance
+    /// changes, so a swatch made once would keep the other appearance's shade (VT78).
     static func swatch(_ tint: VaultTint?) -> NSImage {
         let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
@@ -77,7 +86,7 @@ enum VaultTintPalette {
 }
 
 extension VaultTint {
-    var color: Color { Color(nsColor: VaultTintPalette.nsColor(self)) }
+    var color: Color { VaultTintPalette.swiftUIColors[self]! }
 }
 
 // MARK: - A card's title bar

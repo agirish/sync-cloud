@@ -10,6 +10,34 @@ import Testing
 @Suite struct VaultCardColorsTests {
     // MARK: The shades
 
+    /// The colors are made once (VT78), and one color serves both appearances, as a swatch drawn
+    /// with it does: its shade for whichever it is drawn in, light after dark and dark after light.
+    @Test func oneColorPerTintDrawsTheShadeOfEachAppearance() throws {
+        for tint in VaultTint.allCases {
+            #expect(VaultTintPalette.nsColor(tint) === VaultTintPalette.nsColor(tint), "\(tint): made once")
+        }
+        let image = VaultTintPalette.swatch(.clay)
+        func middle(_ name: NSAppearance.Name) throws -> (red: Double, green: Double, blue: Double) {
+            let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 12, pixelsHigh: 12, bitsPerSample: 8,
+                                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            try #require(NSAppearance(named: name)).performAsCurrentDrawingAppearance {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                image.draw(in: NSRect(x: 0, y: 0, width: 12, height: 12))
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            let color = try #require(rep.colorAt(x: 6, y: 6))
+            return (color.redComponent, color.greenComponent, color.blueComponent)
+        }
+        for (name, dark) in [(NSAppearance.Name.darkAqua, true), (.aqua, false), (.darkAqua, true)] {
+            let drawn = try middle(name)
+            let shade = VaultTintPalette.rgb(.clay, dark: dark)
+            #expect(abs(drawn.red - shade.red) < 0.03 && abs(drawn.green - shade.green) < 0.03
+                    && abs(drawn.blue - shade.blue) < 0.03, "\(name): \(drawn) against \(shade)")
+        }
+    }
+
     @Test func aShadeIsItsHueAtHalfSaturationDarkerOnLightThanOnDark() {
         // Blue is hue 220: at 42% lightness, (0.21, 0.35, 0.63).
         let light = VaultTintPalette.rgb(.blue, dark: false)

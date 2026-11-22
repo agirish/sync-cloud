@@ -50,6 +50,21 @@ struct VaultMasonry: Layout {
         return (origins, heights.isEmpty ? 0 : max(0, tallest - spacing))
     }
 
+    /// Each card's height and size at the last column width, so a layout pass measures once:
+    /// SwiftUI asks for the size and then places, at the same width. Emptied whenever the cards
+    /// change; one width only, so a live resize keeps nothing it will not ask for again.
+    struct Cache { var measured: (width: CGFloat, heights: [CGFloat], sizes: [CGFloat])? }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.measured = nil }
+
+    private func measure(_ subviews: Subviews, columnWidth: CGFloat, cache: inout Cache) -> (heights: [CGFloat], sizes: [CGFloat]) {
+        if let measured = cache.measured, measured.width == columnWidth { return (measured.heights, measured.sizes) }
+        let measured = measure(subviews, columnWidth: columnWidth)
+        cache.measured = (columnWidth, measured.heights, measured.sizes)
+        return measured
+    }
+
     private func measure(_ subviews: Subviews, columnWidth: CGFloat) -> (heights: [CGFloat], sizes: [CGFloat]) {
         let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
         // A card that says its full size is placed by it; one that does not, by its height.
@@ -57,17 +72,17 @@ struct VaultMasonry: Layout {
         return (heights, sizes)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         // Unspecified or unbounded, the ideal width: one column.
         let width = proposal.width.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? minColumnWidth
         let (_, columnWidth) = columns(for: width)
-        let (heights, sizes) = measure(subviews, columnWidth: columnWidth)
+        let (heights, sizes) = measure(subviews, columnWidth: columnWidth, cache: &cache)
         return CGSize(width: width, height: placements(width: width, heights: heights, sizes: sizes).height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         let (_, columnWidth) = columns(for: bounds.width)
-        let (heights, sizes) = measure(subviews, columnWidth: columnWidth)
+        let (heights, sizes) = measure(subviews, columnWidth: columnWidth, cache: &cache)
         let (origins, _) = placements(width: bounds.width, heights: heights, sizes: sizes)
         for (subview, origin) in zip(subviews, origins) {
             subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), anchor: .topLeading,
@@ -92,6 +107,20 @@ struct VaultTwoUp: Layout {
 
     func columns(for width: CGFloat) -> Int { width >= 2 * minColumnWidth + spacing ? 2 : 1 }
 
+    /// Each line's height at the last width, so a layout pass measures once. Emptied whenever the
+    /// rows change; one width only.
+    struct Cache { var lines: (width: CGFloat, columns: Int, cell: CGFloat, heights: [CGFloat])? }
+
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+    func updateCache(_ cache: inout Cache, subviews: Subviews) { cache.lines = nil }
+
+    private func lines(_ subviews: Subviews, width: CGFloat, cache: inout Cache) -> (columns: Int, cell: CGFloat, heights: [CGFloat]) {
+        if let laid = cache.lines, laid.width == width { return (laid.columns, laid.cell, laid.heights) }
+        let laid = lines(subviews, width: width)
+        cache.lines = (width, laid.columns, laid.cell, laid.heights)
+        return laid
+    }
+
     private func lines(_ subviews: Subviews, width: CGFloat) -> (columns: Int, cell: CGFloat, heights: [CGFloat]) {
         let columns = columns(for: width)
         let cell = columns == 2 ? (width - spacing) / 2 : width
@@ -102,15 +131,15 @@ struct VaultTwoUp: Layout {
         return (columns, cell, heights)
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = proposal.width ?? 2 * minColumnWidth + spacing
-        let laid = lines(subviews, width: width)
+        let laid = lines(subviews, width: width, cache: &cache)
         let height = laid.heights.reduce(0, +) + rowSpacing * CGFloat(max(laid.heights.count - 1, 0))
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let laid = lines(subviews, width: bounds.width)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        let laid = lines(subviews, width: bounds.width, cache: &cache)
         var y = bounds.minY
         for (line, height) in laid.heights.enumerated() {
             for column in 0..<laid.columns {

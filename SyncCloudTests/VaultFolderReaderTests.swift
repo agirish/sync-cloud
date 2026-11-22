@@ -276,6 +276,60 @@ import Vision
         #expect(a != c, "a byte changed gave the same key")
     }
 
+    /// One render per page and scale (VT82): asked twice for one size, or for two sizes a card's
+    /// small page clamps to one scale, it renders once; a letter page's two sizes are two.
+    @Test func eachPageIsRenderedOncePerScale() throws {
+        let dir = FixtureDir()
+        for (name, box, renders) in [("card.pdf", CGRect(x: 0, y: 0, width: 243, height: 153), 1),
+                                     ("letter.pdf", CGRect(x: 0, y: 0, width: 612, height: 792), 2)] {
+            let path = dir.path(name)
+            let data = NSMutableData()
+            var mediaBox = box
+            let consumer = try #require(CGDataConsumer(data: data as CFMutableData))
+            let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+            context.beginPDFPage(nil)
+            context.draw(try Self.scan(of: ["A card"], width: 500, height: 320), in: box)
+            context.endPDFPage()
+            context.closePDF()
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+            let page = try Self.page(at: path)
+            let pages = VaultFolderReader.PageRenders(page: page, bounds: page.bounds(for: .mediaBox), lane: { $0() })
+            let first = try #require(pages.image(longSide: 2400))
+            #expect(pages.image(longSide: 2400) === first, "\(name): the same render again")
+            _ = pages.image(longSide: 4000)
+            _ = pages.image(longSide: 2400)
+            #expect(pages.made == renders, "\(name): \(pages.made) renders")
+            var recognised = 0
+            for side: CGFloat in [2400, 4000, 2400, 4000] {
+                _ = pages.read(longSide: side) { _ in recognised += 1; return ["A card"] }
+            }
+            #expect(recognised == renders, "\(name): Vision ran \(recognised) times")
+        }
+    }
+
+    /// A Social Security card with nothing read is read again sharper; on a card's small page the
+    /// sharper render is the same image, so Vision reads it once, and the reading is the same.
+    @Test func aCardsSharperReadIsNotVisionAgainOnTheSameImage() async throws {
+        let dir = FixtureDir()
+        let path = dir.path("card.pdf")
+        let card = ["SOCIAL SECURITY", "THIS NUMBER HAS BEEN ESTABLISHED FOR", "ANNA ERIKSSON", "SIGNATURE"]
+        let data = NSMutableData()
+        var mediaBox = CGRect(x: 0, y: 0, width: 243, height: 153)
+        let consumer = try #require(CGDataConsumer(data: data as CFMutableData))
+        let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+        context.beginPDFPage(nil)
+        context.draw(try Self.scan(of: card, width: 800, height: 504), in: mediaBox)
+        context.endPDFPage()
+        context.closePDF()
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        #expect(VaultReading.wantsSharperRead(card), "a card with no number is read again")
+        let asked = Asked()
+        var reader = VaultFolderReader(folders: [dir.url.path])
+        reader.vision = { _, processor in asked.note(processor); return card }
+        #expect(await reader.pages(in: URL(fileURLWithPath: path)) == [card])
+        #expect(asked.processors == [.any], "Vision ran \(asked.processors.count) times on one image")
+    }
+
     /// Which processors a reader asked, in order; the reader asks from its own task.
     private final class Asked: @unchecked Sendable {
         private let lock = NSLock()

@@ -176,10 +176,52 @@ public final class VaultModel: ObservableObject {
 
     @Published public private(set) var entries: [VaultEntry] = [] { didSet { rowsRevision &+= 1 } }
     @Published public private(set) var contents: Contents = .notLoaded
-    @Published public private(set) var lock: VaultLock
+    /// The lock. A change the panel cannot show (the idle timer restarting while it is far from
+    /// running out, a shown number's thirty seconds starting again) redraws nothing (VT9).
+    public private(set) var lock: VaultLock {
+        get { lockState }
+        set {
+            if clockface(newValue, at: now) != clockface(lockState, at: now) { objectWillChange.send() }
+            lockState = newValue
+        }
+    }
+    private var lockState: VaultLock
     /// The time the panel last drew at. Published so the countdown and a number's thirty seconds
-    /// redraw; advanced by ``tick()``.
+    /// redraw; ``tick()`` moves it only when something drawn from it changes (``Clockface``), so
+    /// the panel is not redrawn every second (VT9).
     @Published public private(set) var now: Date
+
+    /// Everything the panel draws from the time and the lock: whether the Vault is open or shows
+    /// only its lock, the last ten seconds' countdown, the number shown under "every number", the
+    /// day (a document's days left, Expired), and how long ago the last Refresh and Discover were,
+    /// in the steps their wordings change on (``VaultPanel/ago``): half minutes in the first hour
+    /// ("just now", then minutes), half hours to a day (hours, rounded), then days.
+    struct Clockface: Equatable {
+        var open: Bool
+        var hidesEverything: Bool
+        var countdown: Int?
+        var shown: UUID?
+        var settings: VaultLockSettings
+        var day: Int
+        var refreshed: Int?
+        var discovered: Int?
+    }
+
+    /// Which step of "how long ago" `seconds` falls in: it changes at least wherever the panel's
+    /// wording does (``VaultPanel/ago``).
+    public static func agoStep(_ seconds: TimeInterval) -> Int {
+        if seconds < 3600 { return Int(seconds / 30) }
+        if seconds < 86_400 { return 1_000_000 + Int(seconds / 1800) }
+        return 2_000_000 + Int(seconds / 86_400)
+    }
+
+    func clockface(_ lock: VaultLock, at time: Date) -> Clockface {
+        func step(_ date: Date?) -> Int? { date.map { Self.agoStep(max(0, time.timeIntervalSince($0))) } }
+        return Clockface(open: lock.isOpen(at: time), hidesEverything: lock.hidesEverything(at: time),
+                         countdown: lock.secondsLeft(at: time).flatMap { $0 <= Self.lockWarning ? $0 : nil },
+                         shown: lock.shownID(at: time), settings: lock.settings, day: Self.dayStamp(time),
+                         refreshed: step(lastRefreshed), discovered: step(lastDiscovered))
+    }
     /// A proof prompt is on screen. The panel dims its own buttons rather than queue a second one.
     @Published public private(set) var isAsking = false
     /// The last thing that went wrong, in words: a refused proof, a failed save.
@@ -302,7 +344,7 @@ public final class VaultModel: ObservableObject {
         self.defaults = defaults
         self.clock = clock
         self.copyToPasteboard = copyToPasteboard
-        lock = VaultLock(settings: VaultLockSettings(defaults: defaults, store: store))
+        lockState = VaultLock(settings: VaultLockSettings(defaults: defaults, store: store))
         now = clock()
         // A restore from a backup wrote the Vault's file behind this model: what it holds is
         // no longer the Vault, and must not be written back over it.
@@ -394,13 +436,13 @@ public final class VaultModel: ObservableObject {
     /// A saved number's facts as its documents now say: a newer document of the same kind, such
     /// as a license renewed under the same number, speaks for it, keeping the kind it was saved
     /// as; otherwise what was saved stands, with every document read since listed under it.
-    private func readSince(_ entry: VaultEntry) -> VaultReadFacts? {
+    private func readSince(_ entry: VaultEntry, merges: MergeMemo) -> VaultReadFacts? {
         guard var saved = entry.facts else { return nil }
         // Another person's paper carrying the number (a dependent's card printing only the
         // subscriber's ID) names it, and never speaks for it: its name and dates are not this ID's.
         let parts = person(of: entry).map { split(readCopies(of: entry.value), owner: $0) }
             ?? (own: readCopies(of: entry.value), others: [], unknown: false)
-        guard let read = Self.merged(parts.own) else { return Self.naming(saved, parts.others) }
+        guard let read = merges.merged(parts.own, value: entry.value) else { return Self.naming(saved, parts.others) }
         if Self.supersedes(read.facts, saved) {
             var newer = read.facts
             newer.category = saved.category
@@ -423,14 +465,39 @@ public final class VaultModel: ObservableObject {
     /// of them. None unless `shown`, what the number shows now, is today's reading of its copies,
     /// read from the same document with the same dates: a saved reading that stands apart from
     /// its copies is not changed by choosing one.
-    private func sourceChoices(of value: String, shown: VaultReadFacts?, chosen: String?) -> (paths: [String], reading: VaultReadFacts?) {
+    private func sourceChoices(of value: String, shown: VaultReadFacts?, chosen: String?,
+                               merges: MergeMemo) -> (paths: [String], reading: VaultReadFacts?) {
         let all = readCopies(of: value).filter { !missingDocuments.contains($0.sourcePath) }
-        guard let shown, let speaker = shown.primary?.path, all.count > 1, let auto = Self.merged(all),
+        guard let shown, let speaker = shown.primary?.path, all.count > 1, let auto = merges.merged(all, value: value),
               auto.facts.spokenBy == speaker, auto.facts.dated == shown.dated, auto.facts.validUntil == shown.validUntil
         else { return ([], nil) }
         let paths = VaultCopies.choices(all)
-        guard let chosen, paths.contains(chosen), let read = Self.merged(all, speaking: chosen) else { return (paths, nil) }
+        guard let chosen, paths.contains(chosen), let read = merges.merged(all, value: value, speaking: chosen) else { return (paths, nil) }
         return (paths, read.facts)
+    }
+
+    /// Merged readings of one rows rebuild, each made once (VT66): a saved number's own copies
+    /// and the copies it could be read from are most often the same files. Keyed by the number,
+    /// the files and the copy chosen to speak; the copies cannot change within a rebuild, and two
+    /// How many merges the last rows rebuild made, for a test that each is made once.
+    private(set) var rowsMerges = 0
+
+    /// Merged readings of one rows rebuild, each made once (VT66): a saved number's own copies
+    /// and the copies it could be read from are most often the same files. Keyed by the number,
+    /// the files and the copy chosen to speak; the copies cannot change within a rebuild, and two
+    /// lists of the same files come in the same order, both taken from one table.
+    final class MergeMemo {
+        private var made: [String: VaultFind?] = [:]
+        private(set) var merges = 0
+
+        func merged(_ copies: [VaultFind], value: String, speaking chosen: String? = nil) -> VaultFind? {
+            let key = ([VaultReading.normalized(value), chosen ?? ""] + copies.map(\.sourcePath)).joined(separator: "\u{0}")
+            if let found = made[key] { return found }
+            merges += 1
+            let merged = VaultModel.merged(copies, speaking: chosen)
+            made[key] = merged
+            return merged
+        }
     }
 
     /// The person in the household a printed name answers to, when exactly one does.
@@ -480,8 +547,8 @@ public final class VaultModel: ObservableObject {
 
     /// What `rows` was last worked out from: the numbers, documents and people (counted by every
     /// change to them), the day, since a document runs out at midnight, and the folders read. The
-    /// panel redraws every second and asks for the rows many times a draw; they are worked out
-    /// again only when one of these moved.
+    /// panel asks for the rows many times a draw; they are worked out again only when one of these
+    /// moved.
     private struct RowsKey: Equatable {
         var revision: Int
         var day: Int
@@ -495,8 +562,8 @@ public final class VaultModel: ObservableObject {
     }
 
     /// What the panel's lists are worked out from beyond the rows: the search, the tab, the
-    /// filters and the kinds. The panel draws every second and asks for them many times a draw;
-    /// they are worked out again only when one of these moved (VT9).
+    /// filters and the kinds. The panel asks for them many times a draw; they are worked out again
+    /// only when one of these moved (VT9).
     private struct ViewKey: Equatable {
         var rows: RowsKey
         var query: String
@@ -563,6 +630,8 @@ public final class VaultModel: ObservableObject {
         let folders = VaultReadFolders.folders(in: defaults)
         // Made once for every row, not once per row (VT66).
         let registry = people.isEmpty ? nil : PersonRegistry(people: people)
+        let merges = MergeMemo()
+        defer { rowsMerges = merges.merges }
         func withMentions(_ facts: VaultReadFacts?, _ value: String) -> VaultReadFacts? {
             guard var facts else { return nil }
             for source in mentions[VaultReading.normalized(value)] ?? [] { facts.add(source) }
@@ -603,7 +672,7 @@ public final class VaultModel: ObservableObject {
         func chosenReading(_ facts: VaultReadFacts?, value: String, chosen: String?)
             -> (facts: VaultReadFacts?, app: String?, chosen: String?, choices: [String]) {
             let app = facts?.primary?.path
-            let (paths, read) = sourceChoices(of: value, shown: facts, chosen: chosen)
+            let (paths, read) = sourceChoices(of: value, shown: facts, chosen: chosen, merges: merges)
             guard var read, let facts, read.dated == facts.dated, read.validUntil == facts.validUntil
             else { return (facts, app, nil, paths) }
             read.category = facts.category
@@ -620,7 +689,7 @@ public final class VaultModel: ObservableObject {
             return (facts, read)
         }
         var all: [Item] = entries.map { entry in
-            let reading = chosenReading(readSince(entry), value: entry.value, chosen: entry.chosenSource)
+            let reading = chosenReading(readSince(entry, merges: merges), value: entry.value, chosen: entry.chosenSource)
             let (facts, read) = corrected(withMentions(reading.facts, entry.value), own: entry.holderName)
             // A saved number's person was chosen in the editor; with none, it goes by its name.
             let chosen = entry.assignment
@@ -1357,7 +1426,9 @@ public final class VaultModel: ObservableObject {
 
     public func canShow(_ find: VaultFind) -> Bool { lock.canShow(find.id, at: now) }
     public var isOpen: Bool { lock.isOpen(at: now) }
-    public var secondsLeft: Int? { lock.secondsLeft(at: now) }
+    /// Seconds before an open Vault locks, by the clock: no view draws it whole, only its last
+    /// ten seconds (``secondsBeforeLock``), so ``now`` is not moved for it every second.
+    public var secondsLeft: Int? { lock.secondsLeft(at: clock()) }
 
     /// How near the lock is when the panel starts counting it down.
     public static let lockWarning = 10
@@ -1366,7 +1437,7 @@ public final class VaultModel: ObservableObject {
     /// clock ticking all the time the Vault is in use is a distraction, and the lock restarts with
     /// every use anyway. Nil otherwise.
     public var secondsBeforeLock: Int? {
-        guard let left = secondsLeft, left <= Self.lockWarning else { return nil }
+        guard let left = lock.secondsLeft(at: now), left <= Self.lockWarning else { return nil }
         return left
     }
 
@@ -1585,8 +1656,13 @@ public final class VaultModel: ObservableObject {
 
     /// Once a second while the panel is up.
     public func tick() {
-        now = clock()
-        lock.expire(at: now)
+        let time = clock()
+        var next = lockState
+        next.expire(at: time)
+        // Moved only when something drawn changes: then the panel redraws, and what reads the
+        // time sees it. Otherwise everything drawn from the older time is the same.
+        if clockface(next, at: time) != clockface(lockState, at: now) { now = time }
+        lockState = next
         releaseIfSealedShut()
     }
 
@@ -2164,10 +2240,17 @@ public final class VaultModel: ObservableObject {
         let steps: [VaultReadPlan.Step]
         if !reader.followsReadPlan {
             steps = files.map { VaultReadPlan.Step(file: $0, account: nil) }
-        } else if scope.isRefresh {
-            steps = VaultReadPlan.every(files, under: roots, modified: { reader.modified(of: $0) })
         } else {
-            steps = VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
+            // Made off the main actor: it asks a file's date for accounts filed by year (VT67).
+            let refresh = scope.isRefresh
+            steps = await Task.detached { [files, roots] in
+                refresh ? VaultReadPlan.every(files, under: roots, modified: { reader.modified(of: $0) })
+                    : VaultReadPlan(files: files, under: roots, modified: { reader.modified(of: $0) }).steps
+            }.value
+            guard !Task.isCancelled, contents == .loaded else {
+                Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
+                return
+            }
         }
         reading = ReadingProgress(done: 0, total: steps.count, scope: scope)
         // Counts only, here and below. A file's name can hold the very number it carries.
@@ -2191,11 +2274,19 @@ public final class VaultModel: ObservableObject {
         var ownStamps: [String: String] = [:]
         /// What each file's bytes gave, by ``VaultDocumentReading/contentKey(of:)``, for this read.
         var readByContent: [String: ([[String]], Bool)] = [:]
-        // Sizes, read off the main actor; a size two planned files share marks possible copies.
-        let sizes: [String: Int] = await Task.detached { [steps] in
-            Dictionary(steps.compactMap { step in reader.size(of: step.file).map { (step.file.path, $0) } },
-                       uniquingKeysWith: { a, _ in a })
+        // Sizes and stamps, read off the main actor in one pass (VT67); a size two planned files
+        // share marks possible copies. A stamp taken before its file is read can only be older
+        // than what is read, which reads the file once more next time, never one less.
+        let (sizes, stamps): ([String: Int], [String: String]) = await Task.detached { [steps] in
+            (Dictionary(steps.compactMap { step in reader.size(of: step.file).map { (step.file.path, $0) } },
+                        uniquingKeysWith: { a, _ in a }),
+             Dictionary(steps.compactMap { step in reader.stamp(of: step.file).map { (step.file.path, $0) } },
+                        uniquingKeysWith: { a, _ in a }))
         }.value
+        guard !Task.isCancelled, contents == .loaded else {
+            Logger.shared.info("Vault: read stopped before any document was opened; the Vault locked")
+            return
+        }
         let sharedSizes = Set(Dictionary(grouping: sizes.values, by: { $0 }).filter { $0.value.count > 1 }.keys)
         /// Files read with a page left out this time: what they gave asks no Keep Mine question.
         var incomplete = Set<String>()
@@ -2243,7 +2334,7 @@ public final class VaultModel: ObservableObject {
                 reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
                 continue
             }
-            let stamp = reader.stamp(of: file)
+            let stamp = stamps[file.path]
             if let stamp, readIndex[file.path] == stamp {
                 settle(step)
                 reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
@@ -2382,6 +2473,18 @@ public final class VaultModel: ObservableObject {
         // or not yet allowed (macOS asks before the first look into Documents), and what was
         // read from it is kept until it can be seen again.
         let present = Set(files.map(\.path))
+        // Whether each document a saved ID points at is still there, asked off the main actor
+        // (VT67); one pointed at only after this asks below.
+        var pointedBefore = missingDocuments
+        for entry in entries {
+            if let path = entry.sourcePath { pointedBefore.insert(path) }
+            for source in entry.facts?.sources ?? [] { pointedBefore.insert(source.path) }
+        }
+        let toLook = pointedBefore.subtracting(present)
+        let there: [String: Bool] = await Task.detached {
+            Dictionary(uniqueKeysWithValues: toLook.map { ($0, reader.exists(URL(fileURLWithPath: $0))) })
+        }.value
+        guard !Task.isCancelled, contents == .loaded else { return stopped(at: steps.count) }
         let folders = VaultReadFolders.folders(in: defaults)
         let reached = Self.reachedFolders(folders, files: present)
         func isGone(_ path: String) -> Bool {
@@ -2413,7 +2516,7 @@ public final class VaultModel: ObservableObject {
             if let path = entry.sourcePath { pointedAt.insert(path) }
             for source in entry.facts?.sources ?? [] { pointedAt.insert(source.path) }
         }
-        missingDocuments = pointedAt.filter { !present.contains($0) && !reader.exists(URL(fileURLWithPath: $0)) }
+        missingDocuments = pointedAt.filter { !present.contains($0) && !(there[$0] ?? reader.exists(URL(fileURLWithPath: $0))) }
         readingChanged = true
         saveReading()
         lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added, scope: scope)

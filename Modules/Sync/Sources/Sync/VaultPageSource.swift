@@ -88,8 +88,9 @@ public enum VaultPageSource {
         let letters = textLayer.filter { !$0.isWhitespace }.count
         var layer = textLayer.components(separatedBy: .newlines)
         /// What a reading gives: its finds, their numbers, and every number it gives or names.
-        func read(_ lines: [String]) -> (finds: [VaultFind], numbers: Set<String>, any: Set<String>) {
-            let read = VaultReading.read(pages: [lines], from: path, under: roots)
+        func read(_ lines: [String], already: (finds: [VaultFind], mentions: [VaultMention])? = nil)
+            -> (finds: [VaultFind], numbers: Set<String>, any: Set<String>) {
+            let read = already ?? VaultReading.read(pages: [lines], from: path, under: roots)
             let numbers = Set(read.finds.map { VaultReading.normalized($0.value) })
             return (read.finds, numbers, numbers.union(read.mentions.map { VaultReading.normalized($0.value) }))
         }
@@ -113,7 +114,7 @@ public enum VaultPageSource {
                 return nil
             }
             readSharper = seen.sharper
-            let pictured = read(seen.lines)
+            let pictured = read(seen.lines, already: seen.read)
             /// Whether `one` says something `other` does not: a number it reads that the other
             /// does not read, one it names that the other never says, or more about a number
             /// both read (whose it is, its dates, a license's barcode).
@@ -159,10 +160,11 @@ public enum VaultPageSource {
         look(at: picture, from: path, under: roots)?.lines
     }
 
-    /// ``seen(_:from:under:)``, and whether it took the sharper render, which looks for a
-    /// license's barcode too.
-    private static func look(at picture: Picture, from path: String,
-                             under roots: [String]) -> (lines: [String], sharper: Bool)? {
+    /// ``seen(_:from:under:)``, whether it took the sharper render, which looks for a license's
+    /// barcode too, and what the lines read as when a colored page's two readings were weighed
+    /// (nil otherwise), so they are not read once more.
+    private static func look(at picture: Picture, from path: String, under roots: [String])
+        -> (lines: [String], sharper: Bool, read: (finds: [VaultFind], mentions: [VaultMention])?)? {
         guard var lines = picture.read(false).map({ $0.map(zeroed) }) else { return nil }
         var sharper = false
         if VaultReading.wantsSharperRead(lines), let again = picture.read(true).map({ $0.map(zeroed) }) {
@@ -171,14 +173,17 @@ public enum VaultPageSource {
             Logger.shared.debug("Vault: a page was read again at 4000 px; "
                                 + (VaultReading.wantsSharperRead(lines) ? "still nothing read" : "now read"))
         }
+        var read: (finds: [VaultFind], mentions: [VaultMention])?
         if let ink = picture.inkOnly().map({ $0.map(zeroed) }) {
-            let taken = inkKeepsEverything(VaultReading.read(pages: [lines], from: path, under: roots).finds,
-                                           VaultReading.read(pages: [ink], from: path, under: roots).finds)
+            let first = VaultReading.read(pages: [lines], from: path, under: roots)
+            let inked = VaultReading.read(pages: [ink], from: path, under: roots)
+            let taken = inkKeepsEverything(first.finds, inked.finds)
             Logger.shared.debug("Vault: a scan on colored paper was read in its ink alone; "
                                 + (taken ? "that reading was taken" : "the first reading stands"))
             if taken { lines = ink }
+            read = taken ? inked : first
         }
-        return (lines, sharper)
+        return (lines, sharper, read)
     }
 
     /// A line Vision read, with each "Ø" beside a digit put back to the zero it is. A visa foil
