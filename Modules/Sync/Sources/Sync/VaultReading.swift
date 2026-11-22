@@ -17,32 +17,64 @@ public struct VaultFind: Sendable, Equatable, Identifiable, Codable {
     public var note: String
     /// What the documents said besides the number, and every document that carries it.
     public var facts: VaultReadFacts
-    /// Current or older, as the user chose. Later reads keep it.
-    public var pin: VaultPin?
-    /// Whose it is, as the user chose. Later reads keep it.
-    public var assignment: VaultAssignment?
-    /// Where it is used, as the user chose. Later reads keep it.
-    public var geo: VaultGeo?
+    /// What the user chose about it (``VaultChoices``). Later reads keep them.
+    public var choices: VaultChoices
+    /// Current or older, as the user chose.
+    public var pin: VaultPin? { get { choices.pin } set { choices.pin = newValue } }
+    /// Whose it is, as the user chose.
+    public var assignment: VaultAssignment? { get { choices.assignment } set { choices.assignment = newValue } }
+    /// Where it is used, as the user chose.
+    public var geo: VaultGeo? { get { choices.geo } set { choices.geo = newValue } }
     /// The card it goes on, as the user chose (``VaultCardID``); nil goes by what it was read as.
-    /// Later reads keep it.
-    public var card: VaultCardID?
+    public var card: VaultCardID? { get { choices.card } set { choices.card = newValue } }
     /// The copy of its document the user chose to read it from (Read from This Copy), by path;
-    /// nil lets the Vault choose. Later reads keep it.
-    public var chosenSource: String?
+    /// nil lets the Vault choose.
+    public var chosenSource: String? { get { choices.source } set { choices.source = newValue } }
 
     public init(id: UUID = UUID(), title: String, value: String, note: String = "",
-                facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil,
-                geo: VaultGeo? = nil, card: VaultCardID? = nil, chosenSource: String? = nil) {
+                facts: VaultReadFacts, choices: VaultChoices) {
         self.id = id
         self.title = title
         self.value = value
         self.note = note
         self.facts = facts
-        self.pin = pin
-        self.assignment = assignment
-        self.geo = geo
-        self.card = card
-        self.chosenSource = chosenSource
+        self.choices = choices
+    }
+
+    public init(id: UUID = UUID(), title: String, value: String, note: String = "",
+                facts: VaultReadFacts, pin: VaultPin? = nil, assignment: VaultAssignment? = nil,
+                geo: VaultGeo? = nil, card: VaultCardID? = nil, chosenSource: String? = nil) {
+        self.init(id: id, title: title, value: value, note: note, facts: facts,
+                  choices: VaultChoices(pin: pin, assignment: assignment, geo: geo, card: card, source: chosenSource))
+    }
+
+    /// This reading under `kept`'s id, with the choices made about it: what a re-read of a
+    /// number, or a rebuild from its other documents, keeps.
+    public func keepingChoices(of kept: VaultChoice) -> VaultFind {
+        VaultFind(id: kept.id, title: title, value: value, note: note, facts: facts, choices: kept.choices)
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, title, value, note, facts }
+
+    /// The choices sit beside its own fields, as they always have.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        value = try c.decode(String.self, forKey: .value)
+        note = try c.decode(String.self, forKey: .note)
+        facts = try c.decode(VaultReadFacts.self, forKey: .facts)
+        choices = try VaultChoices(from: decoder, sourceKey: "chosenSource")
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(value, forKey: .value)
+        try c.encode(note, forKey: .note)
+        try c.encode(facts, forKey: .facts)
+        try choices.encode(to: encoder, sourceKey: "chosenSource")
     }
 
     /// The shape the earlier reader built, for tests and simple callers: a category worked out
@@ -1188,30 +1220,44 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
 /// What the user chose about one waiting number: kept across a change of rules.
 public struct VaultChoice: Codable, Equatable, Sendable {
     public var id: UUID
-    public var pin: VaultPin?
-    public var assignment: VaultAssignment?
-    public var geo: VaultGeo?
-    public var card: VaultCardID?
-    public var source: String?
+    public var choices: VaultChoices
+    public var pin: VaultPin? { get { choices.pin } set { choices.pin = newValue } }
+    public var assignment: VaultAssignment? { get { choices.assignment } set { choices.assignment = newValue } }
+    public var geo: VaultGeo? { get { choices.geo } set { choices.geo = newValue } }
+    public var card: VaultCardID? { get { choices.card } set { choices.card = newValue } }
+    public var source: String? { get { choices.source } set { choices.source = newValue } }
+
+    public init(id: UUID, choices: VaultChoices) {
+        self.id = id
+        self.choices = choices
+    }
 
     public init(id: UUID, pin: VaultPin?, assignment: VaultAssignment?, geo: VaultGeo? = nil, card: VaultCardID? = nil,
                 source: String? = nil) {
-        self.id = id
-        self.pin = pin
-        self.assignment = assignment
-        self.geo = geo
-        self.card = card
-        self.source = source
+        self.init(id: id, choices: VaultChoices(pin: pin, assignment: assignment, geo: geo, card: card, source: source))
     }
 
     /// What the user chose about `find`.
     public init(_ find: VaultFind) {
-        self.init(id: find.id, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card,
-                  source: find.chosenSource)
+        self.init(id: find.id, choices: find.choices)
     }
 
     /// Whether the user chose anything about it.
-    public var isChosen: Bool { pin != nil || assignment != nil || geo != nil || card != nil || source != nil }
+    public var isChosen: Bool { choices.isChosen }
+
+    private enum CodingKeys: String, CodingKey { case id }
+
+    /// Stored flat, with the copy chosen under `source`.
+    public init(from decoder: Decoder) throws {
+        id = try decoder.container(keyedBy: CodingKeys.self).decode(UUID.self, forKey: .id)
+        choices = try VaultChoices(from: decoder, sourceKey: "source")
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try choices.encode(to: encoder, sourceKey: "source")
+    }
 }
 
 extension VaultReadingState: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {

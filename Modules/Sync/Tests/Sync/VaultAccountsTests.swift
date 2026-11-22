@@ -505,6 +505,7 @@ import Testing
         #expect(model.finds.map(\.value) == ["123456789"], "only the number both years print")
         #expect(model.finds.first?.facts.sources.count == 2)
         #expect(documents.opened.all.count == 2, "settled once two years agreed")
+        #expect(model.lastReading?.newNumbers == 1, "counted in the read's summary")
     }
 
     @Test func twoUnlabelledNumbersBothYearsPrintAreNeitherTaken() async throws {

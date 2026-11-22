@@ -43,6 +43,18 @@ extension VaultStandingInput: CustomStringConvertible, CustomDebugStringConverti
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
 
+extension VaultChoices: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// Which choices were made, never what: a copy's path can hold its number, and whose names
+    /// a person.
+    public var description: String {
+        let made = [pin.map { "pin \($0.rawValue)" }, assignment.map { _ in "whose" }, geo.map { "used in \($0.rawValue)" },
+                    card.map { _ in "card" }, source.map { _ in "copy" }].compactMap { $0 }
+        return "VaultChoices(\(made.isEmpty ? "none" : made.joined(separator: ", ")))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
 extension VaultChoice: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public var description: String { "VaultChoice(\(pin?.rawValue ?? "no pin"))" }
     public var debugDescription: String { description }

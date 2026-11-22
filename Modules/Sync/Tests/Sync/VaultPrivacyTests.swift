@@ -43,6 +43,7 @@ import Testing
             "\(draft)", String(reflecting: draft), "\(value)", String(reflecting: value), "\(change)",
             "\(state)", "\(choice)", "\(find)", String(reflecting: choice), String(reflecting: find),
             String(reflecting: state), String(reflecting: change), "\(VaultDetail.Value.text("Anna Eriksson"))",
+            "\(choice.choices)", String(reflecting: choice.choices),
         ]
         var dumped = ""
         dump(facts, to: &dumped)
@@ -51,6 +52,7 @@ import Testing
         dump(state, to: &dumped)
         dump([value], to: &dumped)
         dump(choice, to: &dumped)
+        dump(choice.choices, to: &dumped)
         dump(find, to: &dumped)
         dump(VaultDetail.Value.text("Anna Eriksson"), to: &dumped)
         for line in printed + [dumped] {

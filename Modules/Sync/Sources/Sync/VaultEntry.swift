@@ -120,6 +120,20 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         set { pinned = newValue; older = nil }
     }
 
+    /// What the user chose about it (``VaultChoices``), over the fields each has always been
+    /// stored in. Only a choice that changed is set: one left as it was keeps how an older build
+    /// stored it (``older``, a person with ``household``).
+    public var choices: VaultChoices {
+        get { VaultChoices(pin: pin, assignment: assignment, geo: geo, card: card, source: chosenSource) }
+        set {
+            if pin != newValue.pin { pin = newValue.pin }
+            if assignment != newValue.assignment { assignment = newValue.assignment }
+            geo = newValue.geo
+            card = newValue.card
+            chosenSource = newValue.source
+        }
+    }
+
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
         case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs, notOn, fields, notFields

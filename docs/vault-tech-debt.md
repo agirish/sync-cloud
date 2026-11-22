@@ -53,7 +53,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
+6. **Structure:** ~~VT8~~, VT7 (part, batch 9), ~~VT69~~ (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
    VT76, VT103, VT106, VT79, VT80.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
@@ -109,6 +109,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT22 session lines | batch 7: INFO lines for loaded (saved and waiting counts, how the lock is set), each proof (to unlock, for one ID, for a person's IDs) and its answer or its setting aside after a close or lock, each lock of an open Vault under "As soon as Vault opens" and why (Lock Now, sleep or the window closing, closed, idle, idle while closed, settings, restore), said once, and the numbers let go; never a title. Tests read the model's own lines (`sessionLine`), not the shared log capture | none |
 | VT25 reader skips | batch 7: `VaultReadNotes` counts locked, unopenable and unrecognised, and pages read from their picture, rendered sharper or taken in their ink alone; `VaultDocumentReading.noted(_:)` returns them, and both read summaries end with what is not zero | too-large files stay counted in the walk's own INFO line, not in the summaries; a refresh still opens a known document whatever its size, as before |
 | VT8 display rules in the view | batch 8: the row's title and line under it, the detail's lede, its kind's name and note, its number's label, what VoiceOver says, the folded summary, the Belongs To tag and Large Type's heading are public in `VaultRowText.swift`, on the row and beside it (`VaultMask.spoken`, `VaultAssignment.tag`), and the screen-capture rule is `VaultModel.drawsAnIDInFull(layout:editing:)`. Proof: each moved body reviewed against `origin/main` line by line; `VaultRowTextTests` pinned their literal output on the view's own functions first (Large Type's heading after) and passed unchanged on the moved ones, and `VaultRowTextBranchTests` covers the labels, titles and dates the app's test does not reach. Sync's two other " case" strips now use `kindTitle` | Escape's order and `save()`'s Add-to-People branch stay in the view, which owns that state; Large Type's lines map onto a view type |
+| VT69 the user's choices as one value | batch 9: `VaultChoices` (pin, whose, used in, card, copy read from) is stored in `VaultFind` and `VaultChoice`, flat under the keys each always used (a find's copy `chosenSource`, a waiting choice's `source`); `VaultEntry.choices` and `Draft.choices` read and set it over their own fields; both re-makes are `keepingChoices(of:)`; a typed-in number takes what was chosen while it waited with `or(_:)`; `confirm` hands the copy read from and the name read in the `Draft`, so `add` takes neither loose; `Item` is gone, the rows are built as `Row`s. Proof: a throwaway harness encoded 432 finds, their waiting choices and entries (every choice set and unset), a reading state, and stored shapes (an older build's `older`, the household, a later build's card) decoded and sealed again, on `origin/main` and this tree: key-sorted, byte-identical (key order unsorted varies run to run, the unchanged `VaultEntry` too); a wrong-typed choice still fails to decode. `VaultChoicesTests` fails when a choice is left out of any record | `VaultEntry` keeps its fields, whose stored keys (`older`, `household`, `personID`) are not the choices' shape: a new choice is one field there and one line in its `choices` |
 
 ---
 
@@ -199,21 +200,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
   - `Row` is a derived view of it and `Draft` an editable copy;
   - readers emit records.
 
-  VT69 is the behaviour-preserving first step.
-
-**VT69 — The user's choices as one value.** *Duplication; checked. The first step of VT1.*
-- **The problem.** The two hand-written `VaultFind(...)` re-makes (`VaultModel.swift:2053`, `:2232` at
-  `710b5aaa3`) are where a forgotten new field silently drops a choice on every re-read; `vault-source`
-  had to patch both. `Draft` still lacks `chosenSource`, so `add` takes `chosenSource:` and
-  `readHolder:` as loose parameters (`:1727`). `Item` (`:458–476`) mirrors `Row` (`:310–360`) field for field.
-- **Fix.**
-  - One `VaultChoices` (pin, assignment, geo, card, chosenSource) embedded in `VaultEntry`,
-    `VaultFind`, `VaultChoice` and `Draft`, with `Codable` that keeps the JSON keys flat.
-  - `find.keepingChoices(of:)` replaces both re-makes.
-  - Build `Row`s directly in place of `Item`.
-- **Done when:**
-  - a new choice touches one type;
-  - the sealed JSON, decrypted and key-sorted, is byte-identical before and after.
+  VT69 (Closed, batch 9) was the behaviour-preserving first step.
 
 **VT2 — Kinds as data.** *Open.*
 - **The problem.** `VaultCategory` is switched on in 11 functions in `Sync`:
@@ -243,7 +230,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
   - nothing assumes two places;
   - with the owner's two places, the panel is unchanged.
 
-**VT7 — `VaultModel` does four jobs.** *Open, and worse.*
+**VT7 — `VaultModel` does four jobs.** *Part done in batch 9: (c) but the walk. `VaultReadRun` holds a read's progress, its settle rules (two years agree, three give nothing, one unlabelled number two years print) and its tally, tested with no model (`VaultReadRunTests`); the loop body is one `look(at:)` with one advance after it, and the refresh and discover tails end in one `finishRead`. Open: (a), (b), (d), and the walk and read plan, which stay in `readDocuments`.*
 - **The problem.** At 2,270 lines it holds the lock session, record CRUD, the rows → cards → people
   derivation, and Read Documents. `readDocuments` runs `:1759`–`:2062` (about 300 lines), with four
   nested functions and eleven locals. Within it:

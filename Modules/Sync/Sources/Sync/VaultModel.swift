@@ -121,8 +121,18 @@ public final class VaultModel: ObservableObject {
         /// alone. ``VaultModel/prepared(_:)`` starts it as it stands; only saving with it changes
         /// what the other IDs show.
         public var correctEverywhere = false
+        /// The copy of its document a find being confirmed was chosen to be read from: never the
+        /// editor's, which offers no such choice.
+        var chosenSource: String?
+        /// The name a find being confirmed was read with, corrected or not.
+        var readHolder: String?
 
         public var kind: VaultEntry.Kind { category.kind }
+
+        /// What the user chose about it, in the editor or, for ``chosenSource``, before.
+        var choices: VaultChoices {
+            VaultChoices(pin: pin, assignment: assignment, geo: geo, card: card, source: chosenSource)
+        }
 
         /// What Belongs To says: the person, the household, or nil to go by the document.
         public var assignment: VaultAssignment? {
@@ -441,6 +451,10 @@ public final class VaultModel: ObservableObject {
         public var isTypedIn: Bool { facts == nil }
     }
 
+    /// A number's facts as read from the copy in force, the Vault's own pick of copy, the user's
+    /// while in force, and the copies it could be read from instead.
+    typealias ChosenReading = (facts: VaultReadFacts?, app: String?, chosen: String?, choices: [String])
+
     /// A saved number's facts as its documents now say: a newer document of the same kind, such
     /// as a license renewed under the same number, speaks for it, keeping the kind it was saved
     /// as; otherwise what was saved stands, with every document read since listed under it.
@@ -651,34 +665,9 @@ public final class VaultModel: ObservableObject {
             }
             return facts
         }
-        /// One number before its standing is known.
-        struct Item {
-            var id: UUID, title: String, value: String, note: String, category: VaultCategory
-            var facts: VaultReadFacts?, isSaved: Bool, pin: VaultPin?
-            /// The user's choice, if any.
-            var chosen: VaultAssignment?
-            /// The person it belongs to: the choice, else the person its name matches.
-            var personID: String?
-            /// Where the user said it is used.
-            var chosenGeo: VaultGeo?
-            /// The card chosen for it.
-            var card: VaultCardID?
-            /// What it was read or typed as, before a move to another app kind.
-            var readAs: VaultCategory = .other
-            var drawnOn: VaultCardID = .builtIn(.other)
-            var learnedFrom: String?
-            /// The name read, when a correction took its place.
-            var readHolder: String?
-            var ownHolderName: String?
-            /// The Vault's own pick of document, and the user's while in force.
-            var appSource: String?
-            var chosenSource: String?
-            var sourceChoices: [String] = []
-        }
         /// `facts` read from the copy the user chose, when it is one of the copies it could be
         /// read from (``sourceChoices(of:speaker:chosen:)``), keeping what it was saved as.
-        func chosenReading(_ facts: VaultReadFacts?, value: String, chosen: String?)
-            -> (facts: VaultReadFacts?, app: String?, chosen: String?, choices: [String]) {
+        func chosenReading(_ facts: VaultReadFacts?, value: String, chosen: String?) -> ChosenReading {
             let app = facts?.primary?.path
             let (paths, read) = sourceChoices(of: value, shown: facts, chosen: chosen, merges: merges)
             guard var read, let facts, read.dated == facts.dated, read.validUntil == facts.validUntil
@@ -696,7 +685,7 @@ public final class VaultModel: ObservableObject {
             facts.holder = fixed
             return (facts, read)
         }
-        var all: [Item] = entries.map { entry in
+        var all: [Row] = entries.map { entry in
             let reading = chosenReading(readSince(entry, merges: merges), value: entry.value, chosen: entry.chosenSource)
             var (facts, read) = corrected(withMentions(reading.facts, entry.value), own: entry.holderName)
             // Fields added by hand show with its details, after what was read.
@@ -706,11 +695,7 @@ public final class VaultModel: ObservableObject {
             var personID: String?
             if case .person(let id)? = chosen { personID = id }
             if chosen == nil { personID = Self.person(named: facts?.holder, in: registry) }
-            return Item(id: entry.id, title: entry.title, value: entry.value, note: entry.note, category: entry.category,
-                        facts: facts, isSaved: true, pin: entry.pin,
-                        chosen: chosen, personID: personID, chosenGeo: entry.geo, card: entry.card, readHolder: read,
-                        ownHolderName: entry.holderName, appSource: reading.app, chosenSource: reading.chosen,
-                        sourceChoices: reading.choices)
+            return Row(entry: entry, facts: facts, personID: personID, readHolder: read, reading: reading)
         }
         all += finds.map { find in
             let reading = chosenReading(find.facts, value: find.value, chosen: find.chosenSource)
@@ -721,18 +706,15 @@ public final class VaultModel: ObservableObject {
             case .household?: personID = nil
             case nil: personID = Self.person(named: facts?.holder, in: registry)
             }
-            return Item(id: find.id, title: find.title, value: find.value, note: find.note, category: find.category,
-                        facts: facts, isSaved: false, pin: find.pin,
-                        chosen: find.assignment, personID: personID, chosenGeo: find.geo, card: find.card, readHolder: read,
-                        appSource: reading.app, chosenSource: reading.chosen, sourceChoices: reading.choices)
+            return Row(find: find, facts: facts, personID: personID, readHolder: read, reading: reading)
         }
         // The card each goes on (Kind), before anything weighs it: moved to another app kind, it is
         // weighed, and its household and country found, as that kind.
         for index in all.indices {
             let item = all[index]
-            let (card, learned) = drawnCard(for: item.category, chosen: item.card, paths: Self.lessonPaths(item.facts, app: item.appSource))
+            let (card, learned) = drawnCard(for: item.category, chosen: item.chosenCard, paths: Self.lessonPaths(item.facts, app: item.appSource))
             all[index].readAs = item.category
-            all[index].drawnOn = card
+            all[index].card = card
             all[index].learnedFrom = learned
             if case .builtIn(let category) = card, category != item.category {
                 all[index].category = category
@@ -752,7 +734,7 @@ public final class VaultModel: ObservableObject {
                 firstNames[key, default: []].insert(first)
             }
         }
-        for index in all.indices where all[index].chosen == nil && all[index].personID == nil
+        for index in all.indices where all[index].assignment == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
             if let key = all[index].facts?.personKey, let match = known[key],
                !VaultPeopleClusters.differ(firstNames[key] ?? []) {
@@ -766,7 +748,7 @@ public final class VaultModel: ObservableObject {
         for item in all where item.category == .passport && (item.personID != nil || item.facts?.holder != nil) {
             passports[VaultReading.normalized(item.value)] = (item.personID, item.facts?.holder)
         }
-        for index in all.indices where all[index].chosen == nil && all[index].personID == nil
+        for index in all.indices where all[index].assignment == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
             if let passport = all[index].facts?.inPassport, let match = passports[VaultReading.normalized(passport)] {
                 all[index].personID = match.id
@@ -774,7 +756,7 @@ public final class VaultModel: ObservableObject {
             }
         }
         // A paper that prints no name is whoever's folder it is filed in: `Health/Medical/Shweta`.
-        for index in all.indices where all[index].chosen == nil && all[index].personID == nil
+        for index in all.indices where all[index].assignment == nil && all[index].personID == nil
             && all[index].facts?.holder == nil {
             if let path = all[index].appSource ?? all[index].facts?.primary?.path,
                let id = Self.person(inPath: path, under: folders, in: registry) {
@@ -784,32 +766,29 @@ public final class VaultModel: ObservableObject {
         // Grouped by whose it is as best known: the choice, else the matched person, else the
         // name or birth date read. A saved passport and a new read of the same person's meet.
         let standings = VaultStandings.compute(all.map { item in
-            let grouping: VaultAssignment? = item.chosen ?? item.personID.map { .person($0) }
+            let grouping: VaultAssignment? = item.assignment ?? item.personID.map { .person($0) }
             return VaultStandingInput(id: item.id, value: item.value, category: item.category, facts: item.facts,
-                                      pin: item.pin, assignment: grouping, isChosen: item.chosen != nil,
-                                      card: item.drawnOn.key)
+                                      pin: item.pin, assignment: grouping, isChosen: item.assignment != nil,
+                                      card: item.card.key)
         }, now: now, readFolders: folders)
         return all.map { item in
+            var row = item
             // Nobody's in particular: typed in for no one, or a utility or a loan read with no
             // person, which is the household's.
-            let isHousehold = item.chosen == .household || (item.facts == nil && item.personID == nil)
-                || (item.chosen == nil && item.personID == nil && item.facts?.holder == nil
+            row.isHousehold = item.assignment == .household || (item.facts == nil && item.personID == nil)
+                || (item.assignment == nil && item.personID == nil && item.facts?.holder == nil
                     && [.utilities, .loans].contains(item.category))
             let personName = item.personID.flatMap { id in people.first { $0.id == id }?.displayName }
-            let whose = isHousehold ? "Household"
+            row.whose = row.isHousehold ? "Household"
                 : personName ?? (item.personID != nil ? "Someone no longer in People" : nil)
                     ?? item.facts?.holder?.split(separator: " ").first.map(String.init) ?? "Unknown"
             let read = VaultGeo.read(item.category, facts: item.facts)
-            return Row(id: item.id, title: item.title, value: item.value, note: item.note, category: item.category,
-                       facts: item.facts, standing: standings[item.id] ?? VaultStanding(tab: .current),
-                       isSaved: item.isSaved, personID: item.personID, whose: whose, pin: item.pin,
-                       assignment: item.chosen, isHousehold: isHousehold,
-                       geo: item.chosenGeo ?? read.geo, geoReason: item.chosenGeo == nil ? read.reason : "You chose it",
-                       chosenGeo: item.chosenGeo, card: item.drawnOn, readAs: item.readAs,
-                       chosenCard: item.card.flatMap { kinds.canHold($0) ? $0 : nil }, learnedFrom: item.learnedFrom,
-                       documentMissing: item.facts?.primary.map { missingDocuments.contains($0.path) } ?? false,
-                       readHolder: item.readHolder, ownHolderName: item.ownHolderName,
-                       appSource: item.appSource, chosenSource: item.chosenSource, sourceChoices: item.sourceChoices)
+            row.standing = standings[item.id] ?? VaultStanding(tab: .current)
+            row.geo = item.chosenGeo ?? read.geo
+            row.geoReason = item.chosenGeo == nil ? read.reason : "You chose it"
+            row.chosenCard = item.chosenCard.flatMap { kinds.canHold($0) ? $0 : nil }
+            row.documentMissing = item.facts?.primary.map { missingDocuments.contains($0.path) } ?? false
+            return row
         }
     }
 
@@ -2088,7 +2067,7 @@ public final class VaultModel: ObservableObject {
         }
     }
 
-    private func add(_ draft: Draft, sourcePath: String?, chosenSource: String? = nil, readHolder: String? = nil) -> UUID? {
+    private func add(_ draft: Draft, sourcePath: String?) -> UUID? {
         guard draft.isComplete, contents == .loaded || contents == .notLoaded else { return nil }
         if contents == .notLoaded { load() }
         guard contents == .loaded else { return nil }
@@ -2105,12 +2084,8 @@ public final class VaultModel: ObservableObject {
                                note: draft.note.trimmingCharacters(in: .whitespacesAndNewlines),
                                sourcePath: sourcePath, addedAt: stamp,
                                category: draft.category, facts: facts)
-        entry.pin = draft.pin ?? waiting?.pin
-        entry.assignment = draft.assignment ?? waiting?.assignment
-        entry.geo = draft.geo ?? waiting?.geo
-        entry.card = draft.card ?? waiting?.card
-        entry.chosenSource = chosenSource ?? waiting?.chosenSource
-        let name = draft.facts == nil ? (own: nil, everywhere: nil) : storedName(for: draft, read: readHolder ?? facts?.holder)
+        entry.choices = draft.choices.or(waiting?.choices)
+        let name = draft.facts == nil ? (own: nil, everywhere: nil) : storedName(for: draft, read: draft.readHolder ?? facts?.holder)
         entry.holderName = name.own
         guard write(entries + [entry]) else { return nil }
         apply(name.everywhere)
@@ -2344,7 +2319,8 @@ public final class VaultModel: ObservableObject {
                 return
             }
         }
-        reading = ReadingProgress(done: 0, total: steps.count, scope: scope)
+        var run = VaultReadRun(scope: scope, total: steps.count, documents: files.count)
+        reading = run.progress(done: 0)
         // Counts only, here and below. A file's name can hold the very number it carries.
         if scope.isRefresh {
             Logger.shared.info("Vault: refresh, \(refreshKnown) document(s) IDs were read from, \(steps.count) to open"
@@ -2388,18 +2364,7 @@ public final class VaultModel: ObservableObject {
         /// Files read with a page left out this time: what they gave asks no Keep Mine question.
         var incomplete = Set<String>()
         var readNow: [String: [VaultFind]] = [:]
-        var tally = VaultReadTally()
-        tally.documents = files.count
-        func stopped(at index: Int) {
-            Logger.shared.info("Vault: read stopped at \(index) of \(steps.count) document(s), \(tally.opened) opened; "
-                               + "the Vault closed or locked, and what was read is kept")
-        }
-        // An account is read newest year first, and no further once two of its years agree on
-        // its numbers: the older years would only say the same again.
-        var lastNumbers: [String: Set<String>] = [:]
-        var emptyYears: [String: Int] = [:]
-        var bareSeen: [String: [String: String]] = [:]
-        var settled = Set<String>()
+        func stopped(at index: Int) { Logger.shared.info(run.stoppedLine(at: index)) }
         func accountNumbers(in path: String) -> Set<String> {
             let found = finds.filter { find in
                 VaultReading.accountCategories.contains(find.category) && find.facts.sources.contains { $0.path == path }
@@ -2407,35 +2372,15 @@ public final class VaultModel: ObservableObject {
             let saved = copies.filter { $0.value[path].map { VaultReading.accountCategories.contains($0.category) } ?? false }.keys
             return Set(found).union(saved)
         }
-        // Two years that agree settle an account, and so do its three newest giving nothing:
-        // papers of that kind carry no number the readers know. Three, not two: a phone bill that
-        // stopped labelling its number in 2025 still did in 2024.
-        func settle(_ step: VaultReadPlan.Step) {
-            guard let account = step.account else { return }
-            let numbers = accountNumbers(in: step.file.path)
-            if numbers.isEmpty {
-                if lastNumbers[account] == nil, emptyYears[account, default: 0] + 1 >= 3 { settled.insert(account) }
-                emptyYears[account, default: 0] += 1
-                return
-            }
-            if lastNumbers[account] == numbers { settled.insert(account) }
-            lastNumbers[account] = numbers
-        }
-        for (index, step) in steps.enumerated() {
+        func settle(_ step: VaultReadPlan.Step) { run.settle(step, numbers: accountNumbers(in: step.file.path)) }
+        /// Looks at one planned file: false when the read stopped while it was opened.
+        func look(at step: VaultReadPlan.Step, _ index: Int) async -> Bool {
             let file = step.file
-            // Stopped, or the panel closed or the Mac locked, letting the numbers go. What was
-            // read so far is sealed: by the release, or on the way out (the `defer` above). A
-            // restore lets it go unsealed, on purpose: the restored Vault's file is not written over.
-            if Task.isCancelled || contents != .loaded { return stopped(at: index) }
-            if !scope.isRefresh, let account = step.account, settled.contains(account) {
-                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
-                continue
-            }
+            if run.passesOver(step) { return true }
             let stamp = stamps[file.path]
             if let stamp, readIndex[file.path] == stamp {
                 settle(step)
-                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
-                continue
+                return true
             }
             // A file whose bytes were read already in this read (a copy saved in two folders) gives
             // the same pages: they are reused, and only what is read from them is done again here,
@@ -2453,17 +2398,16 @@ public final class VaultModel: ObservableObject {
             } else {
                 let read = await reader.noted(file)
                 (pages, complete) = (read.pages, read.complete)
-                tally.notes = tally.notes + read.notes
+                run.tally.notes = run.tally.notes + read.notes
                 if let content, !pages.isEmpty { readByContent[content] = (pages, complete) }
             }
             // Locked meanwhile, even if opened again since: this read was stopped.
-            guard !Task.isCancelled, contents == .loaded else { return stopped(at: index) }
+            guard !Task.isCancelled, contents == .loaded else { return false }
             // Nothing came back: locked, damaged, or not there for a moment. What it gave before,
             // and the choices made about it, stay; it is not marked read, so the next read tries again.
             guard !pages.isEmpty else {
-                tally.record(pages, ([], []))
-                reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
-                continue
+                run.tally.record(pages, ([], []))
+                return true
             }
             // A changed file is read afresh: what it said before is let go first. A number it
             // still carries keeps its row and any choice made about it, as does one chosen
@@ -2479,7 +2423,7 @@ public final class VaultModel: ObservableObject {
                 read.mentions.removeAll { dropped.contains(VaultReading.normalized($0.value)) }
             }
             readNow[file.path] = read.finds
-            tally.record(pages, read)
+            run.tally.record(pages, read)
             for var find in read.finds {
                 let key = VaultReading.normalized(find.value)
                 if before[key] == nil, !finds.contains(where: { VaultReading.normalized($0.value) == key }),
@@ -2487,30 +2431,22 @@ public final class VaultModel: ObservableObject {
                     before[key] = carried
                 }
                 if let choice = before[key] {
-                    find = VaultFind(id: choice.id, title: find.title, value: find.value, note: find.note,
-                                     facts: find.facts, pin: choice.pin, assignment: choice.assignment, geo: choice.geo,
-                                     card: choice.card, chosenSource: choice.source)
+                    find = find.keepingChoices(of: choice)
                 }
-                if take(find), before[key] == nil { tally.added += 1 }
+                if take(find), before[key] == nil { run.tally.added += 1 }
             }
             for mention in read.mentions {
                 mentions[VaultReading.normalized(mention.value), default: []].append(mention.source)
             }
             // An account whose papers print its number with no label (a phone bill's header): a
             // number standing alone that a second year of the same account prints too.
-            if let account = step.account, lastNumbers[account] == nil, accountNumbers(in: file.path).isEmpty {
+            if let account = step.account, run.hasNoNumbers(account), accountNumbers(in: file.path).isEmpty {
                 let printed = PrintedPage(pages.flatMap { $0 })
                 let bare = VaultReading.bareAccountNumbers(on: printed, from: file.path, under: roots)
-                // Exactly one number both years print: two (a customer service line the readers
-                // took for a number, say) leave the account unread rather than guessed at.
-                let repeated = bare.filter { bareSeen[account]?[$0] != nil }
-                if repeated.count == 1, let value = repeated.first, let earlier = bareSeen[account]?[value] {
+                if let (value, earlier) = run.repeatedBareNumber(bare, for: account, in: file.path) {
                     var find = VaultReading.bareAccountFind(value, on: printed, from: file.path, under: roots, people: people)
                     find.facts.add(VaultSource(path: earlier, role: "Account paper", rank: VaultReading.IDRank.letter))
-                    if take(find) { tally.added += 1 }
-                    settled.insert(account)
-                } else {
-                    for value in bare where bareSeen[account]?[value] == nil { bareSeen[account, default: [:]][value] = file.path }
+                    if take(find) { run.tally.added += 1 }
                 }
             }
             // A file with a page left out is not marked read: what it gave is taken, and the next
@@ -2525,13 +2461,22 @@ public final class VaultModel: ObservableObject {
             }
             settle(step)
             readingChanged = true
-            reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
             // Sealed every so often, so a read stopped halfway keeps what it had.
-            if tally.opened % 25 == 0 { saveReading() }
-            if tally.opened % 250 == 0 {
-                Logger.shared.debug("Vault: \(index + 1) of \(steps.count) document(s) looked at, \(tally.opened) opened")
+            if run.tally.opened % 25 == 0 { saveReading() }
+            if run.tally.opened % 250 == 0 {
+                Logger.shared.debug("Vault: \(index + 1) of \(steps.count) document(s) looked at, \(run.tally.opened) opened")
             }
+            return true
         }
+        for (index, step) in steps.enumerated() {
+            // Stopped, or the panel closed or the Mac locked, letting the numbers go. What was
+            // read so far is sealed: by the release, or on the way out (the `defer` above). A
+            // restore lets it go unsealed, on purpose: the restored Vault's file is not written over.
+            if Task.isCancelled || contents != .loaded { return stopped(at: index) }
+            guard await look(at: step, index) else { return stopped(at: index) }
+            reading = run.progress(done: index + 1)
+        }
+        let tally = run.tally
         if case .refresh(let only) = scope {
             // What reads differently now, per ID: its row says Updated and its details say how.
             var updated = 0
@@ -2561,17 +2506,13 @@ public final class VaultModel: ObservableObject {
             readIndex.merge(ownStamps) { _, own in own }
             let gone = waitingBefore.subtracting(finds.map(\.id)).count
             finishRefresh(only: only, afterNewRules: afterNewRules)
-            readingChanged = true
-            saveReading()
-            lastReading = ReadingSummary(documents: refreshKnown, opened: tally.opened, newNumbers: tally.added,
-                                         scope: scope, updated: updated, missing: refreshMissing.count, gone: gone)
-            Logger.shared.info("Vault: refreshed \(refreshKnown) document(s), \(tally.opened) opened, \(updated) ID(s) updated, "
-                               + "\(tally.added) new, \(gone) no longer read, \(refreshMissing.count) not found, in "
-                               + String(format: "%.1f", Date().timeIntervalSince(began)) + " s" + tally.notes.summary)
-            record(.refreshed, "Refreshed \(refreshKnown) document(s): \(updated) ID(s) updated, \(tally.added) new, "
-                   + "\(refreshMissing.count) not found")
-            if selection.flatMap(row) == nil { selection = visibleIDs.first }
-            return
+            return finishRead(ReadingSummary(documents: refreshKnown, opened: tally.opened, newNumbers: tally.added,
+                                             scope: scope, updated: updated, missing: refreshMissing.count, gone: gone),
+                              log: "Vault: refreshed \(refreshKnown) document(s), \(tally.opened) opened, \(updated) ID(s) updated, "
+                                  + "\(tally.added) new, \(gone) no longer read, \(refreshMissing.count) not found, in "
+                                  + String(format: "%.1f", Date().timeIntervalSince(began)) + " s" + tally.notes.summary,
+                              activity: .refreshed, "Refreshed \(refreshKnown) document(s): \(updated) ID(s) updated, "
+                                  + "\(tally.added) new, \(refreshMissing.count) not found")
         }
         // A file gone from the folders is forgotten, so one put back is read again; a number
         // whose every document is gone is let go, rather than pointing at nothing. Only under a
@@ -2623,11 +2564,22 @@ public final class VaultModel: ObservableObject {
             for source in entry.facts?.sources ?? [] { pointedAt.insert(source.path) }
         }
         missingDocuments = pointedAt.filter { !present.contains($0) && !(there[$0] ?? reader.exists(URL(fileURLWithPath: $0))) }
+        finishRead(ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added, scope: scope),
+                   log: tally.summary(seconds: Date().timeIntervalSince(began)),
+                   activity: .discovered, "Looked through \(tally.opened) of \(files.count) document(s): \(tally.added) new ID(s) to confirm")
+    }
+
+    /// How every read that ran to its end ends, a refresh or the folders: what it read is
+    /// sealed, its summary is the footer's, it is logged and kept in Activity, and the selection
+    /// moves to a row still shown if its own went.
+    /// The log line is made after the seal, so the time it gives counts it, as it always has.
+    private func finishRead(_ summary: ReadingSummary, log: @autoclosure () -> String,
+                            activity: VaultActivityEvent.Kind, _ what: String) {
         readingChanged = true
         saveReading()
-        lastReading = ReadingSummary(documents: files.count, opened: tally.opened, newNumbers: tally.added, scope: scope)
-        Logger.shared.info(tally.summary(seconds: Date().timeIntervalSince(began)))
-        record(.discovered, "Looked through \(tally.opened) of \(files.count) document(s): \(tally.added) new ID(s) to confirm")
+        lastReading = summary
+        Logger.shared.info(log())
+        record(activity, what)
         if selection.flatMap(row) == nil { selection = visibleIDs.first }
     }
 
@@ -2751,9 +2703,8 @@ public final class VaultModel: ObservableObject {
             merged.facts.born = nil
             merged.note = ""
         }
-        return VaultFind(id: find.id, title: merged.title, value: find.value, note: merged.note,
-                         facts: merged.facts, pin: find.pin, assignment: find.assignment, geo: find.geo, card: find.card,
-                         chosenSource: find.chosenSource)
+        merged.value = find.value
+        return merged.keepingChoices(of: VaultChoice(find))
     }
 
     /// Lets go of what `path` said: as a source of a waiting number (the number goes when it was
@@ -2859,8 +2810,9 @@ public final class VaultModel: ObservableObject {
         let correcting = VaultReading.normalized(draft.value) != VaultReading.normalized(find.value)
         let kept = correcting ? held(find.value, draft.value) : nil
         let dropping = correcting ? waiting(draft.value, except: findID) : []
-        guard let id = add(draft, sourcePath: find.sourcePath, chosenSource: find.chosenSource,
-                           readHolder: rows.first { $0.id == findID }?.holderAsRead) else { return nil }
+        draft.chosenSource = find.chosenSource
+        draft.readHolder = rows.first { $0.id == findID }?.holderAsRead
+        guard let id = add(draft, sourcePath: find.sourcePath) else { return nil }
         record(.confirmed, id: id)
         if correcting {
             corrected(find.value, to: draft.value, for: id, owned: [], before: nil, find: find, kept: kept, dropping: dropping)
@@ -3505,5 +3457,29 @@ public final class VaultModel: ObservableObject {
         case .wouldDrop(let count):
             return "That change would have removed \(count) IDs at once, so it wasn’t saved."
         }
+    }
+}
+
+extension VaultModel.Row {
+    /// A saved number's row as ``VaultModel/computedRows`` starts it, before anything weighs it:
+    /// no standing or name to show yet, and its card the one chosen, whether a card is kept for
+    /// it or not.
+    init(entry: VaultEntry, facts: VaultReadFacts?, personID: String?, readHolder: String?,
+         reading: VaultModel.ChosenReading) {
+        self.init(id: entry.id, title: entry.title, value: entry.value, note: entry.note, category: entry.category,
+                  facts: facts, standing: VaultStanding(tab: .current), isSaved: true, personID: personID, whose: "",
+                  pin: entry.pin, assignment: entry.assignment, isHousehold: false, chosenGeo: entry.geo,
+                  chosenCard: entry.card, readHolder: readHolder, ownHolderName: entry.holderName,
+                  appSource: reading.app, chosenSource: reading.chosen, sourceChoices: reading.choices)
+    }
+
+    /// A waiting number's row, the same way.
+    init(find: VaultFind, facts: VaultReadFacts?, personID: String?, readHolder: String?,
+         reading: VaultModel.ChosenReading) {
+        self.init(id: find.id, title: find.title, value: find.value, note: find.note, category: find.category,
+                  facts: facts, standing: VaultStanding(tab: .current), isSaved: false, personID: personID, whose: "",
+                  pin: find.pin, assignment: find.assignment, isHousehold: false, chosenGeo: find.geo,
+                  chosenCard: find.card, readHolder: readHolder,
+                  appSource: reading.app, chosenSource: reading.chosen, sourceChoices: reading.choices)
     }
 }
