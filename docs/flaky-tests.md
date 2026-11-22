@@ -5694,3 +5694,34 @@ test on a 1x backing than on a Retina one.
 
 **See.** `PaneColumnsAxisLockTests.FightingClipView` in
 `Modules/FileExplorer/Tests/FileExplorer/PaneColumnsScrollTests.swift`.
+
+### 63. A dynamic colour resolved in whatever appearance the app had that moment — FIXED
+
+**Symptom.** `SemanticInkContrastTests.theLiftNeverDarkensAndLeavesColoursAtTheFloorAlone` red
+once on hosted CI at its last line, "the lift is a no-op on the colour it exists for": run
+44995970275 (`4b9421d81`, a Sync-only change), 2026-11-21. The rerun of the job passed.
+
+**Mechanism.** The suite resolved every colour with a bare `NSColor(c).usingColorSpace(.sRGB)`.
+Each `SemanticColor` is a system colour with a light and a dark value, and with no drawing
+appearance set on the thread AppKit resolves against `NSApp`'s appearance, from any thread.
+`AppearanceModeTests.pinWritesEveryWindowAndSystemUnpins` sets `NSApp.appearance` to Dark, then
+Light, then nil, on the main actor, while this suite runs on the pool. A test that resolves in that
+moment measures dark values. Dark `move` is 0.239 and the lift takes it only to 0.263, under the
+test's fixed `+ 0.05`; light `move` goes from 0.202 to 0.275. The window is microseconds, so it
+fires about never. Holding Dark for 3 s in the pin test and starting the lift test 1 s late gave
+CI's exact message every time.
+
+**Fix, 2026-11-21.** `srgb(_:in:)` resolves inside `performAsCurrentDrawingAppearance` of a named
+appearance, which outranks the app's: light-sheet tests in Aqua, dark-sheet tests in Dark Aqua, as
+`ChromeInk.bodyText` draws them. The dark tests therefore measure the colours the app draws on a
+dark sheet, not the light values they measured before. The fixed step became the property it stood
+for: dark `move` starts under `darkTextLuminance` and the lift brings it up to it. Under the same
+3 s hold the suite passes; with `lightened` returning its input, the dark readability test and the
+lift test go red.
+
+**Tell.** A colour test that reads `NSColor(someDynamicColor)` with no appearance around it, in a
+package where any suite writes `NSApp.appearance`. Name the appearance: what a colour test means
+depends on it.
+
+**See.** `SemanticInkContrastTests.srgb(_:in:)` in
+`Modules/Design/Tests/DesignTests/SemanticInkContrastTests.swift`.

@@ -22,9 +22,20 @@ import Testing
     /// the list is the whole set.
     static let semantics: [(String, Color)] = SemanticColor.all.map { ($0.name, $0.color) }
 
-    private func srgb(_ c: Color) -> NSColor {
-        guard let converted = NSColor(c).usingColorSpace(.sRGB) else {
-            Issue.record("\(c) has no sRGB representation"); return .white
+    /// Every colour here is a system colour with a light and a dark value, so each is resolved in
+    /// a named appearance: the one it is drawn in, light ink on the light sheet and lifted ink on
+    /// the dark one, as `ChromeInk.bodyText` does. With nothing set on the thread, AppKit resolves
+    /// against `NSApp`'s appearance, which `AppearanceModeTests` pins to Dark for a moment on the
+    /// main actor while this suite runs on the pool; one hosted CI run caught the lift check below
+    /// in that moment (`docs/flaky-tests.md`, "A dynamic colour resolved in whatever appearance the
+    /// app had that moment").
+    private func srgb(_ c: Color, in appearance: NSAppearance.Name) -> NSColor {
+        var converted: NSColor?
+        NSAppearance(named: appearance)?.performAsCurrentDrawingAppearance {
+            converted = NSColor(c).usingColorSpace(.sRGB)
+        }
+        guard let converted else {
+            Issue.record("\(c) has no sRGB representation in \(appearance.rawValue)"); return .white
         }
         return converted
     }
@@ -38,21 +49,21 @@ import Testing
 
     /// The fixture must reproduce the defect, or the tests below could pass with the fix removed.
     @Test func rawCautionIsUnreadableAsText() {
-        let raw = ratio(srgb(SemanticColor.caution), Self.sheet)
+        let raw = ratio(srgb(SemanticColor.caution, in: .aqua), Self.sheet)
         #expect(raw < 2.0, "caution is no longer the near-invisible ink this exists for: \(raw):1")
     }
 
     /// The fill-target deepening, the obvious thing to reach for, doesn't clear the text floor.
     /// Pinned so nobody folds the text target back into the fill one.
     @Test func theFillTargetIsNotEnoughForText() {
-        let deep = ratio(AccentFill.deepened(srgb(SemanticColor.caution)), Self.sheet)
+        let deep = ratio(AccentFill.deepened(srgb(SemanticColor.caution, in: .aqua)), Self.sheet)
         #expect(deep < Self.bodyTextFloor,
                 "the fill target now clears the text floor; `deepenedForText` may be redundant")
     }
 
     @Test func everySemanticColourIsReadableAsInkInLight() {
         for (name, color) in Self.semantics {
-            let ink = srgb(AccentFill.deepenedForText(color))
+            let ink = srgb(AccentFill.deepenedForText(color), in: .aqua)
             let r = ratio(ink, Self.sheet)
             #expect(r >= Self.bodyTextFloor, "\(name) as body text on the light sheet is \(r):1")
         }
@@ -63,7 +74,7 @@ import Testing
     /// `lightenedForText`.
     @Test func everySemanticColourIsReadableAsInkInDark() {
         for (name, color) in Self.semantics {
-            let ink = srgb(AccentFill.lightenedForText(color))
+            let ink = srgb(AccentFill.lightenedForText(color), in: .darkAqua)
             let r = ratio(ink, Self.darkSheet)
             #expect(r >= Self.bodyTextFloor, "\(name) as body text on the dark sheet is \(r):1")
         }
@@ -72,7 +83,9 @@ import Testing
     /// The fixture must still reproduce what the lift is for, or the test above could pass with
     /// `lightenedForText` returning its input.
     @Test func theRawColoursDoNotAllClearTheDarkTextFloor() {
-        let misses = Self.semantics.filter { ratio(srgb($0.1), Self.darkSheet) < Self.bodyTextFloor }
+        let misses = Self.semantics.filter {
+            ratio(srgb($0.1, in: .darkAqua), Self.darkSheet) < Self.bodyTextFloor
+        }
         #expect(!misses.isEmpty,
                 "every raw semantic colour now clears the dark text floor; `lightenedForText` may be a no-op")
     }
@@ -82,7 +95,8 @@ import Testing
     /// as `deepened` is, not a ratio against one sheet: these colours are drawn on several surfaces.
     @Test func theLiftNeverDarkensAndLeavesColoursAtTheFloorAlone() {
         for (name, color) in Self.semantics {
-            let raw = srgb(color), lifted = srgb(AccentFill.lightenedForText(color))
+            let raw = srgb(color, in: .darkAqua)
+            let lifted = srgb(AccentFill.lightenedForText(color), in: .darkAqua)
             #expect(lum(lifted) >= lum(raw) - 0.0001, "\(name) got darker")
             if lum(raw) >= AccentFill.darkTextLuminance {
                 #expect(lifted.redComponent == raw.redComponent
@@ -91,9 +105,14 @@ import Testing
                         "\(name) was already at the floor and was moved anyway")
             }
         }
-        // ...and one that genuinely moves, so the loop above cannot pass by the lift doing nothing.
-        #expect(lum(srgb(AccentFill.lightenedForText(SemanticColor.move)))
-                > lum(srgb(SemanticColor.move)) + 0.05, "the lift is a no-op on the colour it exists for")
+        // ...and one that genuinely moves, so the loop above cannot pass by the lift doing nothing:
+        // `move` starts under the floor and is brought up to it. Dark `move` is 0.239, so the lift
+        // is only about 0.02; a fixed step such as +0.05 would measure the light value instead.
+        let move = srgb(SemanticColor.move, in: .darkAqua)
+        #expect(lum(move) < AccentFill.darkTextLuminance,
+                "dark `move` already clears the floor; pin a colour the lift still exists for")
+        #expect(lum(srgb(AccentFill.lightenedForText(SemanticColor.move), in: .darkAqua))
+                >= AccentFill.darkTextLuminance, "the lift is a no-op on the colour it exists for")
     }
 
     // MARK: - The list is the whole set
