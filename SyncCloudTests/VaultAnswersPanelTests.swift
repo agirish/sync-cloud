@@ -126,4 +126,30 @@ import Testing
         #expect(rig.model.rows.first { $0.id == passport }?.standing.reason == VaultStanding.movedByYou)
         _ = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "answers-archived")
     }
+
+    /// How tall the answers lie at `width` across, and how wide `view` is at its own size.
+    static func height(at width: CGFloat) -> CGFloat {
+        NSHostingView(rootView: VaultAnswers(hue: .blue, add: {}, correct: {}, notAnID: {})
+            .frame(width: width, alignment: .leading)).fittingSize.height
+    }
+
+    static func size(_ view: some View) -> CGSize { NSHostingView(rootView: view.fixedSize()).fittingSize }
+
+    /// Add to Vault…, Correct the ID… and Not an ID… lie on one line in the detail pane: at the
+    /// small size there, which fits, never with Not an ID… under the other two. A pane narrower
+    /// still moves it down rather than cutting a name short.
+    @Test func theThreeAnswersLieOnOneLineInTheDetailPane() {
+        let answers = VaultAnswers(hue: .blue, add: {}, correct: {}, notAnID: {})
+        let small = Self.size(answers.oneLine.controlSize(.small))
+        let regular = Self.size(answers.oneLine.controlSize(.regular))
+        #expect(small.width <= VaultCardSize.detailContentWidth,
+                "small: \(small.width) across, the pane has \(VaultCardSize.detailContentWidth)")
+        #expect(small.width < regular.width)
+
+        // Pinned by each layout's own width, so a squeezed line can't pass for one that fits.
+        #expect(Self.height(at: regular.width) == regular.height, "regular, where it fits")
+        #expect(Self.height(at: VaultCardSize.detailContentWidth) <= regular.height, "one line in the pane")
+        #expect(Self.height(at: small.width) == small.height, "small, where only it fits")
+        #expect(Self.height(at: small.width - 20) > 1.5 * small.height, "narrower: Not an ID… goes under")
+    }
 }

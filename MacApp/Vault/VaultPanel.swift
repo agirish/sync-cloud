@@ -13,6 +13,9 @@ enum VaultCardSize {
     /// Air kept between the card and the window's edge.
     static let margin: CGFloat = 48
     static let detailWidth: CGFloat = 330
+    static let detailPadding: CGFloat = 14
+    /// What the detail pane's content has across, inside its padding.
+    static let detailContentWidth: CGFloat = detailWidth - 2 * detailPadding
 
     /// The remembered size, as Compare and Help keep theirs: two keys, `0` for never resized.
     static let widthDefaultsKey = "vaultOverlayWidth"
@@ -2261,7 +2264,7 @@ struct VaultCard: View {
                 olderLink(row)
                 noticeText
             }
-            .padding(14)
+            .padding(VaultCardSize.detailPadding)
         }
     }
 
@@ -2371,9 +2374,8 @@ struct VaultCard: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.well).strokeBorder(.quaternary))
     }
 
-    /// The answers to "is this right?", side by side: Add to Vault…, Correct the ID…, which opens
-    /// the same editor with the cursor in the ID, and Not an ID…. A saved ID has Edit… alone;
-    /// Remove… is in the editor, and the tab is the Tab row.
+    /// An ID To confirm has its answers to "is this right?" (`VaultAnswers`). A saved ID has Edit…
+    /// alone; Remove… is in the editor, and the tab is the Tab row.
     private func actionBar(_ row: VaultModel.Row) -> some View {
         HStack(spacing: 6) {
             if row.isSaved {
@@ -2381,35 +2383,13 @@ struct VaultCard: View {
                     Button("Edit…") { startEditing(entry) }
                 }
             } else if let find = model.finds.first(where: { $0.id == row.id }) {
-                // On one line where the pane is wide enough, else Not an ID… under the other two:
-                // never a truncated name.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) { answers(find) }
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) { answers(find, notAnID: false) }
-                        notAnIDButton(find)
-                    }
-                }
+                VaultAnswers(hue: glassHue,
+                             add: { startConfirming(find) },
+                             correct: { startConfirming(find, correcting: true) },
+                             notAnID: { removing = .find(find) })
             }
         }
         .disabled(model.isAsking)
-    }
-
-    @ViewBuilder
-    private func answers(_ find: VaultFind, notAnID: Bool = true) -> some View {
-        Button("Add to Vault…") { startConfirming(find) }
-            .buttonStyle(.borderedProminent).accentedProminent(glassHue)
-            .fixedSize()
-        Button("Correct the ID…") { startConfirming(find, correcting: true) }
-            .help("The document is right, but the ID taken from it isn’t: fix it before adding it")
-            .fixedSize()
-        if notAnID { notAnIDButton(find) }
-    }
-
-    private func notAnIDButton(_ find: VaultFind) -> some View {
-        Button("Not an ID…") { removing = .find(find) }
-            .help("This isn’t anyone’s ID: it isn’t offered again, from any file")
-            .fixedSize()
     }
 
     /// Where the ID just moved went, with Undo, on the ID the selection moved on to.
@@ -4011,5 +3991,52 @@ struct VaultNewKindSheet: View {
             group = groups.group(of: .other) ?? groups.order.first ?? ""
             nameFocused = true
         }
+    }
+}
+
+/// The answers to "is this right?" for an ID waiting To confirm: Add to Vault…, Correct the ID…,
+/// which opens the same editor with the cursor in the ID, and Not an ID….
+///
+/// On one line: at the regular size where the pane is wide enough, else at the small size, which
+/// fits the detail pane at the standard text size. Only a pane narrower still, or a larger text
+/// size, puts Not an ID… under the other two. Never a truncated name.
+struct VaultAnswers: View {
+    let hue: LiquidGlassHue
+    let add: () -> Void
+    let correct: () -> Void
+    let notAnID: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            oneLine.controlSize(.regular)
+            oneLine.controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) { addButton; correctButton }
+                notAnIDButton
+            }
+        }
+    }
+
+    /// All three side by side, at whatever size the caller sets.
+    var oneLine: some View {
+        HStack(spacing: 6) { addButton; correctButton; notAnIDButton }
+    }
+
+    private var addButton: some View {
+        Button("Add to Vault…", action: add)
+            .buttonStyle(.borderedProminent).accentedProminent(hue)
+            .fixedSize()
+    }
+
+    private var correctButton: some View {
+        Button("Correct the ID…", action: correct)
+            .help("The document is right, but the ID taken from it isn’t: fix it before adding it")
+            .fixedSize()
+    }
+
+    private var notAnIDButton: some View {
+        Button("Not an ID…", action: notAnID)
+            .help("This isn’t anyone’s ID: it isn’t offered again, from any file")
+            .fixedSize()
     }
 }
