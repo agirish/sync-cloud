@@ -434,8 +434,8 @@ struct VaultCard: View {
                 Text(entry.sourcePath == nil
                      ? "The ID is removed for good."
                      : "The ID is removed for good, and it won’t be offered again when documents are read. The document it came from isn’t touched.")
-            case .find:
-                Text("It comes off the Vault and isn’t offered again, from any file. Settings ▸ Vault can forget the IDs set aside.")
+            case .find(let find):
+                Text(Self.notAnIDMessage(printedForSubscriber: find.facts.printedForSubscriber == true))
             }
         }
         .alert("Add \(askingToAddPerson ?? "") to People?",
@@ -2451,6 +2451,15 @@ struct VaultCard: View {
         }
     }
 
+    /// What Not an ID… asks. A card printing the number as its subscriber's is most likely the
+    /// subscriber's real ID: setting it aside would hide it from every file.
+    static func notAnIDMessage(printedForSubscriber: Bool) -> String {
+        let aside = "It comes off the Vault and isn’t offered again, from any file. Settings ▸ Vault can forget the IDs set aside."
+        guard printedForSubscriber else { return aside }
+        return "The card prints this as the subscriber’s ID, so it is most likely the subscriber’s real ID. "
+            + "Belongs to gives it to them, and Correct the ID… fixes a misreading. " + aside
+    }
+
     /// "Close to Anna’s saved Dental · Member ID ●●●●2401: 2 characters differ." with Merge…,
     /// under a waiting ID that may be another reading of a saved one.
     @ViewBuilder
@@ -2649,6 +2658,14 @@ struct VaultCard: View {
                                 .buttonStyle(.link)
                                 .scaledFont(.caption)
                                 .help("Another copy of the same document: its name and details are shown, and it opens. The dates stay the same.")
+                        } else if index > 0, row.isSaved {
+                            Button("Not for This ID") {
+                                Task { if await model.notForThisID(row.id, path: source.path) { read(.discover) } }
+                            }
+                            .buttonStyle(.link)
+                            .scaledFont(.caption)
+                            .disabled(model.reading != nil)
+                            .help("Takes this file off the ID, even after it moves, and reads it again without it: an ID of its own can come up To Confirm")
                         }
                     }
                     Spacer(minLength: 4)

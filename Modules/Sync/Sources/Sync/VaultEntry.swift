@@ -80,6 +80,9 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
     /// What its documents read for it where that is not its number, because the number was
     /// corrected by hand (``VaultReadAs``). Nil when none.
     public var readAs: [VaultReadAs]?
+    /// Documents that print its number but are not for it (Not for This ID), by their bytes
+    /// (``VaultFileContents``): the reader takes nothing for it from them, wherever they move.
+    public var notOn: [String]?
 
     /// Whose it is, as the user said: the person chosen, the household, or nil to go by the name
     /// the document was read with.
@@ -113,7 +116,7 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
-        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs
+        case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource, readAs, notOn
     }
 
     /// Every key this build reads from a stored record, old ones included. A key outside it is a

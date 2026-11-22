@@ -2377,7 +2377,8 @@ public final class VaultModel: ObservableObject {
         // What a corrected ID's documents read for it (``VaultReadAs``): checked before anything
         // else is taken from a file. Only a file as big as one of them is hashed to be compared.
         let readAs = readAsByContents()
-        let notedSizes = Set(readAs.keys.compactMap(VaultFileContents.size(of:)))
+        let notOn = notOnByContents()
+        let notedSizes = Set((Array(readAs.keys) + Array(notOn.keys)).compactMap(VaultFileContents.size(of:)))
         /// Files read with a page left out this time: what they gave asks no Keep Mine question.
         var incomplete = Set<String>()
         var readNow: [String: [VaultFind]] = [:]
@@ -2467,6 +2468,10 @@ public final class VaultModel: ObservableObject {
             forgetSource(file.path)
             var read = VaultReading.read(pages: pages, from: file.path, under: roots, people: people)
             if let bytes, let instead = readAs[bytes] { read = Self.reading(read, instead: instead) }
+            if let bytes, let dropped = notOn[bytes] {
+                read.finds.removeAll { dropped.contains(VaultReading.normalized($0.value)) }
+                read.mentions.removeAll { dropped.contains(VaultReading.normalized($0.value)) }
+            }
             readNow[file.path] = read.finds
             tally.record(pages, read)
             for var find in read.finds {
@@ -3175,6 +3180,46 @@ public final class VaultModel: ObservableObject {
             for note in entry.readAs ?? [] { notes[note.contents, default: [:]][note.reads] = entry.value }
         }
         return notes
+    }
+
+    /// Each file a saved ID was taken off (Not for This ID), by its bytes: the numbers it is not for.
+    private func notOnByContents() -> [String: Set<String>] {
+        var off: [String: Set<String>] = [:]
+        for entry in entries {
+            for contents in entry.notOn ?? [] { off[contents, default: []].insert(VaultReading.normalized(entry.value)) }
+        }
+        return off
+    }
+
+    /// Not for This ID: the document at `path` names the saved ID `id` but is not for it (a claim
+    /// listing it, another person's card). It comes off the ID's list, remembered for its bytes so
+    /// a move does not bring it back, and is marked unread: the next Discover More reads it
+    /// without this ID, so an ID of its own can come up To Confirm. Never the file it is read
+    /// from: Read from This Copy on another copy changes that.
+    @discardableResult
+    public func notForThisID(_ id: UUID, path: String) async -> Bool {
+        guard let row = rows.first(where: { $0.id == id }), row.isSaved,
+              row.documents.first?.path != path, row.documents.contains(where: { $0.path == path }) else { return false }
+        guard let bytes = await fileContents(URL(fileURLWithPath: path)) else {
+            notice = "That file couldn’t be read, so it stays with the ID. Is it still there?"
+            return false
+        }
+        guard contents == .loaded, let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        used()
+        var changed = entries
+        if !(changed[index].notOn ?? []).contains(bytes) { changed[index].notOn = (changed[index].notOn ?? []) + [bytes] }
+        changed[index].facts?.sources.removeAll { $0.path == path }
+        guard write(changed) else { return false }
+        let key = VaultReading.normalized(changed[index].value)
+        copies[key]?[path] = nil
+        if copies[key]?.isEmpty == true { copies[key] = nil }
+        mentions[key]?.removeAll { $0.path == path }
+        if mentions[key]?.isEmpty == true { mentions[key] = nil }
+        readIndex[path] = nil
+        readingChanged = true
+        saveReading()
+        record(.takenOff, id: id)
+        return true
     }
 
     /// `read` with every number `instead` names given as the number a note says it is for.

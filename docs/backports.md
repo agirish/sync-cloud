@@ -16208,7 +16208,10 @@ number" (`VaultLock.proved(for:)` with a set, `VaultModel.showTogether`). Then C
 with Use, refuses an ID the Vault already has and says whose, and a saved correction says what it
 changed with Undo until the Vault locks (`VaultModel.undoCorrection`); the log gains Corrected. Then Merge…: a reading a character or two from the same person's saved ID of
 the same Kind offers it (`VaultModel.mergeSuggestion`), the sheet keeps either number, and the
-other becomes a note through the same path as a correction, with Undo; the log gains Merged.
+other becomes a note through the same path as a correction, with Undo; the log gains Merged. Then Not for This ID, under a file that names a
+saved ID but isn't its Read from: the file comes off, remembered by its bytes (`VaultEntry.notOn`,
+`vault-format-4`), and is read again without the ID; Not an ID… on a card printing the subscriber's ID
+points to Belongs to; the log gains Took a file off.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

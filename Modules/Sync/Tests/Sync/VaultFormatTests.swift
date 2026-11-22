@@ -21,6 +21,7 @@ import Testing
         "vault-format-1": "395698fe0a1221661a3ef299c63cafb1056199e4253f4d31e96d3d61ab9a0b54",
         "vault-format-2": "aea993a8c3a1cd21082df06d4699e95b6eafa41471ef6819d77b8a179b91429f",
         "vault-format-3": "e2e8d9e15b4adcaca37e933dce570e16534c552bef2e11e71784fc66b1213087",
+        "vault-format-4": "0627c70c3f49fb757de21e766d7e48257ab4863ec609012763bf813b00ea0907",
         "vault-reading-format-1": "dfea3a1d18ce338ad86da7357d860940c0916df3be5c7d675ac6c586563b2e01",
         "vault-reading-format-2": "d9d2f4c085a4949f0aa6f911897b9602d7ab1132afd5e1e964dc118b349a5aba",
         "vault-backup-format-1": "e8804f03ce79d39910a34e70e60fedb212c86ce50019c09aaa9ddbd36633735b",
@@ -115,6 +116,7 @@ import Testing
             try VaultFile.seal(Self.formatReading2(), marker: VaultFile.readingMarker, with: Self.key)
         }
         try write("vault-format-3") { try VaultFile.seal(Self.formatEntries3(), with: Self.key) }
+        try write("vault-format-4") { try VaultFile.seal(Self.formatEntries4(), with: Self.key) }
         try write("vault-backup-format-1") {
             try VaultBackupFile.seal(Self.formatBackup(), passphrase: Self.backupPassphrase,
                                      rounds: VaultBackupFile.leastRounds, salt: Self.backupSalt)
@@ -177,6 +179,13 @@ import Testing
         return entries
     }
 
+    /// The fourth: a saved ID with files taken off it (Not for This ID).
+    static func formatEntries4() throws -> [VaultEntry] {
+        var entries = try formatEntries3()
+        entries[2].notOn = ["1024-" + String(repeating: "ef", count: 32)]
+        return entries
+    }
+
     static func formatReading2() throws -> VaultReadingState {
         var state = try formatReading()
         state.version = 17
@@ -232,6 +241,16 @@ import Testing
         #expect(records.entries == (try Self.formatEntries3()))
         #expect(records.entries[1].readAs?.map(\.reads) == ["Z0000007", "Z000000I"])
         #expect(records.entries[1].readAs?.first?.size == 2048)
+        #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
+                == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
+    }
+
+    @Test func theFourthFormatStillOpensAndSealsBackToTheSameJSON() throws {
+        let vault = try Self.fixture("vault-format-4")
+        let records = try VaultFile.openRecords(vault, with: Self.key)
+        #expect(records.newer.isEmpty && records.laterFields.isEmpty)
+        #expect(records.entries == (try Self.formatEntries4()))
+        #expect(records.entries[2].notOn?.count == 1)
         #expect(try VaultFile.openPlain(VaultFile.seal(records, with: Self.key), marker: VaultFile.marker, with: Self.key)
                 == VaultFile.openPlain(vault, marker: VaultFile.marker, with: Self.key))
     }

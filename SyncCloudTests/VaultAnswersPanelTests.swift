@@ -77,6 +77,8 @@ import Testing
                 == "Close to Anna’s saved Dental · Member ID ●●●●2401: 2 characters differ.")
         #expect(VaultCard.mergeLine(title: "Dental · Member ID", whose: nil, ending: "●●●●2401", differ: 1)
                 == "Close to the saved Dental · Member ID ●●●●2401: one character differs.")
+        #expect(VaultCard.notAnIDMessage(printedForSubscriber: false).hasPrefix("It comes off the Vault"))
+        #expect(VaultCard.notAnIDMessage(printedForSubscriber: true).hasPrefix("The card prints this as the subscriber’s ID"))
         let values = [VaultCardValue(label: "Member ID", value: "W288319122"), VaultCardValue(label: "Subscriber ID", value: "W288319115")]
         #expect(VaultCard.otherValues(values, excluding: ["w2883-19122"]) == [values[1]])
     }
