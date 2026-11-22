@@ -208,7 +208,7 @@ public final class VaultModel: ObservableObject {
         var open: Bool
         var hidesEverything: Bool
         var countdown: Int?
-        var shown: UUID?
+        var shown: Set<UUID>
         var settings: VaultLockSettings
         var day: Int
         var refreshed: Int?
@@ -227,7 +227,7 @@ public final class VaultModel: ObservableObject {
         func step(_ date: Date?) -> Int? { date.map { Self.agoStep(max(0, time.timeIntervalSince($0))) } }
         return Clockface(open: lock.isOpen(at: time), hidesEverything: lock.hidesEverything(at: time),
                          countdown: lock.secondsLeft(at: time).flatMap { $0 <= Self.lockWarning ? $0 : nil },
-                         shown: lock.shownID(at: time), settings: lock.settings, day: Self.dayStamp(time),
+                         shown: lock.shownIDs(at: time), settings: lock.settings, day: Self.dayStamp(time),
                          refreshed: step(lastRefreshed), discovered: step(lastDiscovered))
     }
     /// A proof prompt is on screen. The panel dims its own buttons rather than queue a second one.
@@ -1588,6 +1588,7 @@ public final class VaultModel: ObservableObject {
         logLocked("Lock Now")
         lockEpoch &+= 1
         lock.lock()
+        cardReadings = [:]
         now = clock()
         // Locked, the panel holds nothing: the numbers go now, not when it closes.
         releaseIfSealedShut()
@@ -1835,6 +1836,7 @@ public final class VaultModel: ObservableObject {
         }
         entries = []
         finds = []
+        cardReadings = [:]
         readIndex = [:]
         mentions = [:]
         copies = [:]
@@ -1947,6 +1949,22 @@ public final class VaultModel: ObservableObject {
     /// reason in ``notice`` unless they simply cancelled.
     @discardableResult
     private func prove(_ reason: String, for id: UUID?) async -> Bool {
+        await prove(reason, forEach: id.map { [$0] } ?? [])
+    }
+
+    /// Shows every one of `ids` in full for one proof, when any of them needs one: what an editor
+    /// drawing several IDs (a card's others beside the one being changed) asks before it opens.
+    /// Under "For every number" they show together and hide together; otherwise one proof opens
+    /// the Vault as any other does. True when all of them may be drawn.
+    @discardableResult
+    public func showTogether(_ ids: [UUID], reason: String) async -> Bool {
+        let at = clock()
+        guard ids.contains(where: { lock.needsProof(for: $0, at: at) }) else { return true }
+        return await prove(reason, forEach: Set(ids))
+    }
+
+    /// ``prove(_:for:)`` for several IDs at once; none is a proof to open the Vault.
+    private func prove(_ reason: String, forEach ids: Set<UUID>) async -> Bool {
         guard !isAsking else { return false }
         isAsking = true
         defer { isAsking = false }
@@ -1954,7 +1972,7 @@ public final class VaultModel: ObservableObject {
         let proof = await authenticator.prove(reason: reason)
         now = clock()
         // What was asked for, never for which ID or person (VT22).
-        let asked = id != nil ? "a proof for one ID" : reason == Self.unlockReason ? "a proof to unlock" : "a proof for a person’s IDs"
+        let asked = ids.count > 1 ? "a proof for \(ids.count) IDs" : !ids.isEmpty ? "a proof for one ID" : reason == Self.unlockReason ? "a proof to unlock" : "a proof for a person’s IDs"
         // The panel closed, Lock Now was chosen or the Mac locked while the prompt was up: an
         // answer given after that opens nothing, and nothing is shown or copied for it.
         guard epoch == lockEpoch else {
@@ -1970,8 +1988,8 @@ public final class VaultModel: ObservableObject {
         switch proof {
         case .allowed:
             notice = nil
-            lock.proved(for: id, at: now)
-            if id == nil { record(.unlocked) }
+            lock.proved(for: ids, at: now)
+            if ids.isEmpty { record(.unlocked) }
             return true
         case .cancelled:
             // Someone asked and did not prove it: worth a line, since it may not have been the owner.
@@ -2956,6 +2974,41 @@ public final class VaultModel: ObservableObject {
             if let value = instead[VaultReading.normalized(read.mentions[index].value)] { read.mentions[index].value = value }
         }
         return read
+    }
+
+    // MARK: Reading one card
+
+    /// What reading one card for the editor came to (``readCard(_:with:)``).
+    public enum CardReading: Equatable, Sendable {
+        /// Every labeled value it prints (``VaultReading/cardValues(on:)``).
+        case read([VaultCardValue])
+        /// It is not where the Vault last saw it: Discover More finds a card that moved.
+        case notFound
+        /// It is there, and nothing could be read from it.
+        case unreadable
+    }
+
+    /// Each card read for the editor, by path, with the size and date it was read at: read again
+    /// only once it changes. Values in full, so in memory only, and never used past a lock: each
+    /// is kept with the lock's epoch it was read in, and let go with the numbers.
+    private var cardReadings: [String: (stamp: String, epoch: Int, values: [VaultCardValue])] = [:]
+
+    /// Every labeled value the card at `path` prints, read with `reader` the first time (about a
+    /// second a page for a scan), and kept for its size and date after that.
+    public func readCard(_ path: String, with reader: VaultDocumentReading) async -> CardReading {
+        let file = URL(fileURLWithPath: path)
+        let (there, stamp) = await Task.detached { (reader.exists(file), reader.stamp(of: file)) }.value
+        guard there else { return .notFound }
+        if let stamp, let kept = cardReadings[path], kept.stamp == stamp, kept.epoch == lockEpoch {
+            return .read(kept.values)
+        }
+        let epoch = lockEpoch
+        let pages = await reader.reading(file).pages
+        guard pages.contains(where: { !$0.isEmpty }) else { return .unreadable }
+        let values = VaultReading.cardValues(on: pages)
+        // Locked while it was read: nothing is kept for a Vault that let its numbers go.
+        if let stamp, epoch == lockEpoch, contents == .loaded { cardReadings[path] = (stamp, epoch, values) }
+        return .read(values)
     }
 
     /// Records a number as not to be offered again: its keyed fingerprint in UserDefaults, or,

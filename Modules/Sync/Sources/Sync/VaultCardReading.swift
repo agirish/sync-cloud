@@ -1,0 +1,166 @@
+import Foundation
+
+/// One value a card prints beside its label: "Subscriber ID" and "W288319115". What the editor's
+/// On this card row offers in place of a misread ID.
+public struct VaultCardValue: Equatable, Hashable, Sendable {
+    /// The label as the card prints it, without its colon: "Subscriber ID", "RxBIN".
+    public let label: String
+    /// The value, as printed, spaces between its groups kept.
+    public let value: String
+
+    public init(label: String, value: String) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Every labeled value one card prints, read when the editor asks about that card alone: not
+/// just the ID-shaped ones the account reader takes, and wherever the card is filed. The account
+/// reader only runs on papers under Health, Home, Vehicles and School, and only takes a value with
+/// four digits or more beside a label it knows; a card's Subscriber ID beside a Member ID, or a
+/// passport card's number, is neither.
+///
+/// A value holds a digit and at least four letters and digits. What is not an ID is left out: a
+/// plan's group number (it belongs to the plan, and the account reader keeps it apart), a date, a
+/// phone number, an amount or a rate.
+extension VaultReading {
+    /// At most this many words make a label: "Member ID Number" is three.
+    static let cardLabelWords = 4
+
+    /// Labels whose value is never an ID: a group's, a date's, a phone's, an amount's.
+    private static let notIDLabels: [String] = [
+        "group", "grp", "date", "dob", "born", "birth", "exp", "expires", "expiry", "expiration", "issued",
+        "issue", "effective", "eff", "valid", "phone", "tel", "telephone", "fax", "call", "toll", "copay",
+        "deductible", "coinsurance", "visit", "er", "urgent", "office", "specialist", "amount", "balance",
+        "due", "total", "pay", "zip", "postal", "page", "rxgrp", "rxgroup",
+    ]
+
+    /// Every labeled value the pages print, each value once, in reading order: on a label's own
+    /// line ("Member ID: W288319115", two columns read as one line "Member ID W288 Group 0012"),
+    /// or under a label that stands alone ("Subscriber ID" over "W288319115").
+    public static func cardValues(on pages: [[String]]) -> [VaultCardValue] {
+        var out: [VaultCardValue] = []
+        var seen = Set<String>()
+        func keep(_ label: [String], _ value: String) {
+            let raw = label.map(trimmedWord).filter { !$0.isEmpty }
+            let words = labelWords(raw)
+            // "Group Number" is cut back to "Number": what it is comes from the words before.
+            guard !words.isEmpty, !isNotIDLabel(Array(raw.suffix(3))), isID(value), seen.insert(normalized(value)).inserted else { return }
+            out.append(VaultCardValue(label: words.joined(separator: " "), value: value))
+        }
+        for page in pages {
+            var waiting: [String]?
+            for line in page {
+                let tokens = line.split(whereSeparator: \.isWhitespace).map(String.init)
+                guard !tokens.isEmpty else { continue }
+                // A label alone on its line names the value that starts the next one.
+                if tokens.allSatisfy(isWord), tokens.count <= cardLabelWords, isLabelLine(tokens) {
+                    waiting = tokens
+                    continue
+                }
+                var label: [String] = tokens.first.flatMap(valueToken) != nil ? (waiting ?? []) : []
+                waiting = nil
+                // After "Name:", the words that follow are its value, and the next label starts
+                // after them: "Member Name: ANNA ERIKSSON Member ID: XZB123456789".
+                var closed = false
+                var index = 0
+                while index < tokens.count {
+                    let token = tokens[index]
+                    if isWord(token) {
+                        if closed { label = []; closed = false }
+                        label.append(token)
+                        if label.count > cardLabelWords { label.removeFirst() }
+                        if token.hasSuffix(":") { closed = true }
+                        index += 1
+                        continue
+                    }
+                    closed = false
+                    let candidate = valueToken(token)
+                    guard let first = candidate else { label = []; index += 1; continue }
+                    // Groups of digits a space apart are one number: "1234 5678 9012".
+                    var value = first
+                    var next = index + 1
+                    if first.allSatisfy(\.isNumber) {
+                        while next < tokens.count, let more = valueToken(tokens[next]), more.allSatisfy(\.isNumber),
+                              !isDateOrPhone(tokens[next]) {
+                            value += " " + more
+                            next += 1
+                        }
+                    }
+                    if !label.isEmpty, !isDateOrPhone(token) { keep(label, value) }
+                    label = []
+                    index = next
+                }
+            }
+        }
+        return out
+    }
+
+    /// Words labels are made of, lower case: the end of a run of them is a label ("ANNA ERIKSSON
+    /// Member ID" is "Member ID"), and a label of other words keeps its last two.
+    private static let labelVocabulary: Set<String> = [
+        "member", "subscriber", "id", "identification", "number", "no", "num", "#", "policy", "account",
+        "acct", "patient", "enrollee", "student", "customer", "card", "plan", "rx", "rxbin", "rxpcn",
+        "bin", "pcn", "health", "record", "medical", "mrn", "insured", "holder",
+        "reference", "ref", "case", "claim", "contract", "certificate", "cert", "license",
+        "passport", "document", "permit", "receipt", "confirmation", "service", "provider", "npi",
+        "pharmacy", "vehicle", "vin", "loan", "unique", "personal", "tax", "employee", "code",
+        "dependent", "suffix", "prefix", "alpha", "issuer", "carrier", "payer", "unit", "dl", "a/c",
+    ]
+
+    /// `words` cut back to the label that ends them.
+    static func labelWords(_ words: [String]) -> [String] {
+        var start = words.count
+        while start > 0, labelVocabulary.contains(words[start - 1].lowercased()) { start -= 1 }
+        if start == words.count { return Array(words.suffix(2)) }
+        return Array(words[start...])
+    }
+
+    /// Whether a line of words alone is a label for the next line's value: it ends with a colon
+    /// or `#`, or in one of ``labelVocabulary``'s words. "Delta Dental" over a number is not one.
+    private static func isLabelLine(_ tokens: [String]) -> Bool {
+        guard let last = tokens.last else { return false }
+        return last.hasSuffix(":") || last.hasSuffix("#") || labelVocabulary.contains(trimmedWord(last).lowercased())
+    }
+
+    /// A word of a label: letters, with a colon, a `#` or a full stop after it ("ID:", "No.",
+    /// "#"), or an "Rx" code's letters.
+    private static func isWord(_ token: String) -> Bool {
+        let core = trimmedWord(token)
+        if token.allSatisfy({ $0 == "#" || $0 == ":" }) { return true }
+        return !core.isEmpty && core.allSatisfy { $0.isLetter || $0 == "/" || $0 == "-" || $0 == "'" }
+            && core.contains(where: \.isLetter)
+    }
+
+    private static func trimmedWord(_ token: String) -> String {
+        token.trimmingCharacters(in: CharacterSet(charactersIn: ":#.,;()"))
+    }
+
+    /// The value a token holds: letters, digits and dashes, a digit among them, a trailing full
+    /// stop, comma or semicolon let go. Nil for anything else ("$25.00", "05/16/2030", "20%").
+    private static func valueToken(_ token: String) -> String? {
+        let core = token.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()"))
+        guard !core.isEmpty, core.contains(where: \.isNumber),
+              core.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }),
+              core.first != "-", core.last != "-" else { return nil }
+        return core
+    }
+
+    private static func isID(_ value: String) -> Bool {
+        let letters = value.filter { $0.isLetter || $0.isNumber }
+        return letters.count >= 4 && value.contains(where: \.isNumber)
+    }
+
+    private static func isNotIDLabel(_ words: [String]) -> Bool {
+        words.contains { notIDLabels.contains($0.lowercased()) }
+    }
+
+    private static let dateOrPhone = try! NSRegularExpression(
+        pattern: #"^(?:[0-9]{1,4}[-/.][0-9]{1,2}[-/.][0-9]{2,4}|(?:1-)?[0-9]{3}-[0-9]{3}-[0-9]{4})$"#)
+
+    /// "05-16-2030", "2030-05-16", "510-555-0142", "1-800-555-0142": a date or a phone number.
+    private static func isDateOrPhone(_ token: String) -> Bool {
+        let core = token.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()"))
+        return dateOrPhone.firstMatch(in: core, range: NSRange(core.startIndex..., in: core)) != nil
+    }
+}

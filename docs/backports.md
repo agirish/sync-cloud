@@ -16201,7 +16201,10 @@ it is (`VaultModel.otherHolder`); and Anywhere is Every Country. Nothing sealed 
 hand keeps a note of what its document reads for it (`VaultEntry.readAs`, `VaultReadAs`, known by the
 file's size and SHA-256 so it survives a move), checked before anything is taken from that file, in
 place of setting the misreading aside everywhere; Edit shows it with Forget. The Vault file gains
-that field (`vault-format-3`).
+that field (`vault-format-3`). Then the editor's groundwork: one card read alone for every value it prints
+beside a label (`VaultReading.cardValues`), kept in memory for the file's size and date until the
+Vault locks (`VaultModel.readCard`), and one proof that shows several IDs together under "For every
+number" (`VaultLock.proved(for:)` with a set, `VaultModel.showTogether`). Nothing drawn uses them yet.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

@@ -92,8 +92,9 @@ public struct VaultLock: Equatable, Sendable {
     /// When the owner last proved it under ``VaultLockSettings/Ask/whenOpened``, or last used the
     /// unlocked Vault. Nil while locked.
     private var lastActivity: Date?
-    /// The one number shown after a per-number proof, and when it hides again.
-    private var shown: (id: UUID, until: Date)?
+    /// The numbers shown after a per-number proof, and when they hide again: one, or every ID an
+    /// editor draws in full (a card's other IDs beside the one being changed) for one proof.
+    private var shown: (ids: Set<UUID>, until: Date)?
 
     /// How long a number stays up after a per-number proof.
     public static let showFor: TimeInterval = 30
@@ -104,7 +105,7 @@ public struct VaultLock: Equatable, Sendable {
 
     public static func == (lhs: VaultLock, rhs: VaultLock) -> Bool {
         lhs.settings == rhs.settings && lhs.lastActivity == rhs.lastActivity
-            && lhs.shown?.id == rhs.shown?.id && lhs.shown?.until == rhs.shown?.until
+            && lhs.shown?.ids == rhs.shown?.ids && lhs.shown?.until == rhs.shown?.until
     }
 
     /// Whether every number is available without asking: the lock is off, or it was opened and
@@ -126,16 +127,22 @@ public struct VaultLock: Equatable, Sendable {
         settings.requiresAuthentication && settings.ask == .whenOpened && !isOpen(at: now)
     }
 
-    /// The number shown under "every number", while its time lasts.
+    /// The numbers shown under "every number", while their time lasts.
+    public func shownIDs(at now: Date) -> Set<UUID> {
+        guard let shown, now < shown.until else { return [] }
+        return shown.ids
+    }
+
+    /// The number shown under "every number", while its time lasts: the one, when one is.
     public func shownID(at now: Date) -> UUID? {
-        guard let shown, now < shown.until else { return nil }
-        return shown.id
+        let ids = shownIDs(at: now)
+        return ids.count == 1 ? ids.first : nil
     }
 
     /// Whether `id`'s number may be drawn in full.
     public func canShow(_ id: UUID, at now: Date) -> Bool {
         if isOpen(at: now) { return true }
-        guard let shown, shown.id == id else { return false }
+        guard let shown, shown.ids.contains(id) else { return false }
         return now < shown.until
     }
 
@@ -156,12 +163,18 @@ public struct VaultLock: Equatable, Sendable {
 
     /// The owner proved it. `id` is the number the proof was for, under "every number".
     public mutating func proved(for id: UUID? = nil, at now: Date) {
+        proved(for: id.map { [$0] } ?? [], at: now)
+    }
+
+    /// The owner proved it for every one of `ids` at once, under "every number": they show
+    /// together, and hide together. Any number shown before hides, as after any other proof.
+    public mutating func proved(for ids: Set<UUID>, at now: Date) {
         guard settings.requiresAuthentication else { return }
         switch settings.ask {
         case .whenOpened:
             lastActivity = now
         case .everyNumber:
-            if let id { shown = (id, now.addingTimeInterval(Self.showFor)) }
+            if !ids.isEmpty { shown = (ids, now.addingTimeInterval(Self.showFor)) }
         }
     }
 
@@ -177,7 +190,7 @@ public struct VaultLock: Equatable, Sendable {
     /// mid-edit. Nothing once those seconds have run out; it never shows a number again.
     public mutating func keepShown(at now: Date) {
         guard let shown, now < shown.until else { return }
-        self.shown = (shown.id, max(shown.until, now.addingTimeInterval(Self.showFor)))
+        self.shown = (shown.ids, max(shown.until, now.addingTimeInterval(Self.showFor)))
     }
 
     /// The panel closed.
