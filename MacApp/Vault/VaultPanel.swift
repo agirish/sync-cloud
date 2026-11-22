@@ -195,6 +195,10 @@ struct VaultCard: View {
     /// The card the editor read for On this card, and what reading it gave: nil while it reads.
     @State private var cardReading: CardRead?
     @State private var allCardValuesShown = false
+    /// Merge…'s sheet: the waiting ID it is for, the saved one chosen, and which number stays.
+    @State private var mergingFrom: UUID?
+    @State private var mergeInto: UUID?
+    @State private var mergeKeepsReading = false
     @FocusState private var valueFocused: Bool
     /// An ID just moved to another tab, said on the ID the selection moved on to.
     @State private var moved: MovedNote?
@@ -344,6 +348,9 @@ struct VaultCard: View {
                 namingKindFor = nil
             }
             .presentedNativeControlAccent()
+        }
+        .sheet(isPresented: Binding(get: { mergingFrom != nil }, set: { if !$0 { mergingFrom = nil } })) {
+            if let id = mergingFrom { mergeSheet(id).presentedNativeControlAccent() }
         }
         .sheet(isPresented: $customizingGroups) {
             VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors, onDone: { groups, kinds, colors in
@@ -1842,6 +1849,9 @@ struct VaultCard: View {
         } else if let find = model.finds.first(where: { $0.id == row.id }) {
             Button("Add to Vault…") { model.selection = row.id; startConfirming(find) }
             Button("Correct the ID…") { model.selection = row.id; startConfirming(find, correcting: true) }
+            if model.mergeSuggestion(for: row.id) != nil {
+                Button("Merge…") { model.selection = row.id; startMerging(row.id) }
+            }
         }
         // A menu is verbs: the tab to move it to. The pane's Tab row shows where it is instead.
         if row.standing.tab != .other {
@@ -2217,6 +2227,7 @@ struct VaultCard: View {
                 refreshNotes(row, shown: shown)
                 numberBox(row, shown: shown)
                 actionBar(row)
+                mergeLine(for: row)
                 movedNote(for: row)
                 correctionNote(for: row)
                 if let facts = row.facts, !facts.details.isEmpty {
@@ -2429,12 +2440,108 @@ struct VaultCard: View {
     }
 
     static func correctionLine(_ corrected: VaultModel.Correction) -> String {
+        if corrected.merged {
+            return corrected.file.map { "Merged the reading from \($0) into this ID." } ?? "Merged a reading into this ID."
+        }
         guard let file = corrected.file else { return "Corrected the ID as it was read." }
         switch corrected.changed {
         case 1?: return "Corrected one character of what \(file) reads."
         case let count? where count > 1: return "Corrected \(count) characters of what \(file) reads."
         default: return "Corrected what \(file) reads."
         }
+    }
+
+    /// "Close to Anna’s saved Dental · Member ID ●●●●2401: 2 characters differ." with Merge…,
+    /// under a waiting ID that may be another reading of a saved one.
+    @ViewBuilder
+    private func mergeLine(for row: VaultModel.Row) -> some View {
+        if !row.isSaved, let best = model.mergeSuggestion(for: row.id),
+           let saved = model.rows.first(where: { $0.id == best.id }) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(Self.mergeLine(title: saved.title, whose: Self.owner(of: saved), ending: model.masked(saved),
+                                    differ: best.differ))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Merge…") { startMerging(row.id) }
+                    .buttonStyle(.link)
+                    .help("Fold this reading into the ID you already have")
+            }
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    static func mergeLine(title: String, whose: String?, ending: String, differ: Int) -> String {
+        let owner = whose.map { "\($0)’s saved" } ?? "the saved"
+        let apart = differ == 1 ? "one character differs" : "\(differ) characters differ"
+        return "Close to \(owner) \(title) \(ending): \(apart)."
+    }
+
+    /// Merge…: one proof for every ID the sheet shows in full, then the sheet.
+    private func startMerging(_ id: UUID) {
+        let candidates = model.mergeCandidates(for: id)
+        guard let first = candidates.first, let row = model.rows.first(where: { $0.id == id }) else { return }
+        Task {
+            guard await model.showTogether([id] + candidates.map(\.id), reason: "merge \(row.title)") else { return }
+            mergeInto = first.id
+            mergeKeepsReading = false
+            mergingFrom = id
+        }
+    }
+
+    /// The saved IDs a reading could be, closest first, and which number stays.
+    private func mergeSheet(_ findID: UUID) -> some View {
+        let find = model.rows.first { $0.id == findID }
+        let candidates = model.mergeCandidates(for: findID)
+        let into = candidates.first { $0.id == mergeInto }.flatMap { c in model.rows.first { $0.id == c.id } }
+        let file = find?.documents.first.map { ($0.path as NSString).lastPathComponent } ?? "its document"
+        let shown = ([findID] + candidates.map(\.id)).allSatisfy { id in model.rows.first { $0.id == id }.map { model.canShow(row: $0) } ?? false }
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Merge \(find?.title ?? "") \(find?.value ?? "")")
+                .scaledFont(.headline)
+            Text("With \(into.flatMap(Self.owner(of:)).map { "\($0)’s" } ?? "the") saved IDs of this kind, closest first")
+                .foregroundStyle(.secondary)
+            Picker("Into", selection: $mergeInto) {
+                ForEach(candidates) { candidate in
+                    if let saved = model.rows.first(where: { $0.id == candidate.id }) {
+                        Text("\(saved.value)  \(saved.title) · \(candidate.differ == 1 ? "1 differs" : "\(candidate.differ) differ")")
+                            .tag(Optional(candidate.id))
+                    }
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            Text("Keep which ID?")
+                .scaledFont(.headline)
+            Picker("Keep", selection: $mergeKeepsReading) {
+                Text("\(into?.value ?? "")  The saved one").tag(false)
+                Text("\(find?.value ?? "")  This reading, from \(file)").tag(true)
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            Text("The reading’s files join the saved ID, which keeps its own Read from file. The number not kept is remembered for the files that print it, and nothing is set aside.")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { mergingFrom = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("Merge") {
+                    if let into = mergeInto, model.merge(findID, into: into, keepingReading: mergeKeepsReading) {
+                        mergingFrom = nil
+                    }
+                }
+                .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+                .keyboardShortcut(.defaultAction)
+                .disabled(mergeInto == nil)
+            }
+        }
+        .fontDesign(.default)
+        .padding(20)
+        .frame(width: 460)
+        // Shown in full only while the lock allows: a lock, or the thirty seconds running out,
+        // closes it with nothing changed.
+        .onChange(of: shown) { _, now in if !now { mergingFrom = nil } }
     }
 
     /// "This is Abhishek’s Aetna · Member ID, already in the Vault. It can’t be added as Shweta’s

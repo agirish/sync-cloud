@@ -16206,7 +16206,9 @@ beside a label (`VaultReading.cardValues`), kept in memory for the file's size a
 Vault locks (`VaultModel.readCard`), and one proof that shows several IDs together under "For every
 number" (`VaultLock.proved(for:)` with a set, `VaultModel.showTogether`). Then Correct the ID… uses them: the editor lists the card's other IDs under On this card
 with Use, refuses an ID the Vault already has and says whose, and a saved correction says what it
-changed with Undo until the Vault locks (`VaultModel.undoCorrection`); the log gains Corrected.
+changed with Undo until the Vault locks (`VaultModel.undoCorrection`); the log gains Corrected. Then Merge…: a reading a character or two from the same person's saved ID of
+the same Kind offers it (`VaultModel.mergeSuggestion`), the sheet keeps either number, and the
+other becomes a note through the same path as a correction, with Undo; the log gains Merged.
 Batch 6: the panel redraws only when something it draws from
 the time or the lock changes, Read Documents renders and reads each page once per size and asks
 no file's size or date on the main actor, and the rows merge each set of copies once. Batch 7:

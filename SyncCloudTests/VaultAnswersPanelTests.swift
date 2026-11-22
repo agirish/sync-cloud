@@ -46,6 +46,22 @@ import Testing
         #expect(differingPixels(noted, plain) > 300, "the note and its Undo are drawn")
     }
 
+    /// An EOB read one character off Anna's saved dental ID draws Close to … with Merge… under it.
+    @Test func aReadingCloseToASavedIDOffersMerge() async throws {
+        let (rig, dental) = try await Self.waiting(); defer { rig.cleanUp() }
+        let find = try #require(rig.model.finds.first { $0.id == dental })
+        let saved = try #require(rig.model.confirm(dental, as: VaultModel.Draft(find)))
+        let eob = VaultRefreshPanelTests.root + "/Health/Dental/EOB/EOB.pdf"
+        await rig.model.readDocuments(with: Shelf([
+            VaultRefreshPanelTests.dental: VaultRefreshPanelTests.card("Delta Dental", id: "XZB123456789", group: "0012345"),
+            eob: VaultRefreshPanelTests.card("Delta Dental", id: "XZB123450789", group: "0012345"),
+        ]))
+        let waiting = try #require(rig.model.finds.first { $0.value == "XZB123450789" })
+        rig.model.selection = waiting.id
+        #expect(rig.model.mergeSuggestion(for: waiting.id)?.id == saved)
+        _ = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "merge-offered")
+    }
+
     @Test func aCorrectionAndAnIDAlreadySavedAreSaidInWords() {
         let id = UUID()
         #expect(VaultCard.correctionLine(.init(id: id, file: "card.pdf", changed: 1)) == "Corrected one character of what card.pdf reads.")
@@ -55,6 +71,12 @@ import Testing
                 == "This is Abhishek’s Aetna · Member ID, already in the Vault. It can’t be added as Shweta’s too.")
         #expect(VaultCard.alreadySavedLine(title: "Aetna · Member ID", whose: "Abhishek", as: nil)
                 == "This ID is already in the Vault: Abhishek’s Aetna · Member ID.")
+        #expect(VaultCard.correctionLine(.init(id: id, file: "EOB.pdf", changed: nil, merged: true))
+                == "Merged the reading from EOB.pdf into this ID.")
+        #expect(VaultCard.mergeLine(title: "Dental · Member ID", whose: "Anna", ending: "●●●●2401", differ: 2)
+                == "Close to Anna’s saved Dental · Member ID ●●●●2401: 2 characters differ.")
+        #expect(VaultCard.mergeLine(title: "Dental · Member ID", whose: nil, ending: "●●●●2401", differ: 1)
+                == "Close to the saved Dental · Member ID ●●●●2401: one character differs.")
         let values = [VaultCardValue(label: "Member ID", value: "W288319122"), VaultCardValue(label: "Subscriber ID", value: "W288319115")]
         #expect(VaultCard.otherValues(values, excluding: ["w2883-19122"]) == [values[1]])
     }

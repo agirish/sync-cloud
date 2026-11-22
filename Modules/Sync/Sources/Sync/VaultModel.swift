@@ -1433,6 +1433,9 @@ public final class VaultModel: ObservableObject {
     }
 
     public func canShow(_ find: VaultFind) -> Bool { lock.canShow(find.id, at: now) }
+
+    /// Whether a row's number may be drawn in full now.
+    public func canShow(row: Row) -> Bool { lock.canShow(row.id, at: now) }
     public var isOpen: Bool { lock.isOpen(at: now) }
     /// Seconds before an open Vault locks, by the clock: no view draws it whole, only its last
     /// ten seconds (``secondsBeforeLock``), so ``now`` is not moved for it every second.
@@ -2886,7 +2889,7 @@ public final class VaultModel: ObservableObject {
     /// `before` is the saved ID as it was, for Edit; `find`, the waiting ID it was added from, for
     /// Add to Vault. Either is what Undo puts back.
     private func corrected(_ read: String, to value: String, for id: UUID, owned: [VaultReadAs],
-                           before: VaultEntry?, find: VaultFind?) {
+                           before: VaultEntry?, find: VaultFind?, logged: VaultActivityEvent.Kind = .corrected) {
         let old = VaultReading.normalized(read), new = VaultReading.normalized(value)
         let paths = Set((copies[old] ?? [:]).keys).union((mentions[old] ?? []).map(\.path))
         let keptCopies: [String: [String: VaultFind]?] = [old: copies[old], new: copies[new]]
@@ -2906,7 +2909,7 @@ public final class VaultModel: ObservableObject {
             let file = (before?.facts ?? find?.facts)?.primary.map { ($0.path as NSString).lastPathComponent }
             lastCorrection = Correction(id: id, file: file, changed: Self.charactersChanged(old, new))
         }
-        record(.corrected, id: id)
+        record(logged, id: id)
         guard !paths.isEmpty else { return }
         let earlier = noting, contentsOf = fileContents
         let owned = Set(owned.map(\.contents))
@@ -2951,11 +2954,14 @@ public final class VaultModel: ObservableObject {
         public let file: String?
         /// How many characters were changed, when the two are the same length.
         public let changed: Int?
+        /// A waiting ID merged into this one (Merge…), not a number fixed.
+        public let merged: Bool
 
-        public init(id: UUID, file: String?, changed: Int?) {
+        public init(id: UUID, file: String?, changed: Int?, merged: Bool = false) {
             self.id = id
             self.file = file
             self.changed = changed
+            self.merged = merged
         }
     }
 
@@ -3011,9 +3017,113 @@ public final class VaultModel: ObservableObject {
         }
         readingChanged = true
         saveReading()
-        record(.other, "Undid the correction of \(title)")
+        record(.other, (lastCorrection?.merged == true ? "Undid the merge into " : "Undid the correction of ") + title)
         correctionUndo = nil
         lastCorrection = nil
+        return true
+    }
+
+    // MARK: Merge
+
+    /// A saved ID a waiting one could be a second reading of, and how many characters apart.
+    public struct MergeCandidate: Equatable, Sendable, Identifiable {
+        public let id: UUID
+        public let differ: Int
+    }
+
+    /// The most characters a saved ID may differ by to be listed in Merge's sheet.
+    static let mergeListed = 3
+    /// The most it may differ by for the pane to offer Merge… by itself.
+    static let mergeOffered = 2
+
+    /// The saved IDs the waiting ID `findID` could be another reading of: the same person's (or
+    /// the household's, for a household ID), of the same Kind, at most ``mergeListed`` characters
+    /// away, closest first.
+    public func mergeCandidates(for findID: UUID) -> [MergeCandidate] {
+        guard let find = rows.first(where: { $0.id == findID }), !find.isSaved else { return [] }
+        let value = VaultReading.normalized(find.value)
+        return rows.compactMap { row -> MergeCandidate? in
+            guard row.isSaved, row.category == find.category, row.isHousehold == find.isHousehold,
+                  row.isHousehold || (row.personID != nil && row.personID == find.personID) else { return nil }
+            let differ = Self.editDistance(value, VaultReading.normalized(row.value))
+            guard differ > 0, differ <= Self.mergeListed else { return nil }
+            return MergeCandidate(id: row.id, differ: differ)
+        }
+        .sorted { $0.differ < $1.differ }
+    }
+
+    /// The saved ID the pane offers Merge… with, by itself: the closest candidate, a character or
+    /// two away. Not when the names the two cards print differ, nor when only their last one or
+    /// two characters do, which is how a family's IDs on one plan most often differ.
+    public func mergeSuggestion(for findID: UUID) -> MergeCandidate? {
+        guard let best = mergeCandidates(for: findID).first, best.differ <= Self.mergeOffered,
+              let find = rows.first(where: { $0.id == findID }),
+              let saved = rows.first(where: { $0.id == best.id }) else { return nil }
+        let a = VaultReading.normalized(find.value), b = VaultReading.normalized(saved.value)
+        if a.count == b.count {
+            let places = zip(a, b).enumerated().filter { $0.element.0 != $0.element.1 }.map(\.offset)
+            if places.allSatisfy({ $0 >= a.count - 2 }) { return nil }
+        }
+        if let one = Self.nameKey(find.holderAsRead), let other = Self.nameKey(saved.holderAsRead), one != other { return nil }
+        return best
+    }
+
+    /// A printed name's letters, upper case, for telling two cards' names apart.
+    private static func nameKey(_ name: String?) -> String? {
+        let letters = (name ?? "").uppercased().filter(\.isLetter)
+        return letters.isEmpty ? nil : letters
+    }
+
+    /// The characters to add, drop or change to make `a` into `b`.
+    nonisolated static func editDistance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        guard !a.isEmpty else { return b.count }
+        guard !b.isEmpty else { return a.count }
+        var previous = Array(0...b.count)
+        for i in 1...a.count {
+            var current = [i] + Array(repeating: 0, count: b.count)
+            for j in 1...b.count {
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            previous = current
+        }
+        return previous[b.count]
+    }
+
+    /// Merge: the waiting ID `findID` is another reading of the saved ID `entryID`. Its files
+    /// join the saved one, whose Read from file stays its own; the number not kept becomes a
+    /// note of what its documents read (``VaultReadAs``), so nothing is set aside everywhere.
+    /// `keepingReading` keeps the waiting ID's number instead of the saved one's. Undo puts both
+    /// back, until the Vault locks.
+    @discardableResult
+    public func merge(_ findID: UUID, into entryID: UUID, keepingReading: Bool) -> Bool {
+        sealingOnce { merging(findID, into: entryID, keepingReading: keepingReading) }
+    }
+
+    private func merging(_ findID: UUID, into entryID: UUID, keepingReading: Bool) -> Bool {
+        guard contents == .loaded, let find = finds.first(where: { $0.id == findID }),
+              let index = entries.firstIndex(where: { $0.id == entryID }) else { return false }
+        let before = entries[index]
+        used()
+        if keepingReading {
+            var changed = entries
+            changed[index].value = find.value
+            changed[index].updatedAt = clock()
+            guard write(changed) else { return false }
+            // The saved ID's own documents read its old number: they keep a note of it.
+            corrected(before.value, to: find.value, for: entryID, owned: before.readAs ?? [],
+                      before: before, find: find, logged: .merged)
+        } else {
+            corrected(find.value, to: before.value, for: entryID, owned: before.readAs ?? [],
+                      before: before, find: find, logged: .merged)
+        }
+        finds.removeAll { $0.id == findID }
+        readingChanged = true
+        saveReading()
+        let file = find.facts.primary.map { ($0.path as NSString).lastPathComponent }
+        lastCorrection = Correction(id: entryID, file: file, changed: nil, merged: true)
+        selection = entryID
+        showEvenIfFiltered(entryID)
         return true
     }
 

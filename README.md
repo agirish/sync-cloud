@@ -203,6 +203,8 @@ for: a passport number, a member ID, a loan number.
   even after the card moves, and nothing is set aside everywhere. On this card lists the card's
   other IDs with their labels, an ID already in the Vault can't be added twice, and Undo puts a
   correction back until the Vault locks.
+- **Merge…** folds a reading a character or two off into the ID the same person already has, keeping
+  whichever number is right; it holds back for different names and for IDs that differ only at the end.
 - **Kind** moves an account to another card, or to a kind of your own (New Kind…). A choice for
   an account read from a folder teaches the folder, so its other IDs and later reads follow. An ID
   always shows what it was read as, and As Read puts it back; passports, visas and other checked
