@@ -1159,7 +1159,7 @@ public final class VaultModel: ObservableObject {
 
     /// Read from This Copy: reads a number from another copy of the document it is read from
     /// (``Row/sourceChoices``), whose name and details are then shown and which opens; nil, or
-    /// the Vault's own pick, is Let the App Choose. Its dates, tab and card stay as they are.
+    /// the Vault's own pick, is Let the Vault Choose. Its dates, tab and card stay as they are.
     /// Later reads keep the choice while the copy is still one of the number's; a renewal under
     /// the same number, a document with other dates, speaks for it in its place.
     public func readFrom(_ id: UUID, copy path: String?) {
@@ -1326,7 +1326,7 @@ public final class VaultModel: ObservableObject {
         keepSelectionVisible()
     }
 
-    /// Make Current or Mark as Older: a choice later reads keep. Nil lets the rules decide again.
+    /// Move to Current or Move to Archive: a choice later reads keep. Nil lets the rules decide again.
     public func pin(_ id: UUID, _ pin: VaultPin?) {
         let before = visibleIDs
         if let index = entries.firstIndex(where: { $0.id == id }) {
@@ -1387,7 +1387,7 @@ public final class VaultModel: ObservableObject {
         if !visible.contains(where: { $0 == selection }) { selection = visible.first }
     }
 
-    /// After a change that takes the chosen row out of view (Mark as Older, Make Current, a person
+    /// After a change that takes the chosen row out of view (a move to another tab, a person
     /// or country the choices hide): the row that came after it, else the one before, as Mail
     /// moves on when a message leaves the list. `before` is the rows on screen before the change.
     private func keepSelection(near before: [UUID]) {
@@ -2480,6 +2480,16 @@ public final class VaultModel: ObservableObject {
     /// The household person a document's name answers to, as corrected everywhere when it was.
     private func person(of copy: VaultFind) -> String? {
         Self.person(named: correctedName(copy.facts.holder, own: nil) ?? copy.facts.holder, among: people)
+    }
+
+    /// The household person a file naming `row`'s ID is made out to, by name, when that is someone
+    /// other than the ID's own person: "Shweta" for her card printing only the subscriber's ID.
+    /// Nil while the ID's person is not known, or the file is its person's own or nobody's.
+    public func otherHolder(of path: String, for row: Row) -> String? {
+        guard let own = row.personID, !row.isHousehold,
+              let copy = copies[VaultReading.normalized(row.value)]?[path],
+              let named = person(of: copy), named != own else { return nil }
+        return people.first { $0.id == named }?.displayName
     }
 
     /// One number's copies when they name more than one of the household's people, as a

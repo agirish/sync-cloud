@@ -597,12 +597,16 @@ import Testing
         #expect(find.facts.sources.first { $0.path == Self.livCard }?.rank == VaultReading.Rank.mention)
         let waiting = try #require(model.rows.first { $0.id == find.id })
         #expect(waiting.personID == "anna")
+        // Liv's card says whose it is; Anna's own says nothing more.
+        #expect(model.otherHolder(of: Self.livCard, for: waiting) == "Liv Eriksson")
+        #expect(model.otherHolder(of: Self.annaCard, for: waiting) == nil)
 
         let saved = try #require(model.confirm(find.id, as: model.prepared(VaultModel.Draft(find), for: find.id)))
         let row = try #require(model.rows.first { $0.id == saved })
         #expect(row.facts?.holder == "Anna Eriksson" && row.personID == "anna")
         #expect(row.facts?.primary?.path == Self.annaCard && row.facts?.dated == VaultReadingTests.day(2024, 1, 1),
                 "Liv's newer card, a copy since before Confirm, does not speak for it after")
+        #expect(model.otherHolder(of: Self.livCard, for: row) == "Liv Eriksson", "and says whose card it is")
     }
 
     /// Both cards print the number as the subscriber's: whose it is cannot be told, so it shows
@@ -616,7 +620,9 @@ import Testing
         ]))
         let find = try #require(model.finds.first { $0.value == "XZB123456789" })
         #expect(find.holder == nil && find.note.isEmpty, "neither Anna's nor Liv's name")
-        #expect(try #require(model.rows.first { $0.id == find.id }).personID == nil)
+        let unknown = try #require(model.rows.first { $0.id == find.id })
+        #expect(unknown.personID == nil)
+        #expect(model.otherHolder(of: Self.livCard, for: unknown) == nil, "nobody's card is another's until it is told whose")
         #expect(find.facts.sources.map(\.path).sorted() == [Self.annaCard, Self.livCard])
 
         model.assign(find.id, to: .person("anna"))

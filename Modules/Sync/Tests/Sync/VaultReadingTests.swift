@@ -483,6 +483,30 @@ import Testing
         #expect(Self.tabs([typed]) == [.current])
         #expect(VaultStandings.compute([typedOlder], now: Self.today)[typedOlder.id]?.tab == .archive)
     }
+
+    /// The Tab row's caption: a choice either way reads You moved it here, in place of the
+    /// Vault's own reason; one in Current by the Vault's choice has none.
+    @Test func aTabYouChoseSaysYouMovedItEitherWay() {
+        let born = Self.day(1950, 1, 1)
+        let newer = Self.input("I8", .i94, born: born, dated: Self.day(2024, 3, 19), path: "/docs/I-94/b.pdf")
+        let older = Self.input("I9", .i94, born: born, dated: Self.day(2017, 3, 19), path: "/docs/I-94/a.pdf")
+        let vaults = VaultStandings.compute([newer, older], now: Self.today)
+        #expect(vaults[newer.id]?.reason == nil)
+        #expect(vaults[older.id]?.reason == "Replaced by a newer one")
+
+        var back = older; back.pin = .current
+        var away = newer; away.pin = .older
+        let chosen = VaultStandings.compute([away, back], now: Self.today)
+        #expect(chosen[back.id]?.tab == .current && chosen[back.id]?.reason == VaultStanding.movedByYou)
+        #expect(chosen[away.id]?.tab == .archive && chosen[away.id]?.reason == VaultStanding.movedByYou)
+        #expect(VaultStanding.movedByYou == "You moved it here")
+
+        // Typed in, with nothing read to weigh it: the same, and none without a choice.
+        let typed = VaultStandingInput(id: UUID(), value: "7365", category: .loans, facts: nil, pin: nil)
+        var typedCurrent = typed; typedCurrent.pin = .current
+        #expect(VaultStandings.compute([typed], now: Self.today)[typed.id]?.reason == nil)
+        #expect(VaultStandings.compute([typedCurrent], now: Self.today)[typedCurrent.id]?.reason == VaultStanding.movedByYou)
+    }
 }
 
 /// The folders Read Documents looks in (``VaultReadFolders``).

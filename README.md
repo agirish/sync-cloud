@@ -225,7 +225,10 @@ for: a passport number, a member ID, a loan number.
   from first; where one document is filed twice, Read from This Copy reads it from the other.
   After the first read only new and changed files are opened, and a read goes on when the Vault
   is closed.
-- **Remove** an ID with ⌘⌫, a right-click or the ⋯ menu; the Vault asks first.
+- **Is it right?** A To confirm ID has Add to Vault…, Correct the ID… (the document is right,
+  the ID taken from it isn't) and Not an ID… side by side. **Tab**, under Used In, says whether an
+  ID is Current or in Archive and why; choosing the other moves it, with Undo.
+- **Remove** an ID with ⌘⌫, a right-click or Remove… in its editor; the Vault asks first.
 
 ### 🧭 Guided setup
 A first-run guide reads the folder you point it at — names only, no file is opened — so it can ask

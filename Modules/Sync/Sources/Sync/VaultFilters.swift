@@ -8,11 +8,11 @@ public enum VaultGeo: String, Codable, CaseIterable, Sendable {
         switch self {
         case .us: return "United States"
         case .india: return "India"
-        case .anywhere: return "Anywhere"
+        case .anywhere: return "Every Country"
         }
     }
 
-    /// The two letters a row carries in the All view; none for Anywhere.
+    /// The two letters a row carries in the All view; none for Every Country.
     public var code: String? {
         switch self {
         case .us: return "US"

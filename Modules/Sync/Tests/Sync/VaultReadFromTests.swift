@@ -178,7 +178,7 @@ import Testing
         model.closed()
         await model.opened()
         #expect(try Self.row(model).chosenSource == Self.scan)
-        // Let the App Choose.
+        // Let the Vault Choose.
         model.readFrom(saved, copy: nil)
         let back = try Self.row(model)
         #expect(back.chosenSource == nil && back.facts?.primary?.path == Self.dental && back.sourceChoices == [Self.scan])

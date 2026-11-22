@@ -73,7 +73,7 @@ public struct VaultActivityEvent: Codable, Equatable, Sendable, Identifiable {
         case .confirmed: verb = "Added from a document"
         case .edited: verb = "Edited"
         case .removed: verb = "Removed"
-        case .setAside: verb = "Set aside as not a real ID"
+        case .setAside: verb = "Set aside as not an ID"
         }
         return [verb + (what.isEmpty ? "" : " " + what), whose].compactMap { $0 }.joined(separator: " · ")
     }

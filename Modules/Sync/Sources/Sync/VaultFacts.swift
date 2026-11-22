@@ -335,8 +335,12 @@ public struct VaultStanding: Equatable, Sendable {
     public var inUse = false
     /// A USCIS case with only a receipt notice.
     public var pending = false
-    /// Why it is in Archive, in words for its row: "Expired Jan 2014 · replaced".
+    /// Why it is in its tab, in words for its row: "Expired Jan 2014 · replaced", or
+    /// ``movedByYou``. Nil for one in Current by the Vault's own choice.
     public var reason: String?
+
+    /// The reason for a tab the user chose, either way.
+    public static let movedByYou = "You moved it here"
 
     public init(tab: Tab, expired: Bool = false, inUse: Bool = false, pending: Bool = false, reason: String? = nil) {
         self.tab = tab
@@ -497,7 +501,7 @@ public enum VaultStandings {
         for item in items {
             guard let facts = item.facts else {
                 out[item.id] = VaultStanding(tab: item.pin == .older ? .archive : .current,
-                                             reason: item.pin == .older ? "Marked older" : nil)
+                                             reason: item.pin == nil ? nil : VaultStanding.movedByYou)
                 continue
             }
             if !VaultCategory.mainView.contains(facts.category) {
@@ -630,7 +634,7 @@ public enum VaultStandings {
                 }
                 if let pin = item.pin {
                     standing.tab = pin == .current ? .current : .archive
-                    standing.reason = pin == .older ? "Marked older" : nil
+                    standing.reason = VaultStanding.movedByYou
                 }
                 out[item.id] = standing
             }

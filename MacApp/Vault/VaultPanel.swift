@@ -198,6 +198,19 @@ struct VaultCard: View {
     @State private var readFolders: [String] = []
 
     @State private var editing: Editing?
+    /// The ID as read, for the editor's ID field tooltip, while one read is being added.
+    @State private var readValue: String?
+    @FocusState private var valueFocused: Bool
+    /// An ID just moved to another tab, said on the ID the selection moved on to.
+    @State private var moved: MovedNote?
+    struct MovedNote: Equatable {
+        let id: UUID
+        let title: String
+        let ending: String
+        let tab: String
+        let pin: VaultPin?
+        let shownOn: UUID?
+    }
     @State private var draft = VaultModel.Draft()
     /// The entry Large Type is showing.
     @State private var largeType: UUID?
@@ -319,8 +332,10 @@ struct VaultCard: View {
         .onChange(of: draft) { _, _ in if editing != nil { model.noteActivity() } }
         // Choosing a row, or starting a search, puts an open choice away. With Quick Look open,
         // it moves to the newly chosen number's document, or closes when that one is hidden.
-        .onChange(of: model.selection) { _, _ in
+        .onChange(of: model.selection) { _, now in
             choosing = nil
+            // A move's note is for the ID the selection moved on to, not the next one chosen.
+            if moved?.shownOn != now { moved = nil }
             followQuickLook()
             // A click on a row leaves no field focused: the keys come back to the search. Not
             // forced while it has them, which would select what is typed there.
@@ -418,7 +433,7 @@ struct VaultCard: View {
             case .entry(let entry):
                 Button("Remove", role: .destructive) { remove(entry.id) }
             case .find(let find):
-                Button("Not a Real ID", role: .destructive) { model.setAside(find.id) }
+                Button("Not an ID", role: .destructive) { model.setAside(find.id) }
             }
         } message: { removal in
             switch removal {
@@ -427,7 +442,7 @@ struct VaultCard: View {
                      ? "The ID is removed for good."
                      : "The ID is removed for good, and it won’t be offered again when documents are read. The document it came from isn’t touched.")
             case .find:
-                Text("A misread: it comes off the Vault and isn’t offered again. Settings ▸ Vault can forget the IDs set aside.")
+                Text("It comes off the Vault and isn’t offered again, from any file. Settings ▸ Vault can forget the IDs set aside.")
             }
         }
         .alert("Add \(askingToAddPerson ?? "") to People?",
@@ -1848,19 +1863,32 @@ struct VaultCard: View {
         belongsToMenu(row)
         if VaultKinds.canChange(from: row.readAs) { kindMenu(row) }
         Divider()
-        if row.standing.tab == .archive {
-            Button("Make Current") { model.pin(row.id, .current) }
-        } else {
-            Button("Mark as Older") { model.pin(row.id, .older) }
+        // The pane's answers, flat: a submenu would hide them again.
+        if row.isSaved {
+            if let entry = model.entries.first(where: { $0.id == row.id }) {
+                Button("Edit…") { model.selection = row.id; startEditing(entry) }
+            }
+        } else if let find = model.finds.first(where: { $0.id == row.id }) {
+            Button("Add to Vault…") { model.selection = row.id; startConfirming(find) }
+            Button("Correct the ID…") { model.selection = row.id; startConfirming(find, correcting: true) }
         }
-        if row.pin != nil { Button("Let the Vault Decide") { model.pin(row.id, nil) } }
+        // A menu is verbs: the tab to move it to. The pane's Tab row shows where it is instead.
+        if row.standing.tab != .other {
+            Divider()
+            if row.standing.tab == .archive {
+                Button("Move to Current") { move(row, to: .current) }
+            } else {
+                Button("Move to Archive") { move(row, to: .archive) }
+            }
+            if row.pin != nil { Button("Let the Vault Choose") { move(row, to: nil) } }
+        }
         Divider()
         if row.isSaved {
             if let entry = model.entries.first(where: { $0.id == row.id }) {
                 Button("Remove…", role: .destructive) { removing = .entry(entry) }
             }
         } else if let find = model.finds.first(where: { $0.id == row.id }) {
-            Button("Not a Real ID…", role: .destructive) { removing = .find(find) }
+            Button("Not an ID…", role: .destructive) { removing = .find(find) }
         }
     }
 
@@ -2017,7 +2045,7 @@ struct VaultCard: View {
                     }
                     if row.chosenGeo != nil {
                         Divider()
-                        Button(row.isTypedIn ? "Anywhere Again" : "As the Document Says") { model.setGeo(row.id, to: nil) }
+                        Button(row.isTypedIn ? "Every Country Again" : "As the Document Says") { model.setGeo(row.id, to: nil) }
                     }
                 } label: {
                     Text(row.geo.title)
@@ -2029,7 +2057,76 @@ struct VaultCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .help("Where this ID is used. Anywhere shows in every country; a passport is anywhere.")
+        .help("Where this ID is used. Every Country shows it in each country’s view, as a passport is.")
+    }
+
+    /// Tab: Current or Archive, as a fact about the ID beside whose it is and where it is used,
+    /// with the reason the Vault already writes, or You moved it here for a choice either way.
+    /// Let the Vault Choose comes back only after a choice. Other Finds is not chosen: plain text.
+    private func tabRow(_ row: VaultModel.Row) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Tab")
+                .scaledFont(.callout)
+                .foregroundStyle(.secondary)
+            if row.standing.tab == .other {
+                Text("Other Finds")
+                    .scaledFont(.callout)
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    Menu {
+                        ForEach([VaultStanding.Tab.current, .archive], id: \.self) { tab in
+                            Button {
+                                if row.standing.tab != tab { move(row, to: tab) }
+                            } label: {
+                                if row.standing.tab == tab { Label(Self.tabTitle(tab), systemImage: "checkmark") } else { Text(Self.tabTitle(tab)) }
+                            }
+                        }
+                        if row.pin != nil {
+                            Divider()
+                            Button("Let the Vault Choose") { move(row, to: nil) }
+                        }
+                    } label: {
+                        Text(Self.tabTitle(row.standing.tab))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    if let reason = Self.tabReason(row.standing) {
+                        Text(reason)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .help(row.standing.tab == .other
+              ? "Other Finds holds kinds that have no card on the main view yet."
+              : "Current shows the newest ID of each kind for each person; Archive keeps the older ones. A choice here wins, and later reads keep it.")
+    }
+
+    static func tabTitle(_ tab: VaultStanding.Tab) -> String {
+        switch tab {
+        case .current: return "Current"
+        case .archive: return "Archive"
+        case .other: return "Other Finds"
+        }
+    }
+
+    /// Why an ID is in its tab: the Vault's reason, never one for Current by its own choice.
+    static func tabReason(_ standing: VaultStanding) -> String? {
+        standing.reason ?? (standing.tab == .archive ? "Older, kept for reference" : nil)
+    }
+
+    /// Moves an ID to `tab`, or back to the Vault's choice with nil. When that takes it out of the
+    /// list, the selection moves on (``VaultModel/pin(_:_:)``) and the next ID says where it went.
+    private func move(_ row: VaultModel.Row, to tab: VaultStanding.Tab?) {
+        let was = row.pin
+        model.pin(row.id, tab.map { $0 == .archive ? VaultPin.older : .current })
+        guard let now = model.rows.first(where: { $0.id == row.id }), model.selection != row.id else {
+            moved = nil
+            return
+        }
+        moved = MovedNote(id: row.id, title: row.title, ending: model.masked(row),
+                          tab: Self.tabTitle(now.standing.tab), pin: was, shownOn: model.selection)
     }
 
     /// Adds the person a document names to People: shown by their first name, matched by the full
@@ -2194,6 +2291,7 @@ struct VaultCard: View {
                 .help("Whose this ID is. A choice here wins over the name on the document, and later reads keep it.")
                 kindRow(row)
                 usedIn(row)
+                tabRow(row)
                 if row.standing.inUse {
                     callout("Still in use: a visa that is still good is in this passport, so carry it with the new one.",
                             tint: SemanticColor.info)
@@ -2204,6 +2302,7 @@ struct VaultCard: View {
                 refreshNotes(row, shown: shown)
                 numberBox(row, shown: shown)
                 actionBar(row)
+                movedNote(for: row)
                 if let facts = row.facts, !facts.details.isEmpty {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
                         ForEach(Array(facts.details.enumerated()), id: \.offset) { index, detail in
@@ -2280,11 +2379,8 @@ struct VaultCard: View {
 
     private func detailLede(_ row: VaultModel.Row) -> String {
         var parts = [row.isHousehold ? "Household" : (row.facts?.holder ?? row.whose)]
-        switch row.standing.tab {
-        case .archive: parts.append(row.standing.reason ?? "Older, kept for reference")
-        case .other: parts.append("Not on the main view yet")
-        case .current: if !row.isSaved { parts.append("Read from a document; check it, then add it") }
-        }
+        // Why it is in Archive is the Tab row's caption, so it isn't said twice.
+        if !row.isSaved, row.standing.tab != .archive { parts.append("To confirm") }
         return parts.joined(separator: " · ")
     }
 
@@ -2344,7 +2440,9 @@ struct VaultCard: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.well).strokeBorder(.quaternary))
     }
 
-    /// One main action, and the rarer ones in a menu.
+    /// The answers to "is this right?", side by side: Add to Vault…, Correct the ID…, which opens
+    /// the same editor with the cursor in the ID, and Not an ID…. A saved ID has Edit… alone;
+    /// Remove… is in the editor, and the tab is the Tab row.
     private func actionBar(_ row: VaultModel.Row) -> some View {
         HStack(spacing: 6) {
             if row.isSaved {
@@ -2352,31 +2450,55 @@ struct VaultCard: View {
                     Button("Edit…") { startEditing(entry) }
                 }
             } else if let find = model.finds.first(where: { $0.id == row.id }) {
-                Button("Add to Vault…") { startConfirming(find) }
-                    .buttonStyle(.borderedProminent).accentedProminent(glassHue)
-            }
-            Menu {
-                if row.standing.tab == .archive {
-                    Button("Make Current") { model.pin(row.id, .current) }
-                } else {
-                    Button("Mark as Older") { model.pin(row.id, .older) }
+                // On one line where the pane is wide enough, else Not an ID… under the other two:
+                // never a truncated name.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { answers(find) }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) { answers(find, notAnID: false) }
+                        notAnIDButton(find)
+                    }
                 }
-                if row.pin != nil { Button("Let the Vault Decide") { model.pin(row.id, nil) } }
-                Divider()
-                if row.isSaved, let entry = model.entries.first(where: { $0.id == row.id }) {
-                    Button("Remove from Vault…", role: .destructive) { removing = .entry(entry) }
-                } else if let find = model.finds.first(where: { $0.id == row.id }) {
-                    Button("Not a Real ID…", role: .destructive) { removing = .find(find) }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
             }
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("More: Mark as Older or Make Current, and Remove")
-            .accessibilityLabel("More")
         }
         .disabled(model.isAsking)
+    }
+
+    @ViewBuilder
+    private func answers(_ find: VaultFind, notAnID: Bool = true) -> some View {
+        Button("Add to Vault…") { startConfirming(find) }
+            .buttonStyle(.borderedProminent).accentedProminent(glassHue)
+            .fixedSize()
+        Button("Correct the ID…") { startConfirming(find, correcting: true) }
+            .help("The document is right, but the ID taken from it isn’t: fix it before adding it")
+            .fixedSize()
+        if notAnID { notAnIDButton(find) }
+    }
+
+    private func notAnIDButton(_ find: VaultFind) -> some View {
+        Button("Not an ID…") { removing = .find(find) }
+            .help("This isn’t anyone’s ID: it isn’t offered again, from any file")
+            .fixedSize()
+    }
+
+    /// Where the ID just moved went, with Undo, on the ID the selection moved on to.
+    @ViewBuilder
+    private func movedNote(for row: VaultModel.Row) -> some View {
+        if let note = moved, note.shownOn == row.id {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
+                Text("\(note.title) \(note.ending) moved to \(note.tab).")
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Undo") {
+                    model.pin(note.id, note.pin)
+                    model.reveal(note.id)
+                    moved = nil
+                }
+                .buttonStyle(.link)
+            }
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+        }
     }
 
     /// A detail with its own Copy. A date copies as MM/DD/YYYY; a detail that is a number copies
@@ -2440,9 +2562,14 @@ struct VaultCard: View {
             ForEach(listed, id: \.element.path) { index, source in
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
+                        // Another person's card names the ID and never speaks for it: say whose it is.
+                        let otherHolder = index == 0 ? nil : model.otherHolder(of: source.path, for: row)
                         Pill(.mini, tint: index == 0 ? SemanticColor.success : .secondary,
-                             text: index == 0 ? (row.chosenSource == nil ? "Read from" : "Read from · Your Choice") : source.role)
-                            .help(index == 0 ? source.role : "Names this ID")
+                             text: index == 0 ? (row.chosenSource == nil ? "Read from" : "Read from · Your Choice")
+                                : otherHolder.map { "\($0)’s card · names this ID" } ?? source.role)
+                            .help(index == 0 ? source.role
+                                  : otherHolder.map { "\(source.role), made out to \($0): it names this ID, and its name and dates aren’t this ID’s" }
+                                  ?? "Names this ID")
                         Button {
                             quickLook(source.path, for: row)
                         } label: {
@@ -2461,7 +2588,7 @@ struct VaultCard: View {
                             .truncationMode(.head)
                             .help(((shown ? folder : VaultMask.folder(folder)) as NSString).abbreviatingWithTildeInPath)
                         if index == 0, row.chosenSource != nil {
-                            Button("Let the App Choose") { model.readFrom(row.id, copy: nil) }
+                            Button("Let the Vault Choose") { model.readFrom(row.id, copy: nil) }
                                 .buttonStyle(.link)
                                 .scaledFont(.caption)
                                 .help("Reads this ID from the copy the Vault would choose")
@@ -2537,6 +2664,8 @@ struct VaultCard: View {
                     TextField("ID or Account Number", text: $draft.value)
                         .fontDesign(.monospaced)
                         .autocorrectionDisabled()
+                        .focused($valueFocused)
+                        .help(readValue.map { "Read from the document as \($0). Scans often mix up Z and 2, O and 0, I and 1, B and 8." } ?? "")
                 }
                 if let read = draft.facts?.holder {
                     field("Name on the Document") {
@@ -2612,7 +2741,7 @@ struct VaultCard: View {
     private var removalTitle: String {
         switch removing {
         case .entry(let entry): return "Remove “\(entry.title)” from the Vault?"
-        case .find(let find): return "Is “\(find.title)” not a real ID?"
+        case .find(let find): return "Is “\(find.title)” not an ID?"
         case nil: return ""
         }
     }
@@ -2875,6 +3004,7 @@ struct VaultCard: View {
             blank.personID = person
         } else if case .person(let id) = model.personFilter { blank.personID = id } else { blank.isHousehold = true }
         draft = blank
+        readValue = nil
         editing = .new
     }
 
@@ -2883,6 +3013,7 @@ struct VaultCard: View {
             // The editor draws the number in full, so it opens only once that is allowed.
             guard await model.show(entry.id) else { return }
             draft = model.prepared(VaultModel.Draft(entry), for: entry.id)
+            readValue = nil
             editing = .existing(entry.id)
         }
     }
@@ -2917,11 +3048,14 @@ struct VaultCard: View {
 
     /// The editor, filled from what was read. It draws the number in full, so it opens only once
     /// that is allowed, as Edit does.
-    private func startConfirming(_ find: VaultFind) {
+    /// `correcting`, for Correct the ID…, puts the cursor in the ID field.
+    private func startConfirming(_ find: VaultFind, correcting: Bool = false) {
         Task {
             guard await model.show(find.id) else { return }
             draft = model.prepared(VaultModel.Draft(find, people: people), for: find.id)
+            readValue = find.value
             editing = .confirming(find.id)
+            if correcting { DispatchQueue.main.async { valueFocused = true } }
         }
     }
 

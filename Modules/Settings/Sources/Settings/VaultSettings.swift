@@ -208,7 +208,7 @@ struct VaultSettingsTab: View {
             }
             SettingsSection(
                 "Set Aside",
-                caption: "IDs you marked Not a Real ID, or removed after adding them from a document. Discover More doesn’t offer them again until you forget them; then the next read opens every file again."
+                caption: "IDs you marked Not an ID, or removed after adding them from a document. Discover More doesn’t offer them again until you forget them; then the next read opens every file again."
             ) {
                 SettingsRow("IDs set aside") {
                     HStack(spacing: 8) {
@@ -216,7 +216,7 @@ struct VaultSettingsTab: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                         // No question first: forgetting only lets the next read offer them again,
-                        // and Not a Real ID sets each one aside once more.
+                        // and Not an ID sets each one aside once more.
                         Button("Forget") {
                             VaultSetAside.forget()
                             SettingsWindowLog.log("vault.setAside", "forgotten")

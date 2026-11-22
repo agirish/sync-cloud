@@ -16192,7 +16192,12 @@ page left out is read again next time, and a date of birth drawn in full keeps t
 screen sharing as an ID does. Then batch 4: a byte-identical copy is read once, originals are read
 first, one Confirm seals the reading file once, the panel's lists (rows shown, cards, counts, People,
 refresh sources) are worked out once per change rather than at every second's redraw, and a document's days left are one rule. Batch 5 is tests, and the types that printed a number, a name or a
-date of birth in full no longer do.
+date of birth in full no longer do. Then the detail pane lost its ⋯ menu: a To confirm ID has Add to
+Vault…, Correct the ID… (the editor, with the cursor in the ID) and Not an ID… side by side; a Tab
+row under Used In shows the tab with the Vault's reason (`VaultStanding.reason`, "You moved it
+here" for a choice either way, `VaultStanding.movedByYou`) and a note with Undo when a move takes
+the ID out of the list; the right-click menu matches; another person's card under an ID says whose
+it is (`VaultModel.otherHolder`); and Anywhere is Every Country. Nothing sealed changes.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
