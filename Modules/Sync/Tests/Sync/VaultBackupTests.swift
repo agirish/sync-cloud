@@ -231,6 +231,57 @@ import Testing
         #expect(try Data(contentsOf: try #require(kept.first)) == before, "byte for byte what was there")
     }
 
+    /// A backup holding a record a later build wrote (a kind this one does not know) still puts
+    /// back every record this build can read (VT30).
+    @Test func aBackupWithALaterBuildsRecordRestoresTheRest() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase("correct horse battery")
+        let url = try backup.write([Self.mortgage, Self.passport])
+        // Rewrite it as a later build would: one more record, of a kind this build has never seen.
+        let passphrase = "correct horse battery"
+        let sealed = try Data(contentsOf: url)
+        let head = Data(sealed.prefix(28))
+        let key = try #require(VaultBackupFile.key(passphrase: passphrase, salt: Data(head.suffix(16)),
+                                                   rounds: VaultBackupFile.rounds))
+        var object = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(sealed, marker: head, with: key)) as? [String: Any])
+        var list = try #require(object["entries"] as? [[String: Any]])
+        var later = list[0]
+        later["id"] = UUID().uuidString
+        later["value"] = "LATER000001"
+        later["category"] = "bankAccount"
+        list.append(later)
+        object["entries"] = list
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), marker: head, with: key)
+            .write(to: url)
+
+        let contents = try backup.read(url).get()
+        #expect(contents.laterRecords == 1)
+        #expect(await backup.restore(contents, mode: .addMissing) == .success(2))
+        #expect(try rig.store.load().map(\.title).sorted() == [Self.mortgage.title, Self.passport.title].sorted())
+    }
+
+    /// Replace keeps what the activity list held, and the backups kept before each save: under
+    /// the same key they are still this Mac's.
+    @Test func replaceKeepsTheActivityListAndTheBackups() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage])
+        try rig.seed([Self.mortgage, Self.passport])
+        let backups = rig.store.backups
+        #expect(!backups.isEmpty)
+        VaultActivityStore.beside(rig.store, keychain: rig.keychain)
+            .append([VaultActivityEvent(at: VaultLockTests.t0, kind: .copied, what: "Passport")], now: VaultLockTests.t0)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
+        #expect(await backup.restore(contents, mode: .replace) == .success(1))
+        #expect(VaultActivityStore.beside(rig.store, keychain: rig.keychain).load().contains { $0.kind == .copied },
+                "the activity list went with the Replace")
+        #expect(Set(backups).isSubset(of: Set(rig.store.backups)), "the backups went with the Replace")
+    }
+
     /// The short-list guard (VT20) stops a save that drops several records at once. Replace is
     /// the one act that does, on purpose, and it saves onto no file: what was there is set aside.
     @Test func theShortListGuardNeverStopsAReplace() async throws {
@@ -239,12 +290,17 @@ import Testing
         let gym = VaultEntry(title: "Gym membership", value: "GYM0000001", addedAt: VaultLockTests.t0)
         try rig.seed([Self.mortgage, library, gym])
         #expect(throws: VaultError.wouldDrop(3)) { try rig.store.save([Self.passport]) }
+        let before = try Data(contentsOf: rig.store.fileURL)
         let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
         let backup = Self.backup(rig, folder: folder)
 
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.passport])
         #expect(await backup.restore(contents, mode: .replace) == .success(1))
         #expect(try rig.store.load() == [Self.passport])
+        let vaultFolder = rig.store.fileURL.deletingLastPathComponent()
+        let aside = try #require(try FileManager.default.contentsOfDirectory(atPath: vaultFolder.path)
+            .first { $0.hasPrefix("vault.sealed.set-aside-") }, "the old Vault was not set aside")
+        #expect(try Data(contentsOf: vaultFolder.appendingPathComponent(aside)) == before)
     }
 
     @Test func aVaultThisMacCannotOpenCanBeReplacedFromABackup() async throws {

@@ -16178,7 +16178,12 @@ and gained "Expires in N days" within six months. Then each spelling of a person
 role (`VaultNameRole`, `VaultNameRoles` sealed in `VaultReadingState.nameRoles`, an optional field an
 older file opens without), a likely misreading is flagged, and rows stop at two columns (`VaultTwoUp`). A chosen role
 or Misread now shows at once rather than at the next second's redraw. A name correction made
-everywhere is kept only when the save it came with is. What a stopped read found is sealed at once.
+everywhere is kept only when the save it came with is. What a stopped read found is sealed at once. Then, after a review: backups are ordered by a count, pruned only after
+a save lands and not repeated by one that keeps failing; the short-list guard counts IDs; a field
+a later build added is kept through a save; a lost key's leftover files, the activity list among
+them, are set aside before a new key; a reading file with no key, or one that will not move, is
+never written over; a stopped refresh still asks about a saved ID's changed document; and Set
+Aside and Replace leave the backups and the activity list in place.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

@@ -169,6 +169,95 @@ import Testing
         #expect(!model.finds.contains { $0.value == "XZB123456780" }, "Keep Mine sets the other reading aside")
     }
 
+    /// Stops the read it serves as it opens `stopAt`, as Stop on the banner does.
+    final class StopsAt: VaultDocumentReading, @unchecked Sendable {
+        let shelf: Shelf
+        let stopAt: String
+        init(_ shelf: Shelf, stopAt: String) { self.shelf = shelf; self.stopAt = stopAt }
+        func files() async -> [URL] { await shelf.files() }
+        func pages(in file: URL) async -> [[String]] {
+            if file.path == stopAt { withUnsafeCurrentTask { $0?.cancel() } }
+            return await shelf.pages(in: file)
+        }
+        func stamp(of file: URL) -> String? { shelf.stamp(of: file) }
+        func modified(of file: URL) -> Date? { shelf.modified(of: file) }
+        var followsReadPlan: Bool { shelf.followsReadPlan }
+        func exists(_ file: URL) -> Bool { shelf.exists(file) }
+    }
+
+    /// Keep Mine or Use the New Reading is asked as a refresh finishes. Stopped after it opened a
+    /// saved ID's own document, the refresh leaves that document to be opened again, so the next
+    /// one, after a quit, still asks (the review of VT68).
+    @Test func aStoppedRefreshStillAsksAboutASavedIDsDocumentNextTime() async throws {
+        let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        let saved = try #require(model.confirm(find.id, as: VaultModel.Draft(find)))
+        var misread = Self.card(group: "0012345")
+        misread[2] = "Member ID: XZB123456780"
+        shelf.write(Self.dental, misread)
+        shelf.write(Self.passport, VaultToConfirmTests.passportPage)   // changed too, and opened after
+
+        await Task { await model.readDocuments(with: StopsAt(shelf, stopAt: Self.passport), scope: .refresh()) }.value
+        #expect(shelf.opened.contains(Self.dental), "the saved ID's document was opened before Stop")
+        #expect(model.rereads.isEmpty, "a stopped refresh asks nothing")
+
+        let after = rig.model()
+        await after.opened()
+        await after.readDocuments(with: shelf, scope: .refresh())
+        let waiting = try #require(after.finds.first { $0.value == "XZB123456780" })
+        #expect(after.rereads[saved] == waiting.id, "the question was lost with the Stop")
+    }
+
+    /// A refresh that finishes marks the saved IDs' own documents read, so the next one, with
+    /// nothing changed, opens none of them again.
+    @Test func aFinishedRefreshMarksASavedIDsDocumentRead() async throws {
+        let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        _ = try #require(model.confirm(find.id, as: VaultModel.Draft(find)))
+        shelf.write(Self.dental, Self.card(group: "0099999"))
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened.contains(Self.dental))
+        shelf.forgetOpened()
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(!shelf.opened.contains(Self.dental), "opened again with nothing changed")
+    }
+
+    /// The same past the seal every 25 files: a saved ID's own document opened first, sealed with
+    /// the 25th, then Stop. Its read mark waits for the refresh's end, so the next one still asks.
+    @Test func aRefreshStoppedAfterItsSealStillAsksNextTime() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        VaultReadFolders.add(Self.root, in: rig.defaults)
+        let plans = (10..<40).map { Self.root + "/Health/Plan \($0)/ID Cards/card.pdf" }
+        var pages = [Self.dental: Self.card(group: "0012345")]
+        for (n, path) in zip(10..<40, plans) {
+            pages[path] = ["Delta Dental", "Member Name: ANNA ERIKSSON", "Member ID: XZB1000000\(n)"]
+        }
+        let shelf = Shelf(pages)
+        let model = rig.model()
+        await model.opened()
+        await model.readDocuments(with: shelf)
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        let saved = try #require(model.confirm(find.id, as: VaultModel.Draft(find)))
+        var misread = Self.card(group: "0012345")
+        misread[2] = "Member ID: XZB123456780"
+        shelf.write(Self.dental, misread)
+        for path in plans { shelf.write(path, pages[path]!) }   // all changed, opened after the card
+
+        await Task { await model.readDocuments(with: StopsAt(shelf, stopAt: plans[27]), scope: .refresh()) }.value
+        #expect(shelf.opened.count >= 27, "the refresh stopped before the seal it is about")
+
+        shelf.forgetOpened()
+        let after = rig.model()
+        await after.opened()
+        await after.readDocuments(with: shelf, scope: .refresh())
+        let waiting = try #require(after.finds.first { $0.value == "XZB123456780" })
+        #expect(after.rereads[saved] == waiting.id, "sealed as read with the 25th, the card was never asked about")
+        // Only the saved ID's own document waits: what else the stopped refresh read is kept, the
+        // last of it sealed on the way out.
+        #expect(!shelf.opened.contains(plans[0]), "read before the seal, and opened again")
+        #expect(!shelf.opened.contains(plans[26]), "read after the seal, before Stop, and opened again")
+    }
+
     @Test func useTheNewReadingChangesTheSavedIDAfterItsProof() async throws {
         let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
         let find = try #require(model.finds.first { $0.value == "XZB123456789" })

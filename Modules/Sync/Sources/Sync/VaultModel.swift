@@ -1122,7 +1122,9 @@ public final class VaultModel: ObservableObject {
         let wanted = typed.flatMap { $0.isEmpty || $0 == read ? nil : $0 }
         guard let read else { return (wanted, nil) }
         let key = VaultReading.spellingKey(read)
-        if draft.correctEverywhere, !key.isEmpty {
+        // While the reading file is held (VT24) a correction made everywhere could not be sealed:
+        // the name is kept on this ID instead, so it is not lost at the next launch.
+        if draft.correctEverywhere, !key.isEmpty, !readingHeld {
             return (nil, names[key] != wanted ? NameCorrection(key: key, name: wanted) : nil)
         }
         return (wanted ?? (names[key] != nil ? read : nil), nil)
@@ -1300,7 +1302,7 @@ public final class VaultModel: ObservableObject {
             lock.lock()
         }
         lock.expire(at: now)
-        hasSomethingSealed = store.map { $0.hasFile || FileManager.default.fileExists(atPath: $0.readingURL.path) } ?? false
+        hasSomethingSealed = store.map { $0.hasFile || $0.hasReadingFile } ?? false
         // Locked means locked: under "As soon as Vault opens" nothing is read from disk for the
         // panel until the owner has proved it, so a locked Vault holds nothing to show. A Vault
         // with nothing sealed yet has nothing to guard: it is read without asking, for its
@@ -1578,6 +1580,8 @@ public final class VaultModel: ObservableObject {
         rereads = [:]
         names = [:]
         nameRoles = [:]
+        readingLaterFields = nil
+        readingHeld = false
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
         contents = .notLoaded
@@ -1595,11 +1599,26 @@ public final class VaultModel: ObservableObject {
             readGeneration = VaultSetAside.generation(in: defaults)
             switch store.openReading() {
             case .none: break
+            case .keyRefused:
+                // The Keychain would not give the key just now: what the file holds is unknown,
+                // so nothing is sealed over it this run.
+                readingHeld = true
             case .damaged:
                 // What was waiting and every choice made on it are gone with the file: ask for a
                 // read, which finds them again, and keep the file out of the next save's way.
-                store.setAsideReading()
+                // Sealed at once, so Read Again outlives a quit. A file that would not move is
+                // never sealed over: what it holds (name corrections, roles, lessons) is the
+                // user's own, and nothing seals this run.
                 needsReadAgain = true
+                if store.setAsideReading() == nil, store.hasReadingFile {
+                    readingHeld = true
+                    Logger.shared.warning("Vault: the reading file that did not open stays where it is, and nothing read this time is sealed")
+                } else {
+                    // Sealed only under a key already here: opening the panel makes none. With
+                    // no key, the first save that does seals Read Again with it.
+                    readingChanged = true
+                    if store.hasKey { saveReading() }
+                }
             case .loaded(let state):
                 // Another build's rules, or a Forget since: read every file again next time.
                 // What another build read is let go with it, as its finds were made by older
@@ -1627,6 +1646,7 @@ public final class VaultModel: ObservableObject {
                 lastDiscovered = state.lastDiscovered
                 names = state.names
                 nameRoles = state.nameRoles ?? [:]
+                readingLaterFields = state.laterFields
                 // Merged by an older build of the same rules: rebuilt, so each names the document
                 // it is read from and copies are weighed as they are now.
                 if sameRules { finds = finds.map { rebuilt($0, VaultReading.normalized($0.value)) } }
@@ -1873,6 +1893,9 @@ public final class VaultModel: ObservableObject {
             try store.save(changed)
             entries = changed
             notice = nil
+            // What was waiting to be sealed with a key (Read Again after a damaged reading file,
+            // on a Mac that had none) is sealed now that this save has made one.
+            saveReading()
             return true
         } catch let error as VaultError {
             notice = Self.message(for: error)
@@ -2011,6 +2034,12 @@ public final class VaultModel: ObservableObject {
         let rowsBefore: [UUID: Row] = scope.isRefresh && !afterNewRules
             ? Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) : [:]
         let waitingBefore = Set(finds.map(\.id))
+        // A refresh asks Keep Mine or Use the New Reading only as it finishes, about saved IDs whose
+        // own document it opened. Those documents are marked read only then: marked as they are
+        // opened, a Stop, a lock or a quit before the end (or the seal every 25 files) would keep
+        // them from being opened, and asked about, again.
+        let ownDocuments = scope.isRefresh ? Set(entries.compactMap { $0.sourcePath ?? $0.facts?.primary?.path }) : []
+        var ownStamps: [String: String] = [:]
         var readNow: [String: [VaultFind]] = [:]
         var tally = VaultReadTally()
         tally.documents = files.count
@@ -2048,7 +2077,8 @@ public final class VaultModel: ObservableObject {
         for (index, step) in steps.enumerated() {
             let file = step.file
             // Stopped, or the panel closed or the Mac locked, letting the numbers go. What was
-            // read so far is sealed: by the release, or on the way out (the `defer` above).
+            // read so far is sealed: by the release, or on the way out (the `defer` above). A
+            // restore lets it go unsealed, on purpose: the restored Vault's file is not written over.
             if Task.isCancelled || contents != .loaded { return stopped(at: index) }
             if !scope.isRefresh, let account = step.account, settled.contains(account) {
                 reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
@@ -2113,7 +2143,9 @@ public final class VaultModel: ObservableObject {
                     for value in bare where bareSeen[account]?[value] == nil { bareSeen[account, default: [:]][value] = file.path }
                 }
             }
-            if let stamp { readIndex[file.path] = stamp }
+            if let stamp {
+                if ownDocuments.contains(file.path) { ownStamps[file.path] = stamp } else { readIndex[file.path] = stamp }
+            }
             settle(step)
             readingChanged = true
             reading = ReadingProgress(done: index + 1, total: steps.count, scope: scope)
@@ -2148,6 +2180,7 @@ public final class VaultModel: ObservableObject {
                     rereads[entry.id] = waiting.id
                 }
             }
+            readIndex.merge(ownStamps) { _, own in own }
             let gone = waitingBefore.subtracting(finds.map(\.id)).count
             finishRefresh(only: only, afterNewRules: afterNewRules)
             readingChanged = true
@@ -2310,11 +2343,18 @@ public final class VaultModel: ObservableObject {
 
     /// Seals To Confirm and the record of read files. A refusal is logged and otherwise let go:
     /// the next read rebuilds whatever was lost.
+    /// What a later build stored in the reading file that this one does not read: sealed back
+    /// with it (``VaultReadingState/laterFields``).
+    private var readingLaterFields: Data?
+    /// The reading file did not open and would not move aside: nothing is sealed over it until
+    /// the Vault is opened again (VT24).
+    private var readingHeld = false
+
     func saveReading() {
         // Never once the numbers are let go: what is in memory then is nothing, and sealing it
-        // would write that over what was read.
-        guard readingChanged, contents == .loaded, let store else { return }
-        let state = VaultReadingState(generation: readGeneration, finds: finds, read: readIndex,
+        // would write that over what was read. Never over a damaged file that would not move.
+        guard readingChanged, contents == .loaded, !readingHeld, let store else { return }
+        var state = VaultReadingState(generation: readGeneration, finds: finds, read: readIndex,
                                       mentions: mentions, copies: copies, choices: choices,
                                       needsReadAgain: needsReadAgain, lessons: lessons,
                                       staleSources: staleSources.isEmpty ? nil : staleSources.sorted(),
@@ -2322,6 +2362,7 @@ public final class VaultModel: ObservableObject {
                                       needsDiscover: needsDiscover ? true : nil,
                                       lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
                                       nameRoles: nameRoles.isEmpty ? nil : nameRoles)
+        state.laterFields = readingLaterFields
         do {
             try store.saveReading(state)
             readingChanged = false

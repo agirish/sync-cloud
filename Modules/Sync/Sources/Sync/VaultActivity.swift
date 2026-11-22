@@ -112,8 +112,7 @@ public struct VaultActivityStore {
     /// `vault-activity.sealed`, beside the Vault's file.
     public static func beside(_ store: VaultStore, keychain: KeychainStore = SecItemKeychainStore(),
                               fileManager: FileManager = .default) -> VaultActivityStore {
-        VaultActivityStore(fileURL: store.fileURL.deletingLastPathComponent().appendingPathComponent("vault-activity.sealed"),
-                           keychain: keychain, fileManager: fileManager)
+        VaultActivityStore(fileURL: store.activityURL, keychain: keychain, fileManager: fileManager)
     }
 
     private var key: SymmetricKey? {
@@ -134,6 +133,19 @@ public struct VaultActivityStore {
     /// and let go; the list is a record, not something to fail an act over.
     public func append(_ events: [VaultActivityEvent], now: Date) {
         guard !events.isEmpty, let key else { return }
+        // A list there that does not open (damaged, a later build's, another key's) is set aside
+        // under a name of its own, never sealed over.
+        if let data = fileManager.contents(atPath: fileURL.path),
+           (try? VaultFile.open([VaultActivityEvent].self, data, marker: Self.marker, with: key)) == nil {
+            let aside = UnreadableSetAside.destination(for: fileURL, at: now, fileManager: fileManager)
+            do {
+                try fileManager.moveItem(at: fileURL, to: aside)
+                Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and was set aside as \(aside.lastPathComponent)")
+            } catch {
+                Logger.shared.warning("Vault: the activity list did not open (\(VaultFile.summary(of: data))) and could not be set aside — nothing was added to it")
+                return
+            }
+        }
         let kept = (events.sorted { $0.at > $1.at } + load())
             .filter { now.timeIntervalSince($0.at) < Self.keptFor }
             .prefix(Self.limit)

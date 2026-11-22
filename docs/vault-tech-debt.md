@@ -48,7 +48,7 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 1. ~~Wait for the branches in flight to land.~~ Done.
 2. ~~**Safety net:** VT55, VT20, VT21, VT30, VT24.~~ Done (see Closed). A format change from here on
    adds a fixture beside the old ones (`VaultFormatTests`, `VAULT_WRITE_FORMAT_FILES=1`).
-3. **Internal bugs:** VT58 (the main-actor half), VT52, VT54, VT59, VT73 (a, c);
+3. **Internal bugs:** VT58 (the main-actor half), VT52, VT54, VT73 (a, c);
    VT100 is the owner's call.
 4. **Efficiency:** VT107 (its safe half first), VT9, VT10, VT65, VT66, VT102, VT67, VT82, VT83,
    VT84, VT85, VT77, VT78.
@@ -68,18 +68,19 @@ new items VT99–VT107. IDs (`VT…`) are stable: never renumber, cite them in c
 | VT36 screen capture | `7131333ca` (VF9) | VT73 |
 | VT40–VT43, VT45 reader bugs | `97e4f41ce`, redone `f7e441a7a` (v16) and `fd0377535` (v17) | VT88–VT92 |
 | VT44 EXIF orientation | not a defect, measured 2026-11-20: do not re-propose | none |
-| VT55 one sealed-file writer | "Vault: one sealed-file writer, backups before each save" (2026-11-21): `SealedFile.write` (owner-only before the swap, a refused chmod logged, the injected `FileManager` everywhere); the backup seals through `VaultFile.sealPlain` with its header as the marker | none |
-| VT20 rolling backups | the same commit: ten `vault-backup-<stamp>-NNN.sealed` beside the Vault's, newest first in `store.backups`; a save dropping more than one record throws `wouldDrop` unless `allowingDrops`; a set-aside takes the backups with it | VF6 reads `store.backups` |
-| VT21 golden files | the same commit: `Fixtures/Vault/` holds the Vault (formats 1, 2), the reading file (1, 2), a backup and the activity list | a fixture per later format change |
-| VT30 one bad record | the same commit: records decode one by one and a later build's go back untouched (`VaultRecords.newer`, `newerRecords` on the model); a backup restores what it can read (`laterRecords`); the activity list keeps a later kind's words | a panel line for `newerRecords` is new copy: owner's call |
-| VT24 silent failures | the same commit: both failures logged with size and marker only; a damaged reading file is renamed `…unreadable-<secs>`, never reset, and raises Read Again | where `names`, `nameRoles`, `lessons` live is VT6 |
+| VT55 one sealed-file writer | `deb831324`, hardened by two reviews (2026-11-21): `SealedFile.write` makes the file owner-only before the swap, logs a refused chmod, writes through a link to the file and replaces a dangling one, and falls back to a temporary file beside it (no leading dot) on a volume with no replacement folder; the store, backups, reading file and activity list use their injected `FileManager` (the app passes `.default`); the backup seals through `VaultFile.sealPlain` with its header as the marker | a crash mid-write on a volume with no replacement folder leaves its `<name>.writing-<UUID>` behind, unswept |
+| VT20 rolling backups | `deb831324` and two reviews: ten `vault-backup-<count>-<UTC time>.sealed` beside the Vault's, ordered by a count that only grows (a clock put back cannot prune the newest; `deb831324`'s `vault-backup-<time>-NNN.sealed` names sort as the oldest), pruned only after the new file is in, and not written again when the newest already holds those bytes (a save that keeps failing rotates nothing away); only names the store gives count as backups, so nothing else is ever pruned; a save removing more than one *ID* throws `wouldDrop` unless `allowingDrops`; Set Aside and Replace leave the backups and the activity list in place (same key: Go Back reaches past a Replace), and a new key is made only after a lost key's backups, reading file and activity list are set aside | VF6 reads `store.backups` |
+| VT21 golden files | `deb831324` and review 1: `Fixtures/Vault/` holds the Vault (formats 1, 2), the reading file (1, 2), a backup and the activity list, each pinned by SHA-256 so one made again by a later build fails; the backup's resealed JSON is compared too | a fixture per later format change |
+| VT30 one bad record | `deb831324` and two reviews: records decode one by one and a later build's go back untouched (`VaultRecords.newer`, `newerRecords` on the model); a field a later build added to a record this build reads (outside `VaultEntry.storedKeys`), and to the reading file's top level (`VaultReadingState.laterFields`), is merged back when sealed; a backup restores what it can read (`laterRecords`); the activity list keeps a later kind's words, and one that does not open is set aside, not sealed over | not kept: a later field nested inside a record (in `facts`), a later field on an activity event, a later build's records in a passphrase backup (it carries `entries` only). Owner's call: a later field outlives an edit made here (a field derived from `value` would then disagree with it); two records sharing an id share its later fields. A panel line for `newerRecords` is new copy |
+| VT24 silent failures | `deb831324` and two reviews: both failures logged with size and marker only; a damaged reading file, or one with no key to open it, is renamed aside under a name of its own (`UnreadableSetAside`), never reset, and Read Again is sealed so it outlives a quit (under a key already here; opening the panel makes none, so on a Mac with none it is sealed by the first save that does); one that will not move, or whose key the Keychain withholds for now (`ReadingLoad.keyRefused`), is never sealed over that run, and Everywhere then keeps the typed name on the ID itself | while held nothing read that run is sealed, and nothing says so but the log: a line for it is new copy, owner's call. Where `names`, `nameRoles`, `lessons` live is VT6 |
 | VT56 Replace sets aside first | `5e33b3c47`: a failed save puts what was set aside back | sealing before the set-aside is not done: on a Mac whose key is gone it would make the new key while the old file is still in place, turning "key missing" into "wrong key" if the set-aside then failed |
 | VT57 Add Missing duplicates an id | `5e33b3c47`: `VaultEntry.reissued()`, `id` is `private(set)` | none |
 | VT99 a role change publishes nothing | "Vault: a chosen name role shows at once" (2026-11-21): `names` and `nameRoles` are `@Published`; Also used, Misread and its undo each tell the view | none |
 | VT101 a role change rebuilds every row | the same commit: `nameRoles` no longer moves `rowsRevision`, which tests can now read | none |
-| VT63 a name correction sealed before its save | "Vault: a refused save makes no name correction" (2026-11-21): `storedName` returns the correction and `apply(_:)` makes and seals it only after `write`, for Confirm and Edit alike. The old order also reached the disk: a later seal wrote it | none |
-| VT68 Stop loses up to 24 files' reads | "Vault: Stop keeps what was read on disk" (2026-11-21): `readDocuments` seals on every way out (its `defer`), a no-op when nothing changed or the numbers were let go | none |
-| VT104 waiting finds merged again at every open | not done, measured 2026-11-21: 200 finds × 6 copies merge in ~60 ms per open (Debug; Release unmeasured, lower). The rebuild is what carries a merge change made without a `VaultReading.version` bump (as `vault-source` was) onto waiting IDs; skipping "already merged" finds would freeze the next such change, and a second hand-bumped revision costs more than it saves. Do not re-propose without a profile showing it | none |
+| VT63 a name correction sealed before its save | `976b30712`: `storedName` returns the correction and `apply(_:)` makes and seals it only after `write`, for Confirm and Edit alike (the old code sealed it inside `storedName`, before the save) | none |
+| VT68 Stop loses up to 24 files' reads | `f95e61078` and two reviews: `readDocuments` seals on every way out (a no-op when nothing changed or the numbers were let go), and a Vault save seals what is waiting; during a refresh the saved IDs' own documents are marked read only once it has worked out Keep Mine or Use the New Reading, so a Stop, a lock, a quit or the seal every 25 files before then leaves them to be opened, and asked about, again | a stopped refresh's "Updated" marks for what it had opened are not shown by the next one |
+| VT59 set-aside leaves the activity file | two reviews (2026-11-21): the activity list is set aside with a lost key's other files before a new key is made (`keyForWriting`), and stays in place on a Set Aside or Replace under the same key; `setAside`, `moveAside`, `putBack` and `Aside` live in `VaultStore.swift`, and `setAside` uses the store's own `FileManager` | none |
+| VT104 waiting finds merged again at every open | not done, measured 2026-11-21 (a throwaway timing test, not kept): 200 finds × 6 copies merge in ~60 ms per open (Debug; Release unmeasured, lower). The rebuild is what carries a merge change made without a `VaultReading.version` bump (as `vault-source` was) onto waiting IDs; skipping "already merged" finds would freeze the next such change. If a profile ever shows it: key the rebuild on the build that sealed the file (an automatic identity such as the executable's LC_UUID, kept in the reading state), never on a hand-bumped number | none |
 
 ---
 
@@ -130,20 +131,6 @@ derivations are open.*
   - Give `VaultBackup` an internal `rounds` parameter that tests set to `leastRounds`.
 - **Done when:** no PBKDF2 call runs on the main actor, and the tests derive at `leastRounds`.
 
-**VT59 — Set-aside: the activity file is left behind, and the code lives in the wrong file.**
-*Checked.*
-- **The problem.**
-  - `VaultStore.moveAside(at:fileManager:)` (`VaultBackup.swift`, beside `Aside` and `putBack`) moves
-    the Vault's file, the reading file and, since VT20, the backups kept before each save, but not the
-    activity file. After a missing-key set-aside a new key is made, and the old activity file
-    is overwritten on the next append (`VaultActivity.swift:107`). That breaks "kept for the day its key
-    turns up".
-  - It is an extension in `VaultBackup.swift` only because VaultStore was another session's at the
-    time.
-- **Done when:**
-  - the activity file moves with the others;
-  - `setAside`, `moveAside`, `putBack` and `Aside` live in `VaultStore.swift`.
-
 **VT3 — Drop shims for builds that never shipped.** *Open.*
 - **The problem.** These remain:
   - `VaultEntry.Kind` (`VaultEntry.swift:11`), `older` (`:55`), `kind` still encoded (`:107`) and kept
@@ -157,7 +144,9 @@ derivations are open.*
 - **Done when:** one migration rewrites the owner's file, and the shims and their tests are gone.
   Unblocked: VT20's backups and VT21's fixtures are in, and `chosenSource` has landed in the same
   `CodingKeys`. The migration saves with `allowingDrops: false` (it drops nothing), adds a new
-  fixture format, and keeps `vault-format-1` opening.
+  fixture format, and keeps `vault-format-1` opening. A key taken out of `CodingKeys` is no longer one this build reads, so
+  `VaultFile.openRecords` would keep it as a later build's field and seal it back: the migration
+  strips the retired keys (`kind`, `older`, `dated`, `sourcePath`) itself.
 
 ## B. The model
 

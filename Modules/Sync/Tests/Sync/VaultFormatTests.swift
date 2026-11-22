@@ -15,10 +15,24 @@ import Testing
 
     // MARK: The committed files (VT21)
 
+    /// Each committed file's SHA-256, so a deleted one made again by today's build (which would
+    /// pin nothing) is caught.
+    static let fixtureDigests = [
+        "vault-format-1": "395698fe0a1221661a3ef299c63cafb1056199e4253f4d31e96d3d61ab9a0b54",
+        "vault-format-2": "aea993a8c3a1cd21082df06d4699e95b6eafa41471ef6819d77b8a179b91429f",
+        "vault-reading-format-1": "dfea3a1d18ce338ad86da7357d860940c0916df3be5c7d675ac6c586563b2e01",
+        "vault-reading-format-2": "d9d2f4c085a4949f0aa6f911897b9602d7ab1132afd5e1e964dc118b349a5aba",
+        "vault-backup-format-1": "e8804f03ce79d39910a34e70e60fedb212c86ce50019c09aaa9ddbd36633735b",
+        "vault-activity-format-1": "f71977411a8302757bc866c370ae41786dbc1d76ec1d818f525d1bd445eb1232",
+    ]
+
     static func fixture(_ name: String) throws -> Data {
         let url = try #require(Bundle.module.url(forResource: name, withExtension: "sealed",
                                                  subdirectory: "Fixtures/Vault"))
-        return try Data(contentsOf: url)
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        #expect(digest == fixtureDigests[name], "\(name) is not the committed file: a format file is never made again")
+        return data
     }
 
     /// Every field a record can store, set: a typed number, a read one, a household one on another
@@ -213,6 +227,11 @@ import Testing
         // Sealed again with the same salt and work, it holds the same JSON (the nonce differs).
         let again = try VaultBackupFile.seal(contents, passphrase: Self.backupPassphrase,
                                              rounds: VaultBackupFile.leastRounds, salt: Self.backupSalt)
+        let backupKey = try #require(VaultBackupFile.key(passphrase: Self.backupPassphrase, salt: Self.backupSalt,
+                                                         rounds: VaultBackupFile.leastRounds))
+        #expect(try VaultFile.openPlain(again, marker: Data(again.prefix(28)), with: backupKey)
+                == VaultFile.openPlain(sealed, marker: Data(sealed.prefix(28)), with: backupKey),
+                "what a backup writes changed")
         #expect(again.prefix(28) == sealed.prefix(28), "the header changed")
         #expect(try VaultBackupFile.open(again, passphrase: Self.backupPassphrase) == contents)
     }
@@ -253,9 +272,14 @@ import Testing
 
     /// A sealed file holding `entries`, then one record per `changes`, each a copy of the first
     /// entry with those fields set as a later build might.
-    static func sealed(_ entries: [VaultEntry], plus changes: [[String: Any]]) throws -> Data {
+    static func sealed(_ entries: [VaultEntry], plus changes: [[String: Any]],
+                       laterOnFirst: [String: Any] = [:]) throws -> Data {
         let encoder = JSONEncoder.vault
         var list = try entries.map { try JSONSerialization.jsonObject(with: encoder.encode($0)) }
+        if !laterOnFirst.isEmpty, var first = list.first as? [String: Any] {
+            first.merge(laterOnFirst) { _, new in new }
+            list[0] = first
+        }
         for (index, change) in changes.enumerated() {
             var record = try #require(list.first as? [String: Any])
             record["id"] = UUID(uuidString: String(format: "00000000-0000-0000-0000-0000000001%02d", index))!.uuidString
@@ -294,7 +318,10 @@ import Testing
         let entries = Array(try Self.formatEntries().prefix(2))
         try FileManager.default.createDirectory(at: rig.scratch.fileURL.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try Self.sealed(entries, plus: [["category": "bankAccount", "extra": ["a": 1]]]).write(to: rig.scratch.fileURL)
+        // A later build's record, and a later build's field on a record this one reads: decoded
+        // one by one, the field is still kept.
+        try Self.sealed(entries, plus: [["category": "bankAccount", "extra": ["a": 1]]],
+                        laterOnFirst: ["expiresReminder": ["days": 30]]).write(to: rig.scratch.fileURL)
         let before = try VaultFile.openRecords(Data(contentsOf: rig.scratch.fileURL), with: Self.key).newer
 
         let model = rig.model()
@@ -308,6 +335,9 @@ import Testing
         let after = try VaultFile.openRecords(Data(contentsOf: rig.scratch.fileURL), with: Self.key)
         #expect(after.entries.count == 3)
         #expect(after.newer == before, "a later build's record changed on its way back to disk")
+        let later = try #require(after.laterFields[entries[0].id])
+        #expect((try JSONSerialization.jsonObject(with: later) as? [String: [String: Int]]) == ["expiresReminder": ["days": 30]],
+                "a later build's field on a readable record was dropped")
     }
 
     // MARK: Backups and the short-list guard (VT20)
@@ -337,8 +367,8 @@ import Testing
         let key = SymmetricKey(data: try #require(keychain.itemData))
         let kept = try store.backups.map { try VaultFile.open(Data(contentsOf: $0), with: key).map(\.title) }
         #expect(kept == [["Number 1", "Number 2"], ["Number 1"]], "newest first")
-        #expect(store.backups.map(\.lastPathComponent) == ["vault-backup-20270115T080002.000Z-001.sealed",
-                                                           "vault-backup-20270115T080001.000Z-001.sealed"])
+        #expect(store.backups.map(\.lastPathComponent) == ["vault-backup-00000002-20270115T080002.000Z.sealed",
+                                                           "vault-backup-00000001-20270115T080001.000Z.sealed"])
         for url in store.backups {
             #expect(url.deletingLastPathComponent() == scratch.fileURL.deletingLastPathComponent())
             let mode = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
@@ -361,9 +391,10 @@ import Testing
         #expect(counts == Array((3...(VaultStore.backupsKept + 2)).reversed()))
     }
 
-    /// A Vault set aside takes its backups with it: they open only with its key, and left in
-    /// place the new Vault's saves would prune them.
-    @Test func settingAsideTakesTheBackupsWithTheVault() throws {
+    /// Set Aside moves the Vault's file and what was read, and leaves the backups and the
+    /// activity list where they are: under the same key they are still this Mac's. A new key's
+    /// saves, after the key is lost, never reach them: they are set aside before it is made.
+    @Test func settingAsideLeavesTheBackupsUntilANewKeyIsMade() throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let keychain = VaultFakeKeychain()
         let ticker = Ticker()
@@ -371,21 +402,82 @@ import Testing
         try store.save([Self.entry(1)])
         try store.save([Self.entry(1), Self.entry(2)])
         try store.save([Self.entry(1), Self.entry(2), Self.entry(3)])
+        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: Self.day, kind: .unlocked)], now: Self.day)
         let before = try store.backups.map { try Data(contentsOf: $0) }
         #expect(before.count == 2)
 
         #expect(store.setAside(at: Self.day))
-        #expect(store.backups.isEmpty)
+        #expect(!store.hasFile)
+        #expect(try store.backups.map { try Data(contentsOf: $0) } == before, "the backups moved with a Set Aside")
+        #expect(FileManager.default.fileExists(atPath: store.activityURL.path), "the activity list moved with a Set Aside")
+
+        // The key goes too: a new key's saves never reach the old backups.
+        keychain.itemData = nil
+        for n in 1...(VaultStore.backupsKept + 2) { try store.save((1...n).map(Self.entry)) }
         let folder = scratch.fileURL.deletingLastPathComponent()
         let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasPrefix("vault-backup-") && $0.contains(".set-aside-") }.sorted(by: >)
         #expect(try aside.map { try Data(contentsOf: folder.appendingPathComponent($0)) } == before)
+    }
 
-        // A new key's saves never reach them.
-        keychain.itemData = nil
-        for n in 1...(VaultStore.backupsKept + 2) { try store.save((1...n).map(Self.entry)) }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path)
-            .filter { $0.contains(".set-aside-") && $0.hasPrefix("vault-backup-") }.count == 2)
+    /// Only names this store gives a backup are backups: anything else under the prefix is never
+    /// taken for the newest, and never pruned.
+    @Test func aFileThatOnlyLooksLikeABackupIsNeverPruned() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: Ticker().next)
+        try store.save([Self.entry(1)])
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let strays = ["vault-backup-notes.sealed", "vault-backup-20261122.sealed"].map { folder.appendingPathComponent($0) }
+        for stray in strays { try Data("mine".utf8).write(to: stray) }
+        for n in 2...(VaultStore.backupsKept + 3) { try store.save((1...n).map(Self.entry)) }
+        for stray in strays {
+            #expect(FileManager.default.fileExists(atPath: stray.path), "\(stray.lastPathComponent) was pruned")
+            #expect(!store.backups.contains(stray))
+        }
+    }
+
+    /// A link whose file is gone is replaced by the Vault's file, as a whole-file write always did.
+    @Test func aDanglingLinkIsReplaced() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: scratch.fileURL.path,
+                                                   withDestinationPath: scratch.directory.appendingPathComponent("gone/vault.sealed").path)
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain())
+        try store.save([Self.entry(1)])
+        #expect(try store.load() == [Self.entry(1)])
+    }
+
+    /// An activity list that does not open is set aside, never sealed over by the next event.
+    @Test func anActivityListThatDoesNotOpenIsSetAsideNotWrittenOver() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try store.save([Self.entry(1)])
+        let damaged = Data("SCVACTV1 not a sealed box".utf8)
+        try damaged.write(to: store.activityURL)
+        let activity = VaultActivityStore.beside(store, keychain: keychain)
+        activity.append([VaultActivityEvent(at: Self.day, kind: .unlocked)], now: Self.day)
+        #expect(activity.load().map(\.kind) == [.unlocked])
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let aside = try #require(try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .first { $0.hasPrefix("vault-activity.sealed.unreadable-") })
+        #expect(try Data(contentsOf: folder.appendingPathComponent(aside)) == damaged)
+    }
+
+    /// Opening the panel makes no key: a damaged reading file on a Mac with none is set aside,
+    /// and Read Again waits for the first save that makes one.
+    @Test @MainActor func openingThePanelMakesNoKey() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try FileManager.default.createDirectory(at: rig.store.readingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("SCVREAD1 a reading file with no key".utf8).write(to: rig.store.readingURL)
+        let model = rig.model()
+        await model.opened()
+        #expect(rig.keychain.itemData == nil, "opening the panel made a key")
+        #expect(model.needsReadAgain)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        let again = rig.model()
+        await again.opened()
+        #expect(again.needsReadAgain, "the first save did not seal Read Again")
     }
 
     @Test func aSaveThatWouldDropSeveralRecordsIsRefusedAndKeepsTheFile() throws {
@@ -405,6 +497,270 @@ import Testing
         try store.save([three[0], three[2]])
         try store.save([], allowingDrops: true)
         #expect(try store.load().isEmpty)
+    }
+
+    /// The guard counts IDs taken away, not how much shorter the list is: two dropped while two
+    /// are added is refused; one swapped for another is not; and one ID two records share (Add
+    /// Missing made them until 5e33b3c47) goes as one.
+    @Test func theShortListGuardCountsIDsRemoved() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain())
+        try store.save([Self.entry(1), Self.entry(2), Self.entry(3)])
+        #expect(throws: VaultError.wouldDrop(2)) { try store.save([Self.entry(1), Self.entry(4), Self.entry(5)]) }
+        try store.save([Self.entry(1), Self.entry(2), Self.entry(4)])
+
+        var twin = Self.entry(9)
+        twin.title = "Number 9, again"
+        try store.save([Self.entry(1), Self.entry(2), Self.entry(4), Self.entry(9), twin])
+        try store.save([Self.entry(1), Self.entry(2), Self.entry(4)])   // removing 9 removes both
+        #expect(try store.load() == [Self.entry(1), Self.entry(2), Self.entry(4)])
+    }
+
+    /// Backups are ordered by a count that only grows, not by the clock: one made after the
+    /// clock was put back is still the newest, and pruning keeps it.
+    @Test func aClockPutBackStillKeepsTheNewestBackup() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let clock = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, clock: clock.next)
+        for n in 1...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
+        clock.now = Self.day.addingTimeInterval(-86_400 * 365)   // a year back
+        let before = try Data(contentsOf: scratch.fileURL)
+        try store.save((1...(VaultStore.backupsKept + 2)).map(Self.entry))
+        let newest = try #require(store.backups.first)
+        #expect(try Data(contentsOf: newest) == before, "the backup just made was pruned or sorted last")
+        #expect(store.backups.count == VaultStore.backupsKept)
+    }
+
+    /// Backups named before counts (`vault-backup-<time>-NNN.sealed`, on the owner's disk from
+    /// deb831324) sort as the oldest, and are pruned first, never taken for the newest.
+    @Test func backupsNamedBeforeCountsAreTheOldest() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
+        try store.save([Self.entry(1)])
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let old = ["vault-backup-20261122T023916.339Z-001.sealed", "vault-backup-20261122T023944.646Z-001.sealed"]
+        for name in old { try Data(name.utf8).write(to: folder.appendingPathComponent(name)) }
+        try store.save([Self.entry(1), Self.entry(2)])
+        #expect(store.backups.map(\.lastPathComponent).first == "vault-backup-00000001-20270115T080001.000Z.sealed")
+        #expect(Array(store.backups.map(\.lastPathComponent).suffix(2)) == old.reversed())
+        for n in 3...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
+        #expect(!store.backups.contains { old.contains($0.lastPathComponent) }, "the oldest were not pruned first")
+        #expect(store.backups.count == VaultStore.backupsKept)
+    }
+
+    /// A disk that refuses to put the Vault's own file in place, and nothing else.
+    final class RefusesTheVaultFile: FileManager, @unchecked Sendable {
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if dstURL.lastPathComponent == "vault.sealed" { throw CocoaError(.fileWriteNoPermission) }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+        override func replaceItem(at originalItemURL: URL, withItemAt newItemURL: URL, backupItemName: String?,
+                                  options: FileManager.ItemReplacementOptions = [],
+                                  resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            if originalItemURL.lastPathComponent == "vault.sealed" { throw CocoaError(.fileWriteNoPermission) }
+            try super.replaceItem(at: originalItemURL, withItemAt: newItemURL, backupItemName: backupItemName,
+                                  options: options, resultingItemURL: resultingItemURL)
+        }
+    }
+
+    /// A save that keeps failing keeps one copy of the file it could not replace, and prunes
+    /// nothing: ten failed tries must not rotate ten real saves away.
+    @Test func aSaveThatKeepsFailingRotatesNoBackupsAway() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, clock: ticker.next)
+        for n in 1...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
+        let before = try store.backups.map { try Data(contentsOf: $0) }
+
+        let refusing = VaultStore(fileURL: scratch.fileURL, keychain: keychain, fileManager: RefusesTheVaultFile(),
+                                  clock: ticker.next)
+        for _ in 1...(VaultStore.backupsKept + 2) {
+            #expect(throws: VaultError.notWritten) { try refusing.save((1...20).map(Self.entry)) }
+        }
+        let after = try store.backups.map { try Data(contentsOf: $0) }
+        #expect(after.count == before.count + 1, "one copy of the file it could not replace, not one per try")
+        #expect(Array(after.dropFirst()) == before, "older backups were pruned by saves that failed")
+    }
+
+    /// Owner-only before it is put in place, not after: a disk that checks as the file is swapped
+    /// in sees 0600 every time.
+    final class ChecksModeAtTheSwap: FileManager, @unchecked Sendable {
+        nonisolated(unsafe) var modes: [Int] = []
+        private func note(_ url: URL) {
+            modes.append((try? attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1)
+        }
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if dstURL.pathExtension == "sealed" { note(srcURL) }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+        override func replaceItem(at originalItemURL: URL, withItemAt newItemURL: URL, backupItemName: String?,
+                                  options: FileManager.ItemReplacementOptions = [],
+                                  resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            note(newItemURL)
+            try super.replaceItem(at: originalItemURL, withItemAt: newItemURL, backupItemName: backupItemName,
+                                  options: options, resultingItemURL: resultingItemURL)
+        }
+    }
+
+    @Test func aSealedFileIsOwnerOnlyBeforeItIsPutInPlace() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let disk = ChecksModeAtTheSwap()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), fileManager: disk)
+        try store.save([Self.entry(1)])
+        try store.save([Self.entry(1), Self.entry(2)])          // a replace, and a backup
+        try store.saveReading(VaultReadingState())
+        #expect(disk.modes.count >= 4, "\(disk.modes)")
+        #expect(disk.modes.allSatisfy { $0 == 0o600 }, "\(disk.modes.map { String($0, radix: 8) })")
+    }
+
+    /// A field a later build added to a record this build reads goes back on disk with it, so a
+    /// save here never drops it; a key this build reads (an old one included) is not kept twice.
+    @Test func aLaterBuildsFieldOnARecordSurvivesASave() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        keychain.itemData = Self.key.withUnsafeBytes { Data($0) }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        let entries = Array(try Self.formatEntries())
+        var list = try entries.map { try #require(JSONSerialization.jsonObject(with: JSONEncoder.vault.encode($0)) as? [String: Any]) }
+        list[1]["expiresReminder"] = ["days": 30]
+        try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]),
+                                marker: VaultFile.marker, with: Self.key).write(to: scratch.fileURL)
+
+        let records = try store.loadRecords()
+        #expect(records.entries == entries)
+        #expect(records.laterFields.keys.sorted() == [entries[1].id], "an old key (older, kind) was taken for a later one")
+        var changed = records.entries
+        changed[1].note = "renewed"
+        try store.save(changed)
+        let plain = try VaultFile.openPlain(Data(contentsOf: scratch.fileURL), marker: VaultFile.marker, with: Self.key)
+        let saved = try #require(JSONSerialization.jsonObject(with: plain) as? [[String: Any]])
+        #expect((saved[1]["expiresReminder"] as? [String: Int]) == ["days": 30], "the later build's field was dropped")
+        #expect(saved[1]["note"] as? String == "renewed")
+        #expect(saved[0]["expiresReminder"] == nil)
+        #expect(try store.load() == changed)
+    }
+
+    /// The same for the reading file: a field a later build wrote there survives this build's seal.
+    @Test @MainActor func aLaterBuildsFieldInTheReadingFileSurvivesASeal() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.entry(1)])
+        try rig.store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        let key = SymmetricKey(data: try #require(rig.keychain.itemData))
+        var object = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: rig.store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        object["pinnedPeople"] = ["anna"]
+        try VaultFile.sealPlain(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+                                marker: VaultFile.readingMarker, with: key).write(to: rig.store.readingURL)
+
+        let opened = try #require(rig.store.loadReading())
+        #expect((try JSONSerialization.jsonObject(with: #require(opened.laterFields)) as? [String: Any])?.keys.sorted() == ["pinnedPeople"],
+                "a key this build reads was taken for a later one")
+        let model = rig.model()
+        await model.opened()
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        model.setRole(.alsoUsed, of: "Anna", for: "anna")   // any change to what was read: a seal
+        let after = try #require(JSONSerialization.jsonObject(with: VaultFile.openPlain(
+            Data(contentsOf: rig.store.readingURL), marker: VaultFile.readingMarker, with: key)) as? [String: Any])
+        #expect(after["nameRoles"] != nil, "nothing was sealed")
+        #expect(after["pinnedPeople"] as? [String] == ["anna"], "the later build's field was dropped")
+    }
+
+    /// With no key and no Vault file, a new key is made only after what the lost key sealed
+    /// (backups, what was read, the activity list) is set aside: under the new key those would be
+    /// pruned or written over.
+    @Test func aNewKeyIsMadeOnlyAfterTheLostKeysFilesAreSetAside() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain, clock: ticker.next)
+        try store.save([Self.entry(1)])
+        try store.save([Self.entry(1), Self.entry(2)])
+        try store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: Self.day, kind: .unlocked)], now: Self.day)
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let heldNames = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0 != "vault.sealed" }
+        let held = try Dictionary(uniqueKeysWithValues: heldNames.map { ($0, try Data(contentsOf: folder.appendingPathComponent($0))) })
+        try FileManager.default.removeItem(at: scratch.fileURL)   // the Vault's own file, gone by hand
+        keychain.itemData = nil                                   // and its key
+
+        for n in 1...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
+        let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.contains(".set-aside-") }
+        #expect(aside.count == held.count, "a file the lost key sealed was pruned or written over")
+        for name in aside {
+            let original = String(name[..<name.range(of: ".set-aside-")!.lowerBound])
+            #expect(try Data(contentsOf: folder.appendingPathComponent(name)) == held[original], "\(name) is not what \(original) held")
+        }
+    }
+
+    /// An activity list alone, with no key and no Vault file, is set aside before a new key too.
+    @Test func anActivityListALostKeySealedIsSetAsideToo() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try store.save([Self.entry(1)])
+        VaultActivityStore.beside(store, keychain: keychain).append([VaultActivityEvent(at: Self.day, kind: .unlocked)], now: Self.day)
+        let activity = try Data(contentsOf: store.activityURL)
+        #expect(store.setAside(at: Self.day), "the Vault's own file, set aside by hand")
+        keychain.itemData = nil
+        try store.save([Self.entry(2)])
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let aside = try #require(try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .first { $0.hasPrefix("vault-activity.sealed.set-aside-") })
+        #expect(try Data(contentsOf: folder.appendingPathComponent(aside)) == activity)
+    }
+
+    /// A volume with no replacement folder (a network share whose root is not the user's): the
+    /// temporary file goes beside the file, never named with a dot, and is gone after.
+    final class NoReplacementFolder: FileManager, @unchecked Sendable {
+        override func url(for directory: FileManager.SearchPathDirectory, in domain: FileManager.SearchPathDomainMask,
+                          appropriateFor url: URL?, create shouldCreate: Bool) throws -> URL {
+            if directory == .itemReplacementDirectory { throw CocoaError(.fileWriteVolumeReadOnly) }
+            return try super.url(for: directory, in: domain, appropriateFor: url, create: shouldCreate)
+        }
+    }
+
+    @Test func aVolumeWithNoReplacementFolderStillWritesWholeAndOwnerOnly() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), fileManager: NoReplacementFolder())
+        try store.save([Self.entry(1)])
+        try store.save([Self.entry(1), Self.entry(2)])
+        #expect(try store.load() == [Self.entry(1), Self.entry(2)])
+        let folder = scratch.fileURL.deletingLastPathComponent()
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+        #expect(!names.contains { $0.hasPrefix(".") || $0.contains(".writing-") }, "\(names)")
+        let mode = try FileManager.default.attributesOfItem(atPath: scratch.fileURL.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+    }
+
+    /// Set Aside uses the store's own disk.
+    @Test func setAsideUsesTheStoresOwnDisk() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        try VaultStore(fileURL: scratch.fileURL, keychain: keychain).save([Self.entry(1)])
+        let refusing = VaultStore(fileURL: scratch.fileURL, keychain: keychain, fileManager: NoMove(refusing: scratch.fileURL))
+        #expect(!refusing.setAside(at: Self.day))
+        #expect(FileManager.default.fileExists(atPath: scratch.fileURL.path))
+    }
+
+    /// A link to the Vault's file is written through: the file it names is replaced, and the link
+    /// stays a link.
+    @Test func aLinkToTheVaultsFileIsWrittenThrough() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let elsewhere = scratch.directory.appendingPathComponent("Elsewhere/vault.sealed")
+        try FileManager.default.createDirectory(at: elsewhere.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scratch.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let keychain = VaultFakeKeychain()
+        let store = VaultStore(fileURL: elsewhere, keychain: keychain)
+        try store.save([Self.entry(1)])
+        try FileManager.default.createSymbolicLink(at: scratch.fileURL, withDestinationURL: elsewhere)
+        let linked = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try linked.save([Self.entry(1), Self.entry(2)])
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: scratch.fileURL.path) == elsewhere.path)
+        #expect(try store.load() == [Self.entry(1), Self.entry(2)])
     }
 
     @Test func aFileThisMacCannotOpenIsNeverWrittenOverEvenWithTheKey() throws {
@@ -512,12 +868,108 @@ import Testing
 
         #expect(model.contents == .loaded)
         #expect(model.needsReadAgain, "a lost reading file left no Read Again")
-        #expect(await log.holds(.warning, containing: "the reading file did not open (unreadableFile"))
+        let lines = await log.entries.map(\.messageBody)
+        #expect(lines.contains("Vault: the reading file did not open (unreadableFile, 25 bytes, begins SCVREAD1)"))
+        #expect(!lines.contains { $0.contains("not a sealed box") }, "the file's bytes reached the log")
         let folder = reading.deletingLastPathComponent()
         let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path)
             .filter { $0.hasPrefix("vault-reading.sealed.unreadable-") }
         #expect(aside.count == 1, "the file that did not open was not kept")
-        #expect(!FileManager.default.fileExists(atPath: reading.path))
+        #expect(try Data(contentsOf: folder.appendingPathComponent(aside[0])) == Data("SCVREAD1 not a sealed box".utf8))
+
+        // Read Again outlives a quit.
+        let again = rig.model()
+        await again.opened()
+        #expect(again.needsReadAgain, "Read Again was lost with the relaunch")
+    }
+
+    /// A disk that will not move files: a damaged reading file stays where it is.
+    final class NoMove: FileManager, @unchecked Sendable {
+        let refused: String
+        init(refusing url: URL) { refused = url.standardizedFileURL.path }
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if srcURL.standardizedFileURL.path == refused { throw CocoaError(.fileWriteNoPermission) }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+    }
+
+    /// A damaged reading file that will not move aside is never sealed over: it may hold the
+    /// owner's name corrections, roles and lessons (VT24).
+    @Test @MainActor func aDamagedReadingFileThatWillNotMoveIsNeverWrittenOver() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.entry(1)])
+        // Not the 25 bytes another case here logs: the capture sees every case running beside it.
+        let damaged = Data("SCVREAD1 held, not a sealed box".utf8)
+        try damaged.write(to: rig.store.readingURL)
+        let store = VaultStore(fileURL: rig.scratch.fileURL, keychain: rig.keychain, fileManager: NoMove(refusing: rig.store.readingURL))
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = VaultModel(store: store, authenticator: rig.auth, defaults: rig.defaults,
+                               clock: { VaultFormatTests.day }, copyToPasteboard: { _ in })
+        await model.opened()
+        #expect(model.contents == .loaded)
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf": ["Member Name: ANNA", "Member ID: XZB123456789"],
+        ]))
+        #expect(try Data(contentsOf: rig.store.readingURL) == damaged, "sealed over")
+    }
+
+    /// A Keychain that will not give the key for a moment is not a fresh start: with no Vault
+    /// file yet, the panel opens empty, and nothing it seals later may write over what was read.
+    @Test @MainActor func aReadingFileTheKeychainWillNotOpenIsNotWrittenOver() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try rig.store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        let sealed = try Data(contentsOf: rig.store.readingURL)
+        rig.keychain.forcedCopyStatus = errSecInteractionNotAllowed
+        #expect(rig.store.openReading() == .keyRefused)
+        let model = rig.model()
+        await model.opened()
+        rig.keychain.forcedCopyStatus = nil              // and gives it a moment later
+        #expect(model.add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        model.setRole(.alsoUsed, of: "Anna", for: "anna")
+        #expect(try Data(contentsOf: rig.store.readingURL) == sealed, "an empty state was sealed over it")
+    }
+
+    /// While the reading file is held, Everywhere cannot be sealed, so the name typed is kept on
+    /// the ID itself rather than lost at the next launch.
+    @Test @MainActor func whileHeldAnEverywhereNameIsKeptOnTheID() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.entry(1)])
+        try Data("SCVREAD1 held, not a sealed box".utf8).write(to: rig.store.readingURL)
+        let store = VaultStore(fileURL: rig.scratch.fileURL, keychain: rig.keychain, fileManager: NoMove(refusing: rig.store.readingURL))
+        VaultReadFolders.add("/Users/anna/Documents", in: rig.defaults)
+        let model = VaultModel(store: store, authenticator: rig.auth, defaults: rig.defaults,
+                               clock: { VaultFormatTests.day }, copyToPasteboard: { _ in })
+        await model.opened()
+        await model.readDocuments(with: VaultAccountModelTests.PlannedDocuments(pages: [
+            "/Users/anna/Documents/Health/Dental/ID Cards/card.pdf": ["Delta Dental", "Member Name: DLVIT GIRISH", "Member ID: XZB123456789"],
+        ]))
+        let find = try #require(model.finds.first { $0.value == "XZB123456789" })
+        var draft = model.prepared(VaultModel.Draft(find))
+        draft.holderName = "Divit Girish"
+        draft.correctEverywhere = true
+        let id = try #require(model.confirm(find.id, as: draft))
+
+        let again = rig.model()
+        await again.opened()
+        #expect(again.entries.first { $0.id == id }?.holderName == "Divit Girish", "the typed name was lost")
+    }
+
+    /// With no key in the Keychain, a reading file is one this Mac cannot open, not a fresh
+    /// start: set aside, never written over by the new key's first seal.
+    @Test @MainActor func aReadingFileWithNoKeyIsSetAsideNotWrittenOver() async throws {
+        let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }
+        try rig.store.saveReading(VaultReadingState(names: ["AB": "A B"]))
+        let sealed = try Data(contentsOf: rig.store.readingURL)
+        rig.keychain.itemData = nil   // the key is gone; there is no Vault file
+
+        #expect(rig.store.openReading() == .damaged)
+        #expect(rig.model().add(.init(title: "Library card", value: "LIB0000001", note: "", kind: .other)) != nil)
+        let folder = rig.store.readingURL.deletingLastPathComponent()
+        let aside = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0.hasPrefix("vault-reading.sealed.unreadable-") }
+        #expect(aside.count == 1, "set aside by the load, as a file this Mac cannot open")
+        #expect(try Data(contentsOf: folder.appendingPathComponent(aside[0])) == sealed)
     }
 }
 

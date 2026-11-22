@@ -1122,10 +1122,19 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         self.names = names
     }
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
         case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names, nameRoles
     }
+
+    /// Every key this build reads. One outside it is a later build's, kept as it came
+    /// (``laterFields``).
+    static let storedKeys = Set(CodingKeys.allCases.map(\.stringValue))
+
+    /// What a later build stored that this one does not read, as a JSON object: never encoded
+    /// as a field, but merged back in when the state is sealed, so a file a newer SyncCloud wrote
+    /// keeps what it holds when this one seals it (VT30). Set by ``VaultStore/openReading()``.
+    public var laterFields: Data?
 
     /// A state sealed by an older build lacks the newer fields: it opens with them empty, so its
     /// finds' choices can still be carried over.

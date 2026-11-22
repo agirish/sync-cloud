@@ -108,10 +108,14 @@ public struct VaultEntry: Sendable, Equatable, Identifiable, Codable {
         set { pinned = newValue; older = nil }
     }
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, title, value, personID, note, kind, sourcePath, addedAt, updatedAt, dated, older
         case chosenCategory = "category", facts, pinned = "pin", household, geo, card, holderName, chosenSource
     }
+
+    /// Every key this build reads from a stored record, old ones included. A key outside it is a
+    /// later build's, kept as it came (``VaultRecords/laterFields``).
+    static let storedKeys = Set(CodingKeys.allCases.map(\.stringValue))
 
     public init(id: UUID = UUID(), title: String, value: String, personID: String? = nil,
                 note: String = "", kind: Kind = .other, sourcePath: String? = nil,

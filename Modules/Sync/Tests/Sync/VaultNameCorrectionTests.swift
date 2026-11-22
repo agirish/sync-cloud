@@ -113,6 +113,9 @@ import Testing
         model.closed()
         await model.opened()
         #expect(Self.holder(model, "VSP99887766") == "Dlvit Girish")
+        // Saved this time, it reaches the others: the refusal above is what held it back.
+        #expect(await model.update(saved, to: draft))
+        #expect(Self.holder(model, "VSP99887766") == "Divit Girish")
     }
 
     /// Confirming or editing another ID read the same way, its Name untouched, leaves the
