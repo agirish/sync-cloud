@@ -188,8 +188,10 @@ import Testing
         window.appearance = NSAppearance(named: .aqua)
         window.colorSpace = .sRGB
         window.contentView = host
+        // Ordered in, as a click needs, but beneath every other window, so nothing shows on
+        // screen (VT97); never made key (`clickDown`).
+        window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.minimumWindow)))
         host.layoutSubtreeIfNeeded()
-        // Ordered in, as a click needs; never made key (`clickDown`).
         window.orderFrontRegardless()
         defer { window.orderOut(nil); window.close() }
         let rep = try snapshot(host)
@@ -203,11 +205,13 @@ import Testing
             return host.isFlipped ? fromTop : Self.popoverSize.height - fromTop
         }
         click(host.convert(NSPoint(x: x(4), y: y(rows[0])), to: nil), in: window)
-        try await Task.sleep(for: .milliseconds(150))
+        await waitUntil("the card's swatch answered the click") { !card.isEmpty }
         #expect(card == [.tint(.clay)], "the upper row is the card's: \(card)")
         #expect(group.isEmpty)
         click(host.convert(NSPoint(x: x(5), y: y(rows[1])), to: nil), in: window)
-        try await Task.sleep(for: .milliseconds(150))
+        await waitUntil("the group's swatch answered the click") { !group.isEmpty }
+        // A moment more, so a late answer to the wrong row would be here to see.
+        try await Task.sleep(for: .milliseconds(100))
         #expect(group == [.tint(.rose)], "the lower row is the group's: \(group)")
         #expect(card == [.tint(.clay)], "and it left the card's alone")
     }

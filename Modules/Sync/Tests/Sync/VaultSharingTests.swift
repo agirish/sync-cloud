@@ -1,3 +1,4 @@
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -5,7 +6,7 @@ import Testing
 /// How long a copy stays on the clipboard, and whether a shown ID is kept out of screen sharing.
 @Suite struct VaultSharingTests {
     static func scratch() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "vault-sharing-\(UUID().uuidString)"))
+        vaultScratchDefaults("vault-sharing")
     }
 
     @Test func aCopyStaysAMinuteUnlessAnotherOfTheChoicesIsSaved() throws {

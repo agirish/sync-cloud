@@ -120,7 +120,8 @@ extension VaultBackup {
 enum VaultPasteboard {
     /// How long a copied number stays on the pasteboard: a minute unless Settings ▸ Vault says
     /// otherwise. Read at each copy, so a change applies to the next one.
-    static var clearAfter: Duration { .seconds(VaultSharingSettings.clipboardSeconds()) }
+    static var clearAfter: Duration { clearAfter(in: .standard) }
+    static func clearAfter(in defaults: UserDefaults) -> Duration { .seconds(VaultSharingSettings.clipboardSeconds(in: defaults)) }
 
     /// Copies `value`, marked concealed, and clears it a minute later unless something else was
     /// copied meanwhile. The same recipe as the API key's Copy in Settings (`CloudKeyRow`), for

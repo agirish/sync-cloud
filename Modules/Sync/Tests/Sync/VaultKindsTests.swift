@@ -1,3 +1,4 @@
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -214,7 +215,7 @@ import Testing
         let later = try JSONDecoder().decode(VaultCardID.self, from: Data(#""someLaterKind""#.utf8))
         #expect(String(decoding: try JSONEncoder().encode(later), as: UTF8.self) == #""someLaterKind""#)
         // One unreadable kind never costs the rest.
-        let defaults = try #require(UserDefaults(suiteName: "vault-kinds-\(UUID().uuidString)"))
+        let defaults = vaultScratchDefaults("vault-kinds")
         defaults.set(Data(#"[{"id":"a","name":"Memberships","group":"home"},{"name":42},{"id":"b","name":"School","group":"home"}]"#.utf8),
                      forKey: "vaultCustomKinds")
         #expect(VaultKinds.load(from: defaults).custom.map(\.name) == ["Memberships", "School"])

@@ -82,6 +82,15 @@ import Testing
         let kept = activity.load()
         #expect(kept.count == VaultActivityStore.limit)
         #expect(kept.first?.what == "0" && !kept.contains { $0.what == "Old" }, "the newest, and nothing past ninety days")
+        // Each bound alone (VT95): under the count, one past ninety days goes and one within stays.
+        activity.clear()
+        activity.append([VaultActivityEvent(at: now.addingTimeInterval(-91 * 86_400), kind: .copied, what: "Past"),
+                         VaultActivityEvent(at: now.addingTimeInterval(-86_400), kind: .copied, what: "Within")], now: now)
+        #expect(activity.load().map(\.what) == ["Within"], "the age bound held only because the count did")
+        // And on what was stored: ninety-one days on, "Within" is past it.
+        let later = now.addingTimeInterval(91 * 86_400)
+        activity.append([VaultActivityEvent(at: later, kind: .unlocked)], now: later)
+        #expect(activity.load().map(\.what) == [""], "a stored event outlived ninety days")
         activity.clear()
         #expect(activity.load().isEmpty)
     }

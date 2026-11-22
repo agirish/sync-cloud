@@ -51,8 +51,8 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 3. ~~**Internal bugs:** VT58, VT52, VT54, VT73 (a, c).~~ Done in batch 3. VT100, VT108 and VT73 (b) are the owner's call.
 4. **Efficiency:** batch 4 did VT107 (steps 1–2), VT102, VT65, and parts of VT9, VT66 and VT10. Left:
    VT9's publishing, VT66's sorts and merges, VT10's held key, VT67, VT82, VT83, VT84, VT85, VT77, VT78.
-5. **Tests and logging:** VT94, VT98, VT95, VT105, VT29, VT96, VT97, VT71, VT26, VT27, VT28, VT22, VT23,
-   VT25.
+5. **Tests and logging:** batch 5 did VT94, VT105, VT95, VT26, VT96, VT97, VT71, VT28 and half of VT29.
+   Left: VT98, VT29's lock table, VT27, VT22, VT23, VT25.
 6. **Structure:** VT8, VT7, VT69 (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
    VT76, VT103, VT106, VT79, VT80.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
@@ -86,6 +86,14 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 | VT73 (a, c) screen-capture gaps | batch 3: a date of birth People draws in full counts as an ID drawn in full (`VaultCard.drawsAnIDInFull`), and a window that arrives after the panel first decided is set as it arrives (`VaultActivityWatch.exposed`) | (b), the Quick Look panel of a Vault document, is the owner's call |
 | VT102 `expiresSoon` repeats `hasRunOut` | batch 4: one `VaultReading.daysLeft`, which both use, on calendars kept (UTC, and the zone last asked); pinned against the old rule and the old count over 121 hours in three zones | none |
 | VT65 one action, one seal | batch 4: Confirm, Add and Edit run inside `sealingOnce`, so the reading file is sealed once at their end (Confirm with Everywhere sealed it up to four times), and a release inside one still seals first; pinned for all three by a disk that counts the seals | none |
+| VT94 leaked test plists | batch 5 (2026-11-21), the goal changed by decision: each Vault test's defaults suite is recorded with the shared ledger (`vaultScratchSuite`), whose sweep at a later test run's start, or the hourly sweep of stale scratch plists, deletes it (2,358 had piled up). Never wiped per test: that waits on cfprefsd under a global lock on the main actor (testing laws). The trade: cfprefsd keeps those domains cached until it restarts, as bare suites always did | no test can tell the ledger record was dropped (the hourly sweep cleans up anyway) |
+| VT105 name-role tests | batch 5: the lock is taken in the test that says so, the passport test requires its spelling, the repeat is gone, and roles are shown to outlive a change of reader rules (a later shape: VT30's `unreadFields`) | none |
+| VT95 tests that cannot fail | batch 5: the activity bounds each tested alone (on stored events too), the clipboard's time on settings of its own and the app's path the same, the banner test's unused render gone, the People titles pinned to the one list given, the backup test and doc comment saying what they can show (a changed salt or work factor derives another key; the test changes the salt) | `drawn(_:)` is VT80's dead code |
+| VT26 a log test | batch 5: `VaultLogTests` walks a whole life (seven documents read; confirm, show, copy, edit, add, remove, back up, lock, restore) and asserts lines no other case logs (seven read, four backed up and restored) and that no number, holder's name or document name is in the log, nor in the suite's own preferences, which then hold a set-aside fingerprint | the model's every line asserted one by one |
+| VT96 the backup's purpose | batch 5: a backup opened on another Mac asks for its passphrase, refuses a wrong one, opens with the right one and replaces that Vault; an old backup keeps its old passphrase | the Settings side (`showActivity`, the offer's wording) |
+| VT97 the swatch test | batch 5: it waits on the click's answer, not a fixed sleep, and its window sits beneath every other | none |
+| VT71 the rows cache | batch 5: `VaultRowsCacheTests` makes the changes the rows are made of, as the app does (people, owner, pin, country, kind, Read from This Copy, a name corrected, a Misread, Not This, Remove, a document gone, a kind added, renamed and removed), and checks the cached rows equal rows worked out afresh | the hand bumps in `readFrom` and `setKinds` are redundant (their changes also move `entries` or `finds`); a read-folder change |
+| VT28 privacy tests | batch 5: `VaultDetail.Value`, `VaultChange`, `VaultPersonSection` and its names and dates of birth print no number in full, no name and no date; the privacy test covers them, `VaultReadingState`, `VaultChoice` and `VaultFind`, `dump` included, and the whole-life test checks the log and preferences | `MachineZone`, `Row` and `VaultReadTally` in the privacy test; `VaultMask.fileName`'s property test; the read folders and kind and group names are the user's own, in the clear |
 
 ---
 
@@ -346,14 +354,6 @@ open.** *Efficiency; checked; cost unmeasured.*
 - **Owner's call.** One shared function is internal only if each caller keeps its own inputs. Letting
   the editor take the row's inferred person changes what Confirm offers.
 
-**VT71 — Nothing pins the rows cache's invalidation.** *Tests; plausible.*
-- **The problem.** Correctness depends on every input to `computedRows` bumping `rowsRevision`: `didSet`s
-  at `:158`, `:237`, `:248`, `:304`, `:932`, `:984`, `:1109`, `:2151`, and by hand at `:730`, `:976`,
-  `:1089`. `kinds` is `@Published` with no bump.
-- **Done when:** one table test changes each input in turn and asserts the rows follow. Since the
-  refresh it also covers `readFrom`'s hand bump (`:1063`); `rowsRevision` is readable from tests
-  (VT101's test asserts `nameRoles` does not move it).
-
 **VT72 — Activity titles are cut at their last slash.** *Bug; checked.*
 - **The problem.** `record` masks with `VaultMask.fileName(what)` (`VaultModel.swift:1262`), which takes
   `lastPathComponent` first (`VaultEntry.swift:168`). "Chase / Mortgage" is listed as "Removed
@@ -511,16 +511,6 @@ There were **416** `@Test`s at `0409895c8`: 374 in 30 `Sync` files and 42 in 8 `
 parameterised. Three are machine-pinned to text recognition and skip on hosted CI
 (`VaultFolderReaderTests.swift:257`, `:277`, `:291`).
 
-**VT94 — The Vault rig leaks a defaults plist per test.** *Checked.*
-- **The problem.** `VaultModelTests.Rig` uses a bare `UserDefaults(suiteName:)` torn down with
-  `removePersistentDomain`, which empties the domain but leaves its file (`docs/flaky-tests.md`, "Leaked
-  defaults suites"). `VaultColorsTests.swift:11`, `VaultSharingTests.swift:7` and
-  `VaultKindsTests.swift:217` have no teardown at all. There are 134 `Rig()` call sites.
-  `~/Library/Preferences` held **1,221** `vault-model-tests-*` plists on 2026-11-21.
-- **Done when:**
-  - `ScratchDefaults` is used in all four places;
-  - a Sync run leaves no new `vault-*` plist.
-
 **VT98 — One Vault test kit.** *Duplication; checked.*
 - **The problem.**
   - `Rig` and `Clock` live in `VaultLockTests.swift:170–205`, `VaultFakeKeychain` in
@@ -533,36 +523,7 @@ parameterised. Three are machine-pinned to text recognition and skip on hosted C
 - **Done when:** one `VaultTestKit.swift` (Rig, Clock, FakeKeychain, FakeProof, Shelf), compiled into
   `SyncCloudTests` the way `project.yml` does for `EventsTestSupport`.
 
-**VT95 — Tests that cannot fail.** *Checked.* Each one needs a version that fails when its rule is
-removed:
-- `theListIsBoundedInCountAndAge` (`VaultActivityTests.swift:74–84`): the 91-day event is also past the
-  count limit, so deleting the age filter (`VaultActivity.swift:108`) stays green. Needs two events, at
-  91 days and at 1 day.
-- `aCopyIsClearedAfterTheTimeTheSettingGives` (`SyncCloudTests/VaultWindowPrivacyTests.swift:31–36`)
-  compares `clearAfter` with the same `clipboardSeconds()` it is built from, against his live defaults.
-  The same shape is at `VaultPanel.swift:2345`. Needs injected defaults holding 30 and literal
-  `.seconds(30)` and "…after 30 seconds."
-- The backup's "header is authenticated" test (`VaultBackupTests.swift:33–35`) flips a salt byte, which
-  changes the key, so removing `authenticating:` stays green. No test can do better: reword the test and
-  the doc comment (`VaultBackup.swift:43–44`) to "a changed salt or work factor derives another key".
-- `afterAnUpdateTheBannerOffersDiscoverMoreUntilNotNow` (`VaultRefreshPanelTests.swift:129`, `:144`)
-  renders a view and discards it.
-- `VaultPeopleViewTests.swift:64–65` accepts either of two section lists for a deterministic output: pin
-  the one it gives.
-- `drawn(_ entry:)` and `drawn(_ find:)` are tested (`VaultLockTests:222`, `:303`,
-  `VaultToConfirmTests:77`) but used by no production code, and they ignore `hidesEnding` (VT80).
-
-**VT105 — The name-role tests claim more than they check.** *Checked.*
-- `theLegalNameIsNeverMarkedMisreadAndALockedVaultChangesNothing` never locks the Vault.
-- `thePassportsSpellingIsTheLegalName…` puts its key `#expect` inside `if let`, so it passes when the
-  name is absent.
-- In `theSummaryLeads…` the second `#expect` repeats the first.
-- Nothing tests that a reading file without `nameRoles` opens (`vault-reading-format-1` now does, in
-  `VaultFormatTests`) or that roles survive a change of reader rules, both claimed by `710b5aaa3`; a
-  malformed `nameRoles` decodes to nil through `try?` and the next seal drops it, untested.
-- **Done when:** each has a version that fails when its rule is broken (VT95's rule).
-
-**VT29 — Lock under time.** *Open, and wider.*
+**VT29 — Lock under time.** *Half done in batch 5: `VaultLockedRoutesTests` runs every route above once the numbers are let go: none succeeds, none asks for a proof, nothing reaches the clipboard, neither file changes by a byte; and a proof answered after the Vault locked meanwhile opens nothing (Copy, Edit, Copy a person's IDs). The guards in `write`, `saveReading` and the routes' own looks after a proof are not reached first by any route (each finds no ID, or no person, first): defence only. Open: the lock-state table.*
 - **The problem.**
   - Lock behaviour is spread over 19 cases in `VaultModelTests`, 8 in `VaultSealedShutTests` and 6 in
     `VaultProofTests`, with no table.
@@ -577,40 +538,6 @@ removed:
   - a second table runs every route above sealed shut, asserting no proof is asked, nothing is returned
     and both files are byte-identical.
 
-**VT96 — The backup's purpose is untested.** *Checked.*
-- **The problem.**
-  - `read(_:passphrase:)` is never called with a passphrase. So these are untested: the `.noPassphrase`
-    branch, a wrong typed passphrase, and an old backup opening only with its old passphrase after
-    `setPassphrase`.
-  - The Settings side is not driven by any test:
-    - `showActivity` hard-codes `VaultDeviceOwnerProof()` and the real store (`VaultSettings.swift:294`);
-    - `RestoreOffer.message` and `message(for:)` (`:306–433`) are pure but untested;
-    - the `backedUp` and `restored` activity lines are never loaded by a test;
-    - nothing tests `VaultDeviceOwnerProof`.
-- **Done when:**
-  - Rig A writes a backup. Rig B, with its own keychain and no passphrase, gets `.noPassphrase`, then
-    `.wrongPassphrase`, then the contents; `restore(.replace)` leaves B loading A's entries;
-  - "prove, then load" moves into `Sync` (e.g. `VaultActivityStore.load(provingWith:)`) and is tested
-    with a refused proof;
-  - the two backup lines and the offer wording are asserted;
-  - a backup is read back once after it is written (today nothing checks it opens).
-
-**VT97 — The swatch-click test sleeps and shows a window.** *Checked.*
-- **The problem.** Each click is followed by a fixed 150 ms sleep and then an assertion
-  (`SyncCloudTests/VaultCardColorsTests.swift:205`, `:209`). The borderless window at (0,0) is ordered
-  front and never buried (`:186–193`).
-- **Done when:** `waitUntil` replaces the sleeps, and the window sits at `.minimumWindow` level.
-
-**VT26 — A log test.** *Open.*
-- **The problem.** Only `VaultFormatTests` uses `LogCapture` (the store's damaged-file, owner-only and
-  activity lines). The model's, backup's and restore's lines are not asserted.
-- **Done when:**
-  - one test runs open → read → confirm → show → copy → edit → remove → lock → back up → restore on a
-    fixture with a `LogCapture`;
-  - it asserts every VT22–VT24 line and the backup, restore and unsealable-activity lines;
-  - it asserts that no fixture number, holder name or file name appears;
-  - it asserts sentences unique to the case (memory `a-logcapture-sees-sibling-cases`).
-
 **VT27 — App-side tests.** *Partly.*
 - **Today.** Eight app-target files with 42 tests now cover the masonry, colors and popover, window
   privacy, People, the locked panel, the refresh footer and the folder reader.
@@ -622,24 +549,6 @@ removed:
   - in `VaultDocumentReader.swift`: `largestFile` (`:28`), `pagesPerDocument` (`:25`) and the
     locked-PDF guard (`:106`);
   - whatever VT8 leaves in the view.
-
-**VT28 — Privacy tests.** *Partly.*
-- **Today.** Redaction is tested for `VaultReadFacts`, `VaultSource`, `VaultDetail`, `VaultMention`,
-  `VaultStandingInput` and `Draft` (`VaultPrivacyTests.swift:26`), for `VaultFind`
-  (`VaultReadingTests.swift:340`) and for `VaultEntry` (`VaultStoreTests.swift:229`).
-- **Untested.**
-  - Redacted but never tested: `VaultReadingState`, `VaultChoice`, `MachineZone`, `Row` and
-    `VaultReadTally` (`VaultRedaction.swift:34–64`).
-  - **Not redacted at all** (*checked*): `VaultDetail.Value` (`.number(String)`, `VaultFacts.swift:114`),
-    `VaultChange` (`VaultRefresh.swift:25`, held in `@Published changes`, which prints `was` and `now`
-    in full) and `VaultPersonSection` (`VaultPeopleView.swift:14`, names and birth dates).
-- **Done when:**
-  - those three are redacted;
-  - every type above is in the privacy test, `dump` included;
-  - nothing under a `vault*` UserDefaults key holds a fixture number after a full flow;
-  - `VaultMask.fileName` gets a property test over generated numbers and separators;
-  - the user-typed exceptions are documented: read-folder paths, and custom kind and group names in the
-    clear.
 
 ## E. Security and privacy
 

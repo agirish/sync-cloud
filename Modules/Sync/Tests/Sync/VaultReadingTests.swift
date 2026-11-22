@@ -1,3 +1,4 @@
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -487,9 +488,7 @@ import Testing
 /// The folders Read Documents looks in (``VaultReadFolders``).
 @Suite struct VaultReadFoldersTests {
     @Test func aFolderIsListedOnceAndAnEnclosingOneTakesItsPlace() throws {
-        let suite = "vault-read-folders-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = vaultScratchDefaults("vault-read-folders")
 
         VaultReadFolders.add("/Users/a/Documents/Immigration/Passport", in: defaults)
         VaultReadFolders.add("/Users/a/Documents/Immigration/Passport/", in: defaults)

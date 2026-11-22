@@ -125,8 +125,6 @@ import Testing
     }
 
     @Test func afterAnUpdateTheBannerOffersDiscoverMoreUntilNotNow() async throws {
-        let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
-        let plain = try VaultPanelRenderTests.render(rig.model, defaults: rig.defaults, name: "banner-none")
         // A refresh that follows a change of rules leaves the folders to be looked at.
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("vault-refresh-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -141,6 +139,5 @@ import Testing
         model.dismissDiscover()
         let dismissed = try VaultPanelRenderTests.render(model, defaults: scratch.defaults, name: "banner-dismissed")
         #expect(differingPixels(offered, dismissed) > 4000, "the banner is drawn, and Not Now takes it away")
-        _ = plain
     }
 }

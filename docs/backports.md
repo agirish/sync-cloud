@@ -16191,7 +16191,8 @@ backup's key is derived off the main actor. Read Documents takes the PDFKit lane
 page left out is read again next time, and a date of birth drawn in full keeps the window out of
 screen sharing as an ID does. Then batch 4: a byte-identical copy is read once, originals are read
 first, one Confirm seals the reading file once, the panel's lists (rows shown, cards, counts, People,
-refresh sources) are worked out once per change rather than at every second's redraw, and a document's days left are one rule.
+refresh sources) are worked out once per change rather than at every second's redraw, and a document's days left are one rule. Batch 5 is tests, and the types that printed a number, a name or a
+date of birth in full no longer do.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

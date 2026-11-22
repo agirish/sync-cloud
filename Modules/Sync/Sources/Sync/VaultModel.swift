@@ -527,6 +527,9 @@ public final class VaultModel: ObservableObject {
         viewComputations += 1
         return sections
     }
+    /// The rows worked out afresh, past the cache: what a test compares the cached ones with (VT71).
+    var rowsWorkedOutAfresh: [Row] { computedRows }
+
     /// How often the visible rows were worked out: a test's measure of VT9.
     private(set) var visibleComputations = 0
     /// How often any of the panel's lists was worked out (visible rows, cards, tab counts,

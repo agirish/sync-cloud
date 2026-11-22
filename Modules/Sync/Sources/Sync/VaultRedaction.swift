@@ -67,3 +67,44 @@ extension VaultReadTally: CustomReflectable {
         Mirror(self, children: ["documents": documents, "opened": opened, "added": added])
     }
 }
+
+// Held in full and printed nowhere (VT28): a detail's value, what a refresh changed, a person's
+// section with its names and dates of birth, and what Read Documents keeps.
+
+extension VaultDetail.Value: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        switch self {
+        case .text: return "VaultDetail.Value(text)"
+        case .date: return "VaultDetail.Value(date)"
+        case .number(let number): return "VaultDetail.Value(\(VaultMask.masked(number)))"
+        }
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultChange: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultChange(\(label))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultPersonSection: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultPersonSection(\(rows.count) ID(s), \(names.count) name(s), \(births.count) date(s) of birth)" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+// A section's parts too: a name as printed, a date of birth. (`Owner` prints as it is: People
+// sorts its sections by it, and it holds a name only for one nobody answers to.)
+extension VaultPersonSection.PrintedName: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultPersonSection.PrintedName(\(on.count) kind(s))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultPersonSection.Birth: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultPersonSection.Birth(\(rows.count) ID(s))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}

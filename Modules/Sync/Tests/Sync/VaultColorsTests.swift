@@ -1,3 +1,4 @@
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -9,7 +10,7 @@ import Testing
     typealias Rig = VaultModelTests.Rig
 
     static func scratch() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "vault-colors-\(UUID().uuidString)"))
+        vaultScratchDefaults("vault-colors")
     }
 
     // MARK: Which color a card is drawn in

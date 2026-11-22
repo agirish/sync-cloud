@@ -1,4 +1,5 @@
 import CryptoKit
+import EventsTestSupport
 import Foundation
 import Security
 import Testing
@@ -64,6 +65,20 @@ final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
         return errSecSuccess
     }
 }
+
+
+/// A throwaway defaults suite for one Vault test, and its name. Never wiped: a wipe per test
+/// waits on cfprefsd under a global lock on the main actor, which broke the parking suites
+/// (testing laws). Its name goes to the shared ledger instead, whose sweep at a later test run's
+/// start (or the hourly sweep of stale scratch plists) deletes the plist (VT94). The trade:
+/// cfprefsd keeps the domain cached until it restarts, as a bare suite always did.
+func vaultScratchSuite(_ prefix: String) -> (name: String, defaults: UserDefaults) {
+    let name = "\(prefix)-\(UUID().uuidString)"
+    scratchDefaultsLedger.record(name)
+    return (name, UserDefaults(suiteName: name)!)   // a fresh UUID is never a reserved domain name
+}
+
+func vaultScratchDefaults(_ prefix: String) -> UserDefaults { vaultScratchSuite(prefix).defaults }
 
 /// A folder of its own for each test's sealed file, removed when the test ends.
 struct VaultScratch {

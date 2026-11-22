@@ -30,7 +30,9 @@ import Testing
         let contents = VaultBackupContents(madeAt: VaultLockTests.t0, entries: [Self.mortgage])
         var sealed = try VaultBackupFile.seal(contents, passphrase: Self.phrase, rounds: Self.rounds, salt: Self.salt)
         #expect(throws: VaultBackupError.wrongPassphrase) { try VaultBackupFile.open(sealed, passphrase: Self.phrase + "!") }
-        // The header is part of what is sealed: a changed salt does not open even with the passphrase.
+        // A changed salt derives another key, so the file does not open even with
+        // the passphrase. (The header is also the box's authenticated data, which no test can tell
+        // apart from that: no change to it keeps the key.)
         sealed[20] ^= 1
         #expect(throws: VaultBackupError.wrongPassphrase) { try VaultBackupFile.open(sealed, passphrase: Self.phrase) }
         #expect(throws: VaultBackupError.notABackup) { try VaultBackupFile.open(Data("not a backup at all, only words".utf8), passphrase: Self.phrase) }
@@ -391,6 +393,30 @@ import Testing
         let reading = rig.keychain.reads.count
         activity.append([VaultActivityEvent(at: VaultLockTests.t0, kind: .copied, what: "Passport")], now: VaultLockTests.t0)
         #expect(rig.keychain.reads.count - reading == 1, "an activity entry read the key more than once")
+    }
+
+    /// What a backup is for (VT96): opened on another Mac, with its own Keychain and no passphrase
+    /// kept, it asks for one, refuses the wrong one, opens with the right one, and replaces that
+    /// Mac's Vault with this one's IDs. An old backup keeps its old passphrase.
+    @Test func aBackupOpensOnAnotherMacWithItsPassphraseOnly() async throws {
+        let here = try Rig(); defer { here.cleanUp() }
+        try here.seed([Self.mortgage, Self.passport])
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let made = Self.backup(here, folder: folder)
+        try made.setPassphrase(Self.phrase)
+        let url = try await made.write([Self.mortgage, Self.passport])
+        try made.setPassphrase("another passphrase, later")
+        #expect(try await made.read(url, passphrase: Self.phrase).get().entries == [Self.mortgage, Self.passport],
+                "a backup does not keep the passphrase it was made with")
+
+        let there = try Rig(); defer { there.cleanUp() }
+        try there.seed([VaultEntry(title: "Library card", value: "LIB0000009", addedAt: VaultLockTests.t0)])
+        let other = Self.backup(there, folder: folder)
+        #expect(await other.read(url) == .failure(.noPassphrase))
+        #expect(await other.read(url, passphrase: Self.phrase + "?") == .failure(.wrongPassphrase))
+        let contents = try await other.read(url, passphrase: Self.phrase).get()
+        #expect(await other.restore(contents, mode: .replace) == .success(2))
+        #expect(try there.store.load() == [Self.mortgage, Self.passport])
     }
 
     /// The weekly backup is made once, though the panel asks twice as it opens unlocked.

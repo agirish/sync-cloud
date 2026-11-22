@@ -2734,8 +2734,9 @@ struct VaultCard: View {
     }
 
     /// "It clears from the clipboard after 1 minute.", by the setting.
-    static var clipboardClears: String {
-        "It clears from the clipboard after \(VaultSharingSettings.label(seconds: VaultSharingSettings.clipboardSeconds()))."
+    static var clipboardClears: String { clipboardClears(in: .standard) }
+    static func clipboardClears(in defaults: UserDefaults) -> String {
+        "It clears from the clipboard after \(VaultSharingSettings.label(seconds: VaultSharingSettings.clipboardSeconds(in: defaults)))."
     }
 
     /// The line under Discover More in its menu: where it looks.

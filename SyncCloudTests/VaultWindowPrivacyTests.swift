@@ -62,10 +62,16 @@ import Testing
         #expect(first.sharingType == .readOnly, "the window the panel left does not share again")
     }
 
+    /// A setting of its own, not the Mac's (VT95): what it says is what is used and what is shown.
     @Test func aCopyIsClearedAfterTheTimeTheSettingGives() {
-        // The app's own domain is the user's live setting here, so this reads it and never writes.
-        let seconds = VaultSharingSettings.clipboardSeconds()
-        #expect(VaultPasteboard.clearAfter == .seconds(seconds))
-        #expect(VaultCard.clipboardClears == "It clears from the clipboard after \(VaultSharingSettings.label(seconds: seconds)).")
+        for (seconds, said) in [(30, "30 seconds"), (120, "2 minutes")] {
+            let scratch = TestDefaults()
+            scratch.defaults.set(seconds, forKey: VaultSharingSettings.clipboardSecondsKey)
+            #expect(VaultPasteboard.clearAfter(in: scratch.defaults) == .seconds(seconds))
+            #expect(VaultCard.clipboardClears(in: scratch.defaults) == "It clears from the clipboard after \(said).")
+        }
+        // What the app uses is the same, on the Mac's own setting (read, never written).
+        #expect(VaultPasteboard.clearAfter == VaultPasteboard.clearAfter(in: .standard))
+        #expect(VaultCard.clipboardClears == VaultCard.clipboardClears(in: .standard))
     }
 }

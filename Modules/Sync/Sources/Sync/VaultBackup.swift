@@ -87,8 +87,9 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
 /// The Vault's own file is sealed with a random key in this Mac's Keychain, which is why it
 /// cannot be read anywhere else, and why a lost Mac or a reset keychain loses it. A backup trades
 /// that for a secret the owner carries: `SCVBACK1`, the work factor, a random salt, then the
-/// IDs sealed with AES-256-GCM under PBKDF2-HMAC-SHA256 of the passphrase. The header is
-/// authenticated with the box, so a lowered work factor or a swapped salt does not open.
+/// IDs sealed with AES-256-GCM under PBKDF2-HMAC-SHA256 of the passphrase. A lowered work factor
+/// or a swapped salt derives another key, so the file does not open; the header is also the box's
+/// authenticated data.
 public enum VaultBackupFile {
     static let marker = Data("SCVBACK1".utf8)
     /// PBKDF2 rounds for a new backup. Stored in each file, so a later build can raise it and

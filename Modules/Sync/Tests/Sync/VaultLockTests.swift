@@ -1,3 +1,4 @@
+import EventsTestSupport
 import Foundation
 import Testing
 @testable import Sync
@@ -120,9 +121,7 @@ import Testing
     }
 
     @Test func aDamagedPreferenceReadsAsLocked() throws {
-        let suite = "vault-lock-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = vaultScratchDefaults("vault-lock-tests")
 
         #expect(VaultLockSettings(defaults: defaults) == VaultLockSettings())
         #expect(VaultLockSettings().requiresAuthentication)
@@ -187,8 +186,7 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
 
         init() throws {
             scratch = try VaultScratch()
-            suite = "vault-model-tests-\(UUID().uuidString)"
-            defaults = try #require(UserDefaults(suiteName: suite))
+            (suite, defaults) = vaultScratchSuite("vault-model-tests")
         }
 
         var store: VaultStore { VaultStore(fileURL: scratch.fileURL, keychain: keychain) }
@@ -200,7 +198,7 @@ final class VaultFakeAuthenticator: VaultAuthenticating, @unchecked Sendable {
         }
 
         func seed(_ entries: [VaultEntry]) throws { try store.save(entries) }
-        func cleanUp() { scratch.remove(); defaults.removePersistentDomain(forName: suite) }
+        func cleanUp() { scratch.remove() }
     }
 
     static let mortgage = VaultEntry(title: "Mortgage loan number", value: "0482917365", note: "Home loan servicer",

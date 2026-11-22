@@ -182,9 +182,8 @@ import Testing
         let slip = try #require(names.first { $0.name == "Anna Maria Ericsson" })
         #expect(slip.role == .alsoUsed && slip.looksMisread, "one letter, one paper")
         #expect(names.filter { $0.role == .goesBy }.isEmpty, "nothing is Goes by until chosen")
-        if let short = names.first(where: { $0.name == "Anna Eriksson" }) {
-            #expect(!short.looksMisread, "a dropped middle name is a real spelling, many letters away")
-        }
+        let short = try #require(names.first { $0.name == "Anna Eriksson" }, "the I-94's spelling is not listed")
+        #expect(!short.looksMisread, "a dropped middle name is a real spelling, many letters away")
     }
 
     @Test func rolesChosenAreKeptSealedAcrossOpens() async throws {
@@ -295,6 +294,34 @@ import Testing
         let model = await Self.spellings(rig)
         #expect(model.setRole(.misread, of: "Anna Maria Eriksson", for: "anna") == 0)
         #expect(try Self.anna(model).names.first?.name == "Anna Maria Eriksson")
+        // Locked, the numbers let go: a role asked for changes nothing, now or once opened again.
+        let before = try Self.anna(model).names
+        model.systemLocked()
+        #expect(model.setRole(.misread, of: "Anna Maria Ericsson", for: "anna") == 0)
+        model.setRole(.goesBy, of: "Anna Eriksson", for: "anna")
+        #expect(model.nameRoles.isEmpty, "a locked Vault took a role in memory")
+        #expect(await model.unlock())
+        #expect(try Self.anna(model).names == before, "a locked Vault took a role")
+    }
+
+    /// Roles are the user's, kept across a change of reader rules like corrections and lessons:
+    /// what an older build read is let go, never what was chosen about it (VT105).
+    @Test func rolesOutliveAChangeOfReaderRules() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.spellings(rig)
+        model.setRole(.goesBy, of: "Anna Eriksson", for: "anna")
+        model.closed()
+        var state = try #require(rig.store.loadReading())
+        #expect(state.nameRoles?["anna"]?.goesBy != nil)
+        state.version -= 1                                     // as an older build's rules sealed it
+        try rig.store.saveReading(state)
+        let again = rig.model()
+        again.people = Self.people
+        await again.opened()
+        #expect(again.needsReadAgain, "the rules did not change")
+        #expect(again.nameRoles["anna"] == state.nameRoles?["anna"], "a change of rules let the roles go")
+        again.closed()
+        #expect(try rig.store.loadReading()?.nameRoles?["anna"] == state.nameRoles?["anna"], "the reseal dropped the roles")
     }
 
     @Test func theSummaryLeadsWithTheNameTheyGoByThenTheLegalOne() async throws {
@@ -308,7 +335,6 @@ import Testing
         let lines = text.split(separator: "\n").map(String.init)
         #expect(Array(lines.prefix(4)) == ["Anna", "Goes by: Anna Eriksson", "Legal name: Anna Maria Eriksson",
                                            "Also printed as: Anna Maria Ericsson"], "\(lines)")
-        #expect(lines.contains { $0.hasPrefix("Also printed as:") && $0.contains("Anna Maria Ericsson") })
     }
 
     @Test func aGuessPrefersThePassportAndOneLetterApartIsTheLimitOfASlip() {
@@ -335,8 +361,7 @@ import Testing
         // Anna's papers to the one person who has it, which is the People list's rule, not this view's.)
         model.people = [Person(id: "erik", displayName: "Erik", fullNames: ["Erik Lindqvist"])]
         let titles = model.peopleSections.map(\.title)
-        #expect(titles == ["Erik", "Anna Eriksson", "Anna Maria Eriksson", "Household"]
-                || titles == ["Erik", "Anna Maria Eriksson", "Household"], "\(titles)")
+        #expect(titles == ["Erik", "Anna Eriksson", "Anna Maria Eriksson", "Household"], "\(titles)")
         #expect(model.peopleSections.contains { $0.id == .unnamed("Anna Maria Eriksson") })
     }
 
