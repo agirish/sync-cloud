@@ -202,7 +202,8 @@ for: a passport number, a member ID, a loan number.
   misread. The card keeps a note of what it reads for the ID, so later reads give it to this ID
   even after the card moves, and nothing is set aside everywhere. On this card lists the card's
   other IDs with their labels, an ID already in the Vault can't be added twice, and Undo puts a
-  correction back until the Vault locks.
+  correction back, with any waiting ID it took in, until the Vault locks or a read finds another
+  file that prints either number.
 - **Merge…** folds a reading a character or two off into the ID the same person already has, keeping
   whichever number is right; it holds back for different names and for IDs that differ only at the end.
 - **Not for This ID**, under a file that names an ID but isn't its own, takes the file off it for

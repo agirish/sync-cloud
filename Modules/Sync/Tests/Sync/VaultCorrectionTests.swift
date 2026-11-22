@@ -99,6 +99,88 @@ import Testing
         #expect(!again.undoCorrection())
     }
 
+    static let letter = "/Documents/Identity/License/Anna/Renewal letter.pdf"
+    /// The letter prints the license's number as it really is, D1234568.
+    static let letterPage = ["California USA DRIVER LICENSE", "DL D1234568", "EXP 05/16/2030", "LN ERIKSSON", "FN ANNA", "Renewal"]
+
+    @Test func undoBringsBackAWaitingIDTheCorrectedNumberDropped() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        let documents = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage, Self.letter: Self.letterPage])
+        model.fileContents = { [documents] in await documents.contentKey(of: $0) }
+        await model.readDocuments(with: documents)
+        let misread = try #require(model.finds.first { $0.value == "D1234567" })
+        let letter = try #require(model.finds.first { $0.value == "D1234568" })
+        let id = try Self.corrected(model, misread, to: "D1234568")
+        #expect(model.finds.isEmpty, "the letter's reading still waited beside the ID that has its number now")
+        await model.notesWritten()
+        #expect(model.undoCorrection())
+        #expect(Set(model.finds.map(\.id)) == [misread.id, letter.id], "the letter's reading went with the Undo")
+        #expect(!model.entries.contains { $0.id == id })
+        #expect(model.rows.first { $0.id == letter.id }?.documents.map(\.path) == [Self.letter])
+
+        // The same through Edit.
+        let editRig = try Rig(); defer { editRig.cleanUp() }
+        let edited = editRig.model()
+        edited.fileContents = { [documents] in await documents.contentKey(of: $0) }
+        await edited.readDocuments(with: documents)
+        let first = try #require(edited.finds.first { $0.value == "D1234567" })
+        let saved = try #require(edited.confirm(first.id, as: VaultModel.Draft(first)))
+        var draft = VaultModel.Draft(try #require(edited.entries.first { $0.id == saved }))
+        draft.value = "D1234568"
+        #expect(await edited.update(saved, to: draft))
+        #expect(edited.finds.isEmpty)
+        #expect(edited.undoCorrection())
+        #expect(edited.finds.map(\.value) == ["D1234568"])
+        #expect(edited.rows.first { $0.value == "D1234568" }?.documents.map(\.path) == [Self.letter])
+    }
+
+    @Test func aReadSinceTheCorrectionIsNotUndoneOver() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        // The card is marked read, and is not opened again while it is unchanged.
+        var card = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage])
+        card.stamps = [Self.card: "1"]
+        await model.readDocuments(with: card)
+        let id = try Self.corrected(model, try #require(model.finds.first), to: "D1234568")
+        #expect(model.lastCorrection != nil)
+        // A letter printing the corrected number, read before Undo.
+        var both = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage, Self.letter: Self.letterPage])
+        both.stamps = [Self.card: "1", Self.letter: "1"]
+        await model.readDocuments(with: both)
+        #expect(model.rows.first { $0.id == id }?.documents.map(\.path).contains(Self.letter) == true)
+        #expect(model.lastCorrection == nil, "Undo was still offered over what the read took")
+        #expect(!model.undoCorrection())
+        #expect(model.rows.first { $0.id == id }?.documents.map(\.path).contains(Self.letter) == true, "the letter went")
+
+        // A copy printing the old number, read before Undo: it waits once, not twice.
+        let otherRig = try Rig(); defer { otherRig.cleanUp() }
+        let (other, waiting) = try await Self.waiting(otherRig)
+        _ = try Self.corrected(other, waiting, to: "D1234568")
+        await other.notesWritten()
+        let copy = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage, Self.letter: VaultFixtures.licensePage + ["Copy"]])
+        other.fileContents = { [copy] in await copy.contentKey(of: $0) }
+        await other.readDocuments(with: copy)
+        #expect(!other.undoCorrection())
+        #expect(other.finds.filter { $0.value == "D1234567" }.count == 1)
+
+        // A read that takes nothing for either number leaves Undo as it was: the card, unchanged,
+        // is not opened again, and the other file prints another number.
+        let quietRig = try Rig(); defer { quietRig.cleanUp() }
+        let quiet = quietRig.model()
+        var stamped = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage])
+        stamped.stamps = [Self.card: "1"]
+        await quiet.readDocuments(with: stamped)
+        _ = try Self.corrected(quiet, try #require(quiet.finds.first), to: "D1234568")
+        var unrelated = VaultReadAsTests.documents([Self.card: VaultFixtures.licensePage, VaultReadAsTests.relative:
+            VaultReadAsTests.shwetaPage.map { $0.replacingOccurrences(of: "D1234567", with: "S7654321") }])
+        unrelated.stamps = [Self.card: "1", VaultReadAsTests.relative: "1"]
+        await quiet.readDocuments(with: unrelated)
+        #expect(quiet.finds.map(\.value) == ["S7654321"])
+        #expect(quiet.lastCorrection != nil)
+        #expect(quiet.undoCorrection())
+    }
+
     @Test func theEditorFindsTheSavedIDANumberAlreadyIs() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([VaultModelTests.passport, VaultModelTests.memberID])

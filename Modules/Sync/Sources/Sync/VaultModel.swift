@@ -2158,10 +2158,13 @@ public final class VaultModel: ObservableObject {
         // A read number corrected by hand: its documents keep a note of what they read for it,
         // as Add to Vault does, so the next read gives them to this ID rather than offering the
         // misreading again.
-        if before.facts != nil, VaultReading.normalized(before.value) != VaultReading.normalized(changed[index].value) {
+        let correcting = before.facts != nil
+            && VaultReading.normalized(before.value) != VaultReading.normalized(changed[index].value)
+        if correcting {
             corrected(before.value, to: changed[index].value, for: id, owned: before.readAs ?? [], before: before, find: nil)
         }
         dropFinds(matching: changed[index].value)
+        if correcting { correctionSettled() }
         return true
     }
 
@@ -2299,6 +2302,7 @@ public final class VaultModel: ObservableObject {
             // Nothing to seal, or the numbers already let go, and this does nothing.
             saveReading()
             reading = nil
+            dropStaleCorrection()
             // The Vault closed while this read went on, and kept the numbers for it: let them go
             // now, as closing would have, however the read ended.
             // Or it was read while the panel showed only its lock: nothing was drawn, and what
@@ -2850,13 +2854,19 @@ public final class VaultModel: ObservableObject {
         // editor, and saved here it would outlive the choice.
         if draft.facts == nil { draft.facts = find.facts }
         draft.facts?.holder = find.facts.holder
+        // Corrected into a number another waiting ID has: adding drops that one. What both numbers'
+        // documents said, and it, are kept from before, for Undo.
+        let correcting = VaultReading.normalized(draft.value) != VaultReading.normalized(find.value)
+        let kept = correcting ? held(find.value, draft.value) : nil
+        let dropping = correcting ? waiting(draft.value, except: findID) : []
         guard let id = add(draft, sourcePath: find.sourcePath, chosenSource: find.chosenSource,
                            readHolder: rows.first { $0.id == findID }?.holderAsRead) else { return nil }
         record(.confirmed, id: id)
-        if VaultReading.normalized(draft.value) != VaultReading.normalized(find.value) {
-            corrected(find.value, to: draft.value, for: id, owned: [], before: nil, find: find)
+        if correcting {
+            corrected(find.value, to: draft.value, for: id, owned: [], before: nil, find: find, kept: kept, dropping: dropping)
         }
         finds.removeAll { $0.id == findID }
+        if correcting { correctionSettled() }
         readingChanged = true
         saveReading()
         return id
@@ -2894,13 +2904,17 @@ public final class VaultModel: ObservableObject {
     /// for it. Nothing is set aside: the misreading may be a relative's real ID on another card.
     /// A document `owned` already notes reads what its note says, not `read`, and keeps it.
     /// `before` is the saved ID as it was, for Edit; `find`, the waiting ID it was added from, for
-    /// Add to Vault. Either is what Undo puts back.
+    /// Add to Vault. Either is what Undo puts back, with `kept`, what the two numbers' documents
+    /// said, and `dropping`, the waiting IDs with the new number that saving it drops: both as they
+    /// were before the action began, taken now when not given. The action calls
+    /// ``correctionSettled()`` once it is done.
     private func corrected(_ read: String, to value: String, for id: UUID, owned: [VaultReadAs],
-                           before: VaultEntry?, find: VaultFind?, logged: VaultActivityEvent.Kind = .corrected) {
+                           before: VaultEntry?, find: VaultFind?, logged: VaultActivityEvent.Kind = .corrected,
+                           kept: Held? = nil, dropping: [VaultFind]? = nil) {
         let old = VaultReading.normalized(read), new = VaultReading.normalized(value)
         let paths = Set((copies[old] ?? [:]).keys).union((mentions[old] ?? []).map(\.path))
-        let keptCopies: [String: [String: VaultFind]?] = [old: copies[old], new: copies[new]]
-        let keptMentions: [String: [VaultSource]?] = [old: mentions[old], new: mentions[new]]
+        let kept = kept ?? held(read, value)
+        let dropping = dropping ?? waiting(value, except: find?.id)
         if let moved = copies.removeValue(forKey: old) {
             for (path, var copy) in moved {
                 copy.value = value
@@ -2912,7 +2926,7 @@ public final class VaultModel: ObservableObject {
         saveReading()
         if let after = entries.first(where: { $0.id == id }) {
             correctionUndo = CorrectionUndo(id: id, before: before, find: find, after: after,
-                                            copies: keptCopies, mentions: keptMentions)
+                                            kept: kept, dropped: dropping)
             let file = (before?.facts ?? find?.facts)?.primary.map { ($0.path as NSString).lastPathComponent }
             lastCorrection = Correction(id: id, file: file, changed: Self.charactersChanged(old, new))
         }
@@ -2976,17 +2990,66 @@ public final class VaultModel: ObservableObject {
     @Published public private(set) var lastCorrection: Correction?
 
     /// What Undo puts back: the saved ID as it was (or none, for one added from To Confirm, whose
-    /// waiting ID comes back), and what its documents said, by number. Kept in memory only, and
-    /// let go when the Vault locks.
+    /// waiting ID comes back), what its documents said, by number, and the waiting IDs saving the
+    /// new number dropped. `left` is what the correction left those numbers' documents saying: a
+    /// read since that changed it (a file printing either number) is not undone over. Kept in
+    /// memory only, and let go when the Vault locks.
     private struct CorrectionUndo {
         let id: UUID
         let before: VaultEntry?
         let find: VaultFind?
         let after: VaultEntry
+        let kept: Held
+        let dropped: [VaultFind]
+        var left: Held?
+    }
+    private var correctionUndo: CorrectionUndo?
+
+    /// What two numbers' documents said, by number: what a correction moves from one to the other.
+    struct Held: Equatable {
         let copies: [String: [String: VaultFind]?]
         let mentions: [String: [VaultSource]?]
     }
-    private var correctionUndo: CorrectionUndo?
+
+    private func held(_ a: String, _ b: String) -> Held {
+        held([VaultReading.normalized(a), VaultReading.normalized(b)])
+    }
+
+    private func held(_ keys: [String]) -> Held {
+        Held(copies: Dictionary(keys.map { ($0, copies[$0]) }, uniquingKeysWith: { first, _ in first }),
+             mentions: Dictionary(keys.map { ($0, mentions[$0]) }, uniquingKeysWith: { first, _ in first }))
+    }
+
+    /// The waiting IDs holding `value`, other than `id`.
+    private func waiting(_ value: String, except id: UUID?) -> [VaultFind] {
+        let key = VaultReading.normalized(value)
+        return finds.filter { $0.id != id && VaultReading.normalized($0.value) == key }
+    }
+
+    /// The action that made a correction is done: what it left its numbers' documents saying is
+    /// what Undo checks for.
+    private func correctionSettled() {
+        guard let undo = correctionUndo else { return }
+        correctionUndo?.left = held(Array(undo.kept.copies.keys))
+    }
+
+    /// Whether Undo would still put the last correction back: the ID, and what its numbers'
+    /// documents say, as the correction left them (notes written since aside).
+    private func correctionUndoable(_ undo: CorrectionUndo) -> Bool {
+        guard contents == .loaded, let entry = entries.first(where: { $0.id == undo.id }),
+              let left = undo.left, held(Array(undo.kept.copies.keys)) == left else { return false }
+        var current = entry
+        current.readAs = undo.after.readAs
+        return current == undo.after
+    }
+
+    /// A read took something for the last correction's numbers: its Undo goes, rather than wait
+    /// to be refused.
+    private func dropStaleCorrection() {
+        guard let undo = correctionUndo, !correctionUndoable(undo) else { return }
+        correctionUndo = nil
+        lastCorrection = nil
+    }
 
     /// The characters `a` and `b` differ in, place by place; nil when their lengths differ.
     nonisolated static func charactersChanged(_ a: String, _ b: String) -> Int? {
@@ -2997,17 +3060,16 @@ public final class VaultModel: ObservableObject {
     /// The pane's note went: the selection moved on.
     public func dismissCorrection() { lastCorrection = nil }
 
-    /// Undo: puts back what the last correction changed, while the ID is as the correction left
-    /// it (notes written since aside). An ID added from To Confirm goes, and waits there again;
-    /// an edited one has its number, and its notes, back. Nothing was set aside, so nothing is
-    /// let out again.
+    /// Undo: puts back what the last correction changed, while the ID, and what its numbers'
+    /// documents say, are as the correction left them (notes written since aside). An ID added
+    /// from To Confirm goes, and waits there again; an edited one has its number, and its notes,
+    /// back; a waiting ID the corrected number dropped waits again. Nothing was set aside, so
+    /// nothing is let out again.
     @discardableResult
     public func undoCorrection() -> Bool {
         guard let undo = correctionUndo, contents == .loaded,
               let index = entries.firstIndex(where: { $0.id == undo.id }) else { return false }
-        var current = entries[index]
-        current.readAs = undo.after.readAs
-        guard current == undo.after else {
+        guard correctionUndoable(undo) else {
             correctionUndo = nil
             lastCorrection = nil
             return false
@@ -3016,12 +3078,13 @@ public final class VaultModel: ObservableObject {
         var changed = entries
         if let before = undo.before { changed[index] = before } else { changed.remove(at: index) }
         guard write(changed) else { return false }
-        for (key, value) in undo.copies { copies[key] = value }
-        for (key, value) in undo.mentions { mentions[key] = value }
+        for (key, value) in undo.kept.copies { copies[key] = value }
+        for (key, value) in undo.kept.mentions { mentions[key] = value }
         if let find = undo.find {
             finds.append(find)
             selection = find.id
         }
+        for find in undo.dropped where !finds.contains(where: { $0.id == find.id }) { finds.append(find) }
         readingChanged = true
         saveReading()
         record(.other, (lastCorrection?.merged == true ? "Undid the merge into " : "Undid the correction of ") + title)
@@ -3125,6 +3188,7 @@ public final class VaultModel: ObservableObject {
                       before: before, find: find, logged: .merged)
         }
         finds.removeAll { $0.id == findID }
+        correctionSettled()
         readingChanged = true
         saveReading()
         let file = find.facts.primary.map { ($0.path as NSString).lastPathComponent }
