@@ -4,9 +4,18 @@ import Foundation
 /// rows weigh it, and so does a waiting number rebuilt from its copies (VT7).
 struct VaultHolders {
     /// Names corrected everywhere, by ``VaultReading/spellingKey(_:)`` of the name as read.
-    var names: [String: String]
+    let names: [String: String]
     /// The household's people, from Settings ▸ Organize.
-    var people: [Person]
+    let people: [Person]
+    /// Their names, tokenised once for every lookup these holders make (VT66): a rows rebuild
+    /// asked for a new one per saved ID and per copy.
+    let registry: PersonRegistry?
+
+    init(names: [String: String], people: [Person]) {
+        self.names = names
+        self.people = people
+        registry = people.isEmpty ? nil : PersonRegistry(people: people)
+    }
 
     /// The name a number's document should say: its own correction, else one made everywhere for
     /// that reading; nil to go by what was read.
@@ -17,7 +26,7 @@ struct VaultHolders {
 
     /// The household person a document's name answers to, as corrected everywhere when it was.
     func person(of copy: VaultFind) -> String? {
-        VaultModel.person(named: correctedName(copy.facts.holder, own: nil) ?? copy.facts.holder, among: people)
+        VaultModel.person(named: correctedName(copy.facts.holder, own: nil) ?? copy.facts.holder, in: registry)
     }
 
     /// The person a saved ID is, by the choice made for it or its name (its own, else corrected).
@@ -25,7 +34,7 @@ struct VaultHolders {
         if case .person(let id)? = entry.assignment { return id }
         if entry.assignment == .household { return nil }
         let holder = entry.facts?.holder
-        return VaultModel.person(named: correctedName(holder, own: entry.holderName) ?? holder, among: people)
+        return VaultModel.person(named: correctedName(holder, own: entry.holderName) ?? holder, in: registry)
     }
 
     /// One number's copies when they name more than one of the household's people, as a
@@ -149,7 +158,7 @@ struct VaultRowSource {
     func rows() -> (rows: [VaultModel.Row], merges: Int) {
         let people = holders.people
         // Made once for every row, not once per row (VT66).
-        let registry = people.isEmpty ? nil : PersonRegistry(people: people)
+        let registry = holders.registry
         let merges = MergeMemo()
         func withMentions(_ facts: VaultReadFacts?, _ value: String) -> VaultReadFacts? {
             guard var facts else { return nil }

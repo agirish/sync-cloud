@@ -306,14 +306,20 @@ public struct VaultBackup {
 
     /// Keeps `passphrase` for the backups made from now on. Backups already made open with the
     /// passphrase they were made with, not this one.
+    /// The kept passphrase is changed in place, never deleted first: a Keychain that refuses the
+    /// change leaves the old one, so the weekly backup goes on rather than stopping for want of one.
     public func setPassphrase(_ passphrase: String) throws {
         guard passphrase.count >= VaultBackupFile.leastPassphraseLength else { throw VaultBackupError.passphraseTooShort }
-        keychain.delete(query())
-        var item = query()
-        item[kSecValueData as String] = Data(passphrase.utf8)
-        item[kSecAttrLabel as String] = "SyncCloud Vault backup passphrase"
-        guard keychain.add(item) == errSecSuccess else {
-            Logger.shared.warning("Vault: the Keychain refused to keep the backup passphrase")
+        let data = Data(passphrase.utf8)
+        var status = keychain.update(query(), attributes: [kSecValueData as String: data])
+        if status == errSecItemNotFound {
+            var item = query()
+            item[kSecValueData as String] = data
+            item[kSecAttrLabel as String] = "SyncCloud Vault backup passphrase"
+            status = keychain.add(item)
+        }
+        guard status == errSecSuccess else {
+            Logger.shared.warning("Vault: the Keychain refused to keep the backup passphrase (status \(status))")
             throw VaultBackupError.notWritten
         }
     }
@@ -326,9 +332,10 @@ public struct VaultBackup {
                       VaultBackupFile.fileExtension)
     }
 
-    /// Seals `entries` under the kept passphrase and writes them to the backup folder, replacing
-    /// a backup made earlier the same day. No proof is asked here: the caller holds the IDs
-    /// already, which took one.
+    /// Seals `entries` under the kept passphrase and writes them to the backup folder, beside every
+    /// backup made before: never over one, not even the same day's, which may be the only copy
+    /// that moves the Vault to another Mac (`Vault Backup 2026-11-23 2.scvault` beside it). No
+    /// proof is asked here: the caller holds the IDs already, which took one.
     ///
     /// The key is derived off the main actor (VT58): PBKDF2 at ``VaultBackupFile/rounds`` takes most
     /// of a second, which held the panel as it opened for the weekly backup.
@@ -348,9 +355,20 @@ public struct VaultBackup {
         let sealed = try await Task.detached(priority: .userInitiated) {
             try seal(contents, passphrase, rounds)
         }.value
-        let url = folder.appendingPathComponent(Self.fileName(now))
+        var url = freeName(for: now)
         do {
-            try SealedFile.write(sealed, to: url, fileManager: fileManager)
+            // A name taken between the look and the write (Back Up Now beside the weekly
+            // backup) moves on to the next free one, never over it.
+            var tries = 0
+            while true {
+                do {
+                    try SealedFile.write(sealed, to: url, fileManager: fileManager, replacing: false)
+                    break
+                } catch CocoaError.fileWriteFileExists where tries < 20 {
+                    tries += 1
+                    url = freeName(for: now)
+                }
+            }
         } catch {
             Logger.shared.warning("Vault: a backup could not be written — \(error.localizedDescription)")
             throw VaultBackupError.notWritten
@@ -362,12 +380,27 @@ public struct VaultBackup {
         return url
     }
 
-    /// Back Up Now: proves it is the owner, reads the Vault, and writes a backup.
+    /// The day's name in the backup folder, or the first ` 2`, ` 3` … after it no file has.
+    func freeName(for date: Date) -> URL {
+        let first = Self.fileName(date)
+        let stem = (first as NSString).deletingPathExtension
+        var url = folder.appendingPathComponent(first)
+        var n = 2
+        while fileManager.fileExists(atPath: url.path) {
+            url = folder.appendingPathComponent("\(stem) \(n).\(VaultBackupFile.fileExtension)")
+            n += 1
+        }
+        return url
+    }
+
+    /// Back Up Now: proves it is the owner, reads the Vault, and writes a backup, with the
+    /// household's typed contacts as the weekly backup carries them.
     public func backUpNow() async -> Result<URL, VaultBackupError> {
         guard hasPassphrase else { return .failure(.noPassphrase) }
         guard case .allowed = await authenticator.prove(reason: "back up your Vault") else { return .failure(.notProved) }
         guard let entries = try? store.load() else { return .failure(.vaultUnreadable) }
-        do { return .success(try await write(entries)) } catch let error as VaultBackupError { return .failure(error) } catch {
+        let contacts = store.openReading().state?.contacts ?? [:]
+        do { return .success(try await write(entries, contacts: contacts)) } catch let error as VaultBackupError { return .failure(error) } catch {
             return .failure(.notWritten)
         }
     }

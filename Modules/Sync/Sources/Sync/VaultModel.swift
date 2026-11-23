@@ -339,8 +339,6 @@ public final class VaultModel: ObservableObject {
     /// Numbers read from documents and not yet confirmed. Sealed in Read Documents' own file
     /// between reads, and let go from memory with the entries when the Vault locks.
     @Published public private(set) var finds: [VaultFind] = [] { didSet { rowsRevision &+= 1 } }
-    /// To Confirm lists its older numbers only when asked.
-    @Published public var showsOlderFinds = false { didSet { keepSelectionVisible() } }
     /// Each file read, by path, against ``VaultDocumentReading/stamp(of:)`` when it was read.
     private var readIndex: [String: String] = [:]
     /// Set while Read Documents runs.
@@ -1101,6 +1099,8 @@ public final class VaultModel: ObservableObject {
     /// given one of their own.
     public func forgetLesson(_ folder: String) {
         guard lessons[folder] != nil else { return }
+        // The lessons are not published: the row leaves the card it learned at once.
+        objectWillChange.send()
         lessons[folder] = nil
         readingChanged = true
         saveReading()
@@ -2327,6 +2327,9 @@ public final class VaultModel: ObservableObject {
             readingChanged = true
         }
         lastRefreshed = clock()
+        // Kept with what was read, so the footer's time outlives the next lock, though a Refresh
+        // with nothing to open changed nothing else.
+        readingChanged = true
     }
 
     /// The read folders this read saw into: each that gave at least one file. With no folders

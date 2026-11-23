@@ -16235,7 +16235,10 @@ it is used, how a newer one replaces it), the app's groups and their colors are 
 place is a country's code or anywhere, stored by the names it always was. Batch 13: the panel's five choices
 about an ID, saved or waiting, are made by one path. Batch 14: each kind's rules are
 reached by a switch the compiler checks, places are enums again, the Vault keeps the first backup
-of each of the last 30 days beside its ten newest, and a sealed file is created owner-only.
+of each of the last 30 days beside its ten newest, and a sealed file is created owner-only. Batch 15:
+a passphrase backup is never written over another and Back Up Now carries the contacts, sealed
+files are flushed to the disk, the daily backups go by the most recent days with backups, more
+types print nothing they hold, and a failed passphrase change or Replace leaves things as they were.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

@@ -62,6 +62,38 @@ import Testing
         }
     }
 
+    /// A card's values, a number corrected by hand and the household's contact details print
+    /// none of them (the 2026-11-23 review).
+    @Test func contactDetailsAndCardValuesPrintNothingTheyHold() {
+        let address = VaultAddress(street: "100 Example Street", unit: "Apt 6", city: "Testville", state: "CA", zip: "00001")
+        let typed = VaultContacts.Typed("(408) 555-0142", label: "Mobile", added: Date(timeIntervalSince1970: 0))
+        let contacts = VaultContacts(phones: [typed], emails: [VaultContacts.Typed("anna@example.com", added: Date(timeIntervalSince1970: 0))],
+                                     addresses: [VaultContacts.TypedAddress(address, added: Date(timeIntervalSince1970: 0))])
+        let card = VaultCardValue(label: "Member ID", value: "XZB123456789")
+        let readAs = VaultReadAs(contents: "1 abc", reads: "A38291647")
+        let backup = VaultBackupContents(madeAt: Date(timeIntervalSince1970: 0), entries: [], contacts: ["anna": contacts])
+        let item = VaultContactCard.Item(id: "phone:0", kind: .phones, people: ["Anna"], value: "(408) 555-0142")
+        let contactCard = VaultContactCard(kind: .phones, items: [item])
+        let phone = VaultPersonSection.Phone(value: "(408) 555-0142", label: "Mobile")
+        let home = VaultPersonSection.Address(address: address, dated: nil, rows: [], typed: true)
+        let printed: [String] = ["\(address)", String(reflecting: address), "\(typed)", "\(contacts)", String(reflecting: contacts),
+                                 "\(contacts.addresses[0])", "\(card)", String(reflecting: card), "\(readAs)", "\(backup)",
+                                 "\(item)", "\(contactCard)", String(reflecting: item), "\(phone)", "\(home)"]
+        var dumped = ""
+        dump(contacts, to: &dumped)
+        dump(card, to: &dumped)
+        dump(readAs, to: &dumped)
+        dump(backup, to: &dumped)
+        dump(contactCard, to: &dumped)
+        dump(phone, to: &dumped)
+        dump(home, to: &dumped)
+        for line in printed + [dumped] {
+            for secret in ["2841", "Larkspur", "Testville", "00001", "555-0142", "anna@", "123456789", "38291647"] {
+                #expect(!line.contains(secret), "\(line) shows \(secret)")
+            }
+        }
+    }
+
     /// A person's section, its names and dates of birth (VT28), as People builds it.
     @Test @MainActor func aPersonsSectionPrintsNoNameOrDate() async throws {
         let rig = try VaultModelTests.Rig(); defer { rig.cleanUp() }

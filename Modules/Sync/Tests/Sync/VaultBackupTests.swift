@@ -110,6 +110,41 @@ import Testing
         #expect(backup.lastBackup == rig.clock.now)
     }
 
+    /// A second backup the same day goes beside the first, never over it: the first may be the
+    /// only copy that moves the Vault to another Mac (the 2026-11-23 review). Back Up Now carries
+    /// the household's typed contacts, as the weekly backup does.
+    @Test func aSecondBackupTheSameDayGoesBesideTheFirstWithItsContacts() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        try rig.seed([Self.mortgage, Self.passport])
+        var state = VaultReadingState()
+        state.contacts = ["anna": VaultContacts(phones: [VaultContacts.Typed("(408) 555-0142", added: VaultLockTests.t0)])]
+        try rig.store.saveReading(state)
+        let folder = Self.scratchFolder(); defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = Self.backup(rig, folder: folder)
+        try backup.setPassphrase(Self.phrase)
+        let first = try (await backup.backUpNow()).get()
+        try rig.seed([Self.mortgage])                                   // the day's second, smaller
+        let second = try (await backup.backUpNow()).get()
+        #expect(first != second)
+        #expect(second.lastPathComponent == (first.deletingPathExtension().lastPathComponent + " 2.scvault"))
+        #expect(try await backup.read(first).get().entries == [Self.mortgage, Self.passport], "the first was written over")
+        #expect(try await backup.read(first).get().contacts?["anna"]?.phones.count == 1, "Back Up Now left the contacts out")
+    }
+
+    /// A passphrase change the Keychain refuses keeps the one before: the weekly backup goes on.
+    @Test func aRefusedPassphraseChangeKeepsTheOldOne() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let backup = Self.backup(rig, folder: Self.scratchFolder())
+        try backup.setPassphrase(Self.phrase)
+        rig.keychain.forcedUpdateStatus = errSecInteractionNotAllowed
+        #expect(throws: VaultBackupError.notWritten) { try backup.setPassphrase("another passphrase, later") }
+        rig.keychain.forcedUpdateStatus = nil
+        #expect(backup.hasPassphrase, "a refused change left no passphrase")
+        #expect(backup.passphrase() == Self.phrase)
+        try backup.setPassphrase("another passphrase, later")
+        #expect(backup.passphrase() == "another passphrase, later", "a change that was allowed did not take")
+    }
+
     /// The key is derived off the main actor (VT58): at full strength it takes most of a second,
     /// which held the panel as it opened for the weekly backup. Where sealing and opening run is
     /// recorded as they run.

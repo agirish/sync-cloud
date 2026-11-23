@@ -194,7 +194,7 @@ public struct VaultActivityStore {
                 .map(\.json)
             let sealed = try VaultFile.sealPlain(Data("[".utf8) + elements.joined(separator: Data(",".utf8)) + Data("]".utf8),
                                                  marker: Self.marker, with: key)
-            try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
+            try SealedFile.write(sealed, to: fileURL, fileManager: fileManager, flushing: false)
         } catch {
             Logger.shared.warning("Vault: the activity list could not be sealed — \(error.localizedDescription)")
         }

@@ -88,14 +88,20 @@ public enum VaultKeychain {
         }
         return .success(key)
     }
+
+    /// Removes the key: only one ``VaultStore`` made for a save that then wrote nothing.
+    static func delete(from store: KeychainStore) {
+        store.delete(baseQuery())
+    }
 }
 
 /// The one way a sealed file reaches the disk (VT55): the Vault's, what was read, the activity
 /// list, a passphrase backup and the copies kept before each save.
 ///
-/// The bytes go to a temporary file, are made owner-only there, and are then swapped in whole. So
-/// a crash mid-write leaves the file before, never half of a sealed box, and the file is never
-/// readable by others under its own name, not even for the moment between a write and a chmod.
+/// The bytes go to a temporary file, created owner-only and flushed to the disk, and are then
+/// swapped in whole, the folder flushed after. So a crash or a power loss mid-write leaves the
+/// file before, never half of a sealed box, and the file is never readable by others under its
+/// own name, not even for a moment.
 /// The temporary file is in the volume's replacement folder; on a volume that has none (a
 /// network share whose root is not the user's) it sits beside the file, under a name that does
 /// not start with a dot: a backup folder may be in iCloud Drive.
@@ -103,7 +109,7 @@ enum SealedFile {
     /// Writes `data` to a new file created owner-only, so no other user can read it for even the
     /// moment before a chmod (``write(_:to:fileManager:)`` still sets 0600 after, in case the
     /// volume ignores the mode it was created with). Fails when the file is there already.
-    static func writeOwnerOnly(_ data: Data, to url: URL) throws {
+    static func writeOwnerOnly(_ data: Data, to url: URL, flushing: Bool = true) throws {
         let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else {
             // Why, as the system said it: no permission, a read-only volume, a name too long.
@@ -112,6 +118,10 @@ enum SealedFile {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
             try handle.write(contentsOf: data)
+            // On the disk itself before it is swapped in, so a power loss after the swap cannot
+            // leave the name over bytes never written. A volume without F_FULLFSYNC (a network
+            // share) gets a plain fsync.
+            if flushing, fcntl(descriptor, F_FULLFSYNC) != 0 { _ = fsync(descriptor) }
             try handle.close()
         } catch {
             try? handle.close()
@@ -119,7 +129,12 @@ enum SealedFile {
         }
     }
 
-    static func write(_ data: Data, to url: URL, fileManager: FileManager) throws {
+    /// `replacing` off: a file already at `url` is never replaced, and this throws
+    /// `fileWriteFileExists` instead (a passphrase backup's name taken meanwhile).
+    /// `flushing` off: not forced to the disk (the activity list, written at every Show and Copy,
+    /// which a power loss may take the last lines of; a record, not something to fail an act over).
+    static func write(_ data: Data, to url: URL, fileManager: FileManager, replacing: Bool = true,
+                      flushing: Bool = true) throws {
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // A link is written through: the file it names is replaced, and the link stays.
         let target = url.resolvingSymlinksInPath()
@@ -136,7 +151,7 @@ enum SealedFile {
             if let scratch { try? fileManager.removeItem(at: scratch) }
             else if fileManager.fileExists(atPath: temporary.path) { try? fileManager.removeItem(at: temporary) }
         }
-        try writeOwnerOnly(data, to: temporary)
+        try writeOwnerOnly(data, to: temporary, flushing: flushing)
         do {
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
         } catch {
@@ -145,6 +160,7 @@ enum SealedFile {
             Logger.shared.warning("Vault: \(url.lastPathComponent) could not be made owner-only — \(error.localizedDescription)")
         }
         if fileManager.fileExists(atPath: target.path) {
+            guard replacing else { throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: target.path]) }
             do {
                 _ = try fileManager.replaceItemAt(target, withItemAt: temporary, backupItemName: nil,
                                                   options: .usingNewMetadataOnly)
@@ -164,6 +180,15 @@ enum SealedFile {
             }
             try fileManager.moveItem(at: temporary, to: target)
         }
+        if flushing { syncFolder(of: target) }
+    }
+
+    /// The folder's entry for the file, on the disk too: the swap itself survives a power loss.
+    private static func syncFolder(of file: URL) {
+        let folder = open(file.deletingLastPathComponent().path, O_RDONLY | O_CLOEXEC)
+        guard folder >= 0 else { return }
+        if fcntl(folder, F_FULLFSYNC) != 0 { _ = fsync(folder) }
+        close(folder)
     }
 }
 
@@ -404,8 +429,8 @@ public struct VaultStore {
 
     /// How many sealed files from before a save are kept beside the Vault's, newest first (VT20).
     public static let backupsKept = 10
-    /// Beyond those, the first backup made on each of this many days, today's included: one busy
-    /// session of saves cannot push every older copy out (owner, 2026-11-23).
+    /// Beyond those, the first backup made on each of this many most recent days with backups: one
+    /// busy session of saves cannot push every older copy out (owner, 2026-11-23).
     public static let dailyBackupDays = 30
 
     public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore(),
@@ -479,7 +504,7 @@ public struct VaultStore {
     /// they belong to.
     public func save(_ entries: [VaultEntry], newer: [Data] = [],
                      carrying: VaultRecords? = nil) throws {
-        let key = try keyForWriting()
+        let (key, made) = try keyMadeForWriting()
         var records = VaultRecords(entries: entries, newer: newer)
         if let carrying {
             let ids = Set(entries.map(\.id))
@@ -511,12 +536,21 @@ public struct VaultStore {
             }
             previous = data
         }
-        let sealed = try VaultFile.seal(records, with: key)
         do {
+            let sealed = try VaultFile.seal(records, with: key)
             if let previous { try keepBackup(of: previous) }
             try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
         } catch {
             Logger.shared.warning("Vault: the sealed file could not be written — \(error.localizedDescription)")
+            // A key made for this save, with nothing sealed under it, goes again, and what was
+            // set aside for it comes back: a Mac whose key was lost still says so, rather than
+            // holding a new key beside a file sealed with the old one.
+            if let made {
+                VaultKeychain.delete(from: keychain)
+                // Only once the key is gone: files sealed under the lost key never go back beside
+                // a new one, where the next save would write over them.
+                if case .notCreated = VaultKeychain.read(from: keychain) { putBack(made) }
+            }
             throw VaultError.notWritten
         }
         // Only once the new file is in: a save that keeps failing must not rotate the older
@@ -599,28 +633,27 @@ public struct VaultStore {
         }
     }
 
-    /// Lets go of all but the newest ``backupsKept`` and, for each of ``dailyBackupDays`` days by
-    /// this Mac's calendar, the first backup made that day: the Vault as the day began, which a
-    /// busy day's saves would otherwise push out. The days run back from the newest backup whose
-    /// time reads (else today), and as far forward: a clock put back a little keeps what it dates
-    /// after its today, and one set years ahead for a while leaves nothing kept for years. A
-    /// backup whose time cannot be read is kept only among the newest.
+    /// Lets go of all but the newest ``backupsKept`` and, for each of the ``dailyBackupDays`` most
+    /// recent days that have backups (by this Mac's calendar), the first backup made that day: the
+    /// Vault as the day began, which a busy day's saves would otherwise push out. The days are the
+    /// newest backups' days, not a window around today's date, so a clock off by years (a reset
+    /// one, or one set ahead and put right) costs no backup: a wrong day is one of the thirty until
+    /// thirty days of saves come after it. A backup whose time cannot be read is kept only among
+    /// the newest.
     private func pruneBackups() {
         let all = backups
         guard all.count > Self.backupsKept else { return }
         let calendar = Calendar.current
         let made = all.map { Self.backupTime($0.lastPathComponent).map(calendar.startOfDay(for:)) }
-        let today = made.lazy.compactMap { $0 }.first ?? calendar.startOfDay(for: clock())
-        let span = Self.dailyBackupDays - 1
-        guard let back = calendar.date(byAdding: .day, value: -span, to: today),
-              let ahead = calendar.date(byAdding: .day, value: span, to: today) else { return }
-        // Whole days: where a day starts at 01:00 (a clock change at midnight), not its 00:00.
-        let window = calendar.startOfDay(for: back)...ahead
+        var recent: [Date] = []
+        for case let day? in made where !recent.contains(day) && recent.count < Self.dailyBackupDays {
+            recent.append(day)
+        }
         var keep = Set(all.prefix(Self.backupsKept))
         var days: Set<Date> = []
         // Oldest first, so the first of a day is the one made as it began.
         for (backup, day) in zip(all, made).reversed() {
-            if let day, window.contains(day), days.insert(day).inserted { keep.insert(backup) }
+            if let day, recent.contains(day), days.insert(day).inserted { keep.insert(backup) }
         }
         for old in all where !keep.contains(old) { try? fileManager.removeItem(at: old) }
     }
@@ -782,9 +815,12 @@ public struct VaultStore {
     /// Files a lost key sealed that are not the Vault's own (what was read, the activity list,
     /// the backups kept before each save) are set aside before a new key is made: under it they
     /// would be written over or pruned, and they are kept for the day their key turns up.
-    private func keyForWriting() throws -> SymmetricKey {
+    private func keyForWriting() throws -> SymmetricKey { try keyMadeForWriting().key }
+
+    /// ``keyForWriting()``, and, when it made the key just now, the files it set aside for it.
+    private func keyMadeForWriting() throws -> (key: SymmetricKey, made: [Aside]?) {
         switch VaultKeychain.read(from: keychain) {
-        case .found(let found): return found
+        case .found(let found): return (found, nil)
         case .unreadable(let status): throw VaultError.keyUnreadable(status)
         case .notCreated:
             guard !hasFile else { throw VaultError.keyMissing }
@@ -796,7 +832,7 @@ public struct VaultStore {
                 Logger.shared.warning("Vault: \(moved.count) sealed file(s) with no key in this Mac's Keychain were set aside before a new key was made")
             }
             switch VaultKeychain.create(in: keychain) {
-            case .success(let key): return key
+            case .success(let key): return (key, moved)
             case .failure(let error):
                 // No new key, so nothing to keep them from: back where they were. Unless another
                 // caller made one meanwhile: then they stay aside, out of its way.

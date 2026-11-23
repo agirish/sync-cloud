@@ -622,8 +622,8 @@ import Testing
         try store.save((1...(VaultStore.backupsKept + 2)).map(Self.entry))
         let newest = try #require(store.backups.first)
         #expect(try Data(contentsOf: newest) == before, "the backup just made was pruned or sorted last")
-        // The newest ten only: the others are dated a year after the new today, past the days kept.
-        #expect(store.backups.count == VaultStore.backupsKept)
+        // The newest ten, and the first of the day the others were made: no backup is lost to the clock.
+        #expect(store.backups.count == VaultStore.backupsKept + 1)
     }
 
     /// Backups named before counts (`vault-backup-<time>-NNN.sealed`, on the owner's disk from
@@ -640,8 +640,10 @@ import Testing
         #expect(store.backups.map(\.lastPathComponent).first == "vault-backup-00000001-20270115T080001.000Z.sealed")
         #expect(Array(store.backups.map(\.lastPathComponent).suffix(2)) == old.reversed())
         for n in 3...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
-        #expect(!store.backups.contains { old.contains($0.lastPathComponent) }, "the oldest were not pruned first")
-        #expect(store.backups.count == VaultStore.backupsKept)
+        // Pruned first; the earlier stays only as the first of its day.
+        #expect(store.backups.map(\.lastPathComponent).last == old[0])
+        #expect(!store.backups.contains { $0.lastPathComponent == old[1] }, "the oldest were not pruned first")
+        #expect(store.backups.count == VaultStore.backupsKept + 1)
     }
 
     static func days(_ store: VaultStore) -> [Date] {
@@ -681,25 +683,45 @@ import Testing
         let oldest = try #require(Self.days(store).min())
         #expect(oldest == calendar.startOfDay(for: Self.day.addingTimeInterval(10 * 86_400)))
 
-        // The clock put back ten days: backups dated after the new today are recent, and none goes.
+        // The clock put back ten days: the new backup's day is one of the thirty, and none goes.
         ticker.now = Self.day.addingTimeInterval(29 * 86_400)
         try store.save((1...41).map(Self.entry))
         #expect(store.backups.count == VaultStore.dailyBackupDays + 1)
     }
 
-    /// A clock set years ahead for a while, then put right: the days it dated are not kept for
-    /// years, only while among the newest.
-    @Test func aBackupDatedYearsAheadIsNotKeptForYears() throws {
+    /// A clock set years ahead for a while, then put right: the day it dated is one of the thirty
+    /// until thirty days of saves come after it, then goes; never kept for years.
+    @Test func aBackupDatedYearsAheadGoesAfterThirtyDaysOfSaves() throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let ticker = Ticker()
         let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
         try store.save([Self.entry(1)])
         ticker.now = Self.day.addingTimeInterval(3 * 365 * 86_400)
         try store.save([Self.entry(1), Self.entry(2)])                 // a backup dated years ahead
-        ticker.now = Self.day.addingTimeInterval(86_400)
-        for n in 3...(VaultStore.backupsKept + 3) { try store.save((1...n).map(Self.entry)) }
+        try store.save((1...3).map(Self.entry))                        // its day, now a backup too
         let years = Calendar.current.startOfDay(for: Self.day.addingTimeInterval(3 * 365 * 86_400))
+        for d in 1...VaultStore.dailyBackupDays {
+            ticker.now = Self.day.addingTimeInterval(Double(d) * 86_400)
+            try store.save((1...(d + 3)).map(Self.entry))
+            if d == VaultStore.dailyBackupDays - 1 { #expect(Self.days(store).contains(years), "gone before thirty days of saves") }
+        }
         #expect(!Self.days(store).contains(years))
+    }
+
+    /// A clock reset to years back (a dead battery) for one save costs no backup: the days kept
+    /// are the newest backups' days, not a window around a wrong today.
+    @Test func aClockResetForOneSaveKeepsEveryDailyBackup() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
+        for d in 0..<20 {
+            ticker.now = Self.day.addingTimeInterval(Double(d) * 86_400)
+            try store.save((1...(d + 1)).map(Self.entry))
+        }
+        #expect(store.backups.count == 19)
+        ticker.now = Date(timeIntervalSince1970: 1_000_000_000)          // 2001
+        try store.save((1...21).map(Self.entry))
+        #expect(store.backups.count == 20)
     }
 
     /// A backup's time, read back from both names it has had.
@@ -723,6 +745,32 @@ import Testing
             try super.replaceItem(at: originalItemURL, withItemAt: newItemURL, backupItemName: backupItemName,
                                   options: options, resultingItemURL: resultingItemURL)
         }
+    }
+
+    /// Replace on a Mac whose key was lost, refused by the disk: the key made for it goes again,
+    /// so the Mac still says the key is missing, not that its file came from another Mac.
+    @Test func aKeyMadeForASaveThatFailedGoesAgain() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let keychain = VaultFakeKeychain()
+        let first = VaultStore(fileURL: scratch.fileURL, keychain: keychain)
+        try first.save([Self.entry(1)])
+        try first.save([Self.entry(1), Self.entry(2)])                 // a backup, set aside for the new key, then back
+        try first.saveReading(VaultReadingState())
+        let sealed = try Data(contentsOf: scratch.fileURL)
+        let reading = try Data(contentsOf: first.readingURL)
+        let backups = first.backups.map(\.lastPathComponent)
+        #expect(backups.count == 1)
+        keychain.itemData = nil                                          // the key is lost
+        let refusing = VaultStore(fileURL: scratch.fileURL, keychain: keychain, fileManager: RefusesTheVaultFile())
+        let moved = try #require(refusing.moveAsideForReplace(at: Self.day))
+        #expect(throws: VaultError.notWritten) { try refusing.save([Self.entry(2)]) }
+        #expect(keychain.itemData == nil, "a new key was left beside the old file")
+        // Put back as Restore does, by a disk that allows it this time.
+        VaultStore(fileURL: scratch.fileURL, keychain: keychain).putBack(moved)
+        #expect(try Data(contentsOf: scratch.fileURL) == sealed)
+        #expect(try Data(contentsOf: first.readingURL) == reading, "what was set aside for the new key stayed aside")
+        #expect(first.backups.map(\.lastPathComponent) == backups, "the backups set aside for the new key stayed aside")
+        #expect(throws: VaultError.keyMissing) { try VaultStore(fileURL: scratch.fileURL, keychain: keychain).load() }
     }
 
     /// A save that keeps failing keeps one copy of the file it could not replace, and prunes

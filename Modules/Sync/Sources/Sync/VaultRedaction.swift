@@ -120,3 +120,76 @@ extension VaultPersonSection.Birth: CustomStringConvertible, CustomDebugStringCo
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: []) }
 }
+
+// A card's values, a number corrected by hand, and the household's contact details (the 2026-11-23
+// review): printed as what they are, never what they hold.
+
+extension VaultCardValue: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultCardValue(\(label), \(VaultMask.masked(value)))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultReadAs: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultReadAs(\(VaultMask.masked(reads)))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultAddress: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultAddress(\(state))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultContacts: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "VaultContacts(\(phones.count) phone(s), \(emails.count) email(s), \(addresses.count) address(es))"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultContacts.Typed: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultContacts.Typed(\(label ?? "no label"))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultContacts.TypedAddress: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultContacts.TypedAddress(\(address))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultContactCard: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultContactCard(\(kind.rawValue), \(items.count) item(s))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultContactCard.Item: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultContactCard.Item(\(kind.rawValue), \(people.count) person(s))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultPersonSection.Address: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultPersonSection.Address(\(address), \(rows.count) ID(s))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultPersonSection.Phone: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String { "VaultPersonSection.Phone(\(label ?? "no label"))" }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+extension VaultBackupContents: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "VaultBackupContents(\(entries.count) ID(s), \(contacts?.count ?? 0) person(s)' contacts)"
+    }
+    public var debugDescription: String { description }
+    public var customMirror: Mirror { Mirror(self, children: []) }
+}

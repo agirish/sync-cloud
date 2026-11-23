@@ -1,3 +1,4 @@
+import Combine
 import EventsTestSupport
 import Foundation
 import Testing
@@ -108,8 +109,13 @@ import Testing
         #expect(Self.row(model, "5555 6666 7777")?.card == .builtIn(.other))
         #expect(Self.row(model, "8888 9999 0000")?.card == card)
 
-        // Forgotten, the folder teaches nothing; the number chosen for keeps its own choice.
+        // Forgotten, the folder teaches nothing; the number chosen for keeps its own choice. The
+        // panel hears of it at once: the lessons are not published themselves.
+        var sends = 0
+        let sink = model.objectWillChange.sink { _ in sends += 1 }
         model.forgetLesson(Self.tesla)
+        sink.cancel()
+        #expect(sends > 0, "the row stayed on the card it learned until something else redrew")
         #expect(Self.row(model, "8888 9999 0000")?.card == .builtIn(.other))
         #expect(Self.row(model, "1234 5678 9012")?.card == card)
     }

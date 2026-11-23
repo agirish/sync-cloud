@@ -63,7 +63,16 @@ final class VaultFakeKeychain: KeychainStore, @unchecked Sendable {
         return (errSecSuccess, itemData as AnyObject)
     }
 
+    /// What every update answers, when set: a Keychain that refuses a change.
+    var forcedUpdateStatus: OSStatus?
+
     func update(_ query: [String: Any], attributes: [String: Any]) -> OSStatus {
+        if let forcedUpdateStatus { return forcedUpdateStatus }
+        if let service = Self.otherService(query) {
+            guard others[service] != nil else { return errSecItemNotFound }
+            others[service] = attributes[kSecValueData as String] as? Data
+            return errSecSuccess
+        }
         guard itemData != nil else { return errSecItemNotFound }
         itemData = attributes[kSecValueData as String] as? Data
         return errSecSuccess

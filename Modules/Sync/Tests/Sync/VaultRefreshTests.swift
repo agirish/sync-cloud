@@ -51,6 +51,16 @@ import Testing
         func exists(_ file: URL) -> Bool { shelf.exists(file) }
     }
 
+    /// A Refresh with nothing to open still keeps when it ran: the footer's time outlives the
+    /// next lock, not only the panel's session (the 2026-11-23 review).
+    @Test func aRefreshWithNothingToOpenKeepsWhenItRan() async throws {
+        let (rig, model, shelf) = try await Self.rig(); defer { rig.cleanUp() }
+        rig.clock.advance(3_600)
+        await model.readDocuments(with: shelf, scope: .refresh())
+        #expect(shelf.opened.isEmpty, "nothing had changed, so nothing was opened")
+        #expect(rig.store.loadReading()?.lastRefreshed == rig.clock.now)
+    }
+
     /// The panel's "Updating… Stop" line shows while a refresh is what is running. The progress
     /// was rebuilt after each document without saying so, and from the second document on a
     /// refresh looked like Discover More: the line and its Stop went, and the read carried on.

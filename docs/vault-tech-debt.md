@@ -62,6 +62,36 @@ build, goes into the pre-v7.2 rewrite with a version stamp, not built on today's
 - **Leftover `.writing-` files and set-aside files** are not swept: the first only on a volume with
   no replacement folder, the second may be the only readable copy of something.
 
+### The 2026-11-23 thorough review (after batch 14)
+
+Four cold reviews (storage and security, the model, the readers, the panel), 27 findings. Batch 15
+fixed storage's and the model's small ones:
+- a passphrase backup is never written over another, not even the same day's (`… 2.scvault`
+  beside it); Back Up Now carries the typed contacts, as the weekly backup did;
+- a sealed file is flushed to the disk (`F_FULLFSYNC`) before it is swapped in, and its folder
+  after;
+- the backups kept beyond the newest ten are the first of each of the 30 most recent days that
+  have backups, not a window around today's date: a clock off by years costs none;
+- a card's values, a number corrected by hand and the household's contact details print nothing
+  they hold (`VaultPrivacyTests`);
+- the backup passphrase is changed in place, so a refused change keeps the old one;
+- a key made for a save that then wrote nothing (Replace on a Mac whose key was lost) goes
+  again, with what was set aside for it;
+- Forget What "…" Taught redraws at once; a Refresh with nothing to open keeps when it ran; the
+  person registry is made once per rows rebuild, not per saved ID and copy; the never-read
+  `showsOlderFinds` is gone.
+
+Checked and not changed: a removed ID typed in over a waiting one's reading already has its
+document's path (`VaultEntry`'s init takes it from the facts), so it is set aside. The activity
+list's ninety days are counted from now: a clock set months ahead empties it as a three-month
+break would, and the two cannot be told apart; it holds no ID.
+
+Owner's calls taken (2026-11-23): a number the Vault copied is cleared from the clipboard when the
+Vault locks (batch 16); People joins an unmatched person's spellings by first and last name
+(batch 17). Still open from this review: the panel's (batch 16), the model's reading notes taken
+before a read and the waiting IDs' split after People changes (batch 17), and the readers' (batch
+18; the license barcode's DAQ line and a TIFF's later pages are reader accuracy, the owner's call).
+
 ## Owed before the next cut
 
 Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
@@ -97,7 +127,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 | VT40–VT43, VT45 reader bugs | `97e4f41ce`, redone `f7e441a7a` (v16) and `fd0377535` (v17) | VT88–VT92 |
 | VT44 EXIF orientation | not a defect, measured 2026-11-20: do not re-propose | none |
 | VT55 one sealed-file writer | `deb831324`, hardened by two reviews (2026-11-21): `SealedFile.write` makes the file owner-only before the swap (batch 14: creates it owner-only, `O_EXCL` at 0600, so no chmod is needed first), logs a refused chmod, writes through a link to the file and replaces a dangling one, and falls back to a temporary file beside it (no leading dot) on a volume with no replacement folder; the store, backups, reading file and activity list use their injected `FileManager` (the app passes `.default`); the backup seals through `VaultFile.sealPlain` with its header as the marker | a crash mid-write on a volume with no replacement folder leaves its `<name>.writing-<UUID>` behind, unswept |
-| VT20 rolling backups | `deb831324`, then three reviews: ten `vault-backup-<count>-<UTC time>.sealed` beside the Vault's (batch 14: and, for each of the 30 days around the newest backup's, the first backup made that day, the Vault as the day began, so a busy day cannot push every older copy out; owner, 2026-11-23), ordered by a count that only grows (a clock put back cannot prune the newest; `deb831324`'s `vault-backup-<time>-NNN.sealed` names sort as the oldest), pruned only after the new file is in, and not written again when the newest already holds those bytes; only a whole name of either shape counts as a backup (a Finder copy is not), so nothing else is ever pruned; a save removing more than one *ID* throws `wouldDrop` (the `allowingDrops` escape nothing used went in batch 14). Set It Aside and Start New takes the backups with the Vault (for a damaged file they may be the only readable copies); Replace keeps them and first keeps the Vault as it stood, so Go Back reaches past it; a new key is made only after a lost key's backups, reading file and activity list are set aside, and they go back if the Keychain refuses the key | VF6 reads `store.backups` |
+| VT20 rolling backups | `deb831324`, then three reviews: ten `vault-backup-<count>-<UTC time>.sealed` beside the Vault's (batch 14: and the first backup made on each of 30 days, the Vault as the day began, so a busy day cannot push every older copy out; owner, 2026-11-23. Batch 14 counted the days around the newest backup's date; since batch 15 they are the 30 most recent days that have backups, so a wrong clock costs none), ordered by a count that only grows (a clock put back cannot prune the newest; `deb831324`'s `vault-backup-<time>-NNN.sealed` names sort as the oldest), pruned only after the new file is in, and not written again when the newest already holds those bytes; only a whole name of either shape counts as a backup (a Finder copy is not), so nothing else is ever pruned; a save removing more than one *ID* throws `wouldDrop` (the `allowingDrops` escape nothing used went in batch 14). Set It Aside and Start New takes the backups with the Vault (for a damaged file they may be the only readable copies); Replace keeps them and first keeps the Vault as it stood, so Go Back reaches past it; a new key is made only after a lost key's backups, reading file and activity list are set aside, and they go back if the Keychain refuses the key | VF6 reads `store.backups` |
 | VT21 golden files | `deb831324` and review 1: `Fixtures/Vault/` holds the Vault (formats 1, 2), the reading file (1, 2), a backup and the activity list, each pinned by SHA-256 so one made again by a later build fails; the backup's resealed JSON is compared too | a fixture per later format change |
 | VT30 one bad record | `deb831324`, then three reviews: records decode one by one and a later build's go back untouched (`VaultRecords.newer`, `newerRecords` on the model); a record holding a later field at any depth is sealed back as stored while it is unchanged, and an edited one keeps its top-level later fields (`VaultEntry.storedKeys`); the reading file keeps its later top-level fields (`laterFields`) and the user's own fields a later build stored in a shape this one cannot read (`unreadFields`); a backup restores what it can read (`laterRecords`) and one made here carries the later records; the activity list keeps a later kind's words and a later event as its JSON | not kept: a later field nested in a record edited here, or in the reading file below its top level, or on an activity event this build reads. Owner's call: a later field outlives an edit made here (a field derived from `value` would then disagree with it). A panel line for `newerRecords` is new copy |
 | VT24 silent failures | `deb831324`, then three reviews: both failures logged with size and marker only; a damaged reading file, one with no key, or one that is there but will not read is renamed aside under a name of its own (`UnreadableSetAside`), never reset, and the panel starts fresh as it did before (no banner: the next Refresh or Read finds what was waiting); one that will not move, or whose key the Keychain withholds for now (`ReadingLoad.keyRefused`), holds every seal that run, and Everywhere then keeps the typed name on the ID itself; opening the panel makes no key | while held nothing read that run is sealed, People's Misread and roles chosen are lost at the next open, and nothing says so but the log: a line for it is new copy, owner's call. Where `names`, `nameRoles`, `lessons` live is VT6 |
