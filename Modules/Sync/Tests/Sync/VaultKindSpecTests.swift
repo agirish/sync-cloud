@@ -180,6 +180,9 @@ import Testing
         #expect(VaultGeoFilter.allCases.map(\.rawValue) == ["us", "india", "all"])
         #expect(VaultGeoFilter(rawValue: "all") == .all)
         #expect(VaultGeoFilter(rawValue: "anywhere") == nil)
+        #expect(VaultGeoFilter.showing(.india) == .india && VaultGeoFilter.showing(.anywhere) == nil)
+        // A country with no view of its own would be passed over by "N more in …".
+        #expect(VaultGeo.countries.allSatisfy { VaultGeoFilter.showing($0) != nil })
         #expect(VaultGeoFilter.all.title == "Every Country")
         #expect(VaultGeoFilter.india.title == "India")
         #expect(VaultGeoFilter.us.shows(.anywhere) && VaultGeoFilter.us.shows(.us) && !VaultGeoFilter.us.shows(.india))

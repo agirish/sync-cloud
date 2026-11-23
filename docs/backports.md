@@ -16233,7 +16233,9 @@ every URL made Identifiable, and dead code is gone. Batch 12: each kind of ID is
 (`VaultKindSpec`: names, symbol, how its number is printed and hidden, home folders, group, where
 it is used, how a newer one replaces it), the app's groups and their colors are rows too, and a
 place is a country's code or anywhere, stored by the names it always was. Batch 13: the panel's five choices
-about an ID, saved or waiting, are made by one path.
+about an ID, saved or waiting, are made by one path. Batch 14: each kind's rules are
+reached by a switch the compiler checks, places are enums again, the Vault keeps the first backup
+of each of the last 30 days beside its ten newest, and a sealed file is created owner-only.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

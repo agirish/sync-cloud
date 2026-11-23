@@ -71,7 +71,7 @@ struct VaultRowFilter: Equatable {
     /// and kind choices would show there, and how many.
     private func elsewhere(_ rows: [Row]) -> (filter: VaultGeoFilter, count: Int)? {
         for country in VaultGeo.countries where country != geo.geo {
-            let there = VaultGeoFilter(country)
+            guard let there = VaultGeoFilter.showing(country) else { continue }
             let count = rows.filter { $0.geo == country && passes($0, geo: there) }.count
             if count > 0 { return (there, count) }
         }

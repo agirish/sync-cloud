@@ -3,8 +3,8 @@ import Foundation
 /// What the Vault knows about one kind of ID, in one row (VT2): what it is called, how its
 /// number is printed and hidden, where its papers are filed, the group it starts in, whose it is
 /// when no name was read, where it is used, and how a newer one replaces it. ``VaultCategory`` is
-/// a kind's stored id, and a new kind is a case there, a row here and a reader. A case with no
-/// row compiles and stops at its first use (`VaultKindSpecTests` checks every case has one).
+/// a kind's stored id, and a new kind is a case there, a row here and a reader; ``of(_:)``'s
+/// switch makes a case with no row a compile error.
 /// Left in code: the readers' own kinds, and the rules that join two kinds (a visa in an older
 /// passport, an ITIN given way to an SSN, a license's address).
 public struct VaultKindSpec: Sendable {
@@ -58,13 +58,24 @@ public struct VaultKindSpec: Sendable {
         case archive(String)
     }
 
-    /// The kind's row. Every case has one (`VaultKindSpecTests`).
+    /// The kind's row: a case with none does not compile.
     public static func of(_ category: VaultCategory) -> VaultKindSpec {
-        guard let spec = byCategory[category] else { preconditionFailure("No row for \(category.rawValue)") }
-        return spec
+        switch category {
+        case .passport: return .passport
+        case .usVisa: return .usVisa
+        case .i94: return .i94
+        case .uscisCase: return .uscisCase
+        case .driversLicense: return .driversLicense
+        case .ssn: return .ssn
+        case .pan: return .pan
+        case .aadhaar: return .aadhaar
+        case .voterID: return .voterID
+        case .health: return .health
+        case .utilities: return .utilities
+        case .loans: return .loans
+        case .other: return .other
+        }
     }
-
-    private static let byCategory = Dictionary(uniqueKeysWithValues: all.map { ($0.category, $0) })
 
     /// A card the household made, as its title and symbol are drawn: Other's row with the kind's
     /// own name and a tag. One no longer kept is titled Other. Its group is the kind's own
@@ -102,147 +113,160 @@ public struct VaultKindSpec: Sendable {
 
     // MARK: The app's kinds, in the order the main view draws their cards
 
-    public static let all: [VaultKindSpec] = [
-        VaultKindSpec(
-            category: .passport, title: "Passports", singular: "Passport", symbol: "globe", paper: "passport",
-            hidesEnding: false, printed: nil, homes: ["passport", "passports"], group: "travel", isAccount: false, isHouseholdsWhenNameless: false,
-            goodUntil: nil, endedWord: "Expired ", idLabel: fixed("Passport number"),
-            which: { facts, _, _ in facts?.issuer },
-            place: fixedPlace(.anywhere, "A passport is carried in every country"),
-            // A dual citizen keeps both passports: they are weighed by issuing country.
-            weighing: { facts, _ in ("passport", facts.issuer ?? "") },
-            newest: markedExpired),
-        VaultKindSpec(
-            // Raw value kept from when it held US visas alone; OCI cards and Indian e-Visas join them.
-            category: .usVisa, title: "Visas", singular: "Visa", symbol: "airplane", paper: "visa",
-            hidesEnding: false, printed: nil, homes: ["visa", "visas"], group: "travel", isAccount: false, isHouseholdsWhenNameless: false,
-            goodUntil: nil, endedWord: "Expired ",
-            idLabel: { facts, _ in
-                switch facts?.form {
-                case "OCI"?: return "OCI number"
-                case "e-Visa"?: return "Application number"
-                case nil where facts == nil: return "Visa number"
-                default: return "Control Number"
-                }
-            },
-            // An OCI card or an e-Visa by what it is ("OCI card", "India e-Visa"); a US visa by its class.
-            which: { facts, title, _ in
-                facts?.form != nil ? title
-                    : facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
-            },
-            // Where the visa lets its holder in: the country that issued it.
-            place: { facts in
-                switch facts?.issuer {
-                case "USA"?: return (.us, "A US visa")
-                case "IND"?: return (.india, facts?.form == "OCI" ? "An OCI card" : "An Indian visa")
-                case nil where facts == nil || facts?.form == nil: return (.us, "A US visa")
-                default: return (.anywhere, "Another country’s visa")
-                }
-            },
-            // A US visa, an Indian e-Visa and an OCI card are each weighed only against their kind,
-            // and a US visa only against its class: a B1/B2 still good beside a newer H-1B is
-            // still a visa its holder can use.
-            weighing: { facts, _ in
-                // As letters and digits, so "H-1B" on one foil and "H1B" on the next are one class.
-                let visaClass = facts.details.first { $0.label == "Visa class" }
-                    .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
-                return ("visa", "\(facts.issuer ?? "")|\(facts.form ?? "")|\(visaClass)")
-            },
-            // An expired visa is not carried; it is kept for reference.
-            newest: { facts, ranOut in
-                ranOut ? .archive("Expired " + VaultReading.monthYear(facts.validUntil)) : .current(expired: false)
-            }),
-        VaultKindSpec(
-            category: .i94, title: "I-94 Records", singular: "I-94 admission number", symbol: "airplane.arrival",
-            paper: "I-94", hidesEnding: false, printed: nil, homes: ["form i-94", "i-94", "i94", "form i94"],
-            group: "travel", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: "Admitted until", endedWord: "Ran out ",
-            idLabel: fixed("Admission number"), which: noWhich,
-            place: fixedPlace(.us, "A US admission record"), weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .uscisCase, title: "USCIS Cases", singular: "USCIS receipt number", symbol: "doc.text",
-            paper: "USCIS notice", hidesEnding: false, printed: nil,
-            homes: ["approval", "approvals", "approval notice", "receipt", "receipts", "notices"],
-            group: "travel", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ",
-            idLabel: fixed("Receipt number"),
-            which: { facts, _, whose in facts?.form ?? (whose == nil ? "USCIS case" : nil) },
-            place: fixedPlace(.us, "A US immigration case"),
-            weighing: { facts, value in ("case", facts.form ?? VaultReading.normalized(value)) },
-            // A case is current while it is pending or still good; a decided case with no end
-            // date, or one that ran out, is history.
-            newest: { facts, ranOut in
-                guard !facts.pending else { return .current(expired: ranOut) }
-                if ranOut { return .archive("Ran out " + VaultReading.monthYear(facts.validUntil)) }
-                if facts.validUntil == nil {
-                    return .archive("Decided" + (facts.dated.map { " · " + VaultReading.monthYear($0) } ?? ""))
-                }
-                return .current(expired: false)
-            }),
-        VaultKindSpec(
-            category: .driversLicense, title: "Driver’s Licenses", singular: "Driver’s license", symbol: "car",
-            paper: "driver’s license", hidesEnding: false, printed: nil,
-            homes: ["driver license", "driver licenses", "drivers license", "driver’s license",
-                    "driving license", "dl", "license", "licenses"],
-            group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Expired ",
-            idLabel: { _, title in title.hasPrefix("State ID") ? "ID number" : "License number" }, which: noWhich,
-            place: { facts in
-                switch facts?.issuer {
-                case "USA": return (.us, "A US license")
-                case "IND": return (.india, "An Indian license")
-                case "CAN": return (.anywhere, "A Canadian license")
-                default: return (.anywhere, facts == nil ? "Typed in; no country chosen yet" : "Its country was not read")
-                }
-            },
-            // A US license and an Indian one are both kept; a new state's replaces the old.
-            weighing: { facts, _ in ("license", facts.issuer ?? "") },
-            newest: markedExpired),
-        VaultKindSpec(
-            category: .ssn, title: "Social Security & ITIN", singular: "Social Security number or ITIN",
-            symbol: "person.text.rectangle", paper: "Social Security card", hidesEnding: true, printed: [3, 2, 4],
-            homes: ["ssn", "social security", "itin"], group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil,
-            endedWord: "Ran out ", idLabel: { facts, _ in facts?.form == "ITIN" ? "ITIN" : "Social Security number" },
-            which: noWhich,
-            place: { facts in (.us, facts?.form == "ITIN" ? "An IRS number" : "A Social Security card") },
-            // An SSN and an ITIN are weighed apart; an ITIN gives way to an SSN (``VaultStandings``).
-            weighing: { facts, _ in ("ssn", facts.form ?? "") },
-            newest: markedExpired),
-        VaultKindSpec(
-            category: .pan, title: "PAN Cards", singular: "PAN (India)", symbol: "indianrupeesign.circle",
-            paper: "PAN card", hidesEnding: false, printed: [5, 4, 1], homes: ["pan", "pan card"], group: "legal",
-            isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("PAN"), which: noWhich,
-            place: fixedPlace(.india, "An Indian PAN"), weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .aadhaar, title: "Aadhaar", singular: "Aadhaar number", symbol: "person.crop.rectangle",
-            paper: "Aadhaar", hidesEnding: true, printed: nil, homes: ["aadhaar", "aadhar"], group: "legal",
-            isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("Aadhaar number"), which: noWhich,
-            place: fixedPlace(.india, "An Aadhaar number"), weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .voterID, title: "Voter IDs", singular: "Voter ID (EPIC)", symbol: "checkmark.seal",
-            paper: "voter ID", hidesEnding: false, printed: nil, homes: ["voter id", "voter ids", "voter", "epic"],
-            group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("EPIC number"),
-            which: noWhich, place: fixedPlace(.india, "An Election Commission card"), weighing: nil,
-            newest: markedExpired),
-        // A read account's number as its paper calls it: "Member ID", "Policy number", "Student ID".
-        VaultKindSpec(
-            category: .health, title: "Health & Medical", singular: "Health or medical ID", symbol: "heart",
-            paper: nil, hidesEnding: false, printed: nil, homes: [], group: "health", isAccount: true, isHouseholdsWhenNameless: false,
-            goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Member ID" },
-            which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .utilities, title: "Utilities & Phone", singular: "Utility or phone account", symbol: "bolt",
-            paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: true,
-            goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Account number" },
-            which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .loans, title: "Loans & Mortgage", singular: "Loan or mortgage account", symbol: "house",
-            paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: true,
-            goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Account number" },
-            which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired),
-        VaultKindSpec(
-            category: .other, title: "Other", singular: "Other ID", symbol: "number",
-            paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: false,
-            goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Number" },
-            which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired),
-    ]
+    /// In the order the kinds are declared (``VaultCategory``), which the main view draws in.
+    public static let all: [VaultKindSpec] = VaultCategory.allCases.map(of)
+
+    static let passport = VaultKindSpec(
+        category: .passport, title: "Passports", singular: "Passport", symbol: "globe", paper: "passport",
+        hidesEnding: false, printed: nil, homes: ["passport", "passports"], group: "travel", isAccount: false, isHouseholdsWhenNameless: false,
+        goodUntil: nil, endedWord: "Expired ", idLabel: fixed("Passport number"),
+        which: { facts, _, _ in facts?.issuer },
+        place: fixedPlace(.anywhere, "A passport is carried in every country"),
+        // A dual citizen keeps both passports: they are weighed by issuing country.
+        weighing: { facts, _ in ("passport", facts.issuer ?? "") },
+        newest: markedExpired)
+
+    static let usVisa = VaultKindSpec(
+        // Raw value kept from when it held US visas alone; OCI cards and Indian e-Visas join them.
+        category: .usVisa, title: "Visas", singular: "Visa", symbol: "airplane", paper: "visa",
+        hidesEnding: false, printed: nil, homes: ["visa", "visas"], group: "travel", isAccount: false, isHouseholdsWhenNameless: false,
+        goodUntil: nil, endedWord: "Expired ",
+        idLabel: { facts, _ in
+            switch facts?.form {
+            case "OCI"?: return "OCI number"
+            case "e-Visa"?: return "Application number"
+            case nil where facts == nil: return "Visa number"
+            default: return "Control Number"
+            }
+        },
+        // An OCI card or an e-Visa by what it is ("OCI card", "India e-Visa"); a US visa by its class.
+        which: { facts, title, _ in
+            facts?.form != nil ? title
+                : facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
+        },
+        // Where the visa lets its holder in: the country that issued it.
+        place: { facts in
+            switch facts?.issuer {
+            case "USA"?: return (.us, "A US visa")
+            case "IND"?: return (.india, facts?.form == "OCI" ? "An OCI card" : "An Indian visa")
+            case nil where facts == nil || facts?.form == nil: return (.us, "A US visa")
+            default: return (.anywhere, "Another country’s visa")
+            }
+        },
+        // A US visa, an Indian e-Visa and an OCI card are each weighed only against their kind,
+        // and a US visa only against its class: a B1/B2 still good beside a newer H-1B is
+        // still a visa its holder can use.
+        weighing: { facts, _ in
+            // As letters and digits, so "H-1B" on one foil and "H1B" on the next are one class.
+            let visaClass = facts.details.first { $0.label == "Visa class" }
+                .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
+            return ("visa", "\(facts.issuer ?? "")|\(facts.form ?? "")|\(visaClass)")
+        },
+        // An expired visa is not carried; it is kept for reference.
+        newest: { facts, ranOut in
+            ranOut ? .archive("Expired " + VaultReading.monthYear(facts.validUntil)) : .current(expired: false)
+        })
+
+    static let i94 = VaultKindSpec(
+        category: .i94, title: "I-94 Records", singular: "I-94 admission number", symbol: "airplane.arrival",
+        paper: "I-94", hidesEnding: false, printed: nil, homes: ["form i-94", "i-94", "i94", "form i94"],
+        group: "travel", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: "Admitted until", endedWord: "Ran out ",
+        idLabel: fixed("Admission number"), which: noWhich,
+        place: fixedPlace(.us, "A US admission record"), weighing: nil, newest: markedExpired)
+
+    static let uscisCase = VaultKindSpec(
+        category: .uscisCase, title: "USCIS Cases", singular: "USCIS receipt number", symbol: "doc.text",
+        paper: "USCIS notice", hidesEnding: false, printed: nil,
+        homes: ["approval", "approvals", "approval notice", "receipt", "receipts", "notices"],
+        group: "travel", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ",
+        idLabel: fixed("Receipt number"),
+        which: { facts, _, whose in facts?.form ?? (whose == nil ? "USCIS case" : nil) },
+        place: fixedPlace(.us, "A US immigration case"),
+        weighing: { facts, value in ("case", facts.form ?? VaultReading.normalized(value)) },
+        // A case is current while it is pending or still good; a decided case with no end
+        // date, or one that ran out, is history.
+        newest: { facts, ranOut in
+            guard !facts.pending else { return .current(expired: ranOut) }
+            if ranOut { return .archive("Ran out " + VaultReading.monthYear(facts.validUntil)) }
+            if facts.validUntil == nil {
+                return .archive("Decided" + (facts.dated.map { " · " + VaultReading.monthYear($0) } ?? ""))
+            }
+            return .current(expired: false)
+        })
+
+    static let driversLicense = VaultKindSpec(
+        category: .driversLicense, title: "Driver’s Licenses", singular: "Driver’s license", symbol: "car",
+        paper: "driver’s license", hidesEnding: false, printed: nil,
+        homes: ["driver license", "driver licenses", "drivers license", "driver’s license",
+                "driving license", "dl", "license", "licenses"],
+        group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Expired ",
+        idLabel: { _, title in title.hasPrefix("State ID") ? "ID number" : "License number" }, which: noWhich,
+        place: { facts in
+            switch facts?.issuer {
+            case "USA": return (.us, "A US license")
+            case "IND": return (.india, "An Indian license")
+            case "CAN": return (.anywhere, "A Canadian license")
+            default: return (.anywhere, facts == nil ? "Typed in; no country chosen yet" : "Its country was not read")
+            }
+        },
+        // A US license and an Indian one are both kept; a new state's replaces the old.
+        weighing: { facts, _ in ("license", facts.issuer ?? "") },
+        newest: markedExpired)
+
+    static let ssn = VaultKindSpec(
+        category: .ssn, title: "Social Security & ITIN", singular: "Social Security number or ITIN",
+        symbol: "person.text.rectangle", paper: "Social Security card", hidesEnding: true, printed: [3, 2, 4],
+        homes: ["ssn", "social security", "itin"], group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil,
+        endedWord: "Ran out ", idLabel: { facts, _ in facts?.form == "ITIN" ? "ITIN" : "Social Security number" },
+        which: noWhich,
+        place: { facts in (.us, facts?.form == "ITIN" ? "An IRS number" : "A Social Security card") },
+        // An SSN and an ITIN are weighed apart; an ITIN gives way to an SSN (``VaultStandings``).
+        weighing: { facts, _ in ("ssn", facts.form ?? "") },
+        newest: markedExpired)
+
+    static let pan = VaultKindSpec(
+        category: .pan, title: "PAN Cards", singular: "PAN (India)", symbol: "indianrupeesign.circle",
+        paper: "PAN card", hidesEnding: false, printed: [5, 4, 1], homes: ["pan", "pan card"], group: "legal",
+        isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("PAN"), which: noWhich,
+        place: fixedPlace(.india, "An Indian PAN"), weighing: nil, newest: markedExpired)
+
+    static let aadhaar = VaultKindSpec(
+        category: .aadhaar, title: "Aadhaar", singular: "Aadhaar number", symbol: "person.crop.rectangle",
+        paper: "Aadhaar", hidesEnding: true, printed: nil, homes: ["aadhaar", "aadhar"], group: "legal",
+        isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("Aadhaar number"), which: noWhich,
+        place: fixedPlace(.india, "An Aadhaar number"), weighing: nil, newest: markedExpired)
+
+    static let voterID = VaultKindSpec(
+        category: .voterID, title: "Voter IDs", singular: "Voter ID (EPIC)", symbol: "checkmark.seal",
+        paper: "voter ID", hidesEnding: false, printed: nil, homes: ["voter id", "voter ids", "voter", "epic"],
+        group: "legal", isAccount: false, isHouseholdsWhenNameless: false, goodUntil: nil, endedWord: "Ran out ", idLabel: fixed("EPIC number"),
+        which: noWhich, place: fixedPlace(.india, "An Election Commission card"), weighing: nil,
+        newest: markedExpired)
+
+    // A read account's number as its paper calls it: "Member ID", "Policy number", "Student ID".
+    static let health = VaultKindSpec(
+        category: .health, title: "Health & Medical", singular: "Health or medical ID", symbol: "heart",
+        paper: nil, hidesEnding: false, printed: nil, homes: [], group: "health", isAccount: true, isHouseholdsWhenNameless: false,
+        goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Member ID" },
+        which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired)
+
+    static let utilities = VaultKindSpec(
+        category: .utilities, title: "Utilities & Phone", singular: "Utility or phone account", symbol: "bolt",
+        paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: true,
+        goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Account number" },
+        which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired)
+
+    static let loans = VaultKindSpec(
+        category: .loans, title: "Loans & Mortgage", singular: "Loan or mortgage account", symbol: "house",
+        paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: true,
+        goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Account number" },
+        which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired)
+
+    static let other = VaultKindSpec(
+        category: .other, title: "Other", singular: "Other ID", symbol: "number",
+        paper: nil, hidesEnding: false, printed: nil, homes: [], group: "home", isAccount: true, isHouseholdsWhenNameless: false,
+        goodUntil: nil, endedWord: "Ran out ", idLabel: { facts, _ in facts?.form ?? "Number" },
+        which: accountWhich, place: noCountry, weighing: nil, newest: markedExpired)
 }
 
 /// One of the app's groups: its id, the name it starts with and the color its cards start in.

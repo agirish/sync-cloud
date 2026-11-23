@@ -34,7 +34,7 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
     /// record as ``VaultFile`` seals it (a later build's fields and records kept). Not decoded.
     var sealedEntries: [Data]?
     /// The backup's records as stored, one by one, with what each holds that this build does not
-    /// read: a restore seals them back so (``VaultStore/save(_:allowingDrops:newer:carrying:)``).
+    /// read: a restore seals them back so (``VaultStore/save(_:newer:carrying:)``).
     var stored: VaultRecords?
 
     /// What was typed for each person in People (phones, emails, home addresses): it lives

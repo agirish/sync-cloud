@@ -100,6 +100,25 @@ public enum VaultKeychain {
 /// network share whose root is not the user's) it sits beside the file, under a name that does
 /// not start with a dot: a backup folder may be in iCloud Drive.
 enum SealedFile {
+    /// Writes `data` to a new file created owner-only, so no other user can read it for even the
+    /// moment before a chmod (``write(_:to:fileManager:)`` still sets 0600 after, in case the
+    /// volume ignores the mode it was created with). Fails when the file is there already.
+    static func writeOwnerOnly(_ data: Data, to url: URL) throws {
+        let descriptor = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else {
+            // Why, as the system said it: no permission, a read-only volume, a name too long.
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: url.path])
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+    }
+
     static func write(_ data: Data, to url: URL, fileManager: FileManager) throws {
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         // A link is written through: the file it names is replaced, and the link stays.
@@ -117,7 +136,7 @@ enum SealedFile {
             if let scratch { try? fileManager.removeItem(at: scratch) }
             else if fileManager.fileExists(atPath: temporary.path) { try? fileManager.removeItem(at: temporary) }
         }
-        try data.write(to: temporary, options: .withoutOverwriting)
+        try writeOwnerOnly(data, to: temporary)
         do {
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
         } catch {
@@ -383,8 +402,11 @@ public struct VaultStore {
     /// When a backup is made, for its name.
     private let clock: () -> Date
 
-    /// How many sealed files from before a save are kept beside the Vault's (VT20).
+    /// How many sealed files from before a save are kept beside the Vault's, newest first (VT20).
     public static let backupsKept = 10
+    /// Beyond those, the first backup made on each of this many days, today's included: one busy
+    /// session of saves cannot push every older copy out (owner, 2026-11-23).
+    public static let dailyBackupDays = 30
 
     public init(fileURL: URL, keychain: KeychainStore = SecItemKeychainStore(),
                 fileManager: FileManager = .default, clock: @escaping () -> Date = Date.init) {
@@ -446,8 +468,8 @@ public struct VaultStore {
     /// a file on disk this Mac cannot open: it is never written over.
     ///
     /// Records a later build wrote go back on disk with `entries`, untouched. A save that would
-    /// remove more than one record at once throws ``VaultError/wouldDrop(_:)`` unless
-    /// `allowingDrops`: nothing in the app removes more than one, so a short list is a mistake,
+    /// remove more than one record at once throws ``VaultError/wouldDrop(_:)``: nothing in the
+    /// app removes more than one, so a short list is a mistake,
     /// and one that cannot be undone, since a typed number is in no document to read again.
     ///
     /// `newer`: records a later build wrote that arrive with this save (a backup restored), kept
@@ -455,7 +477,7 @@ public struct VaultStore {
     ///
     /// `carrying`: records as a backup stored them, whose later fields go back with the entries
     /// they belong to.
-    public func save(_ entries: [VaultEntry], allowingDrops: Bool = false, newer: [Data] = [],
+    public func save(_ entries: [VaultEntry], newer: [Data] = [],
                      carrying: VaultRecords? = nil) throws {
         let key = try keyForWriting()
         var records = VaultRecords(entries: entries, newer: newer)
@@ -483,7 +505,7 @@ public struct VaultStore {
             // IDs, not records: two records sharing an id (Add Missing made them until 5e33b3c47)
             // go together when that ID is removed, and that is one removal.
             let dropped = Set(onDisk.entries.map(\.id)).subtracting(entries.map(\.id)).count
-            if dropped > 1, !allowingDrops {
+            if dropped > 1 {
                 Logger.shared.warning("Vault: a save would have removed \(dropped) records at once (\(onDisk.entries.count) → \(entries.count)) — refused, nothing was written")
                 throw VaultError.wouldDrop(dropped)
             }
@@ -577,11 +599,39 @@ public struct VaultStore {
         }
     }
 
-    /// Lets go of all but the newest ``backupsKept``.
+    /// Lets go of all but the newest ``backupsKept`` and, for each of ``dailyBackupDays`` days by
+    /// this Mac's calendar, the first backup made that day: the Vault as the day began, which a
+    /// busy day's saves would otherwise push out. The days run back from the newest backup whose
+    /// time reads (else today), and as far forward: a clock put back a little keeps what it dates
+    /// after its today, and one set years ahead for a while leaves nothing kept for years. A
+    /// backup whose time cannot be read is kept only among the newest.
     private func pruneBackups() {
-        for old in backups.dropFirst(Self.backupsKept) {
-            try? fileManager.removeItem(at: old)
+        let all = backups
+        guard all.count > Self.backupsKept else { return }
+        let calendar = Calendar.current
+        let made = all.map { Self.backupTime($0.lastPathComponent).map(calendar.startOfDay(for:)) }
+        let today = made.lazy.compactMap { $0 }.first ?? calendar.startOfDay(for: clock())
+        let span = Self.dailyBackupDays - 1
+        guard let back = calendar.date(byAdding: .day, value: -span, to: today),
+              let ahead = calendar.date(byAdding: .day, value: span, to: today) else { return }
+        // Whole days: where a day starts at 01:00 (a clock change at midnight), not its 00:00.
+        let window = calendar.startOfDay(for: back)...ahead
+        var keep = Set(all.prefix(Self.backupsKept))
+        var days: Set<Date> = []
+        // Oldest first, so the first of a day is the one made as it began.
+        for (backup, day) in zip(all, made).reversed() {
+            if let day, window.contains(day), days.insert(day).inserted { keep.insert(backup) }
         }
+        for old in all where !keep.contains(old) { try? fileManager.removeItem(at: old) }
+    }
+
+    /// When a backup was made, from its name: `…-20261121T174512.345Z.sealed`, or the older
+    /// `vault-backup-20261121T174512.345Z-001.sealed`.
+    static func backupTime(_ name: String) -> Date? {
+        guard name.hasPrefix(backupPrefix) else { return nil }
+        let rest = name.dropFirst(backupPrefix.count)
+        let stamp = backupCount(name) > 0 ? rest.dropFirst(backupCountWidth + 1).prefix(20) : rest.prefix(20)
+        return try? Date(String(stamp), strategy: backupStamp)
     }
 
     // MARK: Read Documents' file

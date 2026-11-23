@@ -455,6 +455,7 @@ import Testing
         }
     }
 
+    /// The newest ten are kept, and of the rest only the day's first: the Vault as the day began.
     @Test func onlyTheNewestBackupsAreKept() throws {
         let scratch = try VaultScratch(); defer { scratch.remove() }
         let keychain = VaultFakeKeychain()
@@ -465,7 +466,7 @@ import Testing
         }
         let key = SymmetricKey(data: try #require(keychain.itemData))
         let counts = try store.backups.map { try VaultFile.open(Data(contentsOf: $0), with: key).count }
-        #expect(counts == Array((3...(VaultStore.backupsKept + 2)).reversed()))
+        #expect(counts == Array((3...(VaultStore.backupsKept + 2)).reversed()) + [1])
     }
 
     /// Set It Aside and Start New takes the backups with the Vault: for a damaged file they may
@@ -584,9 +585,10 @@ import Testing
         #expect(try Data(contentsOf: scratch.fileURL) == sealed)
         #expect(store.backups == backups, "a refused save made a backup")
 
-        // One at a time, as Remove does, or with the flag a migration would pass.
+        // One at a time, as Remove does.
         try store.save([three[0], three[2]])
-        try store.save([], allowingDrops: true)
+        try store.save([three[0]])
+        try store.save([])
         #expect(try store.load().isEmpty)
     }
 
@@ -620,6 +622,7 @@ import Testing
         try store.save((1...(VaultStore.backupsKept + 2)).map(Self.entry))
         let newest = try #require(store.backups.first)
         #expect(try Data(contentsOf: newest) == before, "the backup just made was pruned or sorted last")
+        // The newest ten only: the others are dated a year after the new today, past the days kept.
         #expect(store.backups.count == VaultStore.backupsKept)
     }
 
@@ -639,6 +642,72 @@ import Testing
         for n in 3...(VaultStore.backupsKept + 1) { try store.save((1...n).map(Self.entry)) }
         #expect(!store.backups.contains { old.contains($0.lastPathComponent) }, "the oldest were not pruned first")
         #expect(store.backups.count == VaultStore.backupsKept)
+    }
+
+    static func days(_ store: VaultStore) -> [Date] {
+        store.backups.compactMap { VaultStore.backupTime($0.lastPathComponent) }.map(Calendar.current.startOfDay(for:))
+    }
+
+    /// One busy day of saves keeps its newest ten and the Vault as the day began, and each day
+    /// before it keeps its own first: the busy day cannot push every older copy out (owner,
+    /// 2026-11-23).
+    @Test func aBusyDayKeepsTheFirstOfEachDay() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
+        for d in 0..<4 {
+            ticker.now = Self.day.addingTimeInterval(Double(d) * 86_400)
+            try store.save((1...(d + 1)).map(Self.entry))
+        }
+        let lastOfDay3 = try Data(contentsOf: scratch.fileURL)   // replaced by day 4's first save
+        ticker.now = Self.day.addingTimeInterval(4 * 86_400)
+        for n in 5...25 { try store.save((1...n).map(Self.entry)) }
+        #expect(store.backups.count == VaultStore.backupsKept + 4)
+        #expect(Set(Self.days(store)).count == 4, "days 1 to 3 each keep one, day 4 its first and its newest ten")
+        #expect(try store.backups.contains { try Data(contentsOf: $0) == lastOfDay3 })
+    }
+
+    /// A day's backup is kept for ``VaultStore/dailyBackupDays`` days, today's included, then goes.
+    @Test func aDailyBackupGoesAfterThirtyDays() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
+        for d in 0..<40 {
+            ticker.now = Self.day.addingTimeInterval(Double(d) * 86_400)
+            try store.save((1...(d + 1)).map(Self.entry))
+        }
+        #expect(store.backups.count == VaultStore.dailyBackupDays)
+        let calendar = Calendar.current
+        let oldest = try #require(Self.days(store).min())
+        #expect(oldest == calendar.startOfDay(for: Self.day.addingTimeInterval(10 * 86_400)))
+
+        // The clock put back ten days: backups dated after the new today are recent, and none goes.
+        ticker.now = Self.day.addingTimeInterval(29 * 86_400)
+        try store.save((1...41).map(Self.entry))
+        #expect(store.backups.count == VaultStore.dailyBackupDays + 1)
+    }
+
+    /// A clock set years ahead for a while, then put right: the days it dated are not kept for
+    /// years, only while among the newest.
+    @Test func aBackupDatedYearsAheadIsNotKeptForYears() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let ticker = Ticker()
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), clock: ticker.next)
+        try store.save([Self.entry(1)])
+        ticker.now = Self.day.addingTimeInterval(3 * 365 * 86_400)
+        try store.save([Self.entry(1), Self.entry(2)])                 // a backup dated years ahead
+        ticker.now = Self.day.addingTimeInterval(86_400)
+        for n in 3...(VaultStore.backupsKept + 3) { try store.save((1...n).map(Self.entry)) }
+        let years = Calendar.current.startOfDay(for: Self.day.addingTimeInterval(3 * 365 * 86_400))
+        #expect(!Self.days(store).contains(years))
+    }
+
+    /// A backup's time, read back from both names it has had.
+    @Test func aBackupsTimeIsReadFromItsName() {
+        let time = VaultStore.backupTime("vault-backup-00000012-20261121T174512.345Z.sealed")
+        #expect(abs((time?.timeIntervalSince1970 ?? 0) - 1_795_283_112.345) < 0.001)
+        #expect(VaultStore.backupTime("vault-backup-20261122T023916.339Z-001.sealed") != nil)
+        #expect(VaultStore.backupTime("vault-backup-00000012-garbage.sealed") == nil)
     }
 
     /// A disk that refuses to put the Vault's own file in place, and nothing else.
@@ -680,6 +749,11 @@ import Testing
     /// in sees 0600 every time.
     final class ChecksModeAtTheSwap: FileManager, @unchecked Sendable {
         nonisolated(unsafe) var modes: [Int] = []
+        /// Ignores every chmod, as a volume that keeps no modes would.
+        nonisolated(unsafe) var ignoresModes = false
+        override func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+            if !ignoresModes { try super.setAttributes(attributes, ofItemAtPath: path) }
+        }
         private func note(_ url: URL) {
             modes.append((try? attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? -1)
         }
@@ -704,6 +778,19 @@ import Testing
         try store.save([Self.entry(1), Self.entry(2)])          // a replace, and a backup
         try store.saveReading(VaultReadingState())
         #expect(disk.modes.count >= 4, "\(disk.modes)")
+        #expect(disk.modes.allSatisfy { $0 == 0o600 }, "\(disk.modes.map { String($0, radix: 8) })")
+    }
+
+    /// Created owner-only, not made so after: with every chmod ignored, the file swapped in is
+    /// still 0600 (it was `Data.write`, at the umask's mode, then a chmod).
+    @Test func aSealedFileIsCreatedOwnerOnly() throws {
+        let scratch = try VaultScratch(); defer { scratch.remove() }
+        let disk = ChecksModeAtTheSwap()
+        disk.ignoresModes = true
+        let store = VaultStore(fileURL: scratch.fileURL, keychain: VaultFakeKeychain(), fileManager: disk)
+        try store.save([Self.entry(1)])
+        try store.save([Self.entry(1), Self.entry(2)])
+        #expect(disk.modes.count >= 3, "\(disk.modes)")
         #expect(disk.modes.allSatisfy { $0 == 0o600 }, "\(disk.modes.map { String($0, radix: 8) })")
     }
 
