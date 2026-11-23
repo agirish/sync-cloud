@@ -197,9 +197,10 @@ struct VaultRowFilter: Equatable {
     /// `rows` under the groups their cards are listed in, in the groups' order and, within one, the
     /// cards' order; kinds in no group last, under Other.
     func grouped(_ rows: [Row]) -> [VaultPersonSection.KindGroup] {
-        let cards = kinds.order
+        // Each card's place in the order, its first if listed twice: looked up once (VT103).
+        let place = Dictionary(kinds.order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
         let sorted = rows.enumerated().sorted { a, b in
-            let (x, y) = (cards.firstIndex(of: a.element.card) ?? .max, cards.firstIndex(of: b.element.card) ?? .max)
+            let (x, y) = (place[a.element.card] ?? .max, place[b.element.card] ?? .max)
             return x != y ? x < y : a.offset < b.offset
         }.map(\.element)
         let byGroup = Dictionary(grouping: sorted) { kinds.group(of: $0.card, in: groups) }

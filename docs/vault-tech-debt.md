@@ -59,8 +59,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
-   VT76, VT103, VT106, VT79, VT80.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, VT2 with VT4 (both a fixed
+   list made data), VT3 (before the v7.2 cut), VT6, VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -68,7 +68,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 
 | ID | Closed by | Left over |
 |---|---|---|
-| VT32 decrypt after proof, let go at lock | `c4e9b6a7c` (VF4) | VT60: the lock-off route and a dead `settingsChanged()` |
+| VT32 decrypt after proof, let go at lock | `c4e9b6a7c` (VF4) | VT60: the lock-off route (its dead `settingsChanged()` went in batch 11) |
 | VT33 a way out of an unreadable Vault | `95510e947` (VF6) | VT56, VT57, both closed below |
 | VT36 screen capture | `7131333ca` (VF9) | VT73 |
 | VT40–VT43, VT45 reader bugs | `97e4f41ce`, redone `f7e441a7a` (v16) and `fd0377535` (v17) | VT88–VT92 |
@@ -94,7 +94,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 | VT65 one action, one seal | batch 4: Confirm, Add and Edit run inside `sealingOnce`, so the reading file is sealed once at their end (Confirm with Everywhere sealed it up to four times), and a release inside one still seals first; pinned for all three by a disk that counts the seals | none |
 | VT94 leaked test plists | batch 5 (2026-11-21), the goal changed by decision: each Vault test's defaults suite is recorded with the shared ledger (`vaultScratchSuite`), whose sweep at a later test run's start, or the hourly sweep of stale scratch plists, deletes it (2,358 had piled up). Never wiped per test: that waits on cfprefsd under a global lock on the main actor (testing laws). The trade: cfprefsd keeps those domains cached until it restarts, as bare suites always did | no test can tell the ledger record was dropped (the hourly sweep cleans up anyway) |
 | VT105 name-role tests | batch 5: the lock is taken in the test that says so, the passport test requires its spelling, the repeat is gone, and roles are shown to outlive a change of reader rules (a later shape: VT30's `unreadFields`) | none |
-| VT95 tests that cannot fail | batch 5: the activity bounds each tested alone (on stored events too), the clipboard's time on settings of its own and the app's path the same, the banner test's unused render gone, the People titles pinned to the one list given, the backup test and doc comment saying what they can show (a changed salt or work factor derives another key; the test changes the salt) | `drawn(_:)` is VT80's dead code |
+| VT95 tests that cannot fail | batch 5: the activity bounds each tested alone (on stored events too), the clipboard's time on settings of its own and the app's path the same, the banner test's unused render gone, the People titles pinned to the one list given, the backup test and doc comment saying what they can show (a changed salt or work factor derives another key; the test changes the salt) | none (`drawn(_:)` went with VT80, batch 11) |
 | VT26 a log test | batch 5: `VaultLogTests` walks a whole life (seven documents read; confirm, show, copy, edit, add, remove, back up, lock, restore) and asserts lines no other case logs (seven read, four backed up and restored) and that no number, holder's name or document name is in the log, nor in the suite's own preferences, which then hold a set-aside fingerprint | the model's every line asserted one by one |
 | VT96 the backup's purpose | batch 5: a backup opened on another Mac asks for its passphrase, refuses a wrong one, opens with the right one and replaces that Vault; an old backup keeps its old passphrase | the Settings side (`showActivity`, the offer's wording) |
 | VT97 the swatch test | batch 5: it waits on the click's answer, not a fixed sleep, and its window sits beneath every other | none |
@@ -116,6 +116,10 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 | VT25 reader skips | batch 7: `VaultReadNotes` counts locked, unopenable and unrecognised, and pages read from their picture, rendered sharper or taken in their ink alone; `VaultDocumentReading.noted(_:)` returns them, and both read summaries end with what is not zero | too-large files stay counted in the walk's own INFO line, not in the summaries; a refresh still opens a known document whatever its size, as before |
 | VT8 display rules in the view | batch 8: the row's title and line under it, the detail's lede, its kind's name and note, its number's label, what VoiceOver says, the folded summary, the Belongs To tag and Large Type's heading are public in `VaultRowText.swift`, on the row and beside it (`VaultMask.spoken`, `VaultAssignment.tag`), and the screen-capture rule is `VaultModel.drawsAnIDInFull(layout:editing:)`. Proof: each moved body reviewed against `origin/main` line by line; `VaultRowTextTests` pinned their literal output on the view's own functions first (Large Type's heading after) and passed unchanged on the moved ones, and `VaultRowTextBranchTests` covers the labels, titles and dates the app's test does not reach. Sync's two other " case" strips now use `kindTitle` | Escape's order and `save()`'s Add-to-People branch stay in the view, which owns that state; Large Type's lines map onto a view type |
 | VT69 the user's choices as one value | batch 9: `VaultChoices` (pin, whose, used in, card, copy read from) is stored in `VaultFind` and `VaultChoice`, flat under the keys each always used (a find's copy `chosenSource`, a waiting choice's `source`); `VaultEntry.choices` and `Draft.choices` read and set it over their own fields; both re-makes are `keepingChoices(of:)`; a typed-in number takes what was chosen while it waited with `or(_:)`; `confirm` hands the copy read from and the name read in the `Draft`, so `add` takes neither loose; `Item` is gone, the rows are built as `Row`s. Proof: a throwaway harness encoded 432 finds, their waiting choices and entries (every choice set and unset), a reading state, and stored shapes (an older build's `older`, the household, a later build's card) decoded and sealed again, on `origin/main` and this tree: key-sorted, byte-identical (key order unsorted varies run to run, the unchanged `VaultEntry` too); a wrong-typed choice still fails to decode. `VaultChoicesTests` fails when a choice is left out of any record | `VaultEntry` keeps its fields, whose stored keys (`older`, `household`, `personID`) are not the choices' shape: a new choice is one field there and one line in its `choices` |
+| VT79 a process-wide retroactive conformance | batch 11: Restore's passphrase sheet takes a `BackupFile` (`Identifiable`, by the file's address); `URL` is `Identifiable` nowhere | none |
+| VT103 People's groups by name | batch 11: each person's kinds are keyed by person and group id (`PersonKind.ID`), the made-up group for kinds in no group being the one nil; the sort looks each card's place up once (`VaultRowFilterTests` pins a group named "Other" beside it) | none |
+| VT106 small duplications from the People work | batch 11: `VaultCard.isShown(_:at:)` is every keyed popover's binding (Color, a name, a birth date); `fileName(_:)` is the row's document's name for the three places that said it; the stale doc reference went in batch 10 | none |
+| VT80 dead code | batch 11: gone are the `"94"` the form pattern cannot match, the letter-keyed half of `numberSwaps` (only a leading digit is looked up), the test-only `drawn(_:)` pair and `settingsChanged()` (their tests check `canShow` and `masked(row)`, and the setting change through `opened()`), the unused `owner(of:)`/`subtitle(of:)`, the panel's never-passed `again`, and `VaultDocumentPreview`'s two checks that always hold | `VaultFind.init(…sourcePath:)` goes with VT3; the preview's `.onChange(of: shown)` stays: it lets the rendered scan go the moment the number hides, before the task runs |
 
 ---
 
@@ -353,42 +357,21 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 - **Done when:** each is one view or function.
 - **Owner's call:** giving the List layout the same empty state as the others.
 
-**VT76 — View state that duplicates the model's.** *Complexity; checked.*
-- **The problem.**
-  - The layout sits in `@AppStorage` and is copied into `model.layout` by hand (`:240`, `:602`).
-  - People are held both as the `people` prop and as `model.people`, and `addPerson` updates only the
-    second (`:1658`).
+**VT76 — View state that duplicates the model's.** *Part done in batch 11: the model keeps the layout (`vaultLayout`; the older `vaultShowsList` read, not saved over) and follows a change to it while the app runs, such as Reset All, without saving it back; Large Type's ID and lit line are one optional.*
+- **Open.**
+  - People are held both as the panel's `people` prop and as `model.people`. The prop is fresh from the
+    host every frame; `model.people` is set only once the panel's task runs, after its first frame.
+    Drawing from the model's needs the host to set it before every way the Vault opens.
+  - `namingKindFor`/`newKindName` and `copied`/`copiedDetail` stay pairs: one optional would blank the
+    name field as its sheet slides away, and copying an ID then one of its details shows both
+    "Copied" for their two seconds today.
   - `readFolders` is re-read in four places.
-  - `largeType`/`largeTypeLine`, `namingKindFor`/`newKindName` and `copied`/`copiedDetail` exist only as
-    pairs.
-- **Done when:**
-  - the model owns the layout key;
-  - the view reads `model.people`;
-  - each pair is one optional (19 → 16 `@State`).
-
-**VT79 — A process-wide retroactive conformance.** *Complexity; checked.*
-- **The problem.** `extension URL: @retroactive Identifiable` (`VaultSettings.swift:452`) exists for one
-  `.sheet(item:)`.
-- **Done when:** the URL is wrapped in a small `Identifiable` struct.
 
 **VT81 — Size and type caps apply to Discover only.** *Checked; owner's call.*
 - **The problem.** `largestFile` and `extensions` are enforced in `walk()` (`VaultDocumentReader.swift:55–57`).
   Refresh opens `refreshSources` directly, so a source that grew past 60 MB is still read.
 - **Fix.** Check both in `pages(in:)`.
 - **Owner's call:** this changes what Refresh reads, for files over 60 MB only.
-
-**VT103 — People's groups use their name as the `ForEach` id.** *Plausible.*
-- **The problem.** `ForEach(section.groups, id: \.name)` (`VaultPanel.swift:1245`): a group the user
-  names "Other" collides with the made-up "Other" for kinds in no group (`grouped`,
-  `VaultPeopleView.swift:153`). `grouped`'s sort also calls `cards.firstIndex(of:)` twice per comparison.
-- **Fix.** `id: \.id` (nil is the made-up group's, unique); an index dictionary for the sort.
-
-**VT106 — Small duplications from the People work.** *Checked.*
-- The popover `Binding(get: x == key, set: …)` is written in `namePopover` and `birthSources` beside the
-  older `isColoring` (`VaultPanel.swift:1112`): one generic helper.
-- `(row.facts?.primary?.path).map { lastPathComponent }` three times (`sourceLabel`, `sourceHelp`,
-  `sourcesList`).
-- ~~The doc reference ``sourceChoices(of:speaker:chosen:)`` names an old signature.~~ Fixed in batch 10.
 
 **VT11 — Stale comment.** *Closed in batch 3: the comment went with VT73's change.* `VaultActivityWatch` says "every window has a Vault of its own"
 (`VaultPanel.swift:3105` at `710b5aaa3`); the app is one `Window` scene (`SyncCloudApp.swift:553`).
@@ -448,9 +431,8 @@ What is sound and should stay:
 **VT60 — Lock routes left after VF4.** *Checked.*
 - **The problem.**
   - With the lock off, nothing ever lets the numbers go.
-  - `settingsChanged()` (`VaultModel.swift:2242`) has no app caller: Settings and the Vault cannot be open
-    together (`ContentView.swift:1326`, `:2568`), and `opened()` re-reads the settings. It is kept alive
-    only by `VaultLockTests.swift:446`.
+  - ~~`settingsChanged()` had no app caller~~ (Settings and the Vault are never open together, and
+    `opened()` re-reads the settings): gone in batch 11.
   - Turning the lock off sets `requiresAuthentication = false` without checking that `sealOff` worked
     (`VaultSettings.swift:445–447`; `VaultLock.swift:240` returns silently). After a Keychain refusal,
     Settings shows the lock off while the Vault still asks.
@@ -458,7 +440,7 @@ What is sound and should stay:
     older tests' meaning: an ID typed into a Vault that opened empty stays loaded until close ("Added.
     Unlock to see it."). Nobody has checked for a path that draws such a row before a proof.
 - **Done when:**
-  - `settingsChanged()` and its test are gone;
+  - ~~`settingsChanged()` and its test are gone~~ (batch 11, VT80: the test checks `opened()`);
   - VT29's table covers a sitting that starts with nothing sealed;
   - `sealOff` returns `Bool`;
   - a test pins that a lock-off Vault releases at close.
@@ -574,20 +556,6 @@ Each item here preserves what is read unless it says otherwise. Prove a change w
   lookaheads, and each of the last two reviews made it longer. VT89 lists what it still misses.
 - **Done when:** a tokenizer (groups, separators, words; then the rules VT41 states) gives identical
   output on the test corpus and on the hash harness. Only then fix VT89's misses on it.
-
-**VT80 — Dead code.** *Checked.*
-- **Unreachable or unused:**
-  - `"94"` in the form exclusion (`VaultReading.swift:260`) is unreachable: `formPattern` needs three
-    digits.
-  - The letter-keyed half of `numberSwaps` (`:841`) is unreachable.
-  - `VaultFind.init(…sourcePath:)` (`:45–56`) is public and test-only.
-  - `drawn(_ entry:)`/`drawn(_ find:)` (`VaultModel.swift:1112`, `:1118`) are test-only.
-  - `settingsChanged()` (VT60).
-  - `owner(of:)` and `subtitle(of:)` (`VaultPanel.swift:2322–2329`).
-  - `readDocuments(again:)`'s `again` (`:2537`) is never passed.
-- **Checks that always hold.** `VaultDocumentPreview.swift:90`: `shown` and `wanted == path` always hold,
-  and `.onChange(of: shown)` (`:93`) repeats the task's own nil branch.
-- **Done when:** these are gone, and the tests point at `masked(row)` and `opened()`.
 
 **Vision's compiled model, missing.** Seen three times on 2026-11-20 while checking readers on the
 owner's folder. For two to three minutes every text request failed, on the CPU as well:

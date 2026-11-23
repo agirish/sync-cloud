@@ -294,7 +294,7 @@ public enum VaultReading {
         let validUntil = slashDate(valid, in: ns, at: 4)
         let form = formPattern.matches(in: text, range: whole)
             .map { ns.substring(with: $0.range(at: 1)) }
-            .first { !["797", "797A", "797C", "94"].contains($0) }
+            .first { !["797", "797A", "797C"].contains($0) }
             .map { "I-" + $0 }
         let holder = caseHolderPattern.firstMatch(in: text, range: whole)
             .map { readingOrder(ns.substring(with: $0.range(at: 1))) }
@@ -892,11 +892,11 @@ public struct MachineZone: Equatable, Sendable {
         return readings.count == 1 ? readings[0] : nil
     }
 
-    /// What a character in the number may really be: a digit read for the letter it resembles
-    /// ("2" for "Z", as on a real scan), or the other way about.
+    /// The letters a digit in the number may really be, read for the letter it resembles ("2"
+    /// for "Z", as on a real scan): asked only of an Indian passport's leading character, read as
+    /// a digit (``readWithSwaps(_:nameLine:kind:digitOnly:)``).
     private static let numberSwaps: [Character: [Character]] = [
         "0": ["O", "Q", "D"], "1": ["I", "L"], "2": ["Z"], "5": ["S"], "6": ["G"], "8": ["B"],
-        "O": ["0"], "Q": ["0"], "D": ["0"], "I": ["1"], "L": ["1"], "Z": ["2"], "S": ["5"], "G": ["6"], "B": ["8"],
     ]
 
     /// A second try for a line that failed its checks: any digit for a letter in a date, and one

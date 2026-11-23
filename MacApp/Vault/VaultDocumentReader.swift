@@ -30,7 +30,7 @@ struct VaultFolderReader: VaultDocumentReading {
 
     /// Every file in the folders, however many. Of those, only what ``VaultReadPlan`` picks is
     /// opened (identity papers whole, one paper per account per year, IDs by name elsewhere), and
-    /// after the first read only new and changed ones (``VaultModel/readDocuments(with:again:)``),
+    /// after the first read only new and changed ones (``VaultModel/readDocuments(with:again:scope:)``),
     /// so a large folder costs its time once, and a read stopped partway carries on from where it
     /// stopped.
     func files() async -> [URL] { await walk().files }

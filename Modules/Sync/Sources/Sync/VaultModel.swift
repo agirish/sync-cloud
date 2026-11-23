@@ -369,12 +369,23 @@ public final class VaultModel: ObservableObject {
         self.copyToPasteboard = copyToPasteboard
         sessionState = VaultSession(lock: VaultLock(settings: VaultLockSettings(defaults: defaults, store: store)))
         now = clock()
+        // Read, not chosen: set past the observer, which would save it.
+        _layout = Published(initialValue: Self.storedLayout(in: defaults))
         // A restore from a backup wrote the Vault's file behind this model: what it holds is
         // no longer the Vault, and must not be written back over it.
         let path = store?.fileURL.path
         restoreWatch = NotificationCenter.default.addObserver(forName: VaultBackup.didRestore, object: nil, queue: .main) { [weak self] note in
             guard let path, note.userInfo?[VaultBackup.restoredPathKey] as? String == path else { return }
             MainActor.assumeIsolated { self?.vaultWasRestored() }
+        }
+        // On the posting thread, never queued: a queue would make every background write wait for
+        // main ("A main-queue defaults observer parks every scratch-suite wipe on the main thread").
+        defaultsWatch = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { [weak self] _ in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.followStoredLayout() }
+            } else {
+                Task { @MainActor in self?.followStoredLayout() }
+            }
         }
         loadFolded()
         loadFilters()
@@ -829,9 +840,36 @@ public final class VaultModel: ObservableObject {
         get { layout == .list }
         set { layout = newValue ? .list : .cards }
     }
-    /// Set by the panel: cards by kind, one list, or sections by person. It decides which rows
-    /// are on screen and in what order the arrow keys walk them.
-    public var layout: VaultLayout = .cards { didSet { keepSelectionVisible() } }
+    /// Cards by kind, one list, or sections by person, as last chosen: kept for the next open
+    /// (VT76). It decides which rows are on screen and in what order the arrow keys walk them.
+    @Published public var layout: VaultLayout = .cards {
+        didSet {
+            if !followingStoredLayout { defaults.set(layout.rawValue, forKey: Self.layoutKey) }
+            keepSelectionVisible()
+        }
+    }
+    /// The layout is being taken from what is saved, which it then is not saved over.
+    private var followingStoredLayout = false
+
+    /// The saved layout changed behind the model (Settings ▸ Advanced ▸ Reset All, say): it is
+    /// followed, as the panel's own storage once followed it, though the model outlives the panel.
+    private func followStoredLayout() {
+        let stored = Self.storedLayout(in: defaults)
+        guard stored != layout else { return }
+        followingStoredLayout = true
+        defer { followingStoredLayout = false }
+        layout = stored
+    }
+    private var defaultsWatch: NSObjectProtocol?
+    static let layoutKey = "vaultLayout"
+    /// The choice from before People was a layout: Cards or List.
+    static let showedListKey = "vaultShowsList"
+
+    /// The layout as last chosen; Cards when none was.
+    static func storedLayout(in defaults: UserDefaults) -> VaultLayout {
+        defaults.string(forKey: layoutKey).flatMap(VaultLayout.init(rawValue:))
+            ?? (defaults.bool(forKey: showedListKey) ? .list : .cards)
+    }
 
     /// Copies a person's section of the People view as text (``VaultPersonText``). With
     /// `numbers` every ID is in full and the birth date is given, so a proof is asked first when
@@ -1126,16 +1164,7 @@ public final class VaultModel: ObservableObject {
     /// Documents that name a number without being its source, by the number.
     private var mentions: [String: [VaultSource]] = [:] { didSet { rowsRevision &+= 1 } }
 
-    /// The number as it may be drawn now: in full, or with only its ending.
-    public func drawn(_ entry: VaultEntry) -> String {
-        lock.canShow(entry.id, at: now) ? entry.value : VaultMask.masked(entry.value)
-    }
-
     public func canShow(_ entry: VaultEntry) -> Bool { lock.canShow(entry.id, at: now) }
-
-    public func drawn(_ find: VaultFind) -> String {
-        lock.canShow(find.id, at: now) ? find.value : VaultMask.masked(find.value)
-    }
 
     public func canShow(_ find: VaultFind) -> Bool { lock.canShow(find.id, at: now) }
 
@@ -3071,18 +3100,6 @@ public final class VaultModel: ObservableObject {
     private static func hash(_ value: String) -> String {
         SHA256.hash(data: Data(VaultReading.normalized(value).utf8))
             .map { String(format: "%02x", $0) }.joined()
-    }
-
-    // MARK: Settings
-
-    /// The lock's settings changed while the panel was up. Anything tighter or simply different
-    /// locks; nothing loosens an existing proof.
-    public func settingsChanged() {
-        let settings = VaultLockSettings(defaults: defaults, store: store)
-        guard settings != lock.settings else { return }
-        lock.settings = settings
-        session.lockAll()
-        now = clock()
     }
 
     // MARK: Words

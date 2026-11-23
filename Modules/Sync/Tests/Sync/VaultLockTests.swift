@@ -177,7 +177,7 @@ import Testing
 
         #expect(rig.auth.reasons == ["unlock your Vault"])
         #expect(model.isOpen)
-        #expect(model.drawn(Self.mortgage) == "0482917365")
+        #expect(model.canShow(Self.mortgage))
         #expect(model.selection == Self.passport.id, "the first row in list order is chosen")
     }
 
@@ -323,7 +323,7 @@ import Testing
         #expect(model.isOpen && model.secondsLeft == 1 && model.secondsBeforeLock == 1)
         rig.clock.advance(1); model.tick()
         #expect(!model.isOpen)
-        #expect(model.drawn(Self.mortgage) == "••••••7365")
+        #expect(!model.canShow(Self.mortgage))
     }
 
     @Test func closingLocksAndLetsTheNumbersGo() async throws {
@@ -467,15 +467,16 @@ import Testing
         #expect(rig.store.hasFile)
     }
 
-    @Test func aSettingChangedWhileItIsOpenLocksIt() async throws {
+    @Test func aSettingChangedSinceItOpenedLocksItAsItOpensAgain() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         try rig.seed([Self.mortgage])
         let model = rig.model()
         await model.opened()
         #expect(model.isOpen)
 
+        // Settings and the Vault are never open together: the panel reads the settings as it opens.
         rig.defaults.set(VaultLockSettings.Ask.everyNumber.rawValue, forKey: VaultLockSettings.askKey)
-        model.settingsChanged()
+        await model.opened()
         #expect(!model.isOpen)
         #expect(model.lock.settings.ask == .everyNumber)
     }

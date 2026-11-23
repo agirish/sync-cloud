@@ -33,7 +33,7 @@ struct VaultSettingsTab: View {
     @State private var openingBackup = false
     @State private var settingPassphrase = false
     /// A backup file chosen to restore that the kept passphrase did not open: asked for here.
-    @State private var askingPassphraseFor: URL?
+    @State private var askingPassphraseFor: BackupFile?
     /// A backup opened and waiting for the choice of how to put it back.
     @State private var restoreOffer: RestoreOffer?
     /// macOS's prompt is up. The switch waits for its answer rather than queue a second prompt.
@@ -259,7 +259,8 @@ struct VaultSettingsTab: View {
             }
             .presentedNativeControlAccent()
         }
-        .sheet(item: $askingPassphraseFor) { url in
+        .sheet(item: $askingPassphraseFor) { file in
+            let url = file.url
             VaultPassphraseSheet(title: "Passphrase for This Backup",
                                  note: "“\(url.lastPathComponent)” was sealed with another passphrase than the one kept here.",
                                  confirms: false, action: "Open") { passphrase in
@@ -387,7 +388,7 @@ struct VaultSettingsTab: View {
             case .success(let contents):
                 offerRestore(contents)
             case .failure(.wrongPassphrase), .failure(.noPassphrase):
-                askingPassphraseFor = url
+                askingPassphraseFor = BackupFile(url: url)
             case .failure(let error):
                 backupFailed = true
                 backupMessage = Self.message(for: error)
@@ -459,8 +460,11 @@ struct VaultSettingsTab: View {
     }
 }
 
-extension URL: @retroactive Identifiable {
-    public var id: String { absoluteString }
+/// A backup file a sheet is about, by its address (VT79): what `.sheet(item:)` needs, without
+/// making every `URL` in the app `Identifiable`.
+struct BackupFile: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
 
 /// A passphrase asked for in a sheet: to set the backup passphrase (typed twice), or to open one

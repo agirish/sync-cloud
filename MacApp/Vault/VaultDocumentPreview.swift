@@ -86,8 +86,8 @@ struct VaultDocumentPreview: View {
             let wanted = path
             let made = await Self.thumbnail(wanted, scale: displayScale)
             // Quick Look's render is not cancelled with the task: one that lands after the number
-            // hid, or after another was chosen, is let go.
-            guard !Task.isCancelled, shown, wanted == path, let made else { return }
+            // hid, or after another was chosen (either cancels this task), is let go.
+            guard !Task.isCancelled, let made else { return }
             rendered = (wanted, made)
         }
         .onChange(of: shown) { _, now in if !now { rendered = nil } }

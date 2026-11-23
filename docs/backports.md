@@ -16226,7 +16226,10 @@ log lines for each session and for what Read Documents passed over. Batch 8: wha
 panel moved from the view into Sync, unchanged, with tests. Batch 9: the choices made about a number are
 one value, stored as before, and a read's rules are one value the read holds. Batch 10: the lock
 session, what a load takes from the reading file, the rows and the panel's lists are each one value
-the model holds or asks, unchanged, with tests.
+the model holds or asks, unchanged, with tests. Batch 11: the panel
+keeps less state of its own (the model keeps the layout), People keys its groups by
+id, one helper each for a keyed popover and a row's file name, a sheet's URL wrapped rather than
+every URL made Identifiable, and dead code is gone.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

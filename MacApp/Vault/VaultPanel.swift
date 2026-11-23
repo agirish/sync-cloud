@@ -136,12 +136,8 @@ struct VaultCard: View {
     /// question whether to add them first.
     @State private var askingToAddPerson: String?
 
-    /// Cards (the default) or one list.
-    @AppStorage("vaultLayout") private var layoutName = ""
-    /// The choice from before People was a layout: Cards or List.
-    @AppStorage("vaultShowsList") private var showedList = false
-    /// Cards by kind (the default), one list, or sections by person.
-    private var layout: VaultLayout { VaultLayout(rawValue: layoutName) ?? (showedList ? .list : .cards) }
+    /// Cards by kind (the default), one list, or sections by person: the model keeps the choice.
+    private var layout: VaultLayout { model.layout }
     /// Folding a card animates only when the Mac allows motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// With Increase Contrast on, a card's color is its symbol alone, with no wash behind its title.
@@ -222,11 +218,9 @@ struct VaultCard: View {
         let shownOn: UUID?
     }
     @State private var draft = VaultModel.Draft()
-    /// The entry Large Type is showing.
-    @State private var largeType: UUID?
+    /// The entry Large Type is showing, and its lit line (VT76).
+    @State private var largeType: LargeTypeShown?
     @State private var activity = VaultActivityWatch()
-    /// Its lit line: nil for the ID, else the index of one of its details.
-    @State private var largeTypeLine: Int?
     /// Where, Whose or Kinds, opened to choose again.
     @State private var choosing: Choosing?
     @State private var customizingGroups = false
@@ -238,6 +232,13 @@ struct VaultCard: View {
     /// What Remove… or ⌘⌫ is asking about, until the dialog is answered.
     @State private var removing: Removal?
     @FocusState private var searchFocused: Bool
+
+    /// What Large Type shows: an ID, and its lit line, nil for the ID itself, else the index of
+    /// one of its details.
+    private struct LargeTypeShown: Equatable {
+        let id: UUID
+        var line: Int?
+    }
 
     /// Remove… asks before anything goes: a number is removed for good, and a find set aside is
     /// not offered again.
@@ -268,11 +269,11 @@ struct VaultCard: View {
             footer
         }
         .overlay {
-            if let row = model.rows.first(where: { $0.id == largeType }), model.lock.canShow(row.id, at: model.now) {
+            if let row = model.rows.first(where: { $0.id == largeType?.id }), model.lock.canShow(row.id, at: model.now) {
                 VaultLargeType(heading: row.largeTypeHeading,
                                idLabel: row.idLabel, value: row.value, category: row.category,
-                               lines: Self.largeTypeLines(row), lit: largeTypeLine, accent: glassHue.accentColor,
-                               onLight: { largeTypeLine = $0 },
+                               lines: Self.largeTypeLines(row), lit: largeType?.line, accent: glassHue.accentColor,
+                               onLight: { largeType?.line = $0 },
                                onStep: { stepLargeType(by: $0) },
                                onClose: { largeType = nil })
             }
@@ -281,7 +282,6 @@ struct VaultCard: View {
             readFolders = VaultReadFolders.folders()
             // Whose a read number is, and the filter's names, come from the household.
             model.people = people
-            model.layout = layout
             await model.opened()
             searchFocused = true
             refreshByItself()
@@ -645,10 +645,7 @@ struct VaultCard: View {
                 .controlSize(.small)
                 .help(model.allFolded ? "Open every card" : "Fold every card to its header. ⌥-click a card’s header does the same.")
             }
-            VaultViewSwitch(layout: Binding(get: { layout }, set: { chosen in
-                layoutName = chosen.rawValue
-                model.layout = chosen
-            }), hue: glassHue)
+            VaultViewSwitch(layout: $model.layout, hue: glassHue)
                 .fixedSize()
         }
         .padding(.horizontal, 12)
@@ -1129,8 +1126,18 @@ struct VaultCard: View {
     }
 
     /// Whether the Color choice is open at `anchor`; closing it from the popover clears it.
-    private func isColoring(_ anchor: VaultColorAnchor) -> Binding<Bool> {
-        Binding(get: { coloring == anchor }, set: { open in if !open, coloring == anchor { coloring = nil } })
+    private func isColoring(_ anchor: VaultColorAnchor) -> Binding<Bool> { Self.isShown($coloring, at: anchor) }
+
+    /// Whether the popover `shown` names is the one at `key`: closing it there clears `shown`,
+    /// and never one another popover has opened since (VT106).
+    static func isShown<Key: Equatable>(_ shown: Binding<Key?>, at key: Key) -> Binding<Bool> {
+        Binding(get: { shown.wrappedValue == key },
+                set: { open in if !open, shown.wrappedValue == key { shown.wrappedValue = nil } })
+    }
+
+    /// The name of the document a row is read from, if it was read.
+    static func fileName(_ row: VaultModel.Row) -> String? {
+        (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
     }
 
 
@@ -1269,14 +1276,16 @@ struct VaultCard: View {
 
     /// A kind's rows under one person, told apart from the same kind under another.
     struct PersonKind: Identifiable {
+        /// By the group's id, not its name (VT103): a group the user names "Other" and the one for
+        /// kinds in no group (nil) are two.
         struct ID: Hashable {
             var owner: VaultPersonSection.Owner
-            var name: String
+            var group: VaultGroups.ID?
         }
 
         var owner: VaultPersonSection.Owner
         var group: VaultPersonSection.KindGroup
-        var id: ID { ID(owner: owner, name: group.name) }
+        var id: ID { ID(owner: owner, group: group.id) }
     }
 
     /// A group's rows two at a time, in order: People's lines.
@@ -1447,7 +1456,7 @@ struct VaultCard: View {
                 .buttonStyle(.plain)
                 .help("What this spelling is to \(section.title)")
                 .accessibilityLabel("\(name.name): \(label). Change")
-                .popover(isPresented: Binding(get: { namePopover == key }, set: { if !$0, namePopover == key { namePopover = nil } }),
+                .popover(isPresented: Self.isShown($namePopover, at: key),
                          arrowEdge: .bottom) {
                     roleChoices(section, name, person: person)
                         .presentedNativeControlAccent()
@@ -1588,7 +1597,7 @@ struct VaultCard: View {
             }
             .buttonStyle(.plain)
             .help("The IDs this date was read from")
-            .popover(isPresented: Binding(get: { birthSources == key }, set: { if !$0, birthSources == key { birthSources = nil } }),
+            .popover(isPresented: Self.isShown($birthSources, at: key),
                      arrowEdge: .bottom) {
                 sourcesList(birth)
                     .presentedNativeControlAccent()
@@ -1612,7 +1621,7 @@ struct VaultCard: View {
                                 Text(Self.sourceLine(row))
                                     .foregroundStyle(glassHue.accentColor)
                                 Spacer(minLength: 8)
-                                Text((row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent } ?? "")
+                                Text(Self.fileName(row) ?? "")
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -1766,7 +1775,7 @@ struct VaultCard: View {
     /// kind apart, which is the case two dates of birth usually are.
     static func sourceLabel(_ rows: [VaultModel.Row]) -> String {
         guard rows.count == 1, let row = rows.first else { return "From \(rows.count) IDs" }
-        let file = (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
+        let file = fileName(row)
         return "From \(row.kindTitle)" + (file.map { " · \($0)" } ?? "")
     }
 
@@ -1777,7 +1786,7 @@ struct VaultCard: View {
 
     /// The link's tip: the document by name, and what choosing the ID is for.
     static func sourceHelp(_ row: VaultModel.Row) -> String {
-        let file = (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
+        let file = fileName(row)
         return "\(file.map { "Read from “\($0)”. " } ?? "")Choose this ID to see its document, give it to someone else with Belongs to, or remove it."
     }
 
@@ -3197,17 +3206,6 @@ struct VaultCard: View {
 
     // MARK: Words
 
-    /// Whose it is: the person's name, or "Household" for one nobody in particular owns. A person
-    /// since removed from Settings keeps their numbers; the row says so rather than hiding them.
-    private func owner(of entry: VaultEntry) -> String {
-        guard let id = entry.personID else { return "Household" }
-        return people.first { $0.id == id }?.displayName ?? "Someone no longer in People"
-    }
-
-    private func subtitle(of entry: VaultEntry) -> String {
-        entry.note.isEmpty ? owner(of: entry) : "\(owner(of: entry)) · \(entry.note)"
-    }
-
     static func documents(_ count: Int) -> String {
         count == 1 ? "1 document" : "\(count.formatted()) documents"
     }
@@ -3375,9 +3373,9 @@ struct VaultCard: View {
         }
     }
 
-    /// Read Documents, over the folders chosen here or in Settings ▸ Vault. `again` opens every
-    /// file, not only the new and changed ones.
-    private func readDocuments(again: Bool = false) { read(again ? .everything : .discover) }
+    /// Read Documents, over the folders chosen here or in Settings ▸ Vault: the new and changed
+    /// files.
+    private func readDocuments() { read(.discover) }
 
     /// Refresh runs by itself once the Vault has been read (Settings ▸ Vault can turn that off):
     /// it opens only documents IDs were already read from, and of those only the ones that
@@ -3446,8 +3444,7 @@ struct VaultCard: View {
     private func showLargeType(_ id: UUID, line: Int? = nil) {
         Task {
             guard await model.show(id) else { return }
-            largeTypeLine = line
-            largeType = id
+            largeType = LargeTypeShown(id: id, line: line)
         }
     }
 
@@ -3493,7 +3490,7 @@ struct VaultCard: View {
     /// is gone from the list), Quick Look of the chosen number's scan, which prints it in full, and
     /// the editor.
     private func closeWhatCannotShow(at now: Date) {
-        if let id = largeType, !model.lock.canShow(id, at: now) || !model.rows.contains(where: { $0.id == id }) {
+        if let id = largeType?.id, !model.lock.canShow(id, at: now) || !model.rows.contains(where: { $0.id == id }) {
             largeType = nil
         }
         if quickLookPath != nil, model.selectedRow.map({ !model.lock.canShow($0.id, at: now) }) ?? true {
@@ -3508,11 +3505,11 @@ struct VaultCard: View {
 
     /// Lights the line `step` away in Large Type, round from the last detail to the ID.
     private func stepLargeType(by step: Int) {
-        guard let row = model.rows.first(where: { $0.id == largeType }) else { return }
+        guard let row = model.rows.first(where: { $0.id == largeType?.id }) else { return }
         let count = Self.largeTypeLines(row).count + 1
-        let position = (largeTypeLine.map { $0 + 1 } ?? 0) + step
+        let position = (largeType?.line.map { $0 + 1 } ?? 0) + step
         let next = ((position % count) + count) % count
-        largeTypeLine = next == 0 ? nil : next - 1
+        largeType?.line = next == 0 ? nil : next - 1
         // Reading an ID out line by line is use: the idle limit does not close it mid-call.
         model.noteActivity()
     }

@@ -85,11 +85,13 @@ struct VaultFakeDocuments: VaultDocumentReading {
         let model = rig.model()
         await model.readDocuments(with: Self.documents)
         let find = try #require(model.finds.first { $0.title == "Passport" })
-        #expect(model.drawn(find) == "•••••02C3")
+        let row = try #require(model.rows.first { $0.id == find.id })
+        #expect(!model.canShow(find))
+        #expect(model.masked(row) == "•••••02C3")
 
         #expect(await model.show(find.id))
         #expect(rig.auth.reasons == ["show Passport"])
-        #expect(model.drawn(find) == "L898902C3")
+        #expect(model.canShow(find))
     }
 
     @Test func confirmingSealsItWithItsSourceAndTakesItOffTheList() async throws {

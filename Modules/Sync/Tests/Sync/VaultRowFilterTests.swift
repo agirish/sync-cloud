@@ -91,4 +91,22 @@ import Testing
                                                   people: [VaultRowSourceTests.anna], roles: [:])
         #expect(onlyHousehold.map(\.id) == [.household])
     }
+
+    @Test func aGroupNamedOtherKeepsItsOwnIDBesideTheOneForKindsInNoGroup() throws {
+        // People draws a person's groups by their id (VT103): a group the user names "Other" and
+        // the one made up for kinds listed under no group have two ids, though one name. This pins
+        // the ids the panel's `ForEach` keys on; that it keys on them is the panel's.
+        let stray = VaultCustomKind(name: "Gym", group: "a-group-since-removed")
+        var filter = Self.filter()
+        filter.kinds = VaultKinds(custom: [stray])
+        let passports = try #require(filter.kinds.group(of: .builtIn(.passport), in: filter.groups))
+        filter.groups.names[passports] = "Other"
+        var rows = Self.rows
+        let gym = try #require(rows.firstIndex { $0.value == "GYM5550001" })
+        rows[gym].card = .custom(stray.id)
+        let groups = filter.grouped(rows)
+        #expect(groups.filter { $0.name == "Other" }.map(\.id) == [passports, nil])
+        #expect(Set(groups.map(\.id)).count == groups.count)
+        #expect(groups.last?.rows.map(\.value) == ["GYM5550001"], "kinds in no group come last")
+    }
 }

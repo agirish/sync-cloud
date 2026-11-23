@@ -399,6 +399,34 @@ import Testing
         #expect(model.cards.flatMap { $0.rows.map(\.id) } != drawn)
     }
 
+    @Test func theLayoutChosenIsTheOneTheNextOpenDraws() throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        #expect(rig.model().layout == .cards, "Cards, when nothing was chosen")
+        #expect(rig.defaults.string(forKey: "vaultLayout") == nil, "read as it opens, never saved by it")
+        // Chosen before People was a layout: Cards or List.
+        rig.defaults.set(true, forKey: "vaultShowsList")
+        #expect(rig.model().layout == .list)
+        #expect(rig.defaults.string(forKey: "vaultLayout") == nil, "the older choice is not saved over")
+        rig.model().layout = .people
+        #expect(rig.model().layout == .people, "kept for the next open")
+        #expect(rig.defaults.string(forKey: "vaultLayout") == "people", "under the key it has always had")
+    }
+
+    @MainActor @Test func aResetOfTheSavedLayoutIsFollowedWithoutSavingItAgain() async throws {
+        // Settings ▸ Advanced ▸ Reset All while the app runs: the model outlives the panel, and
+        // the next open draws Cards, as it did when the panel kept the choice itself.
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = rig.model()
+        model.layout = .people
+        rig.defaults.removeObject(forKey: "vaultLayout")
+        for _ in 0..<200 where model.layout != .cards { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(model.layout == .cards)
+        #expect(rig.defaults.string(forKey: "vaultLayout") == nil, "followed, not saved back")
+        // A choice made afterwards is saved again.
+        model.layout = .list
+        #expect(rig.defaults.string(forKey: "vaultLayout") == "list")
+    }
+
     // MARK: As text
 
     @Test func aSummaryHasEndingsAndNoBirthDateAndTheFullTextHasBoth() async throws {
