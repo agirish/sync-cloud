@@ -220,6 +220,9 @@ struct VaultRowLift: ViewModifier {
 struct VaultCardTitleMenu: View {
     let isFolded: Bool
     let allFolded: Bool
+    /// Show Group Headings, and its switch; nil where cards have no groups (Other Finds).
+    var headingsShown = false
+    var toggleHeadings: (() -> Void)? = nil
     let toggle: () -> Void
     let toggleAll: () -> Void
     /// Nil where cards have no color (Other Finds).
@@ -228,6 +231,10 @@ struct VaultCardTitleMenu: View {
     var body: some View {
         Button(isFolded ? "Expand" : "Collapse", action: toggle)
         Button(allFolded ? "Expand All Cards" : "Collapse All Cards", action: toggleAll)
+        if let toggleHeadings {
+            Divider()
+            Button(headingsShown ? "Hide Group Headings" : "Show Group Headings", action: toggleHeadings)
+        }
         if let color {
             Divider()
             Button("Color…", action: color)

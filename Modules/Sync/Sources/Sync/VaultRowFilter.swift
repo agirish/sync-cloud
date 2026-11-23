@@ -33,7 +33,7 @@ struct VaultRowFilter: Equatable {
             }
             return row.standing.tab == tab && passes(row)
         }
-        .sorted(by: order)
+        .sorted { [place = cardPlace] in order($0, $1, place: place) }
     }
 
     /// Whether `row` is one the person, country and kind choices leave, with any of the three
@@ -86,21 +86,26 @@ struct VaultRowFilter: Equatable {
         return elsewhere(rows.filter { $0.standing.tab == tab && !shown.contains($0.card) })
     }
 
-    /// Cards in the main view's order, each with its rows: the app's kinds, then the household's.
+    /// Cards in the groups' order, each with its rows (``VaultKinds/order(by:)``).
     /// A kind with nothing is left out. `visible` is ``visible(_:)``'s.
     func cards(_ visible: [Row]) -> [(card: VaultCardID, rows: [Row])] {
         let order = tab == .other && !searching
-            ? Set(visible.map(\.card)).sorted { $0.key < $1.key } : kinds.order
+            ? Set(visible.map(\.card)).sorted { $0.key < $1.key } : kinds.order(by: groups)
         return order.compactMap { card in
             let rows = visible.filter { $0.card == card }
             return rows.isEmpty ? nil : (card, rows)
         }
     }
 
+    /// Each card's place in ``VaultKinds/order(by:)``: worked out once per sort, not per pair.
+    var cardPlace: [VaultCardID: Int] {
+        Dictionary(kinds.order(by: groups).enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
+    }
+
     /// By card, then whose, then current before in-use before expired, then newest.
-    func order(_ a: Row, _ b: Row) -> Bool {
-        let order = kinds.order
-        let (ca, cb) = (order.firstIndex(of: a.card) ?? 999, order.firstIndex(of: b.card) ?? 999)
+    func order(_ a: Row, _ b: Row, place: [VaultCardID: Int]? = nil) -> Bool {
+        let place = place ?? cardPlace
+        let (ca, cb) = (place[a.card] ?? 999, place[b.card] ?? 999)
         if ca != cb { return ca < cb }
         if a.whose != b.whose { return a.whose.localizedStandardCompare(b.whose) == .orderedAscending }
         func weight(_ s: VaultStanding) -> Int { s.inUse ? 1 : s.expired ? 2 : 0 }

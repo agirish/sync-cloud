@@ -181,6 +181,8 @@ struct VaultCard: View {
     @State private var contactChosen: String?
     /// The contact whose removal is being asked about.
     @State private var removingContact: VaultContactCard.Item?
+    /// The group whose Color choice is open, from its heading's menu.
+    @State private var groupColoring: VaultGroups.ID?
     /// The misreading just corrected, with an Undo, until another is.
     @State private var misreadNote: MisreadNote?
     struct MisreadNote: Equatable {
@@ -371,8 +373,10 @@ struct VaultCard: View {
             addFieldSheet.presentedNativeControlAccent()
         }
         .sheet(isPresented: $customizingGroups) {
-            VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors, onDone: { groups, kinds, colors in
+            VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors,
+                             showsHeadings: model.showsGroupHeadings, onDone: { groups, kinds, colors, headings in
                 model.setGroups(groups)
+                model.showsGroupHeadings = headings
                 model.setKinds(kinds)
                 // After the kinds: a removed kind's color goes with it.
                 model.setColors(colors)
@@ -1008,8 +1012,8 @@ struct VaultCard: View {
                 VStack(alignment: .leading, spacing: 12) {
                     readAgainBanner
                     tabBanner
-                    let contacts = model.contactCards
-                    if model.cards.isEmpty && contacts.isEmpty {
+                    let drawn = model.cardGroups
+                    if drawn.isEmpty {
                         if hiddenByChoices {
                             hiddenByChoicesState
                         } else {
@@ -1018,22 +1022,17 @@ struct VaultCard: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    // Packed into columns, each card under the shortest (``VaultMasonry``): no gap
-                    // under a short card beside a tall one.
-                    VaultMasonry(minColumnWidth: 270, spacing: 12) {
-                        ForEach(model.cards, id: \.card.key) { card in
-                            categoryCard(card.card, card.rows)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                                // Its column comes from its header and every row, folded or
-                                // not: folding it never moves a card to another column.
-                                .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.rows.count))
+                    // Group by group in the groups' order: under each group's heading while Show
+                    // Group Headings is on, else one wall in the same order.
+                    if showsGroupHeadings {
+                        ForEach(drawn) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                cardGroupHeading(group)
+                                cardMasonry(group.slots)
+                            }
                         }
-                        // The Contact group after every ID card (QH, 2026-11-22).
-                        ForEach(contacts) { card in
-                            contactCard(card)
-                                .frame(maxWidth: .infinity, alignment: .topLeading)
-                                .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.items.count))
-                        }
+                    } else {
+                        cardMasonry(drawn.flatMap(\.slots))
                     }
                     // Kinds that only another country has, which no card here can point to.
                     if let elsewhere = model.elsewhereKinds {
@@ -1089,6 +1088,8 @@ struct VaultCard: View {
             // in the chosen ID's details, or in Customize Groups.
             .contextMenu {
                 VaultCardTitleMenu(isFolded: isFolded, allFolded: model.allFolded,
+                                   headingsShown: model.showsGroupHeadings,
+                                   toggleHeadings: model.tab == .other ? nil : { model.showsGroupHeadings.toggle() },
                                    toggle: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(card) } },
                                    toggleAll: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() } },
                                    color: model.tab == .other ? nil : { coloring = .title(card) })
@@ -1129,6 +1130,142 @@ struct VaultCard: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
     }
 
+    // MARK: Cards by group
+
+    /// Show Group Headings, as the panel draws it: never on Other Finds, whose kinds have no group yet.
+    private var showsGroupHeadings: Bool {
+        model.showsGroupHeadings && !(model.tab == .other && model.query.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    /// A group's cards packed into columns, each under the shortest (``VaultMasonry``): no gap
+    /// under a short card beside a tall one.
+    private func cardMasonry(_ slots: [VaultCardSlot]) -> some View {
+        VaultMasonry(minColumnWidth: 270, spacing: 12) {
+            ForEach(slots) { slot in
+                Group {
+                    switch slot {
+                    case .ids(let card, let rows): categoryCard(card, rows)
+                    case .contact(let card): contactCard(card)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                // Its column comes from its header and every row, folded or not: folding it
+                // never moves a card to another column.
+                .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + slot.count))
+            }
+        }
+    }
+
+    private func slotTint(_ slot: VaultCardSlot) -> VaultTint? {
+        switch slot {
+        case .ids(let card, _): return model.tint(of: card)
+        case .contact: return model.colors.tint(ofGroup: VaultGroups.contact)
+        }
+    }
+
+    private func slotSymbol(_ slot: VaultCardSlot) -> String {
+        switch slot {
+        case .ids(let card, _): return model.kinds.symbol(of: card)
+        case .contact(let card): return card.kind.symbol
+        }
+    }
+
+    private func slotTitle(_ slot: VaultCardSlot) -> String {
+        switch slot {
+        case .ids(let card, _): return model.kinds.title(of: card)
+        case .contact(let card): return card.kind.title
+        }
+    }
+
+    /// A group's heading: its name, in its color, and how many rows it holds. A click folds its
+    /// cards (⌥-click: every card); its menu folds, moves it, hides the headings, colors it.
+    private func cardGroupHeading(_ group: VaultCardGroup) -> some View {
+        let folded = model.isFolded(group: group.id)
+        let tint = model.tab == .other ? nil : model.colors.tint(ofGroup: group.id)
+        return Button {
+            withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) {
+                model.toggleFold(group: group.id, all: NSEvent.modifierFlags.contains(.option))
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: folded ? "chevron.right" : "chevron.down")
+                    .scaledFont(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+                Circle()
+                    .fill(tint?.color ?? Color.secondary.opacity(0.5))
+                    .frame(width: 8, height: 8)
+                Text(group.name.uppercased())
+                    .scaledFont(.caption.weight(.semibold))
+                    .tracking(0.7)
+                    .foregroundStyle(.secondary)
+                Text(group.count.formatted())
+                    .scaledFont(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(folded ? "Expand this group. ⌥-click to expand every card. Right-click to move it."
+                     : "Collapse this group. ⌥-click to collapse every card. Right-click to move it.")
+        .accessibilityLabel("\(group.name), \(group.count)")
+        .accessibilityValue(folded ? "Collapsed" : "Expanded")
+        .contextMenu { cardGroupMenu(group, folded: folded) }
+        .popover(isPresented: Self.isShown($groupColoring, at: group.id), arrowEdge: .bottom) {
+            groupColorPopover(group)
+                .presentedNativeControlAccent()
+        }
+    }
+
+    @ViewBuilder
+    private func cardGroupMenu(_ group: VaultCardGroup, folded: Bool) -> some View {
+        Button(folded ? "Expand Group" : "Collapse Group") {
+            withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(group: group.id) }
+        }
+        if model.groups.order.contains(group.id) {
+            Button("Move Up") { moveGroup(group.id, by: -1) }
+                .disabled(!model.groups.canMove(group.id, by: -1))
+            Button("Move Down") { moveGroup(group.id, by: 1) }
+                .disabled(!model.groups.canMove(group.id, by: 1))
+        }
+        Divider()
+        Button("Hide Group Headings") { model.showsGroupHeadings = false }
+        Divider()
+        if model.groups.order.contains(group.id), model.tab != .other {
+            Button("Color…") { groupColoring = group.id }
+        }
+        Button("Customize Groups…") { customizingGroups = true }
+    }
+
+    private func moveGroup(_ id: VaultGroups.ID, by step: Int) {
+        var groups = model.groups
+        groups.move(id, by: step)
+        withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.setGroups(groups) }
+    }
+
+    /// A group's color, from its heading: the same choice as in Customize Groups.
+    private func groupColorPopover(_ group: VaultCardGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Color of \(group.name)")
+                .scaledFont(.callout.weight(.semibold))
+            VaultColorPicker(key: Binding(get: { model.colors.color(ofGroup: group.id).key },
+                                          set: { model.setColor(VaultCardColor(key: $0) ?? .plain, ofGroup: group.id) }),
+                             accessibilityLabel: "Color of the group \(group.name)")
+                .disabled(!model.colors.isOn)
+            if !model.colors.isOn {
+                Text("Colors are off in Customize Groups.")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(width: 260, alignment: .leading)
+        .onDisappear { if groupColoring == group.id { groupColoring = nil } }
+    }
+
     // MARK: The Contact group's cards
 
     /// A Contact card: Home Addresses, Phones or Emails, in the Contact group's color. Its rows act
@@ -1152,6 +1289,14 @@ struct VaultCard: View {
             .help(isFolded ? "Expand. ⌥-click to expand every card." : "Collapse. ⌥-click to collapse every card.")
             .accessibilityLabel("\(card.kind.title), \(card.items.count)")
             .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
+            .contextMenu {
+                VaultCardTitleMenu(isFolded: isFolded, allFolded: model.allFolded,
+                                   headingsShown: model.showsGroupHeadings,
+                                   toggleHeadings: { model.showsGroupHeadings.toggle() },
+                                   toggle: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFold(card.kind) } },
+                                   toggleAll: { withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { model.toggleFoldAll() } },
+                                   color: nil)
+            }
             if !isFolded {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(card.items) { item in contactRow(item).id(item.id) }
@@ -1460,45 +1605,38 @@ struct VaultCard: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     readAgainBanner
                     tabBanner
-                    let contacts = model.contactCards
-                    if model.cards.isEmpty && contacts.isEmpty {
+                    let drawn = model.cardGroups
+                    if drawn.isEmpty {
                         EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
                             .padding(.top, 24)
                             .frame(maxWidth: .infinity)
                     }
-                    ForEach(model.cards, id: \.card.key) { card in
-                        HStack(spacing: 6) {
-                            // A colored card's kind keeps its color here, as its symbol.
-                            if let tint = model.tint(of: card.card) {
-                                Image(systemName: model.kinds.symbol(of: card.card))
-                                    .scaledFont(.caption.weight(.semibold))
-                                    .foregroundStyle(tint.color)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(model.kinds.title(of: card.card))
-                                .scaledFont(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                    ForEach(drawn) { group in
+                        // Each group's name over its kinds' while Show Group Headings is on.
+                        if showsGroupHeadings {
+                            cardGroupHeading(group)
+                                .padding(.horizontal, 4)
+                                .padding(.top, 10)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                        ForEach(card.rows) { row in rowView(row).id(row.id) }
-                    }
-                    // The Contact group's cards, after the IDs, each under its name.
-                    ForEach(contacts) { card in
-                        HStack(spacing: 6) {
-                            if let tint = model.colors.tint(ofGroup: VaultGroups.contact) {
-                                Image(systemName: card.kind.symbol)
-                                    .scaledFont(.caption.weight(.semibold))
-                                    .foregroundStyle(tint.color)
-                                    .accessibilityHidden(true)
+                        ForEach(group.slots) { slot in
+                            HStack(spacing: 6) {
+                                if let tint = slotTint(slot) {
+                                    Image(systemName: slotSymbol(slot))
+                                        .scaledFont(.caption.weight(.semibold))
+                                        .foregroundStyle(tint.color)
+                                        .accessibilityHidden(true)
+                                }
+                                Text(slotTitle(slot))
+                                    .scaledFont(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
                             }
-                            Text(card.kind.title)
-                                .scaledFont(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 8)
+                            switch slot {
+                            case .ids(_, let rows): ForEach(rows) { row in rowView(row).id(row.id) }
+                            case .contact(let card): ForEach(card.items) { item in contactRow(item).id(item.id) }
+                            }
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
-                        ForEach(card.items) { item in contactRow(item).id(item.id) }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -4306,13 +4444,13 @@ struct VaultCard: View {
     /// The arrows: the next row, or in Large Type the next line.
     private func arrow(_ step: Int) {
         if largeType != nil { return stepLargeType(by: step) }
-        let contacts = model.contactWalk
         // Among the IDs alone, the model walks as it always has.
-        guard !contacts.isEmpty else { return model.moveSelection(by: step) }
+        guard model.layout != .people, !model.contactItems.isEmpty else { return model.moveSelection(by: step) }
         let here: VaultWalkStop? = contactChosen.map { .contact($0) } ?? model.selection.map { .id($0) }
-        switch Self.walk(from: here, by: step, ids: model.walkOrder, contacts: contacts) {
+        switch Self.walk(from: here, by: step, stops: model.walkStops) {
         case .id(let id)?:
-            if case .id = here { model.moveSelection(by: step) } else { contactChosen = nil; model.selection = id }
+            contactChosen = nil
+            model.selection = id
         case .contact(let id)?:
             editing = nil
             model.selection = nil
@@ -4322,16 +4460,9 @@ struct VaultCard: View {
         }
     }
 
-    /// Where the arrow keys stop in Cards and List: an ID, or a Contact row after the IDs.
-    enum VaultWalkStop: Equatable {
-        case id(UUID)
-        case contact(String)
-    }
-
-    /// The stop `step` rows from `here`, walking the IDs as drawn and then the Contact rows; at
-    /// either end it stays. With nothing chosen, the first.
-    static func walk(from here: VaultWalkStop?, by step: Int, ids: [UUID], contacts: [String]) -> VaultWalkStop? {
-        let stops = ids.map(VaultWalkStop.id) + contacts.map(VaultWalkStop.contact)
+    /// The stop `step` rows from `here` among `stops`, the rows in the order drawn; at either end
+    /// it stays. With nothing chosen, or a row no longer there, the first.
+    static func walk(from here: VaultWalkStop?, by step: Int, stops: [VaultWalkStop]) -> VaultWalkStop? {
         guard !stops.isEmpty else { return nil }
         guard let here, let index = stops.firstIndex(of: here) else { return stops.first }
         return stops[min(max(index + step, 0), stops.count - 1)]
@@ -4705,16 +4836,18 @@ struct VaultGroupsSheet: View {
     @State var groups: VaultGroups
     @State var kinds: VaultKinds
     @State var colors: VaultColors
-    let onDone: (VaultGroups, VaultKinds, VaultColors) -> Void
+    @State var showsHeadings: Bool
+    let onDone: (VaultGroups, VaultKinds, VaultColors, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     /// The kinds as the sheet opened, for a name emptied and left blank.
     private let original: VaultKinds
 
-    init(groups: VaultGroups, kinds: VaultKinds, colors: VaultColors,
-         onDone: @escaping (VaultGroups, VaultKinds, VaultColors) -> Void) {
+    init(groups: VaultGroups, kinds: VaultKinds, colors: VaultColors, showsHeadings: Bool,
+         onDone: @escaping (VaultGroups, VaultKinds, VaultColors, Bool) -> Void) {
         _groups = State(initialValue: groups)
         _kinds = State(initialValue: kinds)
         _colors = State(initialValue: colors)
+        _showsHeadings = State(initialValue: showsHeadings)
         self.onDone = onDone
         original = kinds
     }
@@ -4740,7 +4873,7 @@ struct VaultGroupsSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Customize Groups")
                 .scaledFont(.title3.weight(.semibold))
-            Text("The Vault starts with these. Rename a group, give it a color, or move a kind to another one; the Kinds choice follows.")
+            Text("The Vault starts with these. Rename a group, give it a color, move it up or down, or move a kind to another one. The cards, the Kinds choice and People follow the order.")
                 .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -4751,17 +4884,39 @@ struct VaultGroupsSheet: View {
                     Text("A card takes its group’s color unless it has one of its own. A card’s own color is also in the menu on its title (right-click) and beside Kind once an ID is chosen.")
                         .foregroundStyle(.secondary)
                 }
-                Section("Groups") {
+                Section {
                     ForEach(groups.order, id: \.self) { id in
                         HStack(spacing: 8) {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.tertiary)
+                                .help("Drag to move the group")
+                                .accessibilityHidden(true)
                             TextField("Name", text: Binding(get: { groups.name(id) },
                                                             set: { groups.names[id] = $0 }))
                                 .labelsHidden()
                                 .accessibilityLabel("Name of the group \(groups.name(id))")
                             VaultColorPicker(key: groupColor(id), accessibilityLabel: "Color of the group \(groups.name(id))")
                                 .disabled(!colors.isOn)
+                            ControlGroup {
+                                Button { groups.move(id, by: -1) } label: { Image(systemName: "chevron.up") }
+                                    .disabled(!groups.canMove(id, by: -1))
+                                    .help("Move Up")
+                                    .accessibilityLabel("Move \(groups.name(id)) up")
+                                Button { groups.move(id, by: 1) } label: { Image(systemName: "chevron.down") }
+                                    .disabled(!groups.canMove(id, by: 1))
+                                    .help("Move Down")
+                                    .accessibilityLabel("Move \(groups.name(id)) down")
+                            }
+                            .fixedSize()
                         }
                     }
+                    .onMove { groups.move(fromOffsets: $0, toOffset: $1) }
+                    Toggle("Show a heading over each group, in Cards and List", isOn: $showsHeadings)
+                } header: {
+                    Text("Groups")
+                } footer: {
+                    Text("The cards follow the groups’ order, with or without the headings.")
+                        .foregroundStyle(.secondary)
                 }
                 Section("Kinds") {
                     ForEach(VaultCategory.mainView, id: \.self) { category in
@@ -4835,7 +4990,7 @@ struct VaultGroupsSheet: View {
                         let name = kinds.custom[index].name.trimmingCharacters(in: .whitespacesAndNewlines)
                         kinds.custom[index].name = name.isEmpty ? (original.kind(kinds.custom[index].id)?.name ?? name) : name
                     }
-                    onDone(groups, kinds, colors)
+                    onDone(groups, kinds, colors, showsHeadings)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

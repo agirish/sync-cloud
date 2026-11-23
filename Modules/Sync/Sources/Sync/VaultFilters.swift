@@ -106,6 +106,31 @@ public struct VaultGroups: Equatable, Sendable {
 
     static let namesKey = "vaultGroupNames"
     static let membersKey = "vaultGroupMembers"
+    /// The groups' order, where it is not the app's: ids, first to last.
+    static let orderKey = "vaultGroupOrder"
+
+    /// Moves a group `step` places up (negative) or down; at either end it stays.
+    public mutating func move(_ id: ID, by step: Int) {
+        guard let from = order.firstIndex(of: id) else { return }
+        let to = min(max(from + step, 0), order.count - 1)
+        guard to != from else { return }
+        order.insert(order.remove(at: from), at: to)
+    }
+
+    /// Moves groups as a drag in a list does.
+    public mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let moving = source.sorted().map { order[$0] }
+        var rest = order.enumerated().filter { !source.contains($0.offset) }.map(\.element)
+        let at = destination - source.filter { $0 < destination }.count
+        rest.insert(contentsOf: moving, at: min(max(at, 0), rest.count))
+        order = rest
+    }
+
+    /// Whether `id` can move up, or down.
+    public func canMove(_ id: ID, by step: Int) -> Bool {
+        guard let at = order.firstIndex(of: id) else { return false }
+        return order.indices.contains(at + step)
+    }
 
     /// The saved groups over the app's: a kind or a name never customized keeps the app's.
     public static func load(from defaults: UserDefaults) -> VaultGroups {
@@ -118,6 +143,12 @@ public struct VaultGroups: Equatable, Sendable {
             // Never into Contact: it holds the household's addresses, phones and emails, not IDs.
             if let category = VaultCategory(rawValue: raw), groups.idGroups.contains(id) { groups.groupOf[category] = id }
         }
+        // The order saved, of the groups this build knows; one a later build added keeps its
+        // place after them.
+        if let saved = defaults.stringArray(forKey: orderKey) {
+            let known = saved.filter { groups.order.contains($0) }
+            groups.order = known + groups.order.filter { !known.contains($0) }
+        }
         return groups
     }
 
@@ -127,5 +158,6 @@ public struct VaultGroups: Equatable, Sendable {
             .map { ($0.key.rawValue, $0.value) })
         if names.isEmpty { defaults.removeObject(forKey: Self.namesKey) } else { defaults.set(names, forKey: Self.namesKey) }
         if members.isEmpty { defaults.removeObject(forKey: Self.membersKey) } else { defaults.set(members, forKey: Self.membersKey) }
+        if order == Self.default.order { defaults.removeObject(forKey: Self.orderKey) } else { defaults.set(order, forKey: Self.orderKey) }
     }
 }

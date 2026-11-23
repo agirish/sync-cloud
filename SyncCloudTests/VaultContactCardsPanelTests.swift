@@ -25,11 +25,11 @@ import Testing
         let plain = try await VaultPanelRenderTests.rig(); defer { plain.cleanUp() }
         plain.defaults.set(layout.rawValue, forKey: "vaultLayout")
         plain.model.layout = layout
-        // In List the IDs fill the window: Contact alone is chosen there, so its cards are in view.
-        if layout == .list { plain.model.kindFilter = VaultGroups.contact }
+        // The IDs fill the window above them: Contact alone is chosen, so its cards are in view.
+        plain.model.kindFilter = VaultGroups.contact
         let before = try VaultPanelRenderTests.render(plain.model, defaults: plain.defaults, name: "contact-cards-\(layout)-none")
         let typed = try await Self.typed(layout); defer { typed.cleanUp() }
-        if layout == .list { typed.model.kindFilter = VaultGroups.contact }
+        typed.model.kindFilter = VaultGroups.contact
         #expect(typed.model.contactCards.map(\.kind) == [.addresses, .phones, .emails])
         let after = try VaultPanelRenderTests.render(typed.model, defaults: typed.defaults, name: "contact-cards-\(layout)")
         #expect(differingPixels(before, after) > 3000, "\(layout): three cards of contacts are drawn")
@@ -63,20 +63,33 @@ import Testing
         #expect(model.allFolded)
     }
 
-    @Test func theArrowsWalkFromTheLastIDIntoTheContactRowsAndBack() {
+    @Test func theArrowsWalkTheRowsAsDrawnAndStayAtTheEnds() {
         let (a, b) = (UUID(), UUID())
-        let ids = [a, b], contacts = ["address:home:x", "phone:anna:0"]
-        func walk(_ here: VaultCard.VaultWalkStop?, _ step: Int) -> VaultCard.VaultWalkStop? {
-            VaultCard.walk(from: here, by: step, ids: ids, contacts: contacts)
-        }
+        let stops: [VaultWalkStop] = [.id(a), .id(b), .contact("address:home:x"), .contact("phone:anna:0")]
+        func walk(_ here: VaultWalkStop?, _ step: Int) -> VaultWalkStop? { VaultCard.walk(from: here, by: step, stops: stops) }
         #expect(walk(.id(b), 1) == .contact("address:home:x"), "down from the last ID: the first contact")
         #expect(walk(.contact("address:home:x"), -1) == .id(b), "and back up")
         #expect(walk(.contact("phone:anna:0"), 1) == .contact("phone:anna:0"), "the end stays")
         #expect(walk(.id(a), -1) == .id(a), "so does the top")
         #expect(walk(nil, 1) == .id(a), "nothing chosen: the first")
-        #expect(VaultCard.walk(from: nil, by: 1, ids: [], contacts: contacts) == .contact("address:home:x"),
-                "with Contact alone chosen, the contacts")
-        #expect(VaultCard.walk(from: .contact("gone"), by: 1, ids: ids, contacts: contacts) == .id(a), "a row no longer there: the first")
+        #expect(walk(.contact("gone"), 1) == .id(a), "a row no longer there: the first")
+        #expect(VaultCard.walk(from: nil, by: 1, stops: []) == nil)
+    }
+
+    @Test func groupHeadingsAreDrawnOverEachGroupAndHideOnRequest() async throws {
+        let shown = try await Self.typed(.cards); defer { shown.cleanUp() }
+        #expect(shown.model.showsGroupHeadings)
+        let with = try VaultPanelRenderTests.render(shown.model, defaults: shown.defaults, name: "cards-group-headings")
+        let hidden = try await Self.typed(.cards); defer { hidden.cleanUp() }
+        hidden.model.showsGroupHeadings = false
+        let without = try VaultPanelRenderTests.render(hidden.model, defaults: hidden.defaults, name: "cards-no-group-headings")
+        #expect(differingPixels(with, without) > 3000, "a heading over each group, and the cards under it")
+        // Contact moved first: its cards lead.
+        var groups = hidden.model.groups
+        groups.move(VaultGroups.contact, by: -10)
+        hidden.model.setGroups(groups)
+        let moved = try VaultPanelRenderTests.render(hidden.model, defaults: hidden.defaults, name: "cards-contact-first")
+        #expect(differingPixels(without, moved) > 3000, "the cards follow the groups' order without the headings too")
     }
 
     @Test func theDetailsGiveEachPartAFormAsksFor() async throws {

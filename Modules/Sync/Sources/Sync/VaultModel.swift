@@ -258,6 +258,13 @@ public final class VaultModel: ObservableObject {
         didSet { defaults.set(geoFilter.rawValue, forKey: Self.geoFilterKey); keepSelectionVisible() }
     }
     /// Which group of kinds the list shows; nil for every kind.
+    /// Show Group Headings: Cards and List draw each group's name over its cards. Kept in
+    /// UserDefaults; on until turned off. People always shows its groups.
+    @Published public var showsGroupHeadings: Bool = true {
+        didSet { if showsGroupHeadings != oldValue { defaults.set(showsGroupHeadings, forKey: Self.groupHeadingsKey) } }
+    }
+    static let groupHeadingsKey = "vaultGroupHeadings"
+
     @Published public var kindFilter: VaultGroups.ID? = nil {
         didSet { defaults.set(kindFilter, forKey: Self.kindFilterKey); keepSelectionVisible() }
     }
@@ -713,7 +720,9 @@ public final class VaultModel: ObservableObject {
     public func setGroups(_ new: VaultGroups) {
         groups = new
         new.save(to: defaults)
-        if let chosen = kindFilter, !kinds.order.contains(where: { kinds.group(of: $0, in: new) == chosen }) {
+        // Contact holds no kind of ID, yet is a group to choose (``VaultContactCard``).
+        if let chosen = kindFilter, chosen != VaultGroups.contact,
+           !kinds.order.contains(where: { kinds.group(of: $0, in: new) == chosen }) {
             kindFilter = nil
         }
         rowsRevision &+= 1
@@ -776,6 +785,7 @@ public final class VaultModel: ObservableObject {
         geoFilter = defaults.string(forKey: Self.geoFilterKey).flatMap(VaultGeoFilter.init(rawValue:)) ?? .all
         groups = VaultGroups.load(from: defaults)
         kinds = VaultKinds.load(from: defaults)
+        showsGroupHeadings = defaults.object(forKey: Self.groupHeadingsKey) as? Bool ?? true
         colors = VaultColors.load(from: defaults)
         kindFilter = defaults.string(forKey: Self.kindFilterKey).flatMap { groups.order.contains($0) ? $0 : nil }
         switch defaults.string(forKey: Self.personFilterKey) {
@@ -821,16 +831,9 @@ public final class VaultModel: ObservableObject {
 
     public var selectedRow: Row? { rows.first { $0.id == selection } }
 
-    /// The IDs the arrow keys walk, in the order they are drawn: the panel walks on into the
-    /// Contact cards after them (``contactWalk``).
+    /// The IDs the arrow keys walk, in the order they are drawn (``walkStops`` adds the Contact rows).
     public var walkOrder: [UUID] { visibleIDs }
 
-    /// The Contact rows the arrow keys walk after the IDs, in Cards and List: a folded card's are
-    /// passed over in Cards, as an ID card's are; People draws none.
-    public var contactWalk: [String] {
-        guard layout != .people else { return [] }
-        return contactCards.filter { showsList || !isFolded($0.kind) }.flatMap { $0.items.map(\.id) }
-    }
 
     /// Every row in the order it is drawn: what the arrow keys walk.
     /// A folded card's rows are passed over: they are not on screen.
@@ -963,6 +966,12 @@ public final class VaultModel: ObservableObject {
     private func saveFolded() {
         defaults.set(folded.sorted(), forKey: Self.foldedKey)
         keepSelectionVisible()
+    }
+
+    /// Folds exactly `keys`, and keeps them.
+    func setFolded(_ keys: Set<String>) {
+        folded = keys
+        saveFolded()
     }
 
     // MARK: Kinds
@@ -1176,7 +1185,7 @@ public final class VaultModel: ObservableObject {
                 if lessons != before { readingChanged = true; saveReading() }
             }
         }
-        if let chosen = kindFilter, !kinds.order.contains(where: { kinds.group(of: $0, in: groups) == chosen }) {
+        if let chosen = kindFilter, chosen != VaultGroups.contact, !kinds.order.contains(where: { kinds.group(of: $0, in: groups) == chosen }) {
             kindFilter = nil
         }
         rowsRevision &+= 1

@@ -119,17 +119,22 @@ import Testing
 
     // MARK: The arrow keys
 
-    @Test func theArrowsWalkTheContactRowsAfterTheIDsInCardsAndList() async throws {
+    @Test func theArrowsWalkEveryRowInTheOrderDrawn() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = await Self.model(rig)
         model.layout = .cards
-        #expect(model.contactWalk == model.contactItems.map(\.id) && model.contactWalk.count == 4)
+        let contacts = model.contactItems.map { VaultWalkStop.contact($0.id) }
+        #expect(Array(model.walkStops.suffix(4)) == contacts, "Contact last, as its group is")
+        var groups = model.groups
+        groups.move(VaultGroups.contact, by: -10)
+        model.setGroups(groups)
+        #expect(Array(model.walkStops.prefix(4)) == contacts, "moved first, its rows are walked first")
         model.toggleFold(.phones)
-        #expect(model.contactWalk.count == 2, "a folded card’s rows are not on screen: the address and the email")
+        #expect(model.walkStops.count == model.walkOrder.count + 2, "a folded card's rows are not on screen")
         model.layout = .list
-        #expect(model.contactWalk.count == 4, "the list shows every row, whatever is folded")
+        #expect(model.walkStops.count == model.walkOrder.count + 4, "the list shows every row, whatever is folded")
         model.layout = .people
-        #expect(model.contactWalk.isEmpty, "People draws no Contact cards")
+        #expect(model.walkStops == model.walkOrder.map(VaultWalkStop.id), "People draws no Contact cards")
     }
 
     // MARK: Editing from a card

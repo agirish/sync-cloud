@@ -72,6 +72,9 @@ import Testing
     /// The whole card is in its color, the rows under a lighter wash than the title.
     @Test func aCardsRowsLieUnderALighterWashOfItsColorAndOffLeavesNone() async throws {
         let rig = try await Self.rig(); defer { rig.cleanUp() }
+        // One wall of cards, so every group's are in this window: the headings take room the
+        // last group's cards would need, and colors are what is measured here.
+        rig.model.showsGroupHeadings = false
         let on = try Self.render(rig.model, defaults: rig.defaults, name: "body-on")
         var colors = rig.model.colors
         colors.isOn = false

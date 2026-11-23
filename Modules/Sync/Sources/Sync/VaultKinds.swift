@@ -131,6 +131,18 @@ public struct VaultKinds: Equatable, Sendable {
         VaultCategory.mainView.map(VaultCardID.builtIn) + custom.map { .custom($0.id) }
     }
 
+    /// Every card in the order Cards and List draw them: group by group in the groups' order,
+    /// and within a group as ``order`` has them (the app's kinds, then the household's). A kind
+    /// the household made joins its group rather than coming last.
+    public func order(by groups: VaultGroups) -> [VaultCardID] {
+        let place = Dictionary(groups.order.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        return order.enumerated().sorted { a, b in
+            let (ga, gb) = (group(of: a.element, in: groups).flatMap { place[$0] } ?? .max,
+                            group(of: b.element, in: groups).flatMap { place[$0] } ?? .max)
+            return ga != gb ? ga < gb : a.offset < b.offset
+        }.map(\.element)
+    }
+
     /// Where a new kind goes, and the cards an account can be moved to.
     public var targets: [VaultCardID] {
         Self.changeable.map(VaultCardID.builtIn) + custom.map { .custom($0.id) }

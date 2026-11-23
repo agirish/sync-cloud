@@ -16343,3 +16343,16 @@ kind can be moved into the group.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Vault ▸ Cards and List: the groups' order and their headings — main only, recorded, not owed
+
+2026-11-23, for v7.2. The groups can be moved (Customize Groups' Move Up and Move Down and a drag;
+a heading's right-click), kept as `vaultGroupOrder`; the cards follow that order
+(`VaultKinds.order(by:)`, `VaultModel.cardGroups`), a kind the household made among its group's.
+Show Group Headings (`vaultGroupHeadings`, on to start) draws each group's name over its cards; a
+heading folds its group. The arrow keys walk the rows as drawn (`walkStops`). An older build
+ignores both keys.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
