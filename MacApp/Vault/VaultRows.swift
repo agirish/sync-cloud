@@ -152,19 +152,14 @@ struct VaultPersonHeader: View, Equatable {
     let owner: VaultPersonSection.Owner
     let title: String
     let subtitle: String
-    /// "Copied" in place of "Copy" while one of this person's copies is on the clipboard.
-    let copied: Bool
     let isAsking: Bool
-    let copyHelp: String
-    let copy: (_ numbers: Bool) -> Void
     let add: (_ person: String) -> Void
 
     /// Counts this heading's draws, for a test; nil in the app.
     @Environment(\.vaultDraws) private var draws
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.owner == b.owner && a.title == b.title && a.subtitle == b.subtitle && a.copied == b.copied
-            && a.isAsking == b.isAsking && a.copyHelp == b.copyHelp
+        a.owner == b.owner && a.title == b.title && a.subtitle == b.subtitle && a.isAsking == b.isAsking
     }
 
     var body: some View {
@@ -184,15 +179,7 @@ struct VaultPersonHeader: View, Equatable {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            // One menu for both copies: a summary with endings, or every ID in full.
-            Menu {
-                Button("Copy Summary") { copy(false) }
-                Button("Copy with Numbers…") { copy(true) }
-            } label: {
-                Text(copied ? "Copied" : "Copy")
-            }
-            .fixedSize()
-            .help(copyHelp)
+            // No Copy menu for now (PZ, 2026-11-22): each fact tile copies its own value.
             if case .person(let id) = owner {
                 Button {
                     add(id)

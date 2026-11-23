@@ -171,12 +171,12 @@ struct VaultCard: View {
     @State private var addedWhileLocked = false
     /// The Color choice that is open, and where it hangs from.
     @State private var coloring: VaultColorAnchor?
-    /// The date of birth whose source IDs are listed in a popover.
-    @State private var birthSources: String?
-    /// People's name tiles whose other spellings were shown or folded by hand, by section.
-    @State private var namesUnfolded: [String: Bool] = [:]
-    /// The spelling whose choice of roles is open.
-    @State private var namePopover: String?
+    /// The People tile popover that is open: a fact's “+1 ›”, or the IDs it was read from.
+    @State private var factPopover: String?
+    /// The spelling whose roles the names popover shows, in place of the spellings.
+    @State private var roleChoosing: String?
+    /// The phone, email or address being typed in a tile's popover.
+    @State private var contactEdit: ContactEdit?
     /// The misreading just corrected, with an Undo, until another is.
     @State private var misreadNote: MisreadNote?
     struct MisreadNote: Equatable {
@@ -1229,23 +1229,24 @@ struct VaultCard: View {
     @ViewBuilder
     private func personSection(_ section: VaultPersonSection, isFirst: Bool) -> some View {
         let showsBirth = model.canShowBirth(in: section)
-        let key = "person-\(section.title)"
-        let hasFacts = !section.names.isEmpty || !section.births.isEmpty
+        let slots = Self.factSlots(section, tab: model.tab)
+        let hasFacts = !slots.isEmpty
         let kinds = section.groups.map { PersonKind(owner: section.id, group: $0) }
         if !isFirst { Color.clear.frame(height: 12) }
         // Its own view, skipped while these stay the same, as the rows are.
         VaultPersonHeader(owner: section.id, title: section.title,
                           subtitle: Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab),
-                          copied: copiedDetail?.hasPrefix(key) == true, isAsking: model.isAsking,
-                          copyHelp: "Copy Summary copies each ID’s name, ending and expiry, no ID in full. Copy with Numbers copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)",
-                          copy: { numbers in copyPerson(section, numbers: numbers, key: key + (numbers ? "-numbers" : "-summary")) },
+                          isAsking: model.isAsking,
                           add: { id in startAdding(for: id) })
             .equatable()
             .modifier(VaultCardSlice(first: true, last: !hasFacts && kinds.isEmpty))
         if hasFacts {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
-                if !section.names.isEmpty { nameTile(section) }
-                if !section.births.isEmpty { birthTile(section, showsBirth: showsBirth) }
+            // Every tile three lines tall: one row when wide, two or three otherwise (VaultFactsLayout).
+            VaultFactsLayout(spacing: 8) {
+                ForEach(slots, id: \.self) { slot in
+                    factTile(slot, section, showsBirth: showsBirth)
+                        .factSlot(slot)
+                }
             }
             .padding(.horizontal, 8)
             .padding(.top, 8)
@@ -1317,17 +1318,96 @@ struct VaultCard: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// A fact's tile: what it is in small capitals, the value, where it comes from, and a copy icon
-    /// at its edge. A warning tile is for facts that disagree.
-    private func factTile<Content: View>(warn: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) { content() }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: Radius.card)
-                .fill(warn ? SemanticColor.warning.opacity(0.08) : Color(nsColor: .textBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card)
-                .strokeBorder(warn ? SemanticColor.warning.opacity(0.55) : Color.primary.opacity(0.09)))
+    // MARK: People's fact tiles
+
+    /// The tiles a section draws. For someone in People on Current, all five, each kept when not
+    /// known yet (with Add… for what can be typed), so every card has one shape; on Archive, their
+    /// names, date of birth and past addresses. For the household and a name as read, only what
+    /// was read.
+    static func factSlots(_ section: VaultPersonSection, tab: VaultStanding.Tab) -> [VaultFactsLayout.Slot] {
+        let isPerson = section.personID != nil
+        var slots: [VaultFactsLayout.Slot] = []
+        if section.id != .household {
+            if !section.names.isEmpty || isPerson { slots.append(.name) }
+            if !section.births.isEmpty || (isPerson && tab != .archive) { slots.append(.birth) }
+        }
+        if tab == .archive {
+            if !section.pastAddresses.isEmpty { slots.append(.address) }
+            return slots
+        }
+        if isPerson { return slots + [.address, .phone, .email] }
+        if section.home != nil { slots.append(.address) }
+        return slots
+    }
+
+    @ViewBuilder
+    private func factTile(_ slot: VaultFactsLayout.Slot, _ section: VaultPersonSection, showsBirth: Bool) -> some View {
+        switch slot {
+        case .name: nameTile(section)
+        case .birth: birthTile(section, showsBirth: showsBirth)
+        case .address: addressTile(section)
+        case .phone: typedTile(section, kind: .phone)
+        case .email: typedTile(section, kind: .email)
+        }
+    }
+
+    /// A fact's tile, three lines whatever it holds: what it is in small capitals, with “+1 ›”
+    /// when there is more (which opens `more`); the value on one line; where it comes from on one
+    /// line; and a copy icon at its edge. A warning tile is for facts that need a look.
+    private func factShell<Value: View, Source: View, Trailing: View, More: View>(
+        _ label: String, warn: Bool = false, more: String? = nil, moreWarns: Bool = false, moreKey: String = "",
+        @ViewBuilder value: () -> Value, @ViewBuilder source: () -> Source, @ViewBuilder trailing: () -> Trailing,
+        @ViewBuilder more popover: @escaping () -> More
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                factLabel(label)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                if let more {
+                    let tint = moreWarns ? SemanticColor.warning : glassHue.accentColor
+                    Button { factPopover = moreKey } label: {
+                        Text(more)
+                            .scaledFont(.caption2.weight(.semibold))
+                            .foregroundStyle(PillVariant.labelInk(for: tint))
+                            .lineLimit(1)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(tint.opacity(0.18)))
+                    }
+                    .buttonStyle(.plain)
+                    // The label gives way first: the chip is never cut.
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .help("Show the rest")
+                    .accessibilityLabel("\(label): \(more.replacingOccurrences(of: " ›", with: ""))")
+                    .popover(isPresented: popoverBinding(moreKey), arrowEdge: .bottom) {
+                        popover()
+                            .presentedNativeControlAccent()
+                    }
+                }
+            }
+            HStack(alignment: .center, spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    value()
+                    source()
+                }
+                Spacer(minLength: 4)
+                trailing()
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: Radius.card)
+            .fill(warn ? SemanticColor.warning.opacity(0.08) : Color(nsColor: .textBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card)
+            .strokeBorder(warn ? SemanticColor.warning.opacity(0.55) : Color.primary.opacity(0.09)))
+    }
+
+    private func popoverBinding(_ key: String) -> Binding<Bool> {
+        Binding(get: { factPopover == key }, set: { if !$0, factPopover == key { factPopover = nil; roleChoosing = nil } })
     }
 
     private func factLabel(_ text: String) -> some View {
@@ -1335,6 +1415,74 @@ struct VaultCard: View {
             .scaledFont(.caption2.weight(.semibold))
             .tracking(0.6)
             .foregroundStyle(.secondary)
+    }
+
+    /// The value, on one line: cut at its end when it does not fit, and whole on hover.
+    private func factValue(_ text: String, muted: Bool = false) -> some View {
+        Text(text)
+            .scaledFont(.body.weight(.semibold))
+            .foregroundStyle(muted ? .secondary : .primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(text)
+    }
+
+    /// An address on one line, cut in its street when it does not fit: the city, state and ZIP
+    /// a form asks for stay whole.
+    private func addressValue(_ address: VaultAddress) -> some View {
+        let street = ([address.street] + [address.unit].compactMap { $0 }).joined(separator: ", ")
+        return HStack(spacing: 0) {
+            Text(street)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(", \(address.city), \(address.state) \(address.zip)")
+                .lineLimit(1)
+                .layoutPriority(1)
+        }
+        .scaledFont(.body.weight(.semibold))
+        .help(address.oneLine)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// “Add Phone…” where a value not known yet would be.
+    private func addValue(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .scaledFont(.body.weight(.semibold))
+                .foregroundStyle(glassHue.accentColor)
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The source line, “From where · when”: a link that opens the one ID, or lists several in a
+    /// popover; plain text when typed or not known.
+    @ViewBuilder
+    private func factSource(_ text: String, rows: [VaultModel.Row] = [], key: String = "", title: String = "") -> some View {
+        if rows.isEmpty {
+            Text(text)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(text)
+        } else {
+            Button {
+                if rows.count == 1, let row = rows.first { openSource(row) } else { factPopover = key }
+            } label: {
+                Text(text)
+                    .scaledFont(.caption)
+                    .foregroundStyle(glassHue.accentColor)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.plain)
+            .help(rows.count == 1 ? Self.sourceHelp(rows[0]) : "The IDs this was read from")
+            .popover(isPresented: popoverBinding(key), arrowEdge: .bottom) {
+                sourcesList(title, rows: rows)
+                    .presentedNativeControlAccent()
+            }
+        }
     }
 
     /// The icon that copies a fact, a tick while it is on the clipboard.
@@ -1349,52 +1497,82 @@ struct VaultCard: View {
         .accessibilityLabel(help)
     }
 
-    /// Their names: the legal one and the one they go by, then other spellings, folded unless one
-    /// looks misread. In People, each spelling's role is chosen from its chip.
+    private func copyString(_ text: String, key: String? = nil) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        if let key { flashCopied(key) }
+    }
+
+    // MARK: Names
+
+    /// The name forms ask for, legal first; the other spellings, with their roles and the fix for
+    /// one that looks misread, behind “+1 ›”.
     private func nameTile(_ section: VaultPersonSection) -> some View {
+        let lead = section.names.first
+        let others = max(0, section.names.count - 1)
+        let misread = section.names.filter(\.looksMisread).count
         let key = "names-\(section.title)"
-        let others = section.names.filter { $0.role == .alsoUsed }
-        let misread = others.filter(\.looksMisread).count
-        let unfolded = namesUnfolded[key] ?? (misread > 0)
-        let shown = section.names.filter { $0.role != .alsoUsed } + (unfolded ? others : [])
-        return factTile {
-            factLabel(section.names.count > 1 ? "Names" : "Name")
-            ForEach(Array(shown.enumerated()), id: \.element.name) { index, name in
-                if index > 0 { Divider() }
-                nameLine(section, name, first: index == 0)
+        // After Correct to Legal Name takes the last other spelling, the chip stays for its Undo.
+        let noted = misreadNote?.section == section.title
+        let more: String? = others == 0 ? (noted ? "Corrected ›" : nil) : misread > 0 ? "+\(others) · \(misread) misread ›" : "+\(others) ›"
+        let name = lead?.name ?? section.title
+        return factShell(section.names.count > 1 ? "Names" : "Name", more: more, moreWarns: misread > 0, moreKey: key) {
+            factValue(name)
+        } source: {
+            if let lead {
+                factSource(VaultPersonText.sourceLine(lead.rows), rows: lead.rows, key: key + "-source",
+                           title: "“\(lead.name)” is printed on \(lead.rows.count) IDs")
+                    .help("Printed this way on \(ListFormatter.localizedString(byJoining: lead.on)).")
+            } else {
+                factSource("From People")
             }
-            if !others.isEmpty {
-                Divider()
-                Button {
-                    withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) { namesUnfolded[key] = !unfolded }
-                } label: {
-                    Text(Self.foldLine(others: others.count, misread: misread, unfolded: unfolded))
-                        .scaledFont(.caption)
-                        .foregroundStyle(glassHue.accentColor)
-                }
-                .buttonStyle(.plain)
-            }
-            if let note = misreadNote, note.section == section.title {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
-                    Text("“\(note.name)” was a misreading: \(note.count == 1 ? "1 ID" : "\(note.count) IDs") now read \(note.legal).")
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Undo") {
-                        model.undoMisread(note.name)
-                        misreadNote = nil
-                    }
+        } trailing: {
+            let copyKey = "name-\(section.title)-\(name)"
+            copyIcon(copyKey, help: "Copy “\(name)”") { copyString(name, key: copyKey) }
+        } more: {
+            namesPopover(section)
+        }
+    }
+
+    /// Every spelling with its role and where it is printed; choosing a role swaps the popover to
+    /// the four roles, with Back. One popover, never one opened from another.
+    private func namesPopover(_ section: VaultPersonSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let choosing = roleChoosing, let person = section.personID,
+               let name = section.names.first(where: { $0.name == choosing }) {
+                Button { roleChoosing = nil } label: { Label("Back", systemImage: "chevron.left") }
                     .buttonStyle(.link)
+                    .scaledFont(.caption)
+                roleChoices(section, name, person: person)
+            } else {
+                ForEach(Array(section.names.enumerated()), id: \.element.name) { index, name in
+                    if index > 0 { Divider() }
+                    nameLine(section, name, first: index == 0)
                 }
-                .scaledFont(.caption)
-                .foregroundStyle(.secondary)
+                if let note = misreadNote, note.section == section.title {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
+                        Text("“\(note.name)” was a misreading: \(note.count == 1 ? "1 ID" : "\(note.count) IDs") now read \(note.legal).")
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Undo") {
+                            model.undoMisread(note.name)
+                            misreadNote = nil
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
+        .padding(12)
+        .frame(width: 360, alignment: .leading)
     }
 
     /// One spelling: the name, its role, where it is printed and a copy icon; one that looks
     /// misread offers to correct it or keep it.
     private func nameLine(_ section: VaultPersonSection, _ name: VaultPersonSection.PrintedName, first: Bool) -> some View {
-        let person: String? = { if case .person(let id) = section.id { return id } else { return nil } }()
+        let person = section.personID
         let legal = section.names.first { $0.role == .legal }?.name
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
@@ -1404,7 +1582,7 @@ struct VaultCard: View {
                         .lineLimit(1)
                     if section.names.count > 1 { roleChip(section, name, person: person) }
                 }
-                Text(VaultPersonText.paperLine(name, only: section.names.count == 1))
+                Text(VaultPersonText.sourceLine(name.rows))
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1425,16 +1603,11 @@ struct VaultCard: View {
             }
             Spacer(minLength: 4)
             let copyKey = "name-\(section.title)-\(name.name)"
-            copyIcon(copyKey, help: "Copy “\(name.name)”") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(name.name, forType: .string)
-                flashCopied(copyKey)
-            }
+            copyIcon(copyKey, help: "Copy “\(name.name)”") { copyString(name.name, key: copyKey) }
         }
     }
 
-    /// The spelling's role as a chip; for someone in People it opens the choice of roles. A popover,
-    /// not a menu: a menu SwiftUI builds shuts when the Vault's rows change under it.
+    /// The spelling's role as a chip; for someone in People it swaps the popover to the roles.
     @ViewBuilder
     private func roleChip(_ section: VaultPersonSection, _ name: VaultPersonSection.PrintedName, person: String?) -> some View {
         let label = name.looksMisread ? "Looks misread" : name.role.title
@@ -1450,17 +1623,11 @@ struct VaultCard: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 1)
         .background(Capsule().fill(tint.opacity(0.18)))
-        if let person {
-            let key = "\(section.title)|\(name.name)"
-            Button { namePopover = key } label: { chip }
+        if person != nil {
+            Button { roleChoosing = name.name } label: { chip }
                 .buttonStyle(.plain)
                 .help("What this spelling is to \(section.title)")
                 .accessibilityLabel("\(name.name): \(label). Change")
-                .popover(isPresented: Self.isShown($namePopover, at: key),
-                         arrowEdge: .bottom) {
-                    roleChoices(section, name, person: person)
-                        .presentedNativeControlAccent()
-                }
         } else {
             chip
         }
@@ -1472,13 +1639,12 @@ struct VaultCard: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text(name.name)
                 .scaledFont(.callout.weight(.semibold))
-                .padding(.horizontal, 8)
                 .padding(.bottom, 4)
             ForEach(VaultNameRole.allCases, id: \.self) { role in
                 let isMisread = role == .misread
                 let disabled = isMisread && (legal == nil || name.role == .legal)
                 Button {
-                    namePopover = nil
+                    roleChoosing = nil
                     let count = model.setRole(role, of: name.name, for: person)
                     if isMisread, let legal { misreadNote = .init(section: section.title, name: name.name, legal: legal, count: count) }
                 } label: {
@@ -1495,7 +1661,6 @@ struct VaultCard: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    .padding(.horizontal, 8)
                     .padding(.vertical, 5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -1505,116 +1670,442 @@ struct VaultCard: View {
                 .opacity(disabled ? 0.45 : 1)
             }
         }
-        .padding(8)
-        .frame(width: 300, alignment: .leading)
     }
 
     /// What a role means, as the choice of roles says it.
     static func roleMeaning(_ role: VaultNameRole, legal: String?) -> String {
         switch role {
         case .legal: return "The name forms ask for “as on your passport”. One per person."
-        case .goesBy: return "The name they use day to day. It leads the summary Copy gives."
+        case .goesBy: return "The name they use day to day."
         case .alsoUsed: return "A real spelling some papers print. Kept, under the rest."
         case .misread: return "A scan got it wrong: every ID read with it shows \(legal ?? "the legal name") instead."
         }
     }
 
-    /// "3 other spellings · 1 looks misread ›", or "Hide other spellings".
-    static func foldLine(others: Int, misread: Int, unfolded: Bool) -> String {
-        if unfolded { return others == 1 ? "Hide the other spelling" : "Hide other spellings" }
-        let count = others == 1 ? "1 other spelling" : "\(others) other spellings"
-        let flag = misread == 0 ? "" : misread == 1 ? " · 1 looks misread" : " · \(misread) look misread"
-        return count + flag + " ›"
-    }
+    // MARK: Date of birth
 
-    /// The date of birth: the one most of their IDs give, and under it any other with the ID it
-    /// was read from, so a misreading is found and put right.
+    /// The date most of their IDs give; a second date, and the warning, behind “+1 date ›”.
     private func birthTile(_ section: VaultPersonSection, showsBirth: Bool) -> some View {
-        let disagree = section.births.count > 1
-        return factTile(warn: disagree) {
-            factLabel(disagree ? "Date of birth · \(section.births.count) dates" : "Date of birth")
-            ForEach(Array(section.births.enumerated()), id: \.offset) { index, birth in
-                if index > 0 { Divider() }
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(showsBirth ? VaultReading.spelled(birth.date) : "•• ••••• ••••")
-                            .scaledFont(index == 0 ? .body.weight(.semibold) : .callout.weight(.semibold))
-                            .foregroundStyle(showsBirth ? .primary : .secondary)
-                        birthSource(section, birth)
-                    }
-                    Spacer(minLength: 4)
-                    let key = "born-\(section.title)-\(birth.date.timeIntervalSince1970)"
-                    if showsBirth {
-                        copyIcon(key, help: "Copy \(VaultReading.formDate(birth.date)), the way US forms ask for a date") {
-                            Task { if await model.copyBirth(birth.date, in: section) { flashCopied(key) } }
+        let key = "births-\(section.title)"
+        let lead = section.births.first
+        let others = max(0, section.births.count - 1)
+        return factShell("Date of birth", warn: others > 0, more: others == 0 ? nil : "+\(others) \(others == 1 ? "date" : "dates") ›",
+                         moreWarns: true, moreKey: key) {
+            if let lead {
+                factValue(showsBirth ? VaultReading.spelled(lead.date) : "•• ••••• ••••", muted: !showsBirth)
+            } else {
+                factValue("Not known", muted: true)
+            }
+        } source: {
+            if let lead {
+                birthSource(section, lead, showsBirth: showsBirth)
+            } else {
+                factSource("Not on any ID yet")
+            }
+        } trailing: {
+            if let lead { birthTrailing(section, lead, showsBirth: showsBirth) }
+        } more: {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(section.births.enumerated()), id: \.offset) { index, birth in
+                    if index > 0 { Divider() }
+                    HStack(alignment: .center, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(showsBirth ? VaultReading.spelled(birth.date) : "•• ••••• ••••")
+                                .scaledFont(index == 0 ? .body.weight(.semibold) : .callout.weight(.semibold))
+                                .foregroundStyle(showsBirth ? .primary : .secondary)
+                            birthSource(section, birth, showsBirth: showsBirth)
                         }
-                    } else {
-                        Button {
-                            if let id = section.rows.first?.id { Task { await model.show(id) } }
-                        } label: {
-                            Image(systemName: "eye").frame(width: 22, height: 22).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Show it after Touch ID or your password")
-                        .accessibilityLabel("Show the date of birth")
+                        Spacer(minLength: 4)
+                        birthTrailing(section, birth, showsBirth: showsBirth)
                     }
                 }
-            }
-            if disagree {
                 Text("Check which is right. Open the ID a wrong date came from to give it to whoever it belongs to, or to remove it.")
                     .scaledFont(.caption)
                     .foregroundStyle(SemanticColor.warning)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .padding(12)
+            .frame(width: 340, alignment: .leading)
         }
     }
 
-    /// Where a date of birth was read: one ID by name and document, as a link that chooses it; or
-    /// "From 18 IDs", which lists them in a popover. A popover, not a menu: a menu SwiftUI builds
-    /// shuts when the Vault's rows change under it, as Refresh changes them.
+    private func birthSource(_ section: VaultPersonSection, _ birth: VaultPersonSection.Birth, showsBirth: Bool) -> some View {
+        factSource(VaultPersonText.sourceLine(birth.rows), rows: birth.rows,
+                   key: "\(section.title)-\(birth.date.timeIntervalSince1970)",
+                   title: showsBirth ? "\(VaultReading.spelled(birth.date)) was read from \(birth.rows.count) IDs"
+                                     : "This date of birth was read from \(birth.rows.count) IDs")
+    }
+
+    /// Copy once it may be shown; until then the eye that asks for Touch ID.
     @ViewBuilder
-    private func birthSource(_ section: VaultPersonSection, _ birth: VaultPersonSection.Birth) -> some View {
-        if birth.rows.count == 1, let row = birth.rows.first {
-            Button {
-                openSource(row)
-            } label: {
-                Text(Self.sourceLabel(birth.rows))
-                    .scaledFont(.caption)
-                    .foregroundStyle(glassHue.accentColor)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+    private func birthTrailing(_ section: VaultPersonSection, _ birth: VaultPersonSection.Birth, showsBirth: Bool) -> some View {
+        let key = "born-\(section.title)-\(birth.date.timeIntervalSince1970)"
+        if showsBirth {
+            copyIcon(key, help: "Copy \(VaultReading.formDate(birth.date)), the way US forms ask for a date") {
+                Task { if await model.copyBirth(birth.date, in: section) { flashCopied(key) } }
             }
-            .buttonStyle(.plain)
-            .help(Self.sourceHelp(row))
         } else {
-            let key = "\(section.title)-\(birth.date.timeIntervalSince1970)"
             Button {
-                birthSources = key
+                if let id = section.rows.first?.id { Task { await model.show(id) } }
             } label: {
-                Text(Self.sourceLabel(birth.rows) + " ›")
-                    .scaledFont(.caption)
-                    .foregroundStyle(glassHue.accentColor)
+                Image(systemName: "eye").frame(width: 22, height: 22).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .help("The IDs this date was read from")
-            .popover(isPresented: Self.isShown($birthSources, at: key),
-                     arrowEdge: .bottom) {
-                sourcesList(birth)
-                    .presentedNativeControlAccent()
+            .buttonStyle(.borderless)
+            .help("Show it after Touch ID or your password")
+            .accessibilityLabel("Show the date of birth")
+        }
+    }
+
+    // MARK: Home address
+
+    /// Where they live now on Current; on Archive, the newest past address, the older ones behind
+    /// “+1 ›”. A license still printing an address they have left says so on Current.
+    private func addressTile(_ section: VaultPersonSection) -> some View {
+        let archive = model.tab == .archive
+        let shown = archive ? section.pastAddresses.first : section.home
+        let older = archive ? Array(section.pastAddresses.dropFirst()) : []
+        let differs = archive ? nil : section.licenseDiffers
+        let key = "address-\(section.title)"
+        let more: String? = differs != nil ? "License differs ›" : older.isEmpty ? nil : "+\(older.count) ›"
+        return factShell(archive ? "Past address" : "Home address", more: more, moreWarns: differs != nil, moreKey: key) {
+            if let shown {
+                addressValue(shown.address)
+            } else {
+                addValue("Add Address…") { startContactEdit(.address, section) }
+            }
+        } source: {
+            if let shown {
+                factSource(VaultPersonText.sourceLine(shown.rows, typed: shown.typed, dated: shown.dated), rows: shown.rows,
+                           key: key + "-source", title: "\(shown.address.oneLine) is printed on \(shown.rows.count) IDs")
+            } else {
+                factSource("Not on any ID yet")
+            }
+        } trailing: {
+            if let shown {
+                let copyKey = "address-\(section.title)-\(shown.address.key)"
+                copyIcon(copyKey, help: "Copy the address on one line") { copyString(shown.address.oneLine, key: copyKey) }
+            }
+        } more: {
+            if let differs, let home = section.home {
+                licensePopover(differs, home: home)
+            } else {
+                addressesPopover(older, section)
+            }
+        }
+        .contextMenu {
+            if let shown { addressMenu(shown, section, past: archive) }
+        }
+        .popover(isPresented: editBinding("edit-\(section.title)-address"), arrowEdge: .bottom) {
+            contactEditor(section)
+                .presentedNativeControlAccent()
+        }
+    }
+
+    /// Copy all or a part (forms ask for street, city and ZIP apart), see the IDs, correct it, or
+    /// say it is not theirs.
+    @ViewBuilder
+    private func addressMenu(_ shown: VaultPersonSection.Address, _ section: VaultPersonSection, past: Bool) -> some View {
+        let a = shown.address
+        Button("Copy Address") { copyString(a.oneLine) }
+        Button("Copy Street") { copyString(([a.street] + [a.unit].compactMap { $0 }).joined(separator: ", ")) }
+        Button("Copy City") { copyString(a.city) }
+        Button("Copy ZIP Code") { copyString(a.zip) }
+        Divider()
+        if shown.rows.count == 1, let row = shown.rows.first {
+            Button("Show the ID") { openSource(row) }
+        } else if shown.rows.count > 1 {
+            Button("Show the IDs") { factPopover = "address-\(section.title)-source" }
+        }
+        if let person = section.personID {
+            if !past { Button("Edit…") { startContactEdit(.address, section, address: shown) } }
+            Button(shown.rows.isEmpty ? "Remove" : "Not Their Address") {
+                model.removeAddress(shown.address.key, for: person, read: !shown.rows.isEmpty,
+                                    everyone: !shown.rows.isEmpty && shown.rows.allSatisfy(\.isHousehold))
             }
         }
     }
 
-    /// The IDs a date was read from, each with its document; choosing one opens it.
-    private func sourcesList(_ birth: VaultPersonSection.Birth) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("\(VaultReading.spelled(birth.date)) was read from \(birth.rows.count) IDs")
+    /// The license, and the address it still prints.
+    private func licensePopover(_ old: VaultPersonSection.Address, home: VaultPersonSection.Address) -> some View {
+        let license = old.rows.first { $0.category == .driversLicense }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("The driver’s license prints an earlier address")
                 .scaledFont(.callout.weight(.semibold))
+            Text(old.address.oneLine)
+                .scaledFont(.callout)
+                .textSelection(.enabled)
+            Text("Newer papers print \(home.address.oneLine). The DMV asks to be told of a move.")
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let license {
+                Button("Show the License") {
+                    factPopover = nil
+                    openSource(license)
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .padding(12)
+        .frame(width: 320, alignment: .leading)
+    }
+
+    /// Older past addresses, newest first, each with where it was printed.
+    private func addressesPopover(_ older: [VaultPersonSection.Address], _ section: VaultPersonSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(older.enumerated()), id: \.element.address.key) { index, address in
+                if index > 0 { Divider() }
+                HStack(alignment: .center, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(address.address.oneLine)
+                            .scaledFont(.callout.weight(.semibold))
+                            .lineLimit(1)
+                            .help(address.address.oneLine)
+                        factSource(VaultPersonText.sourceLine(address.rows, typed: address.typed, dated: address.dated),
+                                   rows: address.rows, key: "address-\(section.title)-\(address.address.key)-source",
+                                   title: "\(address.address.oneLine) is printed on \(address.rows.count) IDs")
+                    }
+                    Spacer(minLength: 4)
+                    let copyKey = "address-\(section.title)-\(address.address.key)"
+                    copyIcon(copyKey, help: "Copy the address on one line") { copyString(address.address.oneLine, key: copyKey) }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 360, alignment: .leading)
+    }
+
+    // MARK: Phone and email
+
+    /// The first phone or email typed for them; the rest behind “+1 ›”; Add… when none.
+    private func typedTile(_ section: VaultPersonSection, kind: ContactEdit.Kind) -> some View {
+        let values = kind == .phone ? section.phones : section.emails
+        let noun = kind == .phone ? "Phone" : "Email"
+        let lead = values.first
+        let shown = lead.map { Self.typedShown($0, kind: kind) }
+        let key = "\(kind.rawValue)-\(section.title)"
+        return factShell(lead?.label.map { "\(noun) · \($0)" } ?? noun, more: values.count > 1 ? "+\(values.count - 1) ›" : nil,
+                         moreKey: key) {
+            if let shown {
+                factValue(shown)
+            } else {
+                addValue("Add \(noun)…") { startContactEdit(kind, section) }
+            }
+        } source: {
+            factSource(lead == nil ? "Typed once, kept in the Vault" : VaultPersonText.sourceLine([], typed: true))
+        } trailing: {
+            if let shown {
+                let copyKey = "\(key)-0"
+                copyIcon(copyKey, help: "Copy \(shown)") { copyString(shown, key: copyKey) }
+            }
+        } more: {
+            typedPopover(section, kind: kind)
+        }
+        .contextMenu {
+            if let shown, let person = section.personID {
+                Button("Copy") { copyString(shown) }
+                Divider()
+                Button("Edit…") { startContactEdit(kind, section, index: 0) }
+                Button("Add Another…") { startContactEdit(kind, section) }
+                Button("Remove") {
+                    if kind == .phone { model.removePhone(at: 0, for: person) } else { model.removeEmail(at: 0, for: person) }
+                }
+            }
+        }
+        .popover(isPresented: editBinding("edit-\(section.title)-\(kind.rawValue)"), arrowEdge: .bottom) {
+            contactEditor(section)
+                .presentedNativeControlAccent()
+        }
+    }
+
+    static func typedShown(_ typed: VaultContacts.Typed, kind: ContactEdit.Kind) -> String {
+        kind == .phone ? VaultContacts.phoneShown(typed.value) : typed.value
+    }
+
+    /// Every phone or email typed for them, each with its label, copy, Edit and Remove.
+    private func typedPopover(_ section: VaultPersonSection, kind: ContactEdit.Kind) -> some View {
+        let values = kind == .phone ? section.phones : section.emails
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(values.enumerated()), id: \.offset) { index, typed in
+                if index > 0 { Divider() }
+                HStack(alignment: .center, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Self.typedShown(typed, kind: kind))
+                            .scaledFont(index == 0 ? .body.weight(.semibold) : .callout.weight(.semibold))
+                            .lineLimit(1)
+                        Text([typed.label, "From you"].compactMap { $0 }.joined(separator: " · "))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Edit…") { startContactEdit(kind, section, index: index) }
+                        .buttonStyle(.link)
+                    Button("Remove") {
+                        guard let person = section.personID else { return }
+                        if kind == .phone { model.removePhone(at: index, for: person) } else { model.removeEmail(at: index, for: person) }
+                    }
+                    .buttonStyle(.link)
+                    let copyKey = "\(kind.rawValue)-\(section.title)-\(index)"
+                    copyIcon(copyKey, help: "Copy \(Self.typedShown(typed, kind: kind))") {
+                        copyString(Self.typedShown(typed, kind: kind), key: copyKey)
+                    }
+                }
+            }
+            Divider()
+            Button(kind == .phone ? "Add Another Phone…" : "Add Another Email…") { startContactEdit(kind, section) }
+                .buttonStyle(.link)
+        }
+        .scaledFont(.caption)
+        .padding(12)
+        .frame(width: 380, alignment: .leading)
+    }
+
+    // MARK: Typing a contact
+
+    /// A phone, email or address being typed, in a popover on its tile.
+    struct ContactEdit: Equatable {
+        enum Kind: String { case phone, email, address }
+        var kind: Kind
+        var section: String
+        var person: String
+        /// The phone or email being edited; nil adds one.
+        var index: Int?
+        /// The address being corrected (its key); nil adds one.
+        var replacing: String?
+        var value = ""
+        var label = ""
+        var street = "", unit = "", city = "", state = "", zip = ""
+        /// Everyone else the new address is also for (“Same for”).
+        var alsoFor: Set<String> = []
+        var anchor: String { "edit-\(section)-\(kind.rawValue)" }
+
+        var address: VaultAddress { VaultAddress(street: street, unit: unit, city: city, state: state, zip: zip).trimmed }
+
+        var canSave: Bool {
+            switch kind {
+            case .phone: return VaultContacts.looksLikePhone(value)
+            case .email: return VaultContacts.looksLikeEmail(value)
+            case .address: return address.isComplete
+            }
+        }
+    }
+
+    private func startContactEdit(_ kind: ContactEdit.Kind, _ section: VaultPersonSection, index: Int? = nil,
+                                  address: VaultPersonSection.Address? = nil) {
+        guard let person = section.personID else { return }
+        var edit = ContactEdit(kind: kind, section: section.title, person: person, index: index)
+        switch kind {
+        case .phone, .email:
+            let values = kind == .phone ? section.phones : section.emails
+            if let index, values.indices.contains(index) {
+                edit.value = values[index].value
+                edit.label = values[index].label ?? ""
+            } else {
+                edit.label = (kind == .phone ? VaultContacts.phoneLabels : VaultContacts.emailLabels)[0]
+            }
+        case .address:
+            if let a = address?.address {
+                (edit.street, edit.unit, edit.city, edit.state, edit.zip) = (a.street, a.unit ?? "", a.city, a.state, a.zip)
+                edit.replacing = a.key
+            } else {
+                // Offered for everyone else in People, each ticked (PY).
+                edit.alsoFor = Set(model.people.map(\.id).filter { $0 != person })
+            }
+        }
+        // Opened from a “+1 ›” popover, the editor waits for it to close: macOS shows no popover
+        // asked for while another is still closing.
+        guard factPopover != nil else { contactEdit = edit; return }
+        factPopover = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            contactEdit = edit
+        }
+    }
+
+    private func editBinding(_ anchor: String) -> Binding<Bool> {
+        Binding(get: { contactEdit?.anchor == anchor }, set: { if !$0, contactEdit?.anchor == anchor { contactEdit = nil } })
+    }
+
+    private func editField(_ path: WritableKeyPath<ContactEdit, String>) -> Binding<String> {
+        Binding(get: { contactEdit?[keyPath: path] ?? "" }, set: { contactEdit?[keyPath: path] = $0 })
+    }
+
+    @ViewBuilder
+    private func contactEditor(_ section: VaultPersonSection) -> some View {
+        if let edit = contactEdit {
+            let noun = edit.kind == .phone ? "Phone" : edit.kind == .email ? "Email" : "Home address"
+            VStack(alignment: .leading, spacing: 8) {
+                Text("\(noun) for \(section.title)")
+                    .scaledFont(.callout.weight(.semibold))
+                switch edit.kind {
+                case .phone, .email:
+                    TextField(edit.kind == .phone ? "(408) 555-0142" : "name@example.com", text: editField(\.value))
+                    Picker("Label", selection: editField(\.label)) {
+                        ForEach(edit.kind == .phone ? VaultContacts.phoneLabels : VaultContacts.emailLabels, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accentedSegments(glassHue)
+                case .address:
+                    TextField("Street", text: editField(\.street))
+                    TextField("Apt, suite (optional)", text: editField(\.unit))
+                    HStack(spacing: 6) {
+                        TextField("City", text: editField(\.city))
+                        TextField("State", text: editField(\.state)).frame(width: 52)
+                        TextField("ZIP", text: editField(\.zip)).frame(width: 70)
+                    }
+                    let others = model.people.filter { $0.id != edit.person }
+                    if edit.replacing == nil, !others.isEmpty {
+                        HStack(spacing: 10) {
+                            Text("Same for:")
+                                .foregroundStyle(.secondary)
+                            ForEach(others) { other in
+                                Toggle(other.displayName, isOn: Binding(
+                                    get: { contactEdit?.alsoFor.contains(other.id) ?? false },
+                                    set: { on in if on { contactEdit?.alsoFor.insert(other.id) } else { contactEdit?.alsoFor.remove(other.id) } }))
+                            }
+                        }
+                        .scaledFont(.caption)
+                    }
+                }
+                HStack {
+                    Spacer()
+                    Button("Cancel") { contactEdit = nil }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Save") { saveContactEdit() }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!edit.canSave)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .padding(12)
+            .frame(width: 340, alignment: .leading)
+        }
+    }
+
+    private func saveContactEdit() {
+        guard let edit = contactEdit, edit.canSave else { return }
+        switch edit.kind {
+        case .phone: model.setPhone(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
+        case .email: model.setEmail(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
+        case .address:
+            model.setAddress(edit.address, for: edit.person, alsoFor: edit.replacing == nil ? Array(edit.alsoFor).sorted() : [],
+                             replacing: edit.replacing)
+        }
+        contactEdit = nil
+    }
+
+    /// The IDs a fact was read from, each with its document; choosing one opens it.
+    private func sourcesList(_ title: String, rows: [VaultModel.Row]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .scaledFont(.callout.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(birth.rows) { row in
+                    ForEach(rows) { row in
                         Button {
-                            birthSources = nil
+                            factPopover = nil
                             openSource(row)
                         } label: {
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1649,10 +2140,6 @@ struct VaultCard: View {
             parts.append(tab == .archive ? "\(elsewhere.formatted()) current" : "\(elsewhere.formatted()) in Archive")
         }
         return parts.joined(separator: " · ")
-    }
-
-    private func copyPerson(_ section: VaultPersonSection, numbers: Bool, key: String) {
-        Task { if await model.copyPerson(section.id, numbers: numbers) { flashCopied(key) } }
     }
 
     /// The empty state when the tab has IDs but the choices hide them all (VT75: one for each layout that has it).
@@ -1771,12 +2258,10 @@ struct VaultCard: View {
         editing = nil
     }
 
-    /// "From Passport · renewal.pdf", or "From 18 IDs". The document's name tells two IDs of one
-    /// kind apart, which is the case two dates of birth usually are.
+    /// "From Passport", or "From 18 IDs": one line, as every fact's source is. The document's
+    /// name, which tells two IDs of one kind apart, is in the link's tip (``sourceHelp(_:)``).
     static func sourceLabel(_ rows: [VaultModel.Row]) -> String {
-        guard rows.count == 1, let row = rows.first else { return "From \(rows.count) IDs" }
-        let file = fileName(row)
-        return "From \(row.kindTitle)" + (file.map { " · \($0)" } ?? "")
+        VaultPersonText.sourceLine(rows)
     }
 
     /// One ID in the list of several: what it is, and that it is on the other tab when it is.

@@ -352,7 +352,7 @@ public final class VaultModel: ObservableObject {
     private let store: VaultStore?
     private let authenticator: VaultAuthenticating
     private let defaults: UserDefaults
-    private let clock: @Sendable () -> Date
+    let clock: @Sendable () -> Date
     /// Puts a number on the pasteboard. The app's version marks it concealed and clears it later.
     private let copyToPasteboard: @MainActor (String) -> Void
 
@@ -547,16 +547,19 @@ public final class VaultModel: ObservableObject {
     private var visibleCache: (key: ViewKey, rows: [Row])?
     private var cardsCache: (key: ViewKey, cards: [(card: VaultCardID, rows: [Row])])?
     private var tabCountsCache: (key: ViewKey, counts: [VaultStanding.Tab: Int])?
-    private var peopleCache: (key: ViewKey, people: [Person], roles: [String: VaultNameRoles], sections: [VaultPersonSection])?
+    private var peopleCache: (key: ViewKey, people: [Person], roles: [String: VaultNameRoles], contacts: [String: VaultContacts],
+                              sections: [VaultPersonSection])?
     private var sourcesCache: (revision: Int, stale: Set<String>, sources: Set<String>)?
     /// ``peopleSections``, worked out again only when what they are made of moved.
     func peopleSections(computing compute: @autoclosure () -> [VaultPersonSection]) -> [VaultPersonSection] {
         let key = viewKey
-        if let cached = peopleCache, cached.key == key, cached.people == people, cached.roles == nameRoles {
+        // Typed contacts are part of a section: a phone added shows at once.
+        if let cached = peopleCache, cached.key == key, cached.people == people, cached.roles == nameRoles,
+           cached.contacts == contacts {
             return cached.sections
         }
         let sections = compute()
-        peopleCache = (key, people, nameRoles, sections)
+        peopleCache = (key, people, nameRoles, contacts, sections)
         viewComputations += 1
         return sections
     }
@@ -1020,6 +1023,9 @@ public final class VaultModel: ObservableObject {
     /// so a chosen role shows at once (VT99). Rows never read it, so it does not move
     /// ``rowsRevision`` (VT101): only ``peopleSections`` does.
     @Published var nameRoles: [String: VaultNameRoles] = [:]
+    /// What the user typed for each person (``VaultContacts``), by person: kept in the reading
+    /// file beside ``nameRoles``, and in a backup.
+    @Published public internal(set) var contacts: [String: VaultContacts] = [:]
 
     /// Corrects the name read as `key` to `name` on every ID read with it, or with nil, lets it
     /// be as read again. The People view's Misread; Edit's Everywhere does the same.
@@ -1395,9 +1401,10 @@ public final class VaultModel: ObservableObject {
         if let backingUp { return backingUp }
         guard let backup, contents == .loaded, !isSealedShut, !entries.isEmpty, backup.isDue else { return nil }
         let entries = entries
+        let contacts = contacts
         // Sealed off the main actor (VT58), so the panel draws while the key is derived.
         let task = Task {
-            _ = try? await backup.write(entries)
+            _ = try? await backup.write(entries, contacts: contacts)
             backingUp = nil
         }
         backingUp = task
@@ -1575,6 +1582,7 @@ public final class VaultModel: ObservableObject {
         rereads = [:]
         names = [:]
         nameRoles = [:]
+        contacts = [:]
         readingLaterFields = nil
         readingUnreadFields = nil
         readingHeld = false
@@ -2428,7 +2436,8 @@ public final class VaultModel: ObservableObject {
                                       notFound: missingDocuments.isEmpty ? nil : missingDocuments.sorted(),
                                       needsDiscover: needsDiscover ? true : nil,
                                       lastRefreshed: lastRefreshed, lastDiscovered: lastDiscovered, names: names,
-                                      nameRoles: nameRoles.isEmpty ? nil : nameRoles)
+                                      nameRoles: nameRoles.isEmpty ? nil : nameRoles,
+                                      contacts: contacts.isEmpty ? nil : contacts)
         state.laterFields = readingLaterFields
         state.unreadFields = readingUnreadFields
         return state
@@ -2450,6 +2459,7 @@ public final class VaultModel: ObservableObject {
         lastDiscovered = state.lastDiscovered
         names = state.names
         nameRoles = state.nameRoles ?? [:]
+        contacts = state.contacts ?? [:]
         needsReadAgain = state.needsReadAgain
         readingLaterFields = state.laterFields
         readingUnreadFields = state.unreadFields

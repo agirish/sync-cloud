@@ -675,6 +675,16 @@ public struct VaultStore {
                 state.nameRoles = readable.isEmpty ? nil : readable
                 if !later.isEmpty { unread["nameRoles"] = later }
             }
+            if let stored = object?["contacts"] as? [String: Any] {
+                let decoder = VaultFile.jsonDecoder()
+                var readable: [String: VaultContacts] = [:], later: [String: Any] = [:]
+                for (key, value) in stored {
+                    if let json = try? JSONSerialization.data(withJSONObject: value),
+                       let contacts = try? decoder.decode(VaultContacts.self, from: json) { readable[key] = contacts } else { later[key] = value }
+                }
+                state.contacts = readable.isEmpty ? nil : readable
+                if !later.isEmpty { unread["contacts"] = later }
+            }
             state.unreadFields = unread.isEmpty ? nil : try? JSONSerialization.data(withJSONObject: unread, options: [.sortedKeys])
             return .loaded(state)
         } catch {

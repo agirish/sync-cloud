@@ -31,6 +31,27 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         /// One or two letters from the legal name on a single kind of paper, and not kept as real:
         /// worth a look. A guess shown, never acted on.
         public var looksMisread = false
+        /// Their IDs whose papers print it so, in the cards' order: what “From 5 IDs” counts.
+        public var rows: [VaultModel.Row] = []
+    }
+
+    /// A home address: the IDs whose papers print it, and how new it is. The newest leads.
+    public struct Address: Equatable, Sendable {
+        /// As shown: the tidiest printing, tidied (``VaultAddress/tidied``); a typed one as typed.
+        public var address: VaultAddress
+        /// The newest paper's date, or the day it was typed, whichever is later.
+        public var dated: Date?
+        /// Their IDs whose papers print it, from either tab; a Household paper's for everyone.
+        public var rows: [VaultModel.Row]
+        /// Typed in People's tile, by the user.
+        public var typed: Bool
+
+        public init(address: VaultAddress, dated: Date?, rows: [VaultModel.Row], typed: Bool) {
+            self.address = address
+            self.dated = dated
+            self.rows = rows
+            self.typed = typed
+        }
     }
 
     /// A date of birth, and the IDs whose documents give it: where it was found, so a wrong one
@@ -65,6 +86,21 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
     public var groups: [KindGroup]
     /// How many more they have on the other tab (Archive while Current is shown, and the reverse).
     public var elsewhere: Int
+    /// Their home addresses, newest first: the first is where they live now (Current); the rest
+    /// are past ones (Archive).
+    public var addresses: [Address] = []
+    /// A license on Current that still prints a past address: the DMV wants to hear of a move.
+    public var licenseDiffers: Address?
+    /// Phones and emails typed for them, the first leading.
+    public var phones: [VaultContacts.Typed] = []
+    public var emails: [VaultContacts.Typed] = []
+
+    /// Where they live now.
+    public var home: Address? { addresses.first }
+    /// Where they used to live, newest first.
+    public var pastAddresses: [Address] { Array(addresses.dropFirst()) }
+    /// Someone in People: who a typed value belongs to. Nil for Household and a name as read.
+    public var personID: String? { if case .person(let id) = id { return id } else { return nil } }
 }
 
 extension VaultModel {
@@ -78,7 +114,7 @@ extension VaultModel {
     }
 
     var computedPeopleSections: [VaultPersonSection] {
-        filter.peopleSections(rows, visible: visibleRows, people: people, roles: nameRoles)
+        filter.peopleSections(rows, visible: visibleRows, people: people, roles: nameRoles, contacts: contacts)
     }
 
     /// Whether a person's birth date may be drawn: when one of their IDs may be. It is as private
@@ -126,6 +162,23 @@ public enum VaultPersonText {
 
     /// Where a name is printed, in a line: "On passport", "On all 9 kinds of identity paper" when
     /// it is their only spelling, else the papers that print it this way, the first three named.
+    /// A fact's one source line, “From where · when”: the ID's kind when one gives it, “N IDs”
+    /// when several do, “you” when it was typed; and for an address, the month of the newest.
+    public static func sourceLine(_ rows: [VaultModel.Row], typed: Bool = false, dated: Date? = nil) -> String {
+        let place: String
+        switch rows.count {
+        case 0: place = typed ? "you" : "People"
+        // The title's first part: “Driver’s license · CA” is “Driver’s license”, “EBMUD · Account
+        // number” is “EBMUD”, so the line's one “·” is the one before its date.
+        case 1: place = rows[0].kindTitle.components(separatedBy: " · ").first ?? rows[0].kindTitle
+        default: place = "\(rows.count.formatted()) IDs"
+        }
+        return "From \(place)" + (dated.map { " · " + month($0) } ?? "")
+    }
+
+    /// "Oct 2026", as a row gives a month (``VaultReading/monthYear(_:)``).
+    public static func month(_ date: Date) -> String { VaultReading.monthYear(date) }
+
     public static func paperLine(_ name: VaultPersonSection.PrintedName, only: Bool) -> String {
         if name.on.count == 1 { return "On \(name.on[0])" }
         if only { return "On all \(name.on.count) kinds of identity paper" }

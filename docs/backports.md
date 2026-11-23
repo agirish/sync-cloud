@@ -16310,3 +16310,19 @@ will not decode in a build without that case.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Missing lens | RECORDED — not owed (new feature) |
+
+## Vault ▸ People: home address, phone and email — main only, recorded, not owed
+
+2026-11-22, for v7.2. The Vault reads a home address from a US license's barcode (`DAG`, `DAH`,
+`DAI`, `DAK`) and from the mailing block of an account paper under Health, Home, Vehicles and
+School (`VaultReading.mailingAddress`), kept on each paper's source with its date
+(`VaultSource.address`, `VaultPrintedAddress`); `VaultReading.version` goes to 19, so the next
+Read Documents reads every file again. People shows each person's fact tiles three lines tall
+(`VaultFactsLayout`): name, date of birth, home address (past ones on Archive), phone and email,
+the last two typed (`VaultContacts`, sealed in the reading file as `contacts` and carried by a
+backup). The person heading's Copy menu is gone for now. The sealed formats gain optional fields
+only.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

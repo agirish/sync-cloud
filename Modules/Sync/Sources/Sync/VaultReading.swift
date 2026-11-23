@@ -1164,6 +1164,9 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// The roles chosen for each person's spellings, by person: their legal name, the name they
     /// go by, and spellings kept as real ones. Kept across a change of rules.
     public var nameRoles: [String: VaultNameRoles]?
+    /// What the user typed for each person, by person: phones, emails and home addresses, and
+    /// addresses read that are not theirs. Kept across a change of rules.
+    public var contacts: [String: VaultContacts]?
 
     public init(version: Int = VaultReading.version, generation: Int = 0,
                 finds: [VaultFind] = [], read: [String: String] = [:], mentions: [String: [VaultSource]] = [:],
@@ -1171,8 +1174,9 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
                 needsReadAgain: Bool = false, lessons: [String: VaultCardID] = [:],
                 staleSources: [String]? = nil, notFound: [String]? = nil, needsDiscover: Bool? = nil,
                 lastRefreshed: Date? = nil, lastDiscovered: Date? = nil, names: [String: String] = [:],
-                nameRoles: [String: VaultNameRoles]? = nil) {
+                nameRoles: [String: VaultNameRoles]? = nil, contacts: [String: VaultContacts]? = nil) {
         self.nameRoles = nameRoles
+        self.contacts = contacts
         self.staleSources = staleSources
         self.notFound = notFound
         self.needsDiscover = needsDiscover
@@ -1192,7 +1196,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case version, generation, finds, read, mentions, copies, choices, needsReadAgain, lessons
-        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names, nameRoles
+        case staleSources, notFound, needsDiscover, lastRefreshed, lastDiscovered, names, nameRoles, contacts
     }
 
     /// Every key this build reads. One outside it is a later build's, kept as it came
@@ -1203,7 +1207,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
     /// as a field, but merged back in when the state is sealed, so a file a newer SyncCloud wrote
     /// keeps what it holds when this one seals it (VT30). Set by ``VaultStore/openReading()``.
     public var laterFields: Data?
-    /// The user's own fields (`names`, `nameRoles`) as stored, when this build could not read
+    /// The user's own fields (`names`, `nameRoles`, `contacts`) as stored, when this build could not read
     /// them (a later build's shape) and holds them empty: sealed back while still empty here.
     public var unreadFields: Data?
 
@@ -1228,6 +1232,7 @@ public struct VaultReadingState: Codable, Equatable, Sendable {
         lastDiscovered = try? c.decodeIfPresent(Date.self, forKey: .lastDiscovered)
         names = (try? c.decodeIfPresent([String: String].self, forKey: .names)) ?? [:]
         nameRoles = try? c.decodeIfPresent([String: VaultNameRoles].self, forKey: .nameRoles)
+        contacts = try? c.decodeIfPresent([String: VaultContacts].self, forKey: .contacts)
     }
 }
 

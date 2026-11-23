@@ -13,8 +13,8 @@ import Testing
 @Suite(.serialized) struct VaultRowRedrawTests {
     /// The panel in a window that is ordered in, so it updates as the app's does, and buried below
     /// the wallpaper.
-    static func mount(_ model: VaultModel, defaults: UserDefaults, draws: VaultDrawCount) -> NSWindow {
-        let size = CGSize(width: 1100, height: 760)
+    static func mount(_ model: VaultModel, defaults: UserDefaults, draws: VaultDrawCount, height: CGFloat = 760) -> NSWindow {
+        let size = CGSize(width: 1100, height: height)
         let panel = VaultCard(model: model, people: model.people, glassHue: .blue, onClose: {}, onOpenSettings: {},
                               onQuickLook: { _ in }, onReveal: { _ in }, onAddPerson: { _, _ in nil },
                               quickLookPath: nil, onCloseQuickLook: {})
@@ -55,7 +55,14 @@ import Testing
         let rows = rig.model.visibleRows
         try #require(rows.count >= 2)
         let masked = rows.map(rig.model.masked)
-        #expect(Set(draws.rows).isSuperset(of: masked), "\(layout): every row drawn to begin with: \(draws.rows)")
+        // People opens each person with two rows of fact tiles and draws lazily, so not every
+        // row is in this window: what is drawn is what is weighed below.
+        let drawn = Set(draws.rows)
+        if layout == .people {
+            #expect(drawn.count >= 2 && drawn.isSubset(of: masked), "\(layout): rows drawn to begin with: \(draws.rows)")
+        } else {
+            #expect(drawn.isSuperset(of: masked), "\(layout): every row drawn to begin with: \(draws.rows)")
+        }
 
         // A notice, like a read's progress, is a publish that changes no row.
         draws.rows = []
@@ -72,11 +79,11 @@ import Testing
         // Choosing a row draws the two whose highlight moved, and no other: the one chosen
         // before (the panel keeps one chosen) and the one chosen now.
         // Rows told apart by their numbers as drawn.
-        let apart = rows.indices.filter { index in masked.filter { $0 == masked[index] }.count == 1 }
+        let apart = rows.indices.filter { index in masked.filter { $0 == masked[index] }.count == 1 && drawn.contains(masked[index]) }
         for step in 0..<2 {
             let before = rig.model.selection
             let target = try #require(apart.first { rows[$0].id != before })
-            let was = rows.firstIndex { $0.id == before }.map { masked[$0] }
+            let was = rows.firstIndex { $0.id == before }.map { masked[$0] }.flatMap { drawn.contains($0) ? $0 : nil }
             draws.rows = []
             rig.model.selection = rows[target].id
             try await Self.settle(window)
@@ -110,7 +117,8 @@ import Testing
         rig.defaults.set(VaultLayout.people.rawValue, forKey: "vaultLayout")
         rig.model.layout = .people
         let draws = VaultDrawCount()
-        let window = Self.mount(rig.model, defaults: rig.defaults, draws: draws); defer { window.orderOut(nil) }
+        // Tall enough to lay out every person: each opens with two rows of fact tiles.
+        let window = Self.mount(rig.model, defaults: rig.defaults, draws: draws, height: 1600); defer { window.orderOut(nil) }
         try await Self.settle(window, turns: 10)
         let kinds = rig.model.peopleSections.flatMap { section in section.groups.map { VaultDrawCount.kind(section.id, $0.name) } }
         let names = rig.model.peopleSections.flatMap { $0.groups.map(\.name) }

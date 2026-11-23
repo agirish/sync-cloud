@@ -37,13 +37,19 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
     /// read: a restore seals them back so (``VaultStore/save(_:allowingDrops:newer:carrying:)``).
     var stored: VaultRecords?
 
-    public init(version: Int = 1, madeAt: Date, entries: [VaultEntry]) {
+    /// What was typed for each person in People (phones, emails, home addresses): it lives
+    /// beside what was read, not with the IDs, and would otherwise be lost to a restore. Nil in a
+    /// backup made before contacts, or with none typed.
+    public var contacts: [String: VaultContacts]?
+
+    public init(version: Int = 1, madeAt: Date, entries: [VaultEntry], contacts: [String: VaultContacts]? = nil) {
         self.version = version
         self.madeAt = madeAt
         self.entries = entries
+        self.contacts = contacts
     }
 
-    private enum CodingKeys: String, CodingKey { case version, madeAt, entries }
+    private enum CodingKeys: String, CodingKey { case version, madeAt, entries, contacts }
 
     /// A record a later build wrote (a kind, a place or a pin this one does not know) is passed
     /// over, so a backup still restores every record it can read rather than none (VT30).
@@ -65,6 +71,8 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
         }
         self.entries = entries
         laterRecords = skipped
+        // Lenient: a backup's IDs are never lost over what was typed beside them.
+        contacts = try? c.decodeIfPresent([String: VaultContacts].self, forKey: .contacts)
     }
 
     /// How many records in the backup need a newer SyncCloud. Not encoded: a backup is written
@@ -77,7 +85,7 @@ public struct VaultBackupContents: Codable, Equatable, Sendable {
     /// stored (``stored``, ``sealedEntries``) is how they go back, not what they are.
     public static func == (a: Self, b: Self) -> Bool {
         a.version == b.version && a.madeAt == b.madeAt && a.entries == b.entries && a.newer == b.newer
-            && a.laterRecords == b.laterRecords
+            && a.laterRecords == b.laterRecords && a.contacts == b.contacts
     }
 }
 
@@ -325,10 +333,10 @@ public struct VaultBackup {
     /// The key is derived off the main actor (VT58): PBKDF2 at ``VaultBackupFile/rounds`` takes most
     /// of a second, which held the panel as it opened for the weekly backup.
     @discardableResult
-    public func write(_ entries: [VaultEntry]) async throws -> URL {
+    public func write(_ entries: [VaultEntry], contacts: [String: VaultContacts] = [:]) async throws -> URL {
         guard let passphrase = passphrase() else { throw VaultBackupError.noPassphrase }
         let now = clock()
-        var contents = VaultBackupContents(madeAt: now, entries: entries)
+        var contents = VaultBackupContents(madeAt: now, entries: entries, contacts: contacts.isEmpty ? nil : contacts)
         // Each record as the Vault's file seals it: a later build's records, and its fields on
         // records this build reads, go with it. The backup is the Vault's, not this build's view.
         if let held = try? store.loadRecords() {
@@ -402,6 +410,37 @@ public struct VaultBackup {
 
     /// Puts a backup back, after a proof. Returns how many IDs the Vault holds afterwards.
     ///
+    /// Puts what was typed for each person back beside what was read. A Replace has set the
+    /// reading file aside, so it starts one holding them alone (what is read comes back with the
+    /// next read); Add Missing gives each person what they lack, keeping what is here.
+    func restoreContacts(_ restored: [String: VaultContacts]?, mode: VaultRestoreMode) {
+        guard let restored, !restored.isEmpty else { return }
+        var state: VaultReadingState
+        switch mode == .replace ? .none : store.openReading() {
+        case .loaded(let held): state = held
+        case .none: state = VaultReadingState(generation: VaultSetAside.generation(in: .standard))
+        default:
+            // A reading file that will not open is never sealed over.
+            Logger.shared.warning("Vault: the typed contacts in the backup could not be put back")
+            return
+        }
+        var contacts = state.contacts ?? [:]
+        for (person, theirs) in restored {
+            var mine = contacts[person] ?? VaultContacts()
+            for phone in theirs.phones where !mine.phones.contains(where: { $0.value == phone.value }) { mine.phones.append(phone) }
+            for email in theirs.emails where !mine.emails.contains(where: { $0.value == email.value }) { mine.emails.append(email) }
+            for address in theirs.addresses where !mine.addresses.contains(where: { $0.address.key == address.address.key }) {
+                mine.addresses.append(address)
+            }
+            for key in theirs.notTheirs where !mine.notTheirs.contains(key) { mine.notTheirs.append(key) }
+            contacts[person] = mine
+        }
+        state.contacts = contacts
+        do { try store.saveReading(state) } catch {
+            Logger.shared.warning("Vault: the typed contacts in the backup could not be put back")
+        }
+    }
+
     /// Replace never deletes: the Vault's file and what was read are renamed aside first
     /// (``VaultStore/moveAsideForReplace(at:)``), which is also what lets a Vault this Mac cannot open be
     /// replaced at all.
@@ -451,6 +490,7 @@ public struct VaultBackup {
             store.putBack(moved)
             return .failure(.notWritten)
         }
+        restoreContacts(contents.contacts, mode: mode)
         Logger.shared.info("Vault: restored from a backup (\(mode == .replace ? "replaced" : "added what was missing")), \(entries.count) ID(s) now")
         note(.restored, mode == .replace ? "Replaced the Vault from a backup of \(contents.entries.count) ID(s)"
                                          : "Added what was missing from a backup of \(contents.entries.count) ID(s)")

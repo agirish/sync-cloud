@@ -49,7 +49,9 @@ import Testing
         let anna = try #require(model.peopleSections.first { $0.id == .person("anna") })
         // The passport's zone gives the name and the birth date; the dental card's holder line is
         // the plan's wording, not a name a form asks for.
-        #expect(anna.names == [.init(name: "Anna Maria Eriksson", on: ["passport"], role: .legal)], "\(anna.names)")
+        #expect(anna.names.map(\.name) == ["Anna Maria Eriksson"] && anna.names.map(\.on) == [["passport"]]
+                    && anna.names.map(\.role) == [.legal], "\(anna.names)")
+        #expect(anna.names.first?.rows.map(\.category) == [.passport], "the IDs that print it, for “From Passport”")
         #expect(anna.born == [VaultReadingTests.day(1974, 8, 12)])
         let erik = try #require(model.peopleSections.first { $0.id == .person("erik") })
         #expect(erik.names.isEmpty && erik.born.isEmpty, "a typed number says nothing about its person")

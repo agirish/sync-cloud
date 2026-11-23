@@ -113,12 +113,13 @@ struct VaultRowFilter: Equatable {
 
     /// The People view: every person with an ID the tab, filters and search leave, in People's
     /// order; then names nobody in People answers to; the household last. `visible` is
-    /// ``visible(_:)``'s; `roles` are the roles chosen for each person's spellings.
+    /// ``visible(_:)``'s; `roles` are the roles chosen for each person's spellings; `contacts`
+    /// what was typed for each person.
     ///
     /// A person's names and birth date come from all their documents, on either tab and whatever
     /// the filters hide: they are facts about the person, not about one ID.
     func peopleSections(_ rows: [Row], visible: [Row], people: [Person],
-                        roles: [String: VaultNameRoles]) -> [VaultPersonSection] {
+                        roles: [String: VaultNameRoles], contacts: [String: VaultContacts] = [:]) -> [VaultPersonSection] {
         func owner(_ row: Row) -> VaultPersonSection.Owner {
             if row.isHousehold { return .household }
             if let id = row.personID { return .person(id) }
@@ -127,8 +128,18 @@ struct VaultRowFilter: Equatable {
         let all = Dictionary(grouping: rows, by: owner)
         let shown = Dictionary(grouping: visible, by: owner)
         func section(_ id: VaultPersonSection.Owner, _ title: String) -> VaultPersonSection? {
-            guard let rows = shown[id], !rows.isEmpty else { return nil }
             let theirs = all[id] ?? []
+            var typed = VaultContacts()
+            if case .person(let person) = id { typed = contacts[person] ?? VaultContacts() }
+            // A person's home is also what the household's own papers print (the utility bills),
+            // unless their own papers or what they typed say something newer.
+            var mailed = theirs
+            if case .person = id { mailed += all[.household] ?? [] }
+            let addresses = Self.addresses(on: mailed, typed: typed.addresses, notTheirs: Set(typed.notTheirs))
+            let rows = shown[id] ?? []
+            // On Archive, someone with past addresses is shown though no ID of theirs is there:
+            // a past address is never out of reach. Not under a search or a filter that hides them.
+            guard !rows.isEmpty || (tab == .archive && addresses.count > 1 && showsWithoutIDs(id)) else { return nil }
             // Names by how they are printed, each with the kinds that print it so.
             var names: [VaultPersonSection.PrintedName] = []
             let order = VaultCategory.mainView
@@ -139,8 +150,9 @@ struct VaultRowFilter: Equatable {
                       let kind = VaultPersonText.paper(row.category) else { continue }
                 if let index = names.firstIndex(where: { $0.name.caseInsensitiveCompare(holder) == .orderedSame }) {
                     if !names[index].on.contains(kind) { names[index].on.append(kind) }
+                    names[index].rows.append(row)
                 } else {
-                    names.append(.init(name: holder, on: [kind]))
+                    names.append(.init(name: holder, on: [kind], rows: [row]))
                 }
             }
             names = roled(names, for: id, roles: roles)
@@ -151,8 +163,19 @@ struct VaultRowFilter: Equatable {
                 .map { VaultPersonSection.Birth(date: $0.key, rows: $0.value) }
                 .sorted { ($0.rows.count, $1.date) > ($1.rows.count, $0.date) }
             let onThisTab = Set(rows.map(\.id))
-            return VaultPersonSection(id: id, title: title, names: names, births: births, groups: grouped(rows),
-                                      elsewhere: theirs.filter { !onThisTab.contains($0.id) && $0.standing.tab != tab && $0.standing.tab != .other }.count)
+            var made = VaultPersonSection(id: id, title: title, names: names, births: births, groups: grouped(rows),
+                                          elsewhere: theirs.filter { !onThisTab.contains($0.id) && $0.standing.tab != tab && $0.standing.tab != .other }.count)
+            made.addresses = addresses
+            made.phones = typed.phones
+            made.emails = typed.emails
+            // A license still good that prints an address they have since left.
+            if let home = addresses.first {
+                let licenses = theirs.filter { $0.category == .driversLicense && $0.standing.tab == .current }
+                let printed = Set(licenses.flatMap { ($0.facts?.sources ?? []).compactMap { $0.address?.address.key } })
+                made.licenseDiffers = printed.contains(home.address.key) ? nil
+                    : addresses.dropFirst().first { printed.contains($0.address.key) }
+            }
+            return made
         }
         var sections = people.compactMap { section(.person($0.id), $0.displayName) }
         // Someone removed from People keeps their IDs, under the words their rows already use.
@@ -167,6 +190,69 @@ struct VaultRowFilter: Equatable {
         sections += unnamed.compactMap { section(.unnamed($0), $0) }
         if let household = section(.household, "Household") { sections.append(household) }
         return sections
+    }
+
+    /// Whether a section with no ID on the tab may still be shown (Archive's past addresses): no
+    /// search, no kind or India filter, and a person filter that leaves them.
+    func showsWithoutIDs(_ owner: VaultPersonSection.Owner) -> Bool {
+        guard !searching, kind == nil, geo != .india else { return false }
+        switch person {
+        case .everyone: return true
+        case .household: return owner == .household
+        case .person(let id): return owner == .person(id)
+        }
+    }
+
+    /// The home addresses `papers` print and the ones typed, one per address however printed
+    /// (``VaultAddress/key``), newest first. One said not to be theirs is left out.
+    static func addresses(on papers: [Row], typed: [VaultContacts.TypedAddress], notTheirs: Set<String>) -> [VaultPersonSection.Address] {
+        var byKey: [String: VaultPersonSection.Address] = [:]
+        var order: [String] = []
+        func later(_ a: Date?, _ b: Date?) -> Date? {
+            guard let a else { return b }
+            guard let b else { return a }
+            return max(a, b)
+        }
+        for row in papers {
+            for source in row.facts?.sources ?? [] {
+                guard let printed = source.address else { continue }
+                let key = printed.address.key
+                guard !notTheirs.contains(key) else { continue }
+                guard var known = byKey[key] else {
+                    byKey[key] = .init(address: printed.address, dated: printed.dated, rows: [row], typed: false)
+                    order.append(key)
+                    continue
+                }
+                if !known.typed, printed.address.isTidier(than: known.address) { known.address = printed.address }
+                known.dated = later(known.dated, printed.dated)
+                if !known.rows.contains(where: { $0.id == row.id }) { known.rows.append(row) }
+                byKey[key] = known
+            }
+        }
+        for entry in typed {
+            let key = entry.address.key
+            if byKey[key] == nil { order.append(key) }
+            var known = byKey[key] ?? .init(address: entry.address, dated: nil, rows: [], typed: true)
+            // What was typed is shown as typed.
+            known.address = entry.address
+            known.typed = true
+            known.dated = later(known.dated, entry.added)
+            byKey[key] = known
+        }
+        let made = order.compactMap { key -> VaultPersonSection.Address? in
+            guard var address = byKey[key] else { return nil }
+            if !address.typed { address.address = address.address.tidied }
+            return address
+        }
+        // Newest first; one with no date after every dated one; then by how many papers print it.
+        return made.enumerated().sorted { a, b in
+            switch (a.element.dated, b.element.dated) {
+            case let (x?, y?) where x != y: return x > y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return (a.element.rows.count, -a.offset) > (b.element.rows.count, -b.offset)
+            }
+        }.map(\.element)
     }
 
     /// `names` with their roles, legal name first, then the one they go by, then the rest by how

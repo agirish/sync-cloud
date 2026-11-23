@@ -55,8 +55,10 @@ import Testing
         let two = try await Self.twoDates(); defer { two.cleanUp() }
         let anna = try #require(two.model.peopleSections.first { $0.id == .person("anna") })
         #expect(anna.births.count == 2, "\(anna.births.map(\.date))")
-        #expect(anna.births.map { VaultCard.sourceLabel($0.rows) } == ["From Passport · renewal.pdf", "From Passport · scan.pdf"],
-                "two passports told apart by their documents")
+        #expect(anna.births.map { VaultCard.sourceLabel($0.rows) } == ["From Passport", "From Passport"],
+                "one line each; the document's name is in the link's tip")
+        #expect(anna.births.compactMap { $0.rows.first.map(VaultCard.sourceHelp) }.map { $0.contains("renewal.pdf") } == [true, false],
+                "two passports told apart by their documents, on hover")
         let both = try VaultPanelRenderTests.render(two.model, defaults: two.defaults, name: "people-two-dates")
 
         // Given to someone else, the wrong one goes: its line, its source and the warning with it.
@@ -75,12 +77,69 @@ import Testing
         #expect(two.columns(for: 2000) == 2, "a very wide panel still has two, so no title is cut to a stub")
     }
 
-    @Test func otherSpellingsFoldUnderOneLineThatSaysWhatIsInIt() {
-        #expect(VaultCard.foldLine(others: 3, misread: 1, unfolded: false) == "3 other spellings · 1 looks misread ›")
-        #expect(VaultCard.foldLine(others: 1, misread: 0, unfolded: false) == "1 other spelling ›")
-        #expect(VaultCard.foldLine(others: 4, misread: 2, unfolded: false) == "4 other spellings · 2 look misread ›")
-        #expect(VaultCard.foldLine(others: 2, misread: 0, unfolded: true) == "Hide other spellings")
+    @Test func aMisreadRoleSaysWhatItShowsInstead() {
         #expect(VaultCard.roleMeaning(.misread, legal: "Anna Maria Eriksson").contains("shows Anna Maria Eriksson instead"))
+    }
+
+    // MARK: The fact tiles
+
+    typealias Slot = VaultFactsLayout.Slot
+    static let five: [Slot] = [.name, .birth, .address, .phone, .email]
+
+    /// Each slot's row and its x and width, rounded, in the slots' order.
+    static func arranged(_ slots: [Slot], at width: CGFloat) -> [Slot: [Int]] {
+        Dictionary(uniqueKeysWithValues: VaultFactsLayout.places(slots, width: width, spacing: 8).map { place in
+            (slots[place.index], [place.row, Int(place.x.rounded()), Int(place.width.rounded())])
+        })
+    }
+
+    @Test func fiveTilesFillOneRowWhenWideAndTwoRowsOtherwise() {
+        // 1,180 pt and up: one row, the address widest.
+        let wide = Self.arranged(Self.five, at: 1240)
+        #expect(Set(wide.values.map { $0[0] }) == [0])
+        #expect(wide.values.map { $0[1] }.sorted() == [Slot.name, .birth, .address, .phone, .email].map { wide[$0]![1] },
+                "in reading order: name, birth, address, phone, email")
+        #expect(wide[.address]![2] > wide[.name]![2] && wide[.name]![2] > wide[.birth]![2])
+        // 900 pt: four columns of 219, Name (2) · Date of birth · Phone, then Home address (2) · Email (2).
+        #expect(Self.arranged(Self.five, at: 900) == [.name: [0, 0, 446], .birth: [0, 454, 219], .phone: [0, 681, 219],
+                                                      .address: [1, 0, 446], .email: [1, 454, 446]])
+        // Just under the line for one row, still two.
+        #expect(Self.arranged(Self.five, at: 1179)[.address]![0] == 1)
+        // 784 is where four columns start: each then holds “18 December 1974” and its copy icon.
+        #expect(Self.arranged(Self.five, at: 784)[.birth] == [0, 396, 190])
+        // Under it, as beside the details pane: two columns, Name · Date of birth, the address
+        // across both, then Phone · Email.
+        #expect(Self.arranged(Self.five, at: 640) == [.name: [0, 0, 316], .birth: [0, 324, 316], .address: [1, 0, 640],
+                                                      .phone: [2, 0, 316], .email: [2, 324, 316]])
+        // Under 400, one column.
+        #expect(Self.arranged(Self.five, at: 360).values.map { $0[2] } == Array(repeating: 360, count: 5))
+        #expect(Self.arranged(Self.five, at: 360).values.map { $0[0] }.sorted() == [0, 1, 2, 3, 4])
+    }
+
+    @Test func archivesThreeTilesShareOneRow() {
+        let archive: [Slot] = [.name, .birth, .address]
+        #expect(Self.arranged(archive, at: 900) == [.name: [0, 0, 219], .birth: [0, 227, 219], .address: [0, 454, 446]])
+        #expect(Self.arranged(archive, at: 640) == [.name: [0, 0, 316], .birth: [0, 324, 316], .address: [1, 0, 640]])
+        #expect(Self.arranged(archive, at: 1300)[.address]![0] == 0, "not the five-across row: it needs all five")
+        #expect(Self.arranged([.address], at: 900) == [.address: [0, 0, 446]], "the household's address alone")
+    }
+
+    @Test func typedContactsAreDrawnInTheirTiles() async throws {
+        let empty = try await Self.twoDates(); defer { empty.cleanUp() }
+        let before = try VaultPanelRenderTests.render(empty.model, defaults: empty.defaults, name: "people-contacts-empty")
+        let typed = try await Self.twoDates(); defer { typed.cleanUp() }
+        #expect(typed.model.setPhone("4085550142", label: "Mobile", for: "anna"))
+        #expect(typed.model.setEmail("anna@example.com", label: "Personal", for: "anna"))
+        #expect(typed.model.setAddress(VaultAddress(street: "2841 Larkspur Lane", city: "San Jose", state: "CA", zip: "95132"), for: "anna"))
+        let after = try VaultPanelRenderTests.render(typed.model, defaults: typed.defaults, name: "people-contacts-typed")
+        #expect(differingPixels(before, after) > 1500, "the three values replace the three Add… lines")
+    }
+
+    @Test func someoneInPeopleAlwaysHasFiveTilesOnCurrent() async throws {
+        let two = try await Self.twoDates(); defer { two.cleanUp() }
+        let anna = try #require(two.model.peopleSections.first { $0.id == .person("anna") })
+        #expect(VaultCard.factSlots(anna, tab: .current) == Self.five, "an address, phone and email not known yet keep their tiles")
+        #expect(VaultCard.factSlots(anna, tab: .archive) == [.name, .birth], "no past address: no address tile on Archive")
     }
 
     /// Anna's passport and a notice that misreads her surname by one letter, drawn in People.
