@@ -187,20 +187,7 @@ public enum VaultPersonText {
     }
 
     /// What an identity paper is called in "Name on …"; nil for an account's papers.
-    static func paper(_ category: VaultCategory) -> String? {
-        switch category {
-        case .passport: return "passport"
-        case .usVisa: return "visa"
-        case .i94: return "I-94"
-        case .uscisCase: return "USCIS notice"
-        case .driversLicense: return "driver’s license"
-        case .ssn: return "Social Security card"
-        case .pan: return "PAN card"
-        case .aadhaar: return "Aadhaar"
-        case .voterID: return "voter ID"
-        case .health, .utilities, .loans, .other: return nil
-        }
-    }
+    static func paper(_ category: VaultCategory) -> String? { category.spec.paper }
 
     /// "ends 1647"; for a number too short to have an ending, "hidden".
     static func ending(_ value: String) -> String {

@@ -270,11 +270,11 @@ struct VaultRowSource {
         }, now: now, readFolders: folders)
         let rows = all.map { item in
             var row = item
-            // Nobody's in particular: typed in for no one, or a utility or a loan read with no
-            // person, which is the household's.
+            // Nobody's in particular: typed in for no one, or read with no person as a kind that
+            // is then the household's (a utility's or a loan's account).
             row.isHousehold = item.assignment == .household || (item.facts == nil && item.personID == nil)
                 || (item.assignment == nil && item.personID == nil && item.facts?.holder == nil
-                    && [.utilities, .loans].contains(item.category))
+                    && item.category.spec.isHouseholdsWhenNameless)
             let personName = item.personID.flatMap { id in people.first { $0.id == id }?.displayName }
             row.whose = row.isHousehold ? "Household"
                 : personName ?? (item.personID != nil ? "Someone no longer in People" : nil)

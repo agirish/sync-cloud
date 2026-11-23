@@ -1035,7 +1035,7 @@ struct VaultCard: View {
                                 .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.items.count))
                         }
                     }
-                    // Kinds that only the other country has, which no card here can point to.
+                    // Kinds that only another country has, which no card here can point to.
                     if let elsewhere = model.elsewhereKinds {
                         Button {
                             model.geoFilter = elsewhere.filter

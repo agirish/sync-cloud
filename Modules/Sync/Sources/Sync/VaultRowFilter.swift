@@ -60,29 +60,30 @@ struct VaultRowFilter: Equatable {
         return rows.filter { $0.standing.tab == tab && passes($0, person: person, geo: geo, kind: kind) }.count
     }
 
-    /// The same kind in the other country, for "2 more in India" at the foot of its card: only
+    /// The same kind in another country, for "2 more in India" at the foot of its card: only
     /// while one country is chosen, and only what the person and kind choices would show there.
     func elsewhere(_ card: VaultCardID, in rows: [Row]) -> (filter: VaultGeoFilter, count: Int)? {
         guard !searching, geo != .all else { return nil }
-        let other: VaultGeoFilter = geo == .us ? .india : .us
-        let count = rows.filter {
-            $0.card == card && $0.standing.tab == tab && $0.geo != .anywhere
-                && passes($0, geo: other) && !geo.shows($0.geo)
-        }.count
-        return count > 0 ? (other, count) : nil
+        return elsewhere(rows.filter { $0.card == card && $0.standing.tab == tab })
     }
 
-    /// Kinds that have nothing in this country but some in the other: one line under the cards,
+    /// The first other country, in the Where choice's order, that `rows` hold any of the person
+    /// and kind choices would show there, and how many.
+    private func elsewhere(_ rows: [Row]) -> (filter: VaultGeoFilter, count: Int)? {
+        for country in VaultGeo.countries where country != geo.geo {
+            let there = VaultGeoFilter(country)
+            let count = rows.filter { $0.geo == country && passes($0, geo: there) }.count
+            if count > 0 { return (there, count) }
+        }
+        return nil
+    }
+
+    /// Kinds that have nothing in this country but some in another: one line under the cards,
     /// since no card of theirs is drawn to carry "N more in …". `visible` is ``visible(_:)``'s.
     func elsewhereKinds(_ rows: [Row], visible: [Row]) -> (filter: VaultGeoFilter, count: Int)? {
         guard !searching, geo != .all else { return nil }
-        let other: VaultGeoFilter = geo == .us ? .india : .us
         let shown = Set(visible.map(\.card))
-        let count = rows.filter {
-            $0.standing.tab == tab && !shown.contains($0.card) && $0.geo != .anywhere
-                && passes($0, geo: other)
-        }.count
-        return count > 0 ? (other, count) : nil
+        return elsewhere(rows.filter { $0.standing.tab == tab && !shown.contains($0.card) })
     }
 
     /// Cards in the main view's order, each with its rows: the app's kinds, then the household's.
@@ -193,9 +194,10 @@ struct VaultRowFilter: Equatable {
     }
 
     /// Whether a section with no ID on the tab may still be shown (Archive's past addresses): no
-    /// search, no kind or India filter, and a person filter that leaves them.
+    /// search, no kind filter, a view that shows the household's home country
+    /// (``VaultGeo/home``), and a person filter that leaves them.
     func showsWithoutIDs(_ owner: VaultPersonSection.Owner) -> Bool {
-        guard !searching, kind == nil, geo != .india else { return false }
+        guard !searching, kind == nil, geo.shows(.home) else { return false }
         switch person {
         case .everyone: return true
         case .household: return owner == .household

@@ -7,71 +7,18 @@ import Foundation
 public enum VaultCategory: String, Codable, CaseIterable, Sendable {
     case passport, usVisa, i94, uscisCase, driversLicense, ssn, pan, aadhaar, voterID, health, utilities, loans, other
 
-    public var title: String {
-        switch self {
-        case .passport: return "Passports"
-        // Raw value kept from when it held US visas alone; OCI cards and Indian e-Visas join them.
-        case .usVisa: return "Visas"
-        case .i94: return "I-94 Records"
-        case .uscisCase: return "USCIS Cases"
-        case .driversLicense: return "Driver’s Licenses"
-        case .ssn: return "Social Security & ITIN"
-        case .pan: return "PAN Cards"
-        case .aadhaar: return "Aadhaar"
-        case .voterID: return "Voter IDs"
-        case .health: return "Health & Medical"
-        case .utilities: return "Utilities & Phone"
-        case .loans: return "Loans & Mortgage"
-        case .other: return "Other"
-        }
-    }
+    /// The kind's row: every rule about it (``VaultKindSpec``).
+    public var spec: VaultKindSpec { VaultKindSpec.of(self) }
+
+    public var title: String { spec.title }
 
     /// What one number of this kind is called, in the editor's picker and a row's title.
-    public var singular: String {
-        switch self {
-        case .passport: return "Passport"
-        case .usVisa: return "Visa"
-        case .i94: return "I-94 admission number"
-        case .uscisCase: return "USCIS receipt number"
-        case .driversLicense: return "Driver’s license"
-        case .ssn: return "Social Security number or ITIN"
-        case .pan: return "PAN (India)"
-        case .aadhaar: return "Aadhaar number"
-        case .voterID: return "Voter ID (EPIC)"
-        case .health: return "Health or medical ID"
-        case .utilities: return "Utility or phone account"
-        case .loans: return "Loan or mortgage account"
-        case .other: return "Other ID"
-        }
-    }
+    public var singular: String { spec.singular }
 
-    public var symbol: String {
-        switch self {
-        case .passport: return "globe"
-        case .usVisa: return "airplane"
-        case .i94: return "airplane.arrival"
-        case .uscisCase: return "doc.text"
-        case .driversLicense: return "car"
-        case .ssn: return "person.text.rectangle"
-        case .pan: return "indianrupeesign.circle"
-        case .aadhaar: return "person.crop.rectangle"
-        case .voterID: return "checkmark.seal"
-        case .health: return "heart"
-        case .utilities: return "bolt"
-        case .loans: return "house"
-        case .other: return "number"
-        }
-    }
+    public var symbol: String { spec.symbol }
 
-    /// Whether even this kind's ending is a secret while it is hidden: the last four of a Social
-    /// Security number are what a bank asks to check who is calling, and an Aadhaar number's are
-    /// what its masked form prints. Its row then shows no ending until the number may be shown.
-    public var hidesEnding: Bool {
-        switch self {
-        case .ssn, .aadhaar: return true
-        default: return false
-        }
-    }
+    /// Whether even this kind's ending is a secret while it is hidden (``VaultKindSpec/hidesEnding``).
+    public var hidesEnding: Bool { spec.hidesEnding }
 
     /// The entry kind a number of this category is saved as, for the parts of the Vault that
     /// still group by kind.
@@ -186,23 +133,7 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     }
 
     /// The folders a kind of ID is filed in when it is the original.
-    static func homes(for category: VaultCategory) -> [String] {
-        let homes: [String]
-        switch category {
-        case .passport: homes = ["passport", "passports"]
-        case .usVisa: homes = ["visa", "visas"]
-        case .i94: homes = ["form i-94", "i-94", "i94", "form i94"]
-        case .uscisCase: homes = ["approval", "approvals", "approval notice", "receipt", "receipts", "notices"]
-        case .driversLicense: homes = ["driver license", "driver licenses", "drivers license", "driver’s license",
-                                       "driving license", "dl", "license", "licenses"]
-        case .ssn: homes = ["ssn", "social security", "itin"]
-        case .pan: homes = ["pan", "pan card"]
-        case .aadhaar: homes = ["aadhaar", "aadhar"]
-        case .voterID: homes = ["voter id", "voter ids", "voter", "epic"]
-        default: homes = []
-        }
-        return homes
-    }
+    static func homes(for category: VaultCategory) -> [String] { category.spec.homes }
 
     /// Every kind's own folders, for ordering files before their kind is known.
     static let homeFolders: Set<String> = Set(VaultCategory.allCases.flatMap { homes(for: $0) })
@@ -586,28 +517,16 @@ public enum VaultStandings {
             guard let person = person[index] else {
                 return "alone:" + VaultReading.normalized(item.value)
             }
-            switch facts.category {
-            case .passport: return "passport|\(person)|\(facts.issuer ?? "")"
-            case .uscisCase: return "case|\(person)|\(facts.form ?? VaultReading.normalized(item.value))"
-            // A US license and an Indian one are both kept; a new state's replaces the old.
-            case .driversLicense: return "license|\(person)|\(facts.issuer ?? "")"
-            // An SSN and an ITIN are weighed apart; an ITIN gives way to an SSN below.
-            case .ssn: return "ssn|\(person)|\(facts.form ?? "")"
-            // A US visa, an Indian e-Visa and an OCI card are each weighed only against their kind,
-            // and a US visa only against its class: a B1/B2 still good beside a newer H-1B is
-            // still a visa its holder can use.
-            case .usVisa:
-                // As letters and digits, so "H-1B" on one foil and "H1B" on the next are one class.
-                let visaClass = facts.details.first { $0.label == "Visa class" }
-                    .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
-                return "visa|\(person)|\(facts.issuer ?? "")|\(facts.form ?? "")|\(visaClass)"
-            // An account is weighed against the same issuer's for the same person: a dental plan's
-            // member ID never sends a vision plan's to Archive.
-            default:
-                let issuer = facts.details.first { $0.label == "Issued by" }
-                    .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
-                return "\(item.card ?? facts.category.rawValue)|\(person)|\(issuer)"
+            // Each kind weighs by what its row says (``VaultKindSpec/weighing``); an account is
+            // weighed against the same issuer's for the same person: a dental plan's member ID
+            // never sends a vision plan's to Archive.
+            if let weighing = facts.category.spec.weighing {
+                let (kind, by) = weighing(facts, item.value)
+                return "\(kind)|\(person)|\(by)"
             }
+            let issuer = facts.details.first { $0.label == "Issued by" }
+                .map { VaultReading.normalized($0.drawn(shown: true)) } ?? ""
+            return "\(item.card ?? facts.category.rawValue)|\(person)|\(issuer)"
         }
 
         for indices in groups.values {
@@ -626,30 +545,18 @@ public enum VaultStandings {
                 let ranOut = VaultReading.hasRunOut(facts.validUntil, now: now)
                 if isNewest && anyOutside {
                     standing.tab = .current
-                    switch facts.category {
-                    case .uscisCase where !facts.pending:
-                        // A case is current while it is pending or still good; a decided case
-                        // with no end date, or one that ran out, is history.
-                        if ranOut {
-                            standing.tab = .archive
-                            standing.reason = "Ran out " + VaultReading.monthYear(facts.validUntil)
-                        } else if facts.validUntil == nil {
-                            standing.tab = .archive
-                            standing.reason = "Decided" + (facts.dated.map { " · " + VaultReading.monthYear($0) } ?? "")
-                        }
-                    case .usVisa where ranOut:
-                        // An expired visa is not carried; it is kept for reference.
+                    switch facts.category.spec.newest(facts, ranOut) {
+                    case .current(let expired): standing.expired = expired
+                    case .archive(let reason):
                         standing.tab = .archive
-                        standing.reason = "Expired " + VaultReading.monthYear(facts.validUntil)
-                    default:
-                        standing.expired = ranOut
+                        standing.reason = reason
                     }
                 } else if archived(facts) && !isNewest {
                     standing.reason = "In an Archive folder"
                 } else if !anyOutside {
                     standing.reason = "In an Archive folder"
                 } else {
-                    standing.reason = (ranOut ? ([.passport, .usVisa, .driversLicense].contains(facts.category) ? "Expired " : "Ran out ")
+                    standing.reason = (ranOut ? facts.category.spec.endedWord
                         + VaultReading.monthYear(facts.validUntil) + " · replaced" : "Replaced by a newer one")
                 }
                 if let pin = item.pin {
@@ -696,8 +603,7 @@ public enum VaultStandings {
 
 extension VaultCategory {
     /// The kinds the main view shows. Everything else read goes to Other Finds.
-    public static let mainView: [VaultCategory] = [.passport, .usVisa, .i94, .uscisCase, .driversLicense, .ssn,
-                                                   .pan, .aadhaar, .voterID, .health, .utilities, .loans, .other]
+    public static let mainView: [VaultCategory] = VaultKindSpec.all.map(\.category)
     /// What the editor offers for a number typed in.
     public static let typedIn: [VaultCategory] = mainView
 }

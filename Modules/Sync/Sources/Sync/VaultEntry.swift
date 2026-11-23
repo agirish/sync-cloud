@@ -307,12 +307,7 @@ public enum VaultMask {
         if written.count > 1 {
             return written.flatMap { $0.count > 6 ? groups($0) : [$0] }
         }
-        let pattern: [Int]
-        switch category {
-        case .ssn?: pattern = [3, 2, 4]
-        case .pan?: pattern = [5, 4, 1]
-        default: return groups(value)
-        }
+        guard let pattern = category?.spec.printed else { return groups(value) }
         let significant = Array(value.filter { $0.isLetter || $0.isNumber })
         guard significant.count == pattern.reduce(0, +) else { return groups(value) }
         var start = 0

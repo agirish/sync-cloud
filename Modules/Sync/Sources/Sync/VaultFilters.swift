@@ -1,77 +1,80 @@
 import Foundation
 
-/// Where a number is used: the United States, India, or anywhere, as a passport is.
-public enum VaultGeo: String, Codable, CaseIterable, Sendable {
-    case us, india, anywhere
+/// Where a number is used: a country, by its ISO code, or anywhere, as a passport is (VT4).
+/// The countries the Vault knows are ``countries``; nothing else assumes how many there are.
+public struct VaultGeo: Hashable, Sendable, Codable, CaseIterable, RawRepresentable {
+    /// The country's two letters ("US"), which a row carries in the All view; nil for anywhere.
+    public let code: String?
+    /// How it is stored, in a sealed record and in the Where choice's setting: "us", "india",
+    /// "anywhere", the names the first builds wrote. A stored name this build does not know fails
+    /// to decode, as it always has (a later build's record, ``VaultRecords``).
+    public let rawValue: String
+    public let title: String
 
-    public var title: String {
-        switch self {
-        case .us: return "United States"
-        case .india: return "India"
-        case .anywhere: return "Every Country"
-        }
+    private init(code: String?, rawValue: String, title: String) {
+        self.code = code
+        self.rawValue = rawValue
+        self.title = title
     }
 
-    /// The two letters a row carries in the All view; none for Every Country.
-    public var code: String? {
-        switch self {
-        case .us: return "US"
-        case .india: return "IN"
-        case .anywhere: return nil
-        }
+    public static let anywhere = VaultGeo(code: nil, rawValue: "anywhere", title: "Every Country")
+    public static let us = VaultGeo(code: "US", rawValue: "us", title: "United States")
+    public static let india = VaultGeo(code: "IN", rawValue: "india", title: "India")
+
+    /// The countries a number can be used in, in the order the Where choice lists them.
+    public static let countries: [VaultGeo] = [.us, .india]
+
+    /// Where the household lives: its addresses, phones and emails are used there, so the
+    /// Contact cards show in that country's view (``VaultContactCard``).
+    public static let home: VaultGeo = .us
+
+    /// Every country, then anywhere: what Used In offers.
+    public static var allCases: [VaultGeo] { countries + [.anywhere] }
+
+    public init?(rawValue: String) {
+        guard let known = Self.allCases.first(where: { $0.rawValue == rawValue }) else { return nil }
+        self = known
     }
 
-    /// Where a number is used, as its document says, and how that is known. A passport is carried
-    /// across borders, so it is anywhere; a number typed in is anywhere until a country is chosen.
+    /// The country with these two letters.
+    public init?(code: String) {
+        guard let known = Self.countries.first(where: { $0.code == code }) else { return nil }
+        self = known
+    }
+
+    /// Where a number is used, as its document says, and how that is known
+    /// (``VaultKindSpec``'s `place`). A passport is carried across borders, so it is anywhere; a
+    /// number typed in is anywhere until a country is chosen.
     public static func read(_ category: VaultCategory, facts: VaultReadFacts?) -> (geo: VaultGeo, reason: String) {
-        switch category {
-        case .passport: return (.anywhere, "A passport is carried in every country")
-        // Where the visa lets its holder in: the country that issued it.
-        case .usVisa:
-            switch facts?.issuer {
-            case "USA"?: return (.us, "A US visa")
-            case "IND"?: return (.india, facts?.form == "OCI" ? "An OCI card" : "An Indian visa")
-            case nil where facts == nil || facts?.form == nil: return (.us, "A US visa")
-            default: return (.anywhere, "Another country’s visa")
-            }
-        case .i94: return (.us, "A US admission record")
-        case .uscisCase: return (.us, "A US immigration case")
-        case .ssn: return (.us, facts?.form == "ITIN" ? "An IRS number" : "A Social Security card")
-        case .pan: return (.india, "An Indian PAN")
-        case .aadhaar: return (.india, "An Aadhaar number")
-        case .voterID: return (.india, "An Election Commission card")
-        case .driversLicense:
-            switch facts?.issuer {
-            case "USA": return (.us, "A US license")
-            case "IND": return (.india, "An Indian license")
-            case "CAN": return (.anywhere, "A Canadian license")
-            default: return (.anywhere, facts == nil ? "Typed in; no country chosen yet" : "Its country was not read")
-            }
-        case .health, .utilities, .loans, .other:
-            return (.anywhere, facts == nil ? "Typed in; no country chosen yet" : "Its country was not read")
-        }
+        category.spec.place(facts)
     }
 }
 
-/// Which countries the list shows.
-public enum VaultGeoFilter: String, CaseIterable, Sendable {
-    case us, india, all
+/// Which countries the list shows: one, or all of them.
+public struct VaultGeoFilter: Hashable, Sendable, CaseIterable, RawRepresentable {
+    /// The one country shown; nil for all.
+    public let geo: VaultGeo?
 
-    public var title: String {
-        switch self {
-        case .us: return "United States"
-        case .india: return "India"
-        case .all: return "Every Country"
-        }
+    /// One country's view.
+    public init(_ country: VaultGeo) { geo = country }
+    private init(all: Void) { geo = nil }
+
+    public static let all = VaultGeoFilter(all: ())
+    public static let us = VaultGeoFilter(.us)
+    public static let india = VaultGeoFilter(.india)
+
+    /// Each country, then all of them: the Where choice's order.
+    public static var allCases: [VaultGeoFilter] { VaultGeo.countries.map(VaultGeoFilter.init) + [.all] }
+
+    /// As the choice is stored: its country's name, or "all".
+    public var rawValue: String { geo?.rawValue ?? "all" }
+
+    public init?(rawValue: String) {
+        guard let known = Self.allCases.first(where: { $0.rawValue == rawValue }) else { return nil }
+        self = known
     }
 
-    public var geo: VaultGeo? {
-        switch self {
-        case .us: return .us
-        case .india: return .india
-        case .all: return nil
-        }
-    }
+    public var title: String { geo?.title ?? "Every Country" }
 
     /// A number used anywhere shows in every country's view.
     public func shows(_ geo: VaultGeo) -> Bool {
@@ -91,14 +94,11 @@ public struct VaultGroups: Equatable, Sendable {
     /// The groups in the order the choices list them.
     public var order: [ID]
 
+    /// The app's groups (``VaultGroupSpec``), and each kind in the one its row starts it in.
     public static let `default` = VaultGroups(
-        names: ["travel": "Travel & Immigration", "legal": "Legal & IDs", "health": "Health", "home": "Home & Money",
-                "contact": "Contact"],
-        groupOf: [.passport: "travel", .usVisa: "travel", .i94: "travel", .uscisCase: "travel",
-                  .driversLicense: "legal", .ssn: "legal", .pan: "legal", .aadhaar: "legal", .voterID: "legal",
-                  .health: "health", .utilities: "home", .loans: "home", .other: "home"],
-        // Contact last: its cards come after every ID's (``VaultContactCard``).
-        order: ["travel", "legal", "health", "home", "contact"])
+        names: Dictionary(uniqueKeysWithValues: VaultGroupSpec.all.map { ($0.id, $0.name) }),
+        groupOf: Dictionary(uniqueKeysWithValues: VaultKindSpec.all.map { ($0.category, $0.group) }),
+        order: VaultGroupSpec.all.map(\.id))
 
     public func name(_ id: ID) -> String { names[id] ?? Self.default.names[id] ?? id }
 

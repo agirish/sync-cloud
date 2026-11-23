@@ -648,7 +648,7 @@ public final class VaultModel: ObservableObject {
         filter.count(rows, person: person, geo: geo, kind: kind)
     }
 
-    /// The same kind in the other country, for "2 more in India" at the foot of its card: only
+    /// The same kind in another country, for "2 more in India" at the foot of its card: only
     /// while one country is chosen, and only what the person and kind choices would show there.
     public func elsewhere(_ card: VaultCardID) -> (filter: VaultGeoFilter, count: Int)? {
         // Asked for by every card as it draws: the rows only when one country is chosen.
@@ -661,8 +661,7 @@ public final class VaultModel: ObservableObject {
     public var spansCountries: Bool {
         let key = RowsKey(revision: rowsRevision, day: Self.dayStamp(now), folders: VaultReadFolders.folders(in: defaults))
         if let cached = spansCache, cached.key == key { return cached.spans }
-        let geos = Set(rows.map(\.geo))
-        let spans = geos.contains(.us) && geos.contains(.india)
+        let spans = Set(rows.map(\.geo)).subtracting([.anywhere]).count > 1
         spansCache = (key, spans)
         return spans
     }
@@ -687,7 +686,7 @@ public final class VaultModel: ObservableObject {
         selection = id
     }
 
-    /// Kinds that have nothing in this country but some in the other: one line under the cards,
+    /// Kinds that have nothing in this country but some in another: one line under the cards,
     /// since no card of theirs is drawn to carry "N more in …".
     public var elsewhereKinds: (filter: VaultGeoFilter, count: Int)? {
         let filter = self.filter

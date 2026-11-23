@@ -13,9 +13,9 @@ import Testing
 
     /// A tripwire, since its mirror is empty (it can hold a path): a choice added at the end of
     /// ``VaultChoices`` makes it bigger (fields are laid out in order). Set the new choice in
-    /// `all`, then this size.
+    /// `all`, then this size. (112 since a place is a country's code and names, VT4.)
     @Test func aNewChoiceIsSetInAll() {
-        #expect(MemoryLayout<VaultChoices>.size == 72)
+        #expect(MemoryLayout<VaultChoices>.size == 112)
     }
 
     @Test func eachRecordCarriesEveryChoiceThroughItsStore() throws {

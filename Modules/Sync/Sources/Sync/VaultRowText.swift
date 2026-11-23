@@ -11,18 +11,7 @@ extension VaultModel.Row {
         if row.isTypedIn { return row.title }
         // Whose, when a name was read; then what tells this one apart from others of its kind.
         let whose = row.personID != nil || row.facts?.holder != nil ? row.whose : nil
-        let which: String?
-        switch row.category {
-        case .passport: which = row.facts?.issuer
-        case .usVisa:
-            // An OCI card or an e-Visa by what it is ("OCI card", "India e-Visa"); a US visa by its class.
-            which = row.facts?.form != nil ? row.title
-                : row.facts?.details.first { $0.label == "Visa class" }.map { $0.drawn(shown: true) } ?? "US visa"
-        case .uscisCase: which = row.facts?.form ?? (whose == nil ? "USCIS case" : nil)
-        // An account read from a paper by who issued it and what the number is: "EBMUD · Account number".
-        case .health, .utilities, .loans, .other: which = row.facts == nil ? nil : row.title
-        default: which = nil
-        }
+        let which = row.category.spec.which(row.facts, row.title, whose)
         let parts = [whose, which].compactMap { $0 }
         return parts.isEmpty ? row.category.singular : parts.joined(separator: " · ")
     }
@@ -40,7 +29,7 @@ extension VaultModel.Row {
         if let reason = row.standing.reason, row.standing.tab == .archive {
             parts.append(reason)
         } else if let until = row.facts?.validUntil {
-            let word = row.category == .i94 ? "Admitted until" : VaultReading.hasRunOut(until, now: now) ? "Expired" : "Valid to"
+            let word = row.category.spec.goodUntil ?? (VaultReading.hasRunOut(until, now: now) ? "Expired" : "Valid to")
             parts.append("\(word) \(VaultReading.monthYear(until))")
         } else if let dated = row.facts?.dated {
             parts.append(VaultReading.monthYear(dated))
@@ -76,29 +65,7 @@ extension VaultModel.Row {
     /// What the ID in Large Type is called, as its document calls it; the heading above already
     /// says what the document is, so this never repeats it ("Passport" over "Passport").
     public var idLabel: String {
-        let row = self
-        let form = row.facts?.form
-        switch row.category {
-        case .passport: return "Passport number"
-        case .usVisa:
-            switch form {
-            case "OCI"?: return "OCI number"
-            case "e-Visa"?: return "Application number"
-            case nil where row.facts == nil: return "Visa number"
-            default: return "Control Number"
-            }
-        case .i94: return "Admission number"
-        case .uscisCase: return "Receipt number"
-        case .driversLicense: return row.title.hasPrefix("State ID") ? "ID number" : "License number"
-        case .ssn: return form == "ITIN" ? "ITIN" : "Social Security number"
-        case .pan: return "PAN"
-        case .aadhaar: return "Aadhaar number"
-        case .voterID: return "EPIC number"
-        // A read account's number as its paper calls it: "Member ID", "Policy number", "Student ID".
-        case .health: return form ?? "Member ID"
-        case .utilities, .loans: return form ?? "Account number"
-        case .other: return form ?? "Number"
-        }
+        category.spec.idLabel(facts, title)
     }
 
     /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.

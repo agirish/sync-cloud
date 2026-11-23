@@ -74,7 +74,7 @@ public struct VaultKinds: Equatable, Sendable {
 
     /// The kinds an account can be moved between, and the only ones an ID can be moved from:
     /// what a reader checks the number of (a passport, a visa) stays where it was read.
-    public static let changeable: [VaultCategory] = [.health, .utilities, .loans, .other]
+    public static let changeable: [VaultCategory] = VaultKindSpec.all.filter(\.isAccount).map(\.category)
 
     public static func canChange(from category: VaultCategory) -> Bool { changeable.contains(category) }
 
@@ -105,19 +105,18 @@ public struct VaultKinds: Equatable, Sendable {
         }
     }
 
-    public func title(of card: VaultCardID) -> String {
+    /// A card's row, for its title and symbol: an app kind's own, or the household's kind drawn
+    /// as Other (``VaultKindSpec/custom(_:)``).
+    func spec(of card: VaultCardID) -> VaultKindSpec {
         switch card {
-        case .builtIn(let category): return category.title
-        case .custom(let id): return kind(id)?.name ?? VaultCategory.other.title
+        case .builtIn(let category): return category.spec
+        case .custom(let id): return VaultKindSpec.custom(kind(id))
         }
     }
 
-    public func symbol(of card: VaultCardID) -> String {
-        switch card {
-        case .builtIn(let category): return category.symbol
-        case .custom: return "tag"
-        }
-    }
+    public func title(of card: VaultCardID) -> String { spec(of: card).title }
+
+    public func symbol(of card: VaultCardID) -> String { spec(of: card).symbol }
 
     /// The group a card is listed under in the Kinds choice.
     public func group(of card: VaultCardID, in groups: VaultGroups) -> VaultGroups.ID? {

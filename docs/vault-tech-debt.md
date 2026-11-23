@@ -59,8 +59,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, VT2 with VT4 (both a fixed
-   list made data), VT3 (before the v7.2 cut), VT6, VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6, VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -120,6 +119,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 | VT103 People's groups by name | batch 11: each person's kinds are keyed by person and group id (`PersonKind.ID`), the made-up group for kinds in no group being the one nil; the sort looks each card's place up once (`VaultRowFilterTests` pins a group named "Other" beside it) | none |
 | VT106 small duplications from the People work | batch 11: `VaultCard.isShown(_:at:)` is every keyed popover's binding (Color, a name, a birth date); `fileName(_:)` is the row's document's name for the three places that said it; the stale doc reference went in batch 10 | none |
 | VT80 dead code | batch 11: gone are the `"94"` the form pattern cannot match, the letter-keyed half of `numberSwaps` (only a leading digit is looked up), the test-only `drawn(_:)` pair and `settingsChanged()` (their tests check `canShow` and `masked(row)`, and the setting change through `opened()`), the unused `owner(of:)`/`subtitle(of:)`, the panel's never-passed `again`, and `VaultDocumentPreview`'s two checks that always hold | `VaultFind.init(…sourcePath:)` goes with VT3; the preview's `.onChange(of: shown)` stays: it lets the rendered scan go the moment the number hides, before the task runs |
+| VT2 kinds as data | batch 12: `VaultKindSpec.all` is one row per kind, in the main view's order: its names, symbol, People's name for its paper, whether its ending is hidden, how its number is printed, its home folders, its starting group, whether it is an account, whether one read with no name is the household's (its default owner), the words of its row's line and Large Type label, where it is used, what it is weighed against, and what becomes of the newest of its group (a run-out visa and a decided case to Archive). `VaultCategory` stays the stored id (`spec`); `mainView`, `changeable`, `accountCategories` and `VaultGroups.default.groupOf` are made from the rows, the app's groups and their colors from `VaultGroupSpec.all`, and a household's card's title and symbol through `VaultKindSpec.custom(_:)`. Proof: a throwaway harness wrote every kind's every rule (titles, symbols, printing, placement over 13 paths, where used over 35 sets of facts, a row's title, line, label, spoken and lede over 12, standings over 16 inputs per kind and all kinds together) and, with batch 10's rows harness, every row, view, count, card and People section across each tab, person and country, on `origin/main` and this tree: identical (1,507 and 1,369 lines; two rules mutated, 18 lines differ); and the panel in each layout under six person and country choices, byte-identical PNGs (18, all distinct). `VaultKindSpecTests` pins each row's words, places, account and household kinds, groups and how a newer one replaces another | a new kind is a case, a row and a reader; a case with no row compiles and stops at first use, which `VaultKindSpecTests` catches. Validators stay in the readers, which check what they read. Left in code: the readers' own kinds (`VaultReading`), the rules that join kinds (a visa in an older passport, a visa read with no name taking its passport's person, an ITIN given way to an SSN, a license's address), and `VaultEntry.Kind` with `from(kind:title:)`, which go with VT3. A field template is VT1's |
+| VT4 places as data | batch 12: `VaultGeo` is a country's two-letter code or anywhere, stored by the names it always was (`us`, `india`, `anywhere`; an unknown one still fails to decode); `VaultGeo.countries` is the list the Where and Used In choices, "N more in …" and "spans countries" go by, and `VaultGeo.home` where the household's addresses are used; `VaultGeoFilter` is one country or all; "N more in …" takes the first other country in the Where choice's order with any, "spans countries" is two or more, and the country chip's spoken name is the country's title. Proof: as VT2's, with each country's view in the rows harness and the panel shots | which country a paper is used in is still its kind's rule: a visa's and a license's by their issuer's three letters (USA, IND), each kind with its own words. A third country takes a row in `countries` and those rules; no test has one |
 
 ---
 
@@ -211,34 +212,6 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
   - readers emit records.
 
   VT69 (Closed, batch 9) was the behaviour-preserving first step.
-
-**VT2 — Kinds as data.** *Open.*
-- **The problem.** `VaultCategory` is switched on in 11 functions in `Sync`:
-  - six in `VaultFacts.swift:10–110`;
-  - `placement` (`:173`) and the standings group key (`:589`);
-  - `VaultGeo.read` (`VaultFilters.swift:26`);
-  - `VaultPersonText.paper` (`VaultPeopleView.swift:128`);
-  - `VaultMask.printed` (`VaultEntry.swift:266`).
-
-  Two more are in `VaultPanel.swift` (`:1726`, `:2417`). Parallel lists sit beside them:
-  - `mainView`/`typedIn` (`VaultFacts.swift:647–650`);
-  - `VaultGroups.default.groupOf` (`VaultFilters.swift:96`);
-  - `VaultColors.appGroups`;
-  - `VaultKinds.changeable` (`VaultKinds.swift:77`) and `VaultReading.accountCategories`
-    (`VaultAccountReading.swift:14`), which are the same four kinds.
-- **Done when:**
-  - one `VaultKindSpec` table gives each kind its id, names, symbol, field template, masking and
-    grouping pattern, validator, default owner, place, group and expiry rule;
-  - app kinds and the household's own kinds (`VaultCustomKind`) are rows of it;
-  - adding "Bank account" is one row plus a reader.
-
-**VT4 — Places as data.** *Open.*
-- **The problem.** "The other country" is computed as `geoFilter == .us ? .india : .us`
-  (`VaultModel.swift:657`, `:699`), and two accessibility names are hard-coded (`VaultPanel.swift:794`).
-- **Done when:**
-  - a place is an ISO code or `anywhere`;
-  - nothing assumes two places;
-  - with the owner's two places, the panel is unchanged.
 
 **VT7 — `VaultModel` does four jobs.** *Part done in batches 9 and 10; open: the walk and the read plan, which stay in `readDocuments`. Batch 9, (c): `VaultReadRun` holds a read's progress, its settle rules and its tally (`VaultReadRunTests`); the loop body is one `look(at:)` with one advance after it, and the refresh and discover tails end in one `finishRead`. Batch 10, (a), (b), (d): `VaultSession` holds the lock, its epoch, whether the panel is up and whether a read holds the numbers past a lock, and decides what each end of access does (`VaultSessionTests`); `VaultReadingState.opened(generation:people:)` is what a load takes from the reading file, which the model holds (`hold`) and seals again (`sealedReading`) (`VaultReadingFileTests`); `VaultRowSource.rows()` works the rows out from the numbers, readings, corrections, lessons, kinds, folders and day, with `VaultHolders` (whose a paper is) shared with a waiting number's rebuild (`VaultRowSourceTests`); `VaultRowFilter` works out the visible rows, cards, counts and People's sections from the rows and the search, tab and choices (`VaultRowFilterTests`). Each is tested with no model, but for one round trip through a model (what it took is what it seals). Proof: a throwaway harness drove five made-up scenarios (27 steps, every row field, each tab, filter and search), seven reading-file variants (state and the file sealed after), the five lock settings through 32 steps, and six reads across a close, a reopen, the Mac locking, a restore and a card read around Lock Now under three relock settings (state, log lines, redraw count) on `origin/main` and this tree: identical, custom kinds' random ids numbered, but for one redraw signal fewer as a load sets its waiting numbers once, not twice, in one call. The walk stays: it is awaits with a lock check between each, and moving it changes where a read can stop.*
 - **The problem.** At 2,270 lines it holds the lock session, record CRUD, the rows → cards → people

@@ -74,7 +74,7 @@ extension VaultModel {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let searching = !needle.isEmpty
         if !searching {
-            guard tab != .other, person != .household, geo != .india else { return [] }
+            guard tab != .other, person != .household, geo.shows(.home) else { return [] }
             if let kind, kind != VaultGroups.contact { return [] }
         }
         let names = Dictionary(people.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })

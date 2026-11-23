@@ -97,7 +97,7 @@ struct VaultRowLabel: View, Equatable {
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 3).fill(.quaternary))
-            .accessibilityLabel(code == "US" ? "United States" : code == "IN" ? "India" : code)
+            .accessibilityLabel(VaultGeo(code: code)?.title ?? code)
     }
 }
 

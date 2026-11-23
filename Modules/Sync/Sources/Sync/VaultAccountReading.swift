@@ -11,7 +11,7 @@ extension VaultReading {
 
     /// The cards account numbers go on: what ``VaultModel`` weighs when it stops reading an
     /// account whose years agree.
-    static let accountCategories: Set<VaultCategory> = [.health, .utilities, .loans, .other]
+    static let accountCategories: Set<VaultCategory> = Set(VaultKinds.changeable)
 
     /// What a number is called, with the labels papers print for it, the most telling first.
     struct AccountKind {

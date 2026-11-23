@@ -56,9 +56,8 @@ public struct VaultColors: Equatable, Sendable {
     }
 
     /// The colors the app's groups start with.
-    public static let appGroups: [VaultGroups.ID: VaultTint] = [
-        "travel": .blue, "legal": .violet, "health": .rose, "home": .green, "contact": .clay,
-    ]
+    public static let appGroups: [VaultGroups.ID: VaultTint] =
+        Dictionary(uniqueKeysWithValues: VaultGroupSpec.all.map { ($0.id, $0.tint) })
 
     /// What a group is set to: the choice made for it, else the app's, else none.
     public func color(ofGroup id: VaultGroups.ID) -> VaultCardColor {
