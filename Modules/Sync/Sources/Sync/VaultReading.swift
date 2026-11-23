@@ -132,7 +132,7 @@ public enum VaultReading {
 
     /// Raised whenever a rule changes what is read, so the next Read Documents reads every file
     /// again rather than trusting what an older build made of it.
-    public static let version = 18
+    public static let version = 19
 
     /// Every number on a document, once each, and the numbers it only names.
     /// `roots` are the read folders and `people` the household's, for account numbers: which area
@@ -171,13 +171,27 @@ public enum VaultReading {
             }
         }
         // Page by page: one PDF can hold two notices, each for its own person, form and dates.
+        var accounts = Set<String>()
         for page in pages {
             let pageText = page.joined(separator: "\n")
             let printed = PrintedPage(page)
             for find in receiptNumbers(in: pageText, from: path) { keep(find) }
             for find in admissionNumbers(in: pageText, from: path) { keep(find) }
             for find in travelPermits(on: printed, from: path) { keep(find) }
-            for find in accountNumbers(on: printed, from: path, under: roots, people: people) { keep(find) }
+            for find in accountNumbers(on: printed, from: path, under: roots, people: people) {
+                accounts.insert(normalized(find.value))
+                keep(find)
+            }
+        }
+        // An account paper's mailing block is the household's address as of the paper's date:
+        // read once for the file, and given to each account number it holds.
+        if !accounts.isEmpty, let address = mailingAddress(in: pages, people: people) {
+            for index in out.indices where accounts.contains(normalized(out[index].value)) {
+                let dated = out[index].facts.dated
+                for s in out[index].facts.sources.indices where out[index].facts.sources[s].path == path {
+                    out[index].facts.sources[s].address = VaultPrintedAddress(address, dated: dated)
+                }
+            }
         }
         // A license's barcode before its printed front, wherever each is in the file: it states
         // what the front's print can only suggest.

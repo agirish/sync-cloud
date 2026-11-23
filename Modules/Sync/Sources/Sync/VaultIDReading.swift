@@ -95,6 +95,9 @@ extension VaultReading {
 
     /// AAMVA's element ids for what the Vault keeps.
     private static let aamvaElements = ["DAQ", "DCS", "DAC", "DAD", "DBB", "DBA", "DBD", "DAJ", "DCG", "DCA"]
+    /// The address's elements: street, second street line, city, ZIP. Kept apart from
+    /// ``aamvaElements``, which also mark where a run-together number ends.
+    private static let addressElements = ["DAG", "DAH", "DAI", "DAK"]
 
     /// The license's PDF417 barcode, which the app appends to a page's lines as decoded
     /// (``VaultDocumentReading``): its header ("ANSI 636014…DLDAQ…") and one element per line.
@@ -115,7 +118,7 @@ extension VaultReading {
                 continue
             }
             let id = String(text.prefix(3))
-            guard aamvaElements.contains(id), fields[id] == nil else { continue }
+            guard aamvaElements.contains(id) || addressElements.contains(id), fields[id] == nil else { continue }
             let rest = String(text.dropFirst(3)).trimmingCharacters(in: .whitespaces)
             fields[id] = id == "DAQ" ? Self.licenseNumber(rest) : rest
         }
@@ -145,9 +148,23 @@ extension VaultReading {
         let facts = VaultReadFacts(category: .driversLicense, holder: holder.isEmpty ? nil : titleCased(holder),
                                    born: date("DBB"), issuer: canadian ? "CAN" : "USA", dated: issued ?? fileDate(path),
                                    validUntil: until, details: details,
-                                   sources: [VaultSource(path: path, role: "Driver’s license barcode", rank: IDRank.card)])
+                                   sources: [VaultSource(path: path, role: "Driver’s license barcode", rank: IDRank.card,
+                                                         address: canadian ? nil : licenseAddress(fields, state: state)
+                                                            .map { VaultPrintedAddress($0, dated: issued ?? fileDate(path)) })])
         return [VaultFind(title: (isIDCard ? "State ID" : "Driver’s license") + (state.map { " · " + $0 } ?? ""),
                           value: value, note: sentence(notes), facts: facts)]
+    }
+
+    /// The home address a US license's barcode states, when it states one whole: street, city,
+    /// state and a ZIP of five digits or more ("951320000" is 95132).
+    static func licenseAddress(_ fields: [String: String], state: String?) -> VaultAddress? {
+        func field(_ id: String) -> String? {
+            fields[id].map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty || $0.uppercased() == "NONE" ? nil : $0 }
+        }
+        guard let street = field("DAG"), let city = field("DAI"), let state, postalStates.contains(state),
+              let zip = field("DAK").map({ String($0.prefix { $0.isNumber }) }), zip.count >= 5,
+              !isPostBox(street) else { return nil }
+        return VaultAddress(street: street, unit: field("DAH"), city: city, state: state, zip: String(zip.prefix(5)))
     }
 
     /// A license number as the barcode gives it, ending where the number does: at a space, or at
@@ -165,7 +182,7 @@ extension VaultReading {
 
     // MARK: US driver's licenses: the front
 
-    private static let usStates: [String: String] = [
+    static let usStates: [String: String] = [
         "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA", "colorado": "CO",
         "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
         "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",

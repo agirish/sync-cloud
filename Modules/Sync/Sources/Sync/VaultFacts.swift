@@ -159,11 +159,16 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     public var role: String
     /// How much it is trusted as the number's source. The highest is the one it was read from.
     public var rank: Int
+    /// The home address the document is mailed to or printed with, and its date: a license's,
+    /// or an account paper's mailing block. Kept on the source, not the number, so the twelve
+    /// bills of one account each give theirs.
+    public var address: VaultPrintedAddress?
 
-    public init(path: String, role: String, rank: Int) {
+    public init(path: String, role: String, rank: Int, address: VaultPrintedAddress? = nil) {
         self.path = path
         self.role = role
         self.rank = rank
+        self.address = address
     }
 
     /// How fitting a home the file's folders are for a number of `category`, among copies of one
@@ -305,10 +310,14 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
         return "name:" + first + " " + (words.count > 1 ? words.last! : "")
     }
 
-    /// Adds `source`, keeping one entry per file and its best role.
+    /// Adds `source`, keeping one entry per file and its best role. The file's address is kept
+    /// from whichever reading gave one: a saved ID's source, saved before addresses were read,
+    /// takes it from today's reading of the same file.
     public mutating func add(_ source: VaultSource) {
         if let index = sources.firstIndex(where: { $0.path == source.path }) {
+            let address = source.address ?? sources[index].address
             if source.rank > sources[index].rank { sources[index] = source }
+            sources[index].address = address
         } else {
             sources.append(source)
         }
