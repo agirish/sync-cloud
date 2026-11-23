@@ -523,7 +523,7 @@ public enum SettingsCatalog {
         // `.notInChat`, all three: the lock is the user's own, and Claude neither reads nor proposes it.
         // Turning it off is the less safe way, and the switch itself asks for Touch ID first
         // (`VaultSettingsTab`).
-        e("vault.requiresAuthentication", .vault, "Require Touch ID or your Mac password", indexed: true,
+        e("vault.requiresAuthentication", .vault, "Require Touch ID", indexed: true,
           storage: app(VaultLockSettings.requiresAuthenticationKey, "VaultLockSettings.requiresAuthenticationKey", "true"),
           control: .toggle, default: .bool(true), tier: .notInChat, lessSafe: .turningOff),
         e("vault.ask", .vault, "When to ask", indexed: true,

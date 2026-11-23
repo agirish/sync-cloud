@@ -264,7 +264,7 @@ struct VaultCard: View {
         VStack(spacing: 0) {
             header
             Divider()
-            // Under macOS's Touch ID or password prompt, the IDs blur away: the prompt asks who
+            // Under macOS's Touch ID prompt, the IDs blur away: the prompt asks who
             // is at the Mac, and what it guards stays out of sight until they answer.
             content
                 .blur(radius: model.isAsking ? 18 : 0)
@@ -2233,7 +2233,7 @@ struct VaultCard: View {
                 Image(systemName: "eye").frame(width: 22, height: 22).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .help("Show it after Touch ID or your password")
+            .help("Show it after Touch ID")
             .accessibilityLabel("Show the date of birth")
         }
     }
@@ -3457,7 +3457,7 @@ struct VaultCard: View {
                 } label: {
                     Label("Show", systemImage: "touchid")
                 }
-                .help("Shows the ID after Touch ID or your password.")
+                .help("Shows the ID after Touch ID.")
             }
         }
         .disabled(model.isAsking)

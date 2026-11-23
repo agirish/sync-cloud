@@ -845,7 +845,7 @@ enum SettingsSearchIndex {
         .init(at: .keyAndSpending, title: "Of that, Organize",
               keywords: ["organize spend", "refine spend", "refine cost", "try another", "refine names", "filing cost"]),
         // Vault
-        .init(at: .vault, title: "Require Touch ID or your Mac password",
+        .init(at: .vault, title: "Require Touch ID",
               keywords: ["vault", "touch id", "password", "lock", "unlock", "fingerprint", "secure",
                          "passport", "numbers", "turn off lock"]),
         .init(at: .vault, title: "When to ask",

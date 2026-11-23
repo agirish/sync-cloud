@@ -7,7 +7,7 @@ import Sync
 /// again. The numbers themselves are never here; the panel behind ⌘U owns them.
 ///
 /// The first switch is the one setting in the app that proves who is asking before it changes:
-/// unticking it raises macOS's own Touch ID or password prompt, and stays ticked unless that is
+/// unticking it raises macOS's own Touch ID prompt, and stays ticked unless that is
 /// answered. Otherwise the lock would guard everything but its own off switch.
 struct VaultSettingsTab: View {
     @AppStorage(VaultLockSettings.requiresAuthenticationKey) private var requiresAuthentication: Bool = true
@@ -47,9 +47,9 @@ struct VaultSettingsTab: View {
         SettingsPage {
             SettingsSection(
                 "Lock",
-                caption: "Turning the lock off takes Touch ID or your password. The IDs stay sealed on this Mac either way, and are never sent to Claude."
+                caption: "Turning the lock off takes Touch ID. The IDs stay sealed on this Mac either way, and are never sent to Claude."
             ) {
-                Toggle("Require Touch ID or your Mac password", isOn: requirement)
+                Toggle("Require Touch ID", isOn: requirement)
                     .help("Asks who is at the Mac before the Vault shows or copies an ID in full. Off, anyone at this Mac while it is unlocked can read them.")
                     .disabled(isAsking)
                 SettingsRow("When to ask") {
@@ -126,7 +126,7 @@ struct VaultSettingsTab: View {
                             .controlSize(.small)
                             .disabled(!hasPassphrase || isBackingUp)
                     }
-                    .help("Asks for Touch ID or your password, then writes a backup of every saved ID.")
+                    .help("Asks for Touch ID, then writes a backup of every saved ID.")
                 }
                 SettingsRow("Restore from a backup") {
                     Button("Choose…") { chooseBackupToRestore() }
@@ -151,7 +151,7 @@ struct VaultSettingsTab: View {
                     Button("Show…") { showActivity() }
                         .controlSize(.small)
                         .disabled(isAsking)
-                        .help("Shows the list after Touch ID or your password.")
+                        .help("Shows the list after Touch ID.")
                 }
             }
             SettingsSection(

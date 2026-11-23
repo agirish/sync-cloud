@@ -217,19 +217,19 @@ public enum VaultProof: Equatable, Sendable {
     case allowed
     /// The owner dismissed the prompt.
     case cancelled
-    /// This Mac cannot ask: no password and no Touch ID. The message says what to do.
+    /// This Mac cannot ask: it has no login password, so no Touch ID. The message says what to do.
     case unavailable(String)
     case failed(String)
 }
 
-/// Asks the Mac's owner to prove it: Touch ID, Apple Watch or the login password. The app's
+/// Asks the Mac’s owner to prove it with Touch ID, and only Touch ID. The app’s
 /// conformance is LocalAuthentication; tests answer for themselves.
 public protocol VaultAuthenticating: Sendable {
     /// `reason` completes "SyncCloud is trying to …".
     func prove(reason: String) async -> VaultProof
 }
 
-/// Settings ▸ Vault's "Require Touch ID or your Mac password", when it is being unticked.
+/// Settings ▸ Vault's "Require Touch ID", when it is being unticked.
 public enum VaultLockSwitch {
     /// What the prompt says after "SyncCloud is trying to".
     public static let reason = "turn off the Vault’s lock"
@@ -237,7 +237,7 @@ public enum VaultLockSwitch {
     /// Whether the lock may come off: only once the owner has proved it, so someone at an unlocked
     /// Mac cannot remove the lock to get at what it guards.
     ///
-    /// A Mac that cannot ask (no password, no Touch ID) has nothing to prove with, and a lock
+    /// A Mac with no login password (so no Touch ID) has nothing to prove with, and a lock
     /// nobody can open is worse than none, so there it may be turned off.
     public static func mayTurnOff(using authenticator: VaultAuthenticating) async -> Bool {
         switch await authenticator.prove(reason: reason) {

@@ -168,7 +168,7 @@ A locked panel over the window (**⌘U**, or the lock in the toolbar) for the ID
 for: a passport number, a member ID, a loan number.
 - **Sealed on this Mac**: one encrypted file, its key in your login keychain. Nothing in it is sent
   to Claude or written to the log.
-- **Touch ID or your Mac password** to open it. Locked, the panel shows only its lock: no name,
+- **Touch ID** to open it. Locked, the panel shows only its lock: no name,
   date or ending, and nothing is read from disk. Unlocked, a row shows a name and the last four
   characters; the full ID is drawn only for the one chosen. A copied ID is cleared from the
   clipboard after a time you set, and the window is kept out of screen sharing while one is shown.
