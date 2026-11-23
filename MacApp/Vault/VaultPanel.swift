@@ -1916,41 +1916,38 @@ struct VaultCard: View {
         }
     }
 
-    /// The detail's Kind: the card it is on, and how it got there when not as read.
+    /// A label in the details' first column: Belongs to, Kind, Used in, Tab.
+    private func fieldLabel(_ text: String, help: String) -> some View {
+        Text(text)
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+            .help(help)
+    }
+
+    /// The detail's Kind: the card it is on, and how it got there when not as read. Before the
+    /// kind's name, a dot in its card's color, which opens the card's Color choice.
     private func kindRow(_ row: VaultModel.Row) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("Kind")
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
+        let help = VaultKinds.canChange(from: row.readAs)
+            ? "The card this ID is on. Moving one read from an account’s folder moves that folder’s other IDs too, now and on later reads."
+            : row.isTypedIn ? "Its kind was chosen when it was typed in; Edit changes it."
+            : "Its kind was checked when it was read: it stays on its card."
+        return GridRow {
+            fieldLabel("Kind", help: help)
             VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 10) {
-                    if VaultKinds.canChange(from: row.readAs) {
-                        kindMenu(row)
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                    } else {
-                        Text(row.readAs.title)
-                            .scaledFont(.callout)
-                    }
-                    // The card's color, where the card is named. Not on Other Finds, whose kinds
-                    // have no card on the main view.
-                    if row.standing.tab != .other {
-                        Button {
-                            coloring = .detail(row.card)
-                        } label: {
-                            Label {
-                                Text("Color…")
-                            } icon: {
-                                Image(nsImage: VaultTintPalette.swatch(model.tint(of: row.card)))
-                            }
-                            .labelStyle(.titleAndIcon)
+                HStack(spacing: 4) {
+                    // Not on Other Finds, whose kinds have no card on the main view.
+                    if row.standing.tab != .other { cardColorDot(row.card) }
+                    Group {
+                        if VaultKinds.canChange(from: row.readAs) {
+                            kindMenu(row)
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
+                        } else {
+                            Text(row.readAs.title)
+                                .scaledFont(.callout)
                         }
-                        .buttonStyle(.plain)
-                        .scaledFont(.callout)
-                        .fixedSize()
-                        .popover(isPresented: isColoring(.detail(row.card)), arrowEdge: .bottom) { colorPopover(for: row.card, at: .detail(row.card)).presentedNativeControlAccent() }
-                        .help("The color of the \(model.kinds.title(of: row.card)) card, and of its group")
                     }
+                    .help(help)
                 }
                 if let note = row.kindNote {
                     Text(note)
@@ -1959,20 +1956,42 @@ struct VaultCard: View {
                 }
             }
         }
-        .help(VaultKinds.canChange(from: row.readAs)
-              ? "The card this ID is on. Moving one read from an account’s folder moves that folder’s other IDs too, now and on later reads."
-              : row.isTypedIn ? "Its kind was chosen when it was typed in; Edit changes it."
-                : "Its kind was checked when it was read: it stays on its card.")
+    }
+
+    /// The card's color as a dot, as a Finder tag shows one; an empty ring for a card with none.
+    /// A shape, not a swatch image, so it follows a change of appearance (VT78).
+    private func cardColorDot(_ card: VaultCardID) -> some View {
+        let tint = model.tint(of: card)
+        let title = model.kinds.title(of: card)
+        return Button {
+            coloring = .detail(card)
+        } label: {
+            Group {
+                if let tint {
+                    Circle().fill(tint.color)
+                        .overlay(Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
+                } else {
+                    Circle().strokeBorder(.tertiary, lineWidth: 1)
+                }
+            }
+            .frame(width: 10, height: 10)
+            .padding(3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: isColoring(.detail(card)), arrowEdge: .bottom) { colorPopover(for: card, at: .detail(card)).presentedNativeControlAccent() }
+        .help("The color of the \(title) card, and of its group. Click to change it.")
+        .accessibilityLabel("Color of the \(title) card")
+        .accessibilityValue(tint?.title ?? "No Color")
     }
 
 
     /// Used In: where the number is used, and how that is known. A choice wins over the document,
     /// and later reads keep it.
     private func usedIn(_ row: VaultModel.Row) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("Used in")
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
+        let help = "Where this ID is used. Every Country shows it in each country’s view, as a passport is."
+        return GridRow {
+            fieldLabel("Used in", help: help)
             VStack(alignment: .leading, spacing: 1) {
                 Menu {
                     ForEach(VaultGeo.allCases, id: \.self) { geo in
@@ -1995,51 +2014,52 @@ struct VaultCard: View {
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
+            .help(help)
         }
-        .help("Where this ID is used. Every Country shows it in each country’s view, as a passport is.")
     }
 
     /// Tab: Current or Archive, as a fact about the ID beside whose it is and where it is used,
     /// with the reason the Vault already writes, or You moved it here for a choice either way.
     /// Let the Vault Choose comes back only after a choice. Other Finds is not chosen: plain text.
     private func tabRow(_ row: VaultModel.Row) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("Tab")
-                .scaledFont(.callout)
-                .foregroundStyle(.secondary)
-            if row.standing.tab == .other {
-                Text("Other Finds")
-                    .scaledFont(.callout)
-            } else {
-                VStack(alignment: .leading, spacing: 1) {
-                    Menu {
-                        ForEach([VaultStanding.Tab.current, .archive], id: \.self) { tab in
-                            Button {
-                                if row.standing.tab != tab { move(row, to: tab) }
-                            } label: {
-                                if row.standing.tab == tab { Label(Self.tabTitle(tab), systemImage: "checkmark") } else { Text(Self.tabTitle(tab)) }
+        let help = row.standing.tab == .other
+            ? "Other Finds holds kinds that have no card on the main view yet."
+            : "Current shows the newest ID of each kind for each person; Archive keeps the older ones. A choice here wins, and later reads keep it."
+        return GridRow {
+            fieldLabel("Tab", help: help)
+            Group {
+                if row.standing.tab == .other {
+                    Text("Other Finds")
+                        .scaledFont(.callout)
+                } else {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Menu {
+                            ForEach([VaultStanding.Tab.current, .archive], id: \.self) { tab in
+                                Button {
+                                    if row.standing.tab != tab { move(row, to: tab) }
+                                } label: {
+                                    if row.standing.tab == tab { Label(Self.tabTitle(tab), systemImage: "checkmark") } else { Text(Self.tabTitle(tab)) }
+                                }
                             }
+                            if row.pin != nil {
+                                Divider()
+                                Button("Let the Vault Choose") { move(row, to: nil) }
+                            }
+                        } label: {
+                            Text(Self.tabTitle(row.standing.tab))
                         }
-                        if row.pin != nil {
-                            Divider()
-                            Button("Let the Vault Choose") { move(row, to: nil) }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        if let reason = Self.tabReason(row.standing) {
+                            Text(reason)
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    } label: {
-                        Text(Self.tabTitle(row.standing.tab))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    if let reason = Self.tabReason(row.standing) {
-                        Text(reason)
-                            .scaledFont(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
+            .help(help)
         }
-        .help(row.standing.tab == .other
-              ? "Other Finds holds kinds that have no card on the main view yet."
-              : "Current shows the newest ID of each kind for each person; Archive keeps the older ones. A choice here wins, and later reads keep it.")
     }
 
     static func tabTitle(_ tab: VaultStanding.Tab) -> String {
@@ -2169,20 +2189,23 @@ struct VaultCard: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                HStack(spacing: 6) {
-                    Text("Belongs to")
-                        .scaledFont(.callout)
-                        .foregroundStyle(.secondary)
-                    belongsToMenu(row)
-                        .menuStyle(.borderlessButton)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 240, alignment: .leading)
+                // Whose it is, its kind, where it is used and its tab: labels in one column and
+                // values in the next, so the values start at one edge.
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 6, verticalSpacing: 12) {
+                    GridRow {
+                        let help = "Whose this ID is. A choice here wins over the name on the document, and later reads keep it."
+                        fieldLabel("Belongs to", help: help)
+                        belongsToMenu(row)
+                            .menuStyle(.borderlessButton)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 240, alignment: .leading)
+                            .help(help)
+                    }
+                    kindRow(row)
+                    usedIn(row)
+                    tabRow(row)
                 }
-                .help("Whose this ID is. A choice here wins over the name on the document, and later reads keep it.")
-                kindRow(row)
-                usedIn(row)
-                tabRow(row)
                 if row.standing.inUse {
                     callout("Still in use: a visa that is still good is in this passport, so carry it with the new one.",
                             tint: SemanticColor.info)
