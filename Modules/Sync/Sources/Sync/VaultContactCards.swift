@@ -37,6 +37,8 @@ public struct VaultContactCard: Equatable, Identifiable, Sendable {
         /// The phone or email as typed, and its place among the person's.
         public var typed: VaultContacts.Typed?
         public var index: Int?
+        /// The phone, typed or read, with the papers that print it.
+        public var phone: VaultPersonSection.Phone?
         /// A past address: where they used to live (Archive).
         public var past = false
         /// On Current, someone here has a license that still prints a past address.
@@ -125,9 +127,12 @@ extension VaultModel {
         if searching || tab == .current {
             for someone in people {
                 let theirs = contacts[someone.id] ?? VaultContacts()
-                for (index, phone) in theirs.phones.enumerated() {
-                    phones.append(.init(id: "phone:\(someone.id):\(index)", kind: .phones, people: [someone.id],
-                                        value: VaultContacts.phoneShown(phone.value), typed: phone, index: index))
+                let all = VaultRowFilter.phones(of: someone.id, on: rows, typed: theirs.phones,
+                                                notTheirs: Set(theirs.notTheirPhones))
+                for phone in all {
+                    phones.append(.init(id: "phone:\(someone.id):\(phone.key)", kind: .phones, people: [someone.id],
+                                        value: phone.shown, typed: phone.typedIndex.map { theirs.phones[$0] },
+                                        index: phone.typedIndex, phone: phone))
                 }
                 for (index, email) in theirs.emails.enumerated() {
                     emails.append(.init(id: "email:\(someone.id):\(index)", kind: .emails, people: [someone.id],

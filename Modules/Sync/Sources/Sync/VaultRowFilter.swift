@@ -132,6 +132,8 @@ struct VaultRowFilter: Equatable {
             return .unnamed(row.facts?.holder ?? row.whose)
         }
         let all = Dictionary(grouping: rows, by: owner)
+        // A phone is whoever's name it is printed under, on anyone's paper.
+        let everyRow = rows
         let shown = Dictionary(grouping: visible, by: owner)
         func section(_ id: VaultPersonSection.Owner, _ title: String) -> VaultPersonSection? {
             let theirs = all[id] ?? []
@@ -172,7 +174,9 @@ struct VaultRowFilter: Equatable {
             var made = VaultPersonSection(id: id, title: title, names: names, births: births, groups: grouped(rows),
                                           elsewhere: theirs.filter { !onThisTab.contains($0.id) && $0.standing.tab != tab && $0.standing.tab != .other }.count)
             made.addresses = addresses
-            made.phones = typed.phones
+            if case .person(let person) = id {
+                made.phones = Self.phones(of: person, on: everyRow, typed: typed.phones, notTheirs: Set(typed.notTheirPhones))
+            }
             made.emails = typed.emails
             // A license still good that prints an address they have since left.
             if let home = addresses.first {
@@ -260,6 +264,45 @@ struct VaultRowFilter: Equatable {
             default: return (a.element.rows.count, -a.offset) > (b.element.rows.count, -b.offset)
             }
         }.map(\.element)
+    }
+
+    /// `person`'s phones: the ones typed for them, and the ones `papers` print under their name
+    /// (``VaultPrintedPhone/person``), whoever's ID the paper is. One phone however written
+    /// (``VaultContacts/phoneKey(_:)``); one said not to be theirs is left out unless typed.
+    /// Newest first, a typed one as new as the day it was typed; among equals, typed ones first
+    /// in the order typed.
+    static func phones(of person: String, on papers: [Row], typed: [VaultContacts.Typed],
+                       notTheirs: Set<String>) -> [VaultPersonSection.Phone] {
+        var byKey: [String: VaultPersonSection.Phone] = [:]
+        var order: [String] = []
+        for (index, entry) in typed.enumerated() {
+            let key = VaultContacts.phoneKey(entry.value)
+            guard byKey[key] == nil else { continue }
+            byKey[key] = .init(value: entry.value, label: entry.label, typedIndex: index, dated: entry.added)
+            order.append(key)
+        }
+        for row in papers {
+            for source in row.facts?.sources ?? [] {
+                for printed in source.phones ?? [] where printed.person == person {
+                    let key = VaultContacts.phoneKey(printed.number)
+                    guard !notTheirs.contains(key) || byKey[key]?.typed == true else { continue }
+                    var known = byKey[key] ?? .init(value: printed.number, label: printed.label)
+                    if byKey[key] == nil { order.append(key) }
+                    if !known.rows.contains(where: { $0.id == row.id }) { known.rows.append(row) }
+                    if known.label == nil { known.label = printed.label }
+                    if let d = printed.dated, d > (known.dated ?? .distantPast) { known.dated = d }
+                    byKey[key] = known
+                }
+            }
+        }
+        return order.enumerated().compactMap { offset, key in byKey[key].map { (offset, $0) } }.sorted { a, b in
+            switch (a.1.dated, b.1.dated) {
+            case let (x?, y?) where x != y: return x > y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: return a.0 < b.0
+            }
+        }.map(\.1)
     }
 
     /// `names` with their roles, legal name first, then the one they go by, then the rest by how

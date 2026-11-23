@@ -16359,3 +16359,19 @@ ignores both keys.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Vault: phones read, and only a named person's address — main only, recorded, not owed
+
+2026-11-23, for v7.2. The Vault reads a phone a paper prints under the name of someone in People
+(`VaultReading.contacts(in:people:)`, `VaultPrintedPhone`, kept on each paper's source as
+`VaultSource.phones`), and a home address from a form's labelled field as well as a mailing
+block, on any paper an ID is read from. A business's address or phone is never read: a company's
+name or a business's part ("Seller", "Provider") on the name's line or between it and the street,
+a suite or a floor, a toll-free number, or a phone beside any word but its label. People and the
+Phones card show read phones beside typed ones; Not Their Phone is kept as
+`VaultContacts.notTheirPhones` and carried by a backup. `VaultReading.version` goes to 20, so the
+next Read Documents reads every file again. The sealed formats gain optional fields only.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |

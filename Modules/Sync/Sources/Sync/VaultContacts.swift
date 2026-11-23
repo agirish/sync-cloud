@@ -32,15 +32,21 @@ public struct VaultContacts: Codable, Equatable, Sendable {
     public var addresses: [TypedAddress] = []
     /// ``VaultAddress/key``s read from papers that are not this person's home.
     public var notTheirs: [String] = []
+    /// Phones (``phoneKey(_:)``) read from papers that are not this person's.
+    public var notTheirPhones: [String] = []
 
-    public init(phones: [Typed] = [], emails: [Typed] = [], addresses: [TypedAddress] = [], notTheirs: [String] = []) {
+    public init(phones: [Typed] = [], emails: [Typed] = [], addresses: [TypedAddress] = [], notTheirs: [String] = [],
+                notTheirPhones: [String] = []) {
         self.phones = phones
         self.emails = emails
         self.addresses = addresses
         self.notTheirs = notTheirs
+        self.notTheirPhones = notTheirPhones
     }
 
-    public var isEmpty: Bool { phones.isEmpty && emails.isEmpty && addresses.isEmpty && notTheirs.isEmpty }
+    public var isEmpty: Bool {
+        phones.isEmpty && emails.isEmpty && addresses.isEmpty && notTheirs.isEmpty && notTheirPhones.isEmpty
+    }
 
     /// Each field decoded alone, so one a later build shaped differently does not lose the rest.
     public init(from decoder: Decoder) throws {
@@ -49,9 +55,17 @@ public struct VaultContacts: Codable, Equatable, Sendable {
         emails = (try? c.decodeIfPresent([Typed].self, forKey: .emails)) ?? []
         addresses = (try? c.decodeIfPresent([TypedAddress].self, forKey: .addresses)) ?? []
         notTheirs = (try? c.decodeIfPresent([String].self, forKey: .notTheirs)) ?? []
+        notTheirPhones = (try? c.decodeIfPresent([String].self, forKey: .notTheirPhones)) ?? []
     }
 
-    private enum CodingKeys: String, CodingKey { case phones, emails, addresses, notTheirs }
+    private enum CodingKeys: String, CodingKey { case phones, emails, addresses, notTheirs, notTheirPhones }
+
+    /// One phone however it is written: its digits, a US number's last ten ("+1 (408) 555-0142"
+    /// and "408.555.0142" are one).
+    public static func phoneKey(_ value: String) -> String {
+        let digits = value.filter(\.isNumber)
+        return digits.count == 11 && digits.first == "1" ? String(digits.dropFirst()) : digits
+    }
 
     /// The labels a phone or an email may have, the first the one a new one gets.
     public static let phoneLabels = ["Mobile", "Home", "Work"]
@@ -99,15 +113,30 @@ extension VaultModel {
         return true
     }
 
-    /// Adds a phone, or with `replacing` puts it in place of the one at that index.
+    /// Adds a phone, or with `replacing` puts it in place of the one typed at that index. With
+    /// `correcting`, a phone only papers print (its ``phoneKey(_:)``) gives way to it: set aside
+    /// as not theirs, unless what is typed is the same phone (a label given to it).
     @discardableResult
-    public func setPhone(_ value: String, label: String?, for person: String, replacing index: Int? = nil) -> Bool {
+    public func setPhone(_ value: String, label: String?, for person: String, replacing index: Int? = nil,
+                         correcting read: String? = nil) -> Bool {
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard VaultContacts.looksLikePhone(value) else { return false }
         let today = self.clock()
         return changeContacts(of: person) { c in
             let typed = VaultContacts.Typed(value, label: label, added: today)
+            let key = VaultContacts.phoneKey(value)
+            if let read, read != key, !c.notTheirPhones.contains(read) { c.notTheirPhones.append(read) }
+            c.notTheirPhones.removeAll { $0 == key }
             if let index, c.phones.indices.contains(index) { c.phones[index] = typed } else { c.phones.append(typed) }
+        }
+    }
+
+    /// Takes a phone out of `person`'s: the typed one at `index` is removed; with `read` (papers
+    /// print it, its ``VaultContacts/phoneKey(_:)``) it is also not theirs.
+    public func removePhone(at index: Int?, read: String?, for person: String) {
+        changeContacts(of: person) { c in
+            if let index, c.phones.indices.contains(index) { c.phones.remove(at: index) }
+            if let read, !c.notTheirPhones.contains(read) { c.notTheirPhones.append(read) }
         }
     }
 
@@ -123,7 +152,7 @@ extension VaultModel {
     }
 
     public func removePhone(at index: Int, for person: String) {
-        changeContacts(of: person) { c in if c.phones.indices.contains(index) { c.phones.remove(at: index) } }
+        removePhone(at: index, read: nil, for: person)
     }
 
     public func removeEmail(at index: Int, for person: String) {

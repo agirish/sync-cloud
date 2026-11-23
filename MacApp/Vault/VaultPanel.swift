@@ -1332,6 +1332,9 @@ struct VaultCard: View {
         if item.past { parts.append("Past") }
         if let address = item.address {
             parts.append(VaultPersonText.sourceLine(address.rows, typed: address.typed, dated: address.dated))
+        } else if let phone = item.phone {
+            if let label = phone.label { parts.append(label) }
+            parts.append(VaultPersonText.sourceLine(phone.rows, typed: phone.typed))
         } else {
             if let label = item.typed?.label { parts.append(label) }
             parts.append("From you")
@@ -1414,10 +1417,16 @@ struct VaultCard: View {
         }
     }
 
-    /// "Not Their Address" for one papers print, "Remove" for one only typed.
+    /// "Not Their Address" or "Not Their Phone" for one papers print, "Remove" for one only typed.
     static func contactRemoveTitle(_ item: VaultContactCard.Item) -> String {
+        if let phone = item.phone { return phoneRemoveTitle(phone) }
         guard let address = item.address, !address.rows.isEmpty else { return "Remove" }
         return "Not Their Address"
+    }
+
+    /// The IDs whose papers print a contact: an address's or a phone's.
+    static func contactRows(_ item: VaultContactCard.Item) -> [VaultModel.Row] {
+        item.address?.rows ?? item.phone?.rows ?? []
     }
 
     private func removeContact(_ item: VaultContactCard.Item) {
@@ -1431,7 +1440,7 @@ struct VaultCard: View {
                 model.removeAddress(address.address.key, for: person, read: read, everyone: everyone)
             }
         case .phones:
-            if let person = item.people.first, let index = item.index { model.removePhone(at: index, for: person) }
+            if let person = item.people.first, let phone = item.phone { removePhone(phone, for: person) }
         case .emails:
             if let person = item.people.first, let index = item.index { model.removeEmail(at: index, for: person) }
         }
@@ -1450,7 +1459,7 @@ struct VaultCard: View {
         switch item.kind {
         case .addresses:
             startContactEdit(.address, section, address: item.address, alsoFor: Array(item.people.dropFirst()), anchor: Self.contactEditAnchor)
-        case .phones: startContactEdit(.phone, section, index: item.index, anchor: Self.contactEditAnchor)
+        case .phones: startContactEdit(.phone, section, phone: item.phone, anchor: Self.contactEditAnchor)
         case .emails: startContactEdit(.email, section, index: item.index, anchor: Self.contactEditAnchor)
         }
     }
@@ -1494,13 +1503,13 @@ struct VaultCard: View {
                         }
                     }
                 }
-                if let address = item.address, !address.rows.isEmpty {
+                if !Self.contactRows(item).isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("PRINTED ON")
                             .scaledFont(.caption2.weight(.semibold))
                             .tracking(0.6)
                             .foregroundStyle(.secondary)
-                        ForEach(address.rows) { row in
+                        ForEach(Self.contactRows(item)) { row in
                             Button {
                                 contactChosen = nil
                                 openSource(row)
@@ -1552,6 +1561,9 @@ struct VaultCard: View {
 
     /// "2841 Larkspur Lane is not Abhishek’s or Shweta’s home?", and the like.
     static func contactRemoveQuestion(_ item: VaultContactCard.Item, names: [String]) -> String {
+        if let phone = item.phone, !phone.rows.isEmpty {
+            return "\(phone.shown) is not \(ListFormatter.localizedString(byJoining: names))’s phone? The papers stay; it is no longer shown as theirs."
+        }
         guard let address = item.address else { return "Remove \(item.value)?" }
         if address.rows.isEmpty { return "Remove \(address.address.street)?" }
         return "\(address.address.street) is not \(ListFormatter.localizedString(byJoining: names))’s home? The papers stay; it is no longer shown as theirs."
@@ -1563,7 +1575,8 @@ struct VaultCard: View {
         if let a = item.address?.address {
             return [("Street", a.street)] + (a.unit.map { [("Apt", $0)] } ?? []) + [("City", a.city), ("State", a.state), ("ZIP", a.zip)]
         }
-        return [(item.kind == .phones ? "Number" : "Address", item.value)] + (item.typed?.label.map { [("Label", $0)] } ?? [])
+        let label = item.phone?.label ?? item.typed?.label
+        return [(item.kind == .phones ? "Number" : "Address", item.value)] + (label.map { [("Label", $0)] } ?? [])
     }
 
     /// The Color choice for `card`: from its title's menu, and beside Kind in an ID's details.
@@ -1815,7 +1828,7 @@ struct VaultCard: View {
         case .name: nameTile(section)
         case .birth: birthTile(section, showsBirth: showsBirth)
         case .address: addressTile(section)
-        case .phone: typedTile(section, kind: .phone)
+        case .phone: phoneTile(section)
         case .email: typedTile(section, kind: .email)
         }
     }
@@ -2346,9 +2359,109 @@ struct VaultCard: View {
 
     // MARK: Phone and email
 
-    /// The first phone or email typed for them; the rest behind “+1 ›”; Add… when none.
+    /// The phone that leads, typed or read; the rest behind “+1 ›”; Add… when none.
+    private func phoneTile(_ section: VaultPersonSection) -> some View {
+        let lead = section.phones.first
+        let key = "phone-\(section.title)"
+        return factShell(lead?.label.map { "Phone · \($0)" } ?? "Phone",
+                         more: section.phones.count > 1 ? "+\(section.phones.count - 1) ›" : nil, moreKey: key) {
+            if let lead {
+                factValue(lead.shown)
+            } else {
+                addValue("Add Phone…") { startContactEdit(.phone, section) }
+            }
+        } source: {
+            if let lead {
+                factSource(VaultPersonText.sourceLine(lead.rows, typed: lead.typed), rows: lead.rows, key: key + "-source",
+                           title: "\(lead.shown) is printed on \(lead.rows.count) IDs")
+            } else {
+                factSource("Not on any ID yet")
+            }
+        } trailing: {
+            if let lead {
+                let copyKey = "\(key)-\(lead.key)"
+                copyIcon(copyKey, help: "Copy \(lead.shown)") { copyString(lead.shown, key: copyKey) }
+            }
+        } more: {
+            phonesPopover(section)
+        }
+        .contextMenu {
+            if let lead { phoneMenu(lead, section) }
+        }
+        .popover(isPresented: editBinding("edit-\(section.title)-phone"), arrowEdge: .bottom) {
+            contactEditor(section)
+                .presentedNativeControlAccent()
+        }
+    }
+
+    /// Copy it, see the IDs that print it, correct it, add another, or take it out.
+    @ViewBuilder
+    private func phoneMenu(_ phone: VaultPersonSection.Phone, _ section: VaultPersonSection) -> some View {
+        Button("Copy") { copyString(phone.shown) }
+        if phone.rows.count == 1, let row = phone.rows.first {
+            Divider()
+            Button("Show the ID") { openSource(row) }
+        } else if phone.rows.count > 1 {
+            Divider()
+            Button("Show the IDs") { factPopover = "phone-\(section.title)-source" }
+        }
+        if let person = section.personID {
+            Divider()
+            Button("Edit…") { startContactEdit(.phone, section, phone: phone) }
+            Button("Add Another…") { startContactEdit(.phone, section) }
+            Button(Self.phoneRemoveTitle(phone)) { removePhone(phone, for: person) }
+        }
+    }
+
+    /// "Not Their Phone" for one papers print, "Remove" for one only typed.
+    static func phoneRemoveTitle(_ phone: VaultPersonSection.Phone) -> String {
+        phone.rows.isEmpty ? "Remove" : "Not Their Phone"
+    }
+
+    private func removePhone(_ phone: VaultPersonSection.Phone, for person: String) {
+        model.removePhone(at: phone.typedIndex, read: phone.rows.isEmpty ? nil : phone.key, for: person)
+    }
+
+    /// Every phone, each with its label, where it is from, copy, Edit and Remove.
+    private func phonesPopover(_ section: VaultPersonSection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(section.phones.enumerated()), id: \.element.key) { index, phone in
+                if index > 0 { Divider() }
+                HStack(alignment: .center, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(phone.shown)
+                            .scaledFont(index == 0 ? .body.weight(.semibold) : .callout.weight(.semibold))
+                            .lineLimit(1)
+                        Text([phone.label, VaultPersonText.sourceLine(phone.rows, typed: phone.typed)]
+                            .compactMap { $0 }.joined(separator: " · "))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Edit…") { startContactEdit(.phone, section, phone: phone) }
+                        .buttonStyle(.link)
+                    Button(Self.phoneRemoveTitle(phone)) {
+                        guard let person = section.personID else { return }
+                        removePhone(phone, for: person)
+                    }
+                    .buttonStyle(.link)
+                    let copyKey = "phone-\(section.title)-\(phone.key)"
+                    copyIcon(copyKey, help: "Copy \(phone.shown)") { copyString(phone.shown, key: copyKey) }
+                }
+            }
+            Divider()
+            Button("Add Another Phone…") { startContactEdit(.phone, section) }
+                .buttonStyle(.link)
+        }
+        .scaledFont(.caption)
+        .padding(12)
+        .frame(width: 400, alignment: .leading)
+    }
+
+    /// The first email typed for them; the rest behind “+1 ›”; Add… when none.
     private func typedTile(_ section: VaultPersonSection, kind: ContactEdit.Kind) -> some View {
-        let values = kind == .phone ? section.phones : section.emails
+        let values = section.emails
         let noun = kind == .phone ? "Phone" : "Email"
         let lead = values.first
         let shown = lead.map { Self.typedShown($0, kind: kind) }
@@ -2377,7 +2490,7 @@ struct VaultCard: View {
                 Button("Edit…") { startContactEdit(kind, section, index: 0) }
                 Button("Add Another…") { startContactEdit(kind, section) }
                 Button("Remove") {
-                    if kind == .phone { model.removePhone(at: 0, for: person) } else { model.removeEmail(at: 0, for: person) }
+                    model.removeEmail(at: 0, for: person)
                 }
             }
         }
@@ -2391,9 +2504,9 @@ struct VaultCard: View {
         kind == .phone ? VaultContacts.phoneShown(typed.value) : typed.value
     }
 
-    /// Every phone or email typed for them, each with its label, copy, Edit and Remove.
+    /// Every email typed for them, each with its label, copy, Edit and Remove.
     private func typedPopover(_ section: VaultPersonSection, kind: ContactEdit.Kind) -> some View {
-        let values = kind == .phone ? section.phones : section.emails
+        let values = section.emails
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(Array(values.enumerated()), id: \.offset) { index, typed in
                 if index > 0 { Divider() }
@@ -2411,7 +2524,7 @@ struct VaultCard: View {
                         .buttonStyle(.link)
                     Button("Remove") {
                         guard let person = section.personID else { return }
-                        if kind == .phone { model.removePhone(at: index, for: person) } else { model.removeEmail(at: index, for: person) }
+                        model.removeEmail(at: index, for: person)
                     }
                     .buttonStyle(.link)
                     let copyKey = "\(kind.rawValue)-\(section.title)-\(index)"
@@ -2441,6 +2554,8 @@ struct VaultCard: View {
         var index: Int?
         /// The address being corrected (its key); nil adds one.
         var replacing: String?
+        /// A phone only papers print, being corrected (its key): set aside unless kept as it is.
+        var correcting: String?
         var value = ""
         var label = ""
         var street = "", unit = "", city = "", state = "", zip = ""
@@ -2462,18 +2577,27 @@ struct VaultCard: View {
     }
 
     private func startContactEdit(_ kind: ContactEdit.Kind, _ section: VaultPersonSection, index: Int? = nil,
+                                  phone: VaultPersonSection.Phone? = nil,
                                   address: VaultPersonSection.Address? = nil, alsoFor: [String] = [], anchor: String? = nil) {
         guard let person = section.personID else { return }
         var edit = ContactEdit(kind: kind, section: section.title, person: person, index: index)
         edit.place = anchor
         switch kind {
-        case .phone, .email:
-            let values = kind == .phone ? section.phones : section.emails
-            if let index, values.indices.contains(index) {
-                edit.value = values[index].value
-                edit.label = values[index].label ?? ""
+        case .phone:
+            if let phone {
+                edit.index = phone.typedIndex
+                edit.value = phone.typed ? phone.value : phone.shown
+                edit.label = phone.label ?? VaultContacts.phoneLabels[0]
+                edit.correcting = phone.typed ? nil : phone.key
             } else {
-                edit.label = (kind == .phone ? VaultContacts.phoneLabels : VaultContacts.emailLabels)[0]
+                edit.label = VaultContacts.phoneLabels[0]
+            }
+        case .email:
+            if let index, section.emails.indices.contains(index) {
+                edit.value = section.emails[index].value
+                edit.label = section.emails[index].label ?? ""
+            } else {
+                edit.label = VaultContacts.emailLabels[0]
             }
         case .address:
             if let a = address?.address {
@@ -2560,7 +2684,8 @@ struct VaultCard: View {
     private func saveContactEdit() {
         guard let edit = contactEdit, edit.canSave else { return }
         switch edit.kind {
-        case .phone: model.setPhone(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
+        case .phone:
+            model.setPhone(edit.value, label: edit.label, for: edit.person, replacing: edit.index, correcting: edit.correcting)
         case .email: model.setEmail(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
         case .address:
             model.setAddress(edit.address, for: edit.person, alsoFor: Array(edit.alsoFor).sorted(), replacing: edit.replacing)

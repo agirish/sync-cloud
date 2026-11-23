@@ -110,12 +110,16 @@ public struct VaultSource: Codable, Equatable, Hashable, Sendable {
     /// or an account paper's mailing block. Kept on the source, not the number, so the twelve
     /// bills of one account each give theirs.
     public var address: VaultPrintedAddress?
+    /// The phones the document prints under a name in People, each with whose. Nil when none.
+    public var phones: [VaultPrintedPhone]?
 
-    public init(path: String, role: String, rank: Int, address: VaultPrintedAddress? = nil) {
+    public init(path: String, role: String, rank: Int, address: VaultPrintedAddress? = nil,
+                phones: [VaultPrintedPhone]? = nil) {
         self.path = path
         self.role = role
         self.rank = rank
         self.address = address
+        self.phones = phones.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// How fitting a home the file's folders are for a number of `category`, among copies of one
@@ -241,14 +245,16 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
         return "name:" + first + " " + (words.count > 1 ? words.last! : "")
     }
 
-    /// Adds `source`, keeping one entry per file and its best role. The file's address is kept
-    /// from whichever reading gave one: a saved ID's source, saved before addresses were read,
-    /// takes it from today's reading of the same file.
+    /// Adds `source`, keeping one entry per file and its best role. The file's address and
+    /// phones are kept from whichever reading gave them: a saved ID's source, saved before they
+    /// were read, takes them from today's reading of the same file.
     public mutating func add(_ source: VaultSource) {
         if let index = sources.firstIndex(where: { $0.path == source.path }) {
             let address = source.address ?? sources[index].address
+            let phones = source.phones ?? sources[index].phones
             if source.rank > sources[index].rank { sources[index] = source }
             sources[index].address = address
+            sources[index].phones = phones
         } else {
             sources.append(source)
         }

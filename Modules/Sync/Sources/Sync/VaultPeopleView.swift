@@ -54,6 +54,34 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
         }
     }
 
+    /// A phone: typed for them, printed on papers under their name, or both.
+    public struct Phone: Equatable, Sendable {
+        /// As typed; the ten digits when only papers print it.
+        public var value: String
+        /// "Mobile", "Home", "Work": as typed, or as the paper's label says.
+        public var label: String?
+        /// Its place among the phones typed for them; nil when only papers print it.
+        public var typedIndex: Int?
+        /// The IDs whose papers print it under their name, from either tab.
+        public var rows: [VaultModel.Row]
+        /// The newest paper's date, or the day it was typed, whichever is later.
+        public var dated: Date?
+
+        public init(value: String, label: String? = nil, typedIndex: Int? = nil, rows: [VaultModel.Row] = [], dated: Date? = nil) {
+            self.value = value
+            self.label = label
+            self.typedIndex = typedIndex
+            self.rows = rows
+            self.dated = dated
+        }
+
+        public var typed: Bool { typedIndex != nil }
+        /// "(408) 555-0142".
+        public var shown: String { VaultContacts.phoneShown(value) }
+        /// One phone however it is written (``VaultContacts/phoneKey(_:)``).
+        public var key: String { VaultContacts.phoneKey(value) }
+    }
+
     /// A date of birth, and the IDs whose documents give it: where it was found, so a wrong one
     /// can be traced to the ID to remove or to give to whoever it belongs to.
     public struct Birth: Equatable, Sendable {
@@ -91,8 +119,9 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
     public var addresses: [Address] = []
     /// A license on Current that still prints a past address: the DMV wants to hear of a move.
     public var licenseDiffers: Address?
-    /// Phones and emails typed for them, the first leading.
-    public var phones: [VaultContacts.Typed] = []
+    /// Their phones, typed and read, newest first: the first leads.
+    public var phones: [Phone] = []
+    /// Emails typed for them, the first leading.
     public var emails: [VaultContacts.Typed] = []
 
     /// Where they live now.
@@ -201,7 +230,9 @@ extension VaultPersonSection {
     /// Contact card needs, where no section of People is drawn.
     public init(typingFor person: String, title: String, contacts: VaultContacts) {
         self.init(id: .person(person), title: title, names: [], births: [], groups: [], elsewhere: 0)
-        phones = contacts.phones
+        phones = contacts.phones.enumerated().map {
+            Phone(value: $0.element.value, label: $0.element.label, typedIndex: $0.offset, dated: $0.element.added)
+        }
         emails = contacts.emails
     }
 }

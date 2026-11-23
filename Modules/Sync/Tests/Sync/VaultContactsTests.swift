@@ -194,7 +194,8 @@ import Testing
         let backup = VaultBackupTests.backup(rig, folder: folder)
         try backup.setPassphrase(VaultBackupTests.phrase)
         let typed = ["anna": VaultContacts(phones: [.init("408 555 0142", label: "Mobile", added: VaultLockTests.t0)],
-                                            addresses: [.init(Self.brookside, added: VaultLockTests.t0)])]
+                                            addresses: [.init(Self.brookside, added: VaultLockTests.t0)],
+                                            notTheirPhones: ["6505550100"])]
         let url = try await backup.write([VaultBackupTests.mortgage], contacts: typed)
         let contents = try await backup.read(url).get()
         #expect(contents.contacts == typed)
@@ -207,6 +208,7 @@ import Testing
         #expect(await backup.restore(contents, mode: .addMissing) == .success(1))
         let merged = try #require(rig.store.loadReading()?.contacts?["anna"])
         #expect(merged.emails.map(\.value) == ["anna@example.com"] && merged.phones.map(\.value) == ["408 555 0142"])
+        #expect(merged.notTheirPhones == ["6505550100"], "a phone set aside stays set aside")
     }
 
     @Test func aBackupMadeBeforeContactsStillOpens() throws {
@@ -236,5 +238,67 @@ import Testing
         #expect(VaultPersonText.sourceLine(home.rows + past.rows, dated: home.dated) == "From 2 IDs · Jan 2026")
         #expect(VaultPersonText.sourceLine([], typed: true) == "From you")
         #expect(VaultPersonText.sourceLine([]) == "From People")
+    }
+}
+
+// MARK: Phones read
+
+extension VaultContactsTests {
+    /// The household's water bill, mailed to Anna, printing her cell phone and the utility's own.
+    static let billWithPhones = ["Account Number: 58210 44719 00", "ANNA ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132",
+                                 "Cell: (408) 555-0142", "Customer Service: (408) 555-0199"]
+
+    @Test func aPhoneReadUnderTheirNameIsTheirsWhoeverOwnsThePaper() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        let phone = try #require(try Self.section(model, "anna").phones.first)
+        #expect(try Self.section(model, "anna").phones.count == 1, "never the utility's own")
+        #expect(phone.shown == "(408) 555-0142" && phone.label == "Mobile" && !phone.typed)
+        #expect(phone.rows.map(\.category) == [.utilities] && phone.rows.allSatisfy(\.isHousehold),
+                "the bill is the household's; the phone is hers, by the name it is printed under")
+        #expect(try Self.section(model, "erik").phones.isEmpty)
+        let card = try #require(VaultContactCardsTests.card(model, .phones))
+        #expect(card.items.map(\.value) == ["(408) 555-0142"] && card.items.first?.phone?.rows.count == 1)
+    }
+
+    @Test func typingAPhoneTheirPapersPrintIsOnePhone() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        #expect(model.setPhone("408.555.0142", label: "Work", for: "anna"))
+        let phones = try Self.section(model, "anna").phones
+        #expect(phones.count == 1 && phones[0].typed && phones[0].label == "Work" && phones[0].rows.count == 1)
+    }
+
+    @Test func notTheirPhoneSetsAReadPhoneAsideAndTypingItBringsItBack() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        let phone = try #require(try Self.section(model, "anna").phones.first)
+        model.removePhone(at: phone.typedIndex, read: phone.key, for: "anna")
+        #expect(try Self.section(model, "anna").phones.isEmpty)
+        #expect(model.contacts["anna"]?.notTheirPhones == ["4085550142"])
+        #expect(VaultContactCardsTests.card(model, .phones) == nil)
+        model.setPhone("(408) 555-0142", label: "Mobile", for: "anna")
+        #expect(try Self.section(model, "anna").phones.map(\.rows.count) == [1], "typed, and printed on the bill again")
+        #expect(model.contacts["anna"]?.notTheirPhones == [])
+    }
+
+    @Test func correctingAReadPhoneSetsTheMisreadAside() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        #expect(model.setPhone("(408) 555-0143", label: "Mobile", for: "anna", correcting: "4085550142"))
+        #expect(try Self.section(model, "anna").phones.map(\.shown) == ["(408) 555-0143"])
+        // Kept as it was, with a label given: the paper's phone stays.
+        #expect(model.setPhone("(408) 555-0144", label: "Home", for: "erik", correcting: "4085550144"))
+        #expect(model.contacts["erik"]?.notTheirPhones == [])
+    }
+
+    @Test func contactsSavedBeforePhonesWereReadDecode() throws {
+        let old = try JSONDecoder().decode(VaultContacts.self, from: Data(#"{"phones":[]}"#.utf8))
+        #expect(old.notTheirPhones.isEmpty && old.isEmpty)
+    }
+
+    @Test func onePhoneHoweverWritten() {
+        #expect(VaultContacts.phoneKey("+1 (408) 555-0142") == VaultContacts.phoneKey("408.555.0142"))
+        #expect(VaultContacts.phoneKey("+91 98450 12345") == "919845012345")
     }
 }

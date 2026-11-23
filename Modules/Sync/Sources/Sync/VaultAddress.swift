@@ -90,12 +90,6 @@ extension VaultReading {
         pattern: #"(?:^|[\s,]+)((?:APT|APARTMENT|UNIT|STE|SUITE)\.?\s*#?\s*[A-Za-z0-9-]+|#\s*[A-Za-z0-9-]+)\s*$"#,
         options: [.caseInsensitive])
 
-    /// Words above a name that make its block someone else's address, or not the home: where a
-    /// bill's service is, or where payments go.
-    private static let notHomeCues = ["service address", "service location", "service for", "property address",
-                                      "premises", "remit", "payment address", "pay to", "payable to",
-                                      "send payment", "mail payment", "make checks"]
-
     /// The city line's parts, when `line` is one.
     static func cityLine(_ line: String) -> (city: String, state: String, zip: String)? {
         let ns = line as NSString
@@ -138,36 +132,5 @@ extension VaultReading {
         let squeezed = line.lowercased().filter { $0.isLetter || $0.isNumber }
         return squeezed.hasPrefix("pobox") || squeezed.contains("pobox") || squeezed.hasPrefix("box")
             || squeezed.contains("postofficebox")
-    }
-
-    /// The address a paper is mailed to: a line naming someone in `people`, the street under it
-    /// (a unit perhaps on its own line), then the city line. The first such block, page by page.
-    ///
-    /// A page is lines, not places on it, so the block is found by its order alone. A block under
-    /// words that make it a service or payment address is passed over, and so is a P.O. Box: a
-    /// home address is never guessed. With nobody in `people`, nothing is read.
-    static func mailingAddress(in pages: [[String]], people: [Person]) -> VaultAddress? {
-        guard !people.isEmpty else { return nil }
-        let registry = PersonRegistry(people: people)
-        for page in pages {
-            for (index, line) in page.enumerated() {
-                guard let city = cityLine(line), index >= 2 else { continue }
-                var at = index - 1
-                var unit = unitLine(page[at])
-                if unit != nil { at -= 1 }
-                guard at >= 1, let street = streetLine(page[at]) else { continue }
-                unit = unit ?? street.unit
-                // The name: on the line above the street, or the one above that ("C/O", a second name).
-                let names = (max(0, at - 2)..<at).reversed().first { i in
-                    let text = page[i]
-                    return !text.contains(where: \.isNumber) && !registry.detect(in: text).isEmpty
-                }
-                guard let name = names else { continue }
-                let above = page[max(0, name - 2)...name].joined(separator: " ").lowercased()
-                guard !notHomeCues.contains(where: above.contains) else { continue }
-                return VaultAddress(street: street.street, unit: unit, city: city.city, state: city.state, zip: city.zip)
-            }
-        }
-        return nil
     }
 }
