@@ -41,7 +41,7 @@ import Testing
 
     /// A saved ID's row and a waiting one's start with every choice made about it.
     @Test func aRowStartsWithEveryChoice() {
-        let reading: VaultModel.ChosenReading = (Self.facts, nil, nil, [])
+        let reading: VaultRowSource.ChosenReading = (Self.facts, nil, nil, [])
         var entry = VaultEntry(title: "Passport", value: "Z0000001", addedAt: Date(timeIntervalSince1970: 0))
         entry.choices = Self.all
         let find = VaultFind(title: "Passport", value: "Z0000001", facts: Self.facts, choices: Self.all)

@@ -53,7 +53,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batch 9), ~~VT69~~ (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, VT2, VT3, VT6, VT4, VT50, VT87, VT75,
    VT76, VT103, VT106, VT79, VT80.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
@@ -230,7 +230,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
   - nothing assumes two places;
   - with the owner's two places, the panel is unchanged.
 
-**VT7 — `VaultModel` does four jobs.** *Part done in batch 9: (c) but the walk. `VaultReadRun` holds a read's progress, its settle rules (two years agree, three give nothing, one unlabelled number two years print) and its tally, tested with no model (`VaultReadRunTests`); the loop body is one `look(at:)` with one advance after it, and the refresh and discover tails end in one `finishRead`. Open: (a), (b), (d), and the walk and read plan, which stay in `readDocuments`.*
+**VT7 — `VaultModel` does four jobs.** *Part done in batches 9 and 10; open: the walk and the read plan, which stay in `readDocuments`. Batch 9, (c): `VaultReadRun` holds a read's progress, its settle rules and its tally (`VaultReadRunTests`); the loop body is one `look(at:)` with one advance after it, and the refresh and discover tails end in one `finishRead`. Batch 10, (a), (b), (d): `VaultSession` holds the lock, its epoch, whether the panel is up and whether a read holds the numbers past a lock, and decides what each end of access does (`VaultSessionTests`); `VaultReadingState.opened(generation:people:)` is what a load takes from the reading file, which the model holds (`hold`) and seals again (`sealedReading`) (`VaultReadingFileTests`); `VaultRowSource.rows()` works the rows out from the numbers, readings, corrections, lessons, kinds, folders and day, with `VaultHolders` (whose a paper is) shared with a waiting number's rebuild (`VaultRowSourceTests`); `VaultRowFilter` works out the visible rows, cards, counts and People's sections from the rows and the search, tab and choices (`VaultRowFilterTests`). Each is tested with no model, but for one round trip through a model (what it took is what it seals). Proof: a throwaway harness drove five made-up scenarios (27 steps, every row field, each tab, filter and search), seven reading-file variants (state and the file sealed after), the five lock settings through 32 steps, and six reads across a close, a reopen, the Mac locking, a restore and a card read around Lock Now under three relock settings (state, log lines, redraw count) on `origin/main` and this tree: identical, custom kinds' random ids numbered, but for one redraw signal fewer as a load sets its waiting numbers once, not twice, in one call. The walk stays: it is awaits with a lock check between each, and moving it changes where a read can stop.*
 - **The problem.** At 2,270 lines it holds the lock session, record CRUD, the rows → cards → people
   derivation, and Read Documents. `readDocuments` runs `:1759`–`:2062` (about 300 lines), with four
   nested functions and eleven locals. Within it:
@@ -382,8 +382,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
   older `isColoring` (`VaultPanel.swift:1112`): one generic helper.
 - `(row.facts?.primary?.path).map { lastPathComponent }` three times (`sourceLabel`, `sourceHelp`,
   `sourcesList`).
-- The doc reference ``sourceChoices(of:speaker:chosen:)`` (`VaultModel.swift:512`) names an old
-  signature; it is `(of:shown:chosen:)`.
+- ~~The doc reference ``sourceChoices(of:speaker:chosen:)`` names an old signature.~~ Fixed in batch 10.
 
 **VT11 — Stale comment.** *Closed in batch 3: the comment went with VT73's change.* `VaultActivityWatch` says "every window has a Vault of its own"
 (`VaultPanel.swift:3105` at `710b5aaa3`); the app is one `Window` scene (`SyncCloudApp.swift:553`).
@@ -400,7 +399,7 @@ What is sound and should stay:
 - **Sealing.** AES-256-GCM with the marker as authenticated data; a random key, never synchronised; 0600
   files; "never write over a file this Mac cannot open".
 - **Keyed fingerprints.** HMAC-keyed set-aside fingerprints and the lock-off seal.
-- **The lock.** `lockEpoch` discarding late proofs, and nothing loaded before a proof (VF4).
+- **The lock.** The session's epoch (`VaultSession`) discarding late proofs, and nothing loaded before a proof (VF4).
 - **What prints.** Masked `description`s and empty mirrors.
 - **The clipboard.** A concealed, host-only copy, cleared after the set time and on quit.
 - **The backup.** PBKDF2-HMAC-SHA256 at 600,000 rounds, its header authenticated, a published-vector test.
