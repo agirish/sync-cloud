@@ -208,3 +208,13 @@ public enum VaultPersonText {
         return plain.count > 4 ? "ends \(plain.suffix(4))" : "hidden"
     }
 }
+
+extension VaultPersonSection {
+    /// A section with only who it is and what was typed for them: what typing a contact from a
+    /// Contact card needs, where no section of People is drawn.
+    public init(typingFor person: String, title: String, contacts: VaultContacts) {
+        self.init(id: .person(person), title: title, names: [], births: [], groups: [], elsewhere: 0)
+        phones = contacts.phones
+        emails = contacts.emails
+    }
+}

@@ -132,8 +132,8 @@ extension VaultModel {
 
     /// Types `address` as the home of `person` and of each of `alsoFor` (“Same for”). Typed
     /// today, it leads until a later paper prints another. With `replacing`, an address shown
-    /// (typed, or read and being corrected) gives way to it: a typed one is replaced, a read one
-    /// is set aside as not theirs.
+    /// (typed, or read and being corrected) gives way to it for each of them: a typed one is
+    /// replaced, a read one is set aside as not theirs.
     @discardableResult
     public func setAddress(_ address: VaultAddress, for person: String, alsoFor others: [String] = [],
                            replacing old: String? = nil) -> Bool {
@@ -142,8 +142,10 @@ extension VaultModel {
         let today = self.clock()
         var done = false
         for id in [person] + others where !id.isEmpty {
+            // A correction is for everyone it is given to: a shared address edited from its card
+            // is put right for each person who lives there.
             done = changeContacts(of: id) { c in
-                if let old, id == person {
+                if let old {
                     if let at = c.addresses.firstIndex(where: { $0.address.key == old }) {
                         c.addresses.remove(at: at)
                     } else if old != address.key, !c.notTheirs.contains(old) {

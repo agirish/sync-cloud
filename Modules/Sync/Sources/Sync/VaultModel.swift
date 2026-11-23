@@ -899,16 +899,37 @@ public final class VaultModel: ObservableObject {
     }
 
     private func loadFolded() {
-        folded = Set((defaults.stringArray(forKey: Self.foldedKey) ?? []).filter { VaultCardID(key: $0) != nil })
+        folded = Set((defaults.stringArray(forKey: Self.foldedKey) ?? [])
+            .filter { VaultCardID(key: $0) != nil || Self.contactFoldKeys.contains($0) })
     }
 
     public func isFolded(_ card: VaultCardID) -> Bool { folded.contains(card.key) }
+
+    /// A Contact card's fold, kept with the cards': "contact:addresses", and the like.
+    nonisolated static func foldKey(_ kind: VaultContactCard.Kind) -> String { "contact:" + kind.rawValue }
+    nonisolated static let contactFoldKeys = Set(VaultContactCard.Kind.allCases.map { "contact:" + $0.rawValue })
+
+    public func isFolded(_ kind: VaultContactCard.Kind) -> Bool { folded.contains(Self.foldKey(kind)) }
+
+    /// Folds or opens a Contact card; with `all`, every card, as ⌥-click does.
+    public func toggleFold(_ kind: VaultContactCard.Kind, all: Bool = false) {
+        let key = Self.foldKey(kind)
+        let fold = !folded.contains(key)
+        if all {
+            folded = fold ? Set(kinds.order.map(\.key)).union(Self.contactFoldKeys) : []
+        } else if fold {
+            folded.insert(key)
+        } else {
+            folded.remove(key)
+        }
+        saveFolded()
+    }
 
     /// Folds or opens one card; with `all`, every card, as ⌥-click does.
     public func toggleFold(_ card: VaultCardID, all: Bool = false) {
         let fold = !folded.contains(card.key)
         if all {
-            folded = fold ? Set(kinds.order.map(\.key)) : []
+            folded = fold ? Set(kinds.order.map(\.key)).union(Self.contactFoldKeys) : []
         } else if fold {
             folded.insert(card.key)
         } else {
@@ -919,13 +940,13 @@ public final class VaultModel: ObservableObject {
 
     /// Whether every card on screen is folded: Collapse All then reads Expand All.
     public var allFolded: Bool {
-        let shown = cards.map(\.card.key)
+        let shown = cards.map(\.card.key) + contactCards.map { Self.foldKey($0.kind) }
         return !shown.isEmpty && shown.allSatisfy(folded.contains)
     }
 
     /// Collapse All, or Expand All once everything on screen is folded.
     public func toggleFoldAll() {
-        folded = allFolded ? [] : Set(kinds.order.map(\.key))
+        folded = allFolded ? [] : Set(kinds.order.map(\.key)).union(Self.contactFoldKeys)
         saveFolded()
     }
 

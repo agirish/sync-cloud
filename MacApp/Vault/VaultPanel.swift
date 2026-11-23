@@ -177,6 +177,10 @@ struct VaultCard: View {
     @State private var roleChoosing: String?
     /// The phone, email or address being typed in a tile's popover.
     @State private var contactEdit: ContactEdit?
+    /// The Contact card row open in the details pane, by its id; nil while an ID is.
+    @State private var contactChosen: String?
+    /// The contact whose removal is being asked about.
+    @State private var removingContact: VaultContactCard.Item?
     /// The misreading just corrected, with an Undo, until another is.
     @State private var misreadNote: MisreadNote?
     struct MisreadNote: Equatable {
@@ -376,6 +380,8 @@ struct VaultCard: View {
                 .presentedNativeControlAccent()
         }
         .onChange(of: largeType) { _, now in if now == nil { focusSearch() } }
+        // Choosing an ID puts it in the details pane in place of a contact.
+        .onChange(of: model.selection) { _, id in if id != nil { contactChosen = nil } }
         // A read in progress goes on: the model runs it, and lets the numbers go when it ends.
         .onDisappear {
             activity.stop()
@@ -711,7 +717,8 @@ struct VaultCard: View {
                     }
                     ForEach(model.groups.order, id: \.self) { id in
                         optionChip(model.groups.name(id), dot: model.tab == .other ? nil : model.colors.tint(ofGroup: id)?.color,
-                                   count: model.count(kind: .some(id)), isSelected: model.kindFilter == id) {
+                                   count: id == VaultGroups.contact ? model.contactCount : model.count(kind: .some(id)),
+                                   isSelected: model.kindFilter == id) {
                             model.kindFilter = id
                         }
                     }
@@ -996,7 +1003,8 @@ struct VaultCard: View {
                 VStack(alignment: .leading, spacing: 12) {
                     readAgainBanner
                     tabBanner
-                    if model.cards.isEmpty {
+                    let contacts = model.contactCards
+                    if model.cards.isEmpty && contacts.isEmpty {
                         if hiddenByChoices {
                             hiddenByChoicesState
                         } else {
@@ -1014,6 +1022,12 @@ struct VaultCard: View {
                                 // Its column comes from its header and every row, folded or
                                 // not: folding it never moves a card to another column.
                                 .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.rows.count))
+                        }
+                        // The Contact group after every ID card (QH, 2026-11-22).
+                        ForEach(contacts) { card in
+                            contactCard(card)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                                .layoutValue(key: VaultMasonrySize.self, value: CGFloat(1 + card.items.count))
                         }
                     }
                     // Kinds that only the other country has, which no card here can point to.
@@ -1109,6 +1123,298 @@ struct VaultCard: View {
         .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
     }
 
+    // MARK: The Contact group's cards
+
+    /// A Contact card: Home Addresses, Phones or Emails, in the Contact group's color. Its rows act
+    /// like People's tiles, not like IDs: a click opens them in the details pane, nothing is
+    /// masked, and they are not counted beside the IDs.
+    private func contactCard(_ card: VaultContactCard) -> some View {
+        let tint = model.colors.tint(ofGroup: VaultGroups.contact)
+        let washed = contrast != .increased && tint != nil
+        let isFolded = model.isFolded(card.kind)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withDesignAnimation(.snappy(duration: 0.2), reduceMotion: reduceMotion) {
+                    model.toggleFold(card.kind, all: NSEvent.modifierFlags.contains(.option))
+                }
+            } label: {
+                VaultCardHeader(title: card.kind.title, symbol: card.kind.symbol, count: card.items.count,
+                                isFolded: isFolded, foldedSummary: Self.contactFoldedSummary(card, people: people),
+                                tint: tint, accent: glassHue.accentColor, washes: contrast != .increased)
+            }
+            .buttonStyle(.plain)
+            .help(isFolded ? "Expand. ⌥-click to expand every card." : "Collapse. ⌥-click to collapse every card.")
+            .accessibilityLabel("\(card.kind.title), \(card.items.count)")
+            .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
+            if !isFolded {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(card.items) { item in contactRow(item).id(item.id) }
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(VaultCardBodyWash(tint: washed ? tint : nil))
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+    }
+
+    /// A folded Contact card's one line: whose, as an ID card's says ("Anna, Erik").
+    static func contactFoldedSummary(_ card: VaultContactCard, people: [Person]) -> String {
+        var seen: [String] = []
+        for id in card.items.flatMap(\.people) where !seen.contains(id) { seen.append(id) }
+        return seen.compactMap { id in people.first { $0.id == id }?.displayName }.joined(separator: ", ")
+    }
+
+    /// The people a contact row is theirs, by name, in People's order.
+    private func contactNames(_ item: VaultContactCard.Item) -> [String] {
+        item.people.map { id in people.first { $0.id == id }?.displayName ?? "Someone no longer in People" }
+    }
+
+    /// "Abhishek, Shweta · From 4 IDs · Oct 2026", or "Shweta · Mobile · From you".
+    static func contactSubtitle(_ item: VaultContactCard.Item, names: [String]) -> String {
+        var parts = [names.joined(separator: ", ")]
+        // A search shows past addresses on Current too: each says so.
+        if item.past { parts.append("Past") }
+        if let address = item.address {
+            parts.append(VaultPersonText.sourceLine(address.rows, typed: address.typed, dated: address.dated))
+        } else {
+            if let label = item.typed?.label { parts.append(label) }
+            parts.append("From you")
+        }
+        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// One contact row: whose (their initials), the value, whose and where it comes from, and a
+    /// copy icon. Choosing it opens it in the details pane.
+    private func contactRow(_ item: VaultContactCard.Item) -> some View {
+        let names = contactNames(item)
+        let chosen = contactChosen == item.id
+        let copyKey = "contact-\(item.id)"
+        return HStack(spacing: 10) {
+            Text(names.map { String($0.prefix(1)).uppercased() }.joined(separator: "·"))
+                .scaledFont(names.count > 1 ? .caption2.weight(.bold) : .callout.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(.quaternary))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.value)
+                    .scaledFont(.body.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(Self.contactSubtitle(item, names: names))
+                    .scaledFont(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 6)
+            if item.licenseDiffers {
+                Text("License differs")
+                    .scaledFont(.caption2.weight(.semibold))
+                    .foregroundStyle(PillVariant.labelInk(for: SemanticColor.warning))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(SemanticColor.warning.opacity(0.18)))
+                    .fixedSize()
+                    .help("A driver’s license here still prints an earlier address")
+            }
+            copyIcon(copyKey, help: "Copy \(item.value)") { copyString(item.value, key: copyKey) }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: Radius.control).fill(chosen ? glassHue.accentColor.opacity(0.16) : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture { chooseContact(item) }
+        .help(item.value)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
+        .contextMenu { contactMenu(item) }
+    }
+
+    private func chooseContact(_ item: VaultContactCard.Item) {
+        editing = nil
+        model.selection = nil
+        contactChosen = item.id
+    }
+
+    /// Copy it (an address also by part, as forms ask), correct it, or take it out.
+    @ViewBuilder
+    private func contactMenu(_ item: VaultContactCard.Item) -> some View {
+        Button("Copy") { copyString(item.value) }
+        if let a = item.address?.address {
+            Button("Copy Street") { copyString(([a.street] + [a.unit].compactMap { $0 }).joined(separator: ", ")) }
+            Button("Copy City") { copyString(a.city) }
+            Button("Copy ZIP Code") { copyString(a.zip) }
+        }
+        Divider()
+        if !item.past {
+            Button("Edit…") { editContact(item) }
+        }
+        // Asked in its details first: what it takes away has no button to bring it back.
+        Button(Self.contactRemoveTitle(item) + "…") {
+            chooseContact(item)
+            removingContact = item
+        }
+    }
+
+    /// "Not Their Address" for one papers print, "Remove" for one only typed.
+    static func contactRemoveTitle(_ item: VaultContactCard.Item) -> String {
+        guard let address = item.address, !address.rows.isEmpty else { return "Remove" }
+        return "Not Their Address"
+    }
+
+    private func removeContact(_ item: VaultContactCard.Item) {
+        if contactChosen == item.id { contactChosen = nil }
+        switch item.kind {
+        case .addresses:
+            guard let address = item.address else { return }
+            let read = !address.rows.isEmpty
+            let everyone = read && address.rows.allSatisfy(\.isHousehold)
+            for person in item.people {
+                model.removeAddress(address.address.key, for: person, read: read, everyone: everyone)
+            }
+        case .phones:
+            if let person = item.people.first, let index = item.index { model.removePhone(at: index, for: person) }
+        case .emails:
+            if let person = item.people.first, let index = item.index { model.removeEmail(at: index, for: person) }
+        }
+    }
+
+    /// A person's section as typing a contact needs it: their name, phones and emails.
+    private func contactSection(_ person: String) -> VaultPersonSection {
+        VaultPersonSection(typingFor: person, title: people.first { $0.id == person }?.displayName ?? person,
+                           contacts: model.contacts[person] ?? VaultContacts())
+    }
+
+    /// Edit… from a contact row or its details: an address for everyone who lives there.
+    private func editContact(_ item: VaultContactCard.Item) {
+        guard let person = item.people.first else { return }
+        let section = contactSection(person)
+        switch item.kind {
+        case .addresses:
+            startContactEdit(.address, section, address: item.address, alsoFor: Array(item.people.dropFirst()), anchor: Self.contactEditAnchor)
+        case .phones: startContactEdit(.phone, section, index: item.index, anchor: Self.contactEditAnchor)
+        case .emails: startContactEdit(.email, section, index: item.index, anchor: Self.contactEditAnchor)
+        }
+    }
+
+    /// Where the editor opened from a contact hangs: Edit… in its details.
+    static let contactEditAnchor = "edit-contact"
+
+    /// The contact row chosen, as the cards draw it now.
+    private var chosenContact: VaultContactCard.Item? {
+        guard let id = contactChosen else { return nil }
+        return model.contactItems.first { $0.id == id }
+    }
+
+    /// A contact in the details pane: its parts, each copyable, the IDs whose papers print it,
+    /// and Edit… and Not Their Address….
+    private func contactDetail(_ item: VaultContactCard.Item) -> some View {
+        let names = contactNames(item)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.address?.address.street ?? item.value)
+                        .scaledFont(.title3.weight(.semibold))
+                        .textSelection(.enabled)
+                    Text([item.past ? "Past address" : item.kind == .addresses ? "Home address" : item.kind == .phones ? "Phone" : "Email",
+                          ListFormatter.localizedString(byJoining: names)].joined(separator: " · "))
+                        .scaledFont(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 6) {
+                    ForEach(Self.contactParts(item), id: \.label) { part in
+                        GridRow {
+                            Text(part.label)
+                                .scaledFont(.callout)
+                                .foregroundStyle(.secondary)
+                                .gridColumnAlignment(.trailing)
+                            Text(part.value)
+                                .scaledFont(.callout.weight(.semibold))
+                                .textSelection(.enabled)
+                            let key = "contact-\(item.id)-\(part.label)"
+                            copyIcon(key, help: "Copy \(part.value)") { copyString(part.value, key: key) }
+                        }
+                    }
+                }
+                if let address = item.address, !address.rows.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("PRINTED ON")
+                            .scaledFont(.caption2.weight(.semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.secondary)
+                        ForEach(address.rows) { row in
+                            Button {
+                                contactChosen = nil
+                                openSource(row)
+                            } label: {
+                                Text([Self.sourceLine(row), row.whose].joined(separator: " · "))
+                                    .scaledFont(.callout)
+                                    .foregroundStyle(glassHue.accentColor)
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
+                            .help(Self.sourceHelp(row))
+                        }
+                    }
+                }
+                if item.licenseDiffers {
+                    Text("A driver’s license here still prints an earlier address. The DMV asks to be told of a move.")
+                        .scaledFont(.caption)
+                        .foregroundStyle(SemanticColor.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    Button("Copy") { copyString(item.value, key: "contact-\(item.id)") }
+                    if !item.past {
+                        Button("Edit…") { editContact(item) }
+                            .popover(isPresented: editBinding(Self.contactEditAnchor), arrowEdge: .bottom) {
+                                if let person = item.people.first {
+                                    contactEditor(contactSection(person))
+                                        .presentedNativeControlAccent()
+                                }
+                            }
+                    }
+                    Button(Self.contactRemoveTitle(item) + "…") { removingContact = item }
+                }
+                .controlSize(.small)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .confirmationDialog(removingContact.map { Self.contactRemoveQuestion($0, names: contactNames($0)) } ?? "",
+                            isPresented: Binding(get: { removingContact != nil }, set: { if !$0 { removingContact = nil } })) {
+            if let removing = removingContact {
+                Button(Self.contactRemoveTitle(removing), role: .destructive) {
+                    removeContact(removing)
+                    removingContact = nil
+                }
+            }
+        }
+    }
+
+    /// "2841 Larkspur Lane is not Abhishek’s or Shweta’s home?", and the like.
+    static func contactRemoveQuestion(_ item: VaultContactCard.Item, names: [String]) -> String {
+        guard let address = item.address else { return "Remove \(item.value)?" }
+        if address.rows.isEmpty { return "Remove \(address.address.street)?" }
+        return "\(address.address.street) is not \(ListFormatter.localizedString(byJoining: names))’s home? The papers stay; it is no longer shown as theirs."
+    }
+
+    /// The parts a form asks for: an address's street, unit, city, state and ZIP; a phone or
+    /// an email and its label.
+    static func contactParts(_ item: VaultContactCard.Item) -> [(label: String, value: String)] {
+        if let a = item.address?.address {
+            return [("Street", a.street)] + (a.unit.map { [("Apt", $0)] } ?? []) + [("City", a.city), ("State", a.state), ("ZIP", a.zip)]
+        }
+        return [(item.kind == .phones ? "Number" : "Address", item.value)] + (item.typed?.label.map { [("Label", $0)] } ?? [])
+    }
+
     /// The Color choice for `card`: from its title's menu, and beside Kind in an ID's details.
     private func colorPopover(for card: VaultCardID, at anchor: VaultColorAnchor) -> some View {
         let choice = model.colorChoice(for: card)
@@ -1148,7 +1454,8 @@ struct VaultCard: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     readAgainBanner
                     tabBanner
-                    if model.cards.isEmpty {
+                    let contacts = model.contactCards
+                    if model.cards.isEmpty && contacts.isEmpty {
                         EmptyStateView(icon: "magnifyingglass", title: emptyTitle, message: emptyMessage, layout: .compact)
                             .padding(.top, 24)
                             .frame(maxWidth: .infinity)
@@ -1169,6 +1476,23 @@ struct VaultCard: View {
                         .padding(.horizontal, 8)
                         .padding(.top, 8)
                         ForEach(card.rows) { row in rowView(row).id(row.id) }
+                    }
+                    // The Contact group's cards, after the IDs, each under its name.
+                    ForEach(contacts) { card in
+                        HStack(spacing: 6) {
+                            if let tint = model.colors.tint(ofGroup: VaultGroups.contact) {
+                                Image(systemName: card.kind.symbol)
+                                    .scaledFont(.caption.weight(.semibold))
+                                    .foregroundStyle(tint.color)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(card.kind.title)
+                                .scaledFont(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        ForEach(card.items) { item in contactRow(item).id(item.id) }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -1977,7 +2301,9 @@ struct VaultCard: View {
         var street = "", unit = "", city = "", state = "", zip = ""
         /// Everyone else the new address is also for (“Same for”).
         var alsoFor: Set<String> = []
-        var anchor: String { "edit-\(section)-\(kind.rawValue)" }
+        /// Where the editor hangs when not on its tile: Edit… in a contact's details.
+        var place: String?
+        var anchor: String { place ?? "edit-\(section)-\(kind.rawValue)" }
 
         var address: VaultAddress { VaultAddress(street: street, unit: unit, city: city, state: state, zip: zip).trimmed }
 
@@ -1991,9 +2317,10 @@ struct VaultCard: View {
     }
 
     private func startContactEdit(_ kind: ContactEdit.Kind, _ section: VaultPersonSection, index: Int? = nil,
-                                  address: VaultPersonSection.Address? = nil) {
+                                  address: VaultPersonSection.Address? = nil, alsoFor: [String] = [], anchor: String? = nil) {
         guard let person = section.personID else { return }
         var edit = ContactEdit(kind: kind, section: section.title, person: person, index: index)
+        edit.place = anchor
         switch kind {
         case .phone, .email:
             let values = kind == .phone ? section.phones : section.emails
@@ -2007,6 +2334,8 @@ struct VaultCard: View {
             if let a = address?.address {
                 (edit.street, edit.unit, edit.city, edit.state, edit.zip) = (a.street, a.unit ?? "", a.city, a.state, a.zip)
                 edit.replacing = a.key
+                // A shared address is put right for everyone who lives there.
+                edit.alsoFor = Set(alsoFor)
             } else {
                 // Offered for everyone else in People, each ticked (PY).
                 edit.alsoFor = Set(model.people.map(\.id).filter { $0 != person })
@@ -2089,8 +2418,7 @@ struct VaultCard: View {
         case .phone: model.setPhone(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
         case .email: model.setEmail(edit.value, label: edit.label, for: edit.person, replacing: edit.index)
         case .address:
-            model.setAddress(edit.address, for: edit.person, alsoFor: edit.replacing == nil ? Array(edit.alsoFor).sorted() : [],
-                             replacing: edit.replacing)
+            model.setAddress(edit.address, for: edit.person, alsoFor: Array(edit.alsoFor).sorted(), replacing: edit.replacing)
         }
         contactEdit = nil
     }
@@ -2671,6 +2999,8 @@ struct VaultCard: View {
     private var side: some View {
         if editing != nil {
             editor
+        } else if let item = chosenContact {
+            contactDetail(item)
         } else if let row = model.selectedRow {
             detail(row)
         } else {
@@ -4396,7 +4726,7 @@ struct VaultGroupsSheet: View {
                             HStack(spacing: 8) {
                                 Picker("Group of \(category.title)", selection: Binding(get: { groups.group(of: category) ?? "" },
                                                                                         set: { groups.groupOf[category] = $0 })) {
-                                    ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                                    ForEach(groups.idGroups, id: \.self) { id in Text(groups.name(id)).tag(id) }
                                 }
                                 .labelsHidden()
                                 .fixedSize()
@@ -4422,7 +4752,7 @@ struct VaultGroupsSheet: View {
                                 .accessibilityLabel("Name of the kind \(kind.name)")
                             Picker("Group", selection: Binding(get: { kinds.kind(kind.id)?.group ?? kind.group },
                                                                set: { group in edit(kind.id) { $0.group = group } })) {
-                                ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                                ForEach(groups.idGroups, id: \.self) { id in Text(groups.name(id)).tag(id) }
                             }
                             .labelsHidden()
                             .fixedSize()
@@ -4498,7 +4828,7 @@ struct VaultNewKindSheet: View {
                 TextField("Name", text: $name, prompt: Text("Memberships"))
                     .focused($nameFocused)
                 Picker("Group", selection: $group) {
-                    ForEach(groups.order, id: \.self) { id in Text(groups.name(id)).tag(id) }
+                    ForEach(groups.idGroups, id: \.self) { id in Text(groups.name(id)).tag(id) }
                 }
             }
             .formStyle(.grouped)

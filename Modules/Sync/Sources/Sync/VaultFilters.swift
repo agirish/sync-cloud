@@ -92,11 +92,13 @@ public struct VaultGroups: Equatable, Sendable {
     public var order: [ID]
 
     public static let `default` = VaultGroups(
-        names: ["travel": "Travel & Immigration", "legal": "Legal & IDs", "health": "Health", "home": "Home & Money"],
+        names: ["travel": "Travel & Immigration", "legal": "Legal & IDs", "health": "Health", "home": "Home & Money",
+                "contact": "Contact"],
         groupOf: [.passport: "travel", .usVisa: "travel", .i94: "travel", .uscisCase: "travel",
                   .driversLicense: "legal", .ssn: "legal", .pan: "legal", .aadhaar: "legal", .voterID: "legal",
                   .health: "health", .utilities: "home", .loans: "home", .other: "home"],
-        order: ["travel", "legal", "health", "home"])
+        // Contact last: its cards come after every ID's (``VaultContactCard``).
+        order: ["travel", "legal", "health", "home", "contact"])
 
     public func name(_ id: ID) -> String { names[id] ?? Self.default.names[id] ?? id }
 
@@ -113,7 +115,8 @@ public struct VaultGroups: Equatable, Sendable {
             groups.names[id] = name
         }
         for (raw, id) in defaults.dictionary(forKey: membersKey) as? [String: String] ?? [:] {
-            if let category = VaultCategory(rawValue: raw), groups.order.contains(id) { groups.groupOf[category] = id }
+            // Never into Contact: it holds the household's addresses, phones and emails, not IDs.
+            if let category = VaultCategory(rawValue: raw), groups.idGroups.contains(id) { groups.groupOf[category] = id }
         }
         return groups
     }

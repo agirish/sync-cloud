@@ -16326,3 +16326,17 @@ only.
 | Line | Carries | Status |
 |---|---|---|
 | `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
+
+## Vault ▸ Cards and List: the Contact group — main only, recorded, not owed
+
+2026-11-22, for v7.2. A Contact group (`VaultGroups.contact`, last in the app's groups, clay)
+holds three cards after every ID card: Home Addresses, Phones and Emails
+(`VaultModel.contactCards`, `VaultContactCard`), built from what People holds, never from
+`VaultModel.rows`, so no count, mask or backup entry changes. A shared address is one row; a
+search matches a street, city, ZIP, phone digits or email. Their folds are kept with the cards'
+(`contact:<kind>` in `vaultFoldedCards`); an older build drops those keys when it reads them. No
+kind can be moved into the group.
+
+| Line | Carries | Status |
+|---|---|---|
+| `v6.x` / `v5.x` / `v4.x` / `v3.x` / `v2.x` | No Vault | RECORDED — not owed (new feature) |
