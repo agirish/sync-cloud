@@ -43,6 +43,24 @@ import Testing
         window.displayIfNeeded()
     }
 
+    /// Publishes until a publish draws no row and no heading, in turns: what a change draws once
+    /// SwiftUI compares rows at all. It compares a row with its `==` only once AttributeGraph has
+    /// worked out how to compare the row's type, the first time in each process and on a
+    /// background queue; until then it draws every row again, `==` never called. Under load that
+    /// took past ten settle turns, 1.8 s and more (docs/flaky-tests.md, "SwiftUI compares a view
+    /// with its own equality only once it has worked out how"). Whether it ever stops is left to
+    /// the caller's expectations: a row that is never skipped runs out the turns and fails them.
+    static func untilAPublishDrawsNothing(_ model: VaultModel, _ window: NSWindow, _ draws: VaultDrawCount) async throws {
+        for turn in 0..<300 {
+            draws.rows = []
+            draws.shells = 0
+            draws.headers = 0
+            model.notice = "Warming up \(turn)"
+            try await settle(window)
+            if draws.shells == 0, draws.rows.isEmpty, draws.headers == 0 { return }
+        }
+    }
+
     @Test(arguments: VaultLayout.allCases)
     func aChangeThatLeavesTheRowsAloneDrawsNoRowAgain(_ layout: VaultLayout) async throws {
         let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
@@ -65,6 +83,7 @@ import Testing
         }
 
         // A notice, like a read's progress, is a publish that changes no row.
+        try await Self.untilAPublishDrawsNothing(rig.model, window, draws)
         draws.rows = []
         draws.shells = 0
         draws.headers = 0

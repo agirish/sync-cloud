@@ -5784,3 +5784,39 @@ placed, and look at a bitmap.
 
 **See.** `VaultCard.peopleView` and `VaultCardSlice` in `MacApp/Vault/VaultPanel.swift`;
 `VaultRowRedrawTests` and `VaultLaidOut`.
+
+### 65. SwiftUI compares a view with its own equality only once it has worked out how, so under load every row is drawn again — FIXED
+
+**Symptom.** `VaultRowRedrawTests.aChangeThatLeavesTheRowsAloneDrawsNoRowAgain` red under 14 `yes`
+spinners, 3 runs of 3 on 2026-11-22 and 12 of 19 in the probe that followed, at `draws.rows.isEmpty`
+and `draws.shells == 35`: each of the five notices drew all seven rows again, and the first choice
+drew all seven instead of two. Mostly `.cards`, the first argument; in some runs every layout.
+Green idle, green with the spinners off, not yet seen on hosted CI.
+
+**Mechanism.** Not a row value that changed, and not a row made anew. Probes in the rows showed, in a
+red run, every row's body run on each publish with **no call to `VaultRow.==` at all**, its `@State`
+kept and no disappear or appear; `Self._printChanges()` said `@self changed`. SwiftUI compares a
+view with its `Equatable` conformance through AttributeGraph, which first works out how to compare
+the view's type, once per process and on a background queue. Until that is done it treats a new
+value as changed without asking `==`. The spinners starve that queue: in red runs the rows were
+first compared 1.8 s after the panel was mounted, or never in the whole 1.9 s test; in a green run,
+0.14 s. Setting `AG_ASYNC_LAYOUTS=0` for the test process (`TEST_RUNNER_AG_ASYNC_LAYOUTS=0`) turned
+the same load green 4 of 4; the same script with `1` was red 2 of 4. Each test process starts with
+its cache empty, so a run is red or green as a whole, and the first argument most often.
+
+In the app this is the panel's first seconds after launch at most, under load: rows drawn again
+until the comparison is ready, then skipped. Nothing for the app to change.
+
+**Fix, 2026-11-22.** The test waits, in turns, for a publish that draws no row and no heading
+(`untilAPublishDrawsNothing`) before it counts. With `VaultRow.==` or `VaultRowLabel.==`
+returning false, no publish is ever quiet, the turns run out, and the test is red at every layout.
+Fixed, it was green 5 of 5 under the same 14 spinners. Taking `.equatable()` off the row leaves it green, with
+its rows still skipped: SwiftUI compares a view that is `Equatable` and not plain data with its
+`==` anyway.
+
+**Tell.** A view's body runs on a change that leaves it alone, `==` never called, red only under
+load and only near a type's first use in the process. Log inside `==`: no call at all is this; a
+call that returns false is a real change.
+
+**See.** `VaultRowRedrawTests.untilAPublishDrawsNothing`; `VaultRow` and `VaultRowLabel` in
+`MacApp/Vault/VaultRows.swift`.
