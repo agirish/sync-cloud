@@ -615,17 +615,7 @@ public final class VaultModel: ObservableObject {
     /// Later reads keep the choice.
     public func assign(_ id: UUID, to assignment: VaultAssignment?) {
         let before = visibleIDs
-        if let index = entries.firstIndex(where: { $0.id == id }) {
-            var changed = entries
-            changed[index].assignment = assignment
-            _ = write(changed)
-        } else if let index = finds.firstIndex(where: { $0.id == id }) {
-            finds[index].assignment = assignment
-            // Its person chosen, that person's papers speak for it (``VaultHolders/split(_:owner:)``).
-            finds[index] = rebuilt(finds[index], VaultReading.normalized(finds[index].value))
-            readingChanged = true
-            saveReading()
-        }
+        choose(.assignment(assignment), for: id)
         keepSelection(near: before)
     }
 
@@ -704,15 +694,7 @@ public final class VaultModel: ObservableObject {
     /// Used In: where a number is used; nil goes by its document again. Later reads keep it.
     public func setGeo(_ id: UUID, to geo: VaultGeo?) {
         let before = visibleIDs
-        if let index = entries.firstIndex(where: { $0.id == id }) {
-            var changed = entries
-            changed[index].geo = geo
-            _ = write(changed)
-        } else if let index = finds.firstIndex(where: { $0.id == id }) {
-            finds[index].geo = geo
-            readingChanged = true
-            saveReading()
-        }
+        choose(.geo(geo), for: id)
         keepSelection(near: before)
     }
 
@@ -1009,15 +991,8 @@ public final class VaultModel: ObservableObject {
         // Kept as a choice of its own even As Read, so no lesson moves it: not its folder's now,
         // nor another's should a later read find it first elsewhere.
         let chosen: VaultCardID = card ?? .builtIn(row.readAs)
-        if let index = entries.firstIndex(where: { $0.id == id }) {
-            var changed = entries
-            changed[index].card = chosen
-            guard write(changed) else { return }
-        } else if let index = finds.firstIndex(where: { $0.id == id }) {
-            finds[index].card = chosen
-        } else {
-            return
-        }
+        // The reading file is sealed below, with the lesson, for a saved ID and a waiting one alike.
+        guard choose(.card(chosen), for: id, sealingWaiting: false) else { return }
         if let folder, !asRead { lessons[folder] = chosen }
         readingChanged = true
         saveReading()
@@ -1036,18 +1011,7 @@ public final class VaultModel: ObservableObject {
         guard let row = rows.first(where: { $0.id == id }) else { return }
         let chosen = path == row.appSource ? nil : path
         if let chosen, !row.sourceChoices.contains(chosen) { return }
-        guard chosen != row.chosenSource else { return }
-        if let index = entries.firstIndex(where: { $0.id == id }) {
-            var changed = entries
-            changed[index].chosenSource = chosen
-            guard write(changed) else { return }
-        } else if let index = finds.firstIndex(where: { $0.id == id }) {
-            finds[index].chosenSource = chosen
-            readingChanged = true
-            saveReading()
-        } else {
-            return
-        }
+        guard chosen != row.chosenSource, choose(.source(chosen), for: id) else { return }
         rowsRevision &+= 1
         showEvenIfFiltered(id)
     }
@@ -1195,16 +1159,32 @@ public final class VaultModel: ObservableObject {
     /// Move to Current or Move to Archive: a choice later reads keep. Nil lets the rules decide again.
     public func pin(_ id: UUID, _ pin: VaultPin?) {
         let before = visibleIDs
+        choose(.pin(pin), for: id)
+        keepSelection(near: before)
+    }
+
+    /// One choice about an ID, kept where the ID is (VT1): a saved one's written to the Vault, a
+    /// waiting one's to the reading file, sealed unless the caller seals it later
+    /// (`sealingWaiting` off: Kind, with its lesson). A waiting ID whose person is chosen is
+    /// rebuilt from its copies, so that person's papers speak for it
+    /// (``VaultHolders/split(_:owner:)``). False when no ID has `id`, or a saved one's write failed.
+    @discardableResult
+    private func choose(_ change: VaultChoiceChange, for id: UUID, sealingWaiting: Bool = true) -> Bool {
         if let index = entries.firstIndex(where: { $0.id == id }) {
             var changed = entries
-            changed[index].pin = pin
-            _ = write(changed)
-        } else if let index = finds.firstIndex(where: { $0.id == id }) {
-            finds[index].pin = pin
+            changed[index].apply(change)
+            return write(changed)
+        }
+        guard let index = finds.firstIndex(where: { $0.id == id }) else { return false }
+        finds[index].apply(change)
+        if case .assignment = change {
+            finds[index] = rebuilt(finds[index], VaultReading.normalized(finds[index].value))
+        }
+        if sealingWaiting {
             readingChanged = true
             saveReading()
         }
-        keepSelection(near: before)
+        return true
     }
 
     /// Documents that name a number without being its source, by the number.

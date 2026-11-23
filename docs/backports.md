@@ -16232,7 +16232,8 @@ id, one helper each for a keyed popover and a row's file name, a sheet's URL wra
 every URL made Identifiable, and dead code is gone. Batch 12: each kind of ID is one row of data
 (`VaultKindSpec`: names, symbol, how its number is printed and hidden, home folders, group, where
 it is used, how a newer one replaces it), the app's groups and their colors are rows too, and a
-place is a country's code or anywhere, stored by the names it always was.
+place is a country's code or anywhere, stored by the names it always was. Batch 13: the panel's five choices
+about an ID, saved or waiting, are made by one path.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

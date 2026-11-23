@@ -48,6 +48,8 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 - **v7.2: VT3**, the migration that drops the never-shipped shims. The owner asked that it land
   before v7.2 (2026-11-22); it rewrites his sealed file once, so say so in the ask.
+  VT1's stored shape (one record with typed fields) and VT6 (one sealed document) go into that
+  same rewrite (owner, 2026-11-23), so his file changes once, not three times.
 
 ## Order
 
@@ -59,7 +61,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1, ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6, VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), VT50, VT87, VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
 7. **Security:** VT34, VT35; VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -135,7 +137,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
   difference reloads and refuses. *Owner's call:* a refused save is new behaviour, and what the panel
   says then is new copy.
 
-**VT6 — Fewer homes for state.** *Open, and worse.*
+**VT6 — Fewer homes for state.** *Open, and worse; goes into the one rewrite of the owner's file before the v7.2 cut, with VT3 and VT1's stored shape (owner, 2026-11-23).*
 - **The problem.** What the Vault knows now lives in:
   - four sealed families, plus the ten copies kept before each save (VT20);
   - UserDefaults keys, which hold:
@@ -164,7 +166,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
     written in one atomic swap through `SealedFile.write` (the read index may stay apart: it is a cache);
   - UserDefaults keeps view preferences and settings only.
 
-**VT3 — Drop shims for builds that never shipped.** *Open; owed before the v7.2 cut (owner, 2026-11-22).* Held back until near the cut: a build made before the migration reads none of the rewritten records and shows the Vault empty, with nothing saying why, until it is rebuilt.
+**VT3 — Drop shims for builds that never shipped.** *Open; owed before the v7.2 cut (owner, 2026-11-22), in one rewrite of his file with VT1's stored shape and VT6 (owner, 2026-11-23).* Held back until near the cut: a build made before the migration reads none of the rewritten records and shows the Vault empty, with nothing saying why, until it is rebuilt.
 - **The problem.** These remain:
   - `VaultEntry.Kind` (`VaultEntry.swift:11`), `older` (`:55`), `kind` still encoded (`:107`) and kept
     by the `category` setter (`:97`);
@@ -175,6 +177,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
   `Draft.kind` (`:98`) and `VaultFind.kind` (`:59`) have no production reader. `VaultEntry.dated` and
   `sourcePath` duplicate `facts.dated` and `facts.primary.path` (`:121–124`).
 - **Done when:** one migration rewrites the owner's file, and the shims and their tests are gone.
+  That same migration writes VT1's one record with typed fields and VT6's one sealed document, so
+  the file changes once.
   Unblocked: VT20's backups and VT21's fixtures are in, and `chosenSource` has landed in the same
   `CodingKeys`. The migration saves with `allowingDrops: false` (it drops nothing), adds a new
   fixture format, and keeps `vault-format-1` opening. A key taken out of `CodingKeys` is no longer one this build reads, so
@@ -185,8 +189,9 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 
 ## B. The model
 
-**VT1 — One record type with typed fields.** *Open, and worse.*
-- **The problem.** One record has seven shapes:
+**VT1 — One record type with typed fields.** *Part done in batches 9 and 13, over the stored shapes; open: the record itself and its stored shape, which go into the one rewrite of the owner's file before the v7.2 cut with VT3 and VT6 (owner, 2026-11-23: the file changes once). Batch 13: the panel's five choices (Move to Current or Archive, Belongs To, Used In, Kind, Read from This Copy) are each one `VaultChoiceChange` set by one `choose(_:for:sealingWaiting:)` on a saved ID or a waiting one (`VaultChoosing`, the five fields both already have); it was first built over a `VaultRecord` protocol for rows and drafts too, which a review found was scaffolding the rewrite would replace, so that was taken out before landing. Proof: batch 10's rows harness, with the sealed Vault and reading file (key-sorted), the redraw count and every ID's drafts added after each of its 27 steps (every panel choice on a saved ID, a waiting one and an id that is nobody's, and an editor Save), and an older build's marks (`older`, a person beside `household`) through each, on `origin/main` and this tree: identical. `VaultChoosingTests` pins one seal for Kind on a waiting ID and nothing done after a refused save.*
+- **The problem** (as first found; `Item` is gone, and the panel's choices are one path).
+  One record had seven shapes:
   - `VaultEntry` (`VaultEntry.swift:9`);
   - `VaultFind` (`VaultReading.swift:9`);
   - `VaultChoice` (`:1143`);
