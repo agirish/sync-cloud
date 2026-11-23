@@ -61,7 +61,8 @@ import Testing
     }
 
     @Test func aNameWithABusinessWordIsNotTheHome() {
-        for name in ["ANNA ERIKSSON DDS", "ERIKSSON DENTAL GROUP", "ANNA ERIKSSON LLC"] {
+        // Each names Anna in full, so only the business word turns the block away.
+        for name in ["ANNA ERIKSSON DDS", "ANNA ERIKSSON DENTAL GROUP", "ANNA ERIKSSON LLC"] {
             let lines = [Self.account, name, "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
             #expect(Self.address(lines) == nil, "\(name)")
         }
@@ -152,9 +153,11 @@ import Testing
 
     @Test func aPhoneWithNobodyFromPeopleNearIsNotRead() {
         #expect(Self.phones([Self.account, "Phone: (408) 555-0142"]).isEmpty)
-        let far = [Self.account, "ANNA ERIKSSON", "Your bill this month", "Amount due $86.20", "Due date 03/15/2025",
-                   "Phone: (408) 555-0142"]
-        #expect(Self.phones(far).isEmpty)
+        // A form's fields may stand between, five lines at most.
+        let fields = ["Member ID: 12345", "Account Number: 6789", "Policy Number: 1111", "Date of Birth: 01/02/1990",
+                      "Email: anna@example.com"]
+        #expect(Self.phones([Self.account, "ANNA ERIKSSON"] + fields.prefix(4) + ["Phone: (408) 555-0142"]).count == 1)
+        #expect(Self.phones([Self.account, "ANNA ERIKSSON"] + fields + ["Phone: (408) 555-0142"]).isEmpty)
         let lines = [Self.account, "ANNA ERIKSSON", "Phone: (408) 555-0142"]
         #expect(Self.source(lines, people: [])?.phones == nil, "with nobody in People, nothing is read")
     }
@@ -175,6 +178,127 @@ import Testing
         #expect(saved.sources[0].phones == [phone])
         saved.add(VaultSource(path: "/a.pdf", role: "ID card", rank: 9))
         #expect(saved.sources[0].role == "ID card" && saved.sources[0].phones == [phone])
+    }
+}
+
+// MARK: The review of 19bd3fa90
+
+extension VaultContactReadingTests {
+    static let block = [Self.account, "ANNA ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
+
+    @Test func aPhoneBesideAnyWordButAPhonesLabelIsNotRead() {
+        for line in ["Customer Care: (408) 555-0199", "Billing: (408) 555-0199", "Contact: (408) 555-0199",
+                     "Customer Care, day or night: (408) 555-0199", "Account Number: 408-555-0199",
+                     "Number: 408-555-0199", "Sex: M  Phone: (408) 555-0142"] {
+            #expect(Self.phones(Self.block + [line]).isEmpty, "\(line)")
+        }
+        // A number on its own line under a heading that is not a phone's.
+        for heading in ["Customer Care", "Account Number:", "Billing"] {
+            #expect(Self.phones(Self.block + [heading, "(408) 555-0199"]).isEmpty, "\(heading)")
+        }
+        // Still read: a phone's own heading, a contact number, an extension.
+        #expect(Self.phones(Self.block + ["Phone", "(408) 555-0142"]).count == 1)
+        #expect(Self.phones(Self.block + ["Contact Number: (408) 555-0142"]).count == 1)
+        #expect(Self.phones(Self.block + ["Phone: 408-555-0142 x123"]).map(\.number) == ["4085550142"])
+    }
+
+    @Test func threeGroupsCutFromALongerNumberAreNoPhone() {
+        for line in ["Phone: 1234 567 890 1234", "Phone: 567 890 1234 5", "Account Number: 1234 567 890 1234"] {
+            #expect(Self.phones(Self.block + [line]).isEmpty, "\(line)")
+        }
+    }
+
+    @Test func aStrangerSharingOneNameWordIsNotThem() {
+        #expect(Self.phones([Self.account, "Anna Lee, Customer Care", "Phone: (408) 555-0100"]).isEmpty)
+        #expect(Self.phones([Self.account, "Anna Lee", "Phone: (408) 555-0100"]).isEmpty)
+        #expect(Self.address([Self.account, "Dr. Anna Lee", "3600 Broadway", "Oakland, CA 94611"]) == nil)
+        // A middle initial between their two names still names them.
+        #expect(Self.address([Self.account, "ANNA M ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]) == Self.home)
+    }
+
+    @Test func careOfOnTheNamesOwnLineIsSomeoneElsesAddress() {
+        for name in ["ANNA ERIKSSON C/O JOHN DOE", "ANNA ERIKSSON C/O FRAGOMEN", "ANNA ERIKSSON IN CARE OF J SMITH"] {
+            #expect(Self.address([Self.account, name, "100 MAIN ST", "OAKLAND CA 94607"]) == nil, "\(name)")
+        }
+        #expect(Self.address([Self.account, "ANNA ERIKSSON C/O BOB ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"])
+            == Self.home)
+    }
+
+    @Test func anOldAddressIsNotTheHome() {
+        let lines = [Self.account, "Name: Anna Eriksson", "Old Address: 12 Elm St, Oakland, CA 94607",
+                     "New Address: 2841 Larkspur Ln, San Jose, CA 95132"]
+        #expect(Self.address(lines)?.zip == "95132")
+        for label in ["Previous Address:", "Former Address:", "Prior Address:"] {
+            #expect(Self.address([Self.account, "Name: Anna Eriksson", label + " 12 Elm St, Oakland, CA 94607"]) == nil, "\(label)")
+        }
+    }
+
+    @Test func aPhoneUnderTwoNamesIsNobodysToTell() {
+        let joint = [Self.account, "ANNA ERIKSSON", "BOB ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132",
+                     "Phone: (408) 555-0142"]
+        #expect(Self.phones(joint).isEmpty)
+        #expect(Self.address(joint) == Self.home, "the address is theirs both")
+    }
+
+    @Test func aBusinessWordBetweenTheNameAndTheStreetTurnsTheBlockAway() {
+        // "Member" may stand between; "Services" makes the line a business's.
+        let lines = [Self.account, "Patient: Anna Eriksson", "Member Services", "3600 Broadway", "Oakland, CA 94611"]
+        #expect(Self.address(lines) == nil)
+    }
+
+    @Test func homesAFormPrintsAmongItsFieldsAreKept() {
+        // A state that is also a business word, on the name's own line.
+        #expect(Self.address([Self.account, "ANNA ERIKSSON 12 Main St, Bethesda, MD 20814"])?.state == "MD")
+        // A medical record number between the name and the street.
+        let record = [Self.account, "Patient Name: Anna Eriksson", "Medical Record Number: 1234567",
+                      "Address: 2841 Larkspur Ln, San Jose, CA 95132"]
+        #expect(Self.address(record)?.zip == "95132")
+    }
+
+    @Test func aLetterAloneLabelsAPhoneOnlyAsTheWholeLabel() {
+        #expect(VaultReading.phoneLabel(["m"]) == "Mobile" && VaultReading.phoneLabel(["c"]) == "Mobile")
+        #expect(VaultReading.phoneLabel(["sex", "m", "phone"]) == nil)
+        #expect(VaultReading.phoneLabel(["h"]) == "Home" && VaultReading.phoneLabel(["w"]) == "Work")
+    }
+
+    /// A saved ID keeps what an older build read until the file is read again; today's reading
+    /// then speaks for it, finding nothing included.
+    @Test func todaysReadingOfAFileReplacesWhatASavedIDKept() {
+        let stale = VaultPrintedAddress(VaultAddress(street: "100 N First St", city: "San Jose", state: "CA", zip: "95112"),
+                                        dated: nil)
+        let phone = VaultPrintedPhone(number: "4085550199", person: "anna")
+        let saved = VaultSource(path: "/a.pdf", role: "I-797C receipt", rank: 20, address: stale, phones: [phone])
+        let today = VaultSource(path: "/a.pdf", role: "I-797C receipt", rank: 20)
+        var kept = VaultReadFacts(category: .uscisCase, sources: [saved])
+        kept.add(today, contacts: .incoming)
+        #expect(kept.sources[0].address == nil && kept.sources[0].phones == nil)
+        // Today's reading first, the saved ID's source added into it.
+        var newer = VaultReadFacts(category: .uscisCase, sources: [today])
+        newer.add(saved, contacts: .existing)
+        #expect(newer.sources[0].address == nil && newer.sources[0].phones == nil)
+        // Two readings of one build: whichever gave them.
+        var either = VaultReadFacts(category: .uscisCase, sources: [today])
+        either.add(saved)
+        #expect(either.sources[0].address == stale)
+    }
+}
+
+extension VaultContactReadingTests {
+    /// Homes the stricter naming first lost on his papers (the count-only harness).
+    @Test func aLicenseFrontsNameFieldsNameThemALineEach() {
+        let front = [Self.account, "4d DLN D1234567", "LN ERIKSSON", "FN ANNA", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
+        #expect(Self.address(front) == Self.home)
+        #expect(Self.address([Self.account, "First Name: Anna", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]) == Self.home)
+        // A name's field holding a word People does not know is someone else's name.
+        #expect(Self.address([Self.account, "Name: Anna Lee", "3600 Broadway", "Oakland, CA 94611"]) == nil)
+    }
+
+    @Test func aSurnameWrappedOrTheFamilyTrustBetweenKeepsTheHome() {
+        let wrapped = [Self.account, "Named Insured", "ANNA ERIKSSON AND BOB", "ERIKSSON", "2841 LARKSPUR LN", "SAN JOSE CA 95132"]
+        #expect(Self.address(wrapped) == Self.home)
+        let trust = [Self.account, "ANNA ERIKSSON AND BOB ERIKSSON", "TRUSTEES ERIKSSON FAMILY TRUST", "2841 LARKSPUR LN",
+                     "SAN JOSE CA 95132"]
+        #expect(Self.address(trust) == Self.home)
     }
 }
 

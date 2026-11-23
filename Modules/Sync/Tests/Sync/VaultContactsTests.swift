@@ -209,6 +209,12 @@ import Testing
         let merged = try #require(rig.store.loadReading()?.contacts?["anna"])
         #expect(merged.emails.map(\.value) == ["anna@example.com"] && merged.phones.map(\.value) == ["408 555 0142"])
         #expect(merged.notTheirPhones == ["6505550100"], "a phone set aside stays set aside")
+        // Add Missing takes a phone typed here however it is written: one phone, not two.
+        var spaced = try #require(rig.store.loadReading())
+        spaced.contacts = ["anna": VaultContacts(phones: [.init("(408) 555-0142", added: VaultLockTests.t0)])]
+        try rig.store.saveReading(spaced)
+        #expect(await backup.restore(contents, mode: .addMissing) == .success(1))
+        #expect(rig.store.loadReading()?.contacts?["anna"]?.phones.map(\.value) == ["(408) 555-0142"])
     }
 
     @Test func aBackupMadeBeforeContactsStillOpens() throws {
@@ -287,9 +293,15 @@ extension VaultContactsTests {
         let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
         #expect(model.setPhone("(408) 555-0143", label: "Mobile", for: "anna", correcting: "4085550142"))
         #expect(try Self.section(model, "anna").phones.map(\.shown) == ["(408) 555-0143"])
-        // Kept as it was, with a label given: the paper's phone stays.
-        #expect(model.setPhone("(408) 555-0144", label: "Home", for: "erik", correcting: "4085550144"))
-        #expect(model.contacts["erik"]?.notTheirPhones == [])
+    }
+
+    @Test func givingAReadPhoneALabelKeepsThePapersPhone() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        #expect(model.setPhone("408-555-0142", label: "Home", for: "anna", correcting: "4085550142"))
+        #expect(model.contacts["anna"]?.notTheirPhones == [])
+        let phones = try Self.section(model, "anna").phones
+        #expect(phones.count == 1 && phones[0].typed && phones[0].label == "Home" && phones[0].rows.count == 1)
     }
 
     @Test func contactsSavedBeforePhonesWereReadDecode() throws {
@@ -300,5 +312,69 @@ extension VaultContactsTests {
     @Test func onePhoneHoweverWritten() {
         #expect(VaultContacts.phoneKey("+1 (408) 555-0142") == VaultContacts.phoneKey("408.555.0142"))
         #expect(VaultContacts.phoneKey("+91 98450 12345") == "919845012345")
+    }
+}
+
+// MARK: The review of 19bd3fa90
+
+extension VaultContactsTests {
+    @Test func aNumberTypedTwiceIsOnePhoneThatRemoveTakesOut() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        model.setPhone("(408) 555-0142", label: "Mobile", for: "anna")
+        model.setPhone("408.555.0142", label: "Work", for: "anna")
+        #expect(model.contacts["anna"]?.phones.map(\.label) == ["Work"], "typed again, it takes the first one's place")
+        model.setPhone("(650) 555-0199", label: "Home", for: "anna")
+        // Edited into the number of another typed phone: one phone.
+        model.setPhone("(408) 555-0142", label: "Home", for: "anna", replacing: 1)
+        #expect(model.contacts["anna"]?.phones.map(\.value) == ["(408) 555-0142"])
+        let phone = try #require(try Self.section(model, "anna").phones.first)
+        model.removePhone(at: phone.typedIndex, read: nil, for: "anna")
+        #expect(try Self.section(model, "anna").phones.isEmpty)
+    }
+
+    @Test func typedPhonesLeadInTheOrderTypedAndAnEditMovesNothing() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        // A paper dated long after anything typed: it still comes after what was typed.
+        let later = Self.root + "/Home/Utilities/Bay Water/2099/bill.pdf"
+        let model = await Self.model(rig, extra: [later: Self.billWithPhones])
+        model.setPhone("(650) 555-0101", label: "Mobile", for: "anna")
+        model.setPhone("(650) 555-0102", label: "Work", for: "anna")
+        let read = try #require(try Self.section(model, "anna").phones.last)
+        #expect(read.dated.map { $0 > model.contacts["anna"]!.phones[1].added } == true, "the paper is the newest")
+        #expect(try Self.section(model, "anna").phones.map(\.shown) == ["(650) 555-0101", "(650) 555-0102", "(408) 555-0142"],
+                "typed first, in the order typed; the paper's after")
+        model.setPhone("(650) 555-0102", label: "Home", for: "anna", replacing: 1)
+        model.setPhone("(650) 555-0101", label: "Work", for: "anna", replacing: 0)
+        #expect(try Self.section(model, "anna").phones.map(\.shown) == ["(650) 555-0101", "(650) 555-0102", "(408) 555-0142"])
+    }
+
+    @Test func notTheirPhoneOnATypedAndPrintedPhoneTakesBothOut() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        model.setPhone("(408) 555-0142", label: "Mobile", for: "anna")
+        let phone = try #require(try Self.section(model, "anna").phones.first)
+        #expect(phone.typed && phone.rows.count == 1)
+        model.removePhone(at: phone.typedIndex, read: phone.key, for: "anna")
+        #expect(try Self.section(model, "anna").phones.isEmpty)
+    }
+
+    @Test func aTypedPhoneEditedToAnotherNumberSetsThePapersAside() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        model.setPhone("(408) 555-0142", label: "Mobile", for: "anna")
+        let phone = try #require(try Self.section(model, "anna").phones.first)
+        // The panel's Edit… on a phone papers print passes its key (VaultPanel.startContactEdit).
+        model.setPhone("(408) 555-0143", label: "Mobile", for: "anna", replacing: phone.typedIndex, correcting: phone.key)
+        #expect(try Self.section(model, "anna").phones.map(\.shown) == ["(408) 555-0143"])
+    }
+
+    @Test func aTypedExtensionIsTheSamePhoneThePaperPrints() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig, extra: [Self.water: Self.billWithPhones])
+        model.setPhone("408-555-0142 x23", label: "Work", for: "anna")
+        let phones = try Self.section(model, "anna").phones
+        #expect(phones.count == 1 && phones[0].rows.count == 1 && phones[0].value == "408-555-0142 x23")
+        #expect(VaultContacts.phoneKey("408-555-0142 ext. 23") == "4085550142")
     }
 }

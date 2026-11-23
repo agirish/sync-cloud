@@ -269,8 +269,8 @@ struct VaultRowFilter: Equatable {
     /// `person`'s phones: the ones typed for them, and the ones `papers` print under their name
     /// (``VaultPrintedPhone/person``), whoever's ID the paper is. One phone however written
     /// (``VaultContacts/phoneKey(_:)``); one said not to be theirs is left out unless typed.
-    /// Newest first, a typed one as new as the day it was typed; among equals, typed ones first
-    /// in the order typed.
+    /// The typed ones first, in the order typed (the first typed leads, as before phones were
+    /// read); then the read ones, newest paper first.
     static func phones(of person: String, on papers: [Row], typed: [VaultContacts.Typed],
                        notTheirs: Set<String>) -> [VaultPersonSection.Phone] {
         var byKey: [String: VaultPersonSection.Phone] = [:]
@@ -296,6 +296,12 @@ struct VaultRowFilter: Equatable {
             }
         }
         return order.enumerated().compactMap { offset, key in byKey[key].map { (offset, $0) } }.sorted { a, b in
+            switch (a.1.typedIndex, b.1.typedIndex) {
+            case let (x?, y?): return x < y
+            case (.some, nil): return true
+            case (nil, .some): return false
+            default: break
+            }
             switch (a.1.dated, b.1.dated) {
             case let (x?, y?) where x != y: return x > y
             case (.some, nil): return true

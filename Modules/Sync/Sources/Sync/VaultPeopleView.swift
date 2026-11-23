@@ -119,7 +119,8 @@ public struct VaultPersonSection: Identifiable, Equatable, Sendable {
     public var addresses: [Address] = []
     /// A license on Current that still prints a past address: the DMV wants to hear of a move.
     public var licenseDiffers: Address?
-    /// Their phones, typed and read, newest first: the first leads.
+    /// Their phones: the typed ones in the order typed, then the read ones, newest paper first.
+    /// The first leads.
     public var phones: [Phone] = []
     /// Emails typed for them, the first leading.
     public var emails: [VaultContacts.Typed] = []

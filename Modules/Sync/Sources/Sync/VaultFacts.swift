@@ -245,14 +245,32 @@ public struct VaultReadFacts: Codable, Equatable, Sendable {
         return "name:" + first + " " + (words.count > 1 ? words.last! : "")
     }
 
+    /// Whose word stands on a file's address and phones when ``add(_:contacts:)`` meets a file
+    /// already listed.
+    public enum ContactsFrom: Sendable {
+        /// Whichever gave them: two readings of one build.
+        case either
+        /// `source`'s, even none: it is today's reading of the file, and a saved ID's source
+        /// keeps what an older build's rules read only until the file is read again.
+        case incoming
+        /// The one already listed: it is today's reading, and `source` a saved ID's.
+        case existing
+    }
+
     /// Adds `source`, keeping one entry per file and its best role. The file's address and
-    /// phones are kept from whichever reading gave them: a saved ID's source, saved before they
-    /// were read, takes them from today's reading of the same file.
-    public mutating func add(_ source: VaultSource) {
+    /// phones come as `contacts` says: today's reading of a file speaks for it, so a saved ID
+    /// takes them from it, and loses one a stricter rule no longer reads.
+    public mutating func add(_ source: VaultSource, contacts: ContactsFrom = .either) {
         if let index = sources.firstIndex(where: { $0.path == source.path }) {
-            let address = source.address ?? sources[index].address
-            let phones = source.phones ?? sources[index].phones
-            if source.rank > sources[index].rank { sources[index] = source }
+            let mine = sources[index]
+            let address: VaultPrintedAddress?
+            let phones: [VaultPrintedPhone]?
+            switch contacts {
+            case .either: (address, phones) = (source.address ?? mine.address, source.phones ?? mine.phones)
+            case .incoming: (address, phones) = (source.address, source.phones)
+            case .existing: (address, phones) = (mine.address, mine.phones)
+            }
+            if source.rank > mine.rank { sources[index] = source }
             sources[index].address = address
             sources[index].phones = phones
         } else {

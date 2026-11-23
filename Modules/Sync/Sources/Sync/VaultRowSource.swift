@@ -96,13 +96,13 @@ struct VaultRowSource {
         if VaultModel.supersedes(read.facts, saved) {
             var newer = read.facts
             newer.category = saved.category
-            for source in saved.sources { newer.add(source) }
+            for source in saved.sources { newer.add(source, contacts: .existing) }
             return VaultHolders.naming(newer, parts.others)
         }
         // Saved before the Vault kept which document a reading is: the one today's reading of the
         // same document comes from.
         if saved.spokenBy == nil, VaultCopies.sameDocument(saved, read.facts) { saved.spokenBy = read.facts.spokenBy }
-        for source in read.facts.sources { saved.add(source) }
+        for source in read.facts.sources { saved.add(source, contacts: .incoming) }
         return VaultHolders.naming(saved, parts.others)
     }
 
@@ -170,7 +170,7 @@ struct VaultRowSource {
             guard var read, let facts, read.dated == facts.dated, read.validUntil == facts.validUntil
             else { return (facts, app, nil, paths) }
             read.category = facts.category
-            for source in facts.sources { read.add(source) }
+            for source in facts.sources { read.add(source, contacts: .existing) }
             return (read, app, read.spokenBy, paths)
         }
         /// A number's facts with the name corrected, and the name read when a correction took

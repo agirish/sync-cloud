@@ -61,9 +61,14 @@ public struct VaultContacts: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case phones, emails, addresses, notTheirs, notTheirPhones }
 
     /// One phone however it is written: its digits, a US number's last ten ("+1 (408) 555-0142"
-    /// and "408.555.0142" are one).
+    /// and "408.555.0142" are one), an extension left off ("… x23", "… ext. 4").
     public static func phoneKey(_ value: String) -> String {
-        let digits = value.filter(\.isNumber)
+        var number = value
+        if let ext = value.range(of: #"(?i)\s*(?:x|ext\.?|extension)\s*[0-9]+\s*$"#, options: .regularExpression),
+           ext.lowerBound > value.startIndex {
+            number = String(value[..<ext.lowerBound])
+        }
+        let digits = number.filter(\.isNumber)
         return digits.count == 11 && digits.first == "1" ? String(digits.dropFirst()) : digits
     }
 
@@ -114,8 +119,9 @@ extension VaultModel {
     }
 
     /// Adds a phone, or with `replacing` puts it in place of the one typed at that index. With
-    /// `correcting`, a phone only papers print (its ``phoneKey(_:)``) gives way to it: set aside
-    /// as not theirs, unless what is typed is the same phone (a label given to it).
+    /// `correcting`, a phone papers print (its ``phoneKey(_:)``) gives way to it: set aside as
+    /// not theirs, unless what is typed is the same phone (a label given to it). A number typed
+    /// already is not typed twice: the new one takes its place.
     @discardableResult
     public func setPhone(_ value: String, label: String?, for person: String, replacing index: Int? = nil,
                          correcting read: String? = nil) -> Bool {
@@ -127,7 +133,18 @@ extension VaultModel {
             let key = VaultContacts.phoneKey(value)
             if let read, read != key, !c.notTheirPhones.contains(read) { c.notTheirPhones.append(read) }
             c.notTheirPhones.removeAll { $0 == key }
-            if let index, c.phones.indices.contains(index) { c.phones[index] = typed } else { c.phones.append(typed) }
+            // One phone is typed once: the same number typed again takes the earlier one's place.
+            let target = index.flatMap { c.phones.indices.contains($0) ? $0 : nil }
+            let same = c.phones.indices.filter { $0 != target && VaultContacts.phoneKey(c.phones[$0].value) == key }
+            if let target {
+                c.phones[target] = typed
+            } else if let first = same.first {
+                c.phones[first] = typed
+            } else {
+                c.phones.append(typed)
+            }
+            let keep = target ?? same.first
+            c.phones = c.phones.enumerated().filter { $0.offset == keep || !same.contains($0.offset) }.map(\.element)
         }
     }
 

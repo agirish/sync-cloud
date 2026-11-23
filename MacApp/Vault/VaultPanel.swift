@@ -2554,7 +2554,7 @@ struct VaultCard: View {
         var index: Int?
         /// The address being corrected (its key); nil adds one.
         var replacing: String?
-        /// A phone only papers print, being corrected (its key): set aside unless kept as it is.
+        /// A phone papers print, being corrected (its key): set aside unless kept as it is.
         var correcting: String?
         var value = ""
         var label = ""
@@ -2588,7 +2588,8 @@ struct VaultCard: View {
                 edit.index = phone.typedIndex
                 edit.value = phone.typed ? phone.value : phone.shown
                 edit.label = phone.label ?? VaultContacts.phoneLabels[0]
-                edit.correcting = phone.typed ? nil : phone.key
+                // Papers print it: a different number typed in its place sets theirs aside.
+                edit.correcting = phone.rows.isEmpty ? nil : phone.key
             } else {
                 edit.label = VaultContacts.phoneLabels[0]
             }

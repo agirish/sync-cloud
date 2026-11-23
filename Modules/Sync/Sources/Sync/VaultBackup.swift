@@ -427,7 +427,10 @@ public struct VaultBackup {
         var contacts = state.contacts ?? [:]
         for (person, theirs) in restored {
             var mine = contacts[person] ?? VaultContacts()
-            for phone in theirs.phones where !mine.phones.contains(where: { $0.value == phone.value }) { mine.phones.append(phone) }
+            for phone in theirs.phones
+            where !mine.phones.contains(where: { VaultContacts.phoneKey($0.value) == VaultContacts.phoneKey(phone.value) }) {
+                mine.phones.append(phone)
+            }
             for email in theirs.emails where !mine.emails.contains(where: { $0.value == email.value }) { mine.emails.append(email) }
             for key in theirs.notTheirPhones where !mine.notTheirPhones.contains(key) { mine.notTheirPhones.append(key) }
             for address in theirs.addresses where !mine.addresses.contains(where: { $0.address.key == address.address.key }) {
