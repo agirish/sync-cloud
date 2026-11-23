@@ -86,6 +86,7 @@ struct VaultRowLabel: View, Equatable {
         .padding(.vertical, 5)
         .modifier(VaultRowLift(isChosen: isChosen, onColor: onColor))
         .contentShape(Rectangle())
+        .background { if let draws { VaultLaidOut(key: masked, draws: draws) } }
     }
 
     /// "US" or "IN" in a small box, beside a title or a value.
@@ -208,6 +209,19 @@ struct VaultPersonHeader: View, Equatable {
     }
 }
 
+/// Where a row or a kind's heading is laid out, for a test: nothing of it is built in the app.
+struct VaultLaidOut: View {
+    let key: String
+    let draws: VaultDrawCount
+
+    var body: some View {
+        GeometryReader { proxy in
+            let _ = draws.frames[key] = proxy.frame(in: .named(VaultDrawCount.space))
+            Color.clear
+        }
+    }
+}
+
 /// How often a panel's rows and people's headings were drawn: a test's measure of what a change to
 /// the Vault draws again. Given to one panel through its environment, so a test counts its own.
 @MainActor final class VaultDrawCount {
@@ -216,6 +230,14 @@ struct VaultPersonHeader: View, Equatable {
     /// Rows whose button and menu were built again, label or not.
     var shells = 0
     var headers = 0
+    /// Where each row was last laid out, by its number as masked, and each kind's heading in
+    /// People, by ``kind(_:_:)``, in ``space``.
+    var frames: [String: CGRect] = [:]
+    /// The coordinate space a test names on the panel's root, to read ``frames`` in.
+    static let space = "vault-draws"
+
+    /// A kind's heading under one person in People, in ``frames``.
+    nonisolated static func kind(_ owner: VaultPersonSection.Owner, _ name: String) -> String { "kind \(owner) \(name)" }
 }
 
 extension EnvironmentValues {

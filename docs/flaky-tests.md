@@ -5746,3 +5746,41 @@ appearances; measure that, and say so beside the helper.
 **See.** `SemanticInkContrastTests.srgb(_:in:)` in
 `Modules/Design/Tests/DesignTests/SemanticInkContrastTests.swift`, and
 `AccentFillTests.destructiveRedCarriesWhiteOnceDeepened`.
+
+### 64. A lazy stack inside a lazy stack's item scrolled to an ID from estimated heights — a real bug that two proxies hid — FIXED
+
+**Symptom.** `VaultRowRedrawTests.choosingAnIDNotYetDrawnScrollsToIt` red on hosted CI on both
+pushes after it landed: runs 45067950902 (`3580f1f55`) and 45096309775 (`78f13a41f`), 2026-11-22,
+at `draws.rows.contains(…)` for the very last ID, and once also at `abs(top() - end) < 2`
+("5669 of 6810"). Green alone, 4 of 4. In a full local app run it stopped at 6507 of 7282 for
+ten turns and moved on only at turn 59. Not CoreAnimation: the reveal's `scrollTo` was never
+animated, and 14 `yes` spinners did not turn it red.
+
+**Mechanism.** People was a lazy stack of people, each a lazy stack of its lines. A line far down
+another person is unknown to the outer stack, so choosing it went to the person first and to the
+line a turn later. Both jumps were placed from estimated heights: the outer stack's estimate of
+each person's height, which the inner stack revises as it builds lines. At idle the jump to the
+list's last ID left the list **blank**, every time: the offset at what the stack then estimated
+was the end, nothing placed there, the row's body run (so "drawn" held) but never laid out. The
+test passed because both its checks were proxies, the offset against the estimated end and the
+row's body having run. Under a loaded run the estimates were revised at other moments, and the
+proxies failed too.
+
+Measured with a `GeometryReader` on each row reporting where it was placed, and bitmaps of the
+window: the old view left the last row unplaced, and the list blank; an outer `VStack` placed it
+under the list; the List layout, one lazy stack of rows, placed it at the list's bottom edge.
+
+**Fix, 2026-11-22.** People is one lazy stack. A person's card is its pieces, heading, names, each
+kind's heading and each line of rows, each a child of the stack and each drawing its slice of the
+card. A line is reached in one `scrollTo`. The test now asserts where the chosen row is laid out,
+inside the list as it shows, within a bounded wait; with the old view back it goes red with the
+row never laid out. Flattening brought a second bug, which `peopleDrawsEachPersonsKindsHeading`
+now covers: kinds keyed by name repeat from person to person, and a repeated key in one lazy stack
+drew one person's heading only.
+
+**Tell.** A scroll test that passes on an offset or on a view's body having run, red only in some
+runs. Those stand in for "on screen" and can hold over a blank list. Check where the view is
+placed, and look at a bitmap.
+
+**See.** `VaultCard.peopleView` and `VaultCardSlice` in `MacApp/Vault/VaultPanel.swift`;
+`VaultRowRedrawTests` and `VaultLaidOut`.

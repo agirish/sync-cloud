@@ -21,6 +21,7 @@ import Testing
             .frame(width: size.width, height: size.height)
             .defaultAppStorage(defaults)
             .environment(\.vaultDraws, draws)
+            .coordinateSpace(.named(VaultDrawCount.space))
         let host = NSHostingView(rootView: panel)
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -101,6 +102,23 @@ import Testing
         #expect(menu.items.map(\.title) == ["Merge…"])
     }
 
+    /// People draws every person's heading for each kind, though the kinds' names repeat from
+    /// person to person: keyed by name alone, as children of one lazy stack, a kind's heading was
+    /// drawn for one person only, and the others had a gap where it goes.
+    @Test func peopleDrawsEachPersonsKindsHeading() async throws {
+        let rig = try await VaultPanelRenderTests.rig(); defer { rig.cleanUp() }
+        rig.defaults.set(VaultLayout.people.rawValue, forKey: "vaultLayout")
+        rig.model.layout = .people
+        let draws = VaultDrawCount()
+        let window = Self.mount(rig.model, defaults: rig.defaults, draws: draws); defer { window.orderOut(nil) }
+        try await Self.settle(window, turns: 10)
+        let kinds = rig.model.peopleSections.flatMap { section in section.groups.map { VaultDrawCount.kind(section.id, $0.name) } }
+        let names = rig.model.peopleSections.flatMap { $0.groups.map(\.name) }
+        try #require(Set(names).count < names.count, "a kind under two people: \(names)")
+        let drawn = kinds.filter { draws.frames[$0] != nil }
+        #expect(drawn == kinds, "every kind's heading laid out: \(drawn) of \(kinds)")
+    }
+
     /// Anna with 200 IDs and three others with 8, half of them current: Anna's are many screens.
     static func manyIDs() async throws -> (model: VaultModel, defaults: UserDefaults, cleanUp: () -> Void) {
         let rig = try await VaultPanelRenderTests.rig()
@@ -138,8 +156,12 @@ import Testing
         #expect(Set(draws.rows).count > 4)
     }
 
-    /// Choosing an ID that was never drawn, as the arrow keys and Reveal do, scrolls to it: in
-    /// the person on screen, and in another.
+    /// Choosing an ID that was never drawn, as the arrow keys and Reveal do, brings it into the
+    /// list: in the person on screen, in another, and the list's very last.
+    ///
+    /// Judged by where the row is laid out, not by the list's offset or the row's having been built:
+    /// a lazy stack inside each person's item once left the list blank at the very last ID, its row
+    /// built but never placed, with the offset at what the stack estimated was the end.
     @Test func choosingAnIDNotYetDrawnScrollsToIt() async throws {
         let rig = try await Self.manyIDs(); defer { rig.cleanUp() }
         let draws = VaultDrawCount()
@@ -147,31 +169,28 @@ import Testing
         try await Self.settle(window, turns: 10)
         let content = try #require(window.contentView)
         let scroll = try #require(VaultScrollFinder.tallest(in: content))
-        func top() -> CGFloat { scroll.contentView.bounds.minY }
-        let bottom = try #require(scroll.documentView).frame.height - scroll.contentView.bounds.height
         let sections = rig.model.peopleSections
         let anna = try #require(sections.first)
-        #expect(bottom > 2000, "Anna's IDs run to many screens")
+        #expect(try #require(scroll.documentView).frame.height > 2000, "Anna's IDs run to many screens")
 
-        // Anna's last, far down her section.
-        let annasLast = try #require(anna.rows.last)
-        rig.model.selection = annasLast.id
-        try await Self.settle(window, turns: 6)
-        #expect(draws.rows.contains(rig.model.masked(annasLast)))
-        #expect(top() > 1000, "scrolled down to Anna's last ID: \(top())")
-
-        // The very last, in another person: the end of the list.
-        let last = try #require(sections.last?.rows.last)
-        rig.model.selection = last.id
-        try await Self.settle(window, turns: 6)
-        #expect(draws.rows.contains(rig.model.masked(last)))
-        let end = try #require(scroll.documentView).frame.height - scroll.contentView.bounds.height
-        #expect(abs(top() - end) < 2, "scrolled to the end: \(top()) of \(end)")
-
-        // And back to Anna's first.
-        rig.model.selection = anna.rows[0].id
-        try await Self.settle(window, turns: 6)
-        #expect(top() < 200, "back up to Anna's first ID: \(top())")
+        let choices = [("Anna's last, far down her section", try #require(anna.rows.last)),
+                       ("the very last, in another person", try #require(sections.last?.rows.last)),
+                       ("back to Anna's first", anna.rows[0])]
+        for (what, row) in choices {
+            let masked = rig.model.masked(row)
+            try #require(rig.model.rows.filter { rig.model.masked($0) == masked }.count == 1, "\(what): told apart by its number")
+            draws.frames = [:]
+            rig.model.selection = row.id
+            // Laid out since it was chosen, and inside the list as it shows now. In turns, not
+            // seconds: a loaded run takes more of them, and a row never placed fails all the same.
+            var shown: CGRect { content.convert(scroll.contentView.bounds, from: scroll.contentView) }
+            func inView() -> Bool {
+                guard let frame = draws.frames[masked] else { return false }
+                return frame.minY >= shown.minY - 0.5 && frame.maxY <= shown.maxY + 0.5
+            }
+            for _ in 0..<300 where !inView() { try await Self.settle(window) }
+            #expect(inView(), "\(what): laid out at \(String(describing: draws.frames[masked])), the list showing \(shown)")
+        }
     }
 }
 

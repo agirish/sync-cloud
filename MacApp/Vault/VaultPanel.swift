@@ -146,6 +146,8 @@ struct VaultCard: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// With Increase Contrast on, a card's color is its symbol alone, with no wash behind its title.
     @Environment(\.colorSchemeContrast) private var contrast
+    /// Counts what the panel draws, for a test; nil in the app.
+    @Environment(\.vaultDraws) private var draws
     /// The detail whose Copy just ran, for its two seconds of "Copied".
     @State private var copiedDetail: String?
     /// The number whose documents are all listed; the others show the first few.
@@ -1172,12 +1174,23 @@ struct VaultCard: View {
     /// The People view: a section per person, opening with their name as their documents print it
     /// and their date of birth, then their IDs with the kind on each row. The same rows, filters,
     /// search and keys as the cards; only the grouping differs.
+    ///
+    /// One lazy stack, down to each line of two rows: a person's card is the pieces it is drawn
+    /// from (``personSection(_:isFirst:)``), each a child of this stack. Built at once, a section of
+    /// 14 IDs took 40 ms, and People jumped at every person. A lazy stack of lines inside each
+    /// person's item placed a chosen ID from estimated heights, and choosing the list's last ID
+    /// left it blank, the row never laid out (2026-11-22).
     private var peopleView: some View {
         ScrollViewReader { scroller in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    readAgainBanner
-                    tabBanner
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // The stack's spacing between these, and after them when any is shown: the
+                    // zero-high mark at the end takes the gap only once something is above it.
+                    VStack(alignment: .leading, spacing: 12) {
+                        readAgainBanner
+                        tabBanner
+                        Color.clear.frame(height: 0)
+                    }
                     let sections = model.peopleSections
                     if sections.isEmpty {
                         if hiddenByChoices {
@@ -1188,72 +1201,82 @@ struct VaultCard: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    ForEach(sections) { section in personSection(section) }
+                    ForEach(sections) { section in personSection(section, isFirst: section.id == sections.first?.id) }
                 }
                 .padding(12)
             }
-            .onChange(of: model.selection) { before, id in
+            .onChange(of: model.selection) { _, id in
                 guard let id else { return }
-                // A row is found by its line, and a line only once its person is drawn: going to
-                // another person's ID, their section comes first, then the line on the next turn.
-                // Within one person it goes straight to the line, never back to the person's top.
-                let sections = model.peopleSections
-                guard let section = sections.first(where: { $0.rows.contains { $0.id == id } }),
-                      let line = section.groups.lazy.compactMap({ group in Self.lines(group.rows).first { $0.rows.contains { $0.id == id } } }).first
-                else { return scroller.scrollTo(id) }
-                if section.rows.contains(where: { $0.id == before }) {
-                    scroller.scrollTo(line.id)
-                } else {
-                    scroller.scrollTo(section.id)
-                    Task { @MainActor in scroller.scrollTo(line.id) }
-                }
+                // A row is found by its line, each line a child of the stack.
+                let line = model.peopleSections.lazy.flatMap(\.groups).compactMap { group in
+                    Self.lines(group.rows).first { $0.rows.contains { $0.id == id } }
+                }.first
+                scroller.scrollTo(line?.id ?? id)
             }
         }
     }
 
-    private func personSection(_ section: VaultPersonSection) -> some View {
+    /// A person's card, as pieces of the lazy stack: their heading, their names and dates of birth,
+    /// then each kind's heading and its lines of rows. Each piece draws its own slice of the card,
+    /// and the last takes the card's bottom: its corners reach higher than a gap would.
+    @ViewBuilder
+    private func personSection(_ section: VaultPersonSection, isFirst: Bool) -> some View {
         let showsBirth = model.canShowBirth(in: section)
         let key = "person-\(section.title)"
-        // Lazy down to each line of rows: a person's IDs are drawn as they scroll in, a line at a
-        // time, not all in the frame their heading arrives in. Built at once, a section of 14 IDs
-        // took 40 ms, and People jumped at every person (2026-11-22). The spacing is the stack's
-        // old one, given item by item.
-        return LazyVStack(alignment: .leading, spacing: 0) {
-            // Its own view, skipped while these stay the same, as the rows are.
-            VaultPersonHeader(owner: section.id, title: section.title,
-                              subtitle: Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab),
-                              copied: copiedDetail?.hasPrefix(key) == true, isAsking: model.isAsking,
-                              copyHelp: "Copy Summary copies each ID’s name, ending and expiry, no ID in full. Copy with Numbers copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)",
-                              copy: { numbers in copyPerson(section, numbers: numbers, key: key + (numbers ? "-numbers" : "-summary")) },
-                              add: { id in startAdding(for: id) })
-                .equatable()
-            if !section.names.isEmpty || !section.births.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
-                    if !section.names.isEmpty { nameTile(section) }
-                    if !section.births.isEmpty { birthTile(section, showsBirth: showsBirth) }
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
+        let hasFacts = !section.names.isEmpty || !section.births.isEmpty
+        let kinds = section.groups.map { PersonKind(owner: section.id, group: $0) }
+        if !isFirst { Color.clear.frame(height: 12) }
+        // Its own view, skipped while these stay the same, as the rows are.
+        VaultPersonHeader(owner: section.id, title: section.title,
+                          subtitle: Self.personSubtitle(ids: section.rows.count, elsewhere: section.elsewhere, tab: model.tab),
+                          copied: copiedDetail?.hasPrefix(key) == true, isAsking: model.isAsking,
+                          copyHelp: "Copy Summary copies each ID’s name, ending and expiry, no ID in full. Copy with Numbers copies every ID in full with the date of birth, after Touch ID. \(Self.clipboardClears)",
+                          copy: { numbers in copyPerson(section, numbers: numbers, key: key + (numbers ? "-numbers" : "-summary")) },
+                          add: { id in startAdding(for: id) })
+            .equatable()
+            .modifier(VaultCardSlice(first: true, last: !hasFacts && kinds.isEmpty))
+        if hasFacts {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
+                if !section.names.isEmpty { nameTile(section) }
+                if !section.births.isEmpty { birthTile(section, showsBirth: showsBirth) }
             }
-            ForEach(section.groups, id: \.name) { group in
-                groupHeading(group)
-                    .padding(.horizontal, 4)
-                    .padding(.top, 8)
-                // Two columns once each can hold a row's title and number side by side, so a
-                // line is two rows; at a narrower width the two stack. Two columns at most: a
-                // third would cut each title short.
-                ForEach(VaultCard.lines(group.rows)) { line in
-                    VaultTwoUp(minColumnWidth: 300, spacing: 14, rowSpacing: 2) {
-                        ForEach(line.rows) { row in rowView(row, underPerson: true).id(row.id) }
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.top, 2)
-                }
-            }
-            Spacer(minLength: 0).frame(height: 2).padding(.top, 8)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .modifier(VaultCardSlice(first: false, last: kinds.isEmpty))
         }
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+        // Keyed by person and kind: every piece is a child of the one stack, where a kind's name
+        // alone repeats from person to person, and a repeated key draws its heading once.
+        ForEach(kinds) { kind in
+            let lines = VaultCard.lines(kind.group.rows)
+            groupHeading(kind.group)
+                .background { if let draws { VaultLaidOut(key: VaultDrawCount.kind(kind.owner, kind.group.name), draws: draws) } }
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
+                .modifier(VaultCardSlice(first: false, last: false))
+            // Two columns once each can hold a row's title and number side by side, so a
+            // line is two rows; at a narrower width the two stack. Two columns at most: a
+            // third would cut each title short.
+            ForEach(lines) { line in
+                VaultTwoUp(minColumnWidth: 300, spacing: 14, rowSpacing: 2) {
+                    ForEach(line.rows) { row in rowView(row, underPerson: true).id(row.id) }
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 2)
+                .modifier(VaultCardSlice(first: false, last: kind.id == kinds.last?.id && line.id == lines.last?.id))
+            }
+        }
+    }
+
+    /// A kind's rows under one person, told apart from the same kind under another.
+    struct PersonKind: Identifiable {
+        struct ID: Hashable {
+            var owner: VaultPersonSection.Owner
+            var name: String
+        }
+
+        var owner: VaultPersonSection.Owner
+        var group: VaultPersonSection.KindGroup
+        var id: ID { ID(owner: owner, name: group.name) }
     }
 
     /// A group's rows two at a time, in order: People's lines.
@@ -3591,6 +3614,36 @@ struct VaultCard: View {
     func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+}
+
+/// A piece of a person's card in People: full width, over its slice of the card's ground and
+/// border. Each slice draws the whole card's shape, reaching past the piece where the card goes
+/// on, and keeps what falls on the piece, so the slices meet as the one shape did. The last piece
+/// ends the card 10 points under what it holds.
+struct VaultCardSlice: ViewModifier {
+    let first: Bool
+    let last: Bool
+
+    /// Past the corners' radius, so a corner never shows at a piece's open edge.
+    private static let reach: CGFloat = 4 * Radius.card
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, last ? 10 : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                Color.clear
+                    .overlay {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                            RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary)
+                        }
+                        .padding(.top, first ? 0 : -Self.reach)
+                        .padding(.bottom, last ? 0 : -Self.reach)
+                    }
+                    .clipped()
+            }
     }
 }
 
