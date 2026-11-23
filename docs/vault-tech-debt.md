@@ -48,8 +48,8 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
 Two cold reviews of every batch so far. Acted on: batch 13 reworked before landing (the record
 protocol out, the one choice path kept); batch 14: kinds behind a switch the compiler checks and
 places as enums again (#2), a daily backup kept 30 days (#3), a sealed file created owner-only and
-the unused `allowingDrops` gone (#5). Owner's calls taken: #3's 30 days, #4 read-only for an older
-build (its own batch). Left, with reasons:
+the unused `allowingDrops` gone (#5). Owner's calls taken: #3's 30 days; #4, read-only for an older
+build, goes into the pre-v7.2 rewrite with a version stamp, not built on today's format. Left, with reasons:
 - **`sessionLine`** stays in production code: tests read the model's own session lines because the
   shared log capture sees sibling cases (`a-logcapture-sees-sibling-cases`).
 - **The reader protocol's three levels** (`pages`, `reading`, `noted`) stay: 13 test fakes
@@ -69,6 +69,9 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
   before v7.2 (2026-11-22); it rewrites his sealed file once, so say so in the ask.
   VT1's stored shape (one record with typed fields) and VT6 (one sealed document) go into that
   same rewrite (owner, 2026-11-23), so his file changes once, not three times.
+  The rewrite also stamps the file with the format version that wrote it, and a build that meets
+  a higher one opens the Vault read-only, with a line saying a newer SyncCloud saved it; VT30's
+  merging of a later build's records and fields then goes (owner, 2026-11-23, the review's #4).
 
 ## Order
 
