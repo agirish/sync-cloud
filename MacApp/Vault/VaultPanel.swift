@@ -434,6 +434,7 @@ struct VaultCard: View {
             case .upArrow: arrow(-1); return .handled
             case .downArrow: arrow(1); return .handled
             default:
+                if largeType == nil, copyChosenContact() { return .handled }
                 guard largeType == nil, let id = model.selection else { return .ignored }
                 copy(id)
                 return .handled
@@ -851,7 +852,11 @@ struct VaultCard: View {
                 .onKeyPress(.downArrow) { arrow(1); return .handled }
                 .onKeyPress(.upArrow) { arrow(-1); return .handled }
                 .onKeyPress(.space) { spaceKey() }
-                .onSubmit { if let id = model.selection, editing == nil { copy(id) } }
+                .onSubmit {
+                    guard editing == nil else { return }
+                    if copyChosenContact() { return }
+                    if let id = model.selection { copy(id) }
+                }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -1053,6 +1058,7 @@ struct VaultCard: View {
                 .padding(12)
             }
             .onChange(of: model.selection) { _, id in if let id { scroller.scrollTo(id) } }
+            .onChange(of: contactChosen) { _, id in if let id { scroller.scrollTo(id) } }
         }
     }
 
@@ -1499,6 +1505,7 @@ struct VaultCard: View {
                 .padding(.bottom, 10)
             }
             .onChange(of: model.selection) { _, id in if let id { scroller.scrollTo(id) } }
+            .onChange(of: contactChosen) { _, id in if let id { scroller.scrollTo(id) } }
         }
     }
 
@@ -4298,7 +4305,43 @@ struct VaultCard: View {
 
     /// The arrows: the next row, or in Large Type the next line.
     private func arrow(_ step: Int) {
-        if largeType != nil { stepLargeType(by: step) } else { model.moveSelection(by: step) }
+        if largeType != nil { return stepLargeType(by: step) }
+        let contacts = model.contactWalk
+        // Among the IDs alone, the model walks as it always has.
+        guard !contacts.isEmpty else { return model.moveSelection(by: step) }
+        let here: VaultWalkStop? = contactChosen.map { .contact($0) } ?? model.selection.map { .id($0) }
+        switch Self.walk(from: here, by: step, ids: model.walkOrder, contacts: contacts) {
+        case .id(let id)?:
+            if case .id = here { model.moveSelection(by: step) } else { contactChosen = nil; model.selection = id }
+        case .contact(let id)?:
+            editing = nil
+            model.selection = nil
+            contactChosen = id
+        case nil:
+            break
+        }
+    }
+
+    /// Where the arrow keys stop in Cards and List: an ID, or a Contact row after the IDs.
+    enum VaultWalkStop: Equatable {
+        case id(UUID)
+        case contact(String)
+    }
+
+    /// The stop `step` rows from `here`, walking the IDs as drawn and then the Contact rows; at
+    /// either end it stays. With nothing chosen, the first.
+    static func walk(from here: VaultWalkStop?, by step: Int, ids: [UUID], contacts: [String]) -> VaultWalkStop? {
+        let stops = ids.map(VaultWalkStop.id) + contacts.map(VaultWalkStop.contact)
+        guard !stops.isEmpty else { return nil }
+        guard let here, let index = stops.firstIndex(of: here) else { return stops.first }
+        return stops[min(max(index + step, 0), stops.count - 1)]
+    }
+
+    /// Return on a chosen contact: copies it, as Return copies a chosen ID.
+    private func copyChosenContact() -> Bool {
+        guard let item = chosenContact else { return false }
+        copyString(item.value, key: "contact-\(item.id)")
+        return true
     }
 
     /// Closes what draws a number in full once it may not be drawn: Large Type (or once its number

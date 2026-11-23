@@ -117,6 +117,21 @@ import Testing
         #expect(model.contactItems.isEmpty, "never an ID's number")
     }
 
+    // MARK: The arrow keys
+
+    @Test func theArrowsWalkTheContactRowsAfterTheIDsInCardsAndList() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let model = await Self.model(rig)
+        model.layout = .cards
+        #expect(model.contactWalk == model.contactItems.map(\.id) && model.contactWalk.count == 4)
+        model.toggleFold(.phones)
+        #expect(model.contactWalk.count == 2, "a folded card’s rows are not on screen: the address and the email")
+        model.layout = .list
+        #expect(model.contactWalk.count == 4, "the list shows every row, whatever is folded")
+        model.layout = .people
+        #expect(model.contactWalk.isEmpty, "People draws no Contact cards")
+    }
+
     // MARK: Editing from a card
 
     @Test func correctingASharedAddressPutsItRightForEveryoneThere() async throws {

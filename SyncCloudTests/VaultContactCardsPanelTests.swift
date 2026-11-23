@@ -63,6 +63,22 @@ import Testing
         #expect(model.allFolded)
     }
 
+    @Test func theArrowsWalkFromTheLastIDIntoTheContactRowsAndBack() {
+        let (a, b) = (UUID(), UUID())
+        let ids = [a, b], contacts = ["address:home:x", "phone:anna:0"]
+        func walk(_ here: VaultCard.VaultWalkStop?, _ step: Int) -> VaultCard.VaultWalkStop? {
+            VaultCard.walk(from: here, by: step, ids: ids, contacts: contacts)
+        }
+        #expect(walk(.id(b), 1) == .contact("address:home:x"), "down from the last ID: the first contact")
+        #expect(walk(.contact("address:home:x"), -1) == .id(b), "and back up")
+        #expect(walk(.contact("phone:anna:0"), 1) == .contact("phone:anna:0"), "the end stays")
+        #expect(walk(.id(a), -1) == .id(a), "so does the top")
+        #expect(walk(nil, 1) == .id(a), "nothing chosen: the first")
+        #expect(VaultCard.walk(from: nil, by: 1, ids: [], contacts: contacts) == .contact("address:home:x"),
+                "with Contact alone chosen, the contacts")
+        #expect(VaultCard.walk(from: .contact("gone"), by: 1, ids: ids, contacts: contacts) == .id(a), "a row no longer there: the first")
+    }
+
     @Test func theDetailsGiveEachPartAFormAsksFor() async throws {
         let typed = try await Self.typed(.cards); defer { typed.cleanUp() }
         let home = try #require(typed.model.contactCards.first?.items.first)

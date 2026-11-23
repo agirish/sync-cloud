@@ -822,6 +822,17 @@ public final class VaultModel: ObservableObject {
 
     public var selectedRow: Row? { rows.first { $0.id == selection } }
 
+    /// The IDs the arrow keys walk, in the order they are drawn: the panel walks on into the
+    /// Contact cards after them (``contactWalk``).
+    public var walkOrder: [UUID] { visibleIDs }
+
+    /// The Contact rows the arrow keys walk after the IDs, in Cards and List: a folded card's are
+    /// passed over in Cards, as an ID card's are; People draws none.
+    public var contactWalk: [String] {
+        guard layout != .people else { return [] }
+        return contactCards.filter { showsList || !isFolded($0.kind) }.flatMap { $0.items.map(\.id) }
+    }
+
     /// Every row in the order it is drawn: what the arrow keys walk.
     /// A folded card's rows are passed over: they are not on screen.
     private var visibleIDs: [UUID] {
