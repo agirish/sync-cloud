@@ -71,6 +71,8 @@ struct VaultHost: ViewModifier {
 
     private func lockForTheMac() {
         model.systemLocked()
+        // The Mac asleep or locked: a copied number does not wait out its time on the clipboard.
+        VaultPasteboard.clearPending()
         isShown = false
     }
 }
@@ -163,7 +165,8 @@ enum VaultPasteboard {
         pasteboard.clearContents()
     }
 
-    /// What quitting does: clears the copy still waiting, unless something else was copied since.
+    /// What quitting, a lock and closing the Vault do: clears the copy still waiting, unless
+    /// something else was copied since.
     @MainActor static func clearPending() {
         if let pending = pendingClear { clear(ifStill: pending.stamp, on: pending.pasteboard) }
     }

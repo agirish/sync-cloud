@@ -57,8 +57,13 @@ import Testing
         #expect(anna.births.count == 2, "\(anna.births.map(\.date))")
         #expect(anna.births.map { VaultCard.sourceLabel($0.rows) } == ["From Passport", "From Passport"],
                 "one line each; the document's name is in the link's tip")
-        #expect(anna.births.compactMap { $0.rows.first.map(VaultCard.sourceHelp) }.map { $0.contains("renewal.pdf") } == [true, false],
+        #expect(anna.births.compactMap { $0.rows.first.map { VaultCard.sourceHelp($0, shown: true) } }.map { $0.contains("renewal.pdf") } == [true, false],
                 "two passports told apart by their documents, on hover")
+        // Not yet shown, the name is as the documents list draws it: any number in it masked.
+        for row in anna.births.compactMap(\.rows.first) {
+            let path = try #require(row.facts?.primary?.path)
+            #expect(VaultCard.sourceHelp(row, shown: false).contains("“\(VaultMask.fileName(path))”"))
+        }
         let both = try VaultPanelRenderTests.render(two.model, defaults: two.defaults, name: "people-two-dates")
 
         // Given to someone else, the wrong one goes: its line, its source and the warning with it.

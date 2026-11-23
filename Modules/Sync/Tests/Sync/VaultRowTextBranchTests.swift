@@ -38,6 +38,18 @@ import Testing
         ])
     }
 
+
+    /// What VoiceOver says of a row adds the badges the panel works out itself, as words.
+    @Test func aRowSaysTheBadgesThePanelWorksOut() {
+        let row = VaultModel.Row(id: UUID(), title: "Passport", value: "A38291647", note: "", category: .passport, facts: nil,
+                                 standing: VaultStanding(tab: .current), isSaved: true, personID: nil, whose: "Anna",
+                                 pin: nil, assignment: nil, isHousehold: false)
+        let plain = row.spoken(title: "Anna")
+        #expect(row.spoken(title: "Anna", also: []) == plain)
+        #expect(row.spoken(title: "Anna", also: ["Updated", "Expires in 12 days"])
+                == plain.replacingOccurrences(of: ", in Vault", with: ", updated, expires in 12 days, in Vault"))
+    }
+
     /// The activity list and a person's copied text name a case as its title does, without
     /// " case": the same rule as the panel (``VaultModel/Row/kindTitle``).
     @Test func theActivityListAndPeoplesTextNameACaseWithoutCase() async throws {

@@ -68,10 +68,12 @@ extension VaultModel.Row {
         category.spec.idLabel(facts, title)
     }
 
-    /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees.
-    public func spoken(title: String) -> String {
+    /// A row as VoiceOver reads it: what it is, its ending, and the badges the eye sees; `also`,
+    /// the ones the panel works out itself ("Updated", "Expires in 12 days"), said lowercased.
+    public func spoken(title: String, also: [String] = []) -> String {
         let row = self
         var parts = [title, row.category.singular, VaultMask.spoken(row.value, shown: false, hidesEnding: row.category.hidesEnding)]
+        parts += also.map { $0.lowercased() }
         if row.documentMissing { parts.append("file not found") }
         if row.standing.inUse { parts.append("in use") }
         if row.standing.expired { parts.append("expired") }

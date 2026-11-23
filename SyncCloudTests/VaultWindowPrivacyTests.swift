@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Sync
 import Testing
 @testable import SyncCloud
@@ -27,6 +28,29 @@ import Testing
         VaultWindowPrivacy.apply(exposed: false, to: window, defaults: scratch.defaults)
         #expect(window.sharingType == .readOnly)
         VaultWindowPrivacy.apply(exposed: true, to: nil, defaults: scratch.defaults)   // no window yet: nothing to do
+    }
+
+
+    /// A sheet or popover is a window of its own, which the Vault's window's setting does not reach:
+    /// one that draws a number keeps itself out of capture (the 2026-11-23 review).
+    @Test func aSheetThatDrawsANumberIsKeptFromCapture() {
+        let scratch = TestDefaults()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        #expect(window.sharingType == .readOnly)
+        window.contentView = NSHostingView(rootView: Color.clear.keptFromCapture(defaults: scratch.defaults))
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(window.sharingType == .none)
+    }
+
+    /// A document's name masks any number in it unless its ID may be shown, as People's sources
+    /// list draws it (the 2026-11-23 review).
+    @Test func aDocumentsNameIsMaskedUnlessItsIDMayBeShown() {
+        let path = "/Docs/Passport A38291647.pdf"
+        #expect(VaultCard.documentName(path, shown: true) == "Passport A38291647.pdf")
+        #expect(VaultCard.documentName(path, shown: false) == VaultMask.fileName(path))
+        #expect(VaultCard.documentName(path, shown: false)?.contains("38291647") == false)
     }
 
     /// A date of birth People draws in full counts as an ID drawn in full (VT73): the window is

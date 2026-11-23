@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Design
+import Quartz
 import Sync
 
 /// The Vault card's size: one size, held to what the window can show.
@@ -218,7 +219,6 @@ struct VaultCard: View {
     struct MovedNote: Equatable {
         let id: UUID
         let title: String
-        let ending: String
         let tab: String
         let pin: VaultPin?
         let shownOn: UUID?
@@ -311,6 +311,9 @@ struct VaultCard: View {
                 model.backUpIfDue(using: VaultBackup.live())
             }
         }
+        // Locked (Lock Now, idle): a number copied from the Vault leaves the clipboard with it,
+        // unless something else was copied since (owner, 2026-11-23).
+        .onChange(of: model.isOpen) { _, open in if !open { VaultPasteboard.clearPending() } }
         // People changed in Settings, or a person was added here: whose each number is follows.
         .onChange(of: people) { _, now in model.people = now }
         // Back to SyncCloud with the Vault up and locked: Touch ID is asked for at once, as when
@@ -351,6 +354,15 @@ struct VaultCard: View {
         // Quick Look's panel takes key while it is up and hands it back to whatever AppKit picks
         // when it closes; the Vault takes it back, so Space opens the chosen document again.
         .onChange(of: quickLookPath) { _, now in
+            // Reading a scan in Quick Look is using the Vault: it does not lock mid-read. Its panel
+            // is a window of its own, kept out of screen sharing while it shows a Vault document
+            // (the scan carries the number), and sharing again after.
+            activity.countsQuickLook = now != nil
+            DispatchQueue.main.async {
+                if QLPreviewPanel.sharedPreviewPanelExists() {
+                    VaultWindowPrivacy.apply(exposed: now != nil, to: QLPreviewPanel.shared())
+                }
+            }
             if now == nil, editing == nil, largeType == nil { focusSearch(again: true) }
         }
         .onChange(of: model.query) { _, _ in choosing = nil }
@@ -367,10 +379,10 @@ struct VaultCard: View {
             .presentedNativeControlAccent()
         }
         .sheet(isPresented: Binding(get: { mergingFrom != nil }, set: { if !$0 { mergingFrom = nil } })) {
-            if let id = mergingFrom { mergeSheet(id).presentedNativeControlAccent() }
+            if let id = mergingFrom { mergeSheet(id).presentedNativeControlAccent().keptFromCapture() }
         }
         .sheet(isPresented: Binding(get: { addingFieldTo != nil }, set: { if !$0 { addingFieldTo = nil } })) {
-            addFieldSheet.presentedNativeControlAccent()
+            addFieldSheet.presentedNativeControlAccent().keptFromCapture()
         }
         .sheet(isPresented: $customizingGroups) {
             VaultGroupsSheet(groups: model.groups, kinds: model.kinds, colors: model.colors,
@@ -400,7 +412,10 @@ struct VaultCard: View {
         .onContinuousHover { phase in
             if case .active = phase { model.panelActivity() }
         }
-        .onAppear { activity.start { model.panelActivity() } }
+        .onAppear {
+            activity.countsQuickLook = quickLookPath != nil
+            activity.start { model.panelActivity() }
+        }
         .background(VaultWindowReader(watch: activity))
         // While an ID is drawn in full, the window is kept out of screen sharing and recordings
         // (``VaultWindowPrivacy``); the moment none is, it shares again.
@@ -1083,7 +1098,8 @@ struct VaultCard: View {
             .help(isFolded ? "Expand. ⌥-click to expand every card. Right-click for its color."
                            : "Collapse. ⌥-click to collapse every card. Right-click for its color.")
             .accessibilityLabel("\(title), \(rows.count)")
-            .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
+            // Folded, what the eye reads under the title is said too.
+            .accessibilityValue(isFolded ? "Collapsed, \(VaultModel.Row.foldedSummary(rows))" : "Expanded")
             // Nothing about color sits on the card itself: it is chosen from here, or beside Kind
             // in the chosen ID's details, or in Customize Groups.
             .contextMenu {
@@ -1288,7 +1304,7 @@ struct VaultCard: View {
             .buttonStyle(.plain)
             .help(isFolded ? "Expand. ⌥-click to expand every card." : "Collapse. ⌥-click to collapse every card.")
             .accessibilityLabel("\(card.kind.title), \(card.items.count)")
-            .accessibilityValue(isFolded ? "Collapsed" : "Expanded")
+            .accessibilityValue(isFolded ? ["Collapsed", Self.contactFoldedSummary(card, people: people)].filter { !$0.isEmpty }.joined(separator: ", ") : "Expanded")
             .contextMenu {
                 VaultCardTitleMenu(isFolded: isFolded, allFolded: model.allFolded,
                                    headingsShown: model.showsGroupHeadings,
@@ -1520,7 +1536,7 @@ struct VaultCard: View {
                                     .lineLimit(1)
                             }
                             .buttonStyle(.plain)
-                            .help(Self.sourceHelp(row))
+                            .help(Self.sourceHelp(row, shown: false))
                         }
                     }
                 }
@@ -1605,9 +1621,14 @@ struct VaultCard: View {
                 set: { open in if !open, shown.wrappedValue == key { shown.wrappedValue = nil } })
     }
 
-    /// The name of the document a row is read from, if it was read.
-    static func fileName(_ row: VaultModel.Row) -> String? {
-        (row.facts?.primary?.path).map { ($0 as NSString).lastPathComponent }
+    /// The row's document's name: in full while its number may be shown, else with any number in
+    /// it masked, as the documents list draws it (a scan is often named for its number).
+    static func fileName(_ row: VaultModel.Row, shown: Bool) -> String? {
+        documentName(row.facts?.primary?.path, shown: shown)
+    }
+
+    static func documentName(_ path: String?, shown: Bool) -> String? {
+        path.map { shown ? ($0 as NSString).lastPathComponent : VaultMask.fileName($0) }
     }
 
 
@@ -1867,6 +1888,7 @@ struct VaultCard: View {
                     .popover(isPresented: popoverBinding(moreKey), arrowEdge: .bottom) {
                         popover()
                             .presentedNativeControlAccent()
+                            .keptFromCapture()
                     }
                 }
             }
@@ -1900,13 +1922,15 @@ struct VaultCard: View {
     }
 
     /// The value, on one line: cut at its end when it does not fit, and whole on hover.
-    private func factValue(_ text: String, muted: Bool = false) -> some View {
+    /// `secret`: a date of birth, which no tooltip carries (a tooltip is a window of its own,
+    /// which screen sharing sees).
+    private func factValue(_ text: String, muted: Bool = false, secret: Bool = false) -> some View {
         Text(text)
             .scaledFont(.body.weight(.semibold))
             .foregroundStyle(muted ? .secondary : .primary)
             .lineLimit(1)
             .truncationMode(.tail)
-            .help(text)
+            .help(secret ? "" : text)
     }
 
     /// An address on one line, cut in its street when it does not fit: the city, state and ZIP
@@ -1959,10 +1983,11 @@ struct VaultCard: View {
                     .truncationMode(.middle)
             }
             .buttonStyle(.plain)
-            .help(rows.count == 1 ? Self.sourceHelp(rows[0]) : "The IDs this was read from")
+            .help(rows.count == 1 ? Self.sourceHelp(rows[0], shown: false) : "The IDs this was read from")
             .popover(isPresented: popoverBinding(key), arrowEdge: .bottom) {
                 sourcesList(title, rows: rows)
                     .presentedNativeControlAccent()
+                    .keptFromCapture()
             }
         }
     }
@@ -2174,7 +2199,7 @@ struct VaultCard: View {
         return factShell("Date of birth", warn: others > 0, more: others == 0 ? nil : "+\(others) \(others == 1 ? "date" : "dates") ›",
                          moreWarns: true, moreKey: key) {
             if let lead {
-                factValue(showsBirth ? VaultReading.spelled(lead.date) : "•• ••••• ••••", muted: !showsBirth)
+                factValue(showsBirth ? VaultReading.spelled(lead.date) : "•• ••••• ••••", muted: !showsBirth, secret: true)
             } else {
                 factValue("Not known", muted: true)
             }
@@ -2223,7 +2248,7 @@ struct VaultCard: View {
     private func birthTrailing(_ section: VaultPersonSection, _ birth: VaultPersonSection.Birth, showsBirth: Bool) -> some View {
         let key = "born-\(section.title)-\(birth.date.timeIntervalSince1970)"
         if showsBirth {
-            copyIcon(key, help: "Copy \(VaultReading.formDate(birth.date)), the way US forms ask for a date") {
+            copyIcon(key, help: "Copy the date of birth, the way US forms ask for a date") {
                 Task { if await model.copyBirth(birth.date, in: section) { flashCopied(key) } }
             }
         } else {
@@ -2711,7 +2736,7 @@ struct VaultCard: View {
                                 Text(Self.sourceLine(row))
                                     .foregroundStyle(glassHue.accentColor)
                                 Spacer(minLength: 8)
-                                Text(Self.fileName(row) ?? "")
+                                Text(Self.fileName(row, shown: model.canShow(row: row)) ?? "")
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -2844,7 +2869,10 @@ struct VaultCard: View {
                                   countryCode: model.geoFilter == .all && model.spansCountries ? row.geo.code : nil,
                                   subtitle: row.listSubtitle(now: model.now), masked: model.masked(row),
                                   badges: badges(row), isChosen: isSelected, onColor: onColor)
-        return VaultRow(row: row, label: label, spoken: row.spoken(title: title), people: people, model: model,
+        // The badges the eye sees that the row's own words leave out: news from a refresh, and
+        // how soon it runs out.
+        let heard = label.badges.map(\.text).filter { $0 == "Updated" || $0.hasPrefix("Expires") }
+        return VaultRow(row: row, label: label, spoken: row.spoken(title: title, also: heard), people: people, model: model,
                         select: { model.selection = row.id; editing = nil },
                         menu: { rowMenu($0) })
             .equatable()
@@ -2869,8 +2897,8 @@ struct VaultCard: View {
     }
 
     /// The link's tip: the document by name, and what choosing the ID is for.
-    static func sourceHelp(_ row: VaultModel.Row) -> String {
-        let file = fileName(row)
+    static func sourceHelp(_ row: VaultModel.Row, shown: Bool) -> String {
+        let file = fileName(row, shown: shown)
         return "\(file.map { "Read from “\($0)”. " } ?? "")Choose this ID to see its document, give it to someone else with Belongs to, or remove it."
     }
 
@@ -3200,8 +3228,8 @@ struct VaultCard: View {
             moved = nil
             return
         }
-        moved = MovedNote(id: row.id, title: row.title, ending: model.masked(row),
-                          tab: Self.tabTitle(now.standing.tab), pin: was, shownOn: model.selection)
+        moved = MovedNote(id: row.id, title: row.title, tab: Self.tabTitle(now.standing.tab), pin: was,
+                          shownOn: model.selection)
     }
 
     /// Adds the person a document names to People: shown by their first name, matched by the full
@@ -3493,7 +3521,10 @@ struct VaultCard: View {
         if let note = moved, note.shownOn == row.id {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(SemanticColor.success)
-                Text("\(note.title) \(note.ending) moved to \(note.tab).")
+                // Its ending as it may be drawn now, not when it moved: a hidden ending (an SSN's)
+                // shown for its thirty seconds is hidden again once they end.
+                let ending = model.rows.first { $0.id == note.id }.map(model.masked) ?? ""
+                Text("\(note.title) \(ending) moved to \(note.tab).")
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Undo") {
                     model.pin(note.id, note.pin)
@@ -3856,7 +3887,8 @@ struct VaultCard: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.head)
-                            .help(((shown ? folder : VaultMask.folder(folder)) as NSString).abbreviatingWithTildeInPath)
+                            // Masked in its tip even while shown: a tooltip is a window screen sharing sees.
+                            .help((VaultMask.folder(folder) as NSString).abbreviatingWithTildeInPath)
                         if index == 0, row.chosenSource != nil {
                             Button("Let the Vault Choose") { model.readFrom(row.id, copy: nil) }
                                 .buttonStyle(.link)
@@ -3943,7 +3975,9 @@ struct VaultCard: View {
                         .fontDesign(.monospaced)
                         .autocorrectionDisabled()
                         .focused($valueFocused)
-                        .help(readValue.map { "Read from the document as \($0). Scans often mix up Z and 2, O and 0, I and 1, B and 8." } ?? "")
+                        // No number in it: a tooltip is a window of its own, which screen sharing sees.
+                        .help(readValue.map { VaultReading.normalized($0) != VaultReading.normalized(draft.value) } == true
+                              ? "The document reads this a little differently. Scans often mix up Z and 2, O and 0, I and 1, B and 8." : "")
                 }
                 // What its documents were noted to read for it, when its number was corrected.
                 if case .existing(let id) = editing, case let readings = model.readings(of: id), !readings.isEmpty {
@@ -4700,6 +4734,9 @@ struct VaultCard: View {
     }
     /// Whether the panel is drawing an ID in full (``VaultPanel``'s `exposesAnID`).
     var exposed = false
+    /// A document of the Vault's is up in Quick Look, whose panel is the app's, not a child of the
+    /// Vault's window: use there counts too.
+    var countsQuickLook = false
     /// Where Settings ▸ Vault's "Hide from screen sharing" is read: the app's own, or a test's.
     var defaults: UserDefaults = .standard
 
@@ -4709,7 +4746,8 @@ struct VaultCard: View {
             matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .leftMouseDragged]
         ) { [weak self] event in
             MainActor.assumeIsolated {
-                guard Self.belongs(event.window, to: self?.window) else { return }
+                guard Self.belongs(event.window, to: self?.window)
+                        || self?.countsQuickLook == true && Self.isQuickLook(event.window) else { return }
                 onActivity()
             }
             return event
@@ -4721,6 +4759,12 @@ struct VaultCard: View {
     static func belongs(_ target: NSWindow?, to window: NSWindow?) -> Bool {
         guard let window, let target else { return false }
         return target === window || target.sheetParent === window || target.parent === window
+    }
+
+    /// Whether `target` is Quick Look's panel.
+    static func isQuickLook(_ target: NSWindow?) -> Bool {
+        guard let target, QLPreviewPanel.sharedPreviewPanelExists() else { return false }
+        return target === QLPreviewPanel.shared()
     }
 
     func stop() {
@@ -4756,6 +4800,40 @@ struct VaultCardSlice: ViewModifier {
                     }
                     .clipped()
             }
+    }
+}
+
+/// Keeps a sheet's or popover's own window out of screen sharing, as the Vault's window is while an
+/// ID is drawn in full: each is a window of its own, which the Vault's setting does not reach. Used
+/// on those that draw a number, a date of birth or a document's name.
+struct VaultCapturePrivacy: NSViewRepresentable {
+    /// Where the setting is read: the app's own, or a test's.
+    var defaults: UserDefaults = .standard
+
+    final class Probe: NSView {
+        var defaults: UserDefaults = .standard
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            VaultWindowPrivacy.apply(exposed: true, to: window, defaults: defaults)
+        }
+    }
+
+    func makeNSView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.defaults = defaults
+        return probe
+    }
+
+    func updateNSView(_ probe: Probe, context: Context) {
+        probe.defaults = defaults
+        VaultWindowPrivacy.apply(exposed: true, to: probe.window, defaults: defaults)
+    }
+}
+
+extension View {
+    /// Out of screen sharing while "Hide from screen sharing" is on (``VaultCapturePrivacy``).
+    func keptFromCapture(defaults: UserDefaults = .standard) -> some View {
+        background(VaultCapturePrivacy(defaults: defaults))
     }
 }
 

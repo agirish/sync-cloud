@@ -87,8 +87,20 @@ list's ninety days are counted from now: a clock set months ahead empties it as 
 break would, and the two cannot be told apart; it holds no ID.
 
 Owner's calls taken (2026-11-23): a number the Vault copied is cleared from the clipboard when the
-Vault locks (batch 16); People joins an unmatched person's spellings by first and last name
-(batch 17). Still open from this review: the panel's (batch 16), the model's reading notes taken
+Vault locks, not when the panel closes (batch 16); People joins an unmatched person's spellings by
+first and last name (batch 17).
+
+Batch 16 fixed the panel's, two of them visible by the owner's choice (the clipboard at a lock,
+and Clear… in the activity list asking first): the sheets and popovers that draw a number, a date
+of birth or a document's name, and Quick Look's panel while it shows a Vault document, are kept
+out of screen sharing (`keptFromCapture`), and no tooltip carries a number, a date of birth or an
+unmasked document name; People's document names are masked unless the ID may be shown; the moved
+ID's note works out its ending when drawn; VoiceOver hears a row's Updated and Expires badges and a
+folded card's summary; use in Quick Look's panel keeps the Vault awake. Left: copies of a name, a
+phone or an address are plain (VT35), so a lock leaves them; a popover that holds no secret is kept
+out of capture too, with the setting on.
+
+Still open from this review: the model's reading notes taken
 before a read and the waiting IDs' split after People changes (batch 17), and the readers' (batch
 18; the license barcode's DAQ line and a TIFF's later pages are reader accuracy, the owner's call).
 
@@ -420,7 +432,11 @@ What is sound and should stay:
 - **Keyed fingerprints.** HMAC-keyed set-aside fingerprints and the lock-off seal.
 - **The lock.** The session's epoch (`VaultSession`) discarding late proofs, and nothing loaded before a proof (VF4).
 - **What prints.** Masked `description`s and empty mirrors.
-- **The clipboard.** A concealed, host-only copy, cleared after the set time and on quit.
+- **The clipboard.** A concealed, host-only copy, cleared after the set time, at a lock and on quit
+  (closing the panel keeps it, so a copy can be pasted after: owner, 2026-11-23).
+- **Screen capture.** The Vault's window while an ID is drawn in full, and the sheets, popovers and
+  Quick Look panel that draw a number, a date of birth or a document's name; no tooltip carries
+  one (batch 16).
 - **The backup.** PBKDF2-HMAC-SHA256 at 600,000 rounds, its header authenticated, a published-vector test.
 - **The activity list.** Bounded and sealed.
 - **Sending.** Nothing goes to Claude.

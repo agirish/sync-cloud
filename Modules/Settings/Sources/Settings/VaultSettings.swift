@@ -544,6 +544,8 @@ struct VaultActivitySheet: View {
     let events: [VaultActivityEvent]
     let clear: () -> Void
     @Environment(\.dismiss) private var dismiss
+    /// Clear… asks first: the list cannot be brought back.
+    @State private var confirmingClear = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -568,9 +570,15 @@ struct VaultActivitySheet: View {
                 .frame(minHeight: 280)
             }
             HStack {
-                Button("Clear…", role: .destructive, action: clear)
+                Button("Clear…", role: .destructive) { confirmingClear = true }
                     .disabled(events.isEmpty)
                     .help("Removes the list for good.")
+                    .confirmationDialog("Clear the Vault’s activity list?", isPresented: $confirmingClear) {
+                        Button("Clear List", role: .destructive, action: clear)
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("What it lists can’t be brought back.")
+                    }
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.defaultAction)

@@ -16238,7 +16238,9 @@ reached by a switch the compiler checks, places are enums again, the Vault keeps
 of each of the last 30 days beside its ten newest, and a sealed file is created owner-only. Batch 15:
 a passphrase backup is never written over another and Back Up Now carries the contacts, sealed
 files are flushed to the disk, the daily backups go by the most recent days with backups, more
-types print nothing they hold, and a failed passphrase change or Replace leaves things as they were.
+types print nothing they hold, and a failed passphrase change or Replace leaves things as they were. Batch 16:
+the Vault's sheets, popovers and Quick Look panel that draw a secret are kept out of screen sharing,
+a copied number is cleared at a lock, and People masks document names until shown.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
