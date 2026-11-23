@@ -87,6 +87,9 @@ Work in a worktree ([`COMMIT.md`](COMMIT.md)). The examples cut `v2.9` from `v2.
    - Before committing, work through [`docs/release-notes-audit.md`](docs/release-notes-audit.md):
      convert "Still to come", run the draft-word grep (the markup list is not the whole set), and
      audit every claim.
+   - **Work owed before the cut.** On `main`, read "Owed before the next cut" in
+     [`docs/vault-tech-debt.md`](docs/vault-tech-debt.md): what is listed there lands first, or the
+     ask names it as not done.
    - **The front pages move with the notes.** `README.md` and `docs/index.html` headline the new
      version ("New in <version>"), drop every "new in <previous>" tag, and say nothing the release
      changed. Grep both for each feature the notes retire or rename. Then look at each screenshot

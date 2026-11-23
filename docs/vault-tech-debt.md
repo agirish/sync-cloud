@@ -43,6 +43,12 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
   open. "Go Back to an Earlier Save" (VF6) can now read `VaultStore.backups`; VF7 (key tied to Touch ID,
   which is VT31) is deferred by the owner.
 
+## Owed before the next cut
+
+Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
+- **v7.2: VT3**, the migration that drops the never-shipped shims. The owner asked that it land
+  before v7.2 (2026-11-22); it rewrites his sealed file once, so say so in the ask.
+
 ## Order
 
 1. ~~Wait for the branches in flight to land.~~ Done.
@@ -153,7 +159,7 @@ new items VT99–VT107; VT108 came from a third review (2026-11-21). IDs (`VT…
     written in one atomic swap through `SealedFile.write` (the read index may stay apart: it is a cache);
   - UserDefaults keeps view preferences and settings only.
 
-**VT3 — Drop shims for builds that never shipped.** *Open.*
+**VT3 — Drop shims for builds that never shipped.** *Open; owed before the v7.2 cut (owner, 2026-11-22).* Held back until near the cut: a build made before the migration reads none of the rewritten records and shows the Vault empty, with nothing saying why, until it is rebuilt.
 - **The problem.** These remain:
   - `VaultEntry.Kind` (`VaultEntry.swift:11`), `older` (`:55`), `kind` still encoded (`:107`) and kept
     by the `category` setter (`:97`);
