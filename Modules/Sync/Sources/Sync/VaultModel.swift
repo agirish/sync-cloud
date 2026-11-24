@@ -1680,6 +1680,7 @@ public final class VaultModel: ObservableObject {
                 let opened = sealed.opened(generation: readGeneration, people: people)
                 hold(opened.state)
                 if opened.changed { readingChanged = true }
+                dropOrphanedCopies(laterFields: !records.laterFields.isEmpty || !records.stored.isEmpty)
             }
             // Counts and the lock's settings only (VT22): never a title.
             logSession("Vault: loaded, \(entries.count) saved ID(s) and \(finds.count) to confirm; "
@@ -1943,6 +1944,27 @@ public final class VaultModel: ObservableObject {
         forgetReading(of: entry.value, readAgain: entry.sourcePath == nil)
         keepSelectionVisible()
         return true
+    }
+
+    /// What documents said about numbers no saved or waiting ID has, let go as the reading file
+    /// opens (VT110): IDs removed before ``forgetReading(of:readAgain:)`` left theirs, and Refresh
+    /// went on counting and opening those documents. Sealed at the next seal, with the rest; one
+    /// that never lands is simply done again at the next open. Documents stay marked read, so a
+    /// typed ID removed back then is not offered again until its document changes.
+    ///
+    /// Not while anything here was written by a later build, whose numbers this one cannot see:
+    /// its records, its fields on a record (`laterFields`) or in the reading file. Nor while the
+    /// Vault holds no ID: a missing Vault file beside its reading file is no sign the IDs are gone.
+    /// Mentions stay: a number never saved is named in documents too.
+    private func dropOrphanedCopies(laterFields: Bool) {
+        guard newerRecords == 0, !laterFields, readingLaterFields == nil, !entries.isEmpty else { return }
+        let held = Set(entries.map { VaultReading.normalized($0.value) } + finds.map { VaultReading.normalized($0.value) })
+        let orphaned = copies.keys.filter { !held.contains($0) }
+        guard !orphaned.isEmpty else { return }
+        for key in orphaned { copies[key] = nil }
+        readingChanged = true
+        // A count only: the numbers are never logged.
+        Logger.shared.info("Vault: let go of what documents said about \(orphaned.count) number(s) no ID has")
     }
 
     /// Lets go of what documents said about a removed number, and seals that (VT64): kept, Refresh

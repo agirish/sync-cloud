@@ -221,6 +221,75 @@ struct VaultFakeDocuments: VaultDocumentReading {
         #expect(model.finds.contains { $0.value == "WAC2412345678" }, "its unchanged document was read again")
     }
 
+    /// VT110: a Vault saved by a build before VT64, which removed the passport and left what its
+    /// page said. Sealed with the format tests' key, so a test can write the Vault file itself.
+    @MainActor static func removedByAnOlderBuild(_ rig: Rig) async throws -> (key: String, receipt: VaultEntry) {
+        rig.keychain.itemData = VaultFormatTests.key.withUnsafeBytes { Data($0) }
+        let model = rig.model()
+        await model.readDocuments(with: Self.documents)
+        let passport = try #require(model.finds.first { $0.title == "Passport" })
+        let receipt = try #require(model.finds.first { $0.title == "USCIS receipt number" })
+        // Saved as printed, with dashes: what it is held by is its number normalized.
+        var draft = VaultModel.Draft(receipt)
+        draft.value = "WAC-24-123-45678"
+        let receiptID = try #require(model.confirm(receipt.id, as: draft))
+        _ = try #require(model.confirm(passport.id, as: VaultModel.Draft(passport)))
+        let kept = try #require(model.entry(id: receiptID))
+        model.closed()
+        return (VaultReading.normalized(passport.value), kept)
+    }
+
+    @Test func documentsOfAnIDRemovedBeforeAreLetGoAsTheVaultOpens() async throws {
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (key, receipt) = try await Self.removedByAnOlderBuild(rig)
+        try rig.store.save([receipt])
+
+        let opened = rig.model()
+        await opened.opened()
+        #expect(opened.sealedReading.copies[key] == nil)
+        #expect(!opened.refreshSources.contains("/docs/passport.pdf"))
+        let receiptKey = VaultReading.normalized(receipt.value), waitingKey = VaultReading.normalized("123456789A1")
+        #expect(opened.finds.contains { VaultReading.normalized($0.value) == waitingKey })
+        #expect(opened.sealedReading.copies[receiptKey] != nil, "the saved receipt keeps what its document said")
+        #expect(opened.sealedReading.copies[waitingKey] != nil, "so does the waiting ID")
+        #expect(opened.sealedReading.mentions[key] != nil, "documents naming it stay")
+        opened.closed()
+
+        guard case .loaded(let sealed) = rig.store.openReading() else { Issue.record("no reading file"); return }
+        #expect(sealed.copies[key] == nil, "sealed as it closed")
+        #expect(sealed.copies[receiptKey] != nil && sealed.copies[waitingKey] != nil)
+    }
+
+    @Test func documentsOfRemovedIDsStayWhileTheVaultCannotSayWhatItHolds() async throws {
+        // Empty: set aside as unreadable, say, with a restore to come.
+        let rig = try Rig(); defer { rig.cleanUp() }
+        let (key, _) = try await Self.removedByAnOlderBuild(rig)
+        try VaultFormatTests.sealed([], plus: []).write(to: rig.scratch.fileURL)
+        let empty = rig.model()
+        await empty.opened()
+        #expect(empty.sealedReading.copies[key] != nil, "an empty Vault keeps them")
+        empty.closed()
+
+        // Holding a later build's record: its number cannot be read here.
+        let later = try Rig(); defer { later.cleanUp() }
+        let (laterKey, receipt) = try await Self.removedByAnOlderBuild(later)
+        try VaultFormatTests.sealed([receipt], plus: [["category": "bankAccount"]]).write(to: later.scratch.fileURL)
+        let model = later.model()
+        await model.opened()
+        #expect(model.newerRecords == 1)
+        #expect(model.sealedReading.copies[laterKey] != nil, "kept beside a record this build cannot read")
+        model.closed()
+
+        // A later build's field on a record this build reads: it may hold a number too.
+        let field = try Rig(); defer { field.cleanUp() }
+        let (fieldKey, kept) = try await Self.removedByAnOlderBuild(field)
+        try VaultFormatTests.sealed([kept], plus: [], laterOnFirst: ["formerNumber": "X1234567"]).write(to: field.scratch.fileURL)
+        let withField = field.model()
+        await withField.opened()
+        #expect(withField.newerRecords == 0 && withField.entries.count == 1)
+        #expect(withField.sealedReading.copies[fieldKey] != nil, "kept beside a later build's field")
+    }
+
     @Test func aKeychainThatRefusesStillSetsAsideForThisRun() async throws {
         let rig = try Rig(); defer { rig.cleanUp() }
         let model = rig.model()

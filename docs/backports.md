@@ -16268,6 +16268,9 @@ the folder walk and read plan are a step of their own (VT7); 43 panels render by
 Batch 25: removing an ID lets go of what its documents said about it and seals that, so from then on
 Refresh no longer counts or opens a document only the removed ID came from, and a removed typed
 number's documents are read again at the next Discover More (VT64).
+Batch 26: as the Vault opens, what documents said about numbers no saved or waiting ID has is let go,
+so IDs removed before batch 25 stop counting in Refresh; not while anything a later build wrote is
+there, nor in a Vault with no ID (VT110).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
