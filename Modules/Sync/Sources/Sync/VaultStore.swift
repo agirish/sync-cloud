@@ -23,6 +23,20 @@ public enum VaultError: Error, Equatable, Sendable {
     /// than one, so it is taken for a mistake and refused (VT20); the file on disk is the one
     /// from before.
     case wouldDrop(Int)
+    /// The file changed since this copy of the app last read or wrote it: another SyncCloud
+    /// running on this Mac saved over it (VT108). Nothing was written over its change.
+    case changedElsewhere
+}
+
+/// The sealed file as one copy of the app last saw it: none, or its bytes' SHA-256. A save that
+/// expects one refuses a file that no longer matches (``VaultError/changedElsewhere``).
+public enum VaultFileState: Equatable, Sendable {
+    case absent
+    case sealed(Data)
+
+    static func of(_ data: Data?) -> VaultFileState {
+        data.map { .sealed(Data(SHA256.hash(data: $0))) } ?? .absent
+    }
 }
 
 /// The Vault's key: 256 random bits in the login Keychain, beside the Anthropic key.
@@ -461,7 +475,12 @@ public struct VaultStore {
     /// Every record, those a later build wrote included, or none when nothing has been saved yet.
     /// A file that does not open is logged, with its size and marker only, and thrown.
     public func loadRecords() throws -> VaultRecords {
-        guard hasFile else { return VaultRecords() }
+        try loadRecordsAndState().records
+    }
+
+    /// ``loadRecords()``, and the file as it was read, for a save to expect (VT108).
+    public func loadRecordsAndState() throws -> (records: VaultRecords, onDisk: VaultFileState) {
+        guard hasFile else { return (VaultRecords(), .absent) }
         guard let data = fileManager.contents(atPath: fileURL.path) else {
             Logger.shared.warning("Vault: the sealed file is there but could not be read from disk")
             throw VaultError.unreadableFile
@@ -479,7 +498,7 @@ public struct VaultStore {
             if !records.newer.isEmpty {
                 Logger.shared.warning("Vault: \(records.newer.count) record(s) in the sealed file need a newer SyncCloud — kept as they are")
             }
-            return records
+            return (records, .of(data))
         } catch let error as VaultError {
             Logger.shared.warning("Vault: the sealed file did not open (\(error), \(VaultFile.summary(of: data))) — it is left as it is")
             throw error
@@ -502,8 +521,18 @@ public struct VaultStore {
     ///
     /// `carrying`: records as a backup stored them, whose later fields go back with the entries
     /// they belong to.
+    ///
+    /// `expecting`: the file as the saving copy of the app last saw it. One that no longer matches
+    /// was saved by another SyncCloud meanwhile, and is not written over (VT108). Nil checks
+    /// nothing: a restore writes what it was asked to.
+    ///
+    /// Answers the file as it now is, for the next save to expect.
+    @discardableResult
     public func save(_ entries: [VaultEntry], newer: [Data] = [],
-                     carrying: VaultRecords? = nil) throws {
+                     carrying: VaultRecords? = nil, expecting: VaultFileState? = nil) throws -> VaultFileState {
+        // Gone since it was read: another copy set it aside or replaced it. Asked before a key is
+        // made; the file read below is compared too, as it is the one this save writes over.
+        if let expecting, expecting != .absent, !hasFile { throw changedElsewhere() }
         let (key, made) = try keyMadeForWriting()
         var records = VaultRecords(entries: entries, newer: newer)
         if let carrying {
@@ -517,6 +546,9 @@ public struct VaultStore {
                 Logger.shared.warning("Vault: the sealed file is there but could not be read from disk — nothing was written")
                 throw VaultError.unreadableFile
             }
+            // The very bytes merged and written over below: one read, so another copy's save
+            // cannot land between the check and what this save keeps.
+            if let expecting, expecting != .of(data) { throw changedElsewhere() }
             let onDisk: VaultRecords
             do {
                 onDisk = try VaultFile.openRecords(data, with: key)
@@ -536,8 +568,9 @@ public struct VaultStore {
             }
             previous = data
         }
+        let sealed: Data
         do {
-            let sealed = try VaultFile.seal(records, with: key)
+            sealed = try VaultFile.seal(records, with: key)
             if let previous { try keepBackup(of: previous) }
             try SealedFile.write(sealed, to: fileURL, fileManager: fileManager)
         } catch {
@@ -556,6 +589,12 @@ public struct VaultStore {
         // Only once the new file is in: a save that keeps failing must not rotate the older
         // backups away.
         pruneBackups()
+        return .of(sealed)
+    }
+
+    private func changedElsewhere() -> VaultError {
+        Logger.shared.warning("Vault: the sealed file changed since it was read here — another SyncCloud saved it; nothing was written over it")
+        return .changedElsewhere
     }
 
     // MARK: Backups

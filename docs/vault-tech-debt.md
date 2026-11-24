@@ -9,7 +9,7 @@ the visual design. An item marked **owner's call** changes behaviour: ask first,
 internal half.
 
 **Rules.**
-- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT111** (VT61 and VT62 were never used).
+- IDs (`VT…`) are stable: never renumber; cite them in commit bodies. Next free: **VT112** (VT61 and VT62 were never used).
 - **Never log, print or assert on a number in full.** Raise `VaultReading.version` when what a reader
   finds changes; it makes the next Read Documents read every file again.
 - **Proof for every refactor** (`CLAUDE.md` §5): the same rows, sealed JSON (decrypted, key-sorted)
@@ -53,12 +53,15 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
 ## Open: the owner's calls
 
 Each changes what the user sees, gets or is asked.
+- **VT111, two copies of SyncCloud and the reading file** (the Vault file is VT108's): it is still
+  the last writer's, and it holds what nothing reads back (typed contacts, name corrections and
+  roles, Kind lessons, choices about waiting IDs), so one copy's seal drops the other's. Also from
+  VT108: Save again from an Edit after a refusal writes the old draft over the other copy's edit of
+  that ID; the Merge and Add Detail sheets do not draw the notice; a refused correction note says
+  "make your change again" after a change that was kept.
 - **VT109, editing a typed ID's number** leaves the old number's copies (`update` moves them only for
   an ID read from a document); VT110 drops them at the next open, with the documents still marked
   read. Whether the old number goes back to To Confirm (its documents read again) is the question.
-- **VT108, two app processes on one Vault.** A save from a stale list can drop one ID another process
-  added. *Fix:* `save` compares the file with what this process last loaded or wrote, reloads and
-  refuses; the refusal is new copy.
 - **VT70, "whose is it" worked out in two places**: the editor by the name as read, the row by the
   corrected name and three inferences. Letting the editor take the row's changes what Confirm offers.
 - **VT100, two spellings share one role key** ("Anna-Maria" and "Anna Maria"): Legal on the second chip
@@ -132,6 +135,7 @@ Each changes what the user sees, gets or is asked.
 | VT52, VT54, VT58, VT73 (a, c) | PDFKit lane, a partly read file, backup key off the main actor, capture gaps | batches 3–4 |
 | VT56, VT57, VT59, VT63 | Replace sets aside first, Add Missing ids, activity file set aside, name sealed after save | `5e33b3c47`, `976b30712`, reviews |
 | VT64 | A removed ID takes what its documents said with it (`forgetReading`, sealed): from then on Refresh stops counting and opening documents only it came from; a typed one's documents are read again, so it is offered from them; owner's go-ahead | batch 25 |
+| VT108 | Two copies of SyncCloud on one Vault: a save expects the file as this copy last read or wrote it (`VaultFileState`), compared with the very bytes it writes over; over another copy's save it is refused, the IDs are read again (a number the other saved leaves To Confirm) and "Another SyncCloud on this Mac changed the Vault…" shown, or why it would not read. The reading file is VT111; owner's go-ahead | batch 27 |
 | VT110 | IDs removed before VT64: as the reading file opens, what documents said about a number no saved or waiting ID has goes (`dropOrphanedCopies`), sealed at the next seal. Not beside anything a later build wrote (records, fields, reading fields) or in a Vault with no ID, which keeps them until one is added; mentions stay; documents stay marked read, so a typed ID removed back then is not offered again until its document changes; owner's go-ahead | batch 26 |
 | VT65, VT66, VT67, VT102 | One seal per action, rows rebuilt once, stats off the main actor, one `daysLeft` | batches 4, 6 |
 | VT68 | Stop keeps what was read | `f95e61078` |

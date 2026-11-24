@@ -1639,6 +1639,7 @@ public final class VaultModel: ObservableObject {
         readingLaterFields = nil
         readingUnreadFields = nil
         readingHeld = false
+        onDisk = nil
         // The rows hold every number in full: a closed, locked Vault holds none of them.
         rowsCache = nil
         // The panel's lists hold the rows, dates of birth and paths too: let go with them.
@@ -1655,9 +1656,10 @@ public final class VaultModel: ObservableObject {
         guard contents != .loaded else { keepSelectionVisible(); return }
         guard let store else { contents = .unreadable(.unreadableFile); return }
         do {
-            let records = try store.loadRecords()
+            let (records, state) = try store.loadRecordsAndState()
             entries = records.entries
             newerRecords = records.newer.count
+            onDisk = state
             contents = .loaded
             readGeneration = VaultSetAside.generation(in: defaults)
             switch store.openReading() {
@@ -1987,6 +1989,28 @@ public final class VaultModel: ObservableObject {
         saveReading()
     }
 
+    /// The sealed file as this model last read or wrote it: a save over a file another SyncCloud
+    /// changed since is refused (VT108). Nil while nothing is loaded.
+    private var onDisk: VaultFileState?
+
+    /// Another SyncCloud saved the Vault: its IDs, as they now are, take the place of this model's,
+    /// so the next change is made to them. What was read here stays waiting, but for a number the
+    /// other saved, which leaves To Confirm as one confirmed here would. An Undo of a correction
+    /// that no longer matches goes. IDs this copy did not see typed in are behind the lock from
+    /// now, as at the next open.
+    private func reloadSavedIDs() throws {
+        guard let store else { throw VaultError.notWritten }
+        let (records, state) = try store.loadRecordsAndState()
+        entries = records.entries
+        newerRecords = records.newer.count
+        onDisk = state
+        if !entries.isEmpty { hasSomethingSealed = true }
+        for entry in entries { dropFinds(matching: entry.value) }
+        dropStaleCorrection()
+        Logger.shared.info("Vault: another SyncCloud saved the Vault; \(entries.count) saved ID(s) read again")
+        keepSelectionVisible()
+    }
+
     /// Saves `changed` and, only once the disk has it, shows it. A refused save leaves the list as
     /// it was, so the panel never shows a number that would be gone at the next launch.
     private func write(_ changed: [VaultEntry]) -> Bool {
@@ -1994,10 +2018,20 @@ public final class VaultModel: ObservableObject {
         // Only over what was loaded: a list held while the Vault was let go is not the Vault.
         guard contents == .loaded else { return false }
         do {
-            try store.save(changed)
+            onDisk = try store.save(changed, expecting: onDisk)
             entries = changed
             notice = nil
             return true
+        } catch VaultError.changedElsewhere {
+            do {
+                try reloadSavedIDs()
+                notice = Self.message(for: .changedElsewhere)
+            } catch {
+                // Not read again: what this copy shows is not the Vault, and saying so would be
+                // false. The reason it would not read is what is shown.
+                notice = Self.message(for: error as? VaultError ?? .unreadableFile)
+            }
+            return false
         } catch let error as VaultError {
             notice = Self.message(for: error)
             return false
@@ -3281,6 +3315,8 @@ public final class VaultModel: ObservableObject {
             return "The Vault couldn’t be saved, so that change wasn’t kept."
         case .wouldDrop(let count):
             return "That change would have removed \(count) IDs at once, so it wasn’t saved."
+        case .changedElsewhere:
+            return "Another SyncCloud on this Mac changed the Vault, so this change wasn’t saved. The Vault now shows what it saved: make your change again."
         }
     }
 }

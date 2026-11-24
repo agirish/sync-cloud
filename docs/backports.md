@@ -16271,6 +16271,8 @@ number's documents are read again at the next Discover More (VT64).
 Batch 26: as the Vault opens, what documents said about numbers no saved or waiting ID has is let go,
 so IDs removed before batch 25 stop counting in Refresh; not while anything a later build wrote is
 there, nor in a Vault with no ID (VT110).
+Batch 27: a save over a Vault file another copy of SyncCloud saved since is refused, the IDs are
+read again and the panel says so, so neither copy drops what the other saved (VT108).
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed
