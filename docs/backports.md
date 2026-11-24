@@ -16260,6 +16260,9 @@ folders in one place (VT76); 43 panels render byte for byte as before. VT60: sea
 answers whether the Keychain took the seal, which Settings does not yet use, and tests pin a sitting
 that starts with nothing sealed and a lock-off Vault keeping its numbers at close. VT72: the Vault's
 Activity list shows a title whole, its slash kept and a number in it still masked (`VaultMask.text`).
+VT51's internal half: each passport or visa zone says how its number line was read (as read, a
+fill, a swap, the printed number), and each reading logs a count of each; nothing read on the
+owner's papers changes.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

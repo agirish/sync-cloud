@@ -50,11 +50,12 @@ Read by [`RELEASE.md`](../RELEASE.md) §4.
   `backUpIfDue(using: VaultBackup.live())` and reads the read folders from `.standard`; with a backup
   passphrase set, a render test could write made-up IDs into the owner's backup folder. *Done when:*
   the backup and folders are injected (live from `ContentView`, nil in tests).
-- **VT51, zone recovery proves less than it says.** With weights 7-3-1, one unknown always has exactly
-  one passing digit, and the overall check re-tests the same residues; only `readWithPrintedNumber` has
-  an independent witness. *Internal half:* `MachineZone` carries how it was recovered and the caller
-  logs a count; tests for `readWithSwaps`' pairs branch and a G-series case. *Owner's call:* a
-  recovered zone needs the printed number or date to agree, or is marked inferred (VT5).
+- **VT51, zone recovery proves less than it says** (internal half done: `MachineZone.recovery` says
+  as read, fill, swap or printed number, each reading logs a debug line counting each, and tests pin
+  the pairs branch and a G-series passport read as 6…). With weights 7-3-1, one unknown digit in a
+  checked field always has exactly one passing digit, and the overall check re-tests the same
+  residues; only `readWithPrintedNumber` has an independent witness. *Owner's call:* a recovered zone
+  needs the printed number or date to agree, or is marked inferred (VT5).
 
 ## Open: the owner's calls
 

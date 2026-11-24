@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import os
 
@@ -158,8 +159,10 @@ public enum VaultReading {
         // Each page as every reader questions it, made once: its text, lowered and squeezed.
         let printedPages = pages.map(PrintedPage.init)
         var visaPassports: [VaultMention] = []
+        var allZones: [MachineZone] = []
         for (index, page) in printedPages.enumerated() {
             let zones = MachineZone.zones(in: page.lines)
+            allZones += zones
             for (zone, printed) in zip(zones, MachineZone.sections(of: page, for: zones)) {
                 // A visa foil's zone carries the passport's number, not the visa's own: the visa is
                 // a document of that passport, and is itself known by its Control Number.
@@ -172,6 +175,7 @@ public enum VaultReading {
                 }
             }
         }
+        if let line = MachineZone.recoveryLine(allZones) { Events.Logger.shared.debug(line) }
         // Page by page: one PDF can hold two notices, each for its own person, form and dates.
         for printed in printedPages {
             for find in receiptNumbers(in: printed.text, from: path) { keep(find) }
@@ -677,6 +681,31 @@ public struct MachineZone: Equatable, Sendable {
     /// Whether ``issuer`` was read from the name line. When that was garbled the issuer is only
     /// the holder's nationality, which says nothing about who issued the document.
     public var issuerRead = false
+    /// How the number line was read (VT51).
+    public var recovery: Recovery = .asRead
+
+    /// How a number line that failed as Vision read it was recovered, if it was. Only
+    /// ``printedNumber`` has a witness of its own. With check weights 7-3-1, one unknown digit in a
+    /// checked field always has exactly one digit that passes that field's check, and the overall
+    /// check weighs the same characters again, so "only one fill passes" is mostly the check
+    /// digits answering themselves, not a second reading of the paper.
+    public enum Recovery: String, CaseIterable, Sendable {
+        /// Every check passed as read: look-alike letters in the date and check fields ("O" for
+        /// 0) put back, and on a line too long by one or two, that many characters no zone holds
+        /// dropped.
+        case asRead
+        /// One or two characters Vision could not read, or letters in a field of digits that no
+        /// look-alike explains ("A" for a 4), filled so that one reading alone passes. Also
+        /// counted when the character is in no checked field (the sex, a visa's optional data):
+        /// every fill there reads the same, so nothing was recovered.
+        case fill
+        /// A look-alike letter in a field of digits that its usual digit does not fit ("B" for a
+        /// 6, not an 8) swapped for another, or an Indian passport's leading letter read as a
+        /// digit swapped back (``readWithSwaps(_:nameLine:kind:digitOnly:)``).
+        case swap
+        /// A visa's passport number taken from the number the foil prints beside its zone.
+        case printedNumber
+    }
 
     /// The holder as printed, in reading order: "Anna Maria Eriksson".
     public var holder: String {
@@ -831,7 +860,8 @@ public struct MachineZone: Equatable, Sendable {
             default: continue   // An identity card or residence permit: not a kind the Vault reads.
             }
             guard let zone = readSecondLine(line, nameLine: above, kind: kind)
-                    ?? (kind == .visa ? readWithPrintedNumber(line, nameLine: above, page: lines.map { $0.uppercased() }) : nil),
+                    ?? (kind == .visa ? readWithPrintedNumber(line, nameLine: above, page: lines.map { $0.uppercased() })
+                        .map { $0.recovered(.printedNumber) } : nil),
                   // The same zone read twice is one; a passport and the visa in it, scanned onto one
                   // page, share a number and are two.
                   !out.contains(where: { $0.number == zone.number && $0.kind == zone.kind }) else { continue }
@@ -894,7 +924,7 @@ public struct MachineZone: Equatable, Sendable {
         let line = String(chars)
         guard !unknown.isEmpty else {
             return readWholeSecondLine(line, nameLine: nameLine, kind: kind)
-                ?? readWithSwaps(chars, nameLine: nameLine, kind: kind, digitOnly: digitOnly)
+                ?? readWithSwaps(chars, nameLine: nameLine, kind: kind, digitOnly: digitOnly).map { $0.recovered(.swap) }
         }
         // More than two is too much guessing to trust a number by.
         guard unknown.count <= 2 else { return nil }
@@ -916,7 +946,25 @@ public struct MachineZone: Equatable, Sendable {
             }
         }
         fill(Array(line), 0)
-        return readings.count == 1 ? readings[0] : nil
+        return readings.count == 1 ? readings[0].recovered(.fill) : nil
+    }
+
+    /// This zone, marked as recovered `how`. Marked once the one reading is chosen, so readings
+    /// are told apart by what they read alone.
+    private func recovered(_ how: Recovery) -> MachineZone {
+        var zone = self
+        zone.recovery = how
+        return zone
+    }
+
+    /// The log line for the zones one reading of a document found, a count per kind of
+    /// recovery; nil with none. Counts only: never a number, nor the file's name, which can hold
+    /// one. Said once per reading, not per document: a page is tried several ways (its text
+    /// layer, its picture, its ink alone) before the reading kept, and each says its line.
+    static func recoveryLine(_ zones: [MachineZone]) -> String? {
+        guard !zones.isEmpty else { return nil }
+        let counts = Recovery.allCases.map { how in "\(how.rawValue) \(zones.filter { $0.recovery == how }.count)" }
+        return "Vault: \(zones.count) machine-readable zone(s) read: " + counts.joined(separator: ", ")
     }
 
     /// The letters a digit in the number may really be, read for the letter it resembles ("2"
