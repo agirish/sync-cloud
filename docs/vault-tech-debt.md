@@ -151,7 +151,7 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
    and VT85, measured out.
 5. ~~**Tests and logging.**~~ Done in batches 5 and 7, but for VT23, whose every addition is a new
    Activity line: the owner's call.
-6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), ~~VT50~~ (batch 19), ~~VT87~~ (batch 20), VT75, VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
+6. **Structure:** ~~VT8~~, VT7 (part, batches 9 and 10), ~~VT69~~ (the first step of VT1), VT1 (part, batch 13; the stored shape with VT3 and VT6), ~~VT2 with VT4~~, VT3 (before the v7.2 cut), VT6 (with VT3), ~~VT50~~ (batch 19), ~~VT87~~ (batch 20), VT75 (part, batches 8 and 22; the pickers and the List layout's empty state are the owner's), VT76 (part, batch 11), ~~VT103~~, ~~VT106~~, ~~VT79~~, ~~VT80~~.
 7. **Security:** VT34 (part, batch 19; the rest is drawn, the owner's call), ~~VT35~~ (batch 19); VT31 when VF7 is unblocked.
 8. **Reader accuracy** (section H): each changes what is read, so each is its own owner's call.
 
@@ -410,20 +410,8 @@ Read by [`RELEASE.md`](../RELEASE.md) §4 before a release is cut from `main`.
 - **Done when:** `VaultCard` takes its backup and folders as injected values (live from `ContentView`,
   nil in tests).
 
-**VT75 — Duplicated view code.** *Part done in batch 8: the "Nothing here for these choices" state is one view (`hiddenByChoicesState`), the panel's " case" strip is `Row.kindTitle`, and the standing and Remove menu items went with the ⋯ menu (`e17c98c3a`); the 30 panel renders the app's tests make were compared byte for byte before and after, by hand (a throwaway run, not kept); none of them shows that empty state, which is identical by reading. Open below: "N More in …" (two stylings), the card chrome, the holder heading (now `largeTypeHeading` and `detailLede`, side by side in `VaultRowText.swift`), the registry built twice, the Copied timer in Large Type, the folder panel, `actionBar`'s lookups, and the two color pickers.*
-- **The duplicates.**
-  - The standing and Remove menu items, written twice (`:1469–1482`, `:1977–1989`).
-  - The "Nothing here for these choices" state, copied twice (`:963–975`, `:1154–1166`) and missing from
-    the List layout (`:1113`).
-  - "N More in …" (`:989`, `:1048`); the card chrome (`:1068–1071`, `:1272–1273`).
-  - The " case" strip, which duplicates `kindTitle` (`:1790`); the holder heading (`:228`, `:1901`).
-  - `PersonRegistry(...).detect`, built twice in one menu (`:1507`, `:1521`).
-  - The "Copied" timer, written three times (`:1292`, `:2593`, `:2694`).
-  - The folder `NSOpenPanel`, here and in `VaultSettings.swift:187`.
-  - `actionBar` using `first(where:)` where `selectedEntry`/`selectedFind` exist.
-  - Two pickers for one choice: `VaultColorPicker` in Customize Groups and `VaultColorPopover`.
-- **Done when:** each is one view or function.
-- **Owner's call:** giving the List layout the same empty state as the others.
+**VT75 — Duplicated view code.** *Done in batches 8 and 22, but for the two color pickers and the List layout's empty state, the owner's calls.* Batch 8: the "Nothing here for these choices" state is one view (`hiddenByChoicesState`), the panel's " case" strip is `Row.kindTitle`, and the standing and Remove menu items went with the ⋯ menu (`e17c98c3a`). Batch 22: "N More in …" is one `moreElsewhere(_:inCard:)`; a card's chrome and its rows' inset and wash are `VaultCardChrome` and `VaultCardBody`, for ID cards and contact cards, and People's slices share its ground; Large Type's heading and the detail's lede share `Row.headingName`; Belongs To builds its `PersonRegistry` once; the three "Copied" timers are one `flash(_:in:)`; the Vault's Add Folder… and Settings' Add… beside Folders to Read are one `VaultReadFoldersPanel.add(message:)`; `entries.first(where:)` and `finds.first(where:)` by id are `VaultModel.entry(id:)` and `find(id:)`, which `selectedEntry` and `selectedFind` use. Proof: the app's six Vault render suites and a throwaway set (both countries' filters with IDs elsewhere, the three layouts, light and dark, folded, an ID chosen) wrote 97 panels on `origin/main` and this tree: identical byte for byte, and padding the "More in" link changed 8 of them, the cards' rows' inset 43. Menus draw nowhere offscreen and are identical by reading; the open panel's settings are pinned on the built panel (`VaultReadFoldersPanelTests`).
+- **Open, the owner's call:** `VaultColorPicker` (a pop-up menu, in Customize Groups) and `VaultColorPopover` (swatches, from a card) choose one thing two ways; making them one changes how one looks. Also: giving the List layout the same empty state as the others.
 
 **VT76 — View state that duplicates the model's.** *Part done in batch 11: the model keeps the layout (`vaultLayout`; the older `vaultShowsList` read, not saved over) and follows a change to it while the app runs, such as Reset All, without saving it back; Large Type's ID and lit line are one optional.*
 - **Open.**

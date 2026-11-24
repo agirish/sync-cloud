@@ -16252,7 +16252,9 @@ Security number's or an Aadhaar's description prints none of it, nor does one th
 through `VaultPasteboard`. Nothing read changes (the harness on the owner's 1,356 files). Batch 20:
 the account-number pattern is a reader of its own (`VaultAccountValue`), with the same output. Batch 21:
 it reads other characters' dashes and spaces, one or two digits before a word as a suffix or a last group, and "123456 7890"
-beside a label as an account's (VT89); nothing read on the owner's papers changes.
+beside a label as an account's (VT89); nothing read on the owner's papers changes. Batch 22:
+the panel's repeated pieces are one each but the two color pickers (VT75); 97 panels render byte
+for byte as before.
 
 2026-11-20: reading has scopes (`VaultReadScope`): Refresh opens only the documents IDs were read
 from, by itself as the Vault opens (`VaultModel.refreshIfWanted`), marks what changed

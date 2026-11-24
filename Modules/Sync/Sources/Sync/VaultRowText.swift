@@ -40,7 +40,7 @@ extension VaultModel.Row {
 
     public var detailLede: String {
         let row = self
-        var parts = [row.isHousehold ? "Household" : (row.facts?.holder ?? row.whose)]
+        var parts = [row.headingName]
         // Why it is in Archive is the Tab row's caption, so it isn't said twice.
         if !row.isSaved, row.standing.tab != .archive { parts.append("To confirm") }
         return parts.joined(separator: " · ")
@@ -96,7 +96,12 @@ extension VaultModel.Row {
 
 extension VaultModel.Row {
     /// Large Type's heading: whose it is, then what it is.
-    public var largeTypeHeading: String { "\(isHousehold ? "Household" : (facts?.holder ?? whose)) · \(title)" }
+    public var largeTypeHeading: String { "\(headingName) · \(title)" }
+
+    /// Whose an ID is, as its headings name them: the household, else the name its document
+    /// prints, else the person it was given to. Not ``VaultEntry/holderName``, a name typed over
+    /// the document's.
+    var headingName: String { isHousehold ? "Household" : (facts?.holder ?? whose) }
 }
 
 extension VaultModel {

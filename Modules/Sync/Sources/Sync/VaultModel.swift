@@ -398,9 +398,15 @@ public final class VaultModel: ObservableObject {
 
     // MARK: What the list shows
 
-    public var selectedEntry: VaultEntry? { entries.first { $0.id == selection } }
+    public var selectedEntry: VaultEntry? { entry(id: selection) }
 
-    public var selectedFind: VaultFind? { finds.first { $0.id == selection } }
+    public var selectedFind: VaultFind? { find(id: selection) }
+
+    /// The saved ID with this id, if there is one.
+    public func entry(id: UUID?) -> VaultEntry? { entries.first { $0.id == id } }
+
+    /// The find with this id, if there is one.
+    public func find(id: UUID?) -> VaultFind? { finds.first { $0.id == id } }
 
     // MARK: Rows, tabs and cards
 
@@ -1381,7 +1387,7 @@ public final class VaultModel: ObservableObject {
         guard activity != nil else { return }
         let row = rows.first { $0.id == id }
         let name = row.map(\.kindTitle)
-            ?? entries.first { $0.id == id }?.title ?? finds.first { $0.id == id }?.title ?? "an ID"
+            ?? entry(id: id)?.title ?? find(id: id)?.title ?? "an ID"
         record(kind, detail.map { "\($0) of \(name)" } ?? name, whose: row?.whose)
     }
 
@@ -1571,8 +1577,8 @@ public final class VaultModel: ObservableObject {
     /// when one is owed, as any change to a number does.
     @discardableResult
     public func useReread(_ id: UUID) async -> Bool {
-        guard let findID = rereads[id], let find = finds.first(where: { $0.id == findID }),
-              let entry = entries.first(where: { $0.id == id }) else { return false }
+        guard let findID = rereads[id], let find = find(id: findID),
+              let entry = entry(id: id) else { return false }
         var draft = Draft(entry)
         draft.value = find.value
         guard await update(id, to: draft) else { return false }
@@ -1792,8 +1798,8 @@ public final class VaultModel: ObservableObject {
 
     /// An entry or a find, by id: what Show and Copy act on.
     private func row(_ id: UUID) -> (title: String, value: String)? {
-        if let entry = entries.first(where: { $0.id == id }) { return (entry.title, entry.value) }
-        if let find = finds.first(where: { $0.id == id }) { return (find.title, find.value) }
+        if let entry = entry(id: id) { return (entry.title, entry.value) }
+        if let find = find(id: id) { return (find.title, find.value) }
         return nil
     }
 
@@ -1841,7 +1847,7 @@ public final class VaultModel: ObservableObject {
     /// it in full.
     @discardableResult
     public func update(_ id: UUID, to draft: Draft) async -> Bool {
-        guard draft.isComplete, let title = entries.first(where: { $0.id == id })?.title else { return false }
+        guard draft.isComplete, let title = entry(id: id)?.title else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(title)", for: id) else { return false }
         }
@@ -1902,7 +1908,7 @@ public final class VaultModel: ObservableObject {
     /// what was just removed.
     @discardableResult
     public func delete(_ id: UUID) async -> Bool {
-        guard let entry = entries.first(where: { $0.id == id }) else { return false }
+        guard let entry = entry(id: id) else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("remove \(entry.title)", for: id) else { return false }
         }
@@ -2552,7 +2558,7 @@ public final class VaultModel: ObservableObject {
     }
 
     private func confirming(_ findID: UUID, as draft: Draft) -> UUID? {
-        guard var find = finds.first(where: { $0.id == findID }) else { return nil }
+        guard var find = find(id: findID) else { return nil }
         var draft = draft
         // Whose the editor says it is, when that is not what it waited as: worked out again for
         // that person, as Belongs To does, so that person's papers speak for it. The name, the
@@ -2588,7 +2594,7 @@ public final class VaultModel: ObservableObject {
     /// Not This: takes a find out of To Confirm and keeps it out of later reads, across launches,
     /// until Settings ▸ Vault forgets the numbers set aside.
     public func setAside(_ findID: UUID) {
-        guard let find = finds.first(where: { $0.id == findID }) else { return }
+        guard let find = find(id: findID) else { return }
         record(.setAside, find.title, whose: rows.first { $0.id == findID }?.whose)
         remember(find.value)
         finds.removeAll { $0.id == findID }
@@ -2637,7 +2643,7 @@ public final class VaultModel: ObservableObject {
         if let named = mentions.removeValue(forKey: old) { mentions[new, default: []].append(contentsOf: named) }
         readingChanged = true
         saveReading()
-        if let after = entries.first(where: { $0.id == id }) {
+        if let after = entry(id: id) {
             correctionUndo = CorrectionUndo(id: id, before: before, find: find, after: after,
                                             kept: kept, dropped: dropping)
             let file = (before?.facts ?? find?.facts)?.primary.map { ($0.path as NSString).lastPathComponent }
@@ -2749,7 +2755,7 @@ public final class VaultModel: ObservableObject {
     /// Whether Undo would still put the last correction back: the ID, and what its numbers'
     /// documents say, as the correction left them (notes written since aside).
     private func correctionUndoable(_ undo: CorrectionUndo) -> Bool {
-        guard contents == .loaded, let entry = entries.first(where: { $0.id == undo.id }),
+        guard contents == .loaded, let entry = entry(id: undo.id),
               let left = undo.left, held(Array(undo.kept.copies.keys)) == left else { return false }
         var current = entry
         current.readAs = undo.after.readAs
@@ -2884,7 +2890,7 @@ public final class VaultModel: ObservableObject {
     }
 
     private func merging(_ findID: UUID, into entryID: UUID, keepingReading: Bool) -> Bool {
-        guard contents == .loaded, let find = finds.first(where: { $0.id == findID }),
+        guard contents == .loaded, let find = find(id: findID),
               let index = entries.firstIndex(where: { $0.id == entryID }) else { return false }
         let before = entries[index]
         used()
@@ -2929,7 +2935,7 @@ public final class VaultModel: ObservableObject {
     /// What a saved ID's documents read for it where that is not its number, each once.
     public func readings(of id: UUID) -> [String] {
         var seen: [String] = []
-        for note in entries.first(where: { $0.id == id })?.readAs ?? [] where !seen.contains(note.reads) {
+        for note in entry(id: id)?.readAs ?? [] where !seen.contains(note.reads) {
             seen.append(note.reads)
         }
         return seen
@@ -2939,7 +2945,7 @@ public final class VaultModel: ObservableObject {
     /// is owed. The next read of those documents offers what they read To Confirm again.
     @discardableResult
     public func forgetReadings(of id: UUID) async -> Bool {
-        guard let title = entries.first(where: { $0.id == id })?.title else { return false }
+        guard let title = entry(id: id)?.title else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(title)", for: id) else { return false }
         }
@@ -3026,7 +3032,7 @@ public final class VaultModel: ObservableObject {
     public func addField(_ id: UUID, label: String, value: String, hidden: Bool? = nil) async -> Bool {
         let label = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !label.isEmpty, !value.isEmpty, let entry = entries.first(where: { $0.id == id }), entry.facts != nil else { return false }
+        guard !label.isEmpty, !value.isEmpty, let entry = entry(id: id), entry.facts != nil else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(entry.title)", for: id) else { return false }
         }
@@ -3044,7 +3050,7 @@ public final class VaultModel: ObservableObject {
     /// Removes the field at `index` from the saved ID `id`'s added fields.
     @discardableResult
     public func removeField(_ id: UUID, at index: Int) async -> Bool {
-        guard let entry = entries.first(where: { $0.id == id }), (entry.fields ?? []).indices.contains(index) else { return false }
+        guard let entry = entry(id: id), (entry.fields ?? []).indices.contains(index) else { return false }
         if lock.needsProof(for: id, at: clock()) {
             guard await prove("change \(entry.title)", for: id) else { return false }
         }
@@ -3066,7 +3072,7 @@ public final class VaultModel: ObservableObject {
         guard let row = rows.first(where: { $0.id == id }) else { return [] }
         let held = Set(rows.map { VaultReading.normalized($0.value) })
         let shown = Set((row.facts?.details ?? []).map { VaultReading.normalized($0.copied) })
-        let dismissed = Set(entries.first { $0.id == id }?.notFields ?? [])
+        let dismissed = Set(entry(id: id)?.notFields ?? [])
         return values.filter { value in
             let key = VaultReading.normalized(value.value)
             return !held.contains { Self.overlaps(key, $0) } && !shown.contains(key) && !dismissed.contains(key)
@@ -3083,7 +3089,7 @@ public final class VaultModel: ObservableObject {
 
     /// How many values on this card the user dismissed for the saved ID `id`.
     public func dismissedFields(_ values: [VaultCardValue], for id: UUID) -> Int {
-        let dismissed = Set(entries.first { $0.id == id }?.notFields ?? [])
+        let dismissed = Set(entry(id: id)?.notFields ?? [])
         return Set(values.map { VaultReading.normalized($0.value) }).intersection(dismissed).count
     }
 

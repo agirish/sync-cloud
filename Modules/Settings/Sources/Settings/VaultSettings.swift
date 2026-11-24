@@ -187,13 +187,7 @@ struct VaultSettingsTab: View {
                             }
                         }
                         Button("Add…") {
-                            let panel = NSOpenPanel()
-                            panel.canChooseDirectories = true
-                            panel.canChooseFiles = false
-                            panel.allowsMultipleSelection = true
-                            panel.prompt = "Read for IDs"
-                            if panel.runModal() == .OK {
-                                for url in panel.urls { VaultReadFolders.add(url.path) }
+                            if VaultReadFoldersPanel.add() {
                                 SettingsWindowLog.log("vault.readFolders", "added")
                                 readFolders = VaultReadFolders.folders()
                             }
@@ -588,5 +582,30 @@ struct VaultActivitySheet: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+}
+
+/// Adding folders to read for IDs, from Settings ▸ Vault ▸ Folders to Read or the Vault's own Add
+/// Folder…: one panel for both.
+@MainActor
+public enum VaultReadFoldersPanel {
+    /// Asks for folders, with `message` over the panel, and adds those chosen to the list to read
+    /// as ``VaultReadFolders/add(_:in:)`` does. False when cancelled.
+    public static func add(message: String? = nil) -> Bool {
+        let panel = panel(message: message)
+        guard panel.runModal() == .OK else { return false }
+        for url in panel.urls { VaultReadFolders.add(url.path) }
+        return true
+    }
+
+    /// The panel, built and not run: folders only, several at once.
+    static func panel(message: String?) -> NSOpenPanel {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Read for IDs"
+        if let message { panel.message = message }
+        return panel
     }
 }

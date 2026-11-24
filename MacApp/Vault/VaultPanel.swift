@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Design
 import Quartz
+import Settings
 import Sync
 
 /// The Vault card's size: one size, held to what the window can show.
@@ -1050,17 +1051,7 @@ struct VaultCard: View {
                         cardMasonry(drawn.flatMap(\.slots))
                     }
                     // Kinds that only another country has, which no card here can point to.
-                    if let elsewhere = model.elsewhereKinds {
-                        Button {
-                            model.geoFilter = elsewhere.filter
-                        } label: {
-                            Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
-                                .scaledFont(.subheadline.weight(.medium))
-                                .foregroundStyle(glassHue.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Show \(elsewhere.filter.title)")
-                    }
+                    if let elsewhere = model.elsewhereKinds { moreElsewhere(elsewhere, inCard: false) }
                     if model.tab == .current, model.query.isEmpty, model.personFilter == .everyone,
                        model.geoFilter == .all, model.kindFilter == nil, !model.emptyCategories.isEmpty {
                         Text("Nothing yet for \(ListFormatter.localizedString(byJoining: model.emptyCategories.map(\.title))). Add one with +, and choose its kind.")
@@ -1116,34 +1107,35 @@ struct VaultCard: View {
                 // so one wash lies under them all.
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(rows) { row in rowView(row, onColor: washed).id(row.id) }
-                    if let elsewhere = model.elsewhere(card) {
-                        Button {
-                            model.geoFilter = elsewhere.filter
-                        } label: {
-                            Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
-                                .scaledFont(.caption.weight(.medium))
-                                .foregroundStyle(glassHue.accentColor)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("Show \(elsewhere.filter.title)")
-                    }
+                    if let elsewhere = model.elsewhere(card) { moreElsewhere(elsewhere, inCard: true) }
                 }
-                .padding(.horizontal, 4)
-                .padding(.top, 2)
-                .padding(.bottom, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // The rows under a lighter wash than the title's.
-                .background(VaultCardBodyWash(tint: washed ? model.tint(of: card) : nil))
+                .modifier(VaultCardBody(tint: washed ? model.tint(of: card) : nil))
             }
         }
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
-        // The title bar's wash follows the card's corners.
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+        .modifier(VaultCardChrome())
+    }
+
+    /// "N More in …": what the chosen country hides, a click from showing. In a card it is a row,
+    /// the width of the card in the caption's size; under the cards, a line of its own.
+    private func moreElsewhere(_ elsewhere: (filter: VaultGeoFilter, count: Int), inCard: Bool) -> some View {
+        Button {
+            model.geoFilter = elsewhere.filter
+        } label: {
+            let text = Text("\(elsewhere.count) More in \(elsewhere.filter.title) →")
+                .scaledFont(inCard ? .caption.weight(.medium) : .subheadline.weight(.medium))
+                .foregroundStyle(glassHue.accentColor)
+            if inCard {
+                text
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            } else {
+                text
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Show \(elsewhere.filter.title)")
     }
 
     // MARK: Cards by group
@@ -1317,16 +1309,10 @@ struct VaultCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(card.items) { item in contactRow(item).id(item.id) }
                 }
-                .padding(.horizontal, 4)
-                .padding(.top, 2)
-                .padding(.bottom, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VaultCardBodyWash(tint: washed ? tint : nil))
+                .modifier(VaultCardBody(tint: washed ? tint : nil))
             }
         }
-        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55)))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.card))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+        .modifier(VaultCardChrome())
     }
 
     /// A folded Contact card's one line: whose, as an ID card's says ("Anna, Erik").
@@ -2776,12 +2762,18 @@ struct VaultCard: View {
             .frame(maxWidth: .infinity)
     }
 
-    /// "Copied" on a button for two seconds.
+    /// "Copied" on a detail's or a fact's Copy for two seconds.
     private func flashCopied(_ key: String) {
-        copiedDetail = key
+        Self.flash(key, in: $copiedDetail)
+    }
+
+    /// `value` in `state` for two seconds, for a button's "Copied": then nil, unless another copy
+    /// has put its own there since.
+    private static func flash<Value: Equatable>(_ value: Value, in state: Binding<Value?>) {
+        state.wrappedValue = value
         Task {
             try? await Task.sleep(for: .seconds(2))
-            if copiedDetail == key { copiedDetail = nil }
+            if state.wrappedValue == value { state.wrappedValue = nil }
         }
     }
 
@@ -2952,10 +2944,10 @@ struct VaultCard: View {
         Divider()
         // The pane's answers, flat: a submenu would hide them again.
         if row.isSaved {
-            if let entry = model.entries.first(where: { $0.id == row.id }) {
+            if let entry = model.entry(id: row.id) {
                 Button("Edit…") { model.selection = row.id; startEditing(entry) }
             }
-        } else if let find = model.finds.first(where: { $0.id == row.id }) {
+        } else if let find = model.find(id: row.id) {
             Button("Add to Vault…") { model.selection = row.id; startConfirming(find) }
             Button("Correct the ID…") { model.selection = row.id; startConfirming(find, correcting: true) }
             if model.mergeSuggestion(for: row.id) != nil {
@@ -2974,10 +2966,10 @@ struct VaultCard: View {
         }
         Divider()
         if row.isSaved {
-            if let entry = model.entries.first(where: { $0.id == row.id }) {
+            if let entry = model.entry(id: row.id) {
                 Button("Remove…", role: .destructive) { removing = .entry(entry) }
             }
-        } else if let find = model.finds.first(where: { $0.id == row.id }) {
+        } else if let find = model.find(id: row.id) {
             Button("Not an ID…", role: .destructive) { removing = .find(find) }
         }
     }
@@ -2985,7 +2977,13 @@ struct VaultCard: View {
     /// Belongs To: a person in the household, the household itself, or back to the document's
     /// name. A tick marks the current choice.
     private func belongsToMenu(_ row: VaultModel.Row) -> some View {
-        Menu {
+        // The document's name, when it names someone and no one is chosen, and how many in People
+        // it could be.
+        let named: (holder: String, matches: Int)? = {
+            guard !row.isHousehold, row.personID == nil, let holder = row.facts?.holder else { return nil }
+            return (holder, PersonRegistry(people: people).detect(in: holder).count)
+        }()
+        return Menu {
             ForEach(people) { person in
                 Button {
                     model.assign(row.id, to: .person(person.id))
@@ -3003,11 +3001,10 @@ struct VaultCard: View {
             } label: {
                 if row.isHousehold { Label("Household", systemImage: "checkmark") } else { Text("Household") }
             }
-            if !row.isHousehold, row.personID == nil, let holder = row.facts?.holder,
-               PersonRegistry(people: people).detect(in: holder).isEmpty {
+            if let named, named.matches == 0 {
                 Divider()
-                Button("Add “\(holder)” to People") {
-                    if let person = addPerson(named: holder) { model.assign(row.id, to: .person(person.id)) }
+                Button("Add “\(named.holder)” to People") {
+                    if let person = addPerson(named: named.holder) { model.assign(row.id, to: .person(person.id)) }
                 }
             }
             if row.assignment != nil, row.facts?.holder != nil {
@@ -3017,9 +3014,8 @@ struct VaultCard: View {
         } label: {
             // A name read from the document that matches nobody in People says so, rather than
             // passing for a person of the household.
-            if !row.isHousehold, row.personID == nil, let holder = row.facts?.holder {
-                Text(PersonRegistry(people: people).detect(in: holder).count > 1
-                     ? "\(holder) · Choose Who" : "\(holder) · Not in People")
+            if let named {
+                Text(named.matches > 1 ? "\(named.holder) · Choose Who" : "\(named.holder) · Not in People")
             } else {
                 Text(row.isHousehold ? "Household" : row.whose)
             }
@@ -3408,7 +3404,7 @@ struct VaultCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: Radius.chip).fill(glassHue.accentColor.opacity(0.12)))
         }
-        if row.isSaved, let other = model.rereads[row.id], let find = model.finds.first(where: { $0.id == other }) {
+        if row.isSaved, let other = model.rereads[row.id], let find = model.find(id: other) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Its document reads differently now: \(VaultMask.masked(find.value)). Your saved ID has not been changed.")
                     .scaledFont(.callout)
@@ -3501,10 +3497,10 @@ struct VaultCard: View {
     private func actionBar(_ row: VaultModel.Row) -> some View {
         HStack(spacing: 6) {
             if row.isSaved {
-                if let entry = model.entries.first(where: { $0.id == row.id }) {
+                if let entry = model.entry(id: row.id) {
                     Button("Edit…") { startEditing(entry) }
                 }
-            } else if let find = model.finds.first(where: { $0.id == row.id }) {
+            } else if let find = model.find(id: row.id) {
                 VaultAnswers(hue: glassHue,
                              add: { startConfirming(find) },
                              correct: { startConfirming(find, correcting: true) },
@@ -4049,7 +4045,7 @@ struct VaultCard: View {
                         }
                     }
                 }
-                if case .existing(let id) = editing, let added = model.entries.first(where: { $0.id == id })?.fields,
+                if case .existing(let id) = editing, let added = model.entry(id: id)?.fields,
                    !added.isEmpty {
                     field("Added Fields") {
                         VStack(alignment: .leading, spacing: 4) {
@@ -4070,7 +4066,7 @@ struct VaultCard: View {
                     TextField("Note", text: $draft.note, prompt: Text("The issuer, or anything else"))
                 }
                 HStack(spacing: 6) {
-                    if case .existing(let id) = editing, let entry = model.entries.first(where: { $0.id == id }) {
+                    if case .existing(let id) = editing, let entry = model.entry(id: id) {
                         Button("Remove…", role: .destructive) { removing = .entry(entry) }
                     }
                     Spacer()
@@ -4206,7 +4202,7 @@ struct VaultCard: View {
         var out = [draft.value]
         if let readValue { out.append(readValue) }
         if case .existing(let id) = editing {
-            if let entry = model.entries.first(where: { $0.id == id }) { out.append(entry.value) }
+            if let entry = model.entry(id: id) { out.append(entry.value) }
             out += model.readings(of: id)
         }
         return out
@@ -4521,14 +4517,8 @@ struct VaultCard: View {
 
     /// Add Folder…: the same list as Settings ▸ Vault ▸ Folders to Read.
     private func addFolders() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Read for IDs"
-        panel.message = "Choose the folders that hold your passport scans, I-94s and USCIS notices."
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls { VaultReadFolders.add(url.path) }
+        guard VaultReadFoldersPanel.add(message: "Choose the folders that hold your passport scans, I-94s and USCIS notices.")
+        else { return }
         readFolders = VaultReadFolders.folders()
     }
 
@@ -4553,9 +4543,7 @@ struct VaultCard: View {
     private func copy(_ id: UUID) {
         Task {
             guard await model.copy(id) else { return }
-            copied = id
-            try? await Task.sleep(for: .seconds(2))
-            if copied == id { copied = nil }
+            Self.flash(id, in: $copied)
         }
     }
 
@@ -4704,9 +4692,7 @@ struct VaultCard: View {
             } else {
                 VaultPasteboard.copyPlain(detail.copied)
             }
-            copiedDetail = key
-            try? await Task.sleep(for: .seconds(2))
-            if copiedDetail == key { copiedDetail = nil }
+            flashCopied(key)
         }
     }
 }
@@ -4771,6 +4757,35 @@ struct VaultCard: View {
     }
 }
 
+/// A card's chrome, an ID card's or a contact card's: its ground, its corners, which the title
+/// bar's wash follows, and its border.
+struct VaultCardChrome: ViewModifier {
+    /// The ground under a card, and under each slice of a person's card in People.
+    static let ground = Color(nsColor: .controlBackgroundColor).opacity(0.55)
+
+    func body(content: Content) -> some View {
+        content
+            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Self.ground))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary))
+    }
+}
+
+/// A card's rows, inset from its edges and, on a washed card, under a lighter wash of its color
+/// than the title's.
+struct VaultCardBody: ViewModifier {
+    let tint: VaultTint?
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VaultCardBodyWash(tint: tint))
+    }
+}
+
 /// A piece of a person's card in People: full width, over its slice of the card's ground and
 /// border. Each slice draws the whole card's shape, reaching past the piece where the card goes
 /// on, and keeps what falls on the piece, so the slices meet as the one shape did. The last piece
@@ -4790,7 +4805,7 @@ struct VaultCardSlice: ViewModifier {
                 Color.clear
                     .overlay {
                         ZStack {
-                            RoundedRectangle(cornerRadius: Radius.card).fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+                            RoundedRectangle(cornerRadius: Radius.card).fill(VaultCardChrome.ground)
                             RoundedRectangle(cornerRadius: Radius.card).strokeBorder(.quaternary)
                         }
                         .padding(.top, first ? 0 : -Self.reach)
